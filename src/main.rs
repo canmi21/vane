@@ -9,6 +9,7 @@ mod routing;
 mod server;
 mod setup;
 mod state;
+mod tls;
 
 use anyhow::Result;
 use dotenvy::dotenv;
