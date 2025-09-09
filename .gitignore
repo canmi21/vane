@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+/cypress/videos/
+/cypress/screenshots/
+
+# Project
+node_modules
+dist
+dist/*
+dist-ssr
+coverage
+*.local
+.env
+.venv
+*.tsbuildinfo
+
+# rust
+target
+pkg
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

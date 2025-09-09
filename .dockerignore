@@ -1,0 +1,13 @@
+.git
+dist
+target
+.DS_Store
+.idea
+.vscode
+.env
+.env.example
+clay-config.json
+.gitattributes
+.gitignore
+.editorconfig
+LICENSE
