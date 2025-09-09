@@ -1,7 +1,12 @@
 /* src/proxy.rs */
 
 use crate::{error::VaneError, routing, state::AppState};
-use axum::{body::Body, extract::State, http::Request, response::Response};
+use axum::{
+    body::Body,
+    extract::State,
+    http::{Request, Version},
+    response::Response,
+};
 use axum_extra::typed_header::TypedHeader;
 use headers::Host;
 use std::sync::Arc;
@@ -32,6 +37,14 @@ pub async fn proxy_handler(
     })?;
 
     parts.uri = target_uri;
+
+    // ----- THE FIX IS HERE -----
+    // Corrected: Force the outgoing request to be HTTP/1.1.
+    // This decouples the client-facing protocol (H2/H3) from the
+    // backend-facing protocol, which is what a reverse proxy should do.
+    parts.version = Version::HTTP_11;
+    // ---------------------------
+
     let req = Request::from_parts(parts, body);
 
     // 3. Send the request to the target backend
@@ -40,7 +53,6 @@ pub async fn proxy_handler(
         &format!("Proxying request for {} to {}", host_str, target_url_str),
     );
 
-    // Fix: No need to map request body, as client now accepts axum::body::Body
     let response = state
         .http_client
         .request(req)
@@ -48,6 +60,5 @@ pub async fn proxy_handler(
         .map_err(|e| VaneError::BadGateway(e.into()))?;
 
     // 4. Return the response from the backend to the original client
-    // Fix: Correctly map the response body from hyper's to axum's
     Ok(response.map(Body::new))
 }
