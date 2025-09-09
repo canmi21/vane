@@ -107,12 +107,20 @@ pub async fn spawn(
                                     }
                                 }
 
+                                // build Hyper request
                                 let mut builder = HyperRequest::builder()
                                     .method(req.method().clone())
                                     .uri(req.uri().clone());
 
                                 for (k, v) in req.headers().iter() {
                                     builder = builder.header(k, v);
+                                }
+
+                                // inject Host header if missing (important for H2/H3)
+                                if let Some(authority) = req.uri().authority() {
+                                    if !req.headers().contains_key("host") {
+                                        builder = builder.header("host", authority.as_str());
+                                    }
                                 }
 
                                 let hyper_req = match builder.body(Body::from(req_body.freeze())) {
