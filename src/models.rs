@@ -24,12 +24,9 @@ impl Default for HttpOptions {
 pub struct TlsConfig {
     pub cert: String,
     pub key: String,
-    // Note: min_version has been removed and is now a global setting in the server
-    // for compatibility with the latest rustls API design.
 }
 
 /// Represents the top-level structure of the main `config.toml`.
-/// It now only maps a hostname to its configuration file.
 #[derive(Debug, Deserialize, Clone)]
 pub struct MainConfig {
     #[serde(default)]
@@ -47,6 +44,9 @@ pub struct DomainConfig {
 
     #[serde(default)]
     pub hsts: bool,
+
+    #[serde(default)]
+    pub http3: bool, // New field for HTTP/3 support
 
     pub tls: Option<TlsConfig>,
 
