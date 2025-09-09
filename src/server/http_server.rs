@@ -24,7 +24,10 @@ pub async fn spawn(
 
     log(
         LogLevel::Info,
-        &format!("Vane HTTP server listening on {}", http_addr),
+        &format!(
+            "Vane HTTP/1.1 Server listening on TCP:{}",
+            app_config.http_port
+        ),
     );
 
     let handle = tokio::spawn(async move {

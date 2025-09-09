@@ -32,8 +32,8 @@ pub async fn spawn(
     log(
         LogLevel::Info,
         &format!(
-            "Vane HTTPS/TCP (H2, H1.1) server listening on {}",
-            https_addr
+            "Vane HTTPS/2 Server listening on TCP:{}",
+            app_config.https_port
         ),
     );
 
