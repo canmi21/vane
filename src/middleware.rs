@@ -1,6 +1,7 @@
 /* src/middleware.rs */
 
 use crate::{models::HttpOptions, state::AppState};
+use axum::http::header::HOST;
 use axum::{
     body::Body,
     extract::State,
@@ -93,4 +94,22 @@ pub async fn hsts_handler(
     }
 
     res
+}
+
+/// Injects the `Host` header from the URI's authority if it's missing.
+///
+/// This is crucial for HTTP/2 and HTTP/3, which use the `:authority` pseudo-header
+/// instead of the `Host` header. This middleware ensures compatibility with
+/// extractors and logic that expect a `Host` header.
+pub async fn inject_host_header(mut req: Request<Body>, next: Next) -> Response<Body> {
+    if req.headers().get(HOST).is_none() {
+        // Corrected: Clone the authority to get an owned value.
+        // This releases the immutable borrow on `req` before we take a mutable one.
+        let authority = req.uri().authority().cloned();
+        if let Some(authority) = authority {
+            req.headers_mut()
+                .insert(HOST, authority.as_str().parse().unwrap());
+        }
+    }
+    next.run(req).await
 }
