@@ -2,7 +2,7 @@
 name = "vane"
 version = "1.0.0"
 edition = "2024"
-description = "A lightweight static resource server built with axum."
+description = "Vane is a minimal reverse proxy in Rust with domain-based routing, wildcard support, and automatic SSL via ACME."
 license = "MIT"
 repository = "https://github.com/canmi21/vane"
 readme = "README.md"
@@ -14,17 +14,26 @@ name = "vane"
 path = "src/main.rs"
 
 [dependencies]
-axum = "0.8"
-tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["fs"] }
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["full", "signal"] }
+tower-http = { version = "0.5", features = ["fs", "trace"] }
+hyper = { version = "1", features = ["full"] }
 dotenvy = "0.15"
 fancy-log = "0.1"
 shellexpand = "3"
 anyhow = "1"
 lazy-motd = "1"
 chrono = "0.4"
-serde = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 path-clean = "1"
 tower = { version = "0.5", features = ["full"] }
 percent-encoding = "2"
+headers = "0.4"
+hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["full"] }
+toml = "0.9"
+rustls = "0.23"
+webpki-roots = "1"
