@@ -2,15 +2,14 @@
 
 use crate::{config, middleware, proxy, setup, state::AppState};
 use anyhow::{Context, Result};
-use axum::{Router, middleware as axum_middleware};
+use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use fancy_log::{LogLevel, log};
 use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::connect::HttpConnector;
-use rustls::server::ResolvesServerCertUsingSni;
-use rustls::{ClientConfig, RootCertStore, ServerConfig};
+use rustls::{ClientConfig, RootCertStore, ServerConfig, server::ResolvesServerCertUsingSni};
 use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
-use tokio::{net::TcpListener, signal};
+use tokio::signal;
 
 /// Configures and runs the HTTP and HTTPS servers.
 pub async fn run() -> Result<()> {
@@ -30,32 +29,32 @@ pub async fn run() -> Result<()> {
     }
 
     let state = build_shared_state(app_config.clone()).await?;
-    let https_server_handle = spawn_https_server(app_config.clone(), state.clone()).await?;
-    let http_server_handle = spawn_http_server(app_config.clone(), state.clone()).await?;
+    let http_handle = spawn_http_server(app_config.clone(), state.clone()).await?;
+    let https_handle_opt = spawn_https_server(app_config.clone(), state.clone()).await?;
 
     let graceful = shutdown_signal();
 
-    if let Some(https_handle) = https_server_handle {
+    if let Some(https_handle) = https_handle_opt {
         tokio::select! {
             _ = graceful => log(LogLevel::Info, "Signal received, shutting down."),
-            res = http_server_handle => {
-                if let Err(e) = res.unwrap() {
-                    log(LogLevel::Error, &format!("HTTP server error: {}", e));
-                }
+            res = http_handle => match res {
+                Ok(Ok(())) => log(LogLevel::Info, "HTTP server exited normally."),
+                Ok(Err(e)) => log(LogLevel::Error, &format!("HTTP server error: {}", e)),
+                Err(join_err) => log(LogLevel::Error, &format!("HTTP server join error: {}", join_err)),
             },
-            res = https_handle => {
-                if let Err(e) = res.unwrap() {
-                    log(LogLevel::Error, &format!("HTTPS server error: {}", e));
-                }
+            res = https_handle => match res {
+                Ok(Ok(())) => log(LogLevel::Info, "HTTPS server exited normally."),
+                Ok(Err(e)) => log(LogLevel::Error, &format!("HTTPS server error: {}", e)),
+                Err(join_err) => log(LogLevel::Error, &format!("HTTPS server join error: {}", join_err)),
             },
         }
     } else {
         tokio::select! {
             _ = graceful => log(LogLevel::Info, "Signal received, shutting down."),
-            res = http_server_handle => {
-                if let Err(e) = res.unwrap() {
-                    log(LogLevel::Error, &format!("HTTP server error: {}", e));
-                }
+            res = http_handle => match res {
+                Ok(Ok(())) => log(LogLevel::Info, "HTTP server exited normally."),
+                Ok(Err(e)) => log(LogLevel::Error, &format!("HTTP server error: {}", e)),
+                Err(join_err) => log(LogLevel::Error, &format!("HTTP server join error: {}", join_err)),
             },
         }
     }
@@ -98,6 +97,7 @@ async fn spawn_https_server(
 
     for (hostname, (_, tls_config_opt)) in &app_config.domains {
         if let Some(tls_config) = tls_config_opt {
+            has_tls_domains = true;
             let cert_path = shellexpand::tilde(&tls_config.cert).into_owned();
             let key_path = shellexpand::tilde(&tls_config.key).into_owned();
 
@@ -111,13 +111,11 @@ async fn spawn_https_server(
             let key = rustls_pemfile::private_key(&mut BufReader::new(File::open(key_path)?))?
                 .context("Failed to find private key")?;
 
-            // Use rustls default crypto provider to create signing key
             let signing_key = rustls::crypto::ring::sign::any_supported_type(&key)
                 .map_err(|e| anyhow::anyhow!("Failed to create signing key: {}", e))?;
 
             let certified_key = rustls::sign::CertifiedKey::new(certs, signing_key);
             sni_resolver.add(hostname, certified_key)?;
-            has_tls_domains = true;
         }
     }
 
@@ -129,7 +127,6 @@ async fn spawn_https_server(
         return Ok(None);
     }
 
-    // Build a main ServerConfig using the SNI resolver
     let main_server_config = ServerConfig::builder()
         .with_no_client_auth()
         .with_cert_resolver(Arc::new(sni_resolver));
@@ -138,15 +135,20 @@ async fn spawn_https_server(
     let https_addr = SocketAddr::from(([0, 0, 0, 0], app_config.https_port));
     log(
         LogLevel::Info,
-        &format!("Vane HTTPS server listening on {}", https_addr),
+        &format!(
+            "Vane HTTPS server listening on https://localhost:{}",
+            app_config.https_port
+        ),
     );
     let router = Router::new()
         .fallback(proxy::proxy_handler)
-        .with_state(state);
+        .with_state(state.clone());
 
-    let handle = tokio::spawn(
-        axum_server::bind_rustls(https_addr, tls_config).serve(router.into_make_service()),
-    );
+    let handle = tokio::spawn(async move {
+        axum_server::bind_rustls(https_addr, tls_config)
+            .serve(router.into_make_service())
+            .await
+    });
 
     Ok(Some(handle))
 }
@@ -157,21 +159,28 @@ async fn spawn_http_server(
     state: Arc<AppState>,
 ) -> Result<tokio::task::JoinHandle<Result<(), std::io::Error>>> {
     let http_addr = SocketAddr::from(([0, 0, 0, 0], app_config.http_port));
-    let http_app = Router::new()
+
+    let router = Router::new()
         .fallback(proxy::proxy_handler)
-        .route_layer(axum_middleware::from_fn_with_state(
+        .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::https_redirect,
         ))
-        .with_state(state);
+        .with_state(state.clone());
 
     log(
         LogLevel::Info,
-        &format!("Vane HTTP server listening on {}", http_addr),
+        &format!(
+            "Vane HTTP server listening on http://localhost:{}",
+            app_config.http_port
+        ),
     );
 
-    let listener = TcpListener::bind(http_addr).await?;
-    let handle = tokio::spawn(async { axum::serve(listener, http_app.into_make_service()).await });
+    let handle = tokio::spawn(async move {
+        axum_server::bind(http_addr)
+            .serve(router.into_make_service())
+            .await
+    });
 
     Ok(handle)
 }
@@ -181,7 +190,7 @@ async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
-            .expect("failed to install Ctrl+C handler");
+            .expect("failed to install Ctrl-C handler");
     };
 
     #[cfg(unix)]
