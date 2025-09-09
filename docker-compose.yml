@@ -1,0 +1,17 @@
+services:
+  jellyfish:
+    image: canmi/jellyfish:latest
+    container_name: jellyfish
+    networks:
+      - internal
+    env_file:
+      - ./.env
+    ports:
+      - "33433:33433/tcp"
+    volumes:
+      - /opt/jellyfish:/root/jellyfish
+    restart: unless-stopped
+
+networks:
+  internal:
+    driver: bridge
