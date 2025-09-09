@@ -5,8 +5,8 @@ use crate::state::AppState;
 use std::sync::Arc;
 
 pub fn find_target_url(host: &str, path: &str, state: &Arc<AppState>) -> Option<String> {
-    // Destructure the tuple to get just the DomainConfig for routing.
-    let (domain_config, _) = state.config.domains.get(host)?;
+    // The lookup is now simpler as `domains` directly holds DomainConfig.
+    let domain_config = state.config.domains.get(host)?;
 
     let route: &Route = domain_config
         .routes
