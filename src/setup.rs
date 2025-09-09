@@ -7,16 +7,41 @@ use rcgen::generate_simple_self_signed;
 use std::{fs, path::Path};
 
 const DEFAULT_MAIN_CONFIG: &str = r#"
-# Vane configuration file
+# Vane main configuration file
+# This file maps hostnames to their specific configuration files.
 [domains]
-"example.com" = { file = "example.com.toml", tls = { cert = "~/vane/certs/example.com.pem", key = "~/vane/certs/example.com.key" } }
+"example.com" = "example.com.toml"
 "#;
 
 const DEFAULT_DOMAIN_CONFIG: &str = r#"
-# Routing rules for example.com
+# Vane domain configuration for example.com
+
+# Enable HTTPS for this domain. If true, a [tls] section must be provided.
+https = true
+
+# HSTS (HTTP Strict Transport Security) adds a header to HTTPS responses
+# telling browsers to only connect via HTTPS in the future.
+hsts = false
+
+# Configure behavior for plain HTTP requests.
+# "upgrade": Redirect HTTP to HTTPS (301 Moved Permanently).
+# "reject": Reject the request (426 Upgrade Required).
+# "allow": Serve content over HTTP (not recommended if HTTPS is enabled).
+http_options = "upgrade"
+
+# TLS configuration is required if https = true.
+[tls]
+cert = "~/vane/certs/example.com.pem"
+key = "~/vane/certs/example.com.key"
+# Note: Minimum TLS version is now a global setting (defaults to TLS 1.2 and 1.3)
+# and is not configured on a per-domain basis.
+
+# Routing rules for this domain.
 [[routes]]
+# The path prefix to match. "/" matches everything.
 path = "/"
-targets = ["http://127.0.0.1:5174"]
+# The backend server(s) to proxy requests to.
+targets = ["http://127.0.0.1:33433"]
 "#;
 
 /// Handles the first-run scenario by creating directories, certs, and configs.
@@ -72,8 +97,8 @@ pub async fn handle_first_run() -> Result<()> {
 /// Generates a self-signed certificate and private key using the rcgen crate.
 fn generate_self_signed_cert(hostname: &str, cert_path: &Path, key_path: &Path) -> Result<()> {
     let cert = generate_simple_self_signed(vec![hostname.to_string()])?;
-    // Use the modern rcgen API for PEM serialization
     fs::write(cert_path, cert.cert.pem())?;
+    // Corrected: The field is `signing_key`, not `key_pair`.
     fs::write(key_path, cert.signing_key.serialize_pem())?;
     Ok(())
 }
