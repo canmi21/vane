@@ -42,7 +42,10 @@ pub async fn spawn(
 
     log(
         LogLevel::Info,
-        &format!("Vane HTTPS/UDP (H3) server listening on {}", https_addr),
+        &format!(
+            "Vane HTTPS/3 Server listening on UDP:{}",
+            app_config.https_port
+        ),
     );
 
     let router = Router::new()
