@@ -1,14 +1,15 @@
 /* src/server.rs */
 
-use crate::{config, middleware, proxy, setup, state::AppState};
-use anyhow::{Context, Result};
+use crate::config::AppConfig;
+use crate::{config, middleware, proxy, setup, state::AppState, tls::PerDomainCertResolver};
+use anyhow::Result;
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use fancy_log::{LogLevel, log};
 use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::connect::HttpConnector;
-use rustls::{ClientConfig, RootCertStore, ServerConfig, server::ResolvesServerCertUsingSni};
-use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
+use rustls::{ClientConfig, RootCertStore, ServerConfig};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::signal;
 
 /// Configures and runs the HTTP and HTTPS servers.
@@ -63,7 +64,7 @@ pub async fn run() -> Result<()> {
 }
 
 /// Builds the shared AppState, including the robust HTTP client.
-async fn build_shared_state(app_config: Arc<config::AppConfig>) -> Result<Arc<AppState>> {
+async fn build_shared_state(app_config: Arc<AppConfig>) -> Result<Arc<AppState>> {
     let mut root_store = RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let tls_config = ClientConfig::builder()
@@ -89,59 +90,44 @@ async fn build_shared_state(app_config: Arc<config::AppConfig>) -> Result<Arc<Ap
 
 /// Spawns the HTTPS server task if any TLS domains are configured.
 async fn spawn_https_server(
-    app_config: Arc<config::AppConfig>,
+    app_config: Arc<AppConfig>,
     state: Arc<AppState>,
 ) -> Result<Option<tokio::task::JoinHandle<Result<(), std::io::Error>>>> {
-    let mut sni_resolver = ResolvesServerCertUsingSni::new();
-    let mut has_tls_domains = false;
-
-    for (hostname, (_, tls_config_opt)) in &app_config.domains {
-        if let Some(tls_config) = tls_config_opt {
-            has_tls_domains = true;
-            let cert_path = shellexpand::tilde(&tls_config.cert).into_owned();
-            let key_path = shellexpand::tilde(&tls_config.key).into_owned();
-
-            log(
-                LogLevel::Debug,
-                &format!("Loading cert for {} from {}", hostname, cert_path),
-            );
-
-            let certs = rustls_pemfile::certs(&mut BufReader::new(File::open(cert_path)?))
-                .collect::<Result<Vec<_>, _>>()?;
-            let key = rustls_pemfile::private_key(&mut BufReader::new(File::open(key_path)?))?
-                .context("Failed to find private key")?;
-
-            let signing_key = rustls::crypto::ring::sign::any_supported_type(&key)
-                .map_err(|e| anyhow::anyhow!("Failed to create signing key: {}", e))?;
-
-            let certified_key = rustls::sign::CertifiedKey::new(certs, signing_key);
-            sni_resolver.add(hostname, certified_key)?;
-        }
-    }
-
+    let has_tls_domains = app_config.domains.values().any(|d| d.https);
     if !has_tls_domains {
         log(
             LogLevel::Info,
-            "No TLS domains configured, HTTPS server will not be started.",
+            "No HTTPS domains configured, HTTPS server will not be started.",
         );
         return Ok(None);
     }
 
-    let main_server_config = ServerConfig::builder()
+    // Create our custom certificate resolver.
+    let resolver = PerDomainCertResolver::new(app_config.clone());
+
+    // Corrected: The `with_safe_defaults()` method is removed in newer rustls.
+    // The builder now starts with safe defaults.
+    let mut server_config = ServerConfig::builder()
         .with_no_client_auth()
-        .with_cert_resolver(Arc::new(sni_resolver));
-    let tls_config = RustlsConfig::from_config(Arc::new(main_server_config));
+        .with_cert_resolver(Arc::new(resolver));
+
+    // Add ALPN protocol support to solve the `curl` warning.
+    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+    let tls_config = RustlsConfig::from_config(Arc::new(server_config));
 
     let https_addr = SocketAddr::from(([0, 0, 0, 0], app_config.https_port));
     log(
         LogLevel::Info,
-        &format!(
-            "Vane HTTPS server listening on https://localhost:{}",
-            app_config.https_port
-        ),
+        &format!("Vane HTTPS server listening on {}", https_addr),
     );
+
     let router = Router::new()
         .fallback(proxy::proxy_handler)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::hsts_handler,
+        ))
         .with_state(state.clone());
 
     let handle = tokio::spawn(async move {
@@ -155,7 +141,7 @@ async fn spawn_https_server(
 
 /// Spawns the HTTP server task.
 async fn spawn_http_server(
-    app_config: Arc<config::AppConfig>,
+    app_config: Arc<AppConfig>,
     state: Arc<AppState>,
 ) -> Result<tokio::task::JoinHandle<Result<(), std::io::Error>>> {
     let http_addr = SocketAddr::from(([0, 0, 0, 0], app_config.http_port));
@@ -164,16 +150,13 @@ async fn spawn_http_server(
         .fallback(proxy::proxy_handler)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
-            middleware::https_redirect,
+            middleware::http_request_handler,
         ))
         .with_state(state.clone());
 
     log(
         LogLevel::Info,
-        &format!(
-            "Vane HTTP server listening on http://localhost:{}",
-            app_config.http_port
-        ),
+        &format!("Vane HTTP server listening on {}", http_addr),
     );
 
     let handle = tokio::spawn(async move {

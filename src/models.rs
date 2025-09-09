@@ -3,30 +3,53 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// Represents TLS certificate and private key paths in the config.
+/// Defines the behavior for plain HTTP requests.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum HttpOptions {
+    Upgrade,
+    Reject,
+    Allow,
+}
+
+/// Provides a default value for HttpOptions.
+impl Default for HttpOptions {
+    fn default() -> Self {
+        HttpOptions::Allow
+    }
+}
+
+/// Represents TLS settings for a domain.
 #[derive(Debug, Deserialize, Clone)]
 pub struct TlsConfig {
     pub cert: String,
     pub key: String,
-}
-
-/// Represents an entry for a domain in the main config file.
-#[derive(Debug, Deserialize, Clone)]
-pub struct MainConfigEntry {
-    pub file: String,
-    pub tls: Option<TlsConfig>, // TLS config is optional per domain.
+    // Note: min_version has been removed and is now a global setting in the server
+    // for compatibility with the latest rustls API design.
 }
 
 /// Represents the top-level structure of the main `config.toml`.
+/// It now only maps a hostname to its configuration file.
 #[derive(Debug, Deserialize, Clone)]
 pub struct MainConfig {
     #[serde(default)]
-    pub domains: HashMap<String, MainConfigEntry>,
+    pub domains: HashMap<String, String>,
 }
 
 /// Represents the configuration for a specific domain (e.g., `example.com.toml`).
 #[derive(Debug, Deserialize, Clone)]
 pub struct DomainConfig {
+    #[serde(default)]
+    pub https: bool,
+
+    #[serde(default)]
+    pub http_options: HttpOptions,
+
+    #[serde(default)]
+    pub hsts: bool,
+
+    pub tls: Option<TlsConfig>,
+
     #[serde(default)]
     pub routes: Vec<Route>,
 }
@@ -37,7 +60,7 @@ pub struct Route {
     #[serde(default = "default_path")]
     pub path: String,
     pub targets: Vec<String>,
-    #[allow(dead_code)] // Field is planned for future WebSocket support.
+    #[allow(dead_code)]
     #[serde(default)]
     pub websocket: bool,
 }

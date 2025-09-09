@@ -1,6 +1,6 @@
 /* src/config.rs */
 
-use crate::models::{DomainConfig, MainConfig, TlsConfig};
+use crate::models::{DomainConfig, MainConfig};
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
@@ -13,8 +13,7 @@ use toml;
 pub struct AppConfig {
     pub http_port: u16,
     pub https_port: u16,
-    // The HashMap now stores a tuple of the domain's routes and its optional TLS config.
-    pub domains: HashMap<String, (DomainConfig, Option<TlsConfig>)>,
+    pub domains: HashMap<String, DomainConfig>,
 }
 
 /// Returns the main config file path and its parent directory.
@@ -61,8 +60,8 @@ pub fn load_config() -> Result<AppConfig> {
         toml::from_str(&main_config_content).context("Failed to parse main config file")?;
 
     let mut domains = HashMap::new();
-    for (hostname, entry) in main_config.domains {
-        let domain_config_path = config_dir.join(entry.file);
+    for (hostname, file_path_str) in main_config.domains {
+        let domain_config_path = config_dir.join(&file_path_str);
         log(
             LogLevel::Debug,
             &format!(
@@ -76,8 +75,15 @@ pub fn load_config() -> Result<AppConfig> {
         let domain_config: DomainConfig = toml::from_str(&domain_config_content)
             .with_context(|| format!("Failed to parse domain config for '{}'", hostname))?;
 
-        // Store the routing config and the TLS config as a tuple.
-        domains.insert(hostname, (domain_config, entry.tls));
+        // Validate that if https is true, tls config exists.
+        if domain_config.https && domain_config.tls.is_none() {
+            return Err(anyhow::anyhow!(
+                "Domain '{}' has https=true but no [tls] configuration.",
+                hostname
+            ));
+        }
+
+        domains.insert(hostname, domain_config);
     }
 
     Ok(AppConfig {
