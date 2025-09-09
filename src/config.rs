@@ -1,6 +1,6 @@
 /* src/config.rs */
 
-use crate::models::{DomainConfig, MainConfig};
+use crate::models::{DomainConfig, MainConfig, TlsConfig};
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
@@ -13,7 +13,8 @@ use toml;
 pub struct AppConfig {
     pub http_port: u16,
     pub https_port: u16,
-    pub domains: HashMap<String, DomainConfig>,
+    // The HashMap now stores a tuple of the domain's routes and its optional TLS config.
+    pub domains: HashMap<String, (DomainConfig, Option<TlsConfig>)>,
 }
 
 /// Returns the main config file path and its parent directory.
@@ -27,8 +28,8 @@ pub fn get_config_paths() -> Result<(PathBuf, PathBuf)> {
     Ok((config_path, config_dir))
 }
 
+/// Loads all configurations from the environment and TOML files.
 pub fn load_config() -> Result<AppConfig> {
-    // Load env variables, using hardcoded defaults if not present
     let http_port = env::var("BIND_HTTP_PORT")
         .unwrap_or_else(|_| "80".to_string())
         .parse::<u16>()
@@ -46,7 +47,6 @@ pub fn load_config() -> Result<AppConfig> {
         &format!("Loading main config from {:?}", config_path),
     );
 
-    // If the main config doesn't exist, we'll let the logic in main.rs handle it.
     if !config_path.exists() {
         return Ok(AppConfig {
             http_port,
@@ -61,8 +61,8 @@ pub fn load_config() -> Result<AppConfig> {
         toml::from_str(&main_config_content).context("Failed to parse main config file")?;
 
     let mut domains = HashMap::new();
-    for (hostname, domain_config_file) in main_config.domains {
-        let domain_config_path = config_dir.join(domain_config_file);
+    for (hostname, entry) in main_config.domains {
+        let domain_config_path = config_dir.join(entry.file);
         log(
             LogLevel::Debug,
             &format!(
@@ -76,7 +76,8 @@ pub fn load_config() -> Result<AppConfig> {
         let domain_config: DomainConfig = toml::from_str(&domain_config_content)
             .with_context(|| format!("Failed to parse domain config for '{}'", hostname))?;
 
-        domains.insert(hostname, domain_config);
+        // Store the routing config and the TLS config as a tuple.
+        domains.insert(hostname, (domain_config, entry.tls));
     }
 
     Ok(AppConfig {
