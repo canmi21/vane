@@ -27,7 +27,17 @@ async fn main() -> Result<()> {
     // Initialize environment variables from .env file
     dotenv().ok();
 
-    // Set up logging
+    // Set up logging. We use `tracing` now for better library support.
+    if env::var("RUST_LOG").is_err() {
+        // Correctly handle the unsafe call to `set_var`.
+        // This is safe here as it's called before any threads are spawned.
+        unsafe {
+            env::set_var("RUST_LOG", "info");
+        }
+    }
+    tracing_subscriber::fmt::init();
+
+    // Setup for fancy_log (can be used alongside tracing)
     let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let log_level = match level.to_lowercase().as_str() {
         "debug" => LogLevel::Debug,
