@@ -19,6 +19,10 @@ const DEFAULT_DOMAIN_CONFIG: &str = r#"
 # Enable HTTPS for this domain. If true, a [tls] section must be provided.
 https = true
 
+# Enable HTTP/3 support for this domain.
+# This requires the server's UDP port 443 (or the configured https_port) to be accessible.
+http3 = false
+
 # HSTS (HTTP Strict Transport Security) adds a header to HTTPS responses
 # telling browsers to only connect via HTTPS in the future.
 hsts = false
@@ -33,8 +37,6 @@ http_options = "upgrade"
 [tls]
 cert = "~/vane/certs/example.com.pem"
 key = "~/vane/certs/example.com.key"
-# Note: Minimum TLS version is now a global setting (defaults to TLS 1.2 and 1.3)
-# and is not configured on a per-domain basis.
 
 # Routing rules for this domain.
 [[routes]]
@@ -98,7 +100,6 @@ pub async fn handle_first_run() -> Result<()> {
 fn generate_self_signed_cert(hostname: &str, cert_path: &Path, key_path: &Path) -> Result<()> {
     let cert = generate_simple_self_signed(vec![hostname.to_string()])?;
     fs::write(cert_path, cert.cert.pem())?;
-    // Corrected: The field is `signing_key`, not `key_pair`.
     fs::write(key_path, cert.signing_key.serialize_pem())?;
     Ok(())
 }
