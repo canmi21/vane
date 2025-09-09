@@ -4,27 +4,50 @@ use crate::state::AppState;
 use axum::{
     body::Body,
     extract::State,
-    http::{Request, Uri},
+    http::{Request, Response, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Redirect, Response},
 };
-use axum_extra::extract::Host;
 use std::sync::Arc;
 
-/// An Axum middleware that redirects HTTP requests to HTTPS if the domain is configured for TLS.
 pub async fn https_redirect(
-    State(state): State<Arc<AppState>>,
-    Host(host): Host,
+    State(_state): State<Arc<AppState>>,
     req: Request<Body>,
     next: Next,
-) -> Response {
-    if let Some((_, Some(_))) = state.config.domains.get(&host) {
-        let mut parts = req.uri().clone().into_parts();
-        parts.scheme = Some("https".try_into().unwrap());
+) -> Response<Body> {
+    let host = req
+        .headers()
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
 
-        let https_uri = Uri::from_parts(parts).unwrap().to_string();
+    let is_https = req
+        .headers()
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        .map_or(false, |s| s.eq_ignore_ascii_case("https"));
 
-        return Redirect::permanent(&https_uri).into_response();
+    if !is_https {
+        // 尝试从 X-Forwarded-Host 或 Host 头构建 URL
+        let host_to_use = req
+            .headers()
+            .get("x-forwarded-host")
+            .or_else(|| req.headers().get("host"))
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or(host);
+
+        let uri = format!(
+            "https://{}{}",
+            host_to_use,
+            req.uri()
+                .path_and_query()
+                .map(|pq| pq.as_str())
+                .unwrap_or("/")
+        );
+        return Response::builder()
+            .status(StatusCode::MOVED_PERMANENTLY)
+            .header("Location", uri)
+            .body(Body::empty())
+            .unwrap();
     }
 
     next.run(req).await
