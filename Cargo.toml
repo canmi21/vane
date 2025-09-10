@@ -14,27 +14,27 @@ name = "vane"
 path = "src/main.rs"
 
 [dependencies]
+tokio = { version = "1", features = ["full", "signal"] }
 axum = { version = "0.8", features = ["macros"] }
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
-tokio = { version = "1", features = ["full", "signal"] }
-tower-http = { version = "0.5", features = ["fs", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.5", features = ["fs", "trace", "cors"] }
+rustls = { version = "0.23", features = ["ring", "aws-lc-rs"] }
+rustls-pemfile = "2"
 hyper = { version = "1", features = ["full"] }
+hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["full"] }
 dotenvy = "0.15"
 fancy-log = "0.1"
 shellexpand = "3"
 anyhow = "1"
 lazy-motd = "1"
 chrono = "0.4"
-rustls = { version = "0.23", features = ["ring", "aws-lc-rs"] }
-rustls-pemfile = "2"
-hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
-http-body-util = "0.1"
-hyper-util = { version = "0.1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 path-clean = "1"
-tower = { version = "0.5", features = ["full"] }
 percent-encoding = "2"
 headers = "0.4"
 toml = "0.9"
