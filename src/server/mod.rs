@@ -185,7 +185,14 @@ pub async fn run() -> Result<()> {
 
     let state = build_shared_state(app_config.clone()).await?;
 
-    let http_handle = http_server::spawn(app_config.clone(), state.clone()).await?;
+    // The HTTP server is non-optional. If it fails to spawn, the application cannot continue.
+    // We convert the Option<JoinHandle> returned by spawn() into a Result.
+    // If the Option is None, .context() creates an error, which is then propagated by the `?` operator.
+    // If it's Some(handle), the `?` unwraps the Result, and we get the JoinHandle directly.
+    let http_handle = http_server::spawn(app_config.clone(), state.clone())
+        .await?
+        .context("The primary HTTP server failed to start and is required.")?;
+
     let https_handle_opt = https_server::spawn(app_config.clone(), state.clone()).await?;
     let http3_handle_opt = http3_server::spawn(app_config.clone(), state.clone()).await?;
 

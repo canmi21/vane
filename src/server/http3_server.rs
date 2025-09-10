@@ -1,9 +1,9 @@
 /* src/server/http3_server.rs */
 
-use crate::{config::AppConfig, proxy, state::AppState, tls::PerDomainCertResolver};
+use crate::{config::AppConfig, middleware, proxy, state::AppState, tls::PerDomainCertResolver};
 use anyhow::{Result, anyhow};
-use axum::Router;
 use axum::body::{Body, to_bytes};
+use axum::{Router, middleware as axum_middleware};
 use bytes::{Buf, Bytes, BytesMut};
 use fancy_log::{LogLevel, log, set_log_level};
 use http::{Response as HttpResponse, StatusCode};
@@ -48,8 +48,27 @@ pub async fn spawn(
         ),
     );
 
+    // Add a middleware stack to the HTTP/3 router similar to the HTTPS server
+    // to ensure consistent behavior for CORS, rate limiting, HSTS, etc.
     let router = Router::new()
         .fallback(proxy::proxy_handler)
+        // Inject the host header first, as other middleware depends on it.
+        .layer(axum_middleware::from_fn(middleware::inject_host_header))
+        // Add the CORS layer.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::cors_handler,
+        ))
+        // Add the rate limiting layer.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::rate_limit_handler,
+        ))
+        // Add the HSTS layer.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::hsts_handler,
+        ))
         .with_state(state.clone());
 
     let handle = tokio::spawn(async move {
