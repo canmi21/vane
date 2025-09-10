@@ -1,7 +1,7 @@
 /* src/middleware.rs */
 
 use crate::{error, models::HttpOptions, ratelimit, state::AppState};
-use axum::http::header::HOST;
+use axum::http::{HeaderValue, Method, header};
 use axum::{
     body::Body,
     extract::{ConnectInfo, State},
@@ -11,72 +11,158 @@ use axum::{
 use axum_extra::extract::Host;
 use fancy_log::{LogLevel, log};
 use lazy_limit::limit;
+use std::collections::HashSet;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
-use tower::{ServiceBuilder, ServiceExt};
-use tower_http::cors::{Any, CorsLayer};
 
-/// Dynamic CORS middleware that applies the correct policy based on the request's host.
-pub async fn cors_handler(
+/// NEW: Middleware to filter requests based on the HTTP method.
+/// This runs early to reject unauthorized methods before further processing.
+pub async fn method_filter_handler(
     State(state): State<Arc<AppState>>,
     Host(host): Host,
     req: Request<Body>,
     next: Next,
 ) -> Response<Body> {
     if let Some(domain_config) = state.config.domains.get(&host) {
-        // Check if a CORS configuration exists for this domain.
-        if let Some(cors_config) = &domain_config.cors {
-            log(
-                LogLevel::Debug,
-                &format!("Applying CORS policy for host '{}'", host),
-            );
+        if let Some(methods_config) = &domain_config.methods {
+            let allowed_str = methods_config.allow.trim();
 
-            let mut cors_layer = CorsLayer::new()
-                .allow_methods(Any) // Allow all common methods.
-                .allow_headers(Any); // Allow all common headers.
-
-            // Configure allowed origins based on the config file.
-            if cors_config.allowed_origins.contains(&"*".to_string()) {
-                cors_layer = cors_layer.allow_origin(Any);
-            } else {
-                // Parse the origins from the config.
-                let origins: Vec<_> = cors_config
-                    .allowed_origins
-                    .iter()
-                    .filter_map(|s| s.parse().ok())
+            // If "allow" is not a wildcard, check the method.
+            if allowed_str != "*" {
+                // Parse the allowed methods into a HashSet for efficient lookup.
+                let allowed_methods: HashSet<Method> = allowed_str
+                    .split(',')
+                    .filter_map(|s| Method::from_str(s.trim().to_uppercase().as_str()).ok())
                     .collect();
-                cors_layer = cors_layer.allow_origin(origins);
-            }
 
-            // Dynamically create a Tower service with the configured CorsLayer
-            // and call it with the request and the `next` service using .oneshot().
-            let result = ServiceBuilder::new()
-                .layer(cors_layer)
-                .service(next)
-                .oneshot(req) // .oneshot() is now available from the ServiceExt trait.
-                .await;
-
-            // The result from .oneshot() is a Result; we handle the error case
-            // instead of calling .unwrap() to avoid a potential panic.
-            return match result {
-                Ok(response) => response,
-                Err(_) => {
-                    // This case is unlikely with axum's 'Next' service, but it's robust to handle it.
-                    error::serve_status_page(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Internal server error in CORS middleware",
-                    )
+                // If the request's method is not in the allowed set, reject it.
+                if !allowed_methods.contains(req.method()) {
+                    log(
+                        LogLevel::Warn,
+                        &format!(
+                            "Method '{}' not allowed for host '{}' by domain config. Rejecting.",
+                            req.method(),
+                            host
+                        ),
+                    );
+                    return error::serve_status_page(
+                        StatusCode::METHOD_NOT_ALLOWED,
+                        "Method Not Allowed",
+                    );
                 }
-            };
+            }
         }
     }
-
-    // If no CORS config is found for this host, just pass the request through.
-    log(
-        LogLevel::Debug,
-        &format!("No CORS policy for host '{}'. Passing through.", host),
-    );
+    // Method is allowed, or no filter is configured. Continue to the next middleware.
     next.run(req).await
+}
+
+/// REWRITTEN: A powerful, manually-implemented CORS middleware for fine-grained control.
+pub async fn cors_handler(
+    State(state): State<Arc<AppState>>,
+    Host(host): Host,
+    req: Request<Body>,
+    next: Next,
+) -> Response<Body> {
+    // Extract CORS configuration for the current domain.
+    let cors_config = match state
+        .config
+        .domains
+        .get(&host)
+        .and_then(|d| d.cors.as_ref())
+    {
+        Some(config) => config,
+        None => return next.run(req).await, // No CORS config, pass through.
+    };
+
+    // --- MODIFICATION START ---
+    // Extract the Origin header into an owned String to resolve the borrow checker error.
+    // By cloning the header value, the `origin` variable no longer borrows from `req`.
+    let origin = match req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok().map(String::from))
+    {
+        Some(origin) => origin,
+        None => return next.run(req).await, // Not a CORS request, pass through.
+    };
+    // --- MODIFICATION END ---
+
+    // Check if the origin is allowed, supporting a wildcard "*" origin.
+    let allowed_methods_str = cors_config
+        .origins
+        .get(&origin) // Now we borrow the owned String 'origin'
+        .or_else(|| cors_config.origins.get("*"));
+
+    let is_preflight = req.method() == Method::OPTIONS
+        && req
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_REQUEST_METHOD);
+
+    if is_preflight {
+        // --- Handle Preflight Request ---
+        let mut resp = Response::builder()
+            .status(StatusCode::OK) // 200 OK is a common and safe choice
+            .body(Body::empty())
+            .unwrap();
+
+        if let Some(methods_str) = allowed_methods_str {
+            // Origin is allowed, now check the requested method.
+            if let Some(req_method_val) = req.headers().get(header::ACCESS_CONTROL_REQUEST_METHOD) {
+                let requested_method_allowed = methods_str.trim() == "*"
+                    || methods_str.trim().is_empty()
+                    || methods_str.split(',').any(|s| {
+                        s.trim()
+                            .eq_ignore_ascii_case(req_method_val.to_str().unwrap_or(""))
+                    });
+
+                if requested_method_allowed {
+                    // Origin and Method are allowed. Add success headers.
+                    resp.headers_mut().insert(
+                        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                        HeaderValue::from_str(&origin).unwrap(),
+                    ); // Borrow 'origin' again
+                    resp.headers_mut().insert(
+                        header::ACCESS_CONTROL_ALLOW_HEADERS,
+                        HeaderValue::from_static("*"),
+                    ); // Keep it simple and permissive
+                    resp.headers_mut().insert(
+                        header::ACCESS_CONTROL_ALLOW_METHODS,
+                        HeaderValue::from_str(if methods_str.is_empty() {
+                            "*"
+                        } else {
+                            methods_str
+                        })
+                        .unwrap(),
+                    );
+                    resp.headers_mut().insert(
+                        header::VARY,
+                        HeaderValue::from_static(
+                            "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+                        ),
+                    );
+                }
+            }
+        }
+        // If origin or method is not allowed, we return the empty 200 OK response,
+        // which browsers correctly interpret as a rejection.
+        return resp;
+    } else {
+        // --- Handle Actual Request (e.g., GET, POST) ---
+        let mut res = next.run(req).await; // Now `req` can be moved without issue.
+
+        // If the origin was on our list, add the allow origin header to the response.
+        if allowed_methods_str.is_some() {
+            res.headers_mut().insert(
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                HeaderValue::from_str(&origin).unwrap(),
+            ); // Borrow 'origin' again
+            res.headers_mut()
+                .append(header::VARY, HeaderValue::from_static("Origin"));
+        }
+        return res;
+    }
 }
 
 /// Two-layer rate limiting middleware using the refactored ratelimit module.
@@ -287,10 +373,10 @@ pub async fn hsts_handler(
 
 /// Injects the `Host` header from the URI's authority if it's missing.
 pub async fn inject_host_header(mut req: Request<Body>, next: Next) -> Response<Body> {
-    if req.headers().get(HOST).is_none() {
+    if req.headers().get(header::HOST).is_none() {
         if let Some(authority) = req.uri().authority().cloned() {
             req.headers_mut()
-                .insert(HOST, authority.as_str().parse().unwrap());
+                .insert(header::HOST, authority.as_str().parse().unwrap());
         }
     }
     next.run(req).await
