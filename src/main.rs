@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod middleware;
 mod models;
+mod path_matcher;
 mod proxy;
 mod ratelimit;
 mod routing;
