@@ -14,30 +14,39 @@ mod tls;
 use anyhow::Result;
 use dotenvy::dotenv;
 use fancy_log::{LogLevel, log, set_log_level};
+// Import lazy-limit for the mandatory shield.
+use lazy_limit::{Duration, RuleConfig, init_rate_limiter};
 use lazy_motd::lazy_motd;
 use std::env;
 
+/// Initializes the mandatory global rate limit shield.
+async fn initialize_shield_limiter() {
+    log(
+        LogLevel::Info,
+        "Initializing mandatory shield rate limit: 30 requests/second.",
+    );
+    init_rate_limiter!(
+        default: RuleConfig::new(Duration::seconds(1), 30),
+        max_memory: Some(64 * 1024 * 1024) // 64MB for the shield
+    )
+    .await;
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize the rustls crypto provider
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    // Initialize environment variables from .env file
     dotenv().ok();
 
-    // Set up logging. We use `tracing` now for better library support.
     if env::var("RUST_LOG").is_err() {
-        // Correctly handle the unsafe call to `set_var`.
-        // This is safe here as it's called before any threads are spawned.
         unsafe {
             env::set_var("RUST_LOG", "info");
         }
     }
     tracing_subscriber::fmt::init();
 
-    // Setup for fancy_log (can be used alongside tracing)
     let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let log_level = match level.to_lowercase().as_str() {
         "debug" => LogLevel::Debug,
@@ -47,8 +56,6 @@ async fn main() -> Result<()> {
     };
     set_log_level(log_level);
 
-    // Ensure the default status pages exist in the config directory.
-    // This will create them on first run or if the user deletes them.
     if let Err(e) = setup::ensure_status_pages_exist() {
         log(
             LogLevel::Error,
@@ -60,10 +67,13 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    // Display the startup message
+    // Initialize the hard-coded lazy-limit shield first.
+    initialize_shield_limiter().await;
+
     lazy_motd!();
 
-    // Delegate all server logic to the server module
+    // Load config and start servers inside server::run.
+    // The run function no longer takes arguments.
     if let Err(e) = server::run().await {
         log(
             LogLevel::Error,
