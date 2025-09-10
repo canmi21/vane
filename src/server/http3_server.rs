@@ -55,6 +55,11 @@ pub async fn spawn(
         .fallback(proxy::proxy_handler)
         // Inject the host header first, as other middleware depends on it.
         .layer(axum_middleware::from_fn(middleware::inject_host_header))
+        // NEW: Add method filtering after host injection.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::method_filter_handler,
+        ))
         // Add the CORS layer.
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
@@ -75,15 +80,11 @@ pub async fn spawn(
     let handle = tokio::spawn(async move {
         let endpoint = quinn::Endpoint::server(quic_config, https_addr)?;
         while let Some(conn) = endpoint.accept().await {
-            // --- MODIFICATION START ---
-            // Get the remote address here to pass it to the request handler task.
-            // This is crucial for the ConnectInfo extractor to work.
             let remote_addr = conn.remote_address();
             log(
                 LogLevel::Info,
                 &format!("H3: New QUIC connection from: {}", remote_addr),
             );
-            // --- MODIFICATION END ---
             let router_clone = router.clone();
             tokio::spawn(async move {
                 let quinn_conn = match conn.await {
@@ -169,12 +170,8 @@ pub async fn spawn(
                                         }
                                     };
 
-                                // --- MODIFICATION START ---
                                 // Manually insert the client's socket address into the request extensions.
-                                // This makes the ConnectInfo extractor available to middleware like the rate limiter.
-                                // This is the key fix for the 500 error panic.
                                 hyper_req.extensions_mut().insert(ConnectInfo(remote_addr));
-                                // --- MODIFICATION END ---
 
                                 let resp = match router_clone_inner.oneshot(hyper_req).await {
                                     Ok(r) => r,
