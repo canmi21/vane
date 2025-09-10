@@ -47,6 +47,19 @@ async fn main() -> Result<()> {
     };
     set_log_level(log_level);
 
+    // Ensure the default status pages exist in the config directory.
+    // This will create them on first run or if the user deletes them.
+    if let Err(e) = setup::ensure_status_pages_exist() {
+        log(
+            LogLevel::Error,
+            &format!(
+                "Failed to setup status pages: {}. Please check permissions.",
+                e
+            ),
+        );
+        std::process::exit(1);
+    }
+
     // Display the startup message
     lazy_motd!();
 

@@ -3,8 +3,13 @@
 use crate::config;
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
+use include_dir::{Dir, include_dir};
 use rcgen::generate_simple_self_signed;
 use std::{fs, path::Path};
+
+// Embeds the `./status` directory into the binary at compile time.
+// `$CARGO_MANIFEST_DIR` resolves to the project's root directory (where Cargo.toml is).
+static STATIC_STATUS_PAGES: Dir = include_dir!("$CARGO_MANIFEST_DIR/status");
 
 const DEFAULT_MAIN_CONFIG: &str = r#"
 # Vane main configuration file
@@ -45,6 +50,31 @@ path = "/"
 # The backend server(s) to proxy requests to.
 targets = ["http://127.0.0.1:33433"]
 "#;
+
+/// Checks if the status pages directory exists. If not, it creates it and
+/// extracts the default pages from the embedded resources.
+/// This allows users to customize error pages by overriding these files.
+pub fn ensure_status_pages_exist() -> Result<()> {
+    let (_, config_dir) = config::get_config_paths()?;
+    let status_pages_dir = config_dir.join("status");
+
+    if !status_pages_dir.exists() {
+        log(
+            LogLevel::Info,
+            "Status pages directory not found. Creating default pages...",
+        );
+        fs::create_dir_all(&status_pages_dir).context("Failed to create status pages directory")?;
+
+        // Iterate through the embedded directory and write each file to disk
+        for file in STATIC_STATUS_PAGES.files() {
+            let path = status_pages_dir.join(file.path());
+            fs::write(&path, file.contents())
+                .with_context(|| format!("Failed to write status page: {:?}", path))?;
+        }
+    }
+
+    Ok(())
+}
 
 /// Handles the first-run scenario by creating directories, certs, and configs.
 pub async fn handle_first_run() -> Result<()> {
@@ -88,6 +118,9 @@ pub async fn handle_first_run() -> Result<()> {
             &format!("Created domain config: {:?}", domain_config_path),
         );
     }
+
+    // Also ensure status pages are created during the first run.
+    ensure_status_pages_exist()?;
 
     log(
         LogLevel::Info,

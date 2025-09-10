@@ -75,7 +75,7 @@ pub fn load_config() -> Result<AppConfig> {
         let domain_config: DomainConfig = toml::from_str(&domain_config_content)
             .with_context(|| format!("Failed to parse domain config for '{}'", hostname))?;
 
-        // Validate that if https is true, tls config exists.
+        // Validate that if https is true, a tls config must exist.
         if domain_config.https && domain_config.tls.is_none() {
             return Err(anyhow::anyhow!(
                 "Domain '{}' has https=true but no [tls] configuration.",
