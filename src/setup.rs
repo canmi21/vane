@@ -17,36 +17,39 @@ const DEFAULT_MAIN_CONFIG: &str = r#"
 "example.com" = "example.com.toml"
 "#;
 
-// Updated the default domain config to showcase all features including CORS.
+// MODIFIED: Updated the default domain config to showcase the new advanced features.
 const DEFAULT_DOMAIN_CONFIG: &str = r#"
 # Vane domain configuration for example.com
 https = true
-http3 = false
-hsts = false
+http3 = true
+hsts = true
 http_options = "upgrade"
 
 [tls]
 cert = "~/vane/certs/example.com.pem"
 key = "~/vane/certs/example.com.key"
 
-# Optional CORS (Cross-Origin Resource Sharing) configuration.
+# Optional: Restrict which HTTP methods are allowed for this entire domain.
+# Use "*" to allow all methods. This check happens before routing.
+[methods]
+allow = "GET, POST, OPTIONS, HEAD"
+
+# Optional: Fine-grained CORS (Cross-Origin Resource Sharing) configuration.
 # If this section is present, Vane will override any CORS headers from the backend.
 [cors]
-# A list of origins that are allowed to make cross-site requests.
-# Use "*" for a wildcard, but be aware of the security implications.
-allowed_origins = ["https://app.example.com", "http://localhost:3000"]
+# Map of allowed origins to their allowed methods.
+# For methods, use a comma-separated string (e.g., "GET, POST"), or use "*" to allow all methods from that origin.
+[cors.origins]
+"https://app.example.com" = "GET, POST"
+"http://localhost:3000" = "*"
 
 # Rate limiting configuration.
 [rate_limit]
 [rate_limit.default]
 period = "1s"
-requests = 0 # Disabled by default
+requests = 20 # Default to 20 req/s
 
 # Routing rules for this domain.
-[[routes]]
-path = "/api/health"
-targets = ["http://127.0.0.1:8001"]
-
 [[routes]]
 path = "/api/*"
 targets = ["http://127.0.0.1:8000"]
