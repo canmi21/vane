@@ -1,13 +1,13 @@
 /* src/middleware.rs */
 
-use crate::{models::HttpOptions, state::AppState};
+// Import the error module to use the new helper function.
+use crate::{error, models::HttpOptions, state::AppState};
 use axum::http::header::HOST;
 use axum::{
     body::Body,
     extract::State,
     http::{Request, Response, StatusCode},
     middleware::Next,
-    response::IntoResponse,
 };
 use axum_extra::extract::Host;
 use std::sync::Arc;
@@ -46,17 +46,23 @@ pub async fn http_request_handler(
     let domain_config = match state.config.domains.get(&host) {
         Some(config) => config,
         None => {
+            // If the host is not configured, just pass it to the proxy handler
+            // which will then return a 404 or 400 error page.
             return next.run(req).await;
         }
     };
 
     match domain_config.http_options {
         HttpOptions::Allow => next.run(req).await,
-        HttpOptions::Reject => (
-            StatusCode::UPGRADE_REQUIRED,
-            "HTTP is not supported for this domain. Please use HTTPS.",
-        )
-            .into_response(),
+        HttpOptions::Reject => {
+            // MODIFIED:
+            // Instead of a plain text response, call the status page helper.
+            // This will serve `426.html` if it exists, or fall back to the text message.
+            error::serve_status_page(
+                StatusCode::UPGRADE_REQUIRED,
+                "HTTP is not supported for this domain. Please use HTTPS.",
+            )
+        }
         HttpOptions::Upgrade => {
             let uri = format!(
                 "https://{}{}",
