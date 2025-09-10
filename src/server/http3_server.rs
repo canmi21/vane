@@ -3,6 +3,7 @@
 use crate::{config::AppConfig, middleware, proxy, state::AppState, tls::PerDomainCertResolver};
 use anyhow::{Result, anyhow};
 use axum::body::{Body, to_bytes};
+use axum::extract::ConnectInfo;
 use axum::{Router, middleware as axum_middleware};
 use bytes::{Buf, Bytes, BytesMut};
 use fancy_log::{LogLevel, log, set_log_level};
@@ -74,10 +75,15 @@ pub async fn spawn(
     let handle = tokio::spawn(async move {
         let endpoint = quinn::Endpoint::server(quic_config, https_addr)?;
         while let Some(conn) = endpoint.accept().await {
+            // --- MODIFICATION START ---
+            // Get the remote address here to pass it to the request handler task.
+            // This is crucial for the ConnectInfo extractor to work.
+            let remote_addr = conn.remote_address();
             log(
                 LogLevel::Info,
-                &format!("H3: New QUIC connection from: {}", conn.remote_address()),
+                &format!("H3: New QUIC connection from: {}", remote_addr),
             );
+            // --- MODIFICATION END ---
             let router_clone = router.clone();
             tokio::spawn(async move {
                 let quinn_conn = match conn.await {
@@ -142,25 +148,33 @@ pub async fn spawn(
                                     }
                                 }
 
-                                let hyper_req = match builder.body(Body::from(req_body.freeze())) {
-                                    Ok(r) => r,
-                                    Err(e) => {
-                                        log(
-                                            LogLevel::Error,
-                                            &format!("H3: failed to build request: {}", e),
-                                        );
-                                        let _ = stream
-                                            .send_response(
-                                                HttpResponse::builder()
-                                                    .status(StatusCode::BAD_REQUEST)
-                                                    .body(())
-                                                    .unwrap(),
-                                            )
-                                            .await;
-                                        let _ = stream.finish().await;
-                                        return;
-                                    }
-                                };
+                                let mut hyper_req =
+                                    match builder.body(Body::from(req_body.freeze())) {
+                                        Ok(r) => r,
+                                        Err(e) => {
+                                            log(
+                                                LogLevel::Error,
+                                                &format!("H3: failed to build request: {}", e),
+                                            );
+                                            let _ = stream
+                                                .send_response(
+                                                    HttpResponse::builder()
+                                                        .status(StatusCode::BAD_REQUEST)
+                                                        .body(())
+                                                        .unwrap(),
+                                                )
+                                                .await;
+                                            let _ = stream.finish().await;
+                                            return;
+                                        }
+                                    };
+
+                                // --- MODIFICATION START ---
+                                // Manually insert the client's socket address into the request extensions.
+                                // This makes the ConnectInfo extractor available to middleware like the rate limiter.
+                                // This is the key fix for the 500 error panic.
+                                hyper_req.extensions_mut().insert(ConnectInfo(remote_addr));
+                                // --- MODIFICATION END ---
 
                                 let resp = match router_clone_inner.oneshot(hyper_req).await {
                                     Ok(r) => r,
