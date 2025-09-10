@@ -3,11 +3,21 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// Represents the CORS configuration for a domain.
+// MODIFIED: Represents the new, more detailed CORS configuration.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct CorsConfig {
+    // A map where the key is the origin (e.g., "https://app.example.com")
+    // and the value is a comma-separated string of allowed methods ("GET, POST").
+    // An empty string or "*" in the value means all methods are allowed for that origin.
     #[serde(default)]
-    pub allowed_origins: Vec<String>,
+    pub origins: HashMap<String, String>,
+}
+
+// NEW: Represents the method filtering configuration for an entire domain.
+#[derive(Debug, Deserialize, Clone)]
+pub struct MethodsConfig {
+    // A comma-separated string of allowed HTTP methods (e.g., "GET, POST, OPTIONS"), or "*" for all.
+    pub allow: String,
 }
 
 /// Defines the behavior for plain HTTP requests.
@@ -95,6 +105,10 @@ pub struct DomainConfig {
     pub routes: Vec<Route>,
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
-    // Optional CORS configuration.
+
+    // MODIFIED: Use the new CorsConfig struct.
     pub cors: Option<CorsConfig>,
+
+    // NEW: Add the optional method filtering configuration.
+    pub methods: Option<MethodsConfig>,
 }
