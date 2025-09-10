@@ -24,14 +24,15 @@ const IP_HEADERS_TO_CLEAN: &[&str] = &[
 pub async fn proxy_handler(
     State(state): State<Arc<AppState>>,
     TypedHeader(host): TypedHeader<Host>,
-    // FIX: Remove 'mut' as it's not needed.
     req: Request<Body>,
 ) -> Result<Response, VaneError> {
     let host_str = host.hostname();
     let path = req.uri().path();
 
+    // The call to find_target_url now returns a Result, which we propagate with `?`.
+    // The inner Option is then handled to produce a NoRouteFound error if empty.
     let target_url_str =
-        routing::find_target_url(host_str, path, &state).ok_or_else(|| VaneError::NoRouteFound)?;
+        routing::find_target_url(host_str, path, &state)?.ok_or(VaneError::NoRouteFound)?;
 
     let client_ip = req
         .extensions()
@@ -40,9 +41,11 @@ pub async fn proxy_handler(
 
     let (mut parts, body) = req.into_parts();
 
+    // Clean any existing IP-related headers to prevent spoofing.
     for header in IP_HEADERS_TO_CLEAN {
         parts.headers.remove(*header);
     }
+    // Add the X-Forwarded-For header with the real client IP.
     if let Some(ip) = client_ip {
         parts.headers.insert("X-Forwarded-For", ip.parse().unwrap());
     }
