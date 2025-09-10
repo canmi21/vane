@@ -1,7 +1,6 @@
 /* src/middleware.rs */
 
-use crate::{error, models::HttpOptions, state::AppState};
-use anyhow::Result;
+use crate::{error, models::HttpOptions, ratelimit, state::AppState};
 use axum::http::header::HOST;
 use axum::{
     body::Body,
@@ -15,7 +14,7 @@ use lazy_limit::limit;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-/// Two-layer rate limiting middleware with correct stateful logic.
+/// Two-layer rate limiting middleware using the refactored ratelimit module.
 pub async fn rate_limit_handler(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<AppState>>,
@@ -27,6 +26,7 @@ pub async fn rate_limit_handler(
     let ip_str = ip.to_string();
     let path = req.uri().path().to_owned();
 
+    // FIX: Removed hardcoded log prefix.
     log(
         LogLevel::Debug,
         &format!("Start check for IP: {}, Path: {}", ip_str, path),
@@ -51,76 +51,78 @@ pub async fn rate_limit_handler(
     // --- Layer 2: User-Configurable Limits (Governor) ---
     req.extensions_mut().insert(addr);
 
-    if let Some(_domain_config) = state.config.domains.get(&host) {
-        // The key to look up is the hostname followed by the request path.
-        let full_route_key = format!("{}{}", host, &path);
+    if state.config.domains.get(&host).is_some() {
+        let full_path_key = format!("{}{}", host, &path);
 
         // --- Stage 1: Check for an override rule ---
-        // Find the longest matching prefix key in the override limiters map.
-        let override_key = state
-            .override_limiters
-            .keys()
-            .filter(|k| full_route_key.starts_with(*k))
-            .max_by_key(|k| k.len());
-
-        if let Some(key) = override_key {
-            // A matching override rule was found in the config.
-            if let Some(limiter) = state.override_limiters.get(key) {
-                log(LogLevel::Debug, &format!("Matched override rule '{}'", key));
-                if limiter.check_key(&ip).is_err() {
-                    log(
-                        LogLevel::Debug,
-                        &format!("FAILED Override rule for IP: {}", ip_str),
-                    );
-                    return Ok(error::serve_status_page(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        "Too Many Requests",
-                    ));
-                }
+        log(
+            LogLevel::Debug,
+            &format!("Searching for best override match for: {}", full_path_key),
+        );
+        if let Some(found_match) =
+            ratelimit::find_best_match(&state.override_limiters, &full_path_key)
+        {
+            log(
+                LogLevel::Debug,
+                &format!(
+                    "Applying best override match from pattern '{}'",
+                    found_match.pattern
+                ),
+            );
+            if found_match.limiter.check_key(&ip).is_err() {
                 log(
                     LogLevel::Debug,
-                    &format!(
-                        "PASSED Override rule for IP: {}. Request authorized.",
-                        ip_str
-                    ),
+                    &format!("FAILED Override rule for IP: {}", ip_str),
                 );
-                return Ok(next.run(req).await);
+                return Ok(error::serve_status_page(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Too Many Requests",
+                ));
             }
+            log(
+                LogLevel::Debug,
+                &format!(
+                    "PASSED Override rule for IP: {}. Request authorized.",
+                    ip_str
+                ),
+            );
+            return Ok(next.run(req).await);
         }
 
-        // --- Stage 2: Check route-specific rules ---
-        let route_key = state
-            .route_limiters
-            .keys()
-            .filter(|k| full_route_key.starts_with(*k))
-            .max_by_key(|k| k.len());
-
-        if let Some(key) = route_key {
-            // A matching route rule was found.
-            if let Some(limiter) = state.route_limiters.get(key) {
-                log(LogLevel::Debug, &format!("Matched route rule '{}'", key));
-                if limiter.check_key(&ip).is_err() {
-                    log(
-                        LogLevel::Debug,
-                        &format!("FAILED Route rule for IP: {}", ip_str),
-                    );
-                    return Ok(error::serve_status_page(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        "Too Many Requests",
-                    ));
-                }
+        // --- Stage 2: If no override, check route-specific rules ---
+        log(
+            LogLevel::Debug,
+            &format!("Searching for best route match for: {}", full_path_key),
+        );
+        if let Some(found_match) = ratelimit::find_best_match(&state.route_limiters, &full_path_key)
+        {
+            log(
+                LogLevel::Debug,
+                &format!(
+                    "Applying best route match from pattern '{}'",
+                    found_match.pattern
+                ),
+            );
+            if found_match.limiter.check_key(&ip).is_err() {
                 log(
                     LogLevel::Debug,
-                    &format!(
-                        "PASSED Route rule for IP: {}. Continuing to default check.",
-                        ip_str
-                    ),
+                    &format!("FAILED Route rule for IP: {}", ip_str),
                 );
+                return Ok(error::serve_status_page(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Too Many Requests",
+                ));
             }
+            log(
+                LogLevel::Debug,
+                &format!(
+                    "PASSED Route rule for IP: {}. Continuing to default check.",
+                    ip_str
+                ),
+            );
         }
 
         // --- Stage 3: Check the default global rule ---
-        // This runs for all requests not handled by an override.
         log(
             LogLevel::Debug,
             &format!("Checking default rule for IP: {}", ip_str),
@@ -143,7 +145,7 @@ pub async fn rate_limit_handler(
         log(
             LogLevel::Debug,
             &format!(
-                "No domain config found for host '{}'. Skipping configurable limits.",
+                "No domain config for host '{}'. Skipping configurable limits.",
                 host
             ),
         );
@@ -168,7 +170,6 @@ pub async fn alt_svc_handler(
     next: Next,
 ) -> Response<Body> {
     let mut res = next.run(req).await;
-
     if let Some(domain_config) = state.config.domains.get(&host) {
         if domain_config.https && domain_config.http3 {
             let port = state.config.https_port;
@@ -188,11 +189,8 @@ pub async fn http_request_handler(
 ) -> Response<Body> {
     let domain_config = match state.config.domains.get(&host) {
         Some(config) => config,
-        None => {
-            return next.run(req).await;
-        }
+        None => return next.run(req).await,
     };
-
     match domain_config.http_options {
         HttpOptions::Allow => next.run(req).await,
         HttpOptions::Reject => error::serve_status_page(
@@ -224,7 +222,6 @@ pub async fn hsts_handler(
     next: Next,
 ) -> Response<Body> {
     let mut res = next.run(req).await;
-
     if let Some(domain_config) = state.config.domains.get(&host) {
         if domain_config.https && domain_config.hsts {
             res.headers_mut().insert(
@@ -238,8 +235,7 @@ pub async fn hsts_handler(
 
 pub async fn inject_host_header(mut req: Request<Body>, next: Next) -> Response<Body> {
     if req.headers().get(HOST).is_none() {
-        let authority = req.uri().authority().cloned();
-        if let Some(authority) = authority {
+        if let Some(authority) = req.uri().authority().cloned() {
             req.headers_mut()
                 .insert(HOST, authority.as_str().parse().unwrap());
         }
