@@ -17,7 +17,7 @@ const DEFAULT_MAIN_CONFIG: &str = r#"
 "example.com" = "example.com.toml"
 "#;
 
-// Updated the default domain config to showcase wildcard routing.
+// Updated the default domain config to showcase all features including CORS.
 const DEFAULT_DOMAIN_CONFIG: &str = r#"
 # Vane domain configuration for example.com
 https = true
@@ -29,28 +29,31 @@ http_options = "upgrade"
 cert = "~/vane/certs/example.com.pem"
 key = "~/vane/certs/example.com.key"
 
-# Rate limiting configuration (unchanged).
+# Optional CORS (Cross-Origin Resource Sharing) configuration.
+# If this section is present, Vane will override any CORS headers from the backend.
+[cors]
+# A list of origins that are allowed to make cross-site requests.
+# Use "*" for a wildcard, but be aware of the security implications.
+allowed_origins = ["https://app.example.com", "http://localhost:3000"]
+
+# Rate limiting configuration.
 [rate_limit]
 [rate_limit.default]
 period = "1s"
-requests = 0
+requests = 0 # Disabled by default
 
 # Routing rules for this domain.
-# Rules are prioritized by specificity (exact matches > wildcard matches).
 [[routes]]
-# A specific route. Requests to /api/health will go here.
 path = "/api/health"
-targets = ["http://127.0.0.1:8001"] # Example health check service
+targets = ["http://127.0.0.1:8001"]
 
 [[routes]]
-# A wildcard route. Requests to /api/* (e.g., /api/users) will go here.
 path = "/api/*"
-targets = ["http://127.0.0.1:8000"] # Example main API service
+targets = ["http://127.0.0.1:8000"]
 
 [[routes]]
-# A catch-all route for any other request.
 path = "/"
-targets = ["http://127.0.0.1:33433"] # Example main web service
+targets = ["http://127.0.0.1:33433"]
 "#;
 
 /// Checks if the status pages directory exists and creates it if not.
