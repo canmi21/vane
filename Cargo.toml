@@ -47,3 +47,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bytes = "1"
 http = "1"
+include_dir = "0.7"
