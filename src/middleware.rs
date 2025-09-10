@@ -13,6 +13,71 @@ use fancy_log::{LogLevel, log};
 use lazy_limit::limit;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tower::{ServiceBuilder, ServiceExt};
+use tower_http::cors::{Any, CorsLayer};
+
+/// Dynamic CORS middleware that applies the correct policy based on the request's host.
+pub async fn cors_handler(
+    State(state): State<Arc<AppState>>,
+    Host(host): Host,
+    req: Request<Body>,
+    next: Next,
+) -> Response<Body> {
+    if let Some(domain_config) = state.config.domains.get(&host) {
+        // Check if a CORS configuration exists for this domain.
+        if let Some(cors_config) = &domain_config.cors {
+            log(
+                LogLevel::Debug,
+                &format!("Applying CORS policy for host '{}'", host),
+            );
+
+            let mut cors_layer = CorsLayer::new()
+                .allow_methods(Any) // Allow all common methods.
+                .allow_headers(Any); // Allow all common headers.
+
+            // Configure allowed origins based on the config file.
+            if cors_config.allowed_origins.contains(&"*".to_string()) {
+                cors_layer = cors_layer.allow_origin(Any);
+            } else {
+                // Parse the origins from the config.
+                let origins: Vec<_> = cors_config
+                    .allowed_origins
+                    .iter()
+                    .filter_map(|s| s.parse().ok())
+                    .collect();
+                cors_layer = cors_layer.allow_origin(origins);
+            }
+
+            // Dynamically create a Tower service with the configured CorsLayer
+            // and call it with the request and the `next` service using .oneshot().
+            let result = ServiceBuilder::new()
+                .layer(cors_layer)
+                .service(next)
+                .oneshot(req) // .oneshot() is now available from the ServiceExt trait.
+                .await;
+
+            // The result from .oneshot() is a Result; we handle the error case
+            // instead of calling .unwrap() to avoid a potential panic.
+            return match result {
+                Ok(response) => response,
+                Err(_) => {
+                    // This case is unlikely with axum's 'Next' service, but it's robust to handle it.
+                    error::serve_status_page(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Internal server error in CORS middleware",
+                    )
+                }
+            };
+        }
+    }
+
+    // If no CORS config is found for this host, just pass the request through.
+    log(
+        LogLevel::Debug,
+        &format!("No CORS policy for host '{}'. Passing through.", host),
+    );
+    next.run(req).await
+}
 
 /// Two-layer rate limiting middleware using the refactored ratelimit module.
 pub async fn rate_limit_handler(
@@ -26,13 +91,11 @@ pub async fn rate_limit_handler(
     let ip_str = ip.to_string();
     let path = req.uri().path().to_owned();
 
-    // FIX: Removed hardcoded log prefix.
     log(
         LogLevel::Debug,
         &format!("Start check for IP: {}, Path: {}", ip_str, path),
     );
 
-    // --- Layer 1: Mandatory Shield (lazy-limit) ---
     if !limit!(&ip_str, "/shield").await {
         log(
             LogLevel::Debug,
@@ -48,17 +111,11 @@ pub async fn rate_limit_handler(
         &format!("PASSED Shield check for IP: {}", ip_str),
     );
 
-    // --- Layer 2: User-Configurable Limits (Governor) ---
     req.extensions_mut().insert(addr);
 
     if state.config.domains.get(&host).is_some() {
         let full_path_key = format!("{}{}", host, &path);
 
-        // --- Stage 1: Check for an override rule ---
-        log(
-            LogLevel::Debug,
-            &format!("Searching for best override match for: {}", full_path_key),
-        );
         if let Some(found_match) =
             ratelimit::find_best_match(&state.override_limiters, &full_path_key)
         {
@@ -89,11 +146,6 @@ pub async fn rate_limit_handler(
             return Ok(next.run(req).await);
         }
 
-        // --- Stage 2: If no override, check route-specific rules ---
-        log(
-            LogLevel::Debug,
-            &format!("Searching for best route match for: {}", full_path_key),
-        );
         if let Some(found_match) = ratelimit::find_best_match(&state.route_limiters, &full_path_key)
         {
             log(
@@ -122,7 +174,6 @@ pub async fn rate_limit_handler(
             );
         }
 
-        // --- Stage 3: Check the default global rule ---
         log(
             LogLevel::Debug,
             &format!("Checking default rule for IP: {}", ip_str),
@@ -161,8 +212,7 @@ pub async fn rate_limit_handler(
     Ok(next.run(req).await)
 }
 
-// --- Other middleware functions (unchanged) ---
-
+/// Middleware for the HTTPS (TCP) server to add the Alt-Svc header for HTTP/3 discovery.
 pub async fn alt_svc_handler(
     State(state): State<Arc<AppState>>,
     Host(host): Host,
@@ -181,6 +231,7 @@ pub async fn alt_svc_handler(
     res
 }
 
+/// Middleware for the HTTP server to handle domain-specific options.
 pub async fn http_request_handler(
     State(state): State<Arc<AppState>>,
     Host(host): Host,
@@ -215,6 +266,7 @@ pub async fn http_request_handler(
     }
 }
 
+/// Middleware for the HTTPS server to add the HSTS header if configured.
 pub async fn hsts_handler(
     State(state): State<Arc<AppState>>,
     Host(host): Host,
@@ -233,6 +285,7 @@ pub async fn hsts_handler(
     res
 }
 
+/// Injects the `Host` header from the URI's authority if it's missing.
 pub async fn inject_host_header(mut req: Request<Body>, next: Next) -> Response<Body> {
     if req.headers().get(HOST).is_none() {
         if let Some(authority) = req.uri().authority().cloned() {
