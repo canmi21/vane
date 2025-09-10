@@ -8,7 +8,6 @@ use rcgen::generate_simple_self_signed;
 use std::{fs, path::Path};
 
 // Embeds the `./status` directory into the binary at compile time.
-// `$CARGO_MANIFEST_DIR` resolves to the project's root directory (where Cargo.toml is).
 static STATIC_STATUS_PAGES: Dir = include_dir!("$CARGO_MANIFEST_DIR/status");
 
 const DEFAULT_MAIN_CONFIG: &str = r#"
@@ -20,28 +19,39 @@ const DEFAULT_MAIN_CONFIG: &str = r#"
 
 const DEFAULT_DOMAIN_CONFIG: &str = r#"
 # Vane domain configuration for example.com
-
-# Enable HTTPS for this domain. If true, a [tls] section must be provided.
 https = true
-
-# Enable HTTP/3 support for this domain.
-# This requires the server's UDP port 443 (or the configured https_port) to be accessible.
 http3 = false
-
-# HSTS (HTTP Strict Transport Security) adds a header to HTTPS responses
-# telling browsers to only connect via HTTPS in the future.
 hsts = false
-
-# Configure behavior for plain HTTP requests.
-# "upgrade": Redirect HTTP to HTTPS (301 Moved Permanently).
-# "reject": Reject the request (426 Upgrade Required).
-# "allow": Serve content over HTTP (not recommended if HTTPS is enabled).
 http_options = "upgrade"
 
-# TLS configuration is required if https = true.
 [tls]
 cert = "~/vane/certs/example.com.pem"
 key = "~/vane/certs/example.com.key"
+
+# Rate limiting configuration for this domain.
+# A rule of { period = "0s", requests = 0 } effectively disables the limit.
+[rate_limit]
+
+# Default rule applied to all paths unless a more specific rule matches.
+[rate_limit.default]
+period = "0s"
+requests = 0
+
+# Rules for specific paths. These are checked against the global default.
+# The most restrictive limit (global vs. route) applies.
+# Example:
+# [[rate_limit.routes]]
+# path = "/api/login"
+# period = "1m"
+# requests = 5
+
+# Override rules ignore the global default and apply only their own limit.
+# Useful for high-traffic public endpoints.
+# Example:
+# [[rate_limit.overrides]]
+# path = "/api/public"
+# period = "1s"
+# requests = 20
 
 # Routing rules for this domain.
 [[routes]]
@@ -51,9 +61,7 @@ path = "/"
 targets = ["http://127.0.0.1:33433"]
 "#;
 
-/// Checks if the status pages directory exists. If not, it creates it and
-/// extracts the default pages from the embedded resources.
-/// This allows users to customize error pages by overriding these files.
+/// Checks if the status pages directory exists and creates it if not.
 pub fn ensure_status_pages_exist() -> Result<()> {
     let (_, config_dir) = config::get_config_paths()?;
     let status_pages_dir = config_dir.join("status");
@@ -65,14 +73,12 @@ pub fn ensure_status_pages_exist() -> Result<()> {
         );
         fs::create_dir_all(&status_pages_dir).context("Failed to create status pages directory")?;
 
-        // Iterate through the embedded directory and write each file to disk
         for file in STATIC_STATUS_PAGES.files() {
             let path = status_pages_dir.join(file.path());
             fs::write(&path, file.contents())
                 .with_context(|| format!("Failed to write status page: {:?}", path))?;
         }
     }
-
     Ok(())
 }
 
@@ -119,7 +125,6 @@ pub async fn handle_first_run() -> Result<()> {
         );
     }
 
-    // Also ensure status pages are created during the first run.
     ensure_status_pages_exist()?;
 
     log(
@@ -129,7 +134,7 @@ pub async fn handle_first_run() -> Result<()> {
     Ok(())
 }
 
-/// Generates a self-signed certificate and private key using the rcgen crate.
+/// Generates a self-signed certificate and private key.
 fn generate_self_signed_cert(hostname: &str, cert_path: &Path, key_path: &Path) -> Result<()> {
     let cert = generate_simple_self_signed(vec![hostname.to_string()])?;
     fs::write(cert_path, cert.cert.pem())?;
