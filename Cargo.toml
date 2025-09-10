@@ -48,3 +48,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bytes = "1"
 http = "1"
 include_dir = "0.7"
+lazy-limit = "1"
+governor = "0.10"
+nonzero = "0.2"
