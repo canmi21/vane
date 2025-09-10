@@ -9,25 +9,44 @@ use axum::{
 };
 use axum_extra::typed_header::TypedHeader;
 use headers::Host;
+use std::net::SocketAddr;
 use std::sync::Arc;
+
+const IP_HEADERS_TO_CLEAN: &[&str] = &[
+    "x-real-ip",
+    "x-forwarded-for",
+    "x-forwarded",
+    "forwarded-for",
+    "forwarded",
+];
 
 #[axum::debug_handler]
 pub async fn proxy_handler(
     State(state): State<Arc<AppState>>,
     TypedHeader(host): TypedHeader<Host>,
+    // FIX: Remove 'mut' as it's not needed.
     req: Request<Body>,
 ) -> Result<Response, VaneError> {
     let host_str = host.hostname();
     let path = req.uri().path();
 
-    // 1. Find the target backend URL
     let target_url_str =
         routing::find_target_url(host_str, path, &state).ok_or_else(|| VaneError::NoRouteFound)?;
 
-    // Create a new request but preserve the original body
+    let client_ip = req
+        .extensions()
+        .get::<SocketAddr>()
+        .map(|addr| addr.ip().to_string());
+
     let (mut parts, body) = req.into_parts();
 
-    // 2. Modify the request URI to point to the target
+    for header in IP_HEADERS_TO_CLEAN {
+        parts.headers.remove(*header);
+    }
+    if let Some(ip) = client_ip {
+        parts.headers.insert("X-Forwarded-For", ip.parse().unwrap());
+    }
+
     let target_uri = target_url_str.parse().map_err(|e| {
         VaneError::BadGateway(anyhow::anyhow!(
             "Invalid target URL '{}': {}",
@@ -37,17 +56,10 @@ pub async fn proxy_handler(
     })?;
 
     parts.uri = target_uri;
-
-    // ----- THE FIX IS HERE -----
-    // Corrected: Force the outgoing request to be HTTP/1.1.
-    // This decouples the client-facing protocol (H2/H3) from the
-    // backend-facing protocol, which is what a reverse proxy should do.
     parts.version = Version::HTTP_11;
-    // ---------------------------
 
     let req = Request::from_parts(parts, body);
 
-    // 3. Send the request to the target backend
     fancy_log::log(
         fancy_log::LogLevel::Debug,
         &format!("Proxying request for {} to {}", host_str, target_url_str),
@@ -59,6 +71,5 @@ pub async fn proxy_handler(
         .await
         .map_err(|e| VaneError::BadGateway(e.into()))?;
 
-    // 4. Return the response from the backend to the original client
     Ok(response.map(Body::new))
 }
