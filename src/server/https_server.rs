@@ -39,6 +39,11 @@ pub async fn spawn(
         .fallback(proxy::proxy_handler)
         // Inject host header first, as other middleware depends on it.
         .layer(axum_middleware::from_fn(middleware::inject_host_header))
+        // NEW: Add method filtering after host injection.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::method_filter_handler,
+        ))
         // Add the CORS layer near the outside.
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
