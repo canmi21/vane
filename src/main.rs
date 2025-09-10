@@ -5,6 +5,7 @@ mod error;
 mod middleware;
 mod models;
 mod proxy;
+mod ratelimit;
 mod routing;
 mod server;
 mod setup;
