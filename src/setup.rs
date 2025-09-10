@@ -17,6 +17,7 @@ const DEFAULT_MAIN_CONFIG: &str = r#"
 "example.com" = "example.com.toml"
 "#;
 
+// Updated the default domain config to showcase wildcard matching.
 const DEFAULT_DOMAIN_CONFIG: &str = r#"
 # Vane domain configuration for example.com
 https = true
@@ -29,29 +30,34 @@ cert = "~/vane/certs/example.com.pem"
 key = "~/vane/certs/example.com.key"
 
 # Rate limiting configuration for this domain.
-# A rule of { period = "0s", requests = 0 } effectively disables the limit.
 [rate_limit]
 
-# Default rule applied to all paths unless a more specific rule matches.
+# Default rule applied to paths that don't match any specific rule.
+# Disabled by default (0 requests means no limit).
 [rate_limit.default]
-period = "0s"
+period = "1s"
 requests = 0
 
 # Rules for specific paths. These are checked against the global default.
-# The most restrictive limit (global vs. route) applies.
-# Example:
-# [[rate_limit.routes]]
-# path = "/api/login"
-# period = "1m"
-# requests = 5
+# The most specific matching rule is applied.
+[[rate_limit.routes]]
+# A specific path rule, more precise than the wildcard rule below.
+path = "/api/v1/users"
+period = "1m"
+requests = 10
+
+[[rate_limit.routes]]
+# A wildcard rule that matches everything under /api/v1/
+path = "/api/v1/*"
+period = "1s"
+requests = 20
 
 # Override rules ignore the global default and apply only their own limit.
-# Useful for high-traffic public endpoints.
-# Example:
-# [[rate_limit.overrides]]
-# path = "/api/public"
-# period = "1s"
-# requests = 20
+# Useful for high-traffic public endpoints like status checks.
+[[rate_limit.overrides]]
+path = "/status"
+period = "1s"
+requests = 50
 
 # Routing rules for this domain.
 [[routes]]
