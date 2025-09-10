@@ -4,16 +4,17 @@ use crate::{config::AppConfig, middleware, proxy, state::AppState, tls::PerDomai
 use anyhow::Result;
 use axum::{Router, middleware as axum_middleware};
 use axum_server::tls_rustls::RustlsConfig;
+use fancy_log::{LogLevel, log};
 use rustls::ServerConfig;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::task::JoinHandle;
-use tracing::info;
 
 /// Spawns the HTTPS/TCP (HTTP/1.1, HTTP/2) server task.
 pub async fn spawn(
     app_config: Arc<AppConfig>,
     state: Arc<AppState>,
 ) -> Result<Option<JoinHandle<Result<(), std::io::Error>>>> {
+    // If no domains are configured for HTTPS, don't start the server.
     if !app_config.domains.values().any(|d| d.https) {
         return Ok(None);
     }
@@ -30,9 +31,13 @@ pub async fn spawn(
     let tls_config = RustlsConfig::from_config(Arc::new(server_config));
     let https_addr = SocketAddr::from(([0, 0, 0, 0], app_config.https_port));
 
-    info!(
-        "Vane HTTPS (H2, H1.1) server listening on TCP:{}",
-        app_config.https_port
+    // Use fancy_log for logging the startup message.
+    log(
+        LogLevel::Info,
+        &format!(
+            "Vane HTTPS/2 HTTPS/1.1 server listening on TCP:{}",
+            app_config.https_port
+        ),
     );
 
     // The order of layers is important. The outer layer runs first.
