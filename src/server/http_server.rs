@@ -16,6 +16,11 @@ pub async fn spawn(
 
     let router = Router::new()
         .fallback(proxy::proxy_handler)
+        // NEW: Add method filtering as one of the first layers.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::method_filter_handler,
+        ))
         // CORS should be one of the outermost layers to handle preflight requests correctly.
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
