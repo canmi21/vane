@@ -14,44 +14,39 @@ pub async fn spawn(
     app_config: Arc<AppConfig>,
     state: Arc<AppState>,
 ) -> Result<Option<JoinHandle<Result<(), std::io::Error>>>> {
-    // If no domains are configured for HTTPS, don't start the server.
     if !app_config.domains.values().any(|d| d.https) {
         return Ok(None);
     }
 
     let resolver = PerDomainCertResolver::new(app_config.clone());
-
     let mut server_config = ServerConfig::builder()
         .with_no_client_auth()
         .with_cert_resolver(Arc::new(resolver));
-
-    // Advertise support for HTTP/2 and HTTP/1.1
     server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     let tls_config = RustlsConfig::from_config(Arc::new(server_config));
     let https_addr = SocketAddr::from(([0, 0, 0, 0], app_config.https_port));
 
-    // Use fancy_log for logging the startup message.
     log(
         LogLevel::Info,
         &format!(
-            "Vane HTTPS/2 HTTPS/1.1 server listening on TCP:{}",
+            "Vane HTTPS (H2, H1.1) server listening on TCP:{}",
             app_config.https_port
         ),
     );
 
-    // The order of layers is important. The outer layer runs first.
     let router = Router::new()
         .fallback(proxy::proxy_handler)
-        // Add a layer to inject the Host header from the authority.
-        // This MUST come before any middleware that uses the `Host` extractor.
         .layer(axum_middleware::from_fn(middleware::inject_host_header))
-        // Layer for H3 discovery
+        // Add the rate limiting middleware right after injecting the host header
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::rate_limit_handler,
+        ))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::alt_svc_handler,
         ))
-        // Layer for HSTS
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::hsts_handler,
@@ -60,7 +55,7 @@ pub async fn spawn(
 
     let handle = tokio::spawn(async move {
         axum_server::bind_rustls(https_addr, tls_config)
-            .serve(router.into_make_service())
+            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .await
     });
 

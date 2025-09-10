@@ -2,7 +2,7 @@
 
 use crate::{config::AppConfig, middleware, proxy, state::AppState};
 use anyhow::Result;
-use axum::Router;
+use axum::{Router, middleware as axum_middleware};
 use fancy_log::{LogLevel, log};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::task::JoinHandle;
@@ -16,9 +16,14 @@ pub async fn spawn(
 
     let router = Router::new()
         .fallback(proxy::proxy_handler)
-        .layer(axum::middleware::from_fn_with_state(
+        .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::http_request_handler,
+        ))
+        // Add the rate limiting middleware here
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::rate_limit_handler,
         ))
         .with_state(state.clone());
 
@@ -32,7 +37,7 @@ pub async fn spawn(
 
     let handle = tokio::spawn(async move {
         axum_server::bind(http_addr)
-            .serve(router.into_make_service())
+            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .await
     });
 
