@@ -17,7 +17,7 @@ const DEFAULT_MAIN_CONFIG: &str = r#"
 "example.com" = "example.com.toml"
 "#;
 
-// Updated the default domain config to showcase wildcard matching.
+// Updated the default domain config to showcase wildcard routing.
 const DEFAULT_DOMAIN_CONFIG: &str = r#"
 # Vane domain configuration for example.com
 https = true
@@ -29,42 +29,28 @@ http_options = "upgrade"
 cert = "~/vane/certs/example.com.pem"
 key = "~/vane/certs/example.com.key"
 
-# Rate limiting configuration for this domain.
+# Rate limiting configuration (unchanged).
 [rate_limit]
-
-# Default rule applied to paths that don't match any specific rule.
-# Disabled by default (0 requests means no limit).
 [rate_limit.default]
 period = "1s"
 requests = 0
 
-# Rules for specific paths. These are checked against the global default.
-# The most specific matching rule is applied.
-[[rate_limit.routes]]
-# A specific path rule, more precise than the wildcard rule below.
-path = "/api/v1/users"
-period = "1m"
-requests = 10
-
-[[rate_limit.routes]]
-# A wildcard rule that matches everything under /api/v1/
-path = "/api/v1/*"
-period = "1s"
-requests = 20
-
-# Override rules ignore the global default and apply only their own limit.
-# Useful for high-traffic public endpoints like status checks.
-[[rate_limit.overrides]]
-path = "/status"
-period = "1s"
-requests = 50
-
 # Routing rules for this domain.
+# Rules are prioritized by specificity (exact matches > wildcard matches).
 [[routes]]
-# The path prefix to match. "/" matches everything.
+# A specific route. Requests to /api/health will go here.
+path = "/api/health"
+targets = ["http://127.0.0.1:8001"] # Example health check service
+
+[[routes]]
+# A wildcard route. Requests to /api/* (e.g., /api/users) will go here.
+path = "/api/*"
+targets = ["http://127.0.0.1:8000"] # Example main API service
+
+[[routes]]
+# A catch-all route for any other request.
 path = "/"
-# The backend server(s) to proxy requests to.
-targets = ["http://127.0.0.1:33433"]
+targets = ["http://127.0.0.1:33433"] # Example main web service
 "#;
 
 /// Checks if the status pages directory exists and creates it if not.
