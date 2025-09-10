@@ -17,41 +17,60 @@ const DEFAULT_MAIN_CONFIG: &str = r#"
 "example.com" = "example.com.toml"
 "#;
 
-// MODIFIED: Updated the default domain config to showcase the new advanced features.
+// MODIFIED: Added detailed comments for every configuration option.
 const DEFAULT_DOMAIN_CONFIG: &str = r#"
 # Vane domain configuration for example.com
+
+# --- Core Protocol Settings ---
+# Enable HTTPS on the standard port (443 by default).
 https = true
+# Enable HTTP/3 over QUIC on the HTTPS UDP port. Requires `https` to be true.
 http3 = true
+# Enable HSTS (HTTP Strict Transport Security) header to enforce HTTPS on clients.
 hsts = true
+# Behavior for plain HTTP requests on port 80:
+# "upgrade" (redirects to HTTPS), "reject" (blocks), or "allow".
 http_options = "upgrade"
 
+# --- TLS Certificate Settings ---
 [tls]
+# Path to the PEM-encoded TLS certificate file. Supports '~' for the home directory.
 cert = "~/vane/certs/example.com.pem"
+# Path to the PEM-encoded private key file. Supports '~' for the home directory.
 key = "~/vane/certs/example.com.key"
 
+# --- Method Filtering ---
 # Optional: Restrict which HTTP methods are allowed for this entire domain.
-# Use "*" to allow all methods. This check happens before routing.
+# This check happens before CORS or routing. Use "*" to allow all methods.
 [methods]
 allow = "GET, POST, OPTIONS, HEAD"
 
-# Optional: Fine-grained CORS (Cross-Origin Resource Sharing) configuration.
+# --- CORS (Cross-Origin Resource Sharing) ---
+# Optional: Fine-grained CORS configuration.
 # If this section is present, Vane will override any CORS headers from the backend.
 [cors]
 # Map of allowed origins to their allowed methods.
-# For methods, use a comma-separated string (e.g., "GET, POST"), or use "*" to allow all methods from that origin.
 [cors.origins]
-"https://app.example.com" = "GET, POST"
+# For methods, use a comma-separated string (e.g., "GET, POST"), or use "*" to allow all methods from that origin.
+"https://example.com" = "GET, POST, OPTION"
 "http://localhost:3000" = "*"
 
-# Rate limiting configuration.
+# --- Rate Limiting ---
 [rate_limit]
+# Default rate limit applied to all requests for this domain unless a more specific rule matches.
 [rate_limit.default]
+# The time window for the rate limit (e.g., "1s", "10m", "1h").
 period = "1s"
-requests = 20 # Default to 20 req/s
+# Number of requests allowed in the period. Set to 0 to disable.
+requests = 20
 
-# Routing rules for this domain.
+# --- Routing Rules ---
+# Define how incoming paths are proxied to backend targets.
+# Rules are matched from top to bottom.
 [[routes]]
+# The URL path to match. Supports wildcards (*) at the end.
 path = "/api/*"
+# A list of one or more backend servers to proxy requests to.
 targets = ["http://127.0.0.1:8000"]
 
 [[routes]]
