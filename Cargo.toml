@@ -1,12 +1,12 @@
 [package]
 name = "vane"
-version = "1.2.1"
+version = "1.2.2"
 edition = "2024"
 description = "Vane is a minimal reverse proxy in Rust with domain-based routing, wildcard support, and automatic SSL via ACME."
 license = "MIT"
 repository = "https://github.com/canmi21/vane"
 readme = "README.md"
-keywords = ["network", "server", "web", "vane", "axum"]
+keywords = ["network", "server", "web", "vane", "proxy"]
 categories = ["network-programming", "web-programming", "development-tools"]
 
 [[bin]]
