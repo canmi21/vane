@@ -1,11 +1,11 @@
 /* src/setup.rs */
 
-use crate::config;
+use crate::{acme_client, config};
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
 use include_dir::{Dir, include_dir};
 use rcgen::generate_simple_self_signed;
-use std::{fs, path::Path};
+use std::{env, fs, path::Path};
 
 // Embeds the `./status` directory into the binary at compile time.
 static STATIC_STATUS_PAGES: Dir = include_dir!("$CARGO_MANIFEST_DIR/status");
@@ -52,7 +52,7 @@ allow = "GET, POST, OPTIONS, HEAD"
 # Map of allowed origins to their allowed methods.
 [cors.origins]
 # For methods, use a comma-separated string (e.g., "GET, POST"), or use "*" to allow all methods from that origin.
-"https://example.com" = "GET, POST, OPTION"
+"https://app.example.com" = "GET, POST, OPTIONS"
 "http://localhost:3000" = "*"
 
 # --- Rate Limiting ---
@@ -70,8 +70,9 @@ requests = 20
 [[routes]]
 # The URL path to match. Supports wildcards (*) at the end.
 path = "/api/*"
-# A list of one or more backend servers to proxy requests to.
-targets = ["http://127.0.0.1:8000"]
+# A list of backend servers. Vane will try them in order.
+# If the first target fails (connection error or 5xx response), it will try the second, and so on.
+targets = ["http://12.0.0.1:8000", "http://127.0.0.1:8001"] # Primary and fallback targets
 
 [[routes]]
 path = "/"
@@ -111,18 +112,50 @@ pub async fn handle_first_run() -> Result<()> {
     );
 
     let (config_path, config_dir) = config::get_config_paths()?;
-    let certs_dir = config_dir.join("certs");
+    let cert_dir_str = env::var("CERT_DIR").unwrap_or_else(|_| "~/vane/certs".to_string());
+
+    // --- MODIFICATION START ---
+    // Create a longer-lived String to satisfy the borrow checker.
+    let expanded_cert_dir = shellexpand::tilde(&cert_dir_str).into_owned();
+    let certs_dir = Path::new(&expanded_cert_dir);
+    // --- MODIFICATION END ---
+
     fs::create_dir_all(&certs_dir).context("Failed to create certs directory")?;
 
     let cert_path = certs_dir.join("example.com.pem");
     let key_path = certs_dir.join("example.com.key");
 
     if !cert_path.exists() || !key_path.exists() {
-        log(
-            LogLevel::Info,
-            "Generating self-signed certificate for example.com...",
-        );
-        generate_self_signed_cert("example.com", &cert_path, &key_path)?;
+        // Check if CERT_SERVER is set.
+        if let Ok(server_url) = env::var("CERT_SERVER") {
+            // If CERT_SERVER is set, try to fetch a real certificate.
+            if let Err(e) = acme_client::fetch_and_save_certificate(
+                "example.com",
+                &server_url,
+                &cert_path,
+                &key_path,
+            )
+            .await
+            {
+                log(
+                    LogLevel::Error,
+                    &format!("Failed to fetch initial certificate for example.com: {}", e),
+                );
+                log(
+                    LogLevel::Error,
+                    "Please ensure lazy-acme server is running and the domain is configured. Vane will exit.",
+                );
+                // Use a specific exit code to indicate cert failure.
+                std::process::exit(75); // EX_TEMPFAIL
+            }
+        } else {
+            // Otherwise, fall back to self-signing.
+            log(
+                LogLevel::Info,
+                "CERT_SERVER not set. Generating self-signed certificate for example.com...",
+            );
+            generate_self_signed_cert("example.com", &cert_path, &key_path)?;
+        }
     }
 
     if !config_path.exists() {

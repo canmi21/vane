@@ -1,7 +1,7 @@
 /* src/config.rs */
 
 use crate::models::{DomainConfig, MainConfig};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
 use std::env;
@@ -13,6 +13,8 @@ use toml;
 pub struct AppConfig {
     pub http_port: u16,
     pub https_port: u16,
+    pub cert_dir: PathBuf,
+    pub cert_server: Option<String>,
     pub domains: HashMap<String, DomainConfig>,
 }
 
@@ -39,6 +41,17 @@ pub fn load_config() -> Result<AppConfig> {
         .parse::<u16>()
         .context("Invalid BIND_HTTPS_PORT")?;
 
+    // NEW: Load CERT_DIR and CERT_SERVER from environment.
+    let cert_dir_str = env::var("CERT_DIR").unwrap_or_else(|_| "~/vane/certs".to_string());
+    let cert_dir = PathBuf::from(shellexpand::tilde(&cert_dir_str).into_owned());
+    let cert_server = env::var("CERT_SERVER").ok();
+
+    if cert_server.is_some() {
+        log(LogLevel::Info, "ACME Certificate Server is configured.");
+    } else {
+        log(LogLevel::Info, "Running in self-signed certificate mode.");
+    }
+
     let (config_path, config_dir) = get_config_paths()?;
 
     log(
@@ -50,6 +63,8 @@ pub fn load_config() -> Result<AppConfig> {
         return Ok(AppConfig {
             http_port,
             https_port,
+            cert_dir,
+            cert_server,
             domains: HashMap::new(),
         });
     }
@@ -77,7 +92,7 @@ pub fn load_config() -> Result<AppConfig> {
 
         // Validate that if https is true, a tls config must exist.
         if domain_config.https && domain_config.tls.is_none() {
-            return Err(anyhow::anyhow!(
+            return Err(anyhow!(
                 "Domain '{}' has https=true but no [tls] configuration.",
                 hostname
             ));
@@ -89,6 +104,8 @@ pub fn load_config() -> Result<AppConfig> {
     Ok(AppConfig {
         http_port,
         https_port,
+        cert_dir,
+        cert_server,
         domains,
     })
 }
