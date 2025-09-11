@@ -6,7 +6,6 @@ mod https_server;
 
 use crate::{
     config::{self, AppConfig},
-    setup,
     state::{AppState, ConfigurableRateLimiter},
 };
 use anyhow::{Context, Result};
@@ -38,7 +37,6 @@ fn parse_std_duration(period: &str) -> Result<Duration> {
 
 /// Builds the user-configurable global rate limiter.
 fn build_global_limiter(config: &AppConfig) -> Result<Arc<ConfigurableRateLimiter>> {
-    // To represent "infinite", we set a very high burst size.
     let mut default_quota = Quota::per_second(NonZeroU32::new(u32::MAX).unwrap());
     let mut rule_found = false;
 
@@ -84,7 +82,6 @@ fn build_route_limiters(
     let mut override_limiters = HashMap::new();
 
     for (hostname, domain_config) in &config.domains {
-        // Build limiters for normal routes
         for route_rule in &domain_config.rate_limit.routes {
             if let (Ok(period), Some(requests_burst)) = (
                 parse_std_duration(&route_rule.rule.period),
@@ -95,19 +92,11 @@ fn build_route_limiters(
                         let limiter =
                             Arc::new(RateLimiter::keyed(quota.allow_burst(requests_burst)));
                         let key = format!("{}{}", hostname, route_rule.path);
-                        log(
-                            LogLevel::Debug,
-                            &format!(
-                                "Created route limiter for '{}': {} req/{}",
-                                key, route_rule.rule.requests, route_rule.rule.period
-                            ),
-                        );
                         route_limiters.insert(key, limiter);
                     }
                 }
             }
         }
-        // Build limiters for override routes
         for override_rule in &domain_config.rate_limit.overrides {
             if let (Ok(period), Some(requests_burst)) = (
                 parse_std_duration(&override_rule.rule.period),
@@ -118,13 +107,6 @@ fn build_route_limiters(
                         let limiter =
                             Arc::new(RateLimiter::keyed(quota.allow_burst(requests_burst)));
                         let key = format!("{}{}", hostname, override_rule.path);
-                        log(
-                            LogLevel::Debug,
-                            &format!(
-                                "Created override limiter for '{}': {} req/{}",
-                                key, override_rule.rule.requests, override_rule.rule.period
-                            ),
-                        );
                         override_limiters.insert(key, limiter);
                     }
                 }
@@ -134,9 +116,8 @@ fn build_route_limiters(
     Ok((Arc::new(route_limiters), Arc::new(override_limiters)))
 }
 
-/// Builds the shared AppState, creating all necessary components including all rate limiters.
+/// Builds the shared AppState, creating all necessary components.
 async fn build_shared_state(app_config: Arc<config::AppConfig>) -> Result<Arc<AppState>> {
-    // Build all limiters at startup.
     let configurable_limiter = build_global_limiter(&app_config)?;
     let (route_limiters, override_limiters) = build_route_limiters(&app_config)?;
 
@@ -167,28 +148,11 @@ async fn build_shared_state(app_config: Arc<config::AppConfig>) -> Result<Arc<Ap
 }
 
 /// Configures and runs all servers (HTTP, HTTPS/TCP, HTTPS/UDP).
-pub async fn run() -> Result<()> {
-    let app_config = match config::load_config() {
-        Ok(cfg) => Arc::new(cfg),
-        Err(e) => {
-            log(
-                LogLevel::Error,
-                &format!("Failed to load configuration: {}", e),
-            );
-            std::process::exit(1);
-        }
-    };
-
-    if app_config.domains.is_empty() {
-        return setup::handle_first_run().await;
-    }
-
+// MODIFIED: This function now accepts the pre-loaded config.
+pub async fn run(app_config: Arc<AppConfig>) -> Result<()> {
+    // MODIFIED: Removed config loading and first-run check, as it's now handled in main.rs.
     let state = build_shared_state(app_config.clone()).await?;
 
-    // The HTTP server is non-optional. If it fails to spawn, the application cannot continue.
-    // We convert the Option<JoinHandle> returned by spawn() into a Result.
-    // If the Option is None, .context() creates an error, which is then propagated by the `?` operator.
-    // If it's Some(handle), the `?` unwraps the Result, and we get the JoinHandle directly.
     let http_handle = http_server::spawn(app_config.clone(), state.clone())
         .await?
         .context("The primary HTTP server failed to start and is required.")?;
