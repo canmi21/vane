@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2024"
 description = "Vane is a minimal reverse proxy in Rust with domain-based routing, wildcard support, and automatic SSL via ACME."
 license = "MIT"
