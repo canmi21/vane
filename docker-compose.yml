@@ -1,15 +1,17 @@
 services:
-  jellyfish:
-    image: canmi/jellyfish:latest
-    container_name: jellyfish
+  vane:
+    image: canmi/vane:latest
+    container_name: vane
     networks:
       - internal
     env_file:
       - ./.env
     ports:
-      - "33433:33433/tcp"
+      - "80:80/tcp"
+      - "443:443/tcp"
+      - "443:443/udp"
     volumes:
-      - /opt/jellyfish:/root/jellyfish
+      - /opt/vane:/root/vane
     restart: unless-stopped
 
 networks:
