@@ -6,7 +6,7 @@ description = "Vane is a minimal reverse proxy in Rust with domain-based routing
 license = "MIT"
 repository = "https://github.com/canmi21/vane"
 readme = "README.md"
-keywords = ["network", "server", "web", "vane", "axum"]
+keywords = ["network", "server", "web", "vane", "proxy"]
 categories = ["network-programming", "web-programming", "development-tools"]
 
 [[bin]]
