@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "1.0.16"
+version = "1.2.1"
 edition = "2024"
 description = "Vane is a minimal reverse proxy in Rust with domain-based routing, wildcard support, and automatic SSL via ACME."
 license = "MIT"
@@ -24,6 +24,8 @@ tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.5", features = ["fs", "trace", "cors"] }
 rustls = { version = "0.23", features = ["ring", "aws-lc-rs"] }
 rustls-pemfile = "2"
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 hyper = { version = "1", features = ["full"] }
 hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
 http-body-util = "0.1"
