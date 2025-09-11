@@ -1,4 +1,4 @@
-IMAGE=canmi/jellyfish
+IMAGE=canmi/vane
 TAG=$(shell git rev-parse --short HEAD)
 
 build-and-push:
