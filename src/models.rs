@@ -54,6 +54,7 @@ pub struct MainConfig {
 pub struct Route {
     #[serde(default = "default_path")]
     pub path: String,
+    // This `Vec<String>` is what allows for multiple targets and the failover logic.
     pub targets: Vec<String>,
     #[allow(dead_code)]
     #[serde(default)]
