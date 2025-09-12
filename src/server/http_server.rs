@@ -16,7 +16,12 @@ pub async fn spawn(
 
     let router = Router::new()
         .fallback(proxy::proxy_handler)
-        // NEW: Add method filtering as one of the first layers.
+        // NEW: Inject custom server headers into the response. This should be the outermost layer.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::inject_response_headers_handler,
+        ))
+        // Add method filtering as one of the first layers.
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::method_filter_handler,

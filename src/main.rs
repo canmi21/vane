@@ -185,7 +185,6 @@ async fn main() -> Result<()> {
             env::set_var("RUST_LOG", "info");
         }
     }
-    // tracing_subscriber::fmt::init(); // This can be verbose, use simple logging for now.
 
     let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let log_level = match level.to_lowercase().as_str() {
@@ -214,10 +213,11 @@ async fn main() -> Result<()> {
     // 1. Load config ONCE.
     let app_config = Arc::new(config::load_config()?);
 
+    // --- FIX: Remove the incorrect assignment line ---
+    // app_config.server_header = std::env::var("SERVER").ok(); // THIS LINE IS REMOVED
+
     // 2. Check for first-run scenario.
     if app_config.domains.is_empty() {
-        // If it is the first run, perform setup and then exit.
-        // The background task and server will not be started.
         return setup::handle_first_run().await;
     }
 

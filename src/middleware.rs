@@ -16,6 +16,33 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+/// NEW: Middleware to inject custom 'Server' and 'Proxy' headers into every response.
+/// This should be one of the outermost layers to ensure it runs on all responses.
+pub async fn inject_response_headers_handler(
+    State(state): State<Arc<AppState>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response<Body> {
+    // Get the response from the inner services first
+    let mut res = next.run(req).await;
+
+    // Inject/override the 'Server' header if it's configured in the environment.
+    if let Some(server_name) = &state.config.server_header {
+        if let Ok(value) = HeaderValue::from_str(server_name) {
+            res.headers_mut().insert(header::SERVER, value);
+        }
+    }
+
+    // Inject the 'Proxy' header with the crate name and version.
+    // The CARGO_PKG_VERSION is embedded at compile-time.
+    let proxy_value = format!("vane/{}", env!("CARGO_PKG_VERSION"));
+    if let Ok(value) = HeaderValue::from_str(&proxy_value) {
+        res.headers_mut().insert("proxy", value);
+    }
+
+    res
+}
+
 /// NEW: Middleware to filter requests based on the HTTP method.
 /// This runs early to reject unauthorized methods before further processing.
 pub async fn method_filter_handler(

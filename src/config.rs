@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub cert_dir: PathBuf,
     pub cert_server: Option<String>,
     pub domains: HashMap<String, DomainConfig>,
+    pub server_header: Option<String>,
 }
 
 /// Returns the main config file path and its parent directory.
@@ -41,10 +42,12 @@ pub fn load_config() -> Result<AppConfig> {
         .parse::<u16>()
         .context("Invalid BIND_HTTPS_PORT")?;
 
-    // NEW: Load CERT_DIR and CERT_SERVER from environment.
     let cert_dir_str = env::var("CERT_DIR").unwrap_or_else(|_| "~/vane/certs".to_string());
     let cert_dir = PathBuf::from(shellexpand::tilde(&cert_dir_str).into_owned());
     let cert_server = env::var("CERT_SERVER").ok();
+
+    // --- FIX: Load the SERVER environment variable here ---
+    let server_header = env::var("SERVER").ok();
 
     if cert_server.is_some() {
         log(LogLevel::Info, "ACME Certificate Server is configured.");
@@ -60,12 +63,14 @@ pub fn load_config() -> Result<AppConfig> {
     );
 
     if !config_path.exists() {
+        // --- FIX: Initialize server_header field ---
         return Ok(AppConfig {
             http_port,
             https_port,
             cert_dir,
             cert_server,
             domains: HashMap::new(),
+            server_header, // Add the new field here
         });
     }
 
@@ -90,7 +95,6 @@ pub fn load_config() -> Result<AppConfig> {
         let domain_config: DomainConfig = toml::from_str(&domain_config_content)
             .with_context(|| format!("Failed to parse domain config for '{}'", hostname))?;
 
-        // Validate that if https is true, a tls config must exist.
         if domain_config.https && domain_config.tls.is_none() {
             return Err(anyhow!(
                 "Domain '{}' has https=true but no [tls] configuration.",
@@ -101,11 +105,13 @@ pub fn load_config() -> Result<AppConfig> {
         domains.insert(hostname, domain_config);
     }
 
+    // --- FIX: Initialize server_header field ---
     Ok(AppConfig {
         http_port,
         https_port,
         cert_dir,
         cert_server,
         domains,
+        server_header, // And also add it here
     })
 }
