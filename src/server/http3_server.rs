@@ -39,12 +39,12 @@ pub async fn spawn(
     let quic_crypto_config = QuinnRustlsServerConfig::try_from(Arc::new(server_config))?;
     let quic_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto_config));
 
-    let https_addr = SocketAddr::from(([0, 0, 0, 0], app_config.https_port));
+    let https_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], app_config.https_port));
 
     log(
         LogLevel::Info,
         &format!(
-            "Vane HTTPS/3 Server listening on UDP:{}",
+            "Vane HTTPS/3 Server listening on [::]:UDP:{}",
             app_config.https_port
         ),
     );

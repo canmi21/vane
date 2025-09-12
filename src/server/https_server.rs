@@ -25,12 +25,12 @@ pub async fn spawn(
     server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     let tls_config = RustlsConfig::from_config(Arc::new(server_config));
-    let https_addr = SocketAddr::from(([0, 0, 0, 0], app_config.https_port));
+    let https_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], app_config.https_port));
 
     log(
         LogLevel::Info,
         &format!(
-            "Vane HTTPS (H2, H1.1) server listening on TCP:{}",
+            "Vane HTTPS (H2, H1.1) server listening on [::]:TCP:{}",
             app_config.https_port
         ),
     );
