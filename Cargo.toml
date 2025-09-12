@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "1.2.6"
+version = "1.2.7"
 edition = "2024"
 description = "A lightweight Rust-based web proxy server with advanced routing, rate limiting, and HTTP/3 support."
 license = "AGPL-3.0"
