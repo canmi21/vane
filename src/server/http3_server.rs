@@ -53,9 +53,14 @@ pub async fn spawn(
     // to ensure consistent behavior for CORS, rate limiting, HSTS, etc.
     let router = Router::new()
         .fallback(proxy::proxy_handler)
+        // NEW: Inject custom server headers into the response. This should be the outermost layer.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::inject_response_headers_handler,
+        ))
         // Inject the host header first, as other middleware depends on it.
         .layer(axum_middleware::from_fn(middleware::inject_host_header))
-        // NEW: Add method filtering after host injection.
+        // Add method filtering after host injection.
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::method_filter_handler,
