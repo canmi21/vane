@@ -4,7 +4,6 @@ use crate::{error::VaneError, routing, state::AppState};
 use axum::{
     body::{Body, to_bytes},
     extract::State,
-    // MODIFIED: Removed unused StatusCode import.
     http::{Request, Version},
     response::Response,
 };
@@ -29,7 +28,6 @@ pub async fn proxy_handler(
     req: Request<Body>,
 ) -> Result<Response, VaneError> {
     let host_str = host.hostname();
-    // MODIFIED: Clone the path to an owned String to avoid borrow checker errors.
     let path = req.uri().path().to_owned();
 
     // Find the ordered list of target URLs for the matched route.
@@ -41,7 +39,22 @@ pub async fn proxy_handler(
         .get::<SocketAddr>()
         .map(|addr| addr.ip().to_string());
 
-    // MODIFIED: Removed `mut` from `parts` as it is not needed.
+    // --- START OF CORRECTION ---
+    //
+    // 1. Preserve the path and query from the original request by copying it into an owned `String`.
+    //    This avoids borrowing `req`, allowing us to consume it later with `req.into_parts()`.
+    //    - `.map(|pq| pq.as_str())` converts `Option<&PathAndQuery>` to `Option<&str>`.
+    //    - `.unwrap_or("/")` provides a default `&str` if there's no path and query.
+    //    - `.to_owned()` creates a new `String` from the `&str`, releasing the borrow on `req`.
+    let original_path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/")
+        .to_owned();
+    //
+    // --- END OF CORRECTION ---
+
     let (parts, body) = req.into_parts();
 
     // Buffer the body so it can be reused for each failover attempt.
@@ -54,17 +67,38 @@ pub async fn proxy_handler(
     // Iterate through the configured targets in order.
     let mut last_error: Option<anyhow::Error> = None;
     for target_url in target_urls {
+        // Clone the request parts and body for each attempt.
+        let mut attempt_parts = parts.clone();
+        let attempt_body = Body::from(body_bytes.clone());
+
+        // 2. Construct the full target URL.
+        let full_target_url = format!(
+            "{}{}",
+            target_url.strip_suffix('/').unwrap_or(&target_url),
+            &original_path_and_query // `format!` can borrow the String as `&str`
+        );
+
         log(
             LogLevel::Debug,
             &format!(
                 "Attempting to proxy request for {} to target: {}",
-                host_str, target_url
+                host_str,
+                full_target_url // Log using the fully constructed URL
             ),
         );
 
-        // Clone the request parts and body for each attempt.
-        let mut attempt_parts = parts.clone();
-        let attempt_body = Body::from(body_bytes.clone());
+        // 3. Parse the fully constructed URL.
+        let target_uri = match full_target_url.parse() {
+            Ok(uri) => uri,
+            Err(e) => {
+                last_error = Some(anyhow::anyhow!(
+                    "Invalid constructed target URL '{}': {}",
+                    full_target_url,
+                    e
+                ));
+                continue; // Try the next target
+            }
+        };
 
         // Clean any existing IP-related headers to prevent spoofing.
         for header in IP_HEADERS_TO_CLEAN {
@@ -77,19 +111,7 @@ pub async fn proxy_handler(
                 .insert("X-Forwarded-For", ip.parse().unwrap());
         }
 
-        // Parse the target URL into a URI.
-        let target_uri = match target_url.parse() {
-            Ok(uri) => uri,
-            Err(e) => {
-                last_error = Some(anyhow::anyhow!(
-                    "Invalid target URL '{}': {}",
-                    target_url,
-                    e
-                ));
-                continue; // Try the next target
-            }
-        };
-
+        // Use the newly constructed URI which includes the correct path
         attempt_parts.uri = target_uri;
         attempt_parts.version = Version::HTTP_11;
 
@@ -98,41 +120,38 @@ pub async fn proxy_handler(
         // Send the request to the current target.
         match state.http_client.request(attempt_req).await {
             Ok(response) => {
-                // A successful response from the backend (even a 4xx client error) means we stop here.
-                // We only failover on 5xx server errors.
                 if !response.status().is_server_error() {
                     log(
                         LogLevel::Debug,
                         &format!(
                             "Successfully proxied to {}. Returning response.",
-                            target_url
+                            full_target_url // Use the full URL in the success log
                         ),
                     );
                     return Ok(response.map(Body::new));
                 }
 
-                // It was a 5xx error, log it and prepare to try the next target.
                 log(
                     LogLevel::Warn,
                     &format!(
                         "Target {} returned server error: {}. Trying next target.",
-                        target_url,
+                        full_target_url, // Use the full URL in the warning log
                         response.status()
                     ),
                 );
                 last_error = Some(anyhow::anyhow!(
                     "Target '{}' failed with status {}",
-                    target_url,
+                    full_target_url, // Use the full URL in the error message
                     response.status()
                 ));
             }
             Err(e) => {
-                // A connection-level error occurred.
                 log(
                     LogLevel::Warn,
                     &format!(
                         "Connection to target {} failed: {}. Trying next target.",
-                        target_url, e
+                        full_target_url,
+                        e // Use the full URL in the connection error log
                     ),
                 );
                 last_error = Some(e.into());
