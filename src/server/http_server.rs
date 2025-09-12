@@ -12,7 +12,7 @@ pub async fn spawn(
     app_config: Arc<AppConfig>,
     state: Arc<AppState>,
 ) -> Result<Option<JoinHandle<Result<(), std::io::Error>>>> {
-    let http_addr = SocketAddr::from(([0, 0, 0, 0], app_config.http_port));
+    let http_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], app_config.http_port));
 
     let router = Router::new()
         .fallback(proxy::proxy_handler)
@@ -39,7 +39,7 @@ pub async fn spawn(
     log(
         LogLevel::Info,
         &format!(
-            "Vane HTTP/1.1 Server listening on TCP:{}",
+            "Vane HTTP/1.1 Server listening on [::]:TCP:{}",
             app_config.http_port
         ),
     );
