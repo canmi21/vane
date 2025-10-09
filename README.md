@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>Flow-based. Event-driven. Rust-native.</b>
+  <b>Flow-based. Event-driven. Rust-native.<br/>Like a dandelion carried by the wind, it follows direction yet defines its own.</b>
 </p>
 
 <p align="center">
