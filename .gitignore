@@ -24,8 +24,9 @@ coverage
 *.tsbuildinfo
 
 # rust
-target
 pkg
+target
+filerouter
 
 # Editor directories and files
 .vscode/*
