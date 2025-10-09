@@ -17,6 +17,10 @@
 
 ---
 
+🚧 **Currently under active development.** 🏷️ **Latest stable version:** [**v1.2.9**](https://github.com/canmi21/vane/tree/v1.2.9)
+
+---
+
 <p align="left">
   <b>✨ If you found this project helpful, consider supporting domain & server maintenance:</b><br>
   <b>Polygon / Ethereum:</b> <code>0x35D143d9DC624feC921a3925Fa84dea9d1DfDCAe</code>
