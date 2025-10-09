@@ -135,3 +135,9 @@ For development, build from source: `cargo build --release`.
 AGPL-3.0 (see LICENSE file).
 
 For more details, visit the repository: https://github.com/canmi21/vane.
+
+<img src="https://raw.githubusercontent.com/canmi21/vane/refs/heads/main/img/qrcode.png" alt="sponsor" width="330">
+
+`如果窝帮助到你的话可以支持一下窝养域名和服务器`
+
+**Polygon & Ethereum** 0x35D143d9DC624feC921a3925Fa84dea9d1DfDCAe
