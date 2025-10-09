@@ -1,11 +1,11 @@
 [package]
 name = "vane"
-version = "2.1.10"
+version = "2.2.0"
 edition = "2024"
 description = "A flow-based, event-driven Rust reverse proxy engine with hot-reloadable routing, unified middleware runtime, and HTTP/3 support."
 license = "AGPL-3.0"
 repository = "https://github.com/canmi21/vane"
-readme = "README.md"
+readme = "./../README.md"
 keywords = ["network", "server", "web", "vane", "proxy"]
 categories = ["network-programming", "web-programming", "development-tools"]
 
