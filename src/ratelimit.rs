@@ -22,8 +22,8 @@ pub fn find_best_match<'a>(
     let mut best_match: Option<FoundMatch<'a>> = None;
 
     for (pattern, limiter) in limiters.iter() {
-        // FIX: Call the shared function.
-        if let Some(score) = path_matcher::get_match_score(pattern, full_path) {
+        // FIX: Call the shared function. This should now work.
+        if let Some(score) = path_matcher::get_match_score(full_path, pattern) {
             log(
                 LogLevel::Debug,
                 &format!(
