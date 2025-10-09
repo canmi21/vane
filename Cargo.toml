@@ -1,8 +1,8 @@
 [package]
 name = "vane"
-version = "1.2.15"
+version = "2.0.0"
 edition = "2024"
-description = "A lightweight Rust-based web proxy server with advanced routing, rate limiting, and HTTP/3 support."
+description = "A flow-based, event-driven Rust reverse proxy engine with hot-reloadable routing, unified middleware runtime, and HTTP/3 support."
 license = "AGPL-3.0"
 repository = "https://github.com/canmi21/vane"
 readme = "README.md"
@@ -21,7 +21,7 @@ axum-extra = { version = "0.10", features = ["typed-header"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tower = { version = "0.5", features = ["full"] }
-tower-http = { version = "0.5", features = ["fs", "trace", "cors"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
 rustls = { version = "0.23", features = ["ring", "aws-lc-rs"] }
 rustls-pemfile = "2"
 base64 = "0.22"
