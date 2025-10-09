@@ -20,7 +20,7 @@ pub async fn start() {
 	let port = env::var("PORT")
 		.ok()
 		.and_then(|s| s.parse::<u16>().ok())
-		.unwrap_or(23333);
+		.unwrap_or(3333);
 
 	// Check for the new environment variable. Default to `true` if not specified.
 	let detect_public_network = env::var("DETECT_PUBLIC_NETWORK")
