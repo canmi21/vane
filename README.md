@@ -6,23 +6,23 @@
   <b>Flow-based. Event-driven. Rust-native.</b>
 </p>
 
-<p align="center" style="display:flex; justify-content:center; flex-wrap:wrap; gap:8px;">
+<p align="center">
   <a href="https://crates.io/crates/vane">
     <img src="https://img.shields.io/crates/v/vane?style=flat-rounded&color=F09E64&labelColor=2D333B&logo=rust" alt="Crates.io version">
-  </a>
-  <a href="https://github.com/canmi21/vane/blob/main/LICENSE">
+  </a><!--
+--><a href="https://github.com/canmi21/vane/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/canmi21/vane?style=flat-rounded&color=FF6B6B&labelColor=2D333B&logo=github" alt="License">
-  </a>
-  <a href="https://github.com/canmi21/vane/graphs/contributors">
+  </a><!--
+--><a href="https://github.com/canmi21/vane/graphs/contributors">
     <img src="https://img.shields.io/github/contributors/canmi21/vane?style=flat-rounded&color=6FCF97&labelColor=2D333B&logo=github" alt="Contributors">
-  </a>
-  <a href="https://github.com/canmi21/vane/actions">
+  </a><!--
+--><a href="https://github.com/canmi21/vane/actions">
     <img src="https://img.shields.io/github/actions/workflow/status/canmi21/vane/ci.yml?style=flat-rounded&color=3399FF&labelColor=2D333B&logo=githubactions" alt="Build Status">
-  </a>
-  <a href="https://crates.io/crates/vane">
+  </a><!--
+--><a href="https://crates.io/crates/vane">
     <img src="https://img.shields.io/crates/d/vane?style=flat-rounded&color=9B5DE5&labelColor=2D333B&logo=rust" alt="Downloads">
-  </a>
-  <a href="https://github.com/canmi21/vane/stargazers">
+  </a><!--
+--><a href="https://github.com/canmi21/vane/stargazers">
     <img src="https://img.shields.io/github/stars/canmi21/vane?style=flat-rounded&color=FFD43B&labelColor=2D333B&logo=github" alt="GitHub stars">
   </a>
 </p>
