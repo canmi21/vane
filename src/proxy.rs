@@ -4,14 +4,20 @@ use crate::{error::VaneError, routing, state::AppState};
 use axum::{
     body::{Body, to_bytes},
     extract::State,
-    http::{Request, Version},
-    response::Response,
+    http::{Request, StatusCode, Version, header},
+    response::{IntoResponse, Response},
 };
 use axum_extra::typed_header::TypedHeader;
 use fancy_log::{LogLevel, log};
+// FIX: Import the trait that provides the `map_err` method for futures.
+use futures_util::TryFutureExt;
 use headers::Host;
+use hyper::upgrade::OnUpgrade;
+// FIX: Import the TokioIo adapter to make hyper streams compatible with tokio I/O.
+use hyper_util::rt::tokio::TokioIo;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::io::copy_bidirectional;
 
 const IP_HEADERS_TO_CLEAN: &[&str] = &[
     "x-real-ip",
@@ -21,154 +27,211 @@ const IP_HEADERS_TO_CLEAN: &[&str] = &[
     "forwarded",
 ];
 
+/// Checks if a request has the required headers for a WebSocket upgrade.
+fn is_websocket_upgrade(req: &Request<Body>) -> bool {
+    req.headers()
+        .get(header::CONNECTION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| {
+            s.split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case("upgrade"))
+        })
+        .unwrap_or(false)
+        && req
+            .headers()
+            .get(header::UPGRADE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.eq_ignore_ascii_case("websocket"))
+            .unwrap_or(false)
+}
+
+/// Spawns a background task to proxy a bidirectional TCP stream.
+// MODIFIED: This function no longer returns a Result. It's fire-and-forget.
+fn spawn_websocket_proxy(client_upgraded: OnUpgrade, backend_upgraded: OnUpgrade) {
+    tokio::spawn(async move {
+        // Await both upgrade futures to get the raw I/O streams.
+        match tokio::try_join!(client_upgraded, backend_upgraded) {
+            Ok((client_upgraded, backend_upgraded)) => {
+                // FIX: Wrap the hyper::upgrade::Upgraded types in TokioIo.
+                let mut client_socket = TokioIo::new(client_upgraded);
+                let mut backend_socket = TokioIo::new(backend_upgraded);
+
+                // Copy data in both directions until one of the connections is closed.
+                if let Err(e) = copy_bidirectional(&mut client_socket, &mut backend_socket).await {
+                    log(
+                        LogLevel::Debug,
+                        &format!("WebSocket proxy stream ended: {}", e),
+                    );
+                }
+            }
+            Err(e) => {
+                log(
+                    LogLevel::Warn,
+                    &format!("WebSocket connection upgrade failed: {}", e),
+                );
+            }
+        }
+    });
+}
+
 #[axum::debug_handler]
 pub async fn proxy_handler(
     State(state): State<Arc<AppState>>,
     TypedHeader(host): TypedHeader<Host>,
-    req: Request<Body>,
+    mut req: Request<Body>,
 ) -> Result<Response, VaneError> {
     let host_str = host.hostname();
     let path = req.uri().path().to_owned();
 
-    // Find the ordered list of target URLs for the matched route.
-    let target_urls =
-        routing::find_target_urls(host_str, &path, &state)?.ok_or(VaneError::NoRouteFound)?;
+    // Find the best-matching route configuration.
+    // MODIFIED: Use the correct routing function based on our previous changes.
+    let matched_route =
+        routing::find_matched_route(host_str, &path, &state)?.ok_or(VaneError::NoRouteFound)?;
 
-    let client_ip = req
-        .extensions()
-        .get::<SocketAddr>()
-        .map(|addr| addr.ip().to_string());
-
-    // --- START OF CORRECTION ---
-    //
-    // 1. Preserve the path and query from the original request by copying it into an owned `String`.
-    //    This avoids borrowing `req`, allowing us to consume it later with `req.into_parts()`.
-    //    - `.map(|pq| pq.as_str())` converts `Option<&PathAndQuery>` to `Option<&str>`.
-    //    - `.unwrap_or("/")` provides a default `&str` if there's no path and query.
-    //    - `.to_owned()` creates a new `String` from the `&str`, releasing the borrow on `req`.
-    let original_path_and_query = req
-        .uri()
-        .path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/")
-        .to_owned();
-    //
-    // --- END OF CORRECTION ---
-
-    let (parts, body) = req.into_parts();
-
-    // Buffer the body so it can be reused for each failover attempt.
-    let body_bytes = match to_bytes(body, usize::MAX).await {
-        Ok(bytes) => bytes,
-        Err(e) => return Err(VaneError::BadGateway(e.into())),
-    };
-
-    // --- FAILOVER LOOP ---
-    // Iterate through the configured targets in order.
-    let mut last_error: Option<anyhow::Error> = None;
-    for target_url in target_urls {
-        // Clone the request parts and body for each attempt.
-        let mut attempt_parts = parts.clone();
-        let attempt_body = Body::from(body_bytes.clone());
-
-        // 2. Construct the full target URL.
-        let full_target_url = format!(
-            "{}{}",
-            target_url.strip_suffix('/').unwrap_or(&target_url),
-            &original_path_and_query // `format!` can borrow the String as `&str`
-        );
-
+    // --- BRANCH 1: WEBSOCKET PROXY LOGIC ---
+    if matched_route.websocket && is_websocket_upgrade(&req) {
         log(
             LogLevel::Debug,
+            &format!("Attempting WebSocket upgrade for {} {}", host_str, path),
+        );
+
+        let target_url = matched_route
+            .targets
+            .first()
+            .ok_or(VaneError::NoRouteFound)?;
+
+        // FIX: The `on` function now returns a future that we must await later.
+        // The error handling using `map_err` is now possible because the trait is in scope.
+        let on_upgrade =
+            hyper::upgrade::on(&mut req).map_err(|e| VaneError::BadGateway(e.into()))?;
+
+        // Construct the proxy request to the backend.
+        let (mut parts, body) = Request::new(req.into_body()).into_parts();
+        parts.uri = target_url
+            .parse()
+            .map_err(|e| VaneError::BadGateway(anyhow::anyhow!(e)))?;
+        let proxy_req = Request::from_parts(parts, body);
+
+        let backend_response = state.http_client.request(proxy_req).await;
+
+        match backend_response {
+            Ok(mut res) if res.status() == StatusCode::SWITCHING_PROTOCOLS => {
+                // FIX: Handle the backend upgrade in the same way.
+                let backend_on_upgrade =
+                    hyper::upgrade::on(&mut res).map_err(|e| VaneError::BadGateway(e.into()))?;
+
+                // MODIFIED: Call the fire-and-forget spawn function without await.
+                spawn_websocket_proxy(on_upgrade, backend_on_upgrade);
+
+                Ok(res.into_response())
+            }
+            Ok(res) => {
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "WebSocket upgrade failed. Backend for {} returned status: {}",
+                        host_str,
+                        res.status()
+                    ),
+                );
+                Ok(res.into_response())
+            }
+            Err(e) => Err(VaneError::BadGateway(e.into())),
+        }
+    }
+    // --- BRANCH 2: STANDARD HTTP PROXY LOGIC (FAILOVER SUPPORT) ---
+    else {
+        let client_ip = req
+            .extensions()
+            .get::<SocketAddr>()
+            .map(|addr| addr.ip().to_string());
+
+        let original_path_and_query = req
+            .uri()
+            .path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or("/")
+            .to_owned();
+
+        let (parts, body) = req.into_parts();
+
+        let body_bytes = match to_bytes(body, usize::MAX).await {
+            Ok(bytes) => bytes,
+            Err(e) => return Err(VaneError::BadGateway(e.into())),
+        };
+
+        let mut last_error: Option<anyhow::Error> = None;
+        for target_url in &matched_route.targets {
+            let mut attempt_parts = parts.clone();
+            let attempt_body = Body::from(body_bytes.clone());
+
+            let full_target_url = format!(
+                "{}{}",
+                target_url.strip_suffix('/').unwrap_or(target_url),
+                &original_path_and_query
+            );
+
+            log(
+                LogLevel::Debug,
+                &format!(
+                    "Attempting to proxy request for {} to target: {}",
+                    host_str, full_target_url
+                ),
+            );
+
+            let target_uri = match full_target_url.parse() {
+                Ok(uri) => uri,
+                Err(e) => {
+                    last_error = Some(anyhow::anyhow!(
+                        "Invalid constructed target URL '{}': {}",
+                        full_target_url,
+                        e
+                    ));
+                    continue;
+                }
+            };
+
+            for header in IP_HEADERS_TO_CLEAN {
+                attempt_parts.headers.remove(*header);
+            }
+            if let Some(ip) = &client_ip {
+                attempt_parts
+                    .headers
+                    .insert("X-Forwarded-For", ip.parse().unwrap());
+            }
+
+            attempt_parts.uri = target_uri;
+            attempt_parts.version = Version::HTTP_11;
+
+            let attempt_req = Request::from_parts(attempt_parts, attempt_body);
+
+            match state.http_client.request(attempt_req).await {
+                Ok(response) => {
+                    if !response.status().is_server_error() {
+                        return Ok(response.map(Body::new));
+                    }
+                    last_error = Some(anyhow::anyhow!(
+                        "Target '{}' failed with status {}",
+                        full_target_url,
+                        response.status()
+                    ));
+                }
+                Err(e) => {
+                    last_error = Some(e.into());
+                }
+            }
+        }
+
+        log(
+            LogLevel::Error,
             &format!(
-                "Attempting to proxy request for {} to target: {}",
-                host_str,
-                full_target_url // Log using the fully constructed URL
+                "All backend targets failed for request to {} {}",
+                host_str, path
             ),
         );
 
-        // 3. Parse the fully constructed URL.
-        let target_uri = match full_target_url.parse() {
-            Ok(uri) => uri,
-            Err(e) => {
-                last_error = Some(anyhow::anyhow!(
-                    "Invalid constructed target URL '{}': {}",
-                    full_target_url,
-                    e
-                ));
-                continue; // Try the next target
-            }
-        };
-
-        // Clean any existing IP-related headers to prevent spoofing.
-        for header in IP_HEADERS_TO_CLEAN {
-            attempt_parts.headers.remove(*header);
-        }
-        // Add the X-Forwarded-For header with the real client IP.
-        if let Some(ip) = &client_ip {
-            attempt_parts
-                .headers
-                .insert("X-Forwarded-For", ip.parse().unwrap());
-        }
-
-        // Use the newly constructed URI which includes the correct path
-        attempt_parts.uri = target_uri;
-        attempt_parts.version = Version::HTTP_11;
-
-        let attempt_req = Request::from_parts(attempt_parts, attempt_body);
-
-        // Send the request to the current target.
-        match state.http_client.request(attempt_req).await {
-            Ok(response) => {
-                if !response.status().is_server_error() {
-                    log(
-                        LogLevel::Debug,
-                        &format!(
-                            "Successfully proxied to {}. Returning response.",
-                            full_target_url // Use the full URL in the success log
-                        ),
-                    );
-                    return Ok(response.map(Body::new));
-                }
-
-                log(
-                    LogLevel::Warn,
-                    &format!(
-                        "Target {} returned server error: {}. Trying next target.",
-                        full_target_url, // Use the full URL in the warning log
-                        response.status()
-                    ),
-                );
-                last_error = Some(anyhow::anyhow!(
-                    "Target '{}' failed with status {}",
-                    full_target_url, // Use the full URL in the error message
-                    response.status()
-                ));
-            }
-            Err(e) => {
-                log(
-                    LogLevel::Warn,
-                    &format!(
-                        "Connection to target {} failed: {}. Trying next target.",
-                        full_target_url,
-                        e // Use the full URL in the connection error log
-                    ),
-                );
-                last_error = Some(e.into());
-            }
-        }
+        Err(VaneError::BadGateway(last_error.unwrap_or_else(|| {
+            anyhow::anyhow!("No available backend targets could handle the request.")
+        })))
     }
-
-    // If the loop finishes, all targets have failed.
-    log(
-        LogLevel::Error,
-        &format!(
-            "All backend targets failed for request to {} {}",
-            host_str, path
-        ),
-    );
-
-    Err(VaneError::BadGateway(last_error.unwrap_or_else(|| {
-        anyhow::anyhow!("No available backend targets could handle the request.")
-    })))
 }
