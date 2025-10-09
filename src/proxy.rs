@@ -9,11 +9,8 @@ use axum::{
 };
 use axum_extra::typed_header::TypedHeader;
 use fancy_log::{LogLevel, log};
-// FIX: Import the trait that provides the `map_err` method for futures.
-use futures_util::TryFutureExt;
 use headers::Host;
 use hyper::upgrade::OnUpgrade;
-// FIX: Import the TokioIo adapter to make hyper streams compatible with tokio I/O.
 use hyper_util::rt::tokio::TokioIo;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -46,17 +43,13 @@ fn is_websocket_upgrade(req: &Request<Body>) -> bool {
 }
 
 /// Spawns a background task to proxy a bidirectional TCP stream.
-// MODIFIED: This function no longer returns a Result. It's fire-and-forget.
 fn spawn_websocket_proxy(client_upgraded: OnUpgrade, backend_upgraded: OnUpgrade) {
     tokio::spawn(async move {
-        // Await both upgrade futures to get the raw I/O streams.
         match tokio::try_join!(client_upgraded, backend_upgraded) {
             Ok((client_upgraded, backend_upgraded)) => {
-                // FIX: Wrap the hyper::upgrade::Upgraded types in TokioIo.
                 let mut client_socket = TokioIo::new(client_upgraded);
                 let mut backend_socket = TokioIo::new(backend_upgraded);
 
-                // Copy data in both directions until one of the connections is closed.
                 if let Err(e) = copy_bidirectional(&mut client_socket, &mut backend_socket).await {
                     log(
                         LogLevel::Debug,
@@ -83,8 +76,6 @@ pub async fn proxy_handler(
     let host_str = host.hostname();
     let path = req.uri().path().to_owned();
 
-    // Find the best-matching route configuration.
-    // MODIFIED: Use the correct routing function based on our previous changes.
     let matched_route =
         routing::find_matched_route(host_str, &path, &state)?.ok_or(VaneError::NoRouteFound)?;
 
@@ -100,29 +91,46 @@ pub async fn proxy_handler(
             .first()
             .ok_or(VaneError::NoRouteFound)?;
 
-        // FIX: The `on` function now returns a future that we must await later.
-        // The error handling using `map_err` is now possible because the trait is in scope.
-        let on_upgrade =
-            hyper::upgrade::on(&mut req).map_err(|e| VaneError::BadGateway(e.into()))?;
+        // FIX: `hyper::upgrade::on` returns `OnUpgrade` directly.
+        // It does not return a `Result` and cannot be used with `?`.
+        // Error handling happens when we `.await` this future.
+        let on_upgrade = hyper::upgrade::on(&mut req);
 
-        // Construct the proxy request to the backend.
-        let (mut parts, body) = Request::new(req.into_body()).into_parts();
-        parts.uri = target_url
-            .parse()
+        // FIX: Modify the existing request instead of creating a new one.
+        // This preserves all necessary headers and extensions.
+        let original_uri = req.uri().clone();
+        let (parts, query) = (original_uri.parts(), original_uri.query());
+
+        // FIX: Explicitly parse into `axum::http::Uri` to fix type inference error.
+        let mut uri_builder = target_url
+            .parse::<axum::http::Uri>()
+            .map_err(|e| VaneError::BadGateway(anyhow::anyhow!(e)))?
+            .into_parts();
+
+        // Preserve the original path and query.
+        uri_builder.path_and_query = parts.path_and_query.clone();
+        if query.is_some() {
+            let new_path_and_query = format!(
+                "{}?{}",
+                uri_builder.path_and_query.unwrap().as_str(),
+                query.unwrap()
+            );
+            uri_builder.path_and_query = Some(new_path_and_query.parse().unwrap());
+        }
+
+        let new_uri = axum::http::Uri::from_parts(uri_builder)
             .map_err(|e| VaneError::BadGateway(anyhow::anyhow!(e)))?;
-        let proxy_req = Request::from_parts(parts, body);
 
-        let backend_response = state.http_client.request(proxy_req).await;
+        // Update the URI of the original request.
+        *req.uri_mut() = new_uri;
+
+        let backend_response = state.http_client.request(req).await;
 
         match backend_response {
             Ok(mut res) if res.status() == StatusCode::SWITCHING_PROTOCOLS => {
-                // FIX: Handle the backend upgrade in the same way.
-                let backend_on_upgrade =
-                    hyper::upgrade::on(&mut res).map_err(|e| VaneError::BadGateway(e.into()))?;
-
-                // MODIFIED: Call the fire-and-forget spawn function without await.
+                // FIX: Same as above, `hyper::upgrade::on` returns the future directly.
+                let backend_on_upgrade = hyper::upgrade::on(&mut res);
                 spawn_websocket_proxy(on_upgrade, backend_on_upgrade);
-
                 Ok(res.into_response())
             }
             Ok(res) => {
