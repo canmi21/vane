@@ -4,7 +4,7 @@ use crate::{error::VaneError, routing, state::AppState};
 use axum::{
     body::{Body, to_bytes},
     extract::State,
-    http::{Request, StatusCode, Version, header},
+    http::{HeaderMap, Request, StatusCode, Version, header},
     response::{IntoResponse, Response},
 };
 use axum_extra::typed_header::TypedHeader;
@@ -16,6 +16,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::copy_bidirectional;
 
+// FIX: This constant will now be used by a helper function.
 const IP_HEADERS_TO_CLEAN: &[&str] = &[
     "x-real-ip",
     "x-forwarded-for",
@@ -26,20 +27,24 @@ const IP_HEADERS_TO_CLEAN: &[&str] = &[
 
 /// Checks if a request has the required headers for a WebSocket upgrade.
 fn is_websocket_upgrade(req: &Request<Body>) -> bool {
-    req.headers()
+    let is_upgrade = req
+        .headers()
         .get(header::CONNECTION)
         .and_then(|v| v.to_str().ok())
         .map(|s| {
             s.split(',')
                 .any(|part| part.trim().eq_ignore_ascii_case("upgrade"))
         })
-        .unwrap_or(false)
-        && req
-            .headers()
-            .get(header::UPGRADE)
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.eq_ignore_ascii_case("websocket"))
-            .unwrap_or(false)
+        .unwrap_or(false);
+
+    let is_websocket = req
+        .headers()
+        .get(header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+
+    is_upgrade && is_websocket
 }
 
 /// Spawns a background task to proxy a bidirectional TCP stream.
@@ -47,6 +52,10 @@ fn spawn_websocket_proxy(client_upgraded: OnUpgrade, backend_upgraded: OnUpgrade
     tokio::spawn(async move {
         match tokio::try_join!(client_upgraded, backend_upgraded) {
             Ok((client_upgraded, backend_upgraded)) => {
+                log(
+                    LogLevel::Debug,
+                    "Successfully upgraded both client and backend connections.",
+                );
                 let mut client_socket = TokioIo::new(client_upgraded);
                 let mut backend_socket = TokioIo::new(backend_upgraded);
 
@@ -67,6 +76,21 @@ fn spawn_websocket_proxy(client_upgraded: OnUpgrade, backend_upgraded: OnUpgrade
     });
 }
 
+// NEW: Helper function to sanitize IP headers and set the correct forwarded IP.
+fn sanitize_headers_and_set_forwarded_ip(headers: &mut HeaderMap, client_ip: Option<&String>) {
+    // Remove any IP-related headers from the incoming request to prevent spoofing.
+    for header_name in IP_HEADERS_TO_CLEAN {
+        headers.remove(*header_name);
+    }
+
+    // Add the real client IP as the X-Forwarded-For header.
+    if let Some(ip) = client_ip {
+        if let Ok(ip_header) = ip.parse() {
+            headers.insert("X-Forwarded-For", ip_header);
+        }
+    }
+}
+
 #[axum::debug_handler]
 pub async fn proxy_handler(
     State(state): State<Arc<AppState>>,
@@ -75,73 +99,91 @@ pub async fn proxy_handler(
 ) -> Result<Response, VaneError> {
     let host_str = host.hostname();
     let path = req.uri().path().to_owned();
+    log(
+        LogLevel::Debug,
+        &format!(
+            "Proxy handler received request for host '{}', path '{}'",
+            host_str, path
+        ),
+    );
+
+    let client_ip = req
+        .extensions()
+        .get::<SocketAddr>()
+        .map(|addr| addr.ip().to_string());
 
     let matched_route =
         routing::find_matched_route(host_str, &path, &state)?.ok_or(VaneError::NoRouteFound)?;
+    log(
+        LogLevel::Debug,
+        &format!(
+            "Matched route: path='{}', websocket={}",
+            matched_route.path, matched_route.websocket
+        ),
+    );
 
     // --- BRANCH 1: WEBSOCKET PROXY LOGIC ---
     if matched_route.websocket && is_websocket_upgrade(&req) {
-        log(
-            LogLevel::Debug,
-            &format!("Attempting WebSocket upgrade for {} {}", host_str, path),
-        );
+        log(LogLevel::Debug, "Entering WebSocket proxy branch.");
 
         let target_url = matched_route
             .targets
             .first()
             .ok_or(VaneError::NoRouteFound)?;
+        log(
+            LogLevel::Debug,
+            &format!("Selected WebSocket target: {}", target_url),
+        );
 
         let on_upgrade = hyper::upgrade::on(&mut req);
 
-        // FIX: The logic to combine the target URL with the original request's path
-        // has been corrected and simplified.
-
-        // 1. Deconstruct the target URL into its parts (scheme, authority).
         let mut target_parts = target_url
             .parse::<axum::http::Uri>()
             .map_err(|e| VaneError::BadGateway(anyhow::anyhow!("Invalid target URL: {}", e)))?
             .into_parts();
 
-        // 2. Deconstruct the original request URL and take its path and query.
         let original_parts = req.uri().clone().into_parts();
         target_parts.path_and_query = original_parts.path_and_query;
 
-        // 3. Rebuild the final URI from the combined parts.
         let new_uri = axum::http::Uri::from_parts(target_parts).map_err(|e| {
             VaneError::BadGateway(anyhow::anyhow!("Failed to build proxy URI: {}", e))
         })?;
+        log(
+            LogLevel::Debug,
+            &format!("Forwarding WebSocket request to URI: {}", new_uri),
+        );
 
-        // 4. Update the URI of the original request.
         *req.uri_mut() = new_uri;
+
+        // FIX: Sanitize headers before forwarding the WebSocket upgrade request.
+        sanitize_headers_and_set_forwarded_ip(req.headers_mut(), client_ip.as_ref());
 
         let backend_response = state.http_client.request(req).await;
 
         match backend_response {
-            Ok(mut res) if res.status() == StatusCode::SWITCHING_PROTOCOLS => {
-                let backend_on_upgrade = hyper::upgrade::on(&mut res);
-                spawn_websocket_proxy(on_upgrade, backend_on_upgrade);
-                Ok(res.into_response())
-            }
-            Ok(res) => {
+            Ok(mut res) => {
                 log(
-                    LogLevel::Warn,
-                    &format!(
-                        "WebSocket upgrade failed. Backend for {} returned status: {}",
-                        host_str,
-                        res.status()
-                    ),
+                    LogLevel::Debug,
+                    &format!("Backend responded with status: {}", res.status()),
                 );
+                if res.status() == StatusCode::SWITCHING_PROTOCOLS {
+                    let backend_on_upgrade = hyper::upgrade::on(&mut res);
+                    spawn_websocket_proxy(on_upgrade, backend_on_upgrade);
+                }
                 Ok(res.into_response())
             }
-            Err(e) => Err(VaneError::BadGateway(e.into())),
+            Err(e) => {
+                log(
+                    LogLevel::Error,
+                    &format!("Error connecting to WebSocket backend: {}", e),
+                );
+                Err(VaneError::BadGateway(e.into()))
+            }
         }
     }
     // --- BRANCH 2: STANDARD HTTP PROXY LOGIC (FAILOVER SUPPORT) ---
     else {
-        let client_ip = req
-            .extensions()
-            .get::<SocketAddr>()
-            .map(|addr| addr.ip().to_string());
+        log(LogLevel::Debug, "Entering standard HTTP proxy branch.");
 
         let original_path_and_query = req
             .uri()
@@ -149,9 +191,7 @@ pub async fn proxy_handler(
             .map(|pq| pq.as_str())
             .unwrap_or("/")
             .to_owned();
-
         let (parts, body) = req.into_parts();
-
         let body_bytes = match to_bytes(body, usize::MAX).await {
             Ok(bytes) => bytes,
             Err(e) => return Err(VaneError::BadGateway(e.into())),
@@ -167,15 +207,6 @@ pub async fn proxy_handler(
                 target_url.strip_suffix('/').unwrap_or(target_url),
                 &original_path_and_query
             );
-
-            log(
-                LogLevel::Debug,
-                &format!(
-                    "Attempting to proxy request for {} to target: {}",
-                    host_str, full_target_url
-                ),
-            );
-
             let target_uri = match full_target_url.parse() {
                 Ok(uri) => uri,
                 Err(e) => {
@@ -188,14 +219,8 @@ pub async fn proxy_handler(
                 }
             };
 
-            for header in IP_HEADERS_TO_CLEAN {
-                attempt_parts.headers.remove(*header);
-            }
-            if let Some(ip) = &client_ip {
-                attempt_parts
-                    .headers
-                    .insert("X-Forwarded-For", ip.parse().unwrap());
-            }
+            // FIX: Use the helper function to properly sanitize headers for the HTTP request.
+            sanitize_headers_and_set_forwarded_ip(&mut attempt_parts.headers, client_ip.as_ref());
 
             attempt_parts.uri = target_uri;
             attempt_parts.version = Version::HTTP_11;
@@ -218,14 +243,6 @@ pub async fn proxy_handler(
                 }
             }
         }
-
-        log(
-            LogLevel::Error,
-            &format!(
-                "All backend targets failed for request to {} {}",
-                host_str, path
-            ),
-        );
 
         Err(VaneError::BadGateway(last_error.unwrap_or_else(|| {
             anyhow::anyhow!("No available backend targets could handle the request.")
