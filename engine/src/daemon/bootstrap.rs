@@ -1,6 +1,6 @@
 /* engine/src/daemon/bootstrap.rs */
 
-use crate::daemon::router;
+use crate::daemon::{config, router};
 use anynet::anynet;
 use axum::serve;
 use dotenvy::dotenv;
@@ -16,6 +16,8 @@ pub async fn start() {
 	dotenv().ok();
 	setup_logging();
 	print_motd();
+
+	config::initialize_config_directory();
 
 	let port = env::var("PORT")
 		.ok()
