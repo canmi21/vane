@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "1.2.8"
+version = "1.2.15"
 edition = "2024"
 description = "A lightweight Rust-based web proxy server with advanced routing, rate limiting, and HTTP/3 support."
 license = "AGPL-3.0"
@@ -26,10 +26,11 @@ rustls = { version = "0.23", features = ["ring", "aws-lc-rs"] }
 rustls-pemfile = "2"
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
 hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
-http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["full"] }
+futures-util = "0.3"
 dotenvy = "0.15"
 fancy-log = "0.1"
 shellexpand = "3"
