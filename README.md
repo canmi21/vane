@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/canmi21/vane/refs/heads/latest/img/vane.svg" alt="vane logo" width="300">
+  <img src="https://raw.githubusercontent.com/canmi21/vane/refs/heads/latest/assets/vane.svg" alt="vane logo" width="300">
 </p>
 
 <p align="center">
