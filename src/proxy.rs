@@ -91,44 +91,33 @@ pub async fn proxy_handler(
             .first()
             .ok_or(VaneError::NoRouteFound)?;
 
-        // FIX: `hyper::upgrade::on` returns `OnUpgrade` directly.
-        // It does not return a `Result` and cannot be used with `?`.
-        // Error handling happens when we `.await` this future.
         let on_upgrade = hyper::upgrade::on(&mut req);
 
-        // FIX: Modify the existing request instead of creating a new one.
-        // This preserves all necessary headers and extensions.
-        let original_uri = req.uri().clone();
-        let (parts, query) = (original_uri.parts(), original_uri.query());
+        // FIX: The logic to combine the target URL with the original request's path
+        // has been corrected and simplified.
 
-        // FIX: Explicitly parse into `axum::http::Uri` to fix type inference error.
-        let mut uri_builder = target_url
+        // 1. Deconstruct the target URL into its parts (scheme, authority).
+        let mut target_parts = target_url
             .parse::<axum::http::Uri>()
-            .map_err(|e| VaneError::BadGateway(anyhow::anyhow!(e)))?
+            .map_err(|e| VaneError::BadGateway(anyhow::anyhow!("Invalid target URL: {}", e)))?
             .into_parts();
 
-        // Preserve the original path and query.
-        uri_builder.path_and_query = parts.path_and_query.clone();
-        if query.is_some() {
-            let new_path_and_query = format!(
-                "{}?{}",
-                uri_builder.path_and_query.unwrap().as_str(),
-                query.unwrap()
-            );
-            uri_builder.path_and_query = Some(new_path_and_query.parse().unwrap());
-        }
+        // 2. Deconstruct the original request URL and take its path and query.
+        let original_parts = req.uri().clone().into_parts();
+        target_parts.path_and_query = original_parts.path_and_query;
 
-        let new_uri = axum::http::Uri::from_parts(uri_builder)
-            .map_err(|e| VaneError::BadGateway(anyhow::anyhow!(e)))?;
+        // 3. Rebuild the final URI from the combined parts.
+        let new_uri = axum::http::Uri::from_parts(target_parts).map_err(|e| {
+            VaneError::BadGateway(anyhow::anyhow!("Failed to build proxy URI: {}", e))
+        })?;
 
-        // Update the URI of the original request.
+        // 4. Update the URI of the original request.
         *req.uri_mut() = new_uri;
 
         let backend_response = state.http_client.request(req).await;
 
         match backend_response {
             Ok(mut res) if res.status() == StatusCode::SWITCHING_PROTOCOLS => {
-                // FIX: Same as above, `hyper::upgrade::on` returns the future directly.
                 let backend_on_upgrade = hyper::upgrade::on(&mut res);
                 spawn_websocket_proxy(on_upgrade, backend_on_upgrade);
                 Ok(res.into_response())
