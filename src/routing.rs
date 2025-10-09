@@ -3,7 +3,8 @@
 use crate::{
     error::VaneError,
     models::Route,
-    path_matcher::{self, Match},
+    // FIX: Use `MatchScore` and `get_match_score` to match path_matcher.rs
+    path_matcher::{self, MatchScore},
     state::AppState,
 };
 use std::sync::Arc;
@@ -21,10 +22,11 @@ pub fn find_matched_route<'a>(
         None => return Err(VaneError::HostNotFound),
     };
 
-    let mut best_match: Option<(Match, &Route)> = None;
+    let mut best_match: Option<(MatchScore, &Route)> = None;
 
     for route_rule in &domain_config.routes {
-        if let Some(current_match) = path_matcher::matches(path, &route_rule.path) {
+        // FIX: Call the renamed function `get_match_score`.
+        if let Some(current_match) = path_matcher::get_match_score(path, &route_rule.path) {
             if let Some((best_match_type, _)) = best_match {
                 // If the new match is more specific, it becomes the new best match.
                 if current_match > best_match_type {
