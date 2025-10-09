@@ -70,12 +70,14 @@ requests = 20
 [[routes]]
 # The URL path to match. Supports wildcards (*) at the end.
 path = "/api/*"
+websocket = false
 # A list of backend servers. Vane will try them in order.
 # If the first target fails (connection error or 5xx response), it will try the second, and so on.
 targets = ["http://12.0.0.1:8000", "http://127.0.0.1:8001"] # Primary and fallback targets
 
 [[routes]]
 path = "/"
+websocket = false
 targets = ["http://127.0.0.1:33433"]
 "#;
 
