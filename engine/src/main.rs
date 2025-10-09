@@ -2,10 +2,11 @@
 
 use std::env;
 
-mod bootstrap;
-mod common;
-mod daemon;
-mod middleware;
+pub mod bootstrap;
+pub mod common;
+pub mod daemon;
+pub mod middleware;
+pub mod servers;
 
 #[tokio::main]
 async fn main() {
