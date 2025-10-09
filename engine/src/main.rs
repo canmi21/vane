@@ -2,7 +2,6 @@
 
 use std::env;
 
-pub mod bootstrap;
 pub mod common;
 pub mod daemon;
 pub mod middleware;
@@ -25,5 +24,5 @@ async fn main() {
 	}
 
 	// If no version arg, start the server.
-	bootstrap::start().await;
+	daemon::bootstrap::start().await;
 }
