@@ -1,4 +1,3 @@
 [workspace]
-members = [
-    "sources",
-]
+resolver = "3"
+members = ["engine",]
