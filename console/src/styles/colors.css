@@ -12,7 +12,8 @@
 	--scrollbar-track: #ececec;
 	--scrollbar-thumb: #c1c1c1;
 	--scrollbar-thumb-hover: #a1a1a1;
-	--color-theme: 240 158 100;
+	--color-theme-border: rgb(240, 158, 100);
+	--color-theme-bg: rgba(240, 158, 100, 0.1);
 }
 
 .dark:root {
@@ -27,5 +28,6 @@
 	--scrollbar-track: #232323;
 	--scrollbar-thumb: #424242;
 	--scrollbar-thumb-hover: #555555;
-	--color-theme: 240 158 100;
+	--color-theme-border: rgb(240, 158, 100);
+	--color-theme-bg: rgba(240, 158, 100, 0.1);
 }
