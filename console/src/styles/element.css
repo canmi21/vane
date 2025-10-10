@@ -1,0 +1,47 @@
+/* src/styles/element.css */
+
+/* Scrollbar styles (webkit) */
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+	background-color: var(--scrollbar-thumb);
+	border-radius: 8px;
+	border: 2px solid var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background-color: var(--scrollbar-thumb-hover);
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* Selection */
+::selection {
+	background-color: #fff9a8;
+	color: #1f2937;
+}
+
+::-moz-selection {
+	background-color: #fff9a8;
+	color: #1f2937;
+}
+
+.dark ::selection {
+	background-color: #3f5e5c;
+	color: #e5e7eb;
+}
+
+.dark ::-moz-selection {
+	background-color: #3f5e5c;
+	color: #e5e7eb;
+}
