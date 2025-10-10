@@ -1,0 +1,78 @@
+/* src/styles/essential.css */
+
+body {
+	font-family:
+		-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+		"Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC",
+		"Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif,
+		"Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+	font-feature-settings:
+		"liga" 1,
+		"kern" 1,
+		"tnum" 1;
+	font-size: 16px;
+	line-height: 1.6;
+	font-weight: 400;
+	scroll-behavior: smooth;
+	overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-weight: 600;
+	line-height: 1.4;
+	letter-spacing: -0.02em;
+}
+
+code,
+pre,
+kbd,
+samp {
+	font-family:
+		"SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
+		"Liberation Mono", "Menlo", monospace;
+	-webkit-font-smoothing: subpixel-antialiased;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+img {
+	max-width: 100%;
+	height: auto;
+	display: block;
+}
+
+a {
+	color: inherit;
+	text-decoration: none;
+}
+
+button {
+	border: none;
+	background: none;
+	cursor: pointer;
+	font-family: inherit;
+}
+
+input,
+textarea,
+select {
+	font-family: inherit;
+	font-size: inherit;
+}
+
+:focus:not(:focus-visible) {
+	outline: none;
+}
