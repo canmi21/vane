@@ -17,13 +17,13 @@ function Index() {
 				this content area will scroll if it's too long.
 			</p>
 
-			{/* Long content to test the independent scrolling */}
 			<div className="mt-12 space-y-4">
 				<h4 className="text-lg font-semibold">Scroll Test Section</h4>
 				{Array.from({ length: 25 }).map((_, i) => (
+					// Changed background to contrast with the new main area color.
 					<div
 						key={i}
-						className="p-4 rounded-lg border border-[var(--color-bg-alt)]"
+						className="p-4 rounded-lg bg-[var(--color-bg)] border border-[var(--scrollbar-thumb)]"
 					>
 						<p className="font-mono text-[var(--color-tertiary)]">
 							Content block #{i + 1}
