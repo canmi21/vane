@@ -1,14 +1,17 @@
 /* src/components/sidebar/sidebar.tsx */
 
 import { Link } from "@tanstack/react-router";
+import VaneLogo from "~/assets/vane.svg?react";
 
 export function Sidebar() {
 	return (
-		// Sidebar container: fixed width, full height, and distinct background.
-		<aside className="w-64 h-full bg-[var(--color-bg-alt)] p-4 flex flex-col">
-			{/* App Title or Logo */}
-			<div className="mb-8">
-				<h1 className="text-2xl font-bold text-[var(--color-primary)]">Vane</h1>
+		// Reduced vertical padding from p-4 to py-2 to decrease top/bottom spacing.
+		<aside className="w-64 h-full bg-[var(--color-bg-alt)] px-4 py-2 flex flex-col">
+			{/* App Logo container */}
+			{/* Reduced margin-bottom to better fit the new padding. */}
+			<div className="mb-6 flex justify-center">
+				{/* Kept the logo size at h-16 as requested. */}
+				<VaneLogo className="h-16 w-auto" />
 			</div>
 
 			{/* Navigation Links */}
@@ -19,7 +22,6 @@ export function Sidebar() {
 				>
 					Home
 				</Link>
-				{/* Add more links here in the future */}
 			</nav>
 		</aside>
 	);
