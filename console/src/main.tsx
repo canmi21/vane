@@ -5,6 +5,15 @@ import ReactDOM from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 
+import "~/styles/essential.css";
+import "~/styles/colors.css";
+import "~/styles/element.css";
+import "~/styles/transitions.css";
+import "~/styles/tailwindcss.css";
+
+// Add 'dark' class to <html>
+document.documentElement.classList.add("dark");
+
 // Create a new router instance
 const router = createRouter({ routeTree });
 
