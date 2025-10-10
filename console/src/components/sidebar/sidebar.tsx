@@ -36,35 +36,36 @@ export function Sidebar() {
 				{navLinks.map(({ to, label, Icon }) => {
 					const isActive = location.pathname === to;
 					return (
+						// THE FIX IS HERE: The Link is now a single-cell grid container.
 						<Link
 							key={to}
 							to={to}
-							// The base style for the link container.
-							className="relative flex items-center gap-2.5 p-2 rounded-md text-sm text-[var(--color-subtext)] transition-colors hover:text-[var(--color-text)]"
+							className="grid rounded-md text-sm text-[var(--color-subtext)] transition-colors hover:text-[var(--color-text)]"
 						>
-							{/* This is the animated active state indicator. */}
+							{/* The background, which sits in the single grid cell. */}
 							{isActive && (
 								<motion.div
 									layoutId="active-indicator"
-									// New styling with semi-transparent background and solid border.
-									className="absolute inset-0 rounded-md z-[-1] bg-[rgb(var(--color-theme))]/10 border border-[rgb(var(--color-theme))]"
+									className="col-start-1 row-start-1 h-full w-full rounded-md bg-[var(--color-theme-bg)] border border-[var(--color-theme-border)]"
 								/>
 							)}
 
-							{/* Icon and Text: color changes when active. */}
-							<Icon
-								size={18}
-								className={`transition-colors ${
-									isActive ? "text-[rgb(var(--color-theme))]" : ""
-								}`}
-							/>
-							<span
-								className={`transition-colors ${
-									isActive ? "text-[rgb(var(--color-theme))]" : ""
-								}`}
-							>
-								{label}
-							</span>
+							{/* The content (icon + text), which sits in the same cell, on top of the background. */}
+							<div className="col-start-1 row-start-1 flex items-center gap-2.5 p-2">
+								<Icon
+									size={18}
+									className={`transition-colors ${
+										isActive ? "text-[var(--color-text)]" : ""
+									}`}
+								/>
+								<span
+									className={`transition-colors ${
+										isActive ? "text-[var(--color-text)]" : ""
+									}`}
+								>
+									{label}
+								</span>
+							</div>
 						</Link>
 					);
 				})}
