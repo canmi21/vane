@@ -10,13 +10,25 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SslIndexRouteImport } from './routes/ssl/index'
+import { Route as RatelimitIndexRouteImport } from './routes/ratelimit/index'
 import { Route as ModulesIndexRouteImport } from './routes/modules/index'
 import { Route as DomainsIndexRouteImport } from './routes/domains/index'
-import { Route as CertificatesIndexRouteImport } from './routes/certificates/index'
+import { Route as CorsIndexRouteImport } from './routes/cors/index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SslIndexRoute = SslIndexRouteImport.update({
+  id: '/ssl/',
+  path: '/ssl/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RatelimitIndexRoute = RatelimitIndexRouteImport.update({
+  id: '/ratelimit/',
+  path: '/ratelimit/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ModulesIndexRoute = ModulesIndexRouteImport.update({
@@ -29,44 +41,59 @@ const DomainsIndexRoute = DomainsIndexRouteImport.update({
   path: '/domains/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CertificatesIndexRoute = CertificatesIndexRouteImport.update({
-  id: '/certificates/',
-  path: '/certificates/',
+const CorsIndexRoute = CorsIndexRouteImport.update({
+  id: '/cors/',
+  path: '/cors/',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/certificates': typeof CertificatesIndexRoute
+  '/cors': typeof CorsIndexRoute
   '/domains': typeof DomainsIndexRoute
   '/modules': typeof ModulesIndexRoute
+  '/ratelimit': typeof RatelimitIndexRoute
+  '/ssl': typeof SslIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/certificates': typeof CertificatesIndexRoute
+  '/cors': typeof CorsIndexRoute
   '/domains': typeof DomainsIndexRoute
   '/modules': typeof ModulesIndexRoute
+  '/ratelimit': typeof RatelimitIndexRoute
+  '/ssl': typeof SslIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/certificates/': typeof CertificatesIndexRoute
+  '/cors/': typeof CorsIndexRoute
   '/domains/': typeof DomainsIndexRoute
   '/modules/': typeof ModulesIndexRoute
+  '/ratelimit/': typeof RatelimitIndexRoute
+  '/ssl/': typeof SslIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/certificates' | '/domains' | '/modules'
+  fullPaths: '/' | '/cors' | '/domains' | '/modules' | '/ratelimit' | '/ssl'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/certificates' | '/domains' | '/modules'
-  id: '__root__' | '/' | '/certificates/' | '/domains/' | '/modules/'
+  to: '/' | '/cors' | '/domains' | '/modules' | '/ratelimit' | '/ssl'
+  id:
+    | '__root__'
+    | '/'
+    | '/cors/'
+    | '/domains/'
+    | '/modules/'
+    | '/ratelimit/'
+    | '/ssl/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  CertificatesIndexRoute: typeof CertificatesIndexRoute
+  CorsIndexRoute: typeof CorsIndexRoute
   DomainsIndexRoute: typeof DomainsIndexRoute
   ModulesIndexRoute: typeof ModulesIndexRoute
+  RatelimitIndexRoute: typeof RatelimitIndexRoute
+  SslIndexRoute: typeof SslIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -76,6 +103,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ssl/': {
+      id: '/ssl/'
+      path: '/ssl'
+      fullPath: '/ssl'
+      preLoaderRoute: typeof SslIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ratelimit/': {
+      id: '/ratelimit/'
+      path: '/ratelimit'
+      fullPath: '/ratelimit'
+      preLoaderRoute: typeof RatelimitIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/modules/': {
@@ -92,11 +133,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DomainsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/certificates/': {
-      id: '/certificates/'
-      path: '/certificates'
-      fullPath: '/certificates'
-      preLoaderRoute: typeof CertificatesIndexRouteImport
+    '/cors/': {
+      id: '/cors/'
+      path: '/cors'
+      fullPath: '/cors'
+      preLoaderRoute: typeof CorsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -104,9 +145,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  CertificatesIndexRoute: CertificatesIndexRoute,
+  CorsIndexRoute: CorsIndexRoute,
   DomainsIndexRoute: DomainsIndexRoute,
   ModulesIndexRoute: ModulesIndexRoute,
+  RatelimitIndexRoute: RatelimitIndexRoute,
+  SslIndexRoute: SslIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
