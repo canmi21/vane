@@ -15,15 +15,15 @@
 }
 
 .dark:root {
-	--color-primary: #ffffff;
-	--color-secondary: #eaeaea;
-	--color-tertiary: #888888;
-	--color-bg: #000000;
-	--color-bg-alt: #111111;
+	--color-primary: #ececec;
+	--color-secondary: #ffffff;
+	--color-tertiary: #cfcfcf;
+	--color-bg: #161616;
+	--color-bg-alt: #232323;
 	--color-text: #ffffff;
-	--color-subtext: #888888;
+	--color-subtext: #a1a1a1;
 	--color-progress: var(--color-primary);
-	--scrollbar-track: #111111;
-	--scrollbar-thumb: #333333;
-	--scrollbar-thumb-hover: #444444;
+	--scrollbar-track: #232323;
+	--scrollbar-thumb: #424242;
+	--scrollbar-thumb-hover: #555555;
 }
