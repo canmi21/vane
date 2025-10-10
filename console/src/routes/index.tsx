@@ -8,8 +8,15 @@ export const Route = createFileRoute("/")({
 
 function Index() {
 	return (
-		<div className="p-2">
-			<h3>Welcome Home!</h3>
+		<div>
+			{/* 使用 --color-primary 来突出标题 */}
+			<h3 className="text-2xl font-bold text-[var(--color-primary)]">
+				Welcome Home!
+			</h3>
+			{/* 使用 --color-subtext 作为次要文本 */}
+			<p className="mt-2 text-[var(--color-subtext)]">
+				This is the main page of your application.
+			</p>
 		</div>
 	);
 }
