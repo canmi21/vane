@@ -1,0 +1,11 @@
+/* src/styles/tailwindcss.css */
+
+/* tailwindcss @v4 */
+@import "tailwindcss"; /* keep in tailwind.config.js */
+/* @custom-variant dark (&:where(.dark, .dark *)); */
+
+/*
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+*/
