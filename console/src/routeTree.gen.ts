@@ -10,15 +10,30 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WebsocketIndexRouteImport } from './routes/websocket/index'
+import { Route as ToolsIndexRouteImport } from './routes/tools/index'
 import { Route as SslIndexRouteImport } from './routes/ssl/index'
 import { Route as RatelimitIndexRouteImport } from './routes/ratelimit/index'
+import { Route as OriginsIndexRouteImport } from './routes/origins/index'
 import { Route as ModulesIndexRouteImport } from './routes/modules/index'
+import { Route as LogsIndexRouteImport } from './routes/logs/index'
 import { Route as DomainsIndexRouteImport } from './routes/domains/index'
 import { Route as CorsIndexRouteImport } from './routes/cors/index'
+import { Route as CacheIndexRouteImport } from './routes/cache/index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WebsocketIndexRoute = WebsocketIndexRouteImport.update({
+  id: '/websocket/',
+  path: '/websocket/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsIndexRoute = ToolsIndexRouteImport.update({
+  id: '/tools/',
+  path: '/tools/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SslIndexRoute = SslIndexRouteImport.update({
@@ -31,9 +46,19 @@ const RatelimitIndexRoute = RatelimitIndexRouteImport.update({
   path: '/ratelimit/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OriginsIndexRoute = OriginsIndexRouteImport.update({
+  id: '/origins/',
+  path: '/origins/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ModulesIndexRoute = ModulesIndexRouteImport.update({
   id: '/modules/',
   path: '/modules/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LogsIndexRoute = LogsIndexRouteImport.update({
+  id: '/logs/',
+  path: '/logs/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DomainsIndexRoute = DomainsIndexRouteImport.update({
@@ -46,54 +71,106 @@ const CorsIndexRoute = CorsIndexRouteImport.update({
   path: '/cors/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CacheIndexRoute = CacheIndexRouteImport.update({
+  id: '/cache/',
+  path: '/cache/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/cache': typeof CacheIndexRoute
   '/cors': typeof CorsIndexRoute
   '/domains': typeof DomainsIndexRoute
+  '/logs': typeof LogsIndexRoute
   '/modules': typeof ModulesIndexRoute
+  '/origins': typeof OriginsIndexRoute
   '/ratelimit': typeof RatelimitIndexRoute
   '/ssl': typeof SslIndexRoute
+  '/tools': typeof ToolsIndexRoute
+  '/websocket': typeof WebsocketIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/cache': typeof CacheIndexRoute
   '/cors': typeof CorsIndexRoute
   '/domains': typeof DomainsIndexRoute
+  '/logs': typeof LogsIndexRoute
   '/modules': typeof ModulesIndexRoute
+  '/origins': typeof OriginsIndexRoute
   '/ratelimit': typeof RatelimitIndexRoute
   '/ssl': typeof SslIndexRoute
+  '/tools': typeof ToolsIndexRoute
+  '/websocket': typeof WebsocketIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/cache/': typeof CacheIndexRoute
   '/cors/': typeof CorsIndexRoute
   '/domains/': typeof DomainsIndexRoute
+  '/logs/': typeof LogsIndexRoute
   '/modules/': typeof ModulesIndexRoute
+  '/origins/': typeof OriginsIndexRoute
   '/ratelimit/': typeof RatelimitIndexRoute
   '/ssl/': typeof SslIndexRoute
+  '/tools/': typeof ToolsIndexRoute
+  '/websocket/': typeof WebsocketIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/cors' | '/domains' | '/modules' | '/ratelimit' | '/ssl'
+  fullPaths:
+    | '/'
+    | '/cache'
+    | '/cors'
+    | '/domains'
+    | '/logs'
+    | '/modules'
+    | '/origins'
+    | '/ratelimit'
+    | '/ssl'
+    | '/tools'
+    | '/websocket'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/cors' | '/domains' | '/modules' | '/ratelimit' | '/ssl'
+  to:
+    | '/'
+    | '/cache'
+    | '/cors'
+    | '/domains'
+    | '/logs'
+    | '/modules'
+    | '/origins'
+    | '/ratelimit'
+    | '/ssl'
+    | '/tools'
+    | '/websocket'
   id:
     | '__root__'
     | '/'
+    | '/cache/'
     | '/cors/'
     | '/domains/'
+    | '/logs/'
     | '/modules/'
+    | '/origins/'
     | '/ratelimit/'
     | '/ssl/'
+    | '/tools/'
+    | '/websocket/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CacheIndexRoute: typeof CacheIndexRoute
   CorsIndexRoute: typeof CorsIndexRoute
   DomainsIndexRoute: typeof DomainsIndexRoute
+  LogsIndexRoute: typeof LogsIndexRoute
   ModulesIndexRoute: typeof ModulesIndexRoute
+  OriginsIndexRoute: typeof OriginsIndexRoute
   RatelimitIndexRoute: typeof RatelimitIndexRoute
   SslIndexRoute: typeof SslIndexRoute
+  ToolsIndexRoute: typeof ToolsIndexRoute
+  WebsocketIndexRoute: typeof WebsocketIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -103,6 +180,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/websocket/': {
+      id: '/websocket/'
+      path: '/websocket'
+      fullPath: '/websocket'
+      preLoaderRoute: typeof WebsocketIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/': {
+      id: '/tools/'
+      path: '/tools'
+      fullPath: '/tools'
+      preLoaderRoute: typeof ToolsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ssl/': {
@@ -119,11 +210,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RatelimitIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/origins/': {
+      id: '/origins/'
+      path: '/origins'
+      fullPath: '/origins'
+      preLoaderRoute: typeof OriginsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/modules/': {
       id: '/modules/'
       path: '/modules'
       fullPath: '/modules'
       preLoaderRoute: typeof ModulesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/logs/': {
+      id: '/logs/'
+      path: '/logs'
+      fullPath: '/logs'
+      preLoaderRoute: typeof LogsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/domains/': {
@@ -140,16 +245,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CorsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cache/': {
+      id: '/cache/'
+      path: '/cache'
+      fullPath: '/cache'
+      preLoaderRoute: typeof CacheIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CacheIndexRoute: CacheIndexRoute,
   CorsIndexRoute: CorsIndexRoute,
   DomainsIndexRoute: DomainsIndexRoute,
+  LogsIndexRoute: LogsIndexRoute,
   ModulesIndexRoute: ModulesIndexRoute,
+  OriginsIndexRoute: OriginsIndexRoute,
   RatelimitIndexRoute: RatelimitIndexRoute,
   SslIndexRoute: SslIndexRoute,
+  ToolsIndexRoute: ToolsIndexRoute,
+  WebsocketIndexRoute: WebsocketIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
