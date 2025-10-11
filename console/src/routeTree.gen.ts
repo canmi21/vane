@@ -1,4 +1,4 @@
-/* eslint-disable */
+/* src/routeTree.gen.ts */
 
 // @ts-nocheck
 
@@ -8,266 +8,266 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as WebsocketIndexRouteImport } from './routes/websocket/index'
-import { Route as ToolsIndexRouteImport } from './routes/tools/index'
-import { Route as SslIndexRouteImport } from './routes/ssl/index'
-import { Route as RatelimitIndexRouteImport } from './routes/ratelimit/index'
-import { Route as OriginsIndexRouteImport } from './routes/origins/index'
-import { Route as ModulesIndexRouteImport } from './routes/modules/index'
-import { Route as LogsIndexRouteImport } from './routes/logs/index'
-import { Route as DomainsIndexRouteImport } from './routes/domains/index'
-import { Route as CorsIndexRouteImport } from './routes/cors/index'
-import { Route as CacheIndexRouteImport } from './routes/cache/index'
+import { Route as rootRouteImport } from "./routes/__root";
+import { Route as IndexRouteImport } from "./routes/index";
+import { Route as WebsocketIndexRouteImport } from "./routes/websocket/index";
+import { Route as ToolsIndexRouteImport } from "./routes/tools/index";
+import { Route as SslIndexRouteImport } from "./routes/ssl/index";
+import { Route as RatelimitIndexRouteImport } from "./routes/ratelimit/index";
+import { Route as OriginsIndexRouteImport } from "./routes/origins/index";
+import { Route as ModulesIndexRouteImport } from "./routes/modules/index";
+import { Route as LogsIndexRouteImport } from "./routes/logs/index";
+import { Route as DomainsIndexRouteImport } from "./routes/domains/index";
+import { Route as CorsIndexRouteImport } from "./routes/cors/index";
+import { Route as CacheIndexRouteImport } from "./routes/cache/index";
 
 const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/",
+	path: "/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const WebsocketIndexRoute = WebsocketIndexRouteImport.update({
-  id: '/websocket/',
-  path: '/websocket/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/websocket/",
+	path: "/websocket/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const ToolsIndexRoute = ToolsIndexRouteImport.update({
-  id: '/tools/',
-  path: '/tools/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/tools/",
+	path: "/tools/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const SslIndexRoute = SslIndexRouteImport.update({
-  id: '/ssl/',
-  path: '/ssl/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/ssl/",
+	path: "/ssl/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const RatelimitIndexRoute = RatelimitIndexRouteImport.update({
-  id: '/ratelimit/',
-  path: '/ratelimit/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/ratelimit/",
+	path: "/ratelimit/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const OriginsIndexRoute = OriginsIndexRouteImport.update({
-  id: '/origins/',
-  path: '/origins/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/origins/",
+	path: "/origins/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const ModulesIndexRoute = ModulesIndexRouteImport.update({
-  id: '/modules/',
-  path: '/modules/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/modules/",
+	path: "/modules/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const LogsIndexRoute = LogsIndexRouteImport.update({
-  id: '/logs/',
-  path: '/logs/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/logs/",
+	path: "/logs/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const DomainsIndexRoute = DomainsIndexRouteImport.update({
-  id: '/domains/',
-  path: '/domains/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/domains/",
+	path: "/domains/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const CorsIndexRoute = CorsIndexRouteImport.update({
-  id: '/cors/',
-  path: '/cors/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/cors/",
+	path: "/cors/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const CacheIndexRoute = CacheIndexRouteImport.update({
-  id: '/cache/',
-  path: '/cache/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/cache/",
+	path: "/cache/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/cache': typeof CacheIndexRoute
-  '/cors': typeof CorsIndexRoute
-  '/domains': typeof DomainsIndexRoute
-  '/logs': typeof LogsIndexRoute
-  '/modules': typeof ModulesIndexRoute
-  '/origins': typeof OriginsIndexRoute
-  '/ratelimit': typeof RatelimitIndexRoute
-  '/ssl': typeof SslIndexRoute
-  '/tools': typeof ToolsIndexRoute
-  '/websocket': typeof WebsocketIndexRoute
+	"/": typeof IndexRoute;
+	"/cache": typeof CacheIndexRoute;
+	"/cors": typeof CorsIndexRoute;
+	"/domains": typeof DomainsIndexRoute;
+	"/logs": typeof LogsIndexRoute;
+	"/modules": typeof ModulesIndexRoute;
+	"/origins": typeof OriginsIndexRoute;
+	"/ratelimit": typeof RatelimitIndexRoute;
+	"/ssl": typeof SslIndexRoute;
+	"/tools": typeof ToolsIndexRoute;
+	"/websocket": typeof WebsocketIndexRoute;
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/cache': typeof CacheIndexRoute
-  '/cors': typeof CorsIndexRoute
-  '/domains': typeof DomainsIndexRoute
-  '/logs': typeof LogsIndexRoute
-  '/modules': typeof ModulesIndexRoute
-  '/origins': typeof OriginsIndexRoute
-  '/ratelimit': typeof RatelimitIndexRoute
-  '/ssl': typeof SslIndexRoute
-  '/tools': typeof ToolsIndexRoute
-  '/websocket': typeof WebsocketIndexRoute
+	"/": typeof IndexRoute;
+	"/cache": typeof CacheIndexRoute;
+	"/cors": typeof CorsIndexRoute;
+	"/domains": typeof DomainsIndexRoute;
+	"/logs": typeof LogsIndexRoute;
+	"/modules": typeof ModulesIndexRoute;
+	"/origins": typeof OriginsIndexRoute;
+	"/ratelimit": typeof RatelimitIndexRoute;
+	"/ssl": typeof SslIndexRoute;
+	"/tools": typeof ToolsIndexRoute;
+	"/websocket": typeof WebsocketIndexRoute;
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/cache/': typeof CacheIndexRoute
-  '/cors/': typeof CorsIndexRoute
-  '/domains/': typeof DomainsIndexRoute
-  '/logs/': typeof LogsIndexRoute
-  '/modules/': typeof ModulesIndexRoute
-  '/origins/': typeof OriginsIndexRoute
-  '/ratelimit/': typeof RatelimitIndexRoute
-  '/ssl/': typeof SslIndexRoute
-  '/tools/': typeof ToolsIndexRoute
-  '/websocket/': typeof WebsocketIndexRoute
+	__root__: typeof rootRouteImport;
+	"/": typeof IndexRoute;
+	"/cache/": typeof CacheIndexRoute;
+	"/cors/": typeof CorsIndexRoute;
+	"/domains/": typeof DomainsIndexRoute;
+	"/logs/": typeof LogsIndexRoute;
+	"/modules/": typeof ModulesIndexRoute;
+	"/origins/": typeof OriginsIndexRoute;
+	"/ratelimit/": typeof RatelimitIndexRoute;
+	"/ssl/": typeof SslIndexRoute;
+	"/tools/": typeof ToolsIndexRoute;
+	"/websocket/": typeof WebsocketIndexRoute;
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/cache'
-    | '/cors'
-    | '/domains'
-    | '/logs'
-    | '/modules'
-    | '/origins'
-    | '/ratelimit'
-    | '/ssl'
-    | '/tools'
-    | '/websocket'
-  fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/cache'
-    | '/cors'
-    | '/domains'
-    | '/logs'
-    | '/modules'
-    | '/origins'
-    | '/ratelimit'
-    | '/ssl'
-    | '/tools'
-    | '/websocket'
-  id:
-    | '__root__'
-    | '/'
-    | '/cache/'
-    | '/cors/'
-    | '/domains/'
-    | '/logs/'
-    | '/modules/'
-    | '/origins/'
-    | '/ratelimit/'
-    | '/ssl/'
-    | '/tools/'
-    | '/websocket/'
-  fileRoutesById: FileRoutesById
+	fileRoutesByFullPath: FileRoutesByFullPath;
+	fullPaths:
+		| "/"
+		| "/cache"
+		| "/cors"
+		| "/domains"
+		| "/logs"
+		| "/modules"
+		| "/origins"
+		| "/ratelimit"
+		| "/ssl"
+		| "/tools"
+		| "/websocket";
+	fileRoutesByTo: FileRoutesByTo;
+	to:
+		| "/"
+		| "/cache"
+		| "/cors"
+		| "/domains"
+		| "/logs"
+		| "/modules"
+		| "/origins"
+		| "/ratelimit"
+		| "/ssl"
+		| "/tools"
+		| "/websocket";
+	id:
+		| "__root__"
+		| "/"
+		| "/cache/"
+		| "/cors/"
+		| "/domains/"
+		| "/logs/"
+		| "/modules/"
+		| "/origins/"
+		| "/ratelimit/"
+		| "/ssl/"
+		| "/tools/"
+		| "/websocket/";
+	fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  CacheIndexRoute: typeof CacheIndexRoute
-  CorsIndexRoute: typeof CorsIndexRoute
-  DomainsIndexRoute: typeof DomainsIndexRoute
-  LogsIndexRoute: typeof LogsIndexRoute
-  ModulesIndexRoute: typeof ModulesIndexRoute
-  OriginsIndexRoute: typeof OriginsIndexRoute
-  RatelimitIndexRoute: typeof RatelimitIndexRoute
-  SslIndexRoute: typeof SslIndexRoute
-  ToolsIndexRoute: typeof ToolsIndexRoute
-  WebsocketIndexRoute: typeof WebsocketIndexRoute
+	IndexRoute: typeof IndexRoute;
+	CacheIndexRoute: typeof CacheIndexRoute;
+	CorsIndexRoute: typeof CorsIndexRoute;
+	DomainsIndexRoute: typeof DomainsIndexRoute;
+	LogsIndexRoute: typeof LogsIndexRoute;
+	ModulesIndexRoute: typeof ModulesIndexRoute;
+	OriginsIndexRoute: typeof OriginsIndexRoute;
+	RatelimitIndexRoute: typeof RatelimitIndexRoute;
+	SslIndexRoute: typeof SslIndexRoute;
+	ToolsIndexRoute: typeof ToolsIndexRoute;
+	WebsocketIndexRoute: typeof WebsocketIndexRoute;
 }
 
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/websocket/': {
-      id: '/websocket/'
-      path: '/websocket'
-      fullPath: '/websocket'
-      preLoaderRoute: typeof WebsocketIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/tools/': {
-      id: '/tools/'
-      path: '/tools'
-      fullPath: '/tools'
-      preLoaderRoute: typeof ToolsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ssl/': {
-      id: '/ssl/'
-      path: '/ssl'
-      fullPath: '/ssl'
-      preLoaderRoute: typeof SslIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ratelimit/': {
-      id: '/ratelimit/'
-      path: '/ratelimit'
-      fullPath: '/ratelimit'
-      preLoaderRoute: typeof RatelimitIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/origins/': {
-      id: '/origins/'
-      path: '/origins'
-      fullPath: '/origins'
-      preLoaderRoute: typeof OriginsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/modules/': {
-      id: '/modules/'
-      path: '/modules'
-      fullPath: '/modules'
-      preLoaderRoute: typeof ModulesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/logs/': {
-      id: '/logs/'
-      path: '/logs'
-      fullPath: '/logs'
-      preLoaderRoute: typeof LogsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/domains/': {
-      id: '/domains/'
-      path: '/domains'
-      fullPath: '/domains'
-      preLoaderRoute: typeof DomainsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cors/': {
-      id: '/cors/'
-      path: '/cors'
-      fullPath: '/cors'
-      preLoaderRoute: typeof CorsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cache/': {
-      id: '/cache/'
-      path: '/cache'
-      fullPath: '/cache'
-      preLoaderRoute: typeof CacheIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-  }
+declare module "@tanstack/react-router" {
+	interface FileRoutesByPath {
+		"/": {
+			id: "/";
+			path: "/";
+			fullPath: "/";
+			preLoaderRoute: typeof IndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/websocket/": {
+			id: "/websocket/";
+			path: "/websocket";
+			fullPath: "/websocket";
+			preLoaderRoute: typeof WebsocketIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/tools/": {
+			id: "/tools/";
+			path: "/tools";
+			fullPath: "/tools";
+			preLoaderRoute: typeof ToolsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/ssl/": {
+			id: "/ssl/";
+			path: "/ssl";
+			fullPath: "/ssl";
+			preLoaderRoute: typeof SslIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/ratelimit/": {
+			id: "/ratelimit/";
+			path: "/ratelimit";
+			fullPath: "/ratelimit";
+			preLoaderRoute: typeof RatelimitIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/origins/": {
+			id: "/origins/";
+			path: "/origins";
+			fullPath: "/origins";
+			preLoaderRoute: typeof OriginsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/modules/": {
+			id: "/modules/";
+			path: "/modules";
+			fullPath: "/modules";
+			preLoaderRoute: typeof ModulesIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/logs/": {
+			id: "/logs/";
+			path: "/logs";
+			fullPath: "/logs";
+			preLoaderRoute: typeof LogsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/domains/": {
+			id: "/domains/";
+			path: "/domains";
+			fullPath: "/domains";
+			preLoaderRoute: typeof DomainsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/cors/": {
+			id: "/cors/";
+			path: "/cors";
+			fullPath: "/cors";
+			preLoaderRoute: typeof CorsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/cache/": {
+			id: "/cache/";
+			path: "/cache";
+			fullPath: "/cache";
+			preLoaderRoute: typeof CacheIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+	}
 }
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  CacheIndexRoute: CacheIndexRoute,
-  CorsIndexRoute: CorsIndexRoute,
-  DomainsIndexRoute: DomainsIndexRoute,
-  LogsIndexRoute: LogsIndexRoute,
-  ModulesIndexRoute: ModulesIndexRoute,
-  OriginsIndexRoute: OriginsIndexRoute,
-  RatelimitIndexRoute: RatelimitIndexRoute,
-  SslIndexRoute: SslIndexRoute,
-  ToolsIndexRoute: ToolsIndexRoute,
-  WebsocketIndexRoute: WebsocketIndexRoute,
-}
+	IndexRoute: IndexRoute,
+	CacheIndexRoute: CacheIndexRoute,
+	CorsIndexRoute: CorsIndexRoute,
+	DomainsIndexRoute: DomainsIndexRoute,
+	LogsIndexRoute: LogsIndexRoute,
+	ModulesIndexRoute: ModulesIndexRoute,
+	OriginsIndexRoute: OriginsIndexRoute,
+	RatelimitIndexRoute: RatelimitIndexRoute,
+	SslIndexRoute: SslIndexRoute,
+	ToolsIndexRoute: ToolsIndexRoute,
+	WebsocketIndexRoute: WebsocketIndexRoute,
+};
 export const routeTree = rootRouteImport
-  ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+	._addFileChildren(rootRouteChildren)
+	._addFileTypes<FileRouteTypes>();
