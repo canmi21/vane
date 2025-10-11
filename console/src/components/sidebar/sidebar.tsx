@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 
-// The updated and organized list of navigation links.
 const navLinks = [
 	{ to: "/", label: "Home", Icon: LayoutDashboard },
 	{ to: "/domains", label: "Domains", Icon: Globe },
@@ -38,12 +37,16 @@ export function Sidebar() {
 
 	return (
 		<aside className="w-64 h-full bg-[var(--color-bg)] px-4 py-2 flex flex-col">
+			{/* This part remains fixed at the top. */}
 			<div className="mb-2 flex justify-center items-center">
 				<FaviconLogo className="h-8 w-auto" />
 				<VaneLogo className="h-16 w-auto" />
 			</div>
 
-			<nav className="flex flex-col gap-1">
+			{/* This nav is now the scrollable area. */}
+			{/* flex-1 makes it take all available vertical space. */}
+			{/* overflow-y-auto shows a scrollbar only when needed. */}
+			<nav className="flex-1 flex flex-col gap-1 overflow-y-auto pb-2">
 				{navLinks.map(({ to, label, Icon }) => {
 					const isActive = location.pathname === to;
 					return (
