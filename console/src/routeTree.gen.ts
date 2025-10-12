@@ -1,4 +1,4 @@
-/* src/routeTree.gen.ts */
+/* eslint-disable */
 
 // @ts-nocheck
 
@@ -8,287 +8,287 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root";
-import { Route as IndexRouteImport } from "./routes/index";
-import { Route as InstanceIndexRouteImport } from "./routes/$instance/index";
-import { Route as InstanceWebsocketIndexRouteImport } from "./routes/$instance/websocket/index";
-import { Route as InstanceToolsIndexRouteImport } from "./routes/$instance/tools/index";
-import { Route as InstanceSslIndexRouteImport } from "./routes/$instance/ssl/index";
-import { Route as InstanceRatelimitIndexRouteImport } from "./routes/$instance/ratelimit/index";
-import { Route as InstanceOriginsIndexRouteImport } from "./routes/$instance/origins/index";
-import { Route as InstanceModulesIndexRouteImport } from "./routes/$instance/modules/index";
-import { Route as InstanceLogsIndexRouteImport } from "./routes/$instance/logs/index";
-import { Route as InstanceDomainsIndexRouteImport } from "./routes/$instance/domains/index";
-import { Route as InstanceCorsIndexRouteImport } from "./routes/$instance/cors/index";
-import { Route as InstanceCacheIndexRouteImport } from "./routes/$instance/cache/index";
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as InstanceIndexRouteImport } from './routes/$instance/index'
+import { Route as InstanceWebsocketIndexRouteImport } from './routes/$instance/websocket/index'
+import { Route as InstanceToolsIndexRouteImport } from './routes/$instance/tools/index'
+import { Route as InstanceSslIndexRouteImport } from './routes/$instance/ssl/index'
+import { Route as InstanceRatelimitIndexRouteImport } from './routes/$instance/ratelimit/index'
+import { Route as InstanceOriginsIndexRouteImport } from './routes/$instance/origins/index'
+import { Route as InstanceModulesIndexRouteImport } from './routes/$instance/modules/index'
+import { Route as InstanceLogsIndexRouteImport } from './routes/$instance/logs/index'
+import { Route as InstanceDomainsIndexRouteImport } from './routes/$instance/domains/index'
+import { Route as InstanceCorsIndexRouteImport } from './routes/$instance/cors/index'
+import { Route as InstanceCacheIndexRouteImport } from './routes/$instance/cache/index'
 
 const IndexRoute = IndexRouteImport.update({
-	id: "/",
-	path: "/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceIndexRoute = InstanceIndexRouteImport.update({
-	id: "/$instance/",
-	path: "/$instance/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/',
+  path: '/$instance/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceWebsocketIndexRoute = InstanceWebsocketIndexRouteImport.update({
-	id: "/$instance/websocket/",
-	path: "/$instance/websocket/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/websocket/',
+  path: '/$instance/websocket/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceToolsIndexRoute = InstanceToolsIndexRouteImport.update({
-	id: "/$instance/tools/",
-	path: "/$instance/tools/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/tools/',
+  path: '/$instance/tools/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceSslIndexRoute = InstanceSslIndexRouteImport.update({
-	id: "/$instance/ssl/",
-	path: "/$instance/ssl/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/ssl/',
+  path: '/$instance/ssl/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceRatelimitIndexRoute = InstanceRatelimitIndexRouteImport.update({
-	id: "/$instance/ratelimit/",
-	path: "/$instance/ratelimit/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/ratelimit/',
+  path: '/$instance/ratelimit/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceOriginsIndexRoute = InstanceOriginsIndexRouteImport.update({
-	id: "/$instance/origins/",
-	path: "/$instance/origins/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/origins/',
+  path: '/$instance/origins/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceModulesIndexRoute = InstanceModulesIndexRouteImport.update({
-	id: "/$instance/modules/",
-	path: "/$instance/modules/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/modules/',
+  path: '/$instance/modules/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceLogsIndexRoute = InstanceLogsIndexRouteImport.update({
-	id: "/$instance/logs/",
-	path: "/$instance/logs/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/logs/',
+  path: '/$instance/logs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceDomainsIndexRoute = InstanceDomainsIndexRouteImport.update({
-	id: "/$instance/domains/",
-	path: "/$instance/domains/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/domains/',
+  path: '/$instance/domains/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceCorsIndexRoute = InstanceCorsIndexRouteImport.update({
-	id: "/$instance/cors/",
-	path: "/$instance/cors/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/cors/',
+  path: '/$instance/cors/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstanceCacheIndexRoute = InstanceCacheIndexRouteImport.update({
-	id: "/$instance/cache/",
-	path: "/$instance/cache/",
-	getParentRoute: () => rootRouteImport,
-} as any);
+  id: '/$instance/cache/',
+  path: '/$instance/cache/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
-	"/": typeof IndexRoute;
-	"/$instance": typeof InstanceIndexRoute;
-	"/$instance/cache": typeof InstanceCacheIndexRoute;
-	"/$instance/cors": typeof InstanceCorsIndexRoute;
-	"/$instance/domains": typeof InstanceDomainsIndexRoute;
-	"/$instance/logs": typeof InstanceLogsIndexRoute;
-	"/$instance/modules": typeof InstanceModulesIndexRoute;
-	"/$instance/origins": typeof InstanceOriginsIndexRoute;
-	"/$instance/ratelimit": typeof InstanceRatelimitIndexRoute;
-	"/$instance/ssl": typeof InstanceSslIndexRoute;
-	"/$instance/tools": typeof InstanceToolsIndexRoute;
-	"/$instance/websocket": typeof InstanceWebsocketIndexRoute;
+  '/': typeof IndexRoute
+  '/$instance': typeof InstanceIndexRoute
+  '/$instance/cache': typeof InstanceCacheIndexRoute
+  '/$instance/cors': typeof InstanceCorsIndexRoute
+  '/$instance/domains': typeof InstanceDomainsIndexRoute
+  '/$instance/logs': typeof InstanceLogsIndexRoute
+  '/$instance/modules': typeof InstanceModulesIndexRoute
+  '/$instance/origins': typeof InstanceOriginsIndexRoute
+  '/$instance/ratelimit': typeof InstanceRatelimitIndexRoute
+  '/$instance/ssl': typeof InstanceSslIndexRoute
+  '/$instance/tools': typeof InstanceToolsIndexRoute
+  '/$instance/websocket': typeof InstanceWebsocketIndexRoute
 }
 export interface FileRoutesByTo {
-	"/": typeof IndexRoute;
-	"/$instance": typeof InstanceIndexRoute;
-	"/$instance/cache": typeof InstanceCacheIndexRoute;
-	"/$instance/cors": typeof InstanceCorsIndexRoute;
-	"/$instance/domains": typeof InstanceDomainsIndexRoute;
-	"/$instance/logs": typeof InstanceLogsIndexRoute;
-	"/$instance/modules": typeof InstanceModulesIndexRoute;
-	"/$instance/origins": typeof InstanceOriginsIndexRoute;
-	"/$instance/ratelimit": typeof InstanceRatelimitIndexRoute;
-	"/$instance/ssl": typeof InstanceSslIndexRoute;
-	"/$instance/tools": typeof InstanceToolsIndexRoute;
-	"/$instance/websocket": typeof InstanceWebsocketIndexRoute;
+  '/': typeof IndexRoute
+  '/$instance': typeof InstanceIndexRoute
+  '/$instance/cache': typeof InstanceCacheIndexRoute
+  '/$instance/cors': typeof InstanceCorsIndexRoute
+  '/$instance/domains': typeof InstanceDomainsIndexRoute
+  '/$instance/logs': typeof InstanceLogsIndexRoute
+  '/$instance/modules': typeof InstanceModulesIndexRoute
+  '/$instance/origins': typeof InstanceOriginsIndexRoute
+  '/$instance/ratelimit': typeof InstanceRatelimitIndexRoute
+  '/$instance/ssl': typeof InstanceSslIndexRoute
+  '/$instance/tools': typeof InstanceToolsIndexRoute
+  '/$instance/websocket': typeof InstanceWebsocketIndexRoute
 }
 export interface FileRoutesById {
-	__root__: typeof rootRouteImport;
-	"/": typeof IndexRoute;
-	"/$instance/": typeof InstanceIndexRoute;
-	"/$instance/cache/": typeof InstanceCacheIndexRoute;
-	"/$instance/cors/": typeof InstanceCorsIndexRoute;
-	"/$instance/domains/": typeof InstanceDomainsIndexRoute;
-	"/$instance/logs/": typeof InstanceLogsIndexRoute;
-	"/$instance/modules/": typeof InstanceModulesIndexRoute;
-	"/$instance/origins/": typeof InstanceOriginsIndexRoute;
-	"/$instance/ratelimit/": typeof InstanceRatelimitIndexRoute;
-	"/$instance/ssl/": typeof InstanceSslIndexRoute;
-	"/$instance/tools/": typeof InstanceToolsIndexRoute;
-	"/$instance/websocket/": typeof InstanceWebsocketIndexRoute;
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/$instance/': typeof InstanceIndexRoute
+  '/$instance/cache/': typeof InstanceCacheIndexRoute
+  '/$instance/cors/': typeof InstanceCorsIndexRoute
+  '/$instance/domains/': typeof InstanceDomainsIndexRoute
+  '/$instance/logs/': typeof InstanceLogsIndexRoute
+  '/$instance/modules/': typeof InstanceModulesIndexRoute
+  '/$instance/origins/': typeof InstanceOriginsIndexRoute
+  '/$instance/ratelimit/': typeof InstanceRatelimitIndexRoute
+  '/$instance/ssl/': typeof InstanceSslIndexRoute
+  '/$instance/tools/': typeof InstanceToolsIndexRoute
+  '/$instance/websocket/': typeof InstanceWebsocketIndexRoute
 }
 export interface FileRouteTypes {
-	fileRoutesByFullPath: FileRoutesByFullPath;
-	fullPaths:
-		| "/"
-		| "/$instance"
-		| "/$instance/cache"
-		| "/$instance/cors"
-		| "/$instance/domains"
-		| "/$instance/logs"
-		| "/$instance/modules"
-		| "/$instance/origins"
-		| "/$instance/ratelimit"
-		| "/$instance/ssl"
-		| "/$instance/tools"
-		| "/$instance/websocket";
-	fileRoutesByTo: FileRoutesByTo;
-	to:
-		| "/"
-		| "/$instance"
-		| "/$instance/cache"
-		| "/$instance/cors"
-		| "/$instance/domains"
-		| "/$instance/logs"
-		| "/$instance/modules"
-		| "/$instance/origins"
-		| "/$instance/ratelimit"
-		| "/$instance/ssl"
-		| "/$instance/tools"
-		| "/$instance/websocket";
-	id:
-		| "__root__"
-		| "/"
-		| "/$instance/"
-		| "/$instance/cache/"
-		| "/$instance/cors/"
-		| "/$instance/domains/"
-		| "/$instance/logs/"
-		| "/$instance/modules/"
-		| "/$instance/origins/"
-		| "/$instance/ratelimit/"
-		| "/$instance/ssl/"
-		| "/$instance/tools/"
-		| "/$instance/websocket/";
-	fileRoutesById: FileRoutesById;
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths:
+    | '/'
+    | '/$instance'
+    | '/$instance/cache'
+    | '/$instance/cors'
+    | '/$instance/domains'
+    | '/$instance/logs'
+    | '/$instance/modules'
+    | '/$instance/origins'
+    | '/$instance/ratelimit'
+    | '/$instance/ssl'
+    | '/$instance/tools'
+    | '/$instance/websocket'
+  fileRoutesByTo: FileRoutesByTo
+  to:
+    | '/'
+    | '/$instance'
+    | '/$instance/cache'
+    | '/$instance/cors'
+    | '/$instance/domains'
+    | '/$instance/logs'
+    | '/$instance/modules'
+    | '/$instance/origins'
+    | '/$instance/ratelimit'
+    | '/$instance/ssl'
+    | '/$instance/tools'
+    | '/$instance/websocket'
+  id:
+    | '__root__'
+    | '/'
+    | '/$instance/'
+    | '/$instance/cache/'
+    | '/$instance/cors/'
+    | '/$instance/domains/'
+    | '/$instance/logs/'
+    | '/$instance/modules/'
+    | '/$instance/origins/'
+    | '/$instance/ratelimit/'
+    | '/$instance/ssl/'
+    | '/$instance/tools/'
+    | '/$instance/websocket/'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-	IndexRoute: typeof IndexRoute;
-	InstanceIndexRoute: typeof InstanceIndexRoute;
-	InstanceCacheIndexRoute: typeof InstanceCacheIndexRoute;
-	InstanceCorsIndexRoute: typeof InstanceCorsIndexRoute;
-	InstanceDomainsIndexRoute: typeof InstanceDomainsIndexRoute;
-	InstanceLogsIndexRoute: typeof InstanceLogsIndexRoute;
-	InstanceModulesIndexRoute: typeof InstanceModulesIndexRoute;
-	InstanceOriginsIndexRoute: typeof InstanceOriginsIndexRoute;
-	InstanceRatelimitIndexRoute: typeof InstanceRatelimitIndexRoute;
-	InstanceSslIndexRoute: typeof InstanceSslIndexRoute;
-	InstanceToolsIndexRoute: typeof InstanceToolsIndexRoute;
-	InstanceWebsocketIndexRoute: typeof InstanceWebsocketIndexRoute;
+  IndexRoute: typeof IndexRoute
+  InstanceIndexRoute: typeof InstanceIndexRoute
+  InstanceCacheIndexRoute: typeof InstanceCacheIndexRoute
+  InstanceCorsIndexRoute: typeof InstanceCorsIndexRoute
+  InstanceDomainsIndexRoute: typeof InstanceDomainsIndexRoute
+  InstanceLogsIndexRoute: typeof InstanceLogsIndexRoute
+  InstanceModulesIndexRoute: typeof InstanceModulesIndexRoute
+  InstanceOriginsIndexRoute: typeof InstanceOriginsIndexRoute
+  InstanceRatelimitIndexRoute: typeof InstanceRatelimitIndexRoute
+  InstanceSslIndexRoute: typeof InstanceSslIndexRoute
+  InstanceToolsIndexRoute: typeof InstanceToolsIndexRoute
+  InstanceWebsocketIndexRoute: typeof InstanceWebsocketIndexRoute
 }
 
-declare module "@tanstack/react-router" {
-	interface FileRoutesByPath {
-		"/": {
-			id: "/";
-			path: "/";
-			fullPath: "/";
-			preLoaderRoute: typeof IndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/": {
-			id: "/$instance/";
-			path: "/$instance";
-			fullPath: "/$instance";
-			preLoaderRoute: typeof InstanceIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/websocket/": {
-			id: "/$instance/websocket/";
-			path: "/$instance/websocket";
-			fullPath: "/$instance/websocket";
-			preLoaderRoute: typeof InstanceWebsocketIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/tools/": {
-			id: "/$instance/tools/";
-			path: "/$instance/tools";
-			fullPath: "/$instance/tools";
-			preLoaderRoute: typeof InstanceToolsIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/ssl/": {
-			id: "/$instance/ssl/";
-			path: "/$instance/ssl";
-			fullPath: "/$instance/ssl";
-			preLoaderRoute: typeof InstanceSslIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/ratelimit/": {
-			id: "/$instance/ratelimit/";
-			path: "/$instance/ratelimit";
-			fullPath: "/$instance/ratelimit";
-			preLoaderRoute: typeof InstanceRatelimitIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/origins/": {
-			id: "/$instance/origins/";
-			path: "/$instance/origins";
-			fullPath: "/$instance/origins";
-			preLoaderRoute: typeof InstanceOriginsIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/modules/": {
-			id: "/$instance/modules/";
-			path: "/$instance/modules";
-			fullPath: "/$instance/modules";
-			preLoaderRoute: typeof InstanceModulesIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/logs/": {
-			id: "/$instance/logs/";
-			path: "/$instance/logs";
-			fullPath: "/$instance/logs";
-			preLoaderRoute: typeof InstanceLogsIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/domains/": {
-			id: "/$instance/domains/";
-			path: "/$instance/domains";
-			fullPath: "/$instance/domains";
-			preLoaderRoute: typeof InstanceDomainsIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/cors/": {
-			id: "/$instance/cors/";
-			path: "/$instance/cors";
-			fullPath: "/$instance/cors";
-			preLoaderRoute: typeof InstanceCorsIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-		"/$instance/cache/": {
-			id: "/$instance/cache/";
-			path: "/$instance/cache";
-			fullPath: "/$instance/cache";
-			preLoaderRoute: typeof InstanceCacheIndexRouteImport;
-			parentRoute: typeof rootRouteImport;
-		};
-	}
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/': {
+      id: '/$instance/'
+      path: '/$instance'
+      fullPath: '/$instance'
+      preLoaderRoute: typeof InstanceIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/websocket/': {
+      id: '/$instance/websocket/'
+      path: '/$instance/websocket'
+      fullPath: '/$instance/websocket'
+      preLoaderRoute: typeof InstanceWebsocketIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/tools/': {
+      id: '/$instance/tools/'
+      path: '/$instance/tools'
+      fullPath: '/$instance/tools'
+      preLoaderRoute: typeof InstanceToolsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/ssl/': {
+      id: '/$instance/ssl/'
+      path: '/$instance/ssl'
+      fullPath: '/$instance/ssl'
+      preLoaderRoute: typeof InstanceSslIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/ratelimit/': {
+      id: '/$instance/ratelimit/'
+      path: '/$instance/ratelimit'
+      fullPath: '/$instance/ratelimit'
+      preLoaderRoute: typeof InstanceRatelimitIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/origins/': {
+      id: '/$instance/origins/'
+      path: '/$instance/origins'
+      fullPath: '/$instance/origins'
+      preLoaderRoute: typeof InstanceOriginsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/modules/': {
+      id: '/$instance/modules/'
+      path: '/$instance/modules'
+      fullPath: '/$instance/modules'
+      preLoaderRoute: typeof InstanceModulesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/logs/': {
+      id: '/$instance/logs/'
+      path: '/$instance/logs'
+      fullPath: '/$instance/logs'
+      preLoaderRoute: typeof InstanceLogsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/domains/': {
+      id: '/$instance/domains/'
+      path: '/$instance/domains'
+      fullPath: '/$instance/domains'
+      preLoaderRoute: typeof InstanceDomainsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/cors/': {
+      id: '/$instance/cors/'
+      path: '/$instance/cors'
+      fullPath: '/$instance/cors'
+      preLoaderRoute: typeof InstanceCorsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/cache/': {
+      id: '/$instance/cache/'
+      path: '/$instance/cache'
+      fullPath: '/$instance/cache'
+      preLoaderRoute: typeof InstanceCacheIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+  }
 }
 
 const rootRouteChildren: RootRouteChildren = {
-	IndexRoute: IndexRoute,
-	InstanceIndexRoute: InstanceIndexRoute,
-	InstanceCacheIndexRoute: InstanceCacheIndexRoute,
-	InstanceCorsIndexRoute: InstanceCorsIndexRoute,
-	InstanceDomainsIndexRoute: InstanceDomainsIndexRoute,
-	InstanceLogsIndexRoute: InstanceLogsIndexRoute,
-	InstanceModulesIndexRoute: InstanceModulesIndexRoute,
-	InstanceOriginsIndexRoute: InstanceOriginsIndexRoute,
-	InstanceRatelimitIndexRoute: InstanceRatelimitIndexRoute,
-	InstanceSslIndexRoute: InstanceSslIndexRoute,
-	InstanceToolsIndexRoute: InstanceToolsIndexRoute,
-	InstanceWebsocketIndexRoute: InstanceWebsocketIndexRoute,
-};
+  IndexRoute: IndexRoute,
+  InstanceIndexRoute: InstanceIndexRoute,
+  InstanceCacheIndexRoute: InstanceCacheIndexRoute,
+  InstanceCorsIndexRoute: InstanceCorsIndexRoute,
+  InstanceDomainsIndexRoute: InstanceDomainsIndexRoute,
+  InstanceLogsIndexRoute: InstanceLogsIndexRoute,
+  InstanceModulesIndexRoute: InstanceModulesIndexRoute,
+  InstanceOriginsIndexRoute: InstanceOriginsIndexRoute,
+  InstanceRatelimitIndexRoute: InstanceRatelimitIndexRoute,
+  InstanceSslIndexRoute: InstanceSslIndexRoute,
+  InstanceToolsIndexRoute: InstanceToolsIndexRoute,
+  InstanceWebsocketIndexRoute: InstanceWebsocketIndexRoute,
+}
 export const routeTree = rootRouteImport
-	._addFileChildren(rootRouteChildren)
-	._addFileTypes<FileRouteTypes>();
+  ._addFileChildren(rootRouteChildren)
+  ._addFileTypes<FileRouteTypes>()
