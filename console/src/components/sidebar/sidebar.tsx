@@ -1,6 +1,7 @@
 /* src/components/sidebar/sidebar.tsx */
 
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import FaviconLogo from "~/assets/favicon.svg?react";
 import VaneLogo from "~/assets/vane.svg?react";
 import {
@@ -19,6 +20,7 @@ import {
 import { motion } from "framer-motion";
 
 const navLinks = [
+	// Keep these paths relative, we'll add the instance prefix dynamically.
 	{ to: "/", label: "Home", Icon: LayoutDashboard },
 	{ to: "/domains", label: "Domains", Icon: Globe },
 	{ to: "/origins", label: "Origins", Icon: Server },
@@ -34,12 +36,36 @@ const navLinks = [
 
 export function Sidebar() {
 	const { location } = useRouterState();
+	const navigate = useNavigate();
+
+	// Get the instance directly from the URL pathname.
+	// e.g., for "/abcde/domains", this will be "abcde".
+	const instance = location.pathname.split("/")[1];
+
+	// If the instance is missing from the URL for any reason,
+	// navigate to the root. The root route will then handle
+	// creating/finding an instance and redirecting back correctly.
+	useEffect(() => {
+		if (!instance && location.pathname !== "/") {
+			navigate({ to: "/" });
+		}
+	}, [instance, location.pathname, navigate]);
+
+	// If there is no instance, we can't build the links.
+	// Return null to avoid rendering a broken sidebar while the redirect happens.
+	if (!instance) {
+		return null;
+	}
 
 	return (
 		<aside className="w-64 h-full bg-[var(--color-bg)] px-4 py-2 flex flex-col">
 			{/* This part remains fixed at the top. */}
-			{/* Make the logo area a link to the homepage. */}
-			<Link to="/" className="mb-2 flex justify-center items-center">
+			{/* The 'instance' is now a guaranteed string, so this works. */}
+			<Link
+				to="/$instance"
+				params={{ instance }}
+				className="mb-2 flex justify-center items-center"
+			>
 				<FaviconLogo className="h-8 w-auto" />
 				<VaneLogo className="h-16 w-auto" />
 			</Link>
@@ -49,11 +75,14 @@ export function Sidebar() {
 			{/* overflow-y-auto shows a scrollbar only when needed. */}
 			<nav className="flex-1 flex flex-col gap-1 overflow-y-auto pb-2">
 				{navLinks.map(({ to, label, Icon }) => {
-					const isActive = location.pathname === to;
+					// Construct the full path with the instance parameter.
+					const targetPath = to === "/" ? `/${instance}` : `/${instance}${to}`;
+					const isActive = location.pathname === targetPath;
+
 					return (
 						<Link
 							key={to}
-							to={to}
+							to={targetPath}
 							className="grid rounded-md text-sm text-[var(--color-subtext)] transition-colors hover:text-[var(--color-text)]"
 						>
 							{isActive && (
