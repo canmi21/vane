@@ -38,10 +38,11 @@ export function Sidebar() {
 	return (
 		<aside className="w-64 h-full bg-[var(--color-bg)] px-4 py-2 flex flex-col">
 			{/* This part remains fixed at the top. */}
-			<div className="mb-2 flex justify-center items-center">
+			{/* Make the logo area a link to the homepage. */}
+			<Link to="/" className="mb-2 flex justify-center items-center">
 				<FaviconLogo className="h-8 w-auto" />
 				<VaneLogo className="h-16 w-auto" />
-			</div>
+			</Link>
 
 			{/* This nav is now the scrollable area. */}
 			{/* flex-1 makes it take all available vertical space. */}
