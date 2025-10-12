@@ -2,8 +2,19 @@
 
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-// A simple utility to generate a random string.
-const generateRandomId = () => Math.random().toString(36).substring(2, 7);
+// A utility to generate a 16-character ID by truncating a v4 UUID.
+const generateRandomId = () => {
+	// Generate a full v4 UUID using the browser's built-in crypto API.
+	// e.g., "123e4567-e89b-12d3-a456-426614174000"
+	const fullUuid = crypto.randomUUID();
+
+	// Remove hyphens to get a 32-character string.
+	// e.g., "123e4567e89b12d3a456426614174000"
+	const compactUuid = fullUuid.replace(/-/g, "");
+
+	// Take the first 16 characters.
+	return compactUuid.substring(0, 16);
+};
 
 const LOCAL_STORAGE_KEY = "@vane/default-instance";
 
