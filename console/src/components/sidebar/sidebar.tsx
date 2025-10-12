@@ -16,22 +16,28 @@ import {
 	FileText,
 	RadioTower,
 	Wrench,
+	FilePenLine,
+	Info,
+	CircleSlash,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
 const navLinks = [
 	// Keep these paths relative, we'll add the instance prefix dynamically.
-	{ to: "/", label: "Home", Icon: LayoutDashboard },
+	{ to: "/", label: "Dashboard", Icon: LayoutDashboard },
+	{ to: "/origins", label: "Origin Server", Icon: Server },
 	{ to: "/domains", label: "Domains", Icon: Globe },
-	{ to: "/origins", label: "Origins", Icon: Server },
-	{ to: "/ssl", label: "SSL", Icon: ShieldCheck },
-	{ to: "/cache", label: "Cache", Icon: Archive },
-	{ to: "/logs", label: "Logs", Icon: FileText },
-	{ to: "/cors", label: "CORS", Icon: ArrowRightLeft },
-	{ to: "/ratelimit", label: "Rate Limit", Icon: Zap },
+	{ to: "/certificates", label: "SSL Certificates", Icon: ShieldCheck },
+	{ to: "/error-pages", label: "Error Pages", Icon: CircleSlash },
+	{ to: "/cache-control", label: "Cache Control", Icon: Archive },
+	{ to: "/cors-management", label: "CORS", Icon: ArrowRightLeft },
+	{ to: "/custom-header", label: "Header Override", Icon: FilePenLine },
+	{ to: "/rate-limit", label: "Rate Limit", Icon: Zap },
 	{ to: "/websocket", label: "WebSocket", Icon: RadioTower },
+	{ to: "/traffic-logs", label: "Traffic Logs", Icon: FileText },
 	{ to: "/modules", label: "Modules", Icon: Blocks },
-	{ to: "/tools", label: "Tools", Icon: Wrench },
+	{ to: "/toolbox", label: "Tools", Icon: Wrench },
+	{ to: "/about", label: "About", Icon: Info },
 ];
 
 export function Sidebar() {
