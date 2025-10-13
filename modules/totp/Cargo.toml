@@ -1,0 +1,23 @@
+[package]
+name = "totp"
+version = "1.0.0"
+edition = "2024"
+authors = ["Canmi"]
+
+[lib]
+name = "totp"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hmac = "0.12"
+sha1 = "0.10"
+wasm-bindgen = { version = "0.2", optional = true }
+
+[features]
+default = []
+wasm = ["wasm-bindgen"]
+
+[[example]]
+name = "verify"
+path = "examples/verify.rs"
