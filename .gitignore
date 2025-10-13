@@ -23,7 +23,6 @@ coverage
 *.tsbuildinfo
 
 # rust
-pkg
 target
 filerouter
 
