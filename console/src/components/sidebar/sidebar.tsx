@@ -36,7 +36,7 @@ const navLinks = [
 	{ to: "/websocket", label: "WebSocket", Icon: RadioTower },
 	{ to: "/traffic-logs", label: "Traffic Logs", Icon: FileText },
 	{ to: "/modules", label: "Modules", Icon: Blocks },
-	{ to: "/toolbox", label: "Tools", Icon: Wrench },
+	{ to: "/tools", label: "Tools", Icon: Wrench },
 	{ to: "/about", label: "About", Icon: Info },
 ];
 
