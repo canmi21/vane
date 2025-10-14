@@ -24,7 +24,7 @@ pub async fn start() {
 
 	// Now, initialize the instance-specific config file (e.g., instance.json).
 	// This is a critical step; if it fails, the application cannot proceed.
-	if let Err(e) = uuid::initialize_instance_config() {
+	if let Err(e) = uuid::initialize_instance_config().await {
 		log(
 			LogLevel::Error,
 			&format!("Failed to initialize instance configuration: {}", e),
