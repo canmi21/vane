@@ -3,6 +3,7 @@
 use std::env;
 
 pub mod common;
+pub mod config;
 pub mod daemon;
 pub mod middleware;
 pub mod servers;
