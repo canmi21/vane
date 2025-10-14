@@ -26,3 +26,6 @@ def run():
         assert int(origin["port"]) == 6010
     finally:
         restore_origins_if_backup(tmp)
+
+if __name__ == "__main__":
+    run()
