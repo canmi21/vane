@@ -24,7 +24,7 @@ import { motion } from "framer-motion";
 
 const navLinks = [
 	// Keep these paths relative, we'll add the instance prefix dynamically.
-	{ to: "/", label: "Dashboard", Icon: LayoutDashboard },
+	{ to: "/home", label: "Dashboard", Icon: LayoutDashboard },
 	{ to: "/origins", label: "Origin Server", Icon: Server },
 	{ to: "/domains", label: "Domains", Icon: Globe },
 	{ to: "/certificates", label: "SSL Certificates", Icon: ShieldCheck },
@@ -68,7 +68,7 @@ export function Sidebar() {
 			{/* This part remains fixed at the top. */}
 			{/* The 'instance' is now a guaranteed string, so this works. */}
 			<Link
-				to="/$instance"
+				to="/$instance/home"
 				params={{ instance }}
 				className="mb-2 flex justify-center items-center"
 			>
