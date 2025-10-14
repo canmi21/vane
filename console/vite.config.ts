@@ -29,6 +29,6 @@ export default defineConfig({
 		},
 	},
 	define: {
-    __GIT_HASH__: JSON.stringify(gitCommitHash),
-  },
+		__GIT_HASH__: JSON.stringify(gitCommitHash),
+	},
 });
