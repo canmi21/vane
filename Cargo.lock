@@ -2937,7 +2937,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vane"
-version = "2.4.6"
+version = "2.4.7"
 dependencies = [
  "anyhow",
  "anynet",
@@ -2969,6 +2969,7 @@ dependencies = [
  "path-clean",
  "percent-encoding",
  "quinn",
+ "rand 0.9.2",
  "rcgen",
  "reqwest 0.12.24",
  "rustls 0.23.32",
@@ -2983,6 +2984,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "webpki-roots 1.0.3",
 ]
