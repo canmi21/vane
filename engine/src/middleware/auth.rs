@@ -71,3 +71,36 @@ pub async fn auth_middleware(req: Request<Body>, next: Next) -> Response {
 		.into_response(),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use serde_json::json;
+	use std::fs;
+	use tempfile::tempdir;
+
+	#[test]
+	fn test_instance_seeds_parsing() {
+		let dir = tempdir().unwrap();
+		let file_path = dir.path().join("instance.json");
+
+		let fake_seeds = json!({
+			"seeds": [
+				"seed1",
+				"seed2",
+				"seed3",
+				"seed4",
+				"seed5",
+				"seed6"
+			]
+		});
+		fs::write(&file_path, serde_json::to_string(&fake_seeds).unwrap()).unwrap();
+
+		let content = fs::read_to_string(&file_path).unwrap();
+		let parsed: InstanceSeeds = serde_json::from_str(&content).unwrap();
+
+		assert_eq!(parsed.seeds.len(), 6);
+		assert_eq!(parsed.seeds[0], "seed1");
+		assert_eq!(parsed.seeds[5], "seed6");
+	}
+}
