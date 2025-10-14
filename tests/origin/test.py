@@ -8,15 +8,16 @@ sys.path.insert(0, str(ROOT))
 
 tests = [
     "tests.origin.test_file_generation",
-    "tests.origin.test_create_standard",
-    "tests.origin.test_create_no_scheme",
-    "tests.origin.test_create_ip_host",
-    "tests.origin.test_invalid_url",
-    "tests.origin.test_list_and_get",
-    "tests.origin.test_update_origin",
+    "tests.origin.test_create_origin_without_scheme",
     "tests.origin.test_delete_origin",
-    "tests.origin.test_skip_ssl_flag",
+    "tests.origin.test_dummy_https_origin",
+    "tests.origin.test_http_origin_with_path",
+    "tests.origin.test_invalid_url",
+    "tests.origin.test_ip_origin",
+    "tests.origin.test_list_and_get",
     "tests.origin.test_multiple_writes",
+    "tests.origin.test_skip_ssl_flag",
+    "tests.origin.test_update_origin",
 ]
 
 results = []
