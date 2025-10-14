@@ -114,3 +114,47 @@ fn print_setup_url(config: &InstanceConfig, base_url: &str) {
 	println!("    {}", hyperlink);
 	println!();
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use serial_test::serial;
+	use std::collections::HashSet;
+	use std::path::Path;
+
+	#[test]
+	fn test_generate_instance_id_length() {
+		let id = generate_instance_id();
+		assert_eq!(id.len(), 16);
+		assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+	}
+
+	#[test]
+	fn test_generate_seeds_unique_count() {
+		let seeds = generate_seeds();
+		assert_eq!(seeds.len(), 6);
+		let unique_seeds: HashSet<_> = seeds.iter().collect();
+		assert_eq!(unique_seeds.len(), 6);
+	}
+
+	#[test]
+	#[serial]
+	fn test_get_base_config_path_default() {
+		unsafe { std::env::remove_var("CONFIG_DIR") };
+		let path_string = shellexpand::tilde("~/vane").to_string();
+		let expected = Path::new(&path_string);
+		let path = get_base_config_path();
+		assert_eq!(path, expected);
+	}
+
+	#[test]
+	#[serial]
+	fn test_get_base_config_path_custom_env() {
+		unsafe { std::env::set_var("CONFIG_DIR", "~/custom_config") };
+		let path_string = shellexpand::tilde("~/custom_config").to_string();
+		let expected = Path::new(&path_string);
+		let path = get_base_config_path();
+		assert_eq!(path, expected);
+		unsafe { std::env::remove_var("CONFIG_DIR") };
+	}
+}
