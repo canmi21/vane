@@ -33,7 +33,7 @@ export const Route = createFileRoute("/")({
 
 		// Redirect to the instance-specific homepage.
 		throw redirect({
-			to: "/$instance",
+			to: "/$instance/home",
 			params: { instance },
 		});
 	},
