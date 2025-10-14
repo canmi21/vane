@@ -10,13 +10,14 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as InstanceIndexRouteImport } from './routes/$instance/index'
+import { Route as InstanceSetupInstanceIdRouteImport } from './routes/instance-setup/$instanceId'
 import { Route as InstanceWebsocketIndexRouteImport } from './routes/$instance/websocket/index'
 import { Route as InstanceTrafficLogsIndexRouteImport } from './routes/$instance/traffic-logs/index'
 import { Route as InstanceToolsIndexRouteImport } from './routes/$instance/tools/index'
 import { Route as InstanceRateLimitIndexRouteImport } from './routes/$instance/rate-limit/index'
 import { Route as InstanceOriginsIndexRouteImport } from './routes/$instance/origins/index'
 import { Route as InstanceModulesIndexRouteImport } from './routes/$instance/modules/index'
+import { Route as InstanceHomeIndexRouteImport } from './routes/$instance/home/index'
 import { Route as InstanceErrorPagesIndexRouteImport } from './routes/$instance/error-pages/index'
 import { Route as InstanceDomainsIndexRouteImport } from './routes/$instance/domains/index'
 import { Route as InstanceCustomHeaderIndexRouteImport } from './routes/$instance/custom-header/index'
@@ -30,9 +31,9 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const InstanceIndexRoute = InstanceIndexRouteImport.update({
-  id: '/$instance/',
-  path: '/$instance/',
+const InstanceSetupInstanceIdRoute = InstanceSetupInstanceIdRouteImport.update({
+  id: '/instance-setup/$instanceId',
+  path: '/instance-setup/$instanceId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InstanceWebsocketIndexRoute = InstanceWebsocketIndexRouteImport.update({
@@ -64,6 +65,11 @@ const InstanceOriginsIndexRoute = InstanceOriginsIndexRouteImport.update({
 const InstanceModulesIndexRoute = InstanceModulesIndexRouteImport.update({
   id: '/$instance/modules/',
   path: '/$instance/modules/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InstanceHomeIndexRoute = InstanceHomeIndexRouteImport.update({
+  id: '/$instance/home/',
+  path: '/$instance/home/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InstanceErrorPagesIndexRoute = InstanceErrorPagesIndexRouteImport.update({
@@ -108,7 +114,7 @@ const InstanceAboutIndexRoute = InstanceAboutIndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/$instance': typeof InstanceIndexRoute
+  '/instance-setup/$instanceId': typeof InstanceSetupInstanceIdRoute
   '/$instance/about': typeof InstanceAboutIndexRoute
   '/$instance/cache-control': typeof InstanceCacheControlIndexRoute
   '/$instance/certificates': typeof InstanceCertificatesIndexRoute
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/$instance/custom-header': typeof InstanceCustomHeaderIndexRoute
   '/$instance/domains': typeof InstanceDomainsIndexRoute
   '/$instance/error-pages': typeof InstanceErrorPagesIndexRoute
+  '/$instance/home': typeof InstanceHomeIndexRoute
   '/$instance/modules': typeof InstanceModulesIndexRoute
   '/$instance/origins': typeof InstanceOriginsIndexRoute
   '/$instance/rate-limit': typeof InstanceRateLimitIndexRoute
@@ -125,7 +132,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/$instance': typeof InstanceIndexRoute
+  '/instance-setup/$instanceId': typeof InstanceSetupInstanceIdRoute
   '/$instance/about': typeof InstanceAboutIndexRoute
   '/$instance/cache-control': typeof InstanceCacheControlIndexRoute
   '/$instance/certificates': typeof InstanceCertificatesIndexRoute
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/$instance/custom-header': typeof InstanceCustomHeaderIndexRoute
   '/$instance/domains': typeof InstanceDomainsIndexRoute
   '/$instance/error-pages': typeof InstanceErrorPagesIndexRoute
+  '/$instance/home': typeof InstanceHomeIndexRoute
   '/$instance/modules': typeof InstanceModulesIndexRoute
   '/$instance/origins': typeof InstanceOriginsIndexRoute
   '/$instance/rate-limit': typeof InstanceRateLimitIndexRoute
@@ -143,7 +151,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/$instance/': typeof InstanceIndexRoute
+  '/instance-setup/$instanceId': typeof InstanceSetupInstanceIdRoute
   '/$instance/about/': typeof InstanceAboutIndexRoute
   '/$instance/cache-control/': typeof InstanceCacheControlIndexRoute
   '/$instance/certificates/': typeof InstanceCertificatesIndexRoute
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/$instance/custom-header/': typeof InstanceCustomHeaderIndexRoute
   '/$instance/domains/': typeof InstanceDomainsIndexRoute
   '/$instance/error-pages/': typeof InstanceErrorPagesIndexRoute
+  '/$instance/home/': typeof InstanceHomeIndexRoute
   '/$instance/modules/': typeof InstanceModulesIndexRoute
   '/$instance/origins/': typeof InstanceOriginsIndexRoute
   '/$instance/rate-limit/': typeof InstanceRateLimitIndexRoute
@@ -162,7 +171,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/$instance'
+    | '/instance-setup/$instanceId'
     | '/$instance/about'
     | '/$instance/cache-control'
     | '/$instance/certificates'
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/$instance/custom-header'
     | '/$instance/domains'
     | '/$instance/error-pages'
+    | '/$instance/home'
     | '/$instance/modules'
     | '/$instance/origins'
     | '/$instance/rate-limit'
@@ -179,7 +189,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/$instance'
+    | '/instance-setup/$instanceId'
     | '/$instance/about'
     | '/$instance/cache-control'
     | '/$instance/certificates'
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/$instance/custom-header'
     | '/$instance/domains'
     | '/$instance/error-pages'
+    | '/$instance/home'
     | '/$instance/modules'
     | '/$instance/origins'
     | '/$instance/rate-limit'
@@ -196,7 +207,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/$instance/'
+    | '/instance-setup/$instanceId'
     | '/$instance/about/'
     | '/$instance/cache-control/'
     | '/$instance/certificates/'
@@ -204,6 +215,7 @@ export interface FileRouteTypes {
     | '/$instance/custom-header/'
     | '/$instance/domains/'
     | '/$instance/error-pages/'
+    | '/$instance/home/'
     | '/$instance/modules/'
     | '/$instance/origins/'
     | '/$instance/rate-limit/'
@@ -214,7 +226,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  InstanceIndexRoute: typeof InstanceIndexRoute
+  InstanceSetupInstanceIdRoute: typeof InstanceSetupInstanceIdRoute
   InstanceAboutIndexRoute: typeof InstanceAboutIndexRoute
   InstanceCacheControlIndexRoute: typeof InstanceCacheControlIndexRoute
   InstanceCertificatesIndexRoute: typeof InstanceCertificatesIndexRoute
@@ -222,6 +234,7 @@ export interface RootRouteChildren {
   InstanceCustomHeaderIndexRoute: typeof InstanceCustomHeaderIndexRoute
   InstanceDomainsIndexRoute: typeof InstanceDomainsIndexRoute
   InstanceErrorPagesIndexRoute: typeof InstanceErrorPagesIndexRoute
+  InstanceHomeIndexRoute: typeof InstanceHomeIndexRoute
   InstanceModulesIndexRoute: typeof InstanceModulesIndexRoute
   InstanceOriginsIndexRoute: typeof InstanceOriginsIndexRoute
   InstanceRateLimitIndexRoute: typeof InstanceRateLimitIndexRoute
@@ -239,11 +252,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$instance/': {
-      id: '/$instance/'
-      path: '/$instance'
-      fullPath: '/$instance'
-      preLoaderRoute: typeof InstanceIndexRouteImport
+    '/instance-setup/$instanceId': {
+      id: '/instance-setup/$instanceId'
+      path: '/instance-setup/$instanceId'
+      fullPath: '/instance-setup/$instanceId'
+      preLoaderRoute: typeof InstanceSetupInstanceIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$instance/websocket/': {
@@ -286,6 +299,13 @@ declare module '@tanstack/react-router' {
       path: '/$instance/modules'
       fullPath: '/$instance/modules'
       preLoaderRoute: typeof InstanceModulesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$instance/home/': {
+      id: '/$instance/home/'
+      path: '/$instance/home'
+      fullPath: '/$instance/home'
+      preLoaderRoute: typeof InstanceHomeIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$instance/error-pages/': {
@@ -342,7 +362,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  InstanceIndexRoute: InstanceIndexRoute,
+  InstanceSetupInstanceIdRoute: InstanceSetupInstanceIdRoute,
   InstanceAboutIndexRoute: InstanceAboutIndexRoute,
   InstanceCacheControlIndexRoute: InstanceCacheControlIndexRoute,
   InstanceCertificatesIndexRoute: InstanceCertificatesIndexRoute,
@@ -350,6 +370,7 @@ const rootRouteChildren: RootRouteChildren = {
   InstanceCustomHeaderIndexRoute: InstanceCustomHeaderIndexRoute,
   InstanceDomainsIndexRoute: InstanceDomainsIndexRoute,
   InstanceErrorPagesIndexRoute: InstanceErrorPagesIndexRoute,
+  InstanceHomeIndexRoute: InstanceHomeIndexRoute,
   InstanceModulesIndexRoute: InstanceModulesIndexRoute,
   InstanceOriginsIndexRoute: InstanceOriginsIndexRoute,
   InstanceRateLimitIndexRoute: InstanceRateLimitIndexRoute,
