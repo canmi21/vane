@@ -26,3 +26,25 @@ pub fn create_cors_layer() -> CorsLayer {
 		.allow_methods(Any)
 		.allow_headers(Any)
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::env;
+
+	#[test]
+	fn test_create_cors_layer_default() {
+		unsafe { env::remove_var("CORS") };
+		let cors = create_cors_layer();
+		let _ = cors;
+	}
+
+	#[test]
+	fn test_create_cors_layer_with_custom_origin() {
+		unsafe { env::set_var("CORS", "http://custom-origin.com") };
+		let cors = create_cors_layer();
+		let _ = cors;
+
+		unsafe { env::remove_var("CORS") };
+	}
+}
