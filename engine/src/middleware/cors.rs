@@ -1,19 +1,28 @@
 /* engine/src/middleware/cors.rs */
 
-use axum::http;
+use axum::http::HeaderValue;
 use std::env;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
-/// Creates a CORS middleware layer with a configurable origin.
 pub fn create_cors_layer() -> CorsLayer {
-	let allowed_origin =
-		env::var("CORS").unwrap_or_else(|_| "https://console.vaneproxy.com".to_string());
+	let mut allowed_origins = vec![
+		"https://dash.vaneproxy.com".to_string(),
+		"http://dash.vaneproxy.com".to_string(),
+		"http://localhost".to_string(),
+	];
+
+	if let Ok(extra_origin) = env::var("CORS") {
+		allowed_origins.push(extra_origin); // Own string
+	}
+
+	// AllowOrigin::list
+	let origin_list = allowed_origins
+		.into_iter()
+		.map(|s| s.parse::<HeaderValue>().unwrap())
+		.collect::<Vec<_>>();
 
 	CorsLayer::new()
-		// Allow requests from the configured origin.
-		.allow_origin(allowed_origin.parse::<http::HeaderValue>().unwrap())
-		// Allow all common HTTP methods.
+		.allow_origin(AllowOrigin::list(origin_list))
 		.allow_methods(Any)
-		// Allow all headers.
 		.allow_headers(Any)
 }
