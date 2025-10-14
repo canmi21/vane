@@ -6,6 +6,7 @@ pub mod common;
 pub mod config;
 pub mod daemon;
 pub mod middleware;
+pub mod modules;
 pub mod servers;
 
 #[tokio::main]
