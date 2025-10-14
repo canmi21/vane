@@ -26,6 +26,10 @@ coverage
 target
 filerouter
 
+# python
+.venv
+__pycache__
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
