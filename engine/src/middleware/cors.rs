@@ -30,21 +30,81 @@ pub fn create_cors_layer() -> CorsLayer {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use axum::body::Body;
+	use axum::http::{Method, Request};
+	use axum::{Router, routing::get};
 	use std::env;
+	use tower::ServiceExt; // for `oneshot`
 
-	#[test]
-	fn test_create_cors_layer_default() {
+	#[tokio::test]
+	async fn test_create_cors_layer_default() {
 		unsafe { env::remove_var("CORS") };
-		let cors = create_cors_layer();
-		let _ = cors;
+
+		let cors_layer = create_cors_layer();
+		let app = Router::new()
+			.route("/", get(|| async { "ok" }))
+			.layer(cors_layer);
+
+		let req = Request::builder()
+			.method(Method::GET)
+			.uri("/")
+			.header("Origin", "http://localhost")
+			.body(Body::empty())
+			.unwrap();
+
+		let resp = app.oneshot(req).await.unwrap();
+		let headers = resp.headers();
+		assert_eq!(
+			headers.get("access-control-allow-origin").unwrap(),
+			"http://localhost"
+		);
 	}
 
-	#[test]
-	fn test_create_cors_layer_with_custom_origin() {
+	#[tokio::test]
+	async fn test_create_cors_layer_with_custom_origin() {
 		unsafe { env::set_var("CORS", "http://custom-origin.com") };
-		let cors = create_cors_layer();
-		let _ = cors;
+
+		let cors_layer = create_cors_layer();
+		let app = Router::new()
+			.route("/", get(|| async { "ok" }))
+			.layer(cors_layer);
+
+		let req = Request::builder()
+			.method(Method::GET)
+			.uri("/")
+			.header("Origin", "http://custom-origin.com")
+			.body(Body::empty())
+			.unwrap();
+
+		let resp = app.oneshot(req).await.unwrap();
+		let headers = resp.headers();
+		assert_eq!(
+			headers.get("access-control-allow-origin").unwrap(),
+			"http://custom-origin.com"
+		);
 
 		unsafe { env::remove_var("CORS") };
+	}
+
+	#[tokio::test]
+	async fn test_create_cors_layer_reject_unlisted_origin() {
+		unsafe { env::remove_var("CORS") };
+
+		let cors_layer = create_cors_layer();
+		let app = Router::new()
+			.route("/", get(|| async { "ok" }))
+			.layer(cors_layer);
+
+		let req = Request::builder()
+			.method(Method::GET)
+			.uri("/")
+			.header("Origin", "http://not-listed.com")
+			.body(Body::empty())
+			.unwrap();
+
+		let resp = app.oneshot(req).await.unwrap();
+		let headers = resp.headers();
+
+		assert!(headers.get("access-control-allow-origin").is_none());
 	}
 }
