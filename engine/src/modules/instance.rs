@@ -56,3 +56,83 @@ pub async fn get_instance_info() -> impl IntoResponse {
 		Err(res) => res.into_response(),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use axum::body::to_bytes;
+	use axum::response::Response;
+	use serde_json::json;
+	use std::env;
+	use std::fs;
+	use tempfile::tempdir;
+
+	#[tokio::test]
+	async fn test_get_instance_info_success() {
+		let dir = tempdir().unwrap();
+		let config_path = dir.path().join("instance.json");
+
+		let instance_data = json!({
+			"instance_id": "test-id-123",
+			"created_at": "2025-10-14T12:00:00Z"
+		});
+		fs::write(
+			&config_path,
+			serde_json::to_string_pretty(&instance_data).unwrap(),
+		)
+		.unwrap();
+
+		let original = env::var("CONFIG_DIR").ok();
+		unsafe { env::set_var("CONFIG_DIR", dir.path()) };
+
+		let resp: Response = get_instance_info().await.into_response();
+		assert_eq!(resp.status(), axum::http::StatusCode::OK);
+
+		let body_bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+		let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+		assert!(body_str.contains("test-id-123"));
+
+		if let Some(orig) = original {
+			unsafe { env::set_var("CONFIG_DIR", orig) };
+		} else {
+			unsafe { env::remove_var("CONFIG_DIR") };
+		}
+	}
+
+	#[tokio::test]
+	async fn test_get_instance_info_missing_file() {
+		let dir = tempdir().unwrap();
+
+		let original = env::var("CONFIG_DIR").ok();
+		unsafe { env::set_var("CONFIG_DIR", dir.path()) };
+
+		let resp: Response = get_instance_info().await.into_response();
+		assert_eq!(resp.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+
+		if let Some(orig) = original {
+			unsafe { env::set_var("CONFIG_DIR", orig) };
+		} else {
+			unsafe { env::remove_var("CONFIG_DIR") };
+		}
+	}
+
+	#[tokio::test]
+	async fn test_get_instance_info_invalid_json() {
+		let dir = tempdir().unwrap();
+		let config_path = dir.path().join("instance.json");
+
+		fs::write(&config_path, "not a json").unwrap();
+
+		let original = env::var("CONFIG_DIR").ok();
+		unsafe { env::set_var("CONFIG_DIR", dir.path()) };
+
+		let resp: Response = get_instance_info().await.into_response();
+		assert_eq!(resp.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+
+		if let Some(orig) = original {
+			unsafe { env::set_var("CONFIG_DIR", orig) };
+		} else {
+			unsafe { env::remove_var("CONFIG_DIR") };
+		}
+	}
+}
