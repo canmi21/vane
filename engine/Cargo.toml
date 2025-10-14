@@ -54,9 +54,10 @@ include_dir = "0.7"
 lazy-limit = "1"
 governor = "0.10"
 nonzero = "0.2"
-anynet = "1.0.2"
+anynet = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 home = "0.5"
+ip-lookup = "0.1"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
