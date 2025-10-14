@@ -27,3 +27,6 @@ def run():
             assert found, f"{u} not found in file"
     finally:
         restore_origins_if_backup(tmp)
+
+if __name__ == "__main__":
+    run()
