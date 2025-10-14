@@ -1,5 +1,6 @@
 /* engine/src/daemon/bootstrap.rs */
 
+use crate::config::uuid;
 use crate::daemon::{config, router};
 use anynet::anynet;
 use axum::serve;
@@ -8,6 +9,7 @@ use fancy_log::{LogLevel, log, set_log_level};
 use lazy_motd::lazy_motd;
 use std::env;
 use std::net::SocketAddr;
+use std::process;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::task;
@@ -17,7 +19,22 @@ pub async fn start() {
 	setup_logging();
 	print_motd();
 
+	// Initialize base configuration directories first.
 	config::initialize_config_directory();
+
+	// Now, initialize the instance-specific config file (e.g., instance.json).
+	// This is a critical step; if it fails, the application cannot proceed.
+	if let Err(e) = uuid::initialize_instance_config() {
+		log(
+			LogLevel::Error,
+			&format!("Failed to initialize instance configuration: {}", e),
+		);
+		log(
+			LogLevel::Error,
+			"Please check file permissions for the config directory and restart.",
+		);
+		process::exit(1);
+	}
 
 	let port = env::var("PORT")
 		.ok()
@@ -103,8 +120,8 @@ async fn shutdown_signal() {
 	let terminate = std::future::pending::<()>();
 
 	tokio::select! {
-			_ = ctrl_c => {},
-			_ = terminate => {},
+					_ = ctrl_c => {},
+					_ = terminate => {},
 	}
 
 	log(LogLevel::Info, "Signal received, shutdown now...");
