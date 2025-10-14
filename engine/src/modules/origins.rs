@@ -321,3 +321,84 @@ fn parse_and_validate_origin_url(raw_url: &str) -> Result<ParsedOrigin, Response
 		path,
 	})
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::collections::HashMap;
+
+	#[tokio::test]
+	async fn test_parse_valid_http_url() {
+		let parsed = parse_and_validate_origin_url("http://example.com:8080/api").unwrap();
+		assert_eq!(parsed.scheme, "http");
+		assert_eq!(parsed.host, "example.com");
+		assert_eq!(parsed.port, 8080);
+		assert_eq!(parsed.path, "/api");
+	}
+
+	#[tokio::test]
+	async fn test_parse_valid_https_default_port() {
+		let parsed = parse_and_validate_origin_url("https://example.com").unwrap();
+		assert_eq!(parsed.scheme, "https");
+		assert_eq!(parsed.port, 443);
+		assert_eq!(parsed.path, "/");
+	}
+
+	#[tokio::test]
+	async fn test_parse_ip_without_scheme() {
+		let parsed = parse_and_validate_origin_url("192.168.1.10").unwrap();
+		assert_eq!(parsed.scheme, "http");
+		assert_eq!(parsed.host, "192.168.1.10");
+		assert_eq!(parsed.port, 80);
+	}
+
+	#[tokio::test]
+	async fn test_parse_domain_without_scheme() {
+		let parsed = parse_and_validate_origin_url("example.org").unwrap();
+		assert_eq!(parsed.scheme, "https");
+		assert_eq!(parsed.host, "example.org");
+		assert_eq!(parsed.port, 443);
+	}
+
+	#[tokio::test]
+	async fn test_parse_invalid_url_returns_error() {
+		let result = parse_and_validate_origin_url("ht!tp://###");
+		assert!(result.is_err());
+	}
+
+	#[tokio::test]
+	async fn test_parse_empty_url_returns_error() {
+		let result = parse_and_validate_origin_url("");
+		assert!(result.is_err());
+	}
+
+	#[tokio::test]
+	async fn test_generate_unique_id_no_collision() {
+		let mut map = HashMap::new();
+		map.insert(
+			"aaaaa".to_string(),
+			Origin {
+				scheme: "http".into(),
+				host: "localhost".into(),
+				port: 80,
+				path: "/".into(),
+				skip_ssl_verify: false,
+				raw_url: "http://localhost".into(),
+			},
+		);
+		let id = generate_unique_id(&map);
+		assert_eq!(id.len(), 5);
+		assert_ne!(id, "aaaaa");
+	}
+
+	#[tokio::test]
+	async fn test_get_origins_path_expands_tilde() {
+		unsafe {
+			std::env::set_var("CONFIG_DIR", "~/vane_test");
+		};
+		let path = get_origins_path();
+		let path_str = path.to_string_lossy();
+		assert!(path_str.contains("vane_test/origins.json"));
+		assert!(!path_str.contains("~"));
+	}
+}
