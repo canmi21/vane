@@ -1,4 +1,4 @@
-/* eslint-disable */
+/* src/routeTree.gen.ts */
 
 // @ts-nocheck
 
@@ -8,376 +8,376 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as InstanceSetupInstanceIdRouteImport } from './routes/instance-setup/$instanceId'
-import { Route as InstanceWebsocketIndexRouteImport } from './routes/$instance/websocket/index'
-import { Route as InstanceTrafficLogsIndexRouteImport } from './routes/$instance/traffic-logs/index'
-import { Route as InstanceToolsIndexRouteImport } from './routes/$instance/tools/index'
-import { Route as InstanceRateLimitIndexRouteImport } from './routes/$instance/rate-limit/index'
-import { Route as InstanceOriginsIndexRouteImport } from './routes/$instance/origins/index'
-import { Route as InstanceModulesIndexRouteImport } from './routes/$instance/modules/index'
-import { Route as InstanceHomeIndexRouteImport } from './routes/$instance/home/index'
-import { Route as InstanceErrorPagesIndexRouteImport } from './routes/$instance/error-pages/index'
-import { Route as InstanceDomainsIndexRouteImport } from './routes/$instance/domains/index'
-import { Route as InstanceCustomHeaderIndexRouteImport } from './routes/$instance/custom-header/index'
-import { Route as InstanceCorsManagementIndexRouteImport } from './routes/$instance/cors-management/index'
-import { Route as InstanceCertificatesIndexRouteImport } from './routes/$instance/certificates/index'
-import { Route as InstanceCacheControlIndexRouteImport } from './routes/$instance/cache-control/index'
-import { Route as InstanceAboutIndexRouteImport } from './routes/$instance/about/index'
+import { Route as rootRouteImport } from "./routes/__root";
+import { Route as IndexRouteImport } from "./routes/index";
+import { Route as InstanceSetupInstanceIdRouteImport } from "./routes/instance-setup/$instanceId";
+import { Route as InstanceWebsocketIndexRouteImport } from "./routes/$instance/websocket/index";
+import { Route as InstanceTrafficLogsIndexRouteImport } from "./routes/$instance/traffic-logs/index";
+import { Route as InstanceToolsIndexRouteImport } from "./routes/$instance/tools/index";
+import { Route as InstanceRateLimitIndexRouteImport } from "./routes/$instance/rate-limit/index";
+import { Route as InstanceOriginsIndexRouteImport } from "./routes/$instance/origins/index";
+import { Route as InstanceModulesIndexRouteImport } from "./routes/$instance/modules/index";
+import { Route as InstanceHomeIndexRouteImport } from "./routes/$instance/home/index";
+import { Route as InstanceErrorPagesIndexRouteImport } from "./routes/$instance/error-pages/index";
+import { Route as InstanceDomainsIndexRouteImport } from "./routes/$instance/domains/index";
+import { Route as InstanceCustomHeaderIndexRouteImport } from "./routes/$instance/custom-header/index";
+import { Route as InstanceCorsManagementIndexRouteImport } from "./routes/$instance/cors-management/index";
+import { Route as InstanceCertificatesIndexRouteImport } from "./routes/$instance/certificates/index";
+import { Route as InstanceCacheControlIndexRouteImport } from "./routes/$instance/cache-control/index";
+import { Route as InstanceAboutIndexRouteImport } from "./routes/$instance/about/index";
 
 const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/",
+	path: "/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceSetupInstanceIdRoute = InstanceSetupInstanceIdRouteImport.update({
-  id: '/instance-setup/$instanceId',
-  path: '/instance-setup/$instanceId',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/instance-setup/$instanceId",
+	path: "/instance-setup/$instanceId",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceWebsocketIndexRoute = InstanceWebsocketIndexRouteImport.update({
-  id: '/$instance/websocket/',
-  path: '/$instance/websocket/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/websocket/",
+	path: "/$instance/websocket/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceTrafficLogsIndexRoute =
-  InstanceTrafficLogsIndexRouteImport.update({
-    id: '/$instance/traffic-logs/',
-    path: '/$instance/traffic-logs/',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+	InstanceTrafficLogsIndexRouteImport.update({
+		id: "/$instance/traffic-logs/",
+		path: "/$instance/traffic-logs/",
+		getParentRoute: () => rootRouteImport,
+	} as any);
 const InstanceToolsIndexRoute = InstanceToolsIndexRouteImport.update({
-  id: '/$instance/tools/',
-  path: '/$instance/tools/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/tools/",
+	path: "/$instance/tools/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceRateLimitIndexRoute = InstanceRateLimitIndexRouteImport.update({
-  id: '/$instance/rate-limit/',
-  path: '/$instance/rate-limit/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/rate-limit/",
+	path: "/$instance/rate-limit/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceOriginsIndexRoute = InstanceOriginsIndexRouteImport.update({
-  id: '/$instance/origins/',
-  path: '/$instance/origins/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/origins/",
+	path: "/$instance/origins/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceModulesIndexRoute = InstanceModulesIndexRouteImport.update({
-  id: '/$instance/modules/',
-  path: '/$instance/modules/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/modules/",
+	path: "/$instance/modules/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceHomeIndexRoute = InstanceHomeIndexRouteImport.update({
-  id: '/$instance/home/',
-  path: '/$instance/home/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/home/",
+	path: "/$instance/home/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceErrorPagesIndexRoute = InstanceErrorPagesIndexRouteImport.update({
-  id: '/$instance/error-pages/',
-  path: '/$instance/error-pages/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/error-pages/",
+	path: "/$instance/error-pages/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceDomainsIndexRoute = InstanceDomainsIndexRouteImport.update({
-  id: '/$instance/domains/',
-  path: '/$instance/domains/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/domains/",
+	path: "/$instance/domains/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 const InstanceCustomHeaderIndexRoute =
-  InstanceCustomHeaderIndexRouteImport.update({
-    id: '/$instance/custom-header/',
-    path: '/$instance/custom-header/',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+	InstanceCustomHeaderIndexRouteImport.update({
+		id: "/$instance/custom-header/",
+		path: "/$instance/custom-header/",
+		getParentRoute: () => rootRouteImport,
+	} as any);
 const InstanceCorsManagementIndexRoute =
-  InstanceCorsManagementIndexRouteImport.update({
-    id: '/$instance/cors-management/',
-    path: '/$instance/cors-management/',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+	InstanceCorsManagementIndexRouteImport.update({
+		id: "/$instance/cors-management/",
+		path: "/$instance/cors-management/",
+		getParentRoute: () => rootRouteImport,
+	} as any);
 const InstanceCertificatesIndexRoute =
-  InstanceCertificatesIndexRouteImport.update({
-    id: '/$instance/certificates/',
-    path: '/$instance/certificates/',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+	InstanceCertificatesIndexRouteImport.update({
+		id: "/$instance/certificates/",
+		path: "/$instance/certificates/",
+		getParentRoute: () => rootRouteImport,
+	} as any);
 const InstanceCacheControlIndexRoute =
-  InstanceCacheControlIndexRouteImport.update({
-    id: '/$instance/cache-control/',
-    path: '/$instance/cache-control/',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+	InstanceCacheControlIndexRouteImport.update({
+		id: "/$instance/cache-control/",
+		path: "/$instance/cache-control/",
+		getParentRoute: () => rootRouteImport,
+	} as any);
 const InstanceAboutIndexRoute = InstanceAboutIndexRouteImport.update({
-  id: '/$instance/about/',
-  path: '/$instance/about/',
-  getParentRoute: () => rootRouteImport,
-} as any)
+	id: "/$instance/about/",
+	path: "/$instance/about/",
+	getParentRoute: () => rootRouteImport,
+} as any);
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/instance-setup/$instanceId': typeof InstanceSetupInstanceIdRoute
-  '/$instance/about': typeof InstanceAboutIndexRoute
-  '/$instance/cache-control': typeof InstanceCacheControlIndexRoute
-  '/$instance/certificates': typeof InstanceCertificatesIndexRoute
-  '/$instance/cors-management': typeof InstanceCorsManagementIndexRoute
-  '/$instance/custom-header': typeof InstanceCustomHeaderIndexRoute
-  '/$instance/domains': typeof InstanceDomainsIndexRoute
-  '/$instance/error-pages': typeof InstanceErrorPagesIndexRoute
-  '/$instance/home': typeof InstanceHomeIndexRoute
-  '/$instance/modules': typeof InstanceModulesIndexRoute
-  '/$instance/origins': typeof InstanceOriginsIndexRoute
-  '/$instance/rate-limit': typeof InstanceRateLimitIndexRoute
-  '/$instance/tools': typeof InstanceToolsIndexRoute
-  '/$instance/traffic-logs': typeof InstanceTrafficLogsIndexRoute
-  '/$instance/websocket': typeof InstanceWebsocketIndexRoute
+	"/": typeof IndexRoute;
+	"/instance-setup/$instanceId": typeof InstanceSetupInstanceIdRoute;
+	"/$instance/about": typeof InstanceAboutIndexRoute;
+	"/$instance/cache-control": typeof InstanceCacheControlIndexRoute;
+	"/$instance/certificates": typeof InstanceCertificatesIndexRoute;
+	"/$instance/cors-management": typeof InstanceCorsManagementIndexRoute;
+	"/$instance/custom-header": typeof InstanceCustomHeaderIndexRoute;
+	"/$instance/domains": typeof InstanceDomainsIndexRoute;
+	"/$instance/error-pages": typeof InstanceErrorPagesIndexRoute;
+	"/$instance/home": typeof InstanceHomeIndexRoute;
+	"/$instance/modules": typeof InstanceModulesIndexRoute;
+	"/$instance/origins": typeof InstanceOriginsIndexRoute;
+	"/$instance/rate-limit": typeof InstanceRateLimitIndexRoute;
+	"/$instance/tools": typeof InstanceToolsIndexRoute;
+	"/$instance/traffic-logs": typeof InstanceTrafficLogsIndexRoute;
+	"/$instance/websocket": typeof InstanceWebsocketIndexRoute;
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/instance-setup/$instanceId': typeof InstanceSetupInstanceIdRoute
-  '/$instance/about': typeof InstanceAboutIndexRoute
-  '/$instance/cache-control': typeof InstanceCacheControlIndexRoute
-  '/$instance/certificates': typeof InstanceCertificatesIndexRoute
-  '/$instance/cors-management': typeof InstanceCorsManagementIndexRoute
-  '/$instance/custom-header': typeof InstanceCustomHeaderIndexRoute
-  '/$instance/domains': typeof InstanceDomainsIndexRoute
-  '/$instance/error-pages': typeof InstanceErrorPagesIndexRoute
-  '/$instance/home': typeof InstanceHomeIndexRoute
-  '/$instance/modules': typeof InstanceModulesIndexRoute
-  '/$instance/origins': typeof InstanceOriginsIndexRoute
-  '/$instance/rate-limit': typeof InstanceRateLimitIndexRoute
-  '/$instance/tools': typeof InstanceToolsIndexRoute
-  '/$instance/traffic-logs': typeof InstanceTrafficLogsIndexRoute
-  '/$instance/websocket': typeof InstanceWebsocketIndexRoute
+	"/": typeof IndexRoute;
+	"/instance-setup/$instanceId": typeof InstanceSetupInstanceIdRoute;
+	"/$instance/about": typeof InstanceAboutIndexRoute;
+	"/$instance/cache-control": typeof InstanceCacheControlIndexRoute;
+	"/$instance/certificates": typeof InstanceCertificatesIndexRoute;
+	"/$instance/cors-management": typeof InstanceCorsManagementIndexRoute;
+	"/$instance/custom-header": typeof InstanceCustomHeaderIndexRoute;
+	"/$instance/domains": typeof InstanceDomainsIndexRoute;
+	"/$instance/error-pages": typeof InstanceErrorPagesIndexRoute;
+	"/$instance/home": typeof InstanceHomeIndexRoute;
+	"/$instance/modules": typeof InstanceModulesIndexRoute;
+	"/$instance/origins": typeof InstanceOriginsIndexRoute;
+	"/$instance/rate-limit": typeof InstanceRateLimitIndexRoute;
+	"/$instance/tools": typeof InstanceToolsIndexRoute;
+	"/$instance/traffic-logs": typeof InstanceTrafficLogsIndexRoute;
+	"/$instance/websocket": typeof InstanceWebsocketIndexRoute;
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/instance-setup/$instanceId': typeof InstanceSetupInstanceIdRoute
-  '/$instance/about/': typeof InstanceAboutIndexRoute
-  '/$instance/cache-control/': typeof InstanceCacheControlIndexRoute
-  '/$instance/certificates/': typeof InstanceCertificatesIndexRoute
-  '/$instance/cors-management/': typeof InstanceCorsManagementIndexRoute
-  '/$instance/custom-header/': typeof InstanceCustomHeaderIndexRoute
-  '/$instance/domains/': typeof InstanceDomainsIndexRoute
-  '/$instance/error-pages/': typeof InstanceErrorPagesIndexRoute
-  '/$instance/home/': typeof InstanceHomeIndexRoute
-  '/$instance/modules/': typeof InstanceModulesIndexRoute
-  '/$instance/origins/': typeof InstanceOriginsIndexRoute
-  '/$instance/rate-limit/': typeof InstanceRateLimitIndexRoute
-  '/$instance/tools/': typeof InstanceToolsIndexRoute
-  '/$instance/traffic-logs/': typeof InstanceTrafficLogsIndexRoute
-  '/$instance/websocket/': typeof InstanceWebsocketIndexRoute
+	__root__: typeof rootRouteImport;
+	"/": typeof IndexRoute;
+	"/instance-setup/$instanceId": typeof InstanceSetupInstanceIdRoute;
+	"/$instance/about/": typeof InstanceAboutIndexRoute;
+	"/$instance/cache-control/": typeof InstanceCacheControlIndexRoute;
+	"/$instance/certificates/": typeof InstanceCertificatesIndexRoute;
+	"/$instance/cors-management/": typeof InstanceCorsManagementIndexRoute;
+	"/$instance/custom-header/": typeof InstanceCustomHeaderIndexRoute;
+	"/$instance/domains/": typeof InstanceDomainsIndexRoute;
+	"/$instance/error-pages/": typeof InstanceErrorPagesIndexRoute;
+	"/$instance/home/": typeof InstanceHomeIndexRoute;
+	"/$instance/modules/": typeof InstanceModulesIndexRoute;
+	"/$instance/origins/": typeof InstanceOriginsIndexRoute;
+	"/$instance/rate-limit/": typeof InstanceRateLimitIndexRoute;
+	"/$instance/tools/": typeof InstanceToolsIndexRoute;
+	"/$instance/traffic-logs/": typeof InstanceTrafficLogsIndexRoute;
+	"/$instance/websocket/": typeof InstanceWebsocketIndexRoute;
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/instance-setup/$instanceId'
-    | '/$instance/about'
-    | '/$instance/cache-control'
-    | '/$instance/certificates'
-    | '/$instance/cors-management'
-    | '/$instance/custom-header'
-    | '/$instance/domains'
-    | '/$instance/error-pages'
-    | '/$instance/home'
-    | '/$instance/modules'
-    | '/$instance/origins'
-    | '/$instance/rate-limit'
-    | '/$instance/tools'
-    | '/$instance/traffic-logs'
-    | '/$instance/websocket'
-  fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/instance-setup/$instanceId'
-    | '/$instance/about'
-    | '/$instance/cache-control'
-    | '/$instance/certificates'
-    | '/$instance/cors-management'
-    | '/$instance/custom-header'
-    | '/$instance/domains'
-    | '/$instance/error-pages'
-    | '/$instance/home'
-    | '/$instance/modules'
-    | '/$instance/origins'
-    | '/$instance/rate-limit'
-    | '/$instance/tools'
-    | '/$instance/traffic-logs'
-    | '/$instance/websocket'
-  id:
-    | '__root__'
-    | '/'
-    | '/instance-setup/$instanceId'
-    | '/$instance/about/'
-    | '/$instance/cache-control/'
-    | '/$instance/certificates/'
-    | '/$instance/cors-management/'
-    | '/$instance/custom-header/'
-    | '/$instance/domains/'
-    | '/$instance/error-pages/'
-    | '/$instance/home/'
-    | '/$instance/modules/'
-    | '/$instance/origins/'
-    | '/$instance/rate-limit/'
-    | '/$instance/tools/'
-    | '/$instance/traffic-logs/'
-    | '/$instance/websocket/'
-  fileRoutesById: FileRoutesById
+	fileRoutesByFullPath: FileRoutesByFullPath;
+	fullPaths:
+		| "/"
+		| "/instance-setup/$instanceId"
+		| "/$instance/about"
+		| "/$instance/cache-control"
+		| "/$instance/certificates"
+		| "/$instance/cors-management"
+		| "/$instance/custom-header"
+		| "/$instance/domains"
+		| "/$instance/error-pages"
+		| "/$instance/home"
+		| "/$instance/modules"
+		| "/$instance/origins"
+		| "/$instance/rate-limit"
+		| "/$instance/tools"
+		| "/$instance/traffic-logs"
+		| "/$instance/websocket";
+	fileRoutesByTo: FileRoutesByTo;
+	to:
+		| "/"
+		| "/instance-setup/$instanceId"
+		| "/$instance/about"
+		| "/$instance/cache-control"
+		| "/$instance/certificates"
+		| "/$instance/cors-management"
+		| "/$instance/custom-header"
+		| "/$instance/domains"
+		| "/$instance/error-pages"
+		| "/$instance/home"
+		| "/$instance/modules"
+		| "/$instance/origins"
+		| "/$instance/rate-limit"
+		| "/$instance/tools"
+		| "/$instance/traffic-logs"
+		| "/$instance/websocket";
+	id:
+		| "__root__"
+		| "/"
+		| "/instance-setup/$instanceId"
+		| "/$instance/about/"
+		| "/$instance/cache-control/"
+		| "/$instance/certificates/"
+		| "/$instance/cors-management/"
+		| "/$instance/custom-header/"
+		| "/$instance/domains/"
+		| "/$instance/error-pages/"
+		| "/$instance/home/"
+		| "/$instance/modules/"
+		| "/$instance/origins/"
+		| "/$instance/rate-limit/"
+		| "/$instance/tools/"
+		| "/$instance/traffic-logs/"
+		| "/$instance/websocket/";
+	fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  InstanceSetupInstanceIdRoute: typeof InstanceSetupInstanceIdRoute
-  InstanceAboutIndexRoute: typeof InstanceAboutIndexRoute
-  InstanceCacheControlIndexRoute: typeof InstanceCacheControlIndexRoute
-  InstanceCertificatesIndexRoute: typeof InstanceCertificatesIndexRoute
-  InstanceCorsManagementIndexRoute: typeof InstanceCorsManagementIndexRoute
-  InstanceCustomHeaderIndexRoute: typeof InstanceCustomHeaderIndexRoute
-  InstanceDomainsIndexRoute: typeof InstanceDomainsIndexRoute
-  InstanceErrorPagesIndexRoute: typeof InstanceErrorPagesIndexRoute
-  InstanceHomeIndexRoute: typeof InstanceHomeIndexRoute
-  InstanceModulesIndexRoute: typeof InstanceModulesIndexRoute
-  InstanceOriginsIndexRoute: typeof InstanceOriginsIndexRoute
-  InstanceRateLimitIndexRoute: typeof InstanceRateLimitIndexRoute
-  InstanceToolsIndexRoute: typeof InstanceToolsIndexRoute
-  InstanceTrafficLogsIndexRoute: typeof InstanceTrafficLogsIndexRoute
-  InstanceWebsocketIndexRoute: typeof InstanceWebsocketIndexRoute
+	IndexRoute: typeof IndexRoute;
+	InstanceSetupInstanceIdRoute: typeof InstanceSetupInstanceIdRoute;
+	InstanceAboutIndexRoute: typeof InstanceAboutIndexRoute;
+	InstanceCacheControlIndexRoute: typeof InstanceCacheControlIndexRoute;
+	InstanceCertificatesIndexRoute: typeof InstanceCertificatesIndexRoute;
+	InstanceCorsManagementIndexRoute: typeof InstanceCorsManagementIndexRoute;
+	InstanceCustomHeaderIndexRoute: typeof InstanceCustomHeaderIndexRoute;
+	InstanceDomainsIndexRoute: typeof InstanceDomainsIndexRoute;
+	InstanceErrorPagesIndexRoute: typeof InstanceErrorPagesIndexRoute;
+	InstanceHomeIndexRoute: typeof InstanceHomeIndexRoute;
+	InstanceModulesIndexRoute: typeof InstanceModulesIndexRoute;
+	InstanceOriginsIndexRoute: typeof InstanceOriginsIndexRoute;
+	InstanceRateLimitIndexRoute: typeof InstanceRateLimitIndexRoute;
+	InstanceToolsIndexRoute: typeof InstanceToolsIndexRoute;
+	InstanceTrafficLogsIndexRoute: typeof InstanceTrafficLogsIndexRoute;
+	InstanceWebsocketIndexRoute: typeof InstanceWebsocketIndexRoute;
 }
 
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/instance-setup/$instanceId': {
-      id: '/instance-setup/$instanceId'
-      path: '/instance-setup/$instanceId'
-      fullPath: '/instance-setup/$instanceId'
-      preLoaderRoute: typeof InstanceSetupInstanceIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/websocket/': {
-      id: '/$instance/websocket/'
-      path: '/$instance/websocket'
-      fullPath: '/$instance/websocket'
-      preLoaderRoute: typeof InstanceWebsocketIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/traffic-logs/': {
-      id: '/$instance/traffic-logs/'
-      path: '/$instance/traffic-logs'
-      fullPath: '/$instance/traffic-logs'
-      preLoaderRoute: typeof InstanceTrafficLogsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/tools/': {
-      id: '/$instance/tools/'
-      path: '/$instance/tools'
-      fullPath: '/$instance/tools'
-      preLoaderRoute: typeof InstanceToolsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/rate-limit/': {
-      id: '/$instance/rate-limit/'
-      path: '/$instance/rate-limit'
-      fullPath: '/$instance/rate-limit'
-      preLoaderRoute: typeof InstanceRateLimitIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/origins/': {
-      id: '/$instance/origins/'
-      path: '/$instance/origins'
-      fullPath: '/$instance/origins'
-      preLoaderRoute: typeof InstanceOriginsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/modules/': {
-      id: '/$instance/modules/'
-      path: '/$instance/modules'
-      fullPath: '/$instance/modules'
-      preLoaderRoute: typeof InstanceModulesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/home/': {
-      id: '/$instance/home/'
-      path: '/$instance/home'
-      fullPath: '/$instance/home'
-      preLoaderRoute: typeof InstanceHomeIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/error-pages/': {
-      id: '/$instance/error-pages/'
-      path: '/$instance/error-pages'
-      fullPath: '/$instance/error-pages'
-      preLoaderRoute: typeof InstanceErrorPagesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/domains/': {
-      id: '/$instance/domains/'
-      path: '/$instance/domains'
-      fullPath: '/$instance/domains'
-      preLoaderRoute: typeof InstanceDomainsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/custom-header/': {
-      id: '/$instance/custom-header/'
-      path: '/$instance/custom-header'
-      fullPath: '/$instance/custom-header'
-      preLoaderRoute: typeof InstanceCustomHeaderIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/cors-management/': {
-      id: '/$instance/cors-management/'
-      path: '/$instance/cors-management'
-      fullPath: '/$instance/cors-management'
-      preLoaderRoute: typeof InstanceCorsManagementIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/certificates/': {
-      id: '/$instance/certificates/'
-      path: '/$instance/certificates'
-      fullPath: '/$instance/certificates'
-      preLoaderRoute: typeof InstanceCertificatesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/cache-control/': {
-      id: '/$instance/cache-control/'
-      path: '/$instance/cache-control'
-      fullPath: '/$instance/cache-control'
-      preLoaderRoute: typeof InstanceCacheControlIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$instance/about/': {
-      id: '/$instance/about/'
-      path: '/$instance/about'
-      fullPath: '/$instance/about'
-      preLoaderRoute: typeof InstanceAboutIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-  }
+declare module "@tanstack/react-router" {
+	interface FileRoutesByPath {
+		"/": {
+			id: "/";
+			path: "/";
+			fullPath: "/";
+			preLoaderRoute: typeof IndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/instance-setup/$instanceId": {
+			id: "/instance-setup/$instanceId";
+			path: "/instance-setup/$instanceId";
+			fullPath: "/instance-setup/$instanceId";
+			preLoaderRoute: typeof InstanceSetupInstanceIdRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/websocket/": {
+			id: "/$instance/websocket/";
+			path: "/$instance/websocket";
+			fullPath: "/$instance/websocket";
+			preLoaderRoute: typeof InstanceWebsocketIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/traffic-logs/": {
+			id: "/$instance/traffic-logs/";
+			path: "/$instance/traffic-logs";
+			fullPath: "/$instance/traffic-logs";
+			preLoaderRoute: typeof InstanceTrafficLogsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/tools/": {
+			id: "/$instance/tools/";
+			path: "/$instance/tools";
+			fullPath: "/$instance/tools";
+			preLoaderRoute: typeof InstanceToolsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/rate-limit/": {
+			id: "/$instance/rate-limit/";
+			path: "/$instance/rate-limit";
+			fullPath: "/$instance/rate-limit";
+			preLoaderRoute: typeof InstanceRateLimitIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/origins/": {
+			id: "/$instance/origins/";
+			path: "/$instance/origins";
+			fullPath: "/$instance/origins";
+			preLoaderRoute: typeof InstanceOriginsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/modules/": {
+			id: "/$instance/modules/";
+			path: "/$instance/modules";
+			fullPath: "/$instance/modules";
+			preLoaderRoute: typeof InstanceModulesIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/home/": {
+			id: "/$instance/home/";
+			path: "/$instance/home";
+			fullPath: "/$instance/home";
+			preLoaderRoute: typeof InstanceHomeIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/error-pages/": {
+			id: "/$instance/error-pages/";
+			path: "/$instance/error-pages";
+			fullPath: "/$instance/error-pages";
+			preLoaderRoute: typeof InstanceErrorPagesIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/domains/": {
+			id: "/$instance/domains/";
+			path: "/$instance/domains";
+			fullPath: "/$instance/domains";
+			preLoaderRoute: typeof InstanceDomainsIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/custom-header/": {
+			id: "/$instance/custom-header/";
+			path: "/$instance/custom-header";
+			fullPath: "/$instance/custom-header";
+			preLoaderRoute: typeof InstanceCustomHeaderIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/cors-management/": {
+			id: "/$instance/cors-management/";
+			path: "/$instance/cors-management";
+			fullPath: "/$instance/cors-management";
+			preLoaderRoute: typeof InstanceCorsManagementIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/certificates/": {
+			id: "/$instance/certificates/";
+			path: "/$instance/certificates";
+			fullPath: "/$instance/certificates";
+			preLoaderRoute: typeof InstanceCertificatesIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/cache-control/": {
+			id: "/$instance/cache-control/";
+			path: "/$instance/cache-control";
+			fullPath: "/$instance/cache-control";
+			preLoaderRoute: typeof InstanceCacheControlIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+		"/$instance/about/": {
+			id: "/$instance/about/";
+			path: "/$instance/about";
+			fullPath: "/$instance/about";
+			preLoaderRoute: typeof InstanceAboutIndexRouteImport;
+			parentRoute: typeof rootRouteImport;
+		};
+	}
 }
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  InstanceSetupInstanceIdRoute: InstanceSetupInstanceIdRoute,
-  InstanceAboutIndexRoute: InstanceAboutIndexRoute,
-  InstanceCacheControlIndexRoute: InstanceCacheControlIndexRoute,
-  InstanceCertificatesIndexRoute: InstanceCertificatesIndexRoute,
-  InstanceCorsManagementIndexRoute: InstanceCorsManagementIndexRoute,
-  InstanceCustomHeaderIndexRoute: InstanceCustomHeaderIndexRoute,
-  InstanceDomainsIndexRoute: InstanceDomainsIndexRoute,
-  InstanceErrorPagesIndexRoute: InstanceErrorPagesIndexRoute,
-  InstanceHomeIndexRoute: InstanceHomeIndexRoute,
-  InstanceModulesIndexRoute: InstanceModulesIndexRoute,
-  InstanceOriginsIndexRoute: InstanceOriginsIndexRoute,
-  InstanceRateLimitIndexRoute: InstanceRateLimitIndexRoute,
-  InstanceToolsIndexRoute: InstanceToolsIndexRoute,
-  InstanceTrafficLogsIndexRoute: InstanceTrafficLogsIndexRoute,
-  InstanceWebsocketIndexRoute: InstanceWebsocketIndexRoute,
-}
+	IndexRoute: IndexRoute,
+	InstanceSetupInstanceIdRoute: InstanceSetupInstanceIdRoute,
+	InstanceAboutIndexRoute: InstanceAboutIndexRoute,
+	InstanceCacheControlIndexRoute: InstanceCacheControlIndexRoute,
+	InstanceCertificatesIndexRoute: InstanceCertificatesIndexRoute,
+	InstanceCorsManagementIndexRoute: InstanceCorsManagementIndexRoute,
+	InstanceCustomHeaderIndexRoute: InstanceCustomHeaderIndexRoute,
+	InstanceDomainsIndexRoute: InstanceDomainsIndexRoute,
+	InstanceErrorPagesIndexRoute: InstanceErrorPagesIndexRoute,
+	InstanceHomeIndexRoute: InstanceHomeIndexRoute,
+	InstanceModulesIndexRoute: InstanceModulesIndexRoute,
+	InstanceOriginsIndexRoute: InstanceOriginsIndexRoute,
+	InstanceRateLimitIndexRoute: InstanceRateLimitIndexRoute,
+	InstanceToolsIndexRoute: InstanceToolsIndexRoute,
+	InstanceTrafficLogsIndexRoute: InstanceTrafficLogsIndexRoute,
+	InstanceWebsocketIndexRoute: InstanceWebsocketIndexRoute,
+};
 export const routeTree = rootRouteImport
-  ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+	._addFileChildren(rootRouteChildren)
+	._addFileTypes<FileRouteTypes>();
