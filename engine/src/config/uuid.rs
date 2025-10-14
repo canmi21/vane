@@ -3,10 +3,12 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use chrono::{DateTime, Utc};
 use fancy_log::{LogLevel, log};
+use ip_lookup::get_public_ip_addr;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use tokio::task;
 use uuid::Uuid;
 
 // Represents the structure of our instance.json file.
@@ -37,15 +39,11 @@ fn get_base_config_path() -> PathBuf {
 }
 
 /// Initializes the instance configuration file (`instance.json`).
-///
-/// This function checks if `instance.json` exists. If not, it generates a new
-/// instance ID and seeds, saves them, and logs a one-time setup URL for the user.
-/// It assumes the base configuration directory has already been created.
-pub fn initialize_instance_config() -> std::io::Result<()> {
+/// This is now an async function to handle IP lookup without blocking.
+pub async fn initialize_instance_config() -> std::io::Result<()> {
 	let base_path = get_base_config_path();
 	let instance_file_path = base_path.join("instance.json");
 
-	// If the config file already exists, our work here is done.
 	if instance_file_path.exists() {
 		return Ok(());
 	}
@@ -55,50 +53,61 @@ pub fn initialize_instance_config() -> std::io::Result<()> {
 		"First launch detected. Generating new instance configuration...",
 	);
 
-	// Generate new instance data.
+	// This is a blocking network call, so run it in a dedicated thread.
+	let public_ip = task::spawn_blocking(|| get_public_ip_addr())
+		.await
+		.unwrap_or(None) // Handle potential panic from spawn_blocking
+		.unwrap_or_else(|| {
+			log(
+				LogLevel::Warn,
+				"Could not determine public IP. Falling back to 127.0.0.1.",
+			);
+			"127.0.0.1".to_string()
+		});
+
+	let port = env::var("PORT").unwrap_or_else(|_| "3333".to_string());
+	let base_url = format!("http://{}:{}", public_ip, port);
+
 	let new_config = InstanceConfig {
 		instance_id: generate_instance_id(),
 		seeds: generate_seeds(),
 		created_at: Utc::now(),
 	};
 
-	// Write the new configuration to instance.json.
 	let config_json =
 		serde_json::to_string_pretty(&new_config).expect("Failed to serialize instance config");
 	fs::write(&instance_file_path, config_json)?;
 
-	// The log for successful creation has been removed as requested.
-
-	// Print the setup URL directly to the console for better visibility.
-	print_setup_url(&new_config);
+	print_setup_url(&new_config, &base_url);
 
 	Ok(())
 }
 
-/// Constructs a clickable terminal hyperlink and prints it to the console without revealing the raw URL.
-fn print_setup_url(config: &InstanceConfig) {
-	// Read the public site URL from .env, with a fallback.
+/// Constructs and prints a clickable terminal hyperlink containing the base_url, os, and timestamp.
+fn print_setup_url(config: &InstanceConfig, base_url: &str) {
+	// Fallback to http as requested for initial setup.
 	let public_site_url =
-		env::var("PUBLIC_SITE_URL").unwrap_or_else(|_| "https://dash.vaneproxy.com".to_string());
+		env::var("PUBLIC_SITE_URL").unwrap_or_else(|_| "http://dash.vaneproxy.com".to_string());
 
-	// Create the semicolon-separated payload string from seeds.
 	let seeds_payload = config.seeds.join(";");
+	let os_info = std::env::consts::OS;
+	// Use RFC3339 for a standard, easily parsable timestamp format.
+	let timestamp = Utc::now().to_rfc3339();
 
-	// Base64 encode the payload. The fragment part (#) of the URL ensures it's not sent to the server.
-	let encoded_seeds = B64.encode(seeds_payload);
+	// The new payload format: {base_url};{os};{timestamp};{seed1};{seed2};...
+	let full_payload = format!("{};{};{};{}", base_url, os_info, timestamp, seeds_payload);
+	let encoded_payload = B64.encode(full_payload);
 
 	let setup_url = format!(
 		"{}/instance-setup/{}#{}",
-		public_site_url, config.instance_id, encoded_seeds
+		public_site_url, config.instance_id, encoded_payload
 	);
 
-	// Create a clickable hyperlink using ANSI escape codes (OSC 8).
-	// The raw URL is hidden within the escape sequence and is not printed directly.
-	let link_text = "(Click here) to complete the setup process";
+	let link_text = "Click here to complete the setup process";
 	let hyperlink = format!("\x1B]8;;{}\x07{}\x1B]8;;\x07", setup_url, link_text);
 
-	// Print the message directly to the console for maximum visibility.
-	println!(); // An empty line for spacing.
+	// Print with the new requested format.
+	println!();
 	println!("    To complete setup, please open the following link in your browser.");
 	println!("    Warning: This link contains sensitive credentials. Do not share it.");
 	println!();
