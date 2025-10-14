@@ -1,17 +1,21 @@
 /* engine/src/daemon/router.rs */
 
-use crate::{common::response, daemon::root::root_handler, middleware::cors};
-use axum::{Router, http::StatusCode, response::IntoResponse, routing::get};
+use crate::{
+	common::response,
+	daemon::root::root_handler,
+	middleware::{self, auth::auth_middleware},
+	modules,
+};
+use axum::{Router, http::StatusCode, middleware::from_fn, response::IntoResponse, routing::get};
 
 /// The main function to create and configure all application routes.
 pub fn create_router() -> Router {
 	Router::new()
-		// The root endpoint providing application metadata.
 		.route("/", get(root_handler))
-		// Fallback handler for any request that doesn't match a route.
+		.route("/v1/instance", get(modules::instance::get_instance_info))
 		.fallback(not_found_handler)
-		// Apply the CORS layer to all routes.
-		.layer(cors::create_cors_layer())
+		.layer(from_fn(auth_middleware))
+		.layer(middleware::cors::create_cors_layer())
 }
 
 /// A handler for unmatched routes, returning a 404 response.
