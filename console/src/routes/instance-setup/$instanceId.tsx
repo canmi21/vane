@@ -141,11 +141,20 @@ function InstanceSetupComponent() {
 					className="mb-8 leading-relaxed"
 					style={{ color: "var(--color-subtext)" }}
 				>
-					{isExisting
-						? "This instance already exists in your dashboard. Click to override its settings."
-						: "A Vane instance from a new device is requesting to connect to this dashboard."}
+					{isExisting ? (
+						<>
+							This instance already exists in your dashboard.
+							<br />
+							Click to override its settings.
+						</>
+					) : (
+						<>
+							A new instance is requesting to connect.
+							<br />
+							Click to add it on the dashboard.
+						</>
+					)}
 				</p>
-
 				<ul className="mb-8 list-none p-0 text-left">
 					<li
 						className="flex items-center gap-4 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
