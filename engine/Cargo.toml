@@ -58,6 +58,7 @@ anynet = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 home = "0.5"
 ip-lookup = "0.1"
+totp = { path = "./../modules/totp" }
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
