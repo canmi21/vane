@@ -77,6 +77,12 @@ export const http = {
 			body: JSON.stringify(body),
 			headers: { "Content-Type": "application/json" },
 		}),
+	put: <T>(url: string, body: Record<string, unknown>) =>
+		makeRequest<T>(url, {
+			method: "PUT",
+			body: JSON.stringify(body),
+			headers: { "Content-Type": "application/json" },
+		}),
 	delete: <T>(url: string) => makeRequest<T>(url, { method: "DELETE" }),
 	// Add other methods like put, patch as needed.
 };
