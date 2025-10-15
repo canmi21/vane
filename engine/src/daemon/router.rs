@@ -4,7 +4,10 @@ use crate::{
 	common::response,
 	daemon::root::root_handler,
 	middleware::{self, auth::auth_middleware},
-	modules::{self, origins::origins},
+	modules::{
+		self,
+		origins::{monitor, origins},
+	},
 };
 use axum::{
 	Router,
@@ -25,6 +28,19 @@ pub fn create_router() -> Router {
 		.route("/v1/origins/{:id}", get(origins::get_origin))
 		.route("/v1/origins/{:id}", put(origins::update_origin))
 		.route("/v1/origins/{:id}", delete(origins::delete_origin))
+		.route("/v1/monitor/origins", get(monitor::get_monitor_status))
+		.route(
+			"/v1/monitor/origins/period",
+			put(monitor::update_check_period),
+		)
+		.route(
+			"/v1/monitor/origins/override",
+			put(monitor::set_override_url),
+		)
+		.route(
+			"/v1/monitor/origins/override/{:id}",
+			delete(monitor::delete_override_url),
+		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
 
