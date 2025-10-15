@@ -1,17 +1,24 @@
 /* src/components/origins/origin-monitor-card.tsx */
 
 import { useState, useMemo } from "react";
-import { Activity, RefreshCw, ChevronDown, HeartPulse } from "lucide-react";
+import {
+	Activity,
+	RefreshCw,
+	ChevronDown,
+	HeartPulse,
+	HelpCircle,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
 	type UseQueryResult,
 	type UseMutationResult,
 } from "@tanstack/react-query";
 import { type RequestResult } from "~/api/request";
-import { type OriginResponse } from "~/routes/$instance/origins/";
 import {
+	type OriginResponse,
 	type MonitorReportsStore,
 	type TaskStatus,
+	type MonitorConfig,
 } from "~/routes/$instance/origins/";
 import { MonitorItem, type MonitoredOrigin } from "./monitor-item";
 
@@ -38,12 +45,24 @@ export function OriginMonitorCard({
 	taskStatusQuery,
 	nextCheckQuery,
 	triggerCheckMutation,
+	setOverrideMutation,
+	deleteOverrideMutation,
 }: {
 	origins: OriginResponse[];
 	monitorReports: MonitorReportsStore;
 	taskStatusQuery: UseQueryResult<RequestResult<TaskStatus>>;
 	nextCheckQuery: UseQueryResult<RequestResult<string | null>>;
 	triggerCheckMutation: UseMutationResult<RequestResult<unknown>, Error, void>;
+	setOverrideMutation: UseMutationResult<
+		RequestResult<MonitorConfig>,
+		Error,
+		{ originId: string; url: string }
+	>;
+	deleteOverrideMutation: UseMutationResult<
+		RequestResult<MonitorConfig>,
+		Error,
+		string
+	>;
 }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
@@ -69,7 +88,6 @@ export function OriginMonitorCard({
 				pending.push(item);
 			}
 		}
-		// Sort unhealthy items to the top
 		return { healthy, unhealthy, pending };
 	}, [monitoredOrigins]);
 
@@ -89,6 +107,12 @@ export function OriginMonitorCard({
 						<div className="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-alt)] px-2.5 py-1 text-xs font-semibold text-[var(--color-subtext)]">
 							<HeartPulse size={14} />
 							<span>{unhealthy.length} Unhealthy</span>
+						</div>
+					)}
+					{pending.length > 0 && (
+						<div className="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-alt)] px-2.5 py-1 text-xs font-semibold text-[var(--color-subtext)]">
+							<HelpCircle size={14} />
+							<span>{pending.length} Pending</span>
 						</div>
 					)}
 				</div>
@@ -125,12 +149,9 @@ export function OriginMonitorCard({
 
 			{/* Body - List of origins */}
 			<div className="divide-y divide-[var(--color-bg-alt)] border-t border-[var(--color-bg-alt)]">
-				{/* Always visible unhealthy items */}
-				{unhealthy.map((item) => (
-					<MonitorItem key={item.id} item={item} />
-				))}
+				{/* --- FIX APPLIED HERE: The rendering order is changed --- */}
 
-				{/* Collapsible section for healthy and pending items */}
+				{/* Collapsible section for healthy items now comes FIRST */}
 				<AnimatePresence>
 					{isExpanded && (
 						<motion.div
@@ -142,15 +163,35 @@ export function OriginMonitorCard({
 						>
 							<div className="divide-y divide-[var(--color-bg-alt)]">
 								{healthy.map((item) => (
-									<MonitorItem key={item.id} item={item} />
-								))}
-								{pending.map((item) => (
-									<MonitorItem key={item.id} item={item} />
+									<MonitorItem
+										key={item.id}
+										item={item}
+										setOverrideMutation={setOverrideMutation}
+										deleteOverrideMutation={deleteOverrideMutation}
+									/>
 								))}
 							</div>
 						</motion.div>
 					)}
 				</AnimatePresence>
+
+				{/* Always visible unhealthy and pending items now come AFTER */}
+				{unhealthy.map((item) => (
+					<MonitorItem
+						key={item.id}
+						item={item}
+						setOverrideMutation={setOverrideMutation}
+						deleteOverrideMutation={deleteOverrideMutation}
+					/>
+				))}
+				{pending.map((item) => (
+					<MonitorItem
+						key={item.id}
+						item={item}
+						setOverrideMutation={setOverrideMutation}
+						deleteOverrideMutation={deleteOverrideMutation}
+					/>
+				))}
 
 				{/* Empty State */}
 				{origins.length === 0 && (
