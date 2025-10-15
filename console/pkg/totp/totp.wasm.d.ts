@@ -1,6 +1,5 @@
 /* pkg/totp/totp.wasm.d.ts */
 
-/* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const wasm_generate_combined_token: (
 	a: number,
