@@ -55,8 +55,14 @@ pub fn create_router() -> Router {
 			post(monitor::trigger_check_now),
 		)
 		.route("/v1/domains", get(domain_entrance::list_domains))
-		.route("/v1/domains", post(domain_entrance::create_domain))
-		.route("/v1/domains", delete(domain_entrance::delete_domain))
+		.route(
+			"/v1/domains/{:domain}",
+			post(domain_entrance::create_domain),
+		)
+		.route(
+			"/v1/domains/{:domain}",
+			delete(domain_entrance::delete_domain),
+		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
 
