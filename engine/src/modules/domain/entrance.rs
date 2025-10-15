@@ -1,22 +1,23 @@
 /* engine/src/modules/domain/entrance.rs */
 
 use crate::{common::response, daemon::config};
+use axum::extract::Path;
 use axum::response::IntoResponse;
-use axum::{Json, http::StatusCode, response::Response};
+use axum::{http::StatusCode, response::Response};
 use fancy_log::{LogLevel, log};
 use serde::{Deserialize, Serialize};
 
 // --- Helper Functions ---
 
 /// Converts a user-facing domain name (like "*.example.com") to a filesystem-safe directory name ("[_.example.com]").
-fn domain_to_dir_name(domain: &str) -> String {
+pub fn domain_to_dir_name(domain: &str) -> String {
 	let fs_safe_name = domain.replace('*', "_");
 	format!("[{}]", fs_safe_name)
 }
 
 /// Converts a directory name ("[_.example.com]") back to a user-facing domain name ("*.example.com").
 /// Returns None if the directory name is not in the expected format.
-fn dir_name_to_domain(dir_name: &str) -> Option<String> {
+pub fn dir_name_to_domain(dir_name: &str) -> Option<String> {
 	if dir_name.starts_with('[') && dir_name.ends_with(']') {
 		let inner = &dir_name[1..dir_name.len() - 1];
 		Some(inner.replace('_', "*"))
@@ -27,7 +28,7 @@ fn dir_name_to_domain(dir_name: &str) -> Option<String> {
 
 /// Validates if a given string is a plausible domain name for our use case.
 /// Checks for dot count and basic structural validity.
-fn is_valid_domain_input(domain: &str) -> bool {
+pub fn is_valid_domain_input(domain: &str) -> bool {
 	if domain.is_empty() || domain.len() > 253 {
 		return false;
 	}
@@ -54,6 +55,7 @@ fn is_valid_domain_input(domain: &str) -> bool {
 
 // --- API Payloads ---
 
+// This struct is no longer needed for create/delete but might be useful elsewhere.
 #[derive(Deserialize, Serialize)]
 pub struct DomainPayload {
 	pub domain: String,
@@ -107,10 +109,13 @@ pub async fn list_domains() -> Response {
 }
 
 /// Creates a new domain entrance by creating a corresponding directory.
-pub async fn create_domain(Json(payload): Json<DomainPayload>) -> Response {
-	log(LogLevel::Info, "POST /v1/domains called");
+pub async fn create_domain(Path(domain): Path<String>) -> Response {
+	log(
+		LogLevel::Info,
+		&format!("POST /v1/domains/{} called", domain),
+	);
 
-	if !is_valid_domain_input(&payload.domain) {
+	if !is_valid_domain_input(&domain) {
 		return response::error(
 			StatusCode::BAD_REQUEST,
 			"Invalid domain format provided.".to_string(),
@@ -118,7 +123,7 @@ pub async fn create_domain(Json(payload): Json<DomainPayload>) -> Response {
 		.into_response();
 	}
 
-	let dir_name = domain_to_dir_name(&payload.domain);
+	let dir_name = domain_to_dir_name(&domain);
 	let mut path = config::get_config_dir();
 	path.push(&dir_name);
 
@@ -141,17 +146,24 @@ pub async fn create_domain(Json(payload): Json<DomainPayload>) -> Response {
 
 	log(
 		LogLevel::Info,
-		&format!("Domain entrance created: {}", payload.domain),
+		&format!("Domain entrance created: {}", domain),
 	);
-	(StatusCode::CREATED, response::success(payload)).into_response()
+	// --- Respond with the created domain info ---
+	(
+		StatusCode::CREATED,
+		response::success(DomainPayload { domain }),
+	)
+		.into_response()
 }
 
 /// Deletes a domain entrance by removing its directory.
-pub async fn delete_domain(Json(payload): Json<DomainPayload>) -> Response {
-	log(LogLevel::Info, "DELETE /v1/domains called");
+pub async fn delete_domain(Path(domain): Path<String>) -> Response {
+	log(
+		LogLevel::Info,
+		&format!("DELETE /v1/domains/{} called", domain),
+	);
 
-	// We validate here as well to prevent attempts to delete directories outside the convention.
-	if !is_valid_domain_input(&payload.domain) {
+	if !is_valid_domain_input(&domain) {
 		return response::error(
 			StatusCode::BAD_REQUEST,
 			"Invalid domain format provided.".to_string(),
@@ -159,7 +171,7 @@ pub async fn delete_domain(Json(payload): Json<DomainPayload>) -> Response {
 		.into_response();
 	}
 
-	let dir_name = domain_to_dir_name(&payload.domain);
+	let dir_name = domain_to_dir_name(&domain);
 	let mut path = config::get_config_dir();
 	path.push(&dir_name);
 
@@ -167,7 +179,6 @@ pub async fn delete_domain(Json(payload): Json<DomainPayload>) -> Response {
 		return response::error(StatusCode::NOT_FOUND, "Domain not found.".to_string()).into_response();
 	}
 
-	// Use `remove_dir_all` to safely delete the directory and any contents.
 	if let Err(e) = tokio::fs::remove_dir_all(&path).await {
 		log(
 			LogLevel::Error,
@@ -182,7 +193,7 @@ pub async fn delete_domain(Json(payload): Json<DomainPayload>) -> Response {
 
 	log(
 		LogLevel::Info,
-		&format!("Domain entrance deleted: {}", payload.domain),
+		&format!("Domain entrance deleted: {}", domain),
 	);
 	StatusCode::NO_CONTENT.into_response()
 }
