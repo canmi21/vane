@@ -2,6 +2,7 @@
 
 use crate::config::uuid;
 use crate::daemon::{config, router};
+use crate::modules::origins::task as origin_monitor_task;
 use anynet::anynet;
 use axum::serve;
 use dotenvy::dotenv;
@@ -35,6 +36,9 @@ pub async fn start() {
 		);
 		process::exit(1);
 	}
+
+	origin_monitor_task::initialize_monitor_config().await;
+	origin_monitor_task::start_monitoring_task();
 
 	let port = env::var("PORT")
 		.ok()
