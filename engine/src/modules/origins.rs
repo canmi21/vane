@@ -7,6 +7,7 @@ use axum::{
 	http::StatusCode,
 	response::{IntoResponse, Response},
 };
+use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -26,11 +27,10 @@ pub struct Origin {
 	pub raw_url: String,
 }
 
-// A new struct for API responses that includes the ID.
 #[derive(Serialize)]
 pub struct OriginResponse {
 	pub id: String,
-	#[serde(flatten)] // Merges the fields of `Origin` into this struct
+	#[serde(flatten)]
 	pub origin: Origin,
 }
 
@@ -86,7 +86,6 @@ pub struct CreateOriginPayload {
 	pub url: String,
 }
 
-// New payload for partial updates. All fields are optional.
 #[derive(Deserialize, Debug)]
 pub struct UpdateOriginPayload {
 	pub raw_url: Option<String>,
@@ -98,8 +97,8 @@ pub struct UpdateOriginPayload {
 }
 
 // --- Axum Handlers ---
-/// GET /v1/origins - List all configured origins.
 pub async fn list_origins() -> impl IntoResponse {
+	log(LogLevel::Debug, "GET /v1/origins called");
 	let origins = ORIGINS.read().await;
 	let origins_vec: Vec<OriginResponse> = origins
 		.iter()
@@ -111,8 +110,8 @@ pub async fn list_origins() -> impl IntoResponse {
 	response::success(origins_vec)
 }
 
-/// POST /v1/origins - Create a new origin.
 pub async fn create_origin(Json(payload): Json<CreateOriginPayload>) -> Response {
+	log(LogLevel::Info, "POST /v1/origins called");
 	match parse_and_validate_origin_url(&payload.url) {
 		Ok(parsed) => {
 			let mut origins = ORIGINS.write().await;
@@ -128,6 +127,7 @@ pub async fn create_origin(Json(payload): Json<CreateOriginPayload>) -> Response
 			origins.insert(new_id.clone(), new_origin.clone());
 
 			if save_origins(&origins).await.is_err() {
+				log(LogLevel::Error, "Failed to save origin after creation");
 				return response::error(
 					StatusCode::INTERNAL_SERVER_ERROR,
 					"Failed to save origin.".to_string(),
@@ -135,18 +135,25 @@ pub async fn create_origin(Json(payload): Json<CreateOriginPayload>) -> Response
 				.into_response();
 			}
 
+			log(
+				LogLevel::Info,
+				&format!("Origin created with ID: {}", new_id),
+			);
 			let response_data = OriginResponse {
 				id: new_id,
 				origin: new_origin,
 			};
 			(StatusCode::CREATED, Json(response_data)).into_response()
 		}
-		Err(response) => response,
+		Err(response) => {
+			log(LogLevel::Warn, "Failed to parse origin URL");
+			response
+		}
 	}
 }
 
-/// GET /v1/origins/{id} - Get a single origin by its ID.
 pub async fn get_origin(Path(id): Path<String>) -> Response {
+	log(LogLevel::Debug, &format!("GET /v1/origins/{} called", id));
 	let origins = ORIGINS.read().await;
 	match origins.get(&id) {
 		Some(origin) => {
@@ -156,25 +163,31 @@ pub async fn get_origin(Path(id): Path<String>) -> Response {
 			};
 			response::success(response_data).into_response()
 		}
-		None => response::error(StatusCode::NOT_FOUND, "Origin not found.".to_string()).into_response(),
+		None => {
+			log(LogLevel::Warn, &format!("Origin not found: {}", id));
+			response::error(StatusCode::NOT_FOUND, "Origin not found.".to_string()).into_response()
+		}
 	}
 }
 
-/// PUT /v1/origins/{id} - Partially update an existing origin.
 pub async fn update_origin(
 	Path(id): Path<String>,
 	Json(payload): Json<UpdateOriginPayload>,
 ) -> Response {
+	log(LogLevel::Info, &format!("PUT /v1/origins/{} called", id));
 	let mut origins = ORIGINS.write().await;
 	let existing_origin = match origins.get_mut(&id) {
 		Some(origin) => origin,
 		None => {
+			log(
+				LogLevel::Warn,
+				&format!("Origin not found for update: {}", id),
+			);
 			return response::error(StatusCode::NOT_FOUND, "Origin not found.".to_string())
 				.into_response();
 		}
 	};
 
-	// If a new `raw_url` is provided, re-parse it fully.
 	if let Some(raw_url) = payload.raw_url {
 		match parse_and_validate_origin_url(&raw_url) {
 			Ok(parsed) => {
@@ -184,10 +197,15 @@ pub async fn update_origin(
 				existing_origin.path = parsed.path;
 				existing_origin.raw_url = raw_url;
 			}
-			Err(response) => return response,
+			Err(response) => {
+				log(
+					LogLevel::Warn,
+					&format!("Failed to re-parse raw_url for {}", id),
+				);
+				return response;
+			}
 		}
 	} else {
-		// Otherwise, apply individual field updates if they exist.
 		if let Some(scheme) = payload.scheme {
 			existing_origin.scheme = scheme;
 		}
@@ -202,17 +220,20 @@ pub async fn update_origin(
 		}
 	}
 
-	// `skip_ssl_verify` can always be updated independently.
 	if let Some(skip) = payload.skip_ssl_verify {
 		existing_origin.skip_ssl_verify = skip;
 	}
 
 	let response_data = OriginResponse {
-		id,
+		id: id.clone(),
 		origin: existing_origin.clone(),
 	};
 
 	if save_origins(&origins).await.is_err() {
+		log(
+			LogLevel::Error,
+			&format!("Failed to save updated origin {}", id),
+		);
 		return response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
 			"Failed to save origin.".to_string(),
@@ -220,22 +241,32 @@ pub async fn update_origin(
 		.into_response();
 	}
 
+	log(LogLevel::Info, &format!("Origin updated: {}", id));
 	response::success(response_data).into_response()
 }
 
-/// DELETE /v1/origins/{id} - Delete an origin by its ID.
 pub async fn delete_origin(Path(id): Path<String>) -> Response {
+	log(LogLevel::Info, &format!("DELETE /v1/origins/{} called", id));
 	let mut origins = ORIGINS.write().await;
 	if origins.remove(&id).is_some() {
 		if save_origins(&origins).await.is_err() {
+			log(
+				LogLevel::Error,
+				&format!("Failed to save after deleting origin {}", id),
+			);
 			return response::error(
 				StatusCode::INTERNAL_SERVER_ERROR,
 				"Failed to save changes after deleting origin.".to_string(),
 			)
 			.into_response();
 		}
+		log(LogLevel::Info, &format!("Origin deleted: {}", id));
 		StatusCode::NO_CONTENT.into_response()
 	} else {
+		log(
+			LogLevel::Warn,
+			&format!("Origin not found for deletion: {}", id),
+		);
 		response::error(StatusCode::NOT_FOUND, "Origin not found.".to_string()).into_response()
 	}
 }
@@ -251,6 +282,7 @@ struct ParsedOrigin {
 fn parse_and_validate_origin_url(raw_url: &str) -> Result<ParsedOrigin, Response> {
 	let trimmed_url = raw_url.trim();
 	if trimmed_url.is_empty() {
+		log(LogLevel::Warn, "Empty URL in parse_and_validate_origin_url");
 		return Err(
 			response::error(StatusCode::BAD_REQUEST, "URL cannot be empty.".to_string()).into_response(),
 		);
@@ -262,6 +294,7 @@ fn parse_and_validate_origin_url(raw_url: &str) -> Result<ParsedOrigin, Response
 			match Url::parse(&format!("dummy://{}", trimmed_url)) {
 				Ok(url) => url,
 				Err(_) => {
+					log(LogLevel::Warn, "Invalid URL format without scheme");
 					return Err(
 						response::error(StatusCode::BAD_REQUEST, "Invalid URL format.".to_string())
 							.into_response(),
@@ -270,6 +303,7 @@ fn parse_and_validate_origin_url(raw_url: &str) -> Result<ParsedOrigin, Response
 			}
 		}
 		Err(_) => {
+			log(LogLevel::Warn, "Invalid URL format during parsing");
 			return Err(
 				response::error(StatusCode::BAD_REQUEST, "Invalid URL format.".to_string()).into_response(),
 			);
@@ -279,6 +313,7 @@ fn parse_and_validate_origin_url(raw_url: &str) -> Result<ParsedOrigin, Response
 	let host = match url.host_str() {
 		Some(h) => h.to_string(),
 		None => {
+			log(LogLevel::Warn, "URL missing host field");
 			return Err(
 				response::error(StatusCode::BAD_REQUEST, "URL must have a host.".to_string())
 					.into_response(),
@@ -297,6 +332,7 @@ fn parse_and_validate_origin_url(raw_url: &str) -> Result<ParsedOrigin, Response
 			}
 		}
 		scheme => {
+			log(LogLevel::Warn, &format!("Unsupported scheme: {}", scheme));
 			return Err(
 				response::error(
 					StatusCode::BAD_REQUEST,
