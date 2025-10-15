@@ -6,6 +6,7 @@ use crate::{
 	middleware::{self, auth::auth_middleware},
 	modules::{
 		self,
+		certs::manager as certs_manager,
 		domain::entrance as domain_entrance,
 		origins::{monitor, origins},
 	},
@@ -24,11 +25,16 @@ pub fn create_router() -> Router {
 	// Each route and method is defined on its own line.
 	let api_routes = Router::new()
 		.route("/v1/instance", get(modules::instance::get_instance_info))
-		.route("/v1/origins", get(origins::list_origins))
-		.route("/v1/origins", post(origins::create_origin))
-		.route("/v1/origins/{:id}", get(origins::get_origin))
-		.route("/v1/origins/{:id}", put(origins::update_origin))
-		.route("/v1/origins/{:id}", delete(origins::delete_origin))
+		.route(
+			"/v1/origins",
+			get(origins::list_origins).post(origins::create_origin),
+		)
+		.route(
+			"/v1/origins/{:id}",
+			get(origins::get_origin)
+				.put(origins::update_origin)
+				.delete(origins::delete_origin),
+		)
 		.route("/v1/monitor/origins", get(monitor::get_monitor_status))
 		.route(
 			"/v1/monitor/origins/period",
@@ -57,11 +63,14 @@ pub fn create_router() -> Router {
 		.route("/v1/domains", get(domain_entrance::list_domains))
 		.route(
 			"/v1/domains/{:domain}",
-			post(domain_entrance::create_domain),
+			post(domain_entrance::create_domain).delete(domain_entrance::delete_domain),
 		)
+		.route("/v1/certs", get(certs_manager::list_certs))
 		.route(
-			"/v1/domains/{:domain}",
-			delete(domain_entrance::delete_domain),
+			"/v1/certs/{:domain}",
+			get(certs_manager::get_cert_details)
+				.post(certs_manager::upload_cert)
+				.delete(certs_manager::delete_cert),
 		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
