@@ -84,5 +84,4 @@ export const http = {
 			headers: { "Content-Type": "application/json" },
 		}),
 	delete: <T>(url: string) => makeRequest<T>(url, { method: "DELETE" }),
-	// Add other methods like put, patch as needed.
 };
