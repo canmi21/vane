@@ -41,6 +41,18 @@ pub fn create_router() -> Router {
 			"/v1/monitor/origins/override/{:id}",
 			delete(monitor::delete_override_url),
 		)
+		.route(
+			"/v1/monitor/origins/task-status",
+			get(monitor::get_task_status),
+		)
+		.route(
+			"/v1/monitor/origins/next-check",
+			get(monitor::get_next_check_time),
+		)
+		.route(
+			"/v1/monitor/origins/trigger-check",
+			post(monitor::trigger_check_now),
+		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
 
