@@ -4,7 +4,7 @@ use crate::{
 	common::response,
 	daemon::root::root_handler,
 	middleware::{self, auth::auth_middleware},
-	modules::{self, origins},
+	modules::{self, origins::origins},
 };
 use axum::{
 	Router,
