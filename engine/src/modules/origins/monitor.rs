@@ -3,7 +3,10 @@
 use crate::{
 	common::response,
 	modules::origins::{
-		state::{MONITOR_CONFIG_FILE_LOCK, MONITOR_REPORTS, MonitorConfig},
+		state::{
+			MONITOR_CONFIG_FILE_LOCK, MONITOR_REPORTS, MonitorConfig, NEXT_CHECK_TIME, TASK_STATUS,
+			TRIGGER_CHANNEL, TaskStatus,
+		},
 		task::{load_monitor_config, save_monitor_config},
 	},
 };
@@ -36,6 +39,50 @@ pub async fn get_monitor_status() -> impl IntoResponse {
 	log(LogLevel::Debug, "GET /v1/monitor/origins called");
 	let reports = MONITOR_REPORTS.read().await;
 	response::success(reports.clone())
+}
+
+/// Returns the current status of the background monitoring task.
+pub async fn get_task_status() -> impl IntoResponse {
+	log(
+		LogLevel::Debug,
+		"GET /v1/monitor/origins/task-status called",
+	);
+	let status = TASK_STATUS.read().await;
+	response::success(status.clone())
+}
+
+/// Returns the timestamp of the next scheduled check.
+pub async fn get_next_check_time() -> impl IntoResponse {
+	log(LogLevel::Debug, "GET /v1/monitor/origins/next-check called");
+	let next_time = NEXT_CHECK_TIME.read().await;
+	response::success(*next_time)
+}
+
+/// Manually triggers an origin check cycle.
+pub async fn trigger_check_now() -> Response {
+	log(
+		LogLevel::Info,
+		"POST /v1/monitor/origins/trigger-check called",
+	);
+	{
+		let status = TASK_STATUS.read().await;
+		if *status == TaskStatus::Running {
+			return response::error(
+				StatusCode::CONFLICT,
+				"A check is already in progress.".to_string(),
+			)
+			.into_response();
+		}
+	} // Release the read lock
+
+	if let Err(e) = TRIGGER_CHANNEL.send(()) {
+		log(
+			LogLevel::Error,
+			&format!("Failed to send trigger signal: {}", e),
+		);
+	}
+
+	(StatusCode::ACCEPTED, "Check triggered successfully.").into_response()
 }
 
 /// Updates the check interval for the origin monitor.
