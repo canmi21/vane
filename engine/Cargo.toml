@@ -28,8 +28,9 @@ base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
-hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
 hyper-util = { version = "0.1", features = ["full"] }
+hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
+futures = "0.3"
 futures-util = "0.3"
 dotenvy = "0.15"
 fancy-log = "0.1"
