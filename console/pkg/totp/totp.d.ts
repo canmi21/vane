@@ -1,6 +1,5 @@
 /* pkg/totp/totp.d.ts */
 
-/* eslint-disable */
 export function wasm_generate_combined_token(
 	seeds: string[],
 	time: bigint,
