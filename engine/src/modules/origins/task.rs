@@ -263,3 +263,89 @@ pub async fn save_monitor_config(config: &MonitorConfig) -> Result<(), std::io::
 	let contents = serde_json::to_string_pretty(config).unwrap();
 	tokio::fs::write(path, contents).await
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::modules::origins::state::MONITOR_REPORTS;
+	use serial_test::serial;
+	use std::env;
+	use tempfile::tempdir;
+
+	async fn setup_temp_config_env() -> tempfile::TempDir {
+		let tmp_dir = tempdir().unwrap();
+		let cfg_path = tmp_dir.path().join("origin_monitor.json");
+		tokio::fs::write(&cfg_path, "{}").await.unwrap();
+		unsafe {
+			env::set_var("CONFIG_PATH", tmp_dir.path().to_str().unwrap());
+		};
+		tmp_dir
+	}
+
+	#[tokio::test]
+	#[serial]
+	async fn test_run_check_cycle_empty_file() {
+		// This sets up a temp directory with origin_monitor.json and sets CONFIG_PATH
+		let tmp_dir_guard = setup_temp_config_env().await;
+		let config_dir = tmp_dir_guard.path();
+
+		// Create the origins.json file in the SAME temporary directory
+		let origins_path = config_dir.join("origins.json");
+		tokio::fs::write(&origins_path, "{}").await.unwrap();
+
+		let clients = HttpClients {
+			default: Client::builder().build().unwrap(),
+			insecure: Client::builder()
+				.danger_accept_invalid_certs(true)
+				.build()
+				.unwrap(),
+		};
+
+		// The test target function will now find both config files in the correct path
+		let cfg = load_monitor_config().await;
+		run_check_cycle(&clients, &cfg).await;
+
+		assert!(MONITOR_REPORTS.read().await.is_empty());
+	}
+
+	#[tokio::test]
+	#[serial]
+	async fn test_check_single_origin_timeout() {
+		let clients = HttpClients {
+			default: Client::builder()
+				.timeout(Duration::from_millis(10))
+				.build()
+				.unwrap(),
+			insecure: Client::builder()
+				.timeout(Duration::from_millis(10))
+				.danger_accept_invalid_certs(true)
+				.build()
+				.unwrap(),
+		};
+		let origin = Origin {
+			scheme: "http".into(),
+			host: "10.255.255.1".into(), // Use a non-routable IP to guarantee a timeout
+			port: 80,
+			path: "/".into(),
+			skip_ssl_verify: false,
+			raw_url: "http://10.255.255.1".into(),
+		};
+		let (_, report) = check_single_origin(
+			clients.default.clone(),
+			clients.insecure.clone(),
+			"timeout-test".into(),
+			origin,
+			None,
+		)
+		.await;
+
+		assert_eq!(report.status, OriginStatus::Unhealthy);
+		assert!(
+			report
+				.last_message
+				.unwrap_or_default()
+				.contains("timed out"),
+			"Error message should indicate a timeout"
+		);
+	}
+}
