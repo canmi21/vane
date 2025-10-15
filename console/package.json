@@ -12,6 +12,7 @@
 		"check": "prettier --check ."
 	},
 	"dependencies": {
+		"@radix-ui/react-tooltip": "^1.2.8",
 		"@tanstack/react-query": "^5.90.3",
 		"@tanstack/react-router": "^1.132.47",
 		"@tanstack/react-router-devtools": "^1.132.51",
