@@ -31,7 +31,7 @@ impl Default for MonitorConfig {
 
 // --- Shared State for Monitor Reports ---
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum OriginStatus {
 	Healthy,
@@ -76,3 +76,35 @@ pub static NEXT_CHECK_TIME: Lazy<Arc<RwLock<Option<DateTime<Utc>>>>> =
 
 /// A channel to manually trigger a check cycle.
 pub static TRIGGER_CHANNEL: Lazy<broadcast::Sender<()>> = Lazy::new(|| broadcast::channel(1).0);
+
+// --- Tests ---
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_default_monitor_config() {
+		let cfg = MonitorConfig::default();
+		assert_eq!(cfg.period_seconds, 300);
+		assert!(cfg.overrides.is_empty());
+	}
+
+	#[test]
+	fn test_origin_status_serialization() {
+		let s = serde_json::to_string(&OriginStatus::Healthy).unwrap();
+		assert!(s.contains("healthy"));
+	}
+
+	#[tokio::test]
+	async fn test_shared_state_defaults() {
+		assert!(MONITOR_REPORTS.read().await.is_empty());
+		assert_eq!(*TASK_STATUS.read().await, TaskStatus::Idle);
+		assert!(NEXT_CHECK_TIME.read().await.is_none());
+	}
+
+	#[tokio::test]
+	async fn test_monitor_config_lock_is_mutex() {
+		let _lock1 = MONITOR_CONFIG_FILE_LOCK.lock().await;
+		assert!(true);
+	}
+}
