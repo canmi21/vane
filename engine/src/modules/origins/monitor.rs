@@ -188,3 +188,57 @@ pub async fn delete_override_url(Path(origin_id): Path<String>) -> Response {
 	);
 	StatusCode::NO_CONTENT.into_response()
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::modules::origins::state::{TASK_STATUS, TRIGGER_CHANNEL, TaskStatus};
+	use axum::Json;
+	use serial_test::serial;
+	use std::env;
+	use tempfile::tempdir;
+	use tokio::time::timeout;
+
+	async fn setup_temp_config_env() -> tempfile::TempDir {
+		let tmp_dir = tempdir().unwrap();
+		let config_path = tmp_dir.path().join("origin_monitor.json");
+		tokio::fs::write(&config_path, "{}").await.unwrap();
+		unsafe {
+			env::set_var("CONFIG_PATH", tmp_dir.path().to_str().unwrap());
+		};
+		tmp_dir
+	}
+
+	#[tokio::test]
+	#[serial]
+	async fn test_update_check_period_too_short() {
+		let _tmp_dir_guard = setup_temp_config_env().await;
+		let payload = UpdatePeriodPayload { period_seconds: 5 };
+		let response = update_check_period(Json(payload)).await;
+		assert_eq!(response.into_response().status(), StatusCode::BAD_REQUEST);
+	}
+
+	#[tokio::test]
+	#[serial]
+	async fn test_trigger_check_now_conflict() {
+		*TASK_STATUS.write().await = TaskStatus::Running;
+		let response = trigger_check_now().await;
+		assert_eq!(response.status(), StatusCode::CONFLICT);
+		*TASK_STATUS.write().await = TaskStatus::Idle; // Reset state
+	}
+
+	#[tokio::test]
+	#[serial]
+	async fn test_trigger_check_now_idle() {
+		// Subscribe to the channel to ensure it's not "closed" for this test.
+		let mut receiver = TRIGGER_CHANNEL.subscribe();
+
+		*TASK_STATUS.write().await = TaskStatus::Idle;
+		let response = trigger_check_now().await;
+		assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+		// Assert that the trigger signal was actually received.
+		let recv_result = timeout(std::time::Duration::from_secs(1), receiver.recv()).await;
+		assert!(recv_result.is_ok(), "Trigger signal was not received");
+	}
+}
