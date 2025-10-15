@@ -42,3 +42,23 @@ pub fn initialize_config_directory() {
 		// If the directory already exists, do nothing.
 	}
 }
+
+/// Returns the application's configuration directory path.
+/// It prioritizes the `CONFIG_DIR` environment variable and falls back to `~/vane`.
+pub fn get_config_dir() -> PathBuf {
+	// Read the CONFIG_DIR environment variable, defaulting to "~/vane/" if not set.
+	let config_dir = env::var("CONFIG_DIR").unwrap_or_else(|_| "~/vane".to_string());
+	// Expand tilde (~) in the path to the user's home directory.
+	let expanded_path_str = shellexpand::tilde(&config_dir).to_string();
+	PathBuf::from(expanded_path_str)
+}
+
+/// Returns the full path to the `origins.json` file.
+pub fn get_origins_path() -> PathBuf {
+	get_config_dir().join("origins.json")
+}
+
+/// Returns the full path to the `origin_monitor.json` file.
+pub fn get_monitor_config_path() -> PathBuf {
+	get_config_dir().join("origin_monitor.json")
+}
