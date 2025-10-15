@@ -62,3 +62,8 @@ pub fn get_origins_path() -> PathBuf {
 pub fn get_monitor_config_path() -> PathBuf {
 	get_config_dir().join("origin_monitor.json")
 }
+
+/// Returns the full path to the `certs` directory.
+pub fn get_certs_dir() -> PathBuf {
+	get_config_dir().join("certs")
+}
