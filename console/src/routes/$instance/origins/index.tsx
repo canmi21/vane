@@ -14,7 +14,6 @@ import {
 } from "~/api/instance";
 import { SummaryCard } from "~/components/origins/summary-card";
 import { OriginListCard } from "~/components/origins/origin-list-card";
-// --- NEW IMPORT ---
 import { OriginMonitorCard } from "~/components/origins/origin-monitor-card";
 
 // --- API Helper Functions for Origins ---
@@ -49,7 +48,7 @@ async function deleteOrigin(
 	return deleteInstance<unknown>(instanceId, `/v1/origins/${originId}`);
 }
 
-// --- NEW API Helper Functions for Monitor ---
+// --- API Helper Functions for Monitor ---
 async function getMonitorStatus(
 	instanceId: string
 ): Promise<RequestResult<MonitorReportsStore>> {
@@ -74,6 +73,25 @@ async function triggerCheckNow(
 	return postInstance(instanceId, "/v1/monitor/origins/trigger-check", {});
 }
 
+// --- NEW API Helpers for Monitor Overrides ---
+async function setOverrideUrl(
+	instanceId: string,
+	originId: string,
+	url: string
+): Promise<RequestResult<MonitorConfig>> {
+	return putInstance(instanceId, "/v1/monitor/origins/override", {
+		origin_id: originId,
+		url: url,
+	});
+}
+
+async function deleteOverrideUrl(
+	instanceId: string,
+	originId: string
+): Promise<RequestResult<MonitorConfig>> {
+	return deleteInstance(instanceId, `/v1/monitor/origins/override/${originId}`);
+}
+
 // --- Data Types for Origins ---
 export interface OriginResponse {
 	id: string;
@@ -85,18 +103,24 @@ export interface OriginResponse {
 	raw_url: string;
 }
 
-// --- NEW Data Types for Monitor ---
+// --- Data Types for Monitor ---
 export type OriginStatus = "healthy" | "unhealthy" | "pending";
 export type TaskStatus = "idle" | "running";
 
 export interface OriginMonitorReport {
 	status: OriginStatus;
 	check_url: string;
-	last_checked: string; // ISO 8601 date string
+	last_checked: string;
 	last_message: string;
 }
 
 export type MonitorReportsStore = Record<string, OriginMonitorReport>;
+
+// --- NEW Data Type for Monitor Config ---
+export interface MonitorConfig {
+	period_seconds: number;
+	overrides: Record<string, string>;
+}
 
 // --- Route Definition ---
 export const Route = createFileRoute("/$instance/origins/")({
@@ -119,23 +143,20 @@ function OriginsPage() {
 		queryFn: () => getInstance(instanceId, "/v1/origins"),
 	});
 
-	// --- NEW Queries for Health Monitor ---
-	// This query will be refetched on a fixed interval.
+	// --- Queries for Health Monitor ---
 	const monitorStatusQuery = useQuery<RequestResult<MonitorReportsStore>>({
 		queryKey: ["instance", instanceId, "monitor", "status"],
 		queryFn: () => getMonitorStatus(instanceId),
-		refetchInterval: 5000, // Poll every 5 seconds
+		refetchInterval: 5000,
 		refetchOnWindowFocus: true,
 	});
 
-	// The task status also polls to update UI state (e.g., spinning icon).
 	const taskStatusQuery = useQuery<RequestResult<TaskStatus>>({
 		queryKey: ["instance", instanceId, "monitor", "taskStatus"],
 		queryFn: () => getTaskStatus(instanceId),
-		refetchInterval: 2000, // Poll more frequently for responsiveness
+		refetchInterval: 2000,
 	});
 
-	// The next check time also polls.
 	const nextCheckQuery = useQuery<RequestResult<string | null>>({
 		queryKey: ["instance", instanceId, "monitor", "nextCheck"],
 		queryFn: () => getNextCheckTime(instanceId),
@@ -146,8 +167,6 @@ function OriginsPage() {
 		() => originsResult?.data ?? [],
 		[originsResult?.data]
 	);
-
-	// Memoize monitor reports to avoid re-renders.
 	const monitorReports = useMemo(
 		() => monitorStatusQuery.data?.data ?? {},
 		[monitorStatusQuery.data?.data]
@@ -200,12 +219,11 @@ function OriginsPage() {
 		},
 	});
 
-	// --- NEW Mutation for Triggering a Check ---
+	// --- Mutations for Monitor ---
 	const triggerCheckMutation = useMutation<RequestResult<unknown>, Error, void>(
 		{
 			mutationFn: () => triggerCheckNow(instanceId),
 			onSuccess: () => {
-				// After triggering, immediately refetch all monitor data.
 				queryClient.invalidateQueries({
 					queryKey: ["instance", instanceId, "monitor"],
 				});
@@ -213,7 +231,33 @@ function OriginsPage() {
 		}
 	);
 
-	// When origins list changes, invalidate monitor status to sync up.
+	// --- NEW Mutations for Monitor Overrides ---
+	const setOverrideMutation = useMutation<
+		RequestResult<MonitorConfig>,
+		Error,
+		{ originId: string; url: string }
+	>({
+		mutationFn: (vars) => setOverrideUrl(instanceId, vars.originId, vars.url),
+		onSuccess: () => {
+			queryClient.invalidateQueries({
+				queryKey: ["instance", instanceId, "monitor"],
+			});
+		},
+	});
+
+	const deleteOverrideMutation = useMutation<
+		RequestResult<MonitorConfig>,
+		Error,
+		string
+	>({
+		mutationFn: (originId) => deleteOverrideUrl(instanceId, originId),
+		onSuccess: () => {
+			queryClient.invalidateQueries({
+				queryKey: ["instance", instanceId, "monitor"],
+			});
+		},
+	});
+
 	useEffect(() => {
 		if (!isLoading) {
 			queryClient.invalidateQueries({
@@ -245,13 +289,14 @@ function OriginsPage() {
 					updateMutation={updateMutation}
 					removeMutation={removeMutation}
 				/>
-				{/* --- NEW CARD RENDER --- */}
 				<OriginMonitorCard
 					origins={origins}
 					monitorReports={monitorReports}
 					taskStatusQuery={taskStatusQuery}
 					nextCheckQuery={nextCheckQuery}
 					triggerCheckMutation={triggerCheckMutation}
+					setOverrideMutation={setOverrideMutation}
+					deleteOverrideMutation={deleteOverrideMutation}
 				/>
 			</div>
 		</Tooltip.Provider>
