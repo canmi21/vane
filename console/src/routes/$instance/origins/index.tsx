@@ -3,7 +3,7 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Server, ServerCrash } from "lucide-react";
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { type RequestResult } from "~/api/request";
 import {
@@ -14,8 +14,10 @@ import {
 } from "~/api/instance";
 import { SummaryCard } from "~/components/origins/summary-card";
 import { OriginListCard } from "~/components/origins/origin-list-card";
+// --- NEW IMPORT ---
+import { OriginMonitorCard } from "~/components/origins/origin-monitor-card";
 
-// --- API Helper Functions ---
+// --- API Helper Functions for Origins ---
 async function createOrigin(
 	instanceId: string,
 	url: string
@@ -47,7 +49,32 @@ async function deleteOrigin(
 	return deleteInstance<unknown>(instanceId, `/v1/origins/${originId}`);
 }
 
-// --- Data Types ---
+// --- NEW API Helper Functions for Monitor ---
+async function getMonitorStatus(
+	instanceId: string
+): Promise<RequestResult<MonitorReportsStore>> {
+	return getInstance(instanceId, "/v1/monitor/origins");
+}
+
+async function getTaskStatus(
+	instanceId: string
+): Promise<RequestResult<TaskStatus>> {
+	return getInstance(instanceId, "/v1/monitor/origins/task-status");
+}
+
+async function getNextCheckTime(
+	instanceId: string
+): Promise<RequestResult<string | null>> {
+	return getInstance(instanceId, "/v1/monitor/origins/next-check");
+}
+
+async function triggerCheckNow(
+	instanceId: string
+): Promise<RequestResult<unknown>> {
+	return postInstance(instanceId, "/v1/monitor/origins/trigger-check", {});
+}
+
+// --- Data Types for Origins ---
 export interface OriginResponse {
 	id: string;
 	scheme: "http" | "https";
@@ -58,6 +85,20 @@ export interface OriginResponse {
 	raw_url: string;
 }
 
+// --- NEW Data Types for Monitor ---
+export type OriginStatus = "healthy" | "unhealthy" | "pending";
+export type TaskStatus = "idle" | "running";
+
+export interface OriginMonitorReport {
+	status: OriginStatus;
+	check_url: string;
+	last_checked: string; // ISO 8601 date string
+	last_message: string;
+}
+
+export type MonitorReportsStore = Record<string, OriginMonitorReport>;
+
+// --- Route Definition ---
 export const Route = createFileRoute("/$instance/origins/")({
 	component: OriginsPage,
 });
@@ -67,6 +108,7 @@ function OriginsPage() {
 	const { instance: instanceId } = useParams({ from: "/$instance/origins/" });
 	const queryClient = useQueryClient();
 
+	// --- Query for Origins List ---
 	const {
 		data: originsResult,
 		isLoading,
@@ -77,9 +119,38 @@ function OriginsPage() {
 		queryFn: () => getInstance(instanceId, "/v1/origins"),
 	});
 
+	// --- NEW Queries for Health Monitor ---
+	// This query will be refetched on a fixed interval.
+	const monitorStatusQuery = useQuery<RequestResult<MonitorReportsStore>>({
+		queryKey: ["instance", instanceId, "monitor", "status"],
+		queryFn: () => getMonitorStatus(instanceId),
+		refetchInterval: 5000, // Poll every 5 seconds
+		refetchOnWindowFocus: true,
+	});
+
+	// The task status also polls to update UI state (e.g., spinning icon).
+	const taskStatusQuery = useQuery<RequestResult<TaskStatus>>({
+		queryKey: ["instance", instanceId, "monitor", "taskStatus"],
+		queryFn: () => getTaskStatus(instanceId),
+		refetchInterval: 2000, // Poll more frequently for responsiveness
+	});
+
+	// The next check time also polls.
+	const nextCheckQuery = useQuery<RequestResult<string | null>>({
+		queryKey: ["instance", instanceId, "monitor", "nextCheck"],
+		queryFn: () => getNextCheckTime(instanceId),
+		refetchInterval: 2000,
+	});
+
 	const origins = useMemo(
 		() => originsResult?.data ?? [],
 		[originsResult?.data]
+	);
+
+	// Memoize monitor reports to avoid re-renders.
+	const monitorReports = useMemo(
+		() => monitorStatusQuery.data?.data ?? {},
+		[monitorStatusQuery.data?.data]
 	);
 
 	const stats = useMemo(() => {
@@ -94,6 +165,7 @@ function OriginsPage() {
 		};
 	}, [origins]);
 
+	// --- Mutations for Origins ---
 	const addMutation = useMutation<RequestResult<OriginResponse>, Error, string>(
 		{
 			mutationFn: (newUrl) => createOrigin(instanceId, newUrl),
@@ -128,6 +200,28 @@ function OriginsPage() {
 		},
 	});
 
+	// --- NEW Mutation for Triggering a Check ---
+	const triggerCheckMutation = useMutation<RequestResult<unknown>, Error, void>(
+		{
+			mutationFn: () => triggerCheckNow(instanceId),
+			onSuccess: () => {
+				// After triggering, immediately refetch all monitor data.
+				queryClient.invalidateQueries({
+					queryKey: ["instance", instanceId, "monitor"],
+				});
+			},
+		}
+	);
+
+	// When origins list changes, invalidate monitor status to sync up.
+	useEffect(() => {
+		if (!isLoading) {
+			queryClient.invalidateQueries({
+				queryKey: ["instance", instanceId, "monitor", "status"],
+			});
+		}
+	}, [origins.length, isLoading, instanceId, queryClient]);
+
 	if (isLoading) {
 		return <StatusCard icon={Server} text="Loading Origins..." />;
 	}
@@ -151,12 +245,20 @@ function OriginsPage() {
 					updateMutation={updateMutation}
 					removeMutation={removeMutation}
 				/>
+				{/* --- NEW CARD RENDER --- */}
+				<OriginMonitorCard
+					origins={origins}
+					monitorReports={monitorReports}
+					taskStatusQuery={taskStatusQuery}
+					nextCheckQuery={nextCheckQuery}
+					triggerCheckMutation={triggerCheckMutation}
+				/>
 			</div>
 		</Tooltip.Provider>
 	);
 }
 
-// --- StatusCard ---
+// --- StatusCard Component (unchanged) ---
 function StatusCard({
 	icon: Icon,
 	text,
