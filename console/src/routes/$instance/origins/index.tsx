@@ -14,19 +14,20 @@ import {
 	Save,
 	X,
 	Pencil,
+	ShieldAlert,
 	ServerCrash,
 	Globe,
 	Lock,
 	Unlock,
 	ShieldCheck,
 	ShieldOff,
-	ShieldAlert,
 	Link as LinkIcon,
 	Info,
 	Target,
 } from "lucide-react";
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { type RequestResult } from "~/api/request";
 import {
 	getInstance,
@@ -159,15 +160,17 @@ function OriginsPage() {
 	}
 
 	return (
-		<div className="space-y-6">
-			<SummaryCard stats={stats} />
-			<OriginListCard
-				origins={origins}
-				addMutation={addMutation}
-				updateMutation={updateMutation}
-				removeMutation={removeMutation}
-			/>
-		</div>
+		<Tooltip.Provider delayDuration={200}>
+			<div className="space-y-6">
+				<SummaryCard stats={stats} />
+				<OriginListCard
+					origins={origins}
+					addMutation={addMutation}
+					updateMutation={updateMutation}
+					removeMutation={removeMutation}
+				/>
+			</div>
+		</Tooltip.Provider>
 	);
 }
 
@@ -517,43 +520,44 @@ function OriginItem({
 
 				{/* Action buttons */}
 				<div className="flex flex-shrink-0 items-center gap-1">
-					{/* Info button with tooltip */}
-					<div className="group relative">
-						<button
-							className="rounded-md p-1.5 text-[var(--color-subtext)] transition-all hover:scale-110 hover:text-[var(--color-theme-border)]"
-							title="View parsed details"
-						>
-							<Info size={16} />
-						</button>
-						{/* Tooltip */}
-						<div className="pointer-events-none absolute right-0 top-full z-10 mt-2 w-64 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-							<div className="rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-3 shadow-lg">
+					{/* Info button with Radix tooltip */}
+					<Tooltip.Root>
+						<Tooltip.Trigger asChild>
+							<button className="rounded-md p-1.5 text-[var(--color-subtext)] transition-all hover:scale-110 hover:text-[var(--color-theme-border)]">
+								<Info size={16} />
+							</button>
+						</Tooltip.Trigger>
+						<Tooltip.Portal>
+							<Tooltip.Content
+								className="z-50 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-3 shadow-lg"
+								sideOffset={5}
+							>
 								<div className="space-y-2 text-xs">
-									<div className="flex justify-between">
+									<div className="flex justify-between gap-4">
 										<span className="text-[var(--color-subtext)]">Scheme:</span>
 										<span className="font-mono font-medium text-[var(--color-text)]">
 											{item.scheme}
 										</span>
 									</div>
-									<div className="flex justify-between">
+									<div className="flex justify-between gap-4">
 										<span className="text-[var(--color-subtext)]">Host:</span>
 										<span className="font-mono font-medium text-[var(--color-text)]">
 											{item.host}
 										</span>
 									</div>
-									<div className="flex justify-between">
+									<div className="flex justify-between gap-4">
 										<span className="text-[var(--color-subtext)]">Port:</span>
 										<span className="font-mono font-medium text-[var(--color-text)]">
 											{item.port}
 										</span>
 									</div>
-									<div className="flex justify-between">
+									<div className="flex justify-between gap-4">
 										<span className="text-[var(--color-subtext)]">Path:</span>
 										<span className="font-mono font-medium text-[var(--color-text)]">
 											{item.path}
 										</span>
 									</div>
-									<div className="flex justify-between">
+									<div className="flex justify-between gap-4">
 										<span className="text-[var(--color-subtext)]">
 											SSL Verify:
 										</span>
@@ -562,9 +566,10 @@ function OriginItem({
 										</span>
 									</div>
 								</div>
-							</div>
-						</div>
-					</div>
+								<Tooltip.Arrow className="fill-[var(--color-bg-alt)]" />
+							</Tooltip.Content>
+						</Tooltip.Portal>
+					</Tooltip.Root>
 					<button
 						onClick={() => setIsEditing(true)}
 						className="rounded-md p-1.5 text-[var(--color-subtext)] transition-all hover:scale-110 hover:text-[var(--color-theme-border)]"
