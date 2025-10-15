@@ -4,10 +4,13 @@ use crate::{
 	daemon::config,
 	modules::origins::{
 		origins::Origin,
-		state::{MONITOR_REPORTS, MonitorConfig, OriginMonitorReport, OriginStatus},
+		state::{
+			MONITOR_REPORTS, MonitorConfig, NEXT_CHECK_TIME, OriginMonitorReport, OriginStatus,
+			TASK_STATUS, TRIGGER_CHANNEL, TaskStatus,
+		},
 	},
 };
-use chrono::Utc;
+use chrono::{Duration as ChronoDuration, Utc};
 use fancy_log::{LogLevel, log};
 use futures::future;
 use reqwest::Client;
@@ -20,17 +23,14 @@ struct HttpClients {
 	insecure: Client,
 }
 
-// --- NEW FUNCTION TO INITIALIZE THE CONFIG FILE ---
 /// Checks if `origin_monitor.json` exists, and creates it with default values if not.
 pub async fn initialize_monitor_config() {
 	let path = config::get_monitor_config_path();
-	// Use `metadata` to check for file existence asynchronously.
 	if tokio::fs::metadata(&path).await.is_err() {
 		log(
 			LogLevel::Info,
 			&format!("Creating default monitor config at {}", path.display()),
 		);
-		// This now correctly uses the manual `impl Default` we created.
 		let default_config = MonitorConfig::default();
 		if let Err(e) = save_monitor_config(&default_config).await {
 			log(
@@ -40,7 +40,6 @@ pub async fn initialize_monitor_config() {
 		}
 	}
 }
-// ---------------------------------------------------
 
 /// Spawns the background task that periodically checks origin health.
 pub fn start_monitoring_task() {
@@ -49,14 +48,11 @@ pub fn start_monitoring_task() {
 		"Starting origin monitoring background task.",
 	);
 	tokio::spawn(async move {
-		// Create two clients upfront: one for standard requests and one for insecure (skipping SSL verification) requests.
 		let clients = HttpClients {
-			// Default client with a 10-second timeout.
 			default: Client::builder()
 				.timeout(Duration::from_secs(10))
 				.build()
 				.expect("Failed to build default reqwest client"),
-			// Client that skips SSL certificate verification.
 			insecure: Client::builder()
 				.timeout(Duration::from_secs(10))
 				.danger_accept_invalid_certs(true)
@@ -64,25 +60,65 @@ pub fn start_monitoring_task() {
 				.expect("Failed to build insecure reqwest client"),
 		};
 
+		let mut trigger_receiver = TRIGGER_CHANNEL.subscribe();
+
+		// Perform an initial check immediately on startup.
+		log(
+			LogLevel::Debug,
+			"Performing initial origin check on startup.",
+		);
+		perform_check_and_update_state(&clients).await;
+
 		loop {
-			// Load monitor configuration first to get the interval
 			let monitor_config = load_monitor_config().await;
 			let check_interval = monitor_config.period_seconds;
+
+			// Update the next scheduled check time for the API
+			let next_time = Utc::now() + ChronoDuration::seconds(check_interval as i64);
+			*NEXT_CHECK_TIME.write().await = Some(next_time);
 
 			log(
 				LogLevel::Debug,
 				&format!(
-					"Origin monitor is running a check cycle. Next check in {} seconds.",
+					"Origin monitor is idle. Next check in {} seconds or on manual trigger.",
 					check_interval
 				),
 			);
 
-			run_check_cycle(&clients, &monitor_config).await;
+			// Wait for either the timer to expire or a manual trigger.
+			tokio::select! {
+				_ = sleep(Duration::from_secs(check_interval)) => {
+					log(LogLevel::Debug, "Scheduled check triggered by timer.");
+				}
+				result = trigger_receiver.recv() => {
+					if result.is_ok() {
+						log(LogLevel::Info, "Check triggered manually via API.");
+					} else {
+						// This can happen if the channel lags, it's safe to just continue.
+						log(LogLevel::Warn, "Trigger channel error, likely due to lag. Continuing with next cycle.");
+						continue; // Skip this cycle and restart the loop to get a fresh timer.
+					}
+				}
+			}
 
-			// Wait for the configured interval before the next cycle
-			sleep(Duration::from_secs(check_interval)).await;
+			// After waking up, perform the check cycle.
+			perform_check_and_update_state(&clients).await;
 		}
 	});
+}
+
+/// A wrapper function that sets the task state, runs the check, and resets the state.
+async fn perform_check_and_update_state(clients: &HttpClients) {
+	// Set state to Running
+	*TASK_STATUS.write().await = TaskStatus::Running;
+	// Clear the next check time as we are running now.
+	*NEXT_CHECK_TIME.write().await = None;
+
+	let monitor_config = load_monitor_config().await;
+	run_check_cycle(clients, &monitor_config).await;
+
+	// Set state back to Idle
+	*TASK_STATUS.write().await = TaskStatus::Idle;
 }
 
 /// Performs a single cycle of checking all origins.
@@ -118,7 +154,6 @@ async fn run_check_cycle(clients: &HttpClients, monitor_config: &MonitorConfig) 
 		}
 	};
 
-	// If there are no origins, clear the reports and do nothing.
 	if origins.is_empty() {
 		let mut reports = MONITOR_REPORTS.write().await;
 		if !reports.is_empty() {
@@ -131,10 +166,8 @@ async fn run_check_cycle(clients: &HttpClients, monitor_config: &MonitorConfig) 
 		return;
 	}
 
-	// Concurrently check all origins
 	let mut join_handles = Vec::new();
 	for (id, origin) in origins {
-		// Clone references to the clients for the spawned task
 		let default_client = clients.default.clone();
 		let insecure_client = clients.insecure.clone();
 		let override_url = monitor_config.overrides.get(&id).cloned();
@@ -145,9 +178,8 @@ async fn run_check_cycle(clients: &HttpClients, monitor_config: &MonitorConfig) 
 
 	let results = future::join_all(join_handles).await;
 
-	// Update the shared state with the new reports
 	let mut reports_writer = MONITOR_REPORTS.write().await;
-	reports_writer.clear(); // Clear old reports for origins that may have been deleted
+	reports_writer.clear();
 	for result in results {
 		if let Ok((id, report)) = result {
 			reports_writer.insert(id, report);
@@ -176,7 +208,6 @@ async fn check_single_origin(
 		)
 	});
 
-	// Choose the correct client based on the origin's SSL verification setting.
 	let client_to_use = if origin.scheme == "https" && origin.skip_ssl_verify {
 		&insecure_client
 	} else {
@@ -188,7 +219,6 @@ async fn check_single_origin(
 	let (status, message) = match request_builder.send().await {
 		Ok(response) => {
 			let http_status = response.status();
-			// is_success() checks for any 2xx status code.
 			if http_status.is_success() {
 				(OriginStatus::Healthy, format!("OK ({})", http_status))
 			} else {
