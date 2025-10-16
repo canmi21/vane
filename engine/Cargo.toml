@@ -71,6 +71,7 @@ sha2 = "0.10"
 time = { version = "0.3", features = ["serde", "serde-well-known"] }
 der = "0.7"
 oid-registry = "0.8"
+rust-embed = "8"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
