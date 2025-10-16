@@ -67,3 +67,8 @@ pub fn get_monitor_config_path() -> PathBuf {
 pub fn get_certs_dir() -> PathBuf {
 	get_config_dir().join("certs")
 }
+
+/// Returns the full path to the `templates` directory.
+pub fn get_templates_dir() -> PathBuf {
+	get_config_dir().join("templates")
+}
