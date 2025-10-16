@@ -9,7 +9,7 @@ use axum::{
 };
 use fancy_log::{LogLevel, log};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf}; // Use BTreeMap for sorted keys
 
 // --- Helper Functions ---
 
@@ -43,11 +43,20 @@ async fn find_cert_files(domain: &str) -> Option<(PathBuf, PathBuf)> {
 	None
 }
 
-// --- API Payloads ---
+// --- API Payloads (Updated for new list_certs response) ---
+
+#[derive(Serialize)]
+pub struct CertSummary {
+	pub filename: String,
+	pub format: String,
+	pub expires_at: String,
+	pub issued_to: Vec<String>,
+}
 
 #[derive(Serialize)]
 pub struct ListCertsResponse {
-	pub certificates: Vec<String>,
+	// Use BTreeMap to have domains sorted alphabetically in the JSON response.
+	pub certificates: BTreeMap<String, CertSummary>,
 }
 
 #[derive(Deserialize)]
@@ -58,15 +67,15 @@ pub struct UploadCertPayload {
 
 // --- Axum Handlers ---
 
-/// Lists all available certificates by scanning the certs directory.
+/// Lists all available certificates with summary details.
 pub async fn list_certs() -> Response {
 	log(LogLevel::Debug, "GET /v1/certs called");
 	let certs_dir = config::get_certs_dir();
-	let mut certs = std::collections::HashSet::new(); // Use HashSet to avoid duplicates
+	let mut cert_map = BTreeMap::new();
 
 	if !certs_dir.exists() {
 		return response::success(ListCertsResponse {
-			certificates: vec![],
+			certificates: cert_map,
 		})
 		.into_response();
 	}
@@ -83,18 +92,53 @@ pub async fn list_certs() -> Response {
 	};
 
 	while let Ok(Some(entry)) = entries.next_entry().await {
-		if let Some(path) = entry.path().file_stem() {
-			if let Some(name) = path.to_str() {
-				certs.insert(file_base_to_domain(name));
+		let path = entry.path();
+		let filename = match path.file_name().and_then(|s| s.to_str()) {
+			Some(name) => name,
+			None => continue,
+		};
+
+		// --- BUG FIX: Check against a list of valid extensions ---
+		let valid_extensions = [".pem", ".crt", ".cer", ".der"];
+		let is_cert_file = valid_extensions.iter().any(|ext| filename.ends_with(ext));
+
+		if filename == ".DS_Store" || !is_cert_file {
+			continue;
+		}
+		// ---------------------------------------------------------
+
+		let file_stem = match path.file_stem().and_then(|s| s.to_str()) {
+			Some(stem) => stem,
+			None => continue,
+		};
+
+		let domain = file_base_to_domain(file_stem);
+
+		// If we already processed a cert for this domain (e.g., found .pem and .crt), skip.
+		if cert_map.contains_key(&domain) {
+			continue;
+		}
+
+		// Read and parse the cert for summary info
+		if let Ok(bytes) = tokio::fs::read(&path).await {
+			if let Ok(details) = analysis::parse_cert_details(&bytes) {
+				let summary = CertSummary {
+					filename: filename.to_string(),
+					format: path
+						.extension()
+						.and_then(|s| s.to_str())
+						.unwrap_or("unknown")
+						.to_uppercase(),
+					expires_at: details.validity.not_after,
+					issued_to: details.subject_alternative_names,
+				};
+				cert_map.insert(domain, summary);
 			}
 		}
 	}
 
-	let mut sorted_certs: Vec<String> = certs.into_iter().collect();
-	sorted_certs.sort();
-
 	response::success(ListCertsResponse {
-		certificates: sorted_certs,
+		certificates: cert_map,
 	})
 	.into_response()
 }
