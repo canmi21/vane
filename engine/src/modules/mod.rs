@@ -4,3 +4,4 @@ pub mod certs;
 pub mod domain;
 pub mod instance;
 pub mod origins;
+pub mod templates;
