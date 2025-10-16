@@ -1,0 +1,3 @@
+[submodule "modules/certmagic"]
+	path = modules/certmagic
+	url = https://github.com/caddyserver/certmagic.git
