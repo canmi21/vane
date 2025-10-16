@@ -9,6 +9,7 @@ use crate::{
 		certs::manager as certs_manager,
 		domain::entrance as domain_entrance,
 		origins::{monitor, origins},
+		templates::handler as templates_handler,
 	},
 };
 use axum::{
@@ -71,6 +72,14 @@ pub fn create_router() -> Router {
 			get(certs_manager::get_cert_details)
 				.post(certs_manager::upload_cert)
 				.delete(certs_manager::delete_cert),
+		)
+		.route("/v1/templates", get(templates_handler::list_templates))
+		.route(
+			"/v1/templates/{:name}",
+			get(templates_handler::get_template_content)
+				.post(templates_handler::create_template)
+				.put(templates_handler::update_template)
+				.delete(templates_handler::delete_template),
 		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
