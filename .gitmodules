@@ -1,3 +1,6 @@
 [submodule "modules/certmagic"]
 	path = modules/certmagic
 	url = https://github.com/caddyserver/certmagic.git
+[submodule "modules/lego"]
+	path = modules/lego
+	url = https://github.com/go-acme/lego.git
