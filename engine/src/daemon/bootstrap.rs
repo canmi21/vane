@@ -1,6 +1,6 @@
 /* engine/src/daemon/bootstrap.rs */
 
-use crate::config::uuid;
+use crate::config::{template, uuid};
 use crate::daemon::{config, router};
 use crate::modules::origins::task as origin_monitor_task;
 use anynet::anynet;
@@ -22,6 +22,7 @@ pub async fn start() {
 
 	// Initialize base configuration directories first.
 	config::initialize_config_directory();
+	template::initialize_templates();
 
 	// Now, initialize the instance-specific config file (e.g., instance.json).
 	// This is a critical step; if it fails, the application cannot proceed.
