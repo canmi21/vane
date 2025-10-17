@@ -1,6 +1,12 @@
 /* src/components/cors/cors-overview-card.tsx */
 
-import { Shield, Globe, ShieldCheck, Server } from "lucide-react";
+import {
+	AppWindow,
+	ArrowRightLeft,
+	Route,
+	RouteOff,
+	AlertTriangle,
+} from "lucide-react";
 import React from "react";
 
 // --- Internal Stat Card Component ---
@@ -31,32 +37,41 @@ export type CorsOverviewStats = {
 	total: number;
 	proxyHandled: number;
 	originHandled: number;
+	wildcardOrigins: number;
 };
 
 export function CorsOverviewCard({ stats }: { stats: CorsOverviewStats }) {
 	return (
 		<div className="rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-6 shadow-sm">
 			<div className="mb-4 flex items-center gap-3">
-				<Shield size={20} className="stroke-[var(--color-theme-border)]" />
+				<ArrowRightLeft
+					size={20}
+					className="stroke-[var(--color-theme-border)]"
+				/>
 				<h3 className="text-lg font-semibold text-[var(--color-text)]">
 					CORS Overview
 				</h3>
 			</div>
-			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			<div className="grid grid-cols-2 gap-4 md:grid-cols-4">
 				<OverviewStatCard
-					icon={Globe}
-					label="Total Configured Domains"
+					icon={AppWindow}
+					label="Total Policies"
 					value={stats.total}
 				/>
 				<OverviewStatCard
-					icon={ShieldCheck}
-					label="Handled by Vane Proxy"
+					icon={Route}
+					label="Handled by Vane"
 					value={stats.proxyHandled}
 				/>
 				<OverviewStatCard
-					icon={Server}
-					label="Passed to Origin Server"
+					icon={RouteOff}
+					label="Passed to Origin"
 					value={stats.originHandled}
+				/>
+				<OverviewStatCard
+					icon={AlertTriangle}
+					label="Wildcard Origins"
+					value={stats.wildcardOrigins}
 				/>
 			</div>
 		</div>
