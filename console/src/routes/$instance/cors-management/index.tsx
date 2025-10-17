@@ -80,35 +80,72 @@ function CorsPage() {
 
 	const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
 
-	// --- Query for the list of all CORS statuses ---
+	// --- Step 1: Query for the list of domains ---
 	const {
 		data: statusResult,
-		isLoading,
-		isError,
-		error,
+		isLoading: isListLoading,
+		isError: isListError,
+		error: listError,
 	} = useQuery<RequestResult<CorsStatus[]>>({
 		queryKey: ["instance", instanceId, "cors", "status"],
 		queryFn: () => listCorsStatus(instanceId),
 	});
 
 	const corsStatuses = useMemo(() => statusResult?.data ?? [], [statusResult]);
+	const domains = useMemo(
+		() => corsStatuses.map((s) => s.domain),
+		[corsStatuses]
+	);
+
+	// --- Step 2: Fetch all configs in parallel for overview stats ---
+	const {
+		data: allConfigs,
+		isLoading: areConfigsLoading,
+		isError: isConfigsError,
+		error: configsError,
+	} = useQuery<Record<string, CorsConfig>>({
+		queryKey: ["instance", instanceId, "cors", "config", "all"],
+		queryFn: async () => {
+			const promises = domains.map(async (domain) => {
+				const res = await getCorsConfig(instanceId, domain);
+				return { domain, config: res.data };
+			});
+			const results = await Promise.all(promises);
+			return results.reduce(
+				(acc, { domain, config }) => {
+					if (config) acc[domain] = config;
+					return acc;
+				},
+				{} as Record<string, CorsConfig>
+			);
+		},
+		enabled: domains.length > 0,
+	});
 
 	// --- Calculate overview stats ---
 	const overviewStats = useMemo<CorsOverviewStats>(() => {
-		const total = corsStatuses.length;
+		const total = domains.length;
 		const proxyHandled = corsStatuses.filter(
 			(s) => s.preflight_handling === "proxy_decision"
 		).length;
-		const originHandled = total - proxyHandled;
+		const wildcardOrigins = allConfigs
+			? Object.values(allConfigs).filter((c) => c.allow_origins.includes("*"))
+					.length
+			: 0;
 
-		return { total, proxyHandled, originHandled };
-	}, [corsStatuses]);
+		return {
+			total,
+			proxyHandled,
+			originHandled: total - proxyHandled,
+			wildcardOrigins,
+		};
+	}, [domains, corsStatuses, allConfigs]);
 
-	// --- Query for the selected domain's detailed config ---
+	// --- FIX: Query for the selected domain's detailed config ---
 	const selectedCorsConfigQuery = useQuery<RequestResult<CorsConfig>>({
 		queryKey: ["instance", instanceId, "cors", "config", selectedDomain],
 		queryFn: () => getCorsConfig(instanceId, selectedDomain!),
-		enabled: !!selectedDomain, // Only run when a domain is selected
+		enabled: !!selectedDomain,
 	});
 
 	// --- Handler for selection and URL sync ---
@@ -125,26 +162,20 @@ function CorsPage() {
 
 	// --- Logic to sync state from URL on load ---
 	useEffect(() => {
-		if (isLoading) return;
-		const domains = corsStatuses.map((s) => s.domain);
+		if (isListLoading) return;
 		const hashDomain = location.hash
 			? decodeURIComponent(location.hash.slice(1))
 			: null;
 		if (hashDomain && domains.includes(hashDomain)) {
-			if (selectedDomain !== hashDomain) {
-				setSelectedDomain(hashDomain);
-			}
+			if (selectedDomain !== hashDomain) setSelectedDomain(hashDomain);
 			return;
 		}
-		// Fallback to the first domain if selection is invalid
 		if (!selectedDomain || !domains.includes(selectedDomain)) {
-			if (domains.length > 0) {
-				handleDomainSelect(domains[0]);
-			}
+			if (domains.length > 0) handleDomainSelect(domains[0]);
 		}
 	}, [
-		corsStatuses,
-		isLoading,
+		domains,
+		isListLoading,
 		location.hash,
 		selectedDomain,
 		handleDomainSelect,
@@ -158,27 +189,25 @@ function CorsPage() {
 	>({
 		mutationFn: (vars) =>
 			updateCorsConfig(instanceId, vars.domain, vars.config),
-		onSuccess: (_, vars) => {
+		onSuccess: () => {
 			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "cors", "status"],
-			});
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "cors", "config", vars.domain],
+				queryKey: ["instance", instanceId, "cors"],
 			});
 		},
 	});
 
 	const resetMutation = useMutation<RequestResult<unknown>, Error, string>({
 		mutationFn: (domain) => resetCorsConfig(instanceId, domain),
-		onSuccess: (_, domain) => {
+		onSuccess: () => {
 			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "cors", "status"],
-			});
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "cors", "config", domain],
+				queryKey: ["instance", instanceId, "cors"],
 			});
 		},
 	});
+
+	const isLoading = isListLoading || (domains.length > 0 && areConfigsLoading);
+	const isError = isListError || isConfigsError;
+	const error = listError || configsError;
 
 	if (isLoading) {
 		return <StatusCard icon={Server} text="Loading CORS Configurations..." />;
@@ -206,7 +235,7 @@ function CorsPage() {
 					<CorsEditorCard
 						key={selectedDomain}
 						domain={selectedDomain}
-						query={selectedCorsConfigQuery} // Pass the query object down
+						query={selectedCorsConfigQuery} // Pass the query object
 						updateMutation={updateMutation}
 						resetMutation={resetMutation}
 					/>
