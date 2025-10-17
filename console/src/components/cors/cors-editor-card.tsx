@@ -1,9 +1,15 @@
 /* src/components/cors/cors-editor-card.tsx */
 
 import React, { useState, useEffect } from "react";
-import { Save, Loader2, Settings, RotateCcw } from "lucide-react";
-import * as RadixSwitch from "@radix-ui/react-switch";
-import * as RadixRadioGroup from "@radix-ui/react-radio-group";
+import { motion } from "framer-motion";
+import {
+	Save,
+	Settings,
+	RotateCcw,
+	Trash2,
+	PlusCircle,
+	Loader2,
+} from "lucide-react";
 import {
 	type UseQueryResult,
 	type UseMutationResult,
@@ -14,17 +20,97 @@ import {
 	type PreflightHandling,
 } from "~/routes/$instance/cors-management/";
 
-// --- Helper for array-to-string conversion ---
-const arrayToString = (arr: string[]) => arr.join(", ");
-const stringToArray = (str: string) =>
-	str
-		? str
-				.split(",")
-				.map((s) => s.trim())
-				.filter(Boolean)
-		: [];
+// --- Reusable Small Toggle Slider Component ---
+function SmallToggleSlider<T>({
+	value,
+	onValueChange,
+	optionTrue,
+	optionFalse,
+	labelTrue,
+	labelFalse,
+}: {
+	value: T;
+	onValueChange: (newValue: T) => void;
+	optionTrue: T;
+	optionFalse: T;
+	labelTrue: string;
+	labelFalse: string;
+}) {
+	const isOn = value === optionTrue;
+	return (
+		<div
+			className="relative flex w-48 cursor-pointer items-center rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] p-1"
+			onClick={() => onValueChange(isOn ? optionFalse : optionTrue)}
+		>
+			<motion.div
+				className="absolute h-[calc(100%-8px)] w-[calc(50%-4px)] rounded-md bg-[var(--color-bg)] shadow-sm"
+				style={{ top: "4px", left: "4px" }}
+				animate={{ x: isOn ? 0 : "100%" }}
+				transition={{ type: "spring", stiffness: 300, damping: 30 }}
+			/>
+			<div
+				className={`relative z-10 flex-1 py-1 text-center text-xs font-semibold transition-colors ${isOn ? "text-[var(--color-text)]" : "text-[var(--color-subtext)]"}`}
+			>
+				{labelTrue}
+			</div>
+			<div
+				className={`relative z-10 flex-1 py-1 text-center text-xs font-semibold transition-colors ${!isOn ? "text-[var(--color-text)]" : "text-[var(--color-subtext)]"}`}
+			>
+				{labelFalse}
+			</div>
+		</div>
+	);
+}
 
-// --- Form Input Component ---
+// --- Multi-value input component for origins, methods, etc. ---
+function MultiValueInput({
+	values,
+	onChange,
+	placeholder,
+}: {
+	values: string[];
+	onChange: (newValues: string[]) => void;
+	placeholder: string;
+}) {
+	const handleItemChange = (index: number, value: string) => {
+		onChange(values.map((v, i) => (i === index ? value : v)));
+	};
+	const handleAddItem = () => {
+		onChange([...values, ""]);
+	};
+	const handleRemoveItem = (index: number) => {
+		onChange(values.filter((_, i) => i !== index));
+	};
+	return (
+		<div className="space-y-2">
+			{values.map((value, index) => (
+				<div key={index} className="flex items-center gap-2">
+					<input
+						type="text"
+						value={value}
+						onChange={(e) => handleItemChange(index, e.target.value)}
+						placeholder={placeholder}
+						className="input-field flex-grow"
+					/>
+					<button
+						onClick={() => handleRemoveItem(index)}
+						className="rounded-md p-2 text-[var(--color-subtext)] transition-colors hover:text-red-500"
+					>
+						<Trash2 size={16} />
+					</button>
+				</div>
+			))}
+			<button
+				onClick={handleAddItem}
+				className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-theme-border)] transition-colors hover:bg-[var(--color-theme-bg)]"
+			>
+				<PlusCircle size={16} /> Add
+			</button>
+		</div>
+	);
+}
+
+// --- Form Input Row Component ---
 function FormRow({
 	label,
 	description,
@@ -66,40 +152,32 @@ export function CorsEditorCard({
 	resetMutation: UseMutationResult<RequestResult<unknown>, Error, string>;
 }) {
 	const [config, setConfig] = useState<CorsConfig | null>(null);
-	const { data, isLoading, isError, error } = query; // Use the passed query object
+	const { data, isLoading, isError, error } = query;
 
 	useEffect(() => {
-		if (data?.data) {
-			// Deep copy to prevent mutating the react-query cache directly
-			setConfig(JSON.parse(JSON.stringify(data.data)));
-		}
+		if (data?.data) setConfig(JSON.parse(JSON.stringify(data.data)));
 	}, [data]);
 
 	const handleSave = () => {
-		if (config) {
-			updateMutation.mutate({ domain, config });
-		}
+		if (config) updateMutation.mutate({ domain, config });
 	};
-
 	const handleReset = () => {
-		if (window.confirm(`Reset CORS config for "${domain}" to defaults?`)) {
+		if (window.confirm(`Reset CORS config for "${domain}" to defaults?`))
 			resetMutation.mutate(domain);
-		}
 	};
 
-	if (isLoading) {
+	if (isLoading)
 		return (
-			<div className="flex items-center justify-center p-12">
-				<Loader2 className="animate-spin" />
+			<div className="flex h-96 items-center justify-center">
+				<Loader2
+					size={24}
+					className="animate-spin text-[var(--color-subtext)]"
+				/>
 			</div>
 		);
-	}
-	if (isError) {
+	if (isError)
 		return <div className="p-6 text-center text-red-500">{error.message}</div>;
-	}
-	if (!config) {
-		return null; // or a placeholder
-	}
+	if (!config) return null;
 
 	return (
 		<div className="w-full rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm">
@@ -136,120 +214,66 @@ export function CorsEditorCard({
 					</button>
 				</div>
 			</div>
-
 			<div className="p-6">
+				{/* --- FIX: Explicitly type the value 'v' to resolve the TS error --- */}
 				<FormRow
 					label="Preflight Handling"
 					description="Choose who responds to OPTIONS requests."
 				>
-					<RadixRadioGroup.Root
+					<SmallToggleSlider
 						value={config.preflight_handling}
-						onValueChange={(v) =>
-							setConfig({
-								...config,
-								preflight_handling: v as PreflightHandling,
-							})
+						onValueChange={(v: PreflightHandling) =>
+							setConfig({ ...config, preflight_handling: v })
 						}
-						className="flex gap-6"
-					>
-						<div className="flex items-center gap-2">
-							<RadixRadioGroup.Item
-								value="proxy_decision"
-								id="r1"
-								className="h-4 w-4 rounded-full border border-[var(--color-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
-							>
-								<RadixRadioGroup.Indicator className="relative flex h-full w-full items-center justify-center after:block after:h-2 after:w-2 after:rounded-full after:bg-[var(--color-theme-border)]" />
-							</RadixRadioGroup.Item>
-							<label htmlFor="r1" className="text-sm">
-								Vane Proxy
-							</label>
-						</div>
-						<div className="flex items-center gap-2">
-							<RadixRadioGroup.Item
-								value="origin_response"
-								id="r2"
-								className="h-4 w-4 rounded-full border border-[var(--color-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
-							>
-								<RadixRadioGroup.Indicator className="relative flex h-full w-full items-center justify-center after:block after:h-2 after:w-2 after:rounded-full after:bg-[var(--color-theme-border)]" />
-							</RadixRadioGroup.Item>
-							<label htmlFor="r2" className="text-sm">
-								Origin Server
-							</label>
-						</div>
-					</RadixRadioGroup.Root>
+						optionTrue="proxy_decision"
+						labelTrue="Vane Proxy"
+						optionFalse="origin_response"
+						labelFalse="Origin Server"
+					/>
 				</FormRow>
-
 				<FormRow
 					label="Allowed Origins"
-					description="Comma-separated list of origins. Use '*' for any origin (not secure with credentials)."
+					description="List of origins. Use '*' for any origin (not secure with credentials)."
 				>
-					<input
-						type="text"
-						value={arrayToString(config.allow_origins)}
-						onChange={(e) =>
-							setConfig({
-								...config,
-								allow_origins: stringToArray(e.target.value),
-							})
-						}
-						className="input-field"
+					<MultiValueInput
+						values={config.allow_origins}
+						onChange={(v) => setConfig({ ...config, allow_origins: v })}
+						placeholder="https://example.com"
 					/>
 				</FormRow>
-
 				<FormRow
 					label="Allowed Methods"
-					description="Comma-separated list of HTTP methods (e.g., GET, POST)."
+					description="List of HTTP methods (e.g., GET, POST)."
 				>
-					<input
-						type="text"
-						value={arrayToString(config.allow_methods)}
-						onChange={(e) =>
-							setConfig({
-								...config,
-								allow_methods: stringToArray(e.target.value),
-							})
-						}
-						className="input-field"
+					<MultiValueInput
+						values={config.allow_methods}
+						onChange={(v) => setConfig({ ...config, allow_methods: v })}
+						placeholder="GET"
 					/>
 				</FormRow>
-
 				<FormRow
 					label="Allowed Headers"
-					description="Comma-separated list of custom headers clients can send."
+					description="List of custom headers clients can send."
 				>
-					<input
-						type="text"
-						value={arrayToString(config.allow_headers)}
-						onChange={(e) =>
-							setConfig({
-								...config,
-								allow_headers: stringToArray(e.target.value),
-							})
-						}
-						className="input-field"
+					<MultiValueInput
+						values={config.allow_headers}
+						onChange={(v) => setConfig({ ...config, allow_headers: v })}
+						placeholder="Content-Type"
 					/>
 				</FormRow>
-
 				<FormRow
 					label="Exposed Headers"
-					description="Comma-separated list of headers clients can access in responses."
+					description="List of headers clients can access in responses."
 				>
-					<input
-						type="text"
-						value={arrayToString(config.expose_headers)}
-						onChange={(e) =>
-							setConfig({
-								...config,
-								expose_headers: stringToArray(e.target.value),
-							})
-						}
-						className="input-field"
+					<MultiValueInput
+						values={config.expose_headers}
+						onChange={(v) => setConfig({ ...config, expose_headers: v })}
+						placeholder="X-My-Custom-Header"
 					/>
 				</FormRow>
-
 				<FormRow
 					label="Max Age (seconds)"
-					description="How long preflight results can be cached by the browser."
+					description="How long preflight results can be cached."
 				>
 					<input
 						type="number"
@@ -263,20 +287,20 @@ export function CorsEditorCard({
 						className="input-field w-32"
 					/>
 				</FormRow>
-
 				<FormRow
 					label="Allow Credentials"
-					description="Allows cookies and other credentials to be included in cross-origin requests."
+					description="Allows cookies and credentials in requests."
 				>
-					<RadixSwitch.Root
-						checked={config.allow_credentials}
-						onCheckedChange={(c) =>
-							setConfig({ ...config, allow_credentials: c })
+					<SmallToggleSlider
+						value={config.allow_credentials}
+						onValueChange={(v: boolean) =>
+							setConfig({ ...config, allow_credentials: v })
 						}
-						className="relative h-6 w-11 rounded-full bg-[var(--color-bg-alt)] data-[state=checked]:bg-[var(--color-theme-border)]"
-					>
-						<RadixSwitch.Thumb className="block h-5 w-5 translate-x-0.5 rounded-full bg-white transition-transform duration-100 will-change-transform data-[state=checked]:translate-x-[1.1rem]" />
-					</RadixSwitch.Root>
+						optionTrue={true}
+						labelTrue="True"
+						optionFalse={false}
+						labelFalse="False"
+					/>
 				</FormRow>
 			</div>
 		</div>
