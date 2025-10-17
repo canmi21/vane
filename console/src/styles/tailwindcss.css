@@ -9,3 +9,7 @@
 @tailwind components;
 @tailwind utilities;
 */
+
+.input-field {
+	@apply h-10 w-full rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] placeholder-[var(--color-subtext)] transition-all focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)];
+}

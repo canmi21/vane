@@ -7,6 +7,7 @@ use crate::{
 	modules::{
 		self,
 		certs::manager as certs_manager,
+		cors::manager as cors_manager,
 		domain::entrance as domain_entrance,
 		origins::{monitor, origins},
 		templates::handler as templates_handler,
@@ -80,6 +81,13 @@ pub fn create_router() -> Router {
 				.post(templates_handler::create_template)
 				.put(templates_handler::update_template)
 				.delete(templates_handler::delete_template),
+		)
+		.route("/v1/cors", get(cors_manager::list_cors_status))
+		.route(
+			"/v1/cors/{:domain}",
+			get(cors_manager::get_cors_config)
+				.put(cors_manager::update_cors_config)
+				.delete(cors_manager::reset_cors_config),
 		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
