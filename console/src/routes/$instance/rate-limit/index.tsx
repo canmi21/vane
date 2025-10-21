@@ -7,11 +7,11 @@ import {
 	useLocation,
 } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash } from "lucide-react";
+import { Server, ServerCrash, Gauge } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { type RequestResult } from "~/api/request";
 import { getInstance, putInstance, deleteInstance } from "~/api/instance";
-import { RateLimitListCard } from "~/components/rate-limit/rate-limit-list-card";
+import { DomainListCard } from "~/components/shared/domain-list-card";
 import { RateLimitEditorCard } from "~/components/rate-limit/rate-limit-editor-card";
 import * as Tooltip from "@radix-ui/react-tooltip";
 
@@ -155,7 +155,9 @@ function RateLimitPage() {
 	return (
 		<Tooltip.Provider delayDuration={200}>
 			<div className="space-y-6">
-				<RateLimitListCard
+				<DomainListCard
+					title="Rate Limiting Policies"
+					icon={Gauge}
 					domains={domains}
 					selectedDomain={selectedDomain}
 					onSelectDomain={handleDomainSelect}

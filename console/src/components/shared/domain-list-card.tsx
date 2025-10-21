@@ -1,11 +1,12 @@
-/* src/components/custom-header/header-list-card.tsx */
+/* src/components/shared/domain-list-card.tsx */
 
-import { ChevronRight, ListPlus, HelpCircle } from "lucide-react";
+import { AppWindow, ChevronRight, HelpCircle } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useMemo } from "react";
+import React from "react";
 
-// --- List Item Component ---
-function HeaderItem({
+// --- Reusable List Item Component ---
+function DomainItem({
 	domain,
 	isSelected,
 	onSelect,
@@ -22,7 +23,7 @@ function HeaderItem({
 			className={`flex cursor-pointer items-center justify-between p-4 transition-all hover:bg-[var(--color-theme-bg)] ${isSelected ? "bg-[var(--color-theme-bg)]" : ""}`}
 		>
 			<div className="flex min-w-0 items-center gap-4">
-				<ListPlus
+				<AppWindow
 					size={20}
 					className={
 						isSelected
@@ -58,8 +59,8 @@ function HeaderItem({
 						align="start"
 						sideOffset={4}
 					>
-						Default headers for any request that does not match a configured
-						domain.
+						The fallback policy applies to any request that does not match a
+						configured domain.
 						<Tooltip.Arrow className="fill-[var(--color-bg-alt)]" />
 					</Tooltip.Content>
 				</Tooltip.Portal>
@@ -69,16 +70,21 @@ function HeaderItem({
 	return content;
 }
 
-// --- Main List Card Component ---
-export function HeaderListCard({
+// --- Main Generic Domain List Card Component ---
+export function DomainListCard({
+	title,
+	icon: Icon,
 	domains,
 	selectedDomain,
 	onSelectDomain,
 }: {
+	title: string;
+	icon: React.ElementType;
 	domains: string[];
 	selectedDomain: string | null;
 	onSelectDomain: (domain: string | null) => void;
 }) {
+	// Sort domains to ensure "fallback" is always last
 	const sortedDomains = useMemo(() => {
 		return [...domains].sort((a, b) => {
 			if (a === "fallback") return 1;
@@ -91,9 +97,9 @@ export function HeaderListCard({
 		<div className="w-full rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm">
 			<div className="border-b border-[var(--color-bg-alt)] p-6">
 				<div className="flex items-center gap-3">
-					<ListPlus size={20} className="stroke-[var(--color-theme-border)]" />
+					<Icon size={20} className="stroke-[var(--color-theme-border)]" />
 					<h3 className="text-lg font-semibold text-[var(--color-text)]">
-						Custom Response Headers
+						{title}
 					</h3>
 					<span className="rounded-md bg-[var(--color-bg-alt)] px-2 py-0.5 text-xs font-medium text-[var(--color-subtext)]">
 						{domains.length}
@@ -103,7 +109,7 @@ export function HeaderListCard({
 			<div className="divide-y divide-[var(--color-bg-alt)]">
 				{sortedDomains.length > 0 ? (
 					sortedDomains.map((domain) => (
-						<HeaderItem
+						<DomainItem
 							key={domain}
 							domain={domain}
 							isSelected={selectedDomain === domain}
@@ -113,7 +119,7 @@ export function HeaderListCard({
 				) : (
 					<div className="p-12 text-center text-[var(--color-subtext)]">
 						<p className="font-medium">No domains found.</p>
-						<p className="text-sm">Configure domains to set custom headers.</p>
+						<p className="text-sm">Configure domains to set policies.</p>
 					</div>
 				)}
 			</div>
