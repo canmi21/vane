@@ -2,7 +2,6 @@
 
 import { AppWindow, ChevronRight, HelpCircle } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { useMemo } from "react";
 import React from "react";
 
 // --- Data structure for items passed to the list card ---
@@ -105,19 +104,11 @@ export function DomainListCard({
 	selectedDomain: string | null;
 	onSelectDomain: (domain: string | null) => void;
 }) {
-	// Sort items to ensure "fallback" is always last
-	const sortedItems = useMemo(() => {
-		return [...items].sort((a, b) => {
-			if (a.domain === "fallback") return 1;
-			if (b.domain === "fallback") return -1;
-			return a.domain.localeCompare(b.domain);
-		});
-	}, [items]);
+	// --- FIX: Removed the internal sorting logic. ---
+	// The component now trusts the order of the `items` prop provided by the parent.
 
 	return (
-		// --- FIX: Removed rounding from the main container ---
 		<div className="w-full rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm">
-			{/* --- FIX: Added top rounding to the header --- */}
 			<div className="border-b border-[var(--color-bg-alt)] p-6">
 				<div className="flex items-center gap-3">
 					<Icon size={20} className="stroke-[var(--color-theme-border)]" />
@@ -129,10 +120,10 @@ export function DomainListCard({
 					</span>
 				</div>
 			</div>
-			{/* --- FIX: Added bottom rounding and overflow-hidden to the list container --- */}
 			<div className="overflow-hidden rounded-b-xl divide-y divide-[var(--color-bg-alt)]">
-				{sortedItems.length > 0 ? (
-					sortedItems.map((item) => (
+				{items.length > 0 ? (
+					// Directly map over the 'items' prop.
+					items.map((item) => (
 						<DomainItem
 							key={item.domain}
 							item={item}

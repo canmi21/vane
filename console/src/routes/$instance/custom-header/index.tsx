@@ -1,216 +1,75 @@
 /* src/routes/$instance/custom-header/index.tsx */
 
-import {
-	createFileRoute,
-	useParams,
-	useNavigate,
-	useLocation,
-} from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash, ListPlus } from "lucide-react";
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { type RequestResult } from "~/api/request";
-import { getInstance, putInstance, deleteInstance } from "~/api/instance";
-import {
-	DomainListCard,
-	type DomainListItem,
-} from "~/components/shared/domain-list-card";
-import { HeaderEditorCard } from "~/components/custom-header/header-editor-card";
-import * as Tooltip from "@radix-ui/react-tooltip";
+import { createFileRoute, useParams, Navigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Server, ServerCrash } from "lucide-react";
+import { getInstance } from "~/api/instance";
 
-// --- API Helper Functions ---
-async function listDomains(
-	instanceId: string
-): Promise<RequestResult<{ domains: string[] }>> {
-	return getInstance(instanceId, "/v1/domains");
-}
-async function getHeaderConfig(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<HeaderConfig>> {
-	return getInstance(instanceId, `/v1/headers/${domain}`);
-}
-async function updateHeaderConfig(
-	instanceId: string,
-	domain: string,
-	config: HeaderConfig
-): Promise<RequestResult<HeaderConfig>> {
-	return putInstance(instanceId, `/v1/headers/${domain}`, config as never);
-}
-async function resetHeaderConfig(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<unknown>> {
-	return deleteInstance(instanceId, `/v1/headers/${domain}`);
-}
-
-// --- Data Types from Backend ---
-export interface HeaderConfig {
-	headers: Record<string, string>;
+// Minimal API call for redirection
+async function listDomains(instanceId: string): Promise<{ domains: string[] }> {
+	const result = await getInstance<{ domains: string[] }>(
+		instanceId,
+		"/v1/domains"
+	);
+	return result.data ?? { domains: [] };
 }
 
 export const Route = createFileRoute("/$instance/custom-header/")({
-	component: HeaderPage,
+	component: CustomHeaderIndexPage,
 });
 
-function HeaderPage() {
+function CustomHeaderIndexPage() {
 	const { instance: instanceId } = useParams({
 		from: "/$instance/custom-header/",
 	});
-	const queryClient = useQueryClient();
-	const navigate = useNavigate();
-	const location = useLocation();
 
-	const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
-
-	// --- Step 1: Query for the list of domains ---
-	const {
-		data: domainsResult,
-		isLoading: isListLoading,
-		isError: isListError,
-		error: listError,
-	} = useQuery<RequestResult<{ domains: string[] }>>({
+	const { data, isLoading, isError, error, isSuccess, isFetching } = useQuery({
 		queryKey: ["instance", instanceId, "domains"],
 		queryFn: () => listDomains(instanceId),
-	});
-	const domains = useMemo(
-		() => [...(domainsResult?.data?.domains ?? []), "fallback"],
-		[domainsResult]
-	);
-
-	// --- Step 2: Fetch all configs for badge info ---
-	const { data: allConfigs, isLoading: areConfigsLoading } = useQuery<
-		Record<string, HeaderConfig>
-	>({
-		queryKey: ["instance", instanceId, "headers", "all"],
-		queryFn: async () => {
-			const promises = domains.map(async (domain) => {
-				const res = await getHeaderConfig(instanceId, domain);
-				return { domain, config: res.data };
-			});
-			const results = await Promise.all(promises);
-			return results.reduce(
-				(acc, { domain, config }) => {
-					if (config) acc[domain] = config;
-					return acc;
-				},
-				{} as Record<string, HeaderConfig>
-			);
-		},
-		enabled: domains.length > 0,
+		staleTime: 0, // Always refetch to avoid stale cache issues on navigation
 	});
 
-	// --- Step 3: Create list items with badges ---
-	const domainListItems = useMemo<DomainListItem[]>(() => {
-		return domains.map((domain) => {
-			const config = allConfigs?.[domain];
-			const count = config ? Object.keys(config.headers).length : 0;
-			return {
-				domain,
-				badge: {
-					icon: ListPlus,
-					text: `${count} Header(s)`,
-				},
-			};
+	if (isLoading || isFetching) {
+		return <StatusCard icon={Server} text="Loading domains..." />;
+	}
+
+	if (isError) {
+		return <StatusCard icon={ServerCrash} text={error.message} isError />;
+	}
+
+	if (isSuccess) {
+		const apiDomains = data.domains ?? [];
+
+		// Sort the API-provided domains, placing wildcards at the end
+		const sortedApiDomains = apiDomains.sort((a, b) => {
+			const aIsWildcard = a.includes("*");
+			const bIsWildcard = b.includes("*");
+			if (aIsWildcard !== bIsWildcard) {
+				return aIsWildcard ? 1 : -1;
+			}
+			return a.localeCompare(b);
 		});
-	}, [domains, allConfigs]);
 
-	const selectedHeaderConfigQuery = useQuery<RequestResult<HeaderConfig>>({
-		queryKey: ["instance", instanceId, "headers", selectedDomain],
-		queryFn: () => getHeaderConfig(instanceId, selectedDomain!),
-		enabled: !!selectedDomain,
-	});
+		// Determine the target: first sorted domain, or 'fallback' if the list is empty
+		const targetDomain =
+			sortedApiDomains.length > 0 ? sortedApiDomains[0] : "fallback";
 
-	const handleDomainSelect = useCallback(
-		(domain: string | null) => {
-			setSelectedDomain(domain);
-			navigate({
-				hash: domain ? encodeURIComponent(domain) : "",
-				replace: true,
-			});
-		},
-		[navigate]
-	);
-
-	useEffect(() => {
-		if (isListLoading) return;
-		const hashDomain = location.hash
-			? decodeURIComponent(location.hash.slice(1))
-			: null;
-		if (hashDomain && domains.includes(hashDomain)) {
-			if (selectedDomain !== hashDomain) setSelectedDomain(hashDomain);
-			return;
-		}
-		if (!selectedDomain || !domains.includes(selectedDomain)) {
-			if (domains.length > 0) handleDomainSelect(domains[0]);
-			else handleDomainSelect(null);
-		}
-	}, [
-		domains,
-		isListLoading,
-		location.hash,
-		selectedDomain,
-		handleDomainSelect,
-	]);
-
-	const updateMutation = useMutation<
-		RequestResult<HeaderConfig>,
-		Error,
-		{ domain: string; config: HeaderConfig }
-	>({
-		mutationFn: (vars) =>
-			updateHeaderConfig(instanceId, vars.domain, vars.config),
-		onSuccess: () =>
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "headers"],
-			}),
-	});
-	const resetMutation = useMutation<RequestResult<unknown>, Error, string>({
-		mutationFn: (domain) => resetHeaderConfig(instanceId, domain),
-		onSuccess: () =>
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "headers"],
-			}),
-	});
-
-	const isLoading = isListLoading || (domains.length > 0 && areConfigsLoading);
-	const isError = isListError;
-	const error = listError;
-
-	if (isLoading) return <StatusCard icon={Server} text="Loading Domains..." />;
-	if (isError)
 		return (
-			<StatusCard
-				icon={ServerCrash}
-				text={error?.message || "Failed to fetch domains."}
-				isError
+			<Navigate
+				to="/$instance/custom-header/$domain"
+				params={{
+					instance: instanceId,
+					domain: targetDomain,
+				}}
+				replace
 			/>
 		);
+	}
 
-	return (
-		<Tooltip.Provider delayDuration={200}>
-			<div className="space-y-6">
-				<DomainListCard
-					title="Custom Response Headers"
-					icon={ListPlus}
-					items={domainListItems}
-					selectedDomain={selectedDomain}
-					onSelectDomain={handleDomainSelect}
-				/>
-				{selectedDomain && (
-					<HeaderEditorCard
-						key={selectedDomain}
-						domain={selectedDomain}
-						query={selectedHeaderConfigQuery}
-						updateMutation={updateMutation}
-						resetMutation={resetMutation}
-					/>
-				)}
-			</div>
-		</Tooltip.Provider>
-	);
+	return null; // Should not be reached
 }
 
+// A self-contained StatusCard for this simple page.
 function StatusCard({
 	icon: Icon,
 	text,
