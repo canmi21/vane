@@ -5,22 +5,33 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { useMemo } from "react";
 import React from "react";
 
+// --- Data structure for items passed to the list card ---
+export interface DomainListItem {
+	domain: string;
+	badge?: {
+		icon?: React.ElementType;
+		text: string;
+	};
+}
+
 // --- Reusable List Item Component ---
 function DomainItem({
-	domain,
+	item,
 	isSelected,
 	onSelect,
 }: {
-	domain: string;
+	item: DomainListItem;
 	isSelected: boolean;
 	onSelect: () => void;
 }) {
-	const isFallback = domain === "fallback";
+	const isFallback = item.domain === "fallback";
 
 	const content = (
 		<div
 			onClick={onSelect}
-			className={`flex cursor-pointer items-center justify-between p-4 transition-all hover:bg-[var(--color-theme-bg)] ${isSelected ? "bg-[var(--color-theme-bg)]" : ""}`}
+			className={`flex cursor-pointer items-center justify-between p-4 transition-all hover:bg-[var(--color-theme-bg)] ${
+				isSelected ? "bg-[var(--color-theme-bg)]" : ""
+			}`}
 		>
 			<div className="flex min-w-0 items-center gap-4">
 				<AppWindow
@@ -32,7 +43,7 @@ function DomainItem({
 					}
 				/>
 				<p className="truncate font-mono text-sm font-medium text-[var(--color-text)]">
-					{domain}
+					{item.domain}
 				</p>
 				{isFallback && (
 					<HelpCircle
@@ -41,10 +52,21 @@ function DomainItem({
 					/>
 				)}
 			</div>
-			<ChevronRight
-				size={18}
-				className={`flex-shrink-0 transition-transform ${isSelected ? "translate-x-1" : ""}`}
-			/>
+			<div className="flex flex-shrink-0 items-center gap-3">
+				{/* --- NEW: Render the badge if it exists --- */}
+				{item.badge && (
+					<div className="flex items-center gap-2 rounded-md bg-[var(--color-bg-alt)] px-2.5 py-1 text-xs font-medium text-[var(--color-subtext)]">
+						{item.badge.icon && <item.badge.icon size={14} />}
+						<span>{item.badge.text}</span>
+					</div>
+				)}
+				<ChevronRight
+					size={18}
+					className={`transition-transform ${
+						isSelected ? "translate-x-1" : ""
+					}`}
+				/>
+			</div>
 		</div>
 	);
 
@@ -74,24 +96,24 @@ function DomainItem({
 export function DomainListCard({
 	title,
 	icon: Icon,
-	domains,
+	items,
 	selectedDomain,
 	onSelectDomain,
 }: {
 	title: string;
 	icon: React.ElementType;
-	domains: string[];
+	items: DomainListItem[];
 	selectedDomain: string | null;
 	onSelectDomain: (domain: string | null) => void;
 }) {
-	// Sort domains to ensure "fallback" is always last
-	const sortedDomains = useMemo(() => {
-		return [...domains].sort((a, b) => {
-			if (a === "fallback") return 1;
-			if (b === "fallback") return -1;
-			return a.localeCompare(b);
+	// Sort items to ensure "fallback" is always last
+	const sortedItems = useMemo(() => {
+		return [...items].sort((a, b) => {
+			if (a.domain === "fallback") return 1;
+			if (b.domain === "fallback") return -1;
+			return a.domain.localeCompare(b.domain);
 		});
-	}, [domains]);
+	}, [items]);
 
 	return (
 		<div className="w-full rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm">
@@ -102,18 +124,18 @@ export function DomainListCard({
 						{title}
 					</h3>
 					<span className="rounded-md bg-[var(--color-bg-alt)] px-2 py-0.5 text-xs font-medium text-[var(--color-subtext)]">
-						{domains.length}
+						{items.length}
 					</span>
 				</div>
 			</div>
 			<div className="divide-y divide-[var(--color-bg-alt)]">
-				{sortedDomains.length > 0 ? (
-					sortedDomains.map((domain) => (
+				{sortedItems.length > 0 ? (
+					sortedItems.map((item) => (
 						<DomainItem
-							key={domain}
-							domain={domain}
-							isSelected={selectedDomain === domain}
-							onSelect={() => onSelectDomain(domain)}
+							key={item.domain}
+							item={item}
+							isSelected={selectedDomain === item.domain}
+							onSelect={() => onSelectDomain(item.domain)}
 						/>
 					))
 				) : (
