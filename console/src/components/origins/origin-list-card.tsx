@@ -39,8 +39,9 @@ export function OriginListCard({
 	};
 
 	return (
-		<div className="rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm">
-			{/* Header with title */}
+		// --- FIX: Removed rounding from main container ---
+		<div className="border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm rounded-xl">
+			{/* Header with title --- FIX: Added top rounding --- */}
 			<div className="border-b border-[var(--color-bg-alt)] p-6">
 				<div className="flex items-center justify-between">
 					<div className="flex items-center gap-3">
@@ -52,7 +53,6 @@ export function OriginListCard({
 							{origins.length}
 						</span>
 					</div>
-					{/* Toggle add form button */}
 					<button
 						onClick={() => setIsAddFormExpanded(!isAddFormExpanded)}
 						className="flex items-center gap-2 rounded-lg border-2 border-[var(--color-theme-border)] bg-[var(--color-theme-bg)] px-3 py-1.5 text-sm font-semibold text-[var(--color-text)] transition-all hover:opacity-80"
@@ -112,8 +112,8 @@ export function OriginListCard({
 				)}
 			</AnimatePresence>
 
-			{/* Origins list - always visible */}
-			<div className="divide-y divide-[var(--color-bg-alt)]">
+			{/* Origins list --- FIX: Added overflow-hidden and bottom rounding --- */}
+			<div className="overflow-hidden rounded-b-xl divide-y divide-[var(--color-bg-alt)]">
 				{origins.length > 0 ? (
 					origins.map((item) => (
 						<OriginItem
