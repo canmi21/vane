@@ -26,7 +26,7 @@ impl Default for HeaderConfig {
 	/// Defines the default response headers.
 	fn default() -> Self {
 		let mut headers = HashMap::new();
-		headers.insert("Server".to_string(), "Vane/Self-Host".to_string());
+		headers.insert("Server".to_string(), "Self-Host".to_string());
 		Self { headers }
 	}
 }

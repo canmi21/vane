@@ -13,6 +13,7 @@ use crate::{
 		origins::{monitor, origins},
 		ratelimit::manager as ratelimit_manager,
 		templates::handler as templates_handler,
+		websocket::manager as websocket_manager,
 	},
 };
 use axum::{
@@ -102,6 +103,16 @@ pub fn create_router() -> Router {
 			get(ratelimit_manager::get_ratelimit_config)
 				.put(ratelimit_manager::update_ratelimit_config)
 				.delete(ratelimit_manager::reset_ratelimit_config),
+		)
+		.route(
+			"/v1/websocket/{:domain}",
+			get(websocket_manager::get_websocket_config)
+				.put(websocket_manager::update_websocket_config)
+				.delete(websocket_manager::reset_websocket_config),
+		)
+		.route(
+			"/v1/websocket/{:domain}/paths",
+			post(websocket_manager::add_websocket_path).delete(websocket_manager::remove_websocket_path),
 		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
