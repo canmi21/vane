@@ -6,4 +6,5 @@ pub mod domain;
 pub mod header;
 pub mod instance;
 pub mod origins;
+pub mod ratelimit;
 pub mod templates;

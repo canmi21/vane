@@ -11,6 +11,7 @@ use crate::{
 		domain::entrance as domain_entrance,
 		header::manager as header_manager,
 		origins::{monitor, origins},
+		ratelimit::manager as ratelimit_manager,
 		templates::handler as templates_handler,
 	},
 };
@@ -95,6 +96,12 @@ pub fn create_router() -> Router {
 			get(header_manager::get_header_config)
 				.put(header_manager::update_header_config)
 				.delete(header_manager::reset_header_config),
+		)
+		.route(
+			"/v1/ratelimit/{:domain}",
+			get(ratelimit_manager::get_ratelimit_config)
+				.put(ratelimit_manager::update_ratelimit_config)
+				.delete(ratelimit_manager::reset_ratelimit_config),
 		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
