@@ -196,7 +196,8 @@ export function TemplateListCard({
 				)}
 			</AnimatePresence>
 
-			<div className="divide-y divide-[var(--color-bg-alt)]">
+			{/* --- FIX: Added overflow-hidden and rounding --- */}
+			<div className="overflow-hidden rounded-b-xl divide-y divide-[var(--color-bg-alt)]">
 				{templates.length > 0 ? (
 					templates.map((name) => (
 						<TemplateItem

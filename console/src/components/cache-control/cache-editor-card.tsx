@@ -1,22 +1,24 @@
-/* src/components/websocket/websocket-editor-card.tsx */
+/* src/components/cache-control/cache-editor-card.tsx */
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
 	Save,
 	Settings,
 	RotateCcw,
-	Loader2,
-	AlertCircle,
 	Trash2,
 	PlusCircle,
+	Loader2,
 } from "lucide-react";
 import {
 	type UseQueryResult,
 	type UseMutationResult,
 } from "@tanstack/react-query";
 import { type RequestResult } from "~/api/request";
-import { type WebSocketConfig } from "~/routes/$instance/websocket/";
+import {
+	type CacheConfig,
+	type CacheRule,
+} from "~/routes/$instance/cache-control/";
 
 // --- Reusable Small Toggle Slider Component ---
 function SmallToggleSlider<T>({
@@ -60,55 +62,7 @@ function SmallToggleSlider<T>({
 	);
 }
 
-// --- Multi-value input component ---
-function MultiValueInput({
-	values,
-	onChange,
-	placeholder,
-}: {
-	values: string[];
-	onChange: (newValues: string[]) => void;
-	placeholder: string;
-}) {
-	const handleItemChange = (index: number, value: string) => {
-		onChange(values.map((v, i) => (i === index ? value : v)));
-	};
-	const handleAddItem = () => {
-		onChange([...values, ""]);
-	};
-	const handleRemoveItem = (index: number) => {
-		onChange(values.filter((_, i) => i !== index));
-	};
-	return (
-		<div className="space-y-2">
-			{values.map((value, index) => (
-				<div key={index} className="flex items-center gap-2">
-					<input
-						type="text"
-						value={value}
-						onChange={(e) => handleItemChange(index, e.target.value)}
-						placeholder={placeholder}
-						className="input-field flex-grow"
-					/>
-					<button
-						onClick={() => handleRemoveItem(index)}
-						className="rounded-md p-2 text-[var(--color-subtext)] transition-colors hover:text-red-500"
-					>
-						<Trash2 size={16} />
-					</button>
-				</div>
-			))}
-			<button
-				onClick={handleAddItem}
-				className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-theme-border)] transition-colors hover:bg-[var(--color-theme-bg)]"
-			>
-				<PlusCircle size={16} /> Add Path
-			</button>
-		</div>
-	);
-}
-
-// --- Form Input Row Component ---
+// --- Reusable Form Input Row Component ---
 function FormRow({
 	label,
 	description,
@@ -133,65 +87,156 @@ function FormRow({
 	);
 }
 
+// --- Input component for path rules ---
+function PathRuleInput({
+	rules,
+	onChange,
+}: {
+	rules: CacheRule[];
+	onChange: (newRules: CacheRule[]) => void;
+}) {
+	const handleItemChange = (
+		index: number,
+		field: keyof CacheRule,
+		value: string | number
+	) => {
+		const newRules = [...rules];
+		newRules[index] = { ...newRules[index], [field]: value };
+		onChange(newRules);
+	};
+	const handleAddItem = () =>
+		onChange([...rules, { path: "", ttl_seconds: 3600 }]);
+	const handleRemoveItem = (index: number) =>
+		onChange(rules.filter((_, i) => i !== index));
+
+	return (
+		<div className="space-y-2">
+			{rules.map((rule, index) => (
+				<div key={index} className="flex items-center gap-2">
+					<input
+						type="text"
+						value={rule.path}
+						onChange={(e) => handleItemChange(index, "path", e.target.value)}
+						placeholder="/images/*"
+						className="input-field flex-grow"
+					/>
+					<input
+						type="number"
+						value={rule.ttl_seconds}
+						onChange={(e) =>
+							handleItemChange(
+								index,
+								"ttl_seconds",
+								Number(e.target.value) || 0
+							)
+						}
+						className="input-field w-32"
+					/>
+					<span className="text-xs text-[var(--color-subtext)]">seconds</span>
+					<button
+						onClick={() => handleRemoveItem(index)}
+						className="rounded-md p-2 text-[var(--color-subtext)] transition-colors hover:text-red-500"
+					>
+						<Trash2 size={16} />
+					</button>
+				</div>
+			))}
+			<button
+				onClick={handleAddItem}
+				className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-theme-border)] transition-colors hover:bg-[var(--color-theme-bg)]"
+			>
+				<PlusCircle size={16} /> Add Rule
+			</button>
+		</div>
+	);
+}
+
+// --- Input component for blacklist paths ---
+function BlacklistPathInput({
+	paths,
+	onChange,
+}: {
+	paths: string[];
+	onChange: (newPaths: string[]) => void;
+}) {
+	const handleItemChange = (index: number, value: string) => {
+		onChange(paths.map((p, i) => (i === index ? value : p)));
+	};
+	const handleAddItem = () => onChange([...paths, ""]);
+	const handleRemoveItem = (index: number) =>
+		onChange(paths.filter((_, i) => i !== index));
+
+	return (
+		<div className="space-y-2">
+			{paths.map((path, index) => (
+				<div key={index} className="flex items-center gap-2">
+					<input
+						type="text"
+						value={path}
+						onChange={(e) => handleItemChange(index, e.target.value)}
+						placeholder="/api/*"
+						className="input-field flex-grow"
+					/>
+					<button
+						onClick={() => handleRemoveItem(index)}
+						className="rounded-md p-2 text-[var(--color-subtext)] transition-colors hover:text-red-500"
+					>
+						<Trash2 size={16} />
+					</button>
+				</div>
+			))}
+			<button
+				onClick={handleAddItem}
+				className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-theme-border)] transition-colors hover:bg-[var(--color-theme-bg)]"
+			>
+				<PlusCircle size={16} /> Add Path
+			</button>
+		</div>
+	);
+}
+
 // --- Main Editor Card Component ---
-export function WebSocketEditorCard({
+export function CacheEditorCard({
 	domain,
 	query,
 	updateMutation,
 	resetMutation,
 }: {
 	domain: string;
-	query: UseQueryResult<RequestResult<WebSocketConfig>>;
+	query: UseQueryResult<RequestResult<CacheConfig>>;
 	updateMutation: UseMutationResult<
-		RequestResult<WebSocketConfig>,
+		RequestResult<CacheConfig>,
 		Error,
-		{ domain: string; config: WebSocketConfig }
+		{ domain: string; config: CacheConfig }
 	>;
 	resetMutation: UseMutationResult<RequestResult<unknown>, Error, string>;
 }) {
 	const { data, isLoading, isError, error } = query;
-	const [config, setConfig] = useState<WebSocketConfig | null>(null);
-
-	const validationError = useMemo<string | null>(() => {
-		if (config?.enabled && config.paths.some((p) => p.trim() === "")) {
-			return "Paths cannot be empty when WebSocket proxy is enabled.";
-		}
-		if (config?.enabled && config.paths.length === 0) {
-			return "At least one path is required when WebSocket proxy is enabled.";
-		}
-		return null;
-	}, [config]);
+	const [config, setConfig] = useState<CacheConfig | null>(null);
 
 	useEffect(() => {
-		if (data?.data) {
-			setConfig(JSON.parse(JSON.stringify(data.data)));
-		}
+		if (data?.data) setConfig(JSON.parse(JSON.stringify(data.data)));
 	}, [data]);
 
 	const handleSave = () => {
-		if (config && !validationError) {
-			// Filter out empty paths before saving
+		if (config) {
 			const cleanedConfig = {
 				...config,
-				paths: config.paths.map((p) => p.trim()).filter(Boolean),
+				path_rules: config.path_rules.filter((r) => r.path.trim() !== ""),
+				blacklist_paths: config.blacklist_paths.filter((p) => p.trim() !== ""),
 			};
 			updateMutation.mutate({ domain, config: cleanedConfig });
 		}
 	};
 
 	const handleReset = () => {
-		if (
-			window.confirm(
-				`Reset WebSocket config for "${domain}" to default (disabled)?`
-			)
-		) {
+		if (window.confirm(`Reset cache config for "${domain}" to default?`))
 			resetMutation.mutate(domain);
-		}
 	};
 
 	if (isLoading)
 		return (
-			<div className="flex h-64 items-center justify-center">
+			<div className="flex h-96 items-center justify-center">
 				<Loader2
 					size={24}
 					className="animate-spin text-[var(--color-subtext)]"
@@ -208,7 +253,7 @@ export function WebSocketEditorCard({
 				<div className="flex items-center gap-3">
 					<Settings size={20} className="stroke-[var(--color-theme-border)]" />
 					<h3 className="font-semibold text-[var(--color-text)]">
-						WebSocket Policy for{" "}
+						Cache Policy for{" "}
 						<span className="font-mono text-[var(--color-theme-border)]">
 							{domain}
 						</span>
@@ -229,11 +274,7 @@ export function WebSocketEditorCard({
 					</button>
 					<button
 						onClick={handleSave}
-						disabled={
-							updateMutation.isPending ||
-							resetMutation.isPending ||
-							!!validationError
-						}
+						disabled={updateMutation.isPending || resetMutation.isPending}
 						className="flex h-10 items-center gap-2 rounded-lg bg-[var(--color-theme-bg)] px-4 text-sm font-semibold text-[var(--color-text)] transition-all hover:opacity-80 disabled:opacity-50"
 					>
 						<Save size={16} />{" "}
@@ -241,42 +282,49 @@ export function WebSocketEditorCard({
 					</button>
 				</div>
 			</div>
+
 			<div className="p-6">
 				{/* --- FIX: Wrapped FormRow list in a div with negative margins (-my-4) --- */}
 				{/* This counteracts the py-4 on FormRow, fixing the extra padding issue. */}
 				<div className="-my-4">
 					<FormRow
-						label="WebSocket Proxy"
-						description="Enable or disable proxying of WebSocket upgrade requests."
+						label="Origin Headers"
+						description="If enabled, Vane will honor 'Cache-Control' headers from your origin server."
 					>
 						<SmallToggleSlider
-							value={config.enabled}
+							value={config.respect_origin_cache_control}
 							onValueChange={(v: boolean) =>
-								setConfig({ ...config, enabled: v })
+								setConfig({ ...config, respect_origin_cache_control: v })
 							}
 							optionTrue={true}
-							labelTrue="Enabled"
+							labelTrue="Respect"
 							optionFalse={false}
-							labelFalse="Disabled"
+							labelFalse="Ignore"
 						/>
 					</FormRow>
+
 					<FormRow
-						label="Proxy Paths"
-						description="The URL paths to listen for upgrades. Use '*' for all paths."
+						label="Path-Specific Rules"
+						description="Define custom cache TTLs for specific URL paths. Paths can include wildcards (*)."
 					>
-						<div>
-							<MultiValueInput
-								values={config.paths}
-								onChange={(v) => setConfig({ ...config, paths: v })}
-								placeholder="/socket.io/"
-							/>
-							{validationError && (
-								<div className="mt-2 flex items-center gap-2 text-xs text-red-500">
-									<AlertCircle size={14} />
-									<span>{validationError}</span>
-								</div>
-							)}
-						</div>
+						<PathRuleInput
+							rules={config.path_rules}
+							onChange={(newRules) =>
+								setConfig({ ...config, path_rules: newRules })
+							}
+						/>
+					</FormRow>
+
+					<FormRow
+						label="Do Not Cache Paths"
+						description="A list of paths that should never be cached, regardless of other rules."
+					>
+						<BlacklistPathInput
+							paths={config.blacklist_paths}
+							onChange={(newPaths) =>
+								setConfig({ ...config, blacklist_paths: newPaths })
+							}
+						/>
 					</FormRow>
 				</div>
 			</div>

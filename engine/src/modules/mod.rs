@@ -1,5 +1,6 @@
 /* engine/src/modules/mod.rs */
 
+pub mod cache;
 pub mod certs;
 pub mod cors;
 pub mod domain;

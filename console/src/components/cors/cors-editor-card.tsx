@@ -152,11 +152,9 @@ export function CorsEditorCard({
 	>;
 	resetMutation: UseMutationResult<RequestResult<unknown>, Error, string>;
 }) {
-	// --- FIX: This component now receives the query object ---
 	const { data, isLoading, isError, error } = query;
 	const [config, setConfig] = useState<CorsConfig | null>(null);
 
-	// Client-side validation logic
 	const validationError = useMemo<string | null>(() => {
 		if (config?.preflight_handling === "proxy_decision") {
 			const hasOptions =
@@ -240,100 +238,104 @@ export function CorsEditorCard({
 				</div>
 			</div>
 			<div className="p-6">
-				<FormRow
-					label="Preflight Handling"
-					description="Choose who responds to OPTIONS requests."
-				>
-					<SmallToggleSlider
-						value={config.preflight_handling}
-						onValueChange={(v: PreflightHandling) =>
-							setConfig({ ...config, preflight_handling: v })
-						}
-						optionTrue="proxy_decision"
-						labelTrue="Vane Proxy"
-						optionFalse="origin_response"
-						labelFalse="Origin Server"
-					/>
-				</FormRow>
-				<FormRow
-					label="Allowed Origins"
-					description="List of origins. Use '*' for any origin (not secure with credentials)."
-				>
-					<MultiValueInput
-						values={config.allow_origins}
-						onChange={(v) => setConfig({ ...config, allow_origins: v })}
-						placeholder="https://example.com"
-					/>
-				</FormRow>
-				<FormRow
-					label="Allowed Methods"
-					description="List of HTTP methods (e.g., GET, POST)."
-				>
-					<>
-						<MultiValueInput
-							values={config.allow_methods}
-							onChange={(v) => setConfig({ ...config, allow_methods: v })}
-							placeholder="GET"
+				{/* --- FIX: Wrapped FormRow list in a div with negative margins (-my-4) --- */}
+				{/* This counteracts the py-4 on FormRow, fixing the extra padding issue. */}
+				<div className="-my-4">
+					<FormRow
+						label="Preflight Handling"
+						description="Choose who responds to OPTIONS requests."
+					>
+						<SmallToggleSlider
+							value={config.preflight_handling}
+							onValueChange={(v: PreflightHandling) =>
+								setConfig({ ...config, preflight_handling: v })
+							}
+							optionTrue="proxy_decision"
+							labelTrue="Vane Proxy"
+							optionFalse="origin_response"
+							labelFalse="Origin Server"
 						/>
-						{validationError && (
-							<div className="mt-2 flex items-center gap-2 text-xs text-red-500">
-								<AlertCircle size={14} />
-								<span>{validationError}</span>
-							</div>
-						)}
-					</>
-				</FormRow>
-				<FormRow
-					label="Allowed Headers"
-					description="List of custom headers clients can send."
-				>
-					<MultiValueInput
-						values={config.allow_headers}
-						onChange={(v) => setConfig({ ...config, allow_headers: v })}
-						placeholder="Content-Type"
-					/>
-				</FormRow>
-				<FormRow
-					label="Exposed Headers"
-					description="List of headers clients can access in responses."
-				>
-					<MultiValueInput
-						values={config.expose_headers}
-						onChange={(v) => setConfig({ ...config, expose_headers: v })}
-						placeholder="X-My-Custom-Header"
-					/>
-				</FormRow>
-				<FormRow
-					label="Max Age (seconds)"
-					description="How long preflight results can be cached."
-				>
-					<input
-						type="number"
-						value={config.max_age_seconds}
-						onChange={(e) =>
-							setConfig({
-								...config,
-								max_age_seconds: Number(e.target.value) || 0,
-							})
-						}
-						className="input-field w-32"
-					/>
-				</FormRow>
-				<FormRow
-					label="Allow Credentials"
-					description="Allows cookies and credentials in requests."
-				>
-					<SmallToggleSlider
-						value={config.allow_credentials}
-						onValueChange={(v: boolean) =>
-							setConfig({ ...config, allow_credentials: v })
-						}
-						optionTrue={true}
-						labelTrue="True"
-						optionFalse={false}
-						labelFalse="False"
-					/>
-				</FormRow>
+					</FormRow>
+					<FormRow
+						label="Allowed Origins"
+						description="List of origins. Use '*' for any origin (not secure with credentials)."
+					>
+						<MultiValueInput
+							values={config.allow_origins}
+							onChange={(v) => setConfig({ ...config, allow_origins: v })}
+							placeholder="https://example.com"
+						/>
+					</FormRow>
+					<FormRow
+						label="Allowed Methods"
+						description="List of HTTP methods (e.g., GET, POST)."
+					>
+						<>
+							<MultiValueInput
+								values={config.allow_methods}
+								onChange={(v) => setConfig({ ...config, allow_methods: v })}
+								placeholder="GET"
+							/>
+							{validationError && (
+								<div className="mt-2 flex items-center gap-2 text-xs text-red-500">
+									<AlertCircle size={14} />
+									<span>{validationError}</span>
+								</div>
+							)}
+						</>
+					</FormRow>
+					<FormRow
+						label="Allowed Headers"
+						description="List of custom headers clients can send."
+					>
+						<MultiValueInput
+							values={config.allow_headers}
+							onChange={(v) => setConfig({ ...config, allow_headers: v })}
+							placeholder="Content-Type"
+						/>
+					</FormRow>
+					<FormRow
+						label="Exposed Headers"
+						description="List of headers clients can access in responses."
+					>
+						<MultiValueInput
+							values={config.expose_headers}
+							onChange={(v) => setConfig({ ...config, expose_headers: v })}
+							placeholder="X-My-Custom-Header"
+						/>
+					</FormRow>
+					<FormRow
+						label="Max Age (seconds)"
+						description="How long preflight results can be cached."
+					>
+						<input
+							type="number"
+							value={config.max_age_seconds}
+							onChange={(e) =>
+								setConfig({
+									...config,
+									max_age_seconds: Number(e.target.value) || 0,
+								})
+							}
+							className="input-field w-32"
+						/>
+					</FormRow>
+					<FormRow
+						label="Allow Credentials"
+						description="Allows cookies and credentials in requests."
+					>
+						<SmallToggleSlider
+							value={config.allow_credentials}
+							onValueChange={(v: boolean) =>
+								setConfig({ ...config, allow_credentials: v })
+							}
+							optionTrue={true}
+							labelTrue="True"
+							optionFalse={false}
+							labelFalse="False"
+						/>
+					</FormRow>
+				</div>
 			</div>
 		</div>
 	);
