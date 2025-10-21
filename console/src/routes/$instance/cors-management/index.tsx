@@ -141,7 +141,7 @@ function CorsPage() {
 		};
 	}, [domains, corsStatuses, allConfigs]);
 
-	// --- FIX: Query for the selected domain's detailed config ---
+	// --- This query is for the SELECTED domain's detailed config ---
 	const selectedCorsConfigQuery = useQuery<RequestResult<CorsConfig>>({
 		queryKey: ["instance", instanceId, "cors", "config", selectedDomain],
 		queryFn: () => getCorsConfig(instanceId, selectedDomain!),
@@ -171,7 +171,11 @@ function CorsPage() {
 			return;
 		}
 		if (!selectedDomain || !domains.includes(selectedDomain)) {
-			if (domains.length > 0) handleDomainSelect(domains[0]);
+			if (domains.length > 0) {
+				handleDomainSelect(domains[0]);
+			} else {
+				handleDomainSelect(null);
+			}
 		}
 	}, [
 		domains,
@@ -231,11 +235,12 @@ function CorsPage() {
 					selectedDomain={selectedDomain}
 					onSelectDomain={handleDomainSelect}
 				/>
+				{/* --- FIX: Pass the correct query prop instead of initialConfig --- */}
 				{selectedDomain && (
 					<CorsEditorCard
 						key={selectedDomain}
 						domain={selectedDomain}
-						query={selectedCorsConfigQuery} // Pass the query object
+						query={selectedCorsConfigQuery}
 						updateMutation={updateMutation}
 						resetMutation={resetMutation}
 					/>
