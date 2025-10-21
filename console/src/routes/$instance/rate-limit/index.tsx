@@ -1,210 +1,73 @@
 /* src/routes/$instance/rate-limit/index.tsx */
 
-import {
-	createFileRoute,
-	useParams,
-	useNavigate,
-	useLocation,
-} from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash, Gauge, ZapOff } from "lucide-react";
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { type RequestResult } from "~/api/request";
-import { getInstance, putInstance, deleteInstance } from "~/api/instance";
-import {
-	DomainListCard,
-	type DomainListItem,
-} from "~/components/shared/domain-list-card";
-import { RateLimitEditorCard } from "~/components/rate-limit/rate-limit-editor-card";
-import * as Tooltip from "@radix-ui/react-tooltip";
+import { createFileRoute, useParams, Navigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Server, ServerCrash } from "lucide-react";
+import { getInstance } from "~/api/instance";
 
-// --- API Helper Functions ---
-async function listDomains(
-	instanceId: string
-): Promise<RequestResult<{ domains: string[] }>> {
-	return getInstance(instanceId, "/v1/domains");
-}
-async function getRateLimitConfig(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<RateLimitConfig>> {
-	return getInstance(instanceId, `/v1/ratelimit/${domain}`);
-}
-async function updateRateLimitConfig(
-	instanceId: string,
-	domain: string,
-	config: RateLimitConfig
-): Promise<RequestResult<RateLimitConfig>> {
-	return putInstance(instanceId, `/v1/ratelimit/${domain}`, config as never);
-}
-async function resetRateLimitConfig(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<unknown>> {
-	return deleteInstance(instanceId, `/v1/ratelimit/${domain}`);
-}
-
-// --- Data Types from Backend ---
-export interface RateLimitConfig {
-	requests_per_second: number;
+// Minimal API call for redirection
+async function listDomains(instanceId: string): Promise<{ domains: string[] }> {
+	const result = await getInstance<{ domains: string[] }>(
+		instanceId,
+		"/v1/domains"
+	);
+	return result.data ?? { domains: [] };
 }
 
 export const Route = createFileRoute("/$instance/rate-limit/")({
-	component: RateLimitPage,
+	component: RateLimitIndexPage,
 });
 
-function RateLimitPage() {
+function RateLimitIndexPage() {
 	const { instance: instanceId } = useParams({
 		from: "/$instance/rate-limit/",
 	});
-	const queryClient = useQueryClient();
-	const navigate = useNavigate();
-	const location = useLocation();
 
-	const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
-
-	const {
-		data: domainsResult,
-		isLoading: isListLoading,
-		isError: isListError,
-		error: listError,
-	} = useQuery<RequestResult<{ domains: string[] }>>({
+	const { data, isLoading, isError, error, isSuccess, isFetching } = useQuery({
 		queryKey: ["instance", instanceId, "domains"],
 		queryFn: () => listDomains(instanceId),
-	});
-	const domains = useMemo(
-		() => [...(domainsResult?.data?.domains ?? []), "fallback"],
-		[domainsResult]
-	);
-
-	const { data: allConfigs, isLoading: areConfigsLoading } = useQuery<
-		Record<string, RateLimitConfig>
-	>({
-		queryKey: ["instance", instanceId, "ratelimit", "all"],
-		queryFn: async () => {
-			const promises = domains.map(async (domain) => {
-				const res = await getRateLimitConfig(instanceId, domain);
-				return { domain, config: res.data };
-			});
-			const results = await Promise.all(promises);
-			return results.reduce(
-				(acc, { domain, config }) => {
-					if (config) acc[domain] = config;
-					return acc;
-				},
-				{} as Record<string, RateLimitConfig>
-			);
-		},
-		enabled: domains.length > 0,
+		staleTime: 0, // Always refetch to avoid stale cache issues on navigation
 	});
 
-	const domainListItems = useMemo<DomainListItem[]>(() => {
-		return domains.map((domain) => {
-			const rps = allConfigs?.[domain]?.requests_per_second ?? 0;
-			return {
-				domain,
-				badge: {
-					icon: rps > 0 ? Gauge : ZapOff,
-					text: rps > 0 ? `${rps} req/s` : "Disabled",
-				},
-			};
+	if (isLoading || isFetching) {
+		return <StatusCard icon={Server} text="Loading domains..." />;
+	}
+
+	if (isError) {
+		return <StatusCard icon={ServerCrash} text={error.message} isError />;
+	}
+
+	if (isSuccess) {
+		const apiDomains = data.domains ?? [];
+
+		const sortedApiDomains = apiDomains.sort((a, b) => {
+			const aIsWildcard = a.includes("*");
+			const bIsWildcard = b.includes("*");
+			if (aIsWildcard !== bIsWildcard) {
+				return aIsWildcard ? 1 : -1;
+			}
+			return a.localeCompare(b);
 		});
-	}, [domains, allConfigs]);
 
-	const selectedConfigQuery = useQuery<RequestResult<RateLimitConfig>>({
-		queryKey: ["instance", instanceId, "ratelimit", selectedDomain],
-		queryFn: () => getRateLimitConfig(instanceId, selectedDomain!),
-		enabled: !!selectedDomain,
-	});
+		const targetDomain =
+			sortedApiDomains.length > 0 ? sortedApiDomains[0] : "fallback";
 
-	const handleDomainSelect = useCallback(
-		(domain: string | null) => {
-			setSelectedDomain(domain);
-			navigate({
-				hash: domain ? encodeURIComponent(domain) : "",
-				replace: true,
-			});
-		},
-		[navigate]
-	);
-	useEffect(() => {
-		if (isListLoading) return;
-		const hashDomain = location.hash
-			? decodeURIComponent(location.hash.slice(1))
-			: null;
-		if (hashDomain && domains.includes(hashDomain)) {
-			if (selectedDomain !== hashDomain) setSelectedDomain(hashDomain);
-			return;
-		}
-		if (!selectedDomain || !domains.includes(selectedDomain)) {
-			if (domains.length > 0) handleDomainSelect(domains[0]);
-			else handleDomainSelect(null);
-		}
-	}, [
-		domains,
-		isListLoading,
-		location.hash,
-		selectedDomain,
-		handleDomainSelect,
-	]);
-
-	const updateMutation = useMutation<
-		RequestResult<RateLimitConfig>,
-		Error,
-		{ domain: string; config: RateLimitConfig }
-	>({
-		mutationFn: (vars) =>
-			updateRateLimitConfig(instanceId, vars.domain, vars.config),
-		onSuccess: () =>
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "ratelimit"],
-			}),
-	});
-	const resetMutation = useMutation<RequestResult<unknown>, Error, string>({
-		mutationFn: (domain) => resetRateLimitConfig(instanceId, domain),
-		onSuccess: () =>
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "ratelimit"],
-			}),
-	});
-
-	const isLoading = isListLoading || (domains.length > 0 && areConfigsLoading);
-	const isError = isListError;
-	const error = listError;
-
-	if (isLoading) return <StatusCard icon={Server} text="Loading Domains..." />;
-	if (isError)
 		return (
-			<StatusCard
-				icon={ServerCrash}
-				text={error?.message || "Failed to fetch domains."}
-				isError
+			<Navigate
+				to="/$instance/rate-limit/$domain"
+				params={{
+					instance: instanceId,
+					domain: targetDomain,
+				}}
+				replace
 			/>
 		);
+	}
 
-	return (
-		<Tooltip.Provider delayDuration={200}>
-			<div className="space-y-6">
-				<DomainListCard
-					title="Rate Limiting Policies"
-					icon={Gauge}
-					items={domainListItems}
-					selectedDomain={selectedDomain}
-					onSelectDomain={handleDomainSelect}
-				/>
-				{selectedDomain && (
-					<RateLimitEditorCard
-						key={selectedDomain}
-						domain={selectedDomain}
-						query={selectedConfigQuery}
-						updateMutation={updateMutation}
-						resetMutation={resetMutation}
-					/>
-				)}
-			</div>
-		</Tooltip.Provider>
-	);
+	return null; // Should not be reached
 }
+
+// A self-contained StatusCard for this simple page.
 function StatusCard({
 	icon: Icon,
 	text,
