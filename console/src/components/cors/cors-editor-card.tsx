@@ -1,6 +1,6 @@
 /* src/components/cors/cors-editor-card.tsx */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
 	Save,
@@ -8,6 +8,7 @@ import {
 	RotateCcw,
 	Trash2,
 	PlusCircle,
+	AlertCircle,
 	Loader2,
 } from "lucide-react";
 import {
@@ -62,7 +63,7 @@ function SmallToggleSlider<T>({
 	);
 }
 
-// --- Multi-value input component for origins, methods, etc. ---
+// --- Multi-value input component ---
 function MultiValueInput({
 	values,
 	onChange,
@@ -151,19 +152,39 @@ export function CorsEditorCard({
 	>;
 	resetMutation: UseMutationResult<RequestResult<unknown>, Error, string>;
 }) {
-	const [config, setConfig] = useState<CorsConfig | null>(null);
+	// --- FIX: This component now receives the query object ---
 	const { data, isLoading, isError, error } = query;
+	const [config, setConfig] = useState<CorsConfig | null>(null);
+
+	// Client-side validation logic
+	const validationError = useMemo<string | null>(() => {
+		if (config?.preflight_handling === "proxy_decision") {
+			const hasOptions =
+				config.allow_methods.includes("*") ||
+				config.allow_methods.some((m) => m.toUpperCase() === "OPTIONS");
+			if (!hasOptions) {
+				return "When Vane Proxy handles preflights, 'OPTIONS' or '*' must be in Allowed Methods.";
+			}
+		}
+		return null;
+	}, [config]);
 
 	useEffect(() => {
-		if (data?.data) setConfig(JSON.parse(JSON.stringify(data.data)));
+		if (data?.data) {
+			setConfig(JSON.parse(JSON.stringify(data.data)));
+		}
 	}, [data]);
 
 	const handleSave = () => {
-		if (config) updateMutation.mutate({ domain, config });
+		if (config && !validationError) {
+			updateMutation.mutate({ domain, config });
+		}
 	};
+
 	const handleReset = () => {
-		if (window.confirm(`Reset CORS config for "${domain}" to defaults?`))
+		if (window.confirm(`Reset CORS config for "${domain}" to defaults?`)) {
 			resetMutation.mutate(domain);
+		}
 	};
 
 	if (isLoading)
@@ -206,7 +227,11 @@ export function CorsEditorCard({
 					</button>
 					<button
 						onClick={handleSave}
-						disabled={updateMutation.isPending || resetMutation.isPending}
+						disabled={
+							updateMutation.isPending ||
+							resetMutation.isPending ||
+							!!validationError
+						}
 						className="flex h-10 items-center gap-2 rounded-lg bg-[var(--color-theme-bg)] px-4 text-sm font-semibold text-[var(--color-text)] transition-all hover:opacity-80 disabled:opacity-50"
 					>
 						<Save size={16} />{" "}
@@ -215,7 +240,6 @@ export function CorsEditorCard({
 				</div>
 			</div>
 			<div className="p-6">
-				{/* --- FIX: Explicitly type the value 'v' to resolve the TS error --- */}
 				<FormRow
 					label="Preflight Handling"
 					description="Choose who responds to OPTIONS requests."
@@ -245,11 +269,19 @@ export function CorsEditorCard({
 					label="Allowed Methods"
 					description="List of HTTP methods (e.g., GET, POST)."
 				>
-					<MultiValueInput
-						values={config.allow_methods}
-						onChange={(v) => setConfig({ ...config, allow_methods: v })}
-						placeholder="GET"
-					/>
+					<>
+						<MultiValueInput
+							values={config.allow_methods}
+							onChange={(v) => setConfig({ ...config, allow_methods: v })}
+							placeholder="GET"
+						/>
+						{validationError && (
+							<div className="mt-2 flex items-center gap-2 text-xs text-red-500">
+								<AlertCircle size={14} />
+								<span>{validationError}</span>
+							</div>
+						)}
+					</>
 				</FormRow>
 				<FormRow
 					label="Allowed Headers"
