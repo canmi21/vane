@@ -7,17 +7,15 @@ import {
 	useLocation,
 } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash } from "lucide-react";
+import { Server, ServerCrash, ListPlus } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { type RequestResult } from "~/api/request";
 import { getInstance, putInstance, deleteInstance } from "~/api/instance";
-import { HeaderListCard } from "~/components/custom-header/header-list-card";
+import { DomainListCard } from "~/components/shared/domain-list-card";
 import { HeaderEditorCard } from "~/components/custom-header/header-editor-card";
 import * as Tooltip from "@radix-ui/react-tooltip";
 
 // --- API Helper Functions ---
-
-// Borrowing from domains page to get the list of domains
 async function listDomains(
 	instanceId: string
 ): Promise<RequestResult<{ domains: string[] }>> {
@@ -157,7 +155,9 @@ function HeaderPage() {
 	return (
 		<Tooltip.Provider delayDuration={200}>
 			<div className="space-y-6">
-				<HeaderListCard
+				<DomainListCard
+					title="Custom Response Headers"
+					icon={ListPlus}
 					domains={domains}
 					selectedDomain={selectedDomain}
 					onSelectDomain={handleDomainSelect}
