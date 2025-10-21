@@ -8,3 +8,4 @@ pub mod instance;
 pub mod origins;
 pub mod ratelimit;
 pub mod templates;
+pub mod websocket;
