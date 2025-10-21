@@ -9,8 +9,6 @@ import {
 	Trash2,
 	PlusCircle,
 	Loader2,
-	List,
-	ListX,
 } from "lucide-react";
 import {
 	type UseQueryResult,
@@ -64,7 +62,7 @@ function SmallToggleSlider<T>({
 	);
 }
 
-// --- Form Input Row Component ---
+// --- Reusable Form Input Row Component ---
 function FormRow({
 	label,
 	description,
@@ -89,8 +87,8 @@ function FormRow({
 	);
 }
 
-// --- Sub-component for Path Rules ---
-function PathRulesEditor({
+// --- Input component for path rules ---
+function PathRuleInput({
 	rules,
 	onChange,
 }: {
@@ -112,11 +110,7 @@ function PathRulesEditor({
 		onChange(rules.filter((_, i) => i !== index));
 
 	return (
-		<div className="space-y-3 rounded-lg bg-[var(--color-bg-alt)] p-4">
-			<div className="flex items-center gap-2">
-				<List size={16} />
-				<h4 className="font-semibold text-sm">Path-Specific Rules</h4>
-			</div>
+		<div className="space-y-2">
 			{rules.map((rule, index) => (
 				<div key={index} className="flex items-center gap-2">
 					<input
@@ -157,8 +151,8 @@ function PathRulesEditor({
 	);
 }
 
-// --- Sub-component for Blacklist Paths ---
-function BlacklistEditor({
+// --- Input component for blacklist paths ---
+function BlacklistPathInput({
 	paths,
 	onChange,
 }: {
@@ -173,13 +167,7 @@ function BlacklistEditor({
 		onChange(paths.filter((_, i) => i !== index));
 
 	return (
-		<div className="space-y-3 rounded-lg bg-[var(--color-bg-alt)] p-4">
-			<div className="flex items-center gap-2">
-				<ListX size={16} />
-				<h4 className="font-semibold text-sm">
-					Do Not Cache Paths (Blacklist)
-				</h4>
-			</div>
+		<div className="space-y-2">
 			{paths.map((path, index) => (
 				<div key={index} className="flex items-center gap-2">
 					<input
@@ -295,9 +283,10 @@ export function CacheEditorCard({
 				</div>
 			</div>
 
-			{/* --- FIX: Wrapped content in a div and moved spacing class here --- */}
 			<div className="p-6">
-				<div className="space-y-6">
+				{/* --- FIX: Wrapped FormRow list in a div with negative margins (-my-4) --- */}
+				{/* This counteracts the py-4 on FormRow, fixing the extra padding issue. */}
+				<div className="-my-4">
 					<FormRow
 						label="Origin Headers"
 						description="If enabled, Vane will honor 'Cache-Control' headers from your origin server."
@@ -313,18 +302,30 @@ export function CacheEditorCard({
 							labelFalse="Ignore"
 						/>
 					</FormRow>
-					<PathRulesEditor
-						rules={config.path_rules}
-						onChange={(newRules) =>
-							setConfig({ ...config, path_rules: newRules })
-						}
-					/>
-					<BlacklistEditor
-						paths={config.blacklist_paths}
-						onChange={(newPaths) =>
-							setConfig({ ...config, blacklist_paths: newPaths })
-						}
-					/>
+
+					<FormRow
+						label="Path-Specific Rules"
+						description="Define custom cache TTLs for specific URL paths. Paths can include wildcards (*)."
+					>
+						<PathRuleInput
+							rules={config.path_rules}
+							onChange={(newRules) =>
+								setConfig({ ...config, path_rules: newRules })
+							}
+						/>
+					</FormRow>
+
+					<FormRow
+						label="Do Not Cache Paths"
+						description="A list of paths that should never be cached, regardless of other rules."
+					>
+						<BlacklistPathInput
+							paths={config.blacklist_paths}
+							onChange={(newPaths) =>
+								setConfig({ ...config, blacklist_paths: newPaths })
+							}
+						/>
+					</FormRow>
 				</div>
 			</div>
 		</div>
