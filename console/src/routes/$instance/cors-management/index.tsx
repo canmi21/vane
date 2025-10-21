@@ -7,7 +7,7 @@ import {
 	useLocation,
 } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash } from "lucide-react";
+import { Server, ServerCrash, ArrowRightLeft } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { type RequestResult } from "~/api/request";
 import { getInstance, putInstance, deleteInstance } from "~/api/instance";
@@ -15,7 +15,7 @@ import {
 	CorsOverviewCard,
 	type CorsOverviewStats,
 } from "~/components/cors/cors-overview-card";
-import { CorsListCard } from "~/components/cors/cors-list-card";
+import { DomainListCard } from "~/components/shared/domain-list-card";
 import { CorsEditorCard } from "~/components/cors/cors-editor-card";
 import * as Tooltip from "@radix-ui/react-tooltip";
 
@@ -91,11 +91,11 @@ function CorsPage() {
 		queryFn: () => listCorsStatus(instanceId),
 	});
 
-	const corsStatuses = useMemo(() => statusResult?.data ?? [], [statusResult]);
 	const domains = useMemo(
-		() => corsStatuses.map((s) => s.domain),
-		[corsStatuses]
+		() => statusResult?.data?.map((s) => s.domain) ?? [],
+		[statusResult]
 	);
+	const corsStatuses = useMemo(() => statusResult?.data ?? [], [statusResult]);
 
 	// --- Step 2: Fetch all configs in parallel for overview stats ---
 	const {
@@ -141,7 +141,6 @@ function CorsPage() {
 		};
 	}, [domains, corsStatuses, allConfigs]);
 
-	// --- This query is for the SELECTED domain's detailed config ---
 	const selectedCorsConfigQuery = useQuery<RequestResult<CorsConfig>>({
 		queryKey: ["instance", instanceId, "cors", "config", selectedDomain],
 		queryFn: () => getCorsConfig(instanceId, selectedDomain!),
@@ -171,11 +170,8 @@ function CorsPage() {
 			return;
 		}
 		if (!selectedDomain || !domains.includes(selectedDomain)) {
-			if (domains.length > 0) {
-				handleDomainSelect(domains[0]);
-			} else {
-				handleDomainSelect(null);
-			}
+			if (domains.length > 0) handleDomainSelect(domains[0]);
+			else handleDomainSelect(null);
 		}
 	}, [
 		domains,
@@ -230,12 +226,13 @@ function CorsPage() {
 		<Tooltip.Provider delayDuration={200}>
 			<div className="space-y-6">
 				<CorsOverviewCard stats={overviewStats} />
-				<CorsListCard
-					statuses={corsStatuses}
+				<DomainListCard
+					title="Domain CORS Policies"
+					icon={ArrowRightLeft}
+					domains={domains}
 					selectedDomain={selectedDomain}
 					onSelectDomain={handleDomainSelect}
 				/>
-				{/* --- FIX: Pass the correct query prop instead of initialConfig --- */}
 				{selectedDomain && (
 					<CorsEditorCard
 						key={selectedDomain}
