@@ -7,11 +7,11 @@ import {
 	useLocation,
 } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash } from "lucide-react";
+import { Server, ServerCrash, Cable } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { type RequestResult } from "~/api/request";
 import { getInstance, putInstance, deleteInstance } from "~/api/instance";
-import { WebSocketListCard } from "~/components/websocket/websocket-list-card";
+import { DomainListCard } from "~/components/shared/domain-list-card";
 import { WebSocketEditorCard } from "~/components/websocket/websocket-editor-card";
 import * as Tooltip from "@radix-ui/react-tooltip";
 
@@ -47,7 +47,7 @@ async function resetWebSocketConfig(
 // --- Data Types from Backend ---
 export interface WebSocketConfig {
 	enabled: boolean;
-	paths: string[]; // MODIFIED: Changed from 'path' to 'paths' array
+	paths: string[];
 }
 
 export const Route = createFileRoute("/$instance/websocket/")({
@@ -154,7 +154,9 @@ function WebSocketPage() {
 	return (
 		<Tooltip.Provider delayDuration={200}>
 			<div className="space-y-6">
-				<WebSocketListCard
+				<DomainListCard
+					title="WebSocket Proxy Policies"
+					icon={Cable}
 					domains={domains}
 					selectedDomain={selectedDomain}
 					onSelectDomain={handleDomainSelect}
