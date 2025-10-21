@@ -7,7 +7,14 @@ import {
 	useLocation,
 } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash, ArrowRightLeft } from "lucide-react";
+// --- FIX: Import the 'Route' icon with an alias to avoid naming conflict ---
+import {
+	Server,
+	ServerCrash,
+	ArrowRightLeft,
+	Route as RouteIcon,
+	RouteOff,
+} from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { type RequestResult } from "~/api/request";
 import { getInstance, putInstance, deleteInstance } from "~/api/instance";
@@ -15,7 +22,10 @@ import {
 	CorsOverviewCard,
 	type CorsOverviewStats,
 } from "~/components/cors/cors-overview-card";
-import { DomainListCard } from "~/components/shared/domain-list-card";
+import {
+	DomainListCard,
+	type DomainListItem,
+} from "~/components/shared/domain-list-card";
 import { CorsEditorCard } from "~/components/cors/cors-editor-card";
 import * as Tooltip from "@radix-ui/react-tooltip";
 
@@ -25,14 +35,12 @@ async function listCorsStatus(
 ): Promise<RequestResult<CorsStatus[]>> {
 	return getInstance(instanceId, "/v1/cors");
 }
-
 async function getCorsConfig(
 	instanceId: string,
 	domain: string
 ): Promise<RequestResult<CorsConfig>> {
 	return getInstance(instanceId, `/v1/cors/${domain}`);
 }
-
 async function updateCorsConfig(
 	instanceId: string,
 	domain: string,
@@ -40,7 +48,6 @@ async function updateCorsConfig(
 ): Promise<RequestResult<CorsConfig>> {
 	return putInstance(instanceId, `/v1/cors/${domain}`, config as never);
 }
-
 async function resetCorsConfig(
 	instanceId: string,
 	domain: string
@@ -50,12 +57,10 @@ async function resetCorsConfig(
 
 // --- Data Types from Backend ---
 export type PreflightHandling = "proxy_decision" | "origin_response";
-
 export interface CorsStatus {
 	domain: string;
 	preflight_handling: PreflightHandling;
 }
-
 export interface CorsConfig {
 	preflight_handling: PreflightHandling;
 	allow_origins: string[];
@@ -80,7 +85,7 @@ function CorsPage() {
 
 	const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
 
-	// --- Step 1: Query for the list of domains ---
+	// --- Step 1: Query for the list of domains/statuses ---
 	const {
 		data: statusResult,
 		isLoading: isListLoading,
@@ -91,13 +96,28 @@ function CorsPage() {
 		queryFn: () => listCorsStatus(instanceId),
 	});
 
-	const domains = useMemo(
-		() => statusResult?.data?.map((s) => s.domain) ?? [],
-		[statusResult]
-	);
 	const corsStatuses = useMemo(() => statusResult?.data ?? [], [statusResult]);
+	const domains = useMemo(
+		() => corsStatuses.map((s) => s.domain),
+		[corsStatuses]
+	);
 
-	// --- Step 2: Fetch all configs in parallel for overview stats ---
+	// --- Step 2: Create the list items with badges ---
+	const domainListItems = useMemo<DomainListItem[]>(() => {
+		return corsStatuses.map((status) => {
+			const isProxy = status.preflight_handling === "proxy_decision";
+			return {
+				domain: status.domain,
+				badge: {
+					// --- FIX: Use the aliased icon name ---
+					icon: isProxy ? RouteIcon : RouteOff,
+					text: isProxy ? "Vane Proxy" : "Origin Server",
+				},
+			};
+		});
+	}, [corsStatuses]);
+
+	// --- Step 3: Fetch all configs in parallel for overview stats ---
 	const {
 		data: allConfigs,
 		isLoading: areConfigsLoading,
@@ -132,7 +152,6 @@ function CorsPage() {
 			? Object.values(allConfigs).filter((c) => c.allow_origins.includes("*"))
 					.length
 			: 0;
-
 		return {
 			total,
 			proxyHandled,
@@ -147,7 +166,6 @@ function CorsPage() {
 		enabled: !!selectedDomain,
 	});
 
-	// --- Handler for selection and URL sync ---
 	const handleDomainSelect = useCallback(
 		(domain: string | null) => {
 			setSelectedDomain(domain);
@@ -159,7 +177,6 @@ function CorsPage() {
 		[navigate]
 	);
 
-	// --- Logic to sync state from URL on load ---
 	useEffect(() => {
 		if (isListLoading) return;
 		const hashDomain = location.hash
@@ -181,7 +198,6 @@ function CorsPage() {
 		handleDomainSelect,
 	]);
 
-	// --- Mutations for CORS management ---
 	const updateMutation = useMutation<
 		RequestResult<CorsConfig>,
 		Error,
@@ -189,30 +205,26 @@ function CorsPage() {
 	>({
 		mutationFn: (vars) =>
 			updateCorsConfig(instanceId, vars.domain, vars.config),
-		onSuccess: () => {
+		onSuccess: () =>
 			queryClient.invalidateQueries({
 				queryKey: ["instance", instanceId, "cors"],
-			});
-		},
+			}),
 	});
-
 	const resetMutation = useMutation<RequestResult<unknown>, Error, string>({
 		mutationFn: (domain) => resetCorsConfig(instanceId, domain),
-		onSuccess: () => {
+		onSuccess: () =>
 			queryClient.invalidateQueries({
 				queryKey: ["instance", instanceId, "cors"],
-			});
-		},
+			}),
 	});
 
 	const isLoading = isListLoading || (domains.length > 0 && areConfigsLoading);
 	const isError = isListError || isConfigsError;
 	const error = listError || configsError;
 
-	if (isLoading) {
+	if (isLoading)
 		return <StatusCard icon={Server} text="Loading CORS Configurations..." />;
-	}
-	if (isError) {
+	if (isError)
 		return (
 			<StatusCard
 				icon={ServerCrash}
@@ -220,7 +232,6 @@ function CorsPage() {
 				isError
 			/>
 		);
-	}
 
 	return (
 		<Tooltip.Provider delayDuration={200}>
@@ -229,7 +240,7 @@ function CorsPage() {
 				<DomainListCard
 					title="Domain CORS Policies"
 					icon={ArrowRightLeft}
-					domains={domains}
+					items={domainListItems}
 					selectedDomain={selectedDomain}
 					onSelectDomain={handleDomainSelect}
 				/>
@@ -247,7 +258,6 @@ function CorsPage() {
 	);
 }
 
-// --- StatusCard Component ---
 function StatusCard({
 	icon: Icon,
 	text,
