@@ -6,6 +6,7 @@ use crate::{
 	middleware::{self, auth::auth_middleware},
 	modules::{
 		self,
+		cache::manager as cache_manager,
 		certs::manager as certs_manager,
 		cors::manager as cors_manager,
 		domain::entrance as domain_entrance,
@@ -113,6 +114,20 @@ pub fn create_router() -> Router {
 		.route(
 			"/v1/websocket/{:domain}/paths",
 			post(websocket_manager::add_websocket_path).delete(websocket_manager::remove_websocket_path),
+		)
+		.route(
+			"/v1/cache/{:domain}",
+			get(cache_manager::get_cache_config)
+				.put(cache_manager::update_cache_config)
+				.delete(cache_manager::reset_cache_config),
+		)
+		.route(
+			"/v1/cache/{:domain}/rules",
+			put(cache_manager::add_or_update_cache_rule).delete(cache_manager::remove_cache_rule),
+		)
+		.route(
+			"/v1/cache/{:domain}/blacklist",
+			post(cache_manager::add_blacklist_path).delete(cache_manager::remove_blacklist_path),
 		)
 		// Apply the authentication middleware to all api_routes.
 		.layer(from_fn(auth_middleware));
