@@ -88,7 +88,6 @@ function CertItem({
 
 	const commonName = item.details?.subject.common_name;
 
-	// --- NEW: Logic to determine icon based on self-signed status ---
 	const isSelfSigned = item.details
 		? item.details.subject.raw_string === item.details.issuer.raw_string
 		: false;
@@ -103,7 +102,6 @@ function CertItem({
 			}`}
 		>
 			<div className="flex min-w-0 items-center gap-4">
-				{/* --- MODIFIED: Dynamic Icon --- */}
 				<div className="flex-shrink-0" title={iconTitle}>
 					<IconComponent
 						size={20}
@@ -129,7 +127,7 @@ function CertItem({
 			<div className="flex flex-shrink-0 items-center gap-2">
 				<button
 					onClick={(e) => {
-						e.stopPropagation(); // Prevent selection when deleting
+						e.stopPropagation();
 						onDelete();
 					}}
 					disabled={isDeleting}
@@ -149,7 +147,7 @@ function CertItem({
 	);
 }
 
-// --- Main Card Component (Unchanged) ---
+// --- Main Card Component ---
 export function CertListCard({
 	certs,
 	selectedDomain,
@@ -297,8 +295,8 @@ export function CertListCard({
 				)}
 			</AnimatePresence>
 
-			{/* Certificate List */}
-			<div className="divide-y divide-[var(--color-bg-alt)]">
+			{/* Certificate List --- FIX: Added overflow-hidden and rounding --- */}
+			<div className="overflow-hidden rounded-b-xl divide-y divide-[var(--color-bg-alt)]">
 				{certs.length > 0 ? (
 					certs.map((item) => (
 						<CertItem
