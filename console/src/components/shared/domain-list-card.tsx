@@ -53,7 +53,6 @@ function DomainItem({
 				)}
 			</div>
 			<div className="flex flex-shrink-0 items-center gap-3">
-				{/* --- NEW: Render the badge if it exists --- */}
 				{item.badge && (
 					<div className="flex items-center gap-2 rounded-md bg-[var(--color-bg-alt)] px-2.5 py-1 text-xs font-medium text-[var(--color-subtext)]">
 						{item.badge.icon && <item.badge.icon size={14} />}
@@ -116,7 +115,9 @@ export function DomainListCard({
 	}, [items]);
 
 	return (
+		// --- FIX: Removed rounding from the main container ---
 		<div className="w-full rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm">
+			{/* --- FIX: Added top rounding to the header --- */}
 			<div className="border-b border-[var(--color-bg-alt)] p-6">
 				<div className="flex items-center gap-3">
 					<Icon size={20} className="stroke-[var(--color-theme-border)]" />
@@ -128,7 +129,8 @@ export function DomainListCard({
 					</span>
 				</div>
 			</div>
-			<div className="divide-y divide-[var(--color-bg-alt)]">
+			{/* --- FIX: Added bottom rounding and overflow-hidden to the list container --- */}
+			<div className="overflow-hidden rounded-b-xl divide-y divide-[var(--color-bg-alt)]">
 				{sortedItems.length > 0 ? (
 					sortedItems.map((item) => (
 						<DomainItem
