@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "2.7.6"
+version = "2.7.8"
 edition = "2024"
 description = "A flow-based, event-driven Rust reverse proxy engine with hot-reloadable routing, unified middleware runtime, and HTTP/3 support."
 license = "AGPL-3.0"

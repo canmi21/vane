@@ -1,29 +1,20 @@
-/* src/components/cors/cors-list-card.tsx */
+/* src/components/custom-header/header-list-card.tsx */
 
-import {
-	Globe,
-	ChevronRight,
-	Route,
-	RouteOff,
-	HelpCircle,
-	AppWindow,
-} from "lucide-react";
+import { ChevronRight, ListPlus, HelpCircle } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { type CorsStatus } from "~/routes/$instance/cors-management/";
 import { useMemo } from "react";
 
 // --- List Item Component ---
-function CorsItem({
-	status,
+function HeaderItem({
+	domain,
 	isSelected,
 	onSelect,
 }: {
-	status: CorsStatus;
+	domain: string;
 	isSelected: boolean;
 	onSelect: () => void;
 }) {
-	const isProxyHandled = status.preflight_handling === "proxy_decision";
-	const isFallback = status.domain === "fallback";
+	const isFallback = domain === "fallback";
 
 	const content = (
 		<div
@@ -31,7 +22,7 @@ function CorsItem({
 			className={`flex cursor-pointer items-center justify-between p-4 transition-all hover:bg-[var(--color-theme-bg)] ${isSelected ? "bg-[var(--color-theme-bg)]" : ""}`}
 		>
 			<div className="flex min-w-0 items-center gap-4">
-				<AppWindow
+				<ListPlus
 					size={20}
 					className={
 						isSelected
@@ -40,7 +31,7 @@ function CorsItem({
 					}
 				/>
 				<p className="truncate font-mono text-sm font-medium text-[var(--color-text)]">
-					{status.domain}
+					{domain}
 				</p>
 				{isFallback && (
 					<HelpCircle
@@ -49,16 +40,10 @@ function CorsItem({
 					/>
 				)}
 			</div>
-			<div className="flex flex-shrink-0 items-center gap-3">
-				<div className="flex items-center gap-2 rounded-md bg-[var(--color-bg-alt)] px-2.5 py-1 text-xs font-medium text-[var(--color-subtext)]">
-					{isProxyHandled ? <Route size={14} /> : <RouteOff size={14} />}
-					<span>{isProxyHandled ? "Vane Proxy" : "Origin Server"}</span>
-				</div>
-				<ChevronRight
-					size={18}
-					className={`transition-transform ${isSelected ? "translate-x-1" : ""}`}
-				/>
-			</div>
+			<ChevronRight
+				size={18}
+				className={`flex-shrink-0 transition-transform ${isSelected ? "translate-x-1" : ""}`}
+			/>
 		</div>
 	);
 
@@ -73,8 +58,8 @@ function CorsItem({
 						align="start"
 						sideOffset={4}
 					>
-						The fallback policy applies to any request that does not match a
-						configured domain.
+						Default headers for any request that does not match a configured
+						domain.
 						<Tooltip.Arrow className="fill-[var(--color-bg-alt)]" />
 					</Tooltip.Content>
 				</Tooltip.Portal>
@@ -85,53 +70,50 @@ function CorsItem({
 }
 
 // --- Main List Card Component ---
-export function CorsListCard({
-	statuses,
+export function HeaderListCard({
+	domains,
 	selectedDomain,
 	onSelectDomain,
 }: {
-	statuses: CorsStatus[];
+	domains: string[];
 	selectedDomain: string | null;
 	onSelectDomain: (domain: string | null) => void;
 }) {
-	// --- Sort statuses to ensure "fallback" is always last ---
-	const sortedStatuses = useMemo(() => {
-		return [...statuses].sort((a, b) => {
-			if (a.domain === "fallback") return 1;
-			if (b.domain === "fallback") return -1;
-			return a.domain.localeCompare(b.domain);
+	const sortedDomains = useMemo(() => {
+		return [...domains].sort((a, b) => {
+			if (a === "fallback") return 1;
+			if (b === "fallback") return -1;
+			return a.localeCompare(b);
 		});
-	}, [statuses]);
+	}, [domains]);
 
 	return (
 		<div className="w-full rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm">
 			<div className="border-b border-[var(--color-bg-alt)] p-6">
 				<div className="flex items-center gap-3">
-					<Globe size={20} className="stroke-[var(--color-theme-border)]" />
+					<ListPlus size={20} className="stroke-[var(--color-theme-border)]" />
 					<h3 className="text-lg font-semibold text-[var(--color-text)]">
-						Domain CORS Policies
+						Custom Response Headers
 					</h3>
 					<span className="rounded-md bg-[var(--color-bg-alt)] px-2 py-0.5 text-xs font-medium text-[var(--color-subtext)]">
-						{statuses.length}
+						{domains.length}
 					</span>
 				</div>
 			</div>
 			<div className="divide-y divide-[var(--color-bg-alt)]">
-				{sortedStatuses.length > 0 ? (
-					sortedStatuses.map((status) => (
-						<CorsItem
-							key={status.domain}
-							status={status}
-							isSelected={selectedDomain === status.domain}
-							onSelect={() => onSelectDomain(status.domain)}
+				{sortedDomains.length > 0 ? (
+					sortedDomains.map((domain) => (
+						<HeaderItem
+							key={domain}
+							domain={domain}
+							isSelected={selectedDomain === domain}
+							onSelect={() => onSelectDomain(domain)}
 						/>
 					))
 				) : (
 					<div className="p-12 text-center text-[var(--color-subtext)]">
 						<p className="font-medium">No domains found.</p>
-						<p className="text-sm">
-							CORS policies are available for each configured domain.
-						</p>
+						<p className="text-sm">Configure domains to set custom headers.</p>
 					</div>
 				)}
 			</div>
