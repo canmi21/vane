@@ -242,38 +242,43 @@ export function WebSocketEditorCard({
 				</div>
 			</div>
 			<div className="p-6">
-				<FormRow
-					label="WebSocket Proxy"
-					description="Enable or disable proxying of WebSocket upgrade requests."
-				>
-					<SmallToggleSlider
-						value={config.enabled}
-						onValueChange={(v: boolean) => setConfig({ ...config, enabled: v })}
-						optionTrue={true}
-						labelTrue="Enabled"
-						optionFalse={false}
-						labelFalse="Disabled"
-					/>
-				</FormRow>
-				{/* --- MODIFIED: Use MultiValueInput for paths --- */}
-				<FormRow
-					label="Proxy Paths"
-					description="The URL paths to listen for upgrades. Use '*' for all paths."
-				>
-					<div>
-						<MultiValueInput
-							values={config.paths}
-							onChange={(v) => setConfig({ ...config, paths: v })}
-							placeholder="/socket.io/"
+				{/* --- FIX: Wrapped FormRow list in a div with negative margins (-my-4) --- */}
+				{/* This counteracts the py-4 on FormRow, fixing the extra padding issue. */}
+				<div className="-my-4">
+					<FormRow
+						label="WebSocket Proxy"
+						description="Enable or disable proxying of WebSocket upgrade requests."
+					>
+						<SmallToggleSlider
+							value={config.enabled}
+							onValueChange={(v: boolean) =>
+								setConfig({ ...config, enabled: v })
+							}
+							optionTrue={true}
+							labelTrue="Enabled"
+							optionFalse={false}
+							labelFalse="Disabled"
 						/>
-						{validationError && (
-							<div className="mt-2 flex items-center gap-2 text-xs text-red-500">
-								<AlertCircle size={14} />
-								<span>{validationError}</span>
-							</div>
-						)}
-					</div>
-				</FormRow>
+					</FormRow>
+					<FormRow
+						label="Proxy Paths"
+						description="The URL paths to listen for upgrades. Use '*' for all paths."
+					>
+						<div>
+							<MultiValueInput
+								values={config.paths}
+								onChange={(v) => setConfig({ ...config, paths: v })}
+								placeholder="/socket.io/"
+							/>
+							{validationError && (
+								<div className="mt-2 flex items-center gap-2 text-xs text-red-500">
+									<AlertCircle size={14} />
+									<span>{validationError}</span>
+								</div>
+							)}
+						</div>
+					</FormRow>
+				</div>
 			</div>
 		</div>
 	);
