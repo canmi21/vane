@@ -95,8 +95,9 @@ export function OriginMonitorCard({
 	const isChecking = taskStatus === "running" || triggerCheckMutation.isPending;
 
 	return (
-		<div className="rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm">
-			{/* Header */}
+		// --- FIX: Removed rounding from main container ---
+		<div className="border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-sm rounded-xl">
+			{/* Header --- FIX: Added top rounding --- */}
 			<div className="flex items-center justify-between p-6">
 				<div className="flex items-center gap-3">
 					<Activity size={20} className="stroke-[var(--color-theme-border)]" />
@@ -147,11 +148,8 @@ export function OriginMonitorCard({
 				</div>
 			</div>
 
-			{/* Body - List of origins */}
-			<div className="divide-y divide-[var(--color-bg-alt)] border-t border-[var(--color-bg-alt)]">
-				{/* --- FIX APPLIED HERE: The rendering order is changed --- */}
-
-				{/* Collapsible section for healthy items now comes FIRST */}
+			{/* Body - List of origins --- FIX: Added overflow-hidden and bottom rounding --- */}
+			<div className="overflow-hidden rounded-b-xl divide-y divide-[var(--color-bg-alt)] border-t border-[var(--color-bg-alt)]">
 				<AnimatePresence>
 					{isExpanded && (
 						<motion.div
@@ -175,7 +173,6 @@ export function OriginMonitorCard({
 					)}
 				</AnimatePresence>
 
-				{/* Always visible unhealthy and pending items now come AFTER */}
 				{unhealthy.map((item) => (
 					<MonitorItem
 						key={item.id}
@@ -193,7 +190,6 @@ export function OriginMonitorCard({
 					/>
 				))}
 
-				{/* Empty State */}
 				{origins.length === 0 && (
 					<div className="p-12 text-center text-[var(--color-subtext)]">
 						<p className="font-medium">No origins to monitor.</p>
