@@ -1,6 +1,13 @@
 /* src/components/cors/cors-list-card.tsx */
 
-import { Globe, ChevronRight, Route, RouteOff, HelpCircle } from "lucide-react";
+import {
+	Globe,
+	ChevronRight,
+	Route,
+	RouteOff,
+	HelpCircle,
+	AppWindow,
+} from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { type CorsStatus } from "~/routes/$instance/cors-management/";
 import { useMemo } from "react";
@@ -24,7 +31,7 @@ function CorsItem({
 			className={`flex cursor-pointer items-center justify-between p-4 transition-all hover:bg-[var(--color-theme-bg)] ${isSelected ? "bg-[var(--color-theme-bg)]" : ""}`}
 		>
 			<div className="flex min-w-0 items-center gap-4">
-				<Globe
+				<AppWindow
 					size={20}
 					className={
 						isSelected
