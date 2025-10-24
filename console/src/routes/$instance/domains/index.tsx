@@ -2,11 +2,12 @@
 
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash } from "lucide-react";
+import { Server, ServerCrash, GitMerge } from "lucide-react";
 import React, { useState, useEffect, useMemo } from "react";
 import { type RequestResult } from "~/api/request";
 import { getInstance, postInstance, deleteInstance } from "~/api/instance";
-import { DomainHeaderCard } from "~/components/domain/domain-header-card";
+// --- COMPONENT IMPORT: Using the new floating manager ---
+import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
 
 // --- API Helper Functions ---
 async function listDomains(
@@ -71,6 +72,7 @@ function DomainsPage() {
 		}
 	}, [domains, selectedDomain]);
 
+	// --- Mutations ---
 	const addMutation = useMutation<RequestResult<unknown>, Error, string>({
 		mutationFn: (newDomain) => createDomain(instanceId, newDomain),
 		onSuccess: (_, newDomain) => {
@@ -91,6 +93,8 @@ function DomainsPage() {
 		},
 	});
 
+	// --- Render Logic ---
+
 	if (isLoading) {
 		return <StatusCard icon={Server} text="Loading Domains..." />;
 	}
@@ -105,8 +109,23 @@ function DomainsPage() {
 	}
 
 	return (
-		<div className="w-full">
-			<DomainHeaderCard
+		<div className="relative h-full min-h-[calc(100vh-10rem)] w-full">
+			{/* Canvas Placeholder */}
+			<div className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-[var(--color-bg-alt)]">
+				<div className="flex flex-col items-center gap-4 text-center">
+					<GitMerge size={32} className="text-[var(--color-subtext)]" />
+					<p className="text-[var(--color-subtext)]">
+						Canvas for{" "}
+						<span className="font-semibold text-[var(--color-text)]">
+							{selectedDomain ?? "selected domain"}
+						</span>{" "}
+						will be here.
+					</p>
+				</div>
+			</div>
+
+			{/* Floating Domain Manager */}
+			<FloatingDomainManager
 				domains={domains}
 				selectedDomain={selectedDomain}
 				setSelectedDomain={setSelectedDomain}
