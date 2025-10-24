@@ -1,120 +1,81 @@
 /* src/routes/$instance/domains/index.tsx */
 
-import { createFileRoute, useParams } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, useParams, Navigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Server, ServerCrash } from "lucide-react";
-import React, { useState, useEffect, useMemo } from "react";
-import { type RequestResult } from "~/api/request";
-import { getInstance, postInstance, deleteInstance } from "~/api/instance";
-import { DomainHeaderCard } from "~/components/domain/domain-header-card";
+import { getInstance } from "~/api/instance";
+import type { ListDomainsResponse } from "./$domain";
 
-// --- API Helper Functions ---
-async function listDomains(
-	instanceId: string
-): Promise<RequestResult<ListDomainsResponse>> {
-	return getInstance(instanceId, "/v1/domains");
+// This function is only used here to find the first domain for redirection.
+async function listDomains(instanceId: string) {
+	return getInstance<ListDomainsResponse>(instanceId, "/v1/domains");
 }
 
-async function createDomain(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<unknown>> {
-	// BUG FIX: The domain must be URL-encoded to handle special characters like '*'.
-	const encodedDomain = encodeURIComponent(domain);
-	return postInstance(instanceId, `/v1/domains/${encodedDomain}`, {});
-}
+// --- Ensures consistent ordering for domains ---
+function sortDomainsList(domains: string[]): string[] {
+	return [...domains].sort((a, b) => {
+		const isAFallback = a === "fallback";
+		const isBFallback = b === "fallback";
+		const isAWildcard = a.includes("*");
+		const isBWildcard = b.includes("*");
 
-async function deleteDomain(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<unknown>> {
-	// BUG FIX: The domain must be URL-encoded to handle special characters like '*'.
-	const encodedDomain = encodeURIComponent(domain);
-	return deleteInstance(instanceId, `/v1/domains/${encodedDomain}`);
-}
+		// Rule 1: "fallback" is always last.
+		if (isAFallback !== isBFallback) {
+			return isAFallback ? 1 : -1;
+		}
 
-// --- Data Types ---
-export interface ListDomainsResponse {
-	domains: string[];
+		// Rule 2: Wildcards come after regular domains but before "fallback".
+		if (isAWildcard !== isBWildcard) {
+			return isAWildcard ? 1 : -1;
+		}
+
+		// Rule 3: Alphabetical sort for domains of the same type.
+		return a.localeCompare(b);
+	});
 }
 
 export const Route = createFileRoute("/$instance/domains/")({
-	component: DomainsPage,
+	component: DomainsIndexPage,
 });
 
-function DomainsPage() {
+function DomainsIndexPage() {
 	const { instance: instanceId } = useParams({ from: "/$instance/domains/" });
-	const queryClient = useQueryClient();
-	const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
 
-	const {
-		data: domainsResult,
-		isLoading,
-		isError,
-		error,
-	} = useQuery<RequestResult<ListDomainsResponse>>({
+	const { data, isLoading, isError, error, isSuccess } = useQuery({
 		queryKey: ["instance", instanceId, "domains"],
 		queryFn: () => listDomains(instanceId),
-	});
-
-	const domains = useMemo(
-		() => domainsResult?.data?.domains ?? [],
-		[domainsResult]
-	);
-
-	// Effect to select the first domain when the list loads or changes.
-	useEffect(() => {
-		if (domains.length > 0 && !domains.includes(selectedDomain ?? "")) {
-			setSelectedDomain(domains[0]);
-		} else if (domains.length === 0) {
-			setSelectedDomain(null);
-		}
-	}, [domains, selectedDomain]);
-
-	const addMutation = useMutation<RequestResult<unknown>, Error, string>({
-		mutationFn: (newDomain) => createDomain(instanceId, newDomain),
-		onSuccess: (_, newDomain) => {
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "domains"],
-			});
-			// Select the newly created domain after the list refetches.
-			setSelectedDomain(newDomain);
-		},
-	});
-
-	const removeMutation = useMutation<RequestResult<unknown>, Error, string>({
-		mutationFn: (domain) => deleteDomain(instanceId, domain),
-		onSuccess: () => {
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "domains"],
-			});
-		},
+		staleTime: 1000 * 10,
 	});
 
 	if (isLoading) {
-		return <StatusCard icon={Server} text="Loading Domains..." />;
+		return <StatusCard icon={Server} text="Loading domains..." />;
 	}
+
 	if (isError) {
+		return <StatusCard icon={ServerCrash} text={error.message} isError />;
+	}
+
+	if (isSuccess) {
+		// --- Apply consistent sorting logic before redirection ---
+		const unsortedDomains = data?.data?.domains ?? [];
+		const domains = sortDomainsList(unsortedDomains);
+
+		// Redirect to the first domain in the *sorted* list.
+		const targetDomain = domains.length > 0 ? domains[0] : "_";
+
 		return (
-			<StatusCard
-				icon={ServerCrash}
-				text={error?.message || "Failed to fetch domains."}
-				isError
+			<Navigate
+				to="/$instance/domains/$domain"
+				params={{
+					instance: instanceId,
+					domain: targetDomain,
+				}}
+				replace
 			/>
 		);
 	}
 
-	return (
-		<div className="w-full">
-			<DomainHeaderCard
-				domains={domains}
-				selectedDomain={selectedDomain}
-				setSelectedDomain={setSelectedDomain}
-				addMutation={addMutation}
-				removeMutation={removeMutation}
-			/>
-		</div>
-	);
+	return null; // Should not be reached
 }
 
 // --- StatusCard Component ---
