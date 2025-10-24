@@ -12,7 +12,7 @@ import { type RequestResult } from "~/api/request";
 import { getInstance, postInstance, deleteInstance } from "~/api/instance";
 import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
 
-// --- API Helper Functions (no changes) ---
+// --- API Helper Functions ---
 async function listDomains(
 	instanceId: string
 ): Promise<RequestResult<ListDomainsResponse>> {
@@ -84,7 +84,7 @@ function DomainDetailPage() {
 	});
 
 	const domains = useMemo(() => {
-		// --- FIX: Apply consistent sorting logic to the domain list ---
+		// --- Apply consistent sorting logic to the domain list ---
 		const unsortedDomains = domainsResult?.data?.domains ?? [];
 		return sortDomainsList(unsortedDomains);
 	}, [domainsResult]);

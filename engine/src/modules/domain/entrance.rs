@@ -93,10 +93,12 @@ pub async fn list_domains() -> Response {
 		if let Ok(file_type) = entry.file_type().await {
 			if file_type.is_dir() {
 				let dir_name = entry.file_name().to_string_lossy().to_string();
+				// Change: Allow fallback entrance to be configable
+
 				// Ignore the special [fallback] directory.
-				if dir_name == "[fallback]" {
-					continue;
-				}
+				//if dir_name == "[fallback]" {
+				//	continue;
+				//}
 				if let Some(domain) = dir_name_to_domain(&dir_name) {
 					domains.push(domain);
 				}
