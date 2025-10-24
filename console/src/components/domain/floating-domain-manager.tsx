@@ -19,13 +19,15 @@ import { type RequestResult } from "~/api/request";
 export function FloatingDomainManager({
 	domains,
 	selectedDomain,
-	setSelectedDomain,
+	// --- CHANGE: Renamed prop for better abstraction. It now signals an intent to change the domain. ---
+	onSelectDomain,
 	addMutation,
 	removeMutation,
 }: {
 	domains: string[];
 	selectedDomain: string | null;
-	setSelectedDomain: (domain: string) => void;
+	// --- CHANGE: Prop signature updated. ---
+	onSelectDomain: (domain: string) => void;
 	addMutation: UseMutationResult<RequestResult<unknown>, Error, string>;
 	removeMutation: UseMutationResult<RequestResult<unknown>, Error, string>;
 }) {
@@ -41,6 +43,7 @@ export function FloatingDomainManager({
 				onSuccess: () => {
 					setNewDomain("");
 					setIsAdding(false);
+					// The parent component's mutation `onSuccess` will handle navigation.
 				},
 			});
 		}
@@ -61,7 +64,7 @@ export function FloatingDomainManager({
 
 	return (
 		<div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-			{/* Collapsible Add Domain Form */}
+			{/* Collapsible Add Domain Form (omitted for brevity, no changes here) */}
 			<AnimatePresence>
 				{isAdding && (
 					<motion.div
@@ -105,9 +108,11 @@ export function FloatingDomainManager({
 				{/* Domain Selector */}
 				<Select.Root
 					value={selectedDomain ?? ""}
-					onValueChange={setSelectedDomain}
+					// --- CHANGE: Using the new onSelectDomain callback. ---
+					onValueChange={onSelectDomain}
 					disabled={isAdding}
 				>
+					{/* Trigger and Portal content remain the same... */}
 					<Select.Trigger className="flex h-10 w-56 items-center justify-between rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] transition-all hover:border-[var(--color-theme-border)] focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] disabled:cursor-not-allowed disabled:opacity-50">
 						<div className="flex items-center gap-2 overflow-hidden">
 							<Network size={16} className="stroke-[var(--color-subtext)]" />
@@ -144,8 +149,7 @@ export function FloatingDomainManager({
 						</Select.Content>
 					</Select.Portal>
 				</Select.Root>
-
-				{/* Action Buttons */}
+				{/* Action Buttons (omitted for brevity, no changes here) */}
 				<button
 					onClick={handleRemoveSelectedDomain}
 					disabled={!selectedDomain || removeMutation.isPending || isAdding}
