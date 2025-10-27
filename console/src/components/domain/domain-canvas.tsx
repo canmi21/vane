@@ -144,21 +144,24 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 		>
 			<CanvasToolbar onResetView={resetView} />
 
-			{/* --- MODIFIED: Added flexbox to center content at the origin --- */}
 			<motion.div
 				className="absolute inset-0 flex items-center justify-center"
-				animate={{
+				// --- FIX: Move x and y to `style` for instant updates ---
+				style={{
 					x: view.x,
 					y: view.y,
+				}}
+				// --- Keep `scale` in `animate` for smooth transitions ---
+				animate={{
 					scale: scale,
 				}}
+				// The transition now only applies to properties in `animate` (i.e., scale)
 				transition={{
 					type: "spring",
 					stiffness: 400,
 					damping: 40,
 				}}
 			>
-				{/* Content passed here will now be centered on the canvas */}
 				{children}
 			</motion.div>
 		</div>
