@@ -15,13 +15,11 @@ const MAX_SCALE = 3;
  * @param canvasRef - A React ref attached to the canvas element.
  */
 function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
-	// --- State ---
 	const [view, setView] = useState({ x: 0, y: 0 });
 	const [scale, setScale] = useState(1);
 	const isPanning = useRef(false);
 	const lastMousePosition = useRef({ x: 0, y: 0 });
 
-	// --- Mouse Panning (Right-click drag) ---
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent) => {
 			if (e.button === 2 && canvasRef.current) {
@@ -59,9 +57,8 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 		}
 	}, [canvasRef]);
 
-	// --- Trackpad & Mouse Wheel Gestures ---
 	const handleWheel = useCallback((e: React.WheelEvent) => {
-		e.preventDefault(); // Prevent page scroll
+		e.preventDefault();
 
 		if (e.ctrlKey) {
 			const zoomAmount = e.deltaY * -ZOOM_SENSITIVITY;
@@ -78,7 +75,6 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 		}
 	}, []);
 
-	// --- ADDED: Function to reset view and scale ---
 	const resetView = useCallback(() => {
 		setView({ x: 0, y: 0 });
 		setScale(1);
@@ -91,7 +87,7 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 	return {
 		view,
 		scale,
-		resetView, // Return the new function
+		resetView,
 		handleMouseDown,
 		handleMouseUp,
 		handleMouseMove,
@@ -107,7 +103,7 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 	const {
 		view,
 		scale,
-		resetView, // Get the reset function from the hook
+		resetView,
 		handleMouseDown,
 		handleMouseUp,
 		handleMouseMove,
@@ -146,24 +142,23 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 			onContextMenu={handleContextMenu}
 			onWheel={handleWheel}
 		>
-			{/* --- ADDED: Render the toolbar and pass the reset function --- */}
 			<CanvasToolbar onResetView={resetView} />
 
+			{/* --- MODIFIED: Added flexbox to center content at the origin --- */}
 			<motion.div
-				className="absolute"
-				// --- MODIFIED: Animate view and scale for smooth reset ---
+				className="absolute inset-0 flex items-center justify-center"
 				animate={{
 					x: view.x,
 					y: view.y,
 					scale: scale,
 				}}
-				// Remove direct style binding to let framer-motion handle it
 				transition={{
 					type: "spring",
 					stiffness: 400,
 					damping: 40,
 				}}
 			>
+				{/* Content passed here will now be centered on the canvas */}
 				{children}
 			</motion.div>
 		</div>
