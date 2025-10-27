@@ -12,6 +12,8 @@ import { deleteInstance, getInstance, postInstance } from "~/api/instance";
 import { type RequestResult } from "~/api/request";
 import { DomainCanvas } from "~/components/domain/domain-canvas";
 import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
+// --- 1. IMPORT the new card component ---
+import { DomainEntryPointCard } from "~/components/domain/domain-entry-point-card";
 
 // --- API Helper Functions ---
 async function listDomains(
@@ -133,7 +135,8 @@ function DomainDetailPage() {
 	return (
 		<div className="h-full w-full">
 			<DomainCanvas>
-				{/* Canvas is now empty and ready for future content */}
+				{/* --- 2. RENDER the card if a domain is selected --- */}
+				{selectedDomain && <DomainEntryPointCard domainName={selectedDomain} />}
 			</DomainCanvas>
 			<FloatingDomainManager
 				domains={domains}
