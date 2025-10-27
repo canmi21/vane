@@ -6,16 +6,17 @@ import {
 	useParams,
 } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash } from "lucide-react";
+import { Server, ServerCrash, Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 import { deleteInstance, getInstance, postInstance } from "~/api/instance";
 import { type RequestResult } from "~/api/request";
 import { DomainCanvas } from "~/components/domain/domain-canvas";
 import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
-// --- 1. IMPORT the new card component ---
 import { DomainEntryPointCard } from "~/components/domain/domain-entry-point-card";
+import { RateLimitCard } from "~/components/domain/rate-limit-card";
+import { CanvasConnector } from "~/components/domain/canvas-connector";
 
-// --- API Helper Functions ---
+// --- API Helper Functions & Data Types ---
 async function listDomains(
 	instanceId: string
 ): Promise<RequestResult<ListDomainsResponse>> {
@@ -35,20 +36,23 @@ async function deleteDomain(
 	const encodedDomain = encodeURIComponent(domain);
 	return deleteInstance(instanceId, `/v1/domains/${encodedDomain}`);
 }
+async function getRateLimitConfig(
+	instanceId: string,
+	domain: string
+): Promise<RequestResult<{ requests_per_second: number }>> {
+	return getInstance(instanceId, `/v1/ratelimit/${domain}`);
+}
 
-// --- Data Types ---
 export interface ListDomainsResponse {
 	domains: string[];
 }
 
-// --- Ensures consistent ordering for domains ---
 function sortDomainsList(domains: string[]): string[] {
 	return [...domains].sort((a, b) => {
 		const isAFallback = a === "fallback";
 		const isBFallback = b === "fallback";
 		const isAWildcard = a.includes("*");
 		const isBWildcard = b.includes("*");
-
 		if (isAFallback !== isBFallback) return isAFallback ? 1 : -1;
 		if (isAWildcard !== isBWildcard) return isAWildcard ? 1 : -1;
 		return a.localeCompare(b);
@@ -65,22 +69,31 @@ function DomainDetailPage() {
 	});
 	const selectedDomain = domain === "_" ? null : domain;
 	const queryClient = useQueryClient();
-	const navigate = useNavigate({ from: "/$instance/domains/$domain" });
+	const navigate = useNavigate();
 
 	const {
 		data: domainsResult,
-		isLoading,
-		isError,
-		error,
+		isLoading: isDomainsLoading,
+		isError: isDomainsError,
+		error: domainsError,
 	} = useQuery<RequestResult<ListDomainsResponse>>({
 		queryKey: ["instance", instanceId, "domains"],
 		queryFn: () => listDomains(instanceId),
+	});
+
+	const { data: rateLimitResult, isLoading: isRateLimitLoading } = useQuery({
+		queryKey: ["instance", instanceId, "ratelimit", selectedDomain],
+		queryFn: () => getRateLimitConfig(instanceId, selectedDomain!),
+		enabled: !!selectedDomain,
 	});
 
 	const domains = useMemo(() => {
 		const unsortedDomains = domainsResult?.data?.domains ?? [];
 		return sortDomainsList(unsortedDomains);
 	}, [domainsResult]);
+
+	const isRateLimitEnabled =
+		(rateLimitResult?.data?.requests_per_second ?? 0) > 0;
 
 	const handleDomainSelect = useCallback(
 		(newDomain: string) => {
@@ -113,30 +126,40 @@ function DomainDetailPage() {
 		},
 	});
 
-	if (isLoading) {
-		return (
-			<div className="flex h-full w-full items-center justify-center">
-				<StatusCard icon={Server} text="Loading Domains..." />
-			</div>
-		);
+	if (isDomainsLoading) {
+		return <FullPageStatus icon={Server} text="Loading Domains..." />;
 	}
-	if (isError) {
+	if (isDomainsError) {
 		return (
-			<div className="flex h-full w-full items-center justify-center">
-				<StatusCard
-					icon={ServerCrash}
-					text={error?.message || "Failed to fetch domains."}
-					isError
-				/>
-			</div>
+			<FullPageStatus
+				icon={ServerCrash}
+				text={domainsError?.message || "Failed to fetch domains."}
+				isError
+			/>
 		);
 	}
 
 	return (
 		<div className="h-full w-full">
 			<DomainCanvas>
-				{/* --- 2. RENDER the card if a domain is selected --- */}
-				{selectedDomain && <DomainEntryPointCard domainName={selectedDomain} />}
+				{selectedDomain && (
+					<div className="flex items-center gap-16">
+						<div className="relative">
+							<DomainEntryPointCard domainName={selectedDomain} />
+							{/* --- FIX: Provided a non-zero height to make the line visible --- */}
+							{isRateLimitEnabled && <CanvasConnector width={64} height={2} />}
+						</div>
+
+						{isRateLimitLoading ? (
+							<Loader2
+								size={24}
+								className="animate-spin text-[var(--color-subtext)]"
+							/>
+						) : (
+							isRateLimitEnabled && <RateLimitCard />
+						)}
+					</div>
+				)}
 			</DomainCanvas>
 			<FloatingDomainManager
 				domains={domains}
@@ -149,8 +172,7 @@ function DomainDetailPage() {
 	);
 }
 
-// --- StatusCard Component ---
-function StatusCard({
+function FullPageStatus({
 	icon: Icon,
 	text,
 	isError = false,
@@ -161,10 +183,12 @@ function StatusCard({
 }) {
 	const colorClass = isError ? "text-red-500" : "text-[var(--color-subtext)]";
 	return (
-		<div className="flex w-fit items-center justify-center rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-12 shadow-sm">
-			<div className="flex flex-col items-center gap-4">
-				<Icon size={32} className={colorClass} />
-				<p className={`text-center font-medium ${colorClass}`}>{text}</p>
+		<div className="flex h-full w-full items-center justify-center">
+			<div className="flex w-fit items-center justify-center rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-12 shadow-sm">
+				<div className="flex flex-col items-center gap-4">
+					<Icon size={32} className={colorClass} />
+					<p className={`text-center font-medium ${colorClass}`}>{text}</p>
+				</div>
 			</div>
 		</div>
 	);
