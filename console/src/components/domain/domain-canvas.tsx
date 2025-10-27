@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
+import { CanvasToolbar } from "./canvas-toolbar";
 
 // --- Constants ---
 const ZOOM_SENSITIVITY = 0.001;
@@ -62,15 +63,12 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 	const handleWheel = useCallback((e: React.WheelEvent) => {
 		e.preventDefault(); // Prevent page scroll
 
-		// Pinch-to-zoom gesture (detected with ctrlKey on many trackpads/mice)
 		if (e.ctrlKey) {
 			const zoomAmount = e.deltaY * -ZOOM_SENSITIVITY;
 			setScale((prevScale) =>
-				// Clamp the scale between min and max values
 				Math.min(Math.max(prevScale + zoomAmount, MIN_SCALE), MAX_SCALE)
 			);
 		} else {
-			// Two-finger swipe to pan
 			const deltaX = e.deltaX;
 			const deltaY = e.deltaY;
 			setView((prevView) => ({
@@ -80,6 +78,12 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 		}
 	}, []);
 
+	// --- ADDED: Function to reset view and scale ---
+	const resetView = useCallback(() => {
+		setView({ x: 0, y: 0 });
+		setScale(1);
+	}, []);
+
 	const handleContextMenu = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 	}, []);
@@ -87,6 +91,7 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 	return {
 		view,
 		scale,
+		resetView, // Return the new function
 		handleMouseDown,
 		handleMouseUp,
 		handleMouseMove,
@@ -102,6 +107,7 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 	const {
 		view,
 		scale,
+		resetView, // Get the reset function from the hook
 		handleMouseDown,
 		handleMouseUp,
 		handleMouseMove,
@@ -111,28 +117,20 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 	} = useCanvasGestures(canvasRef);
 
 	const backgroundStyle: React.CSSProperties = {
-		// Define CSS variables for grid line colors
 		"--grid-line-minor-color": "var(--color-bg-alt)",
-		// --- MODIFIED: Changed to a more subtle color for the major grid lines ---
 		"--grid-line-major-color": "var(--scrollbar-thumb)",
-
-		// Layer multiple backgrounds. The first image is on top.
-		// 1. Major grid (more prominent)
-		// 2. Minor grid (less prominent)
 		backgroundImage: `
 			linear-gradient(var(--grid-line-major-color) 1px, transparent 1px),
 			linear-gradient(to right, var(--grid-line-major-color) 1px, transparent 1px),
 			linear-gradient(var(--grid-line-minor-color) 1px, transparent 1px),
 			linear-gradient(to right, var(--grid-line-minor-color) 1px, transparent 1px)
 		`,
-		// Define the size for each corresponding background image
 		backgroundSize: `
 			${100 * scale}px ${100 * scale}px,
 			${100 * scale}px ${100 * scale}px,
 			${20 * scale}px ${20 * scale}px,
 			${20 * scale}px ${20 * scale}px
 		`,
-		// A single position moves all layers together
 		backgroundPosition: `${view.x}px ${view.y}px`,
 	} as React.CSSProperties;
 
@@ -140,7 +138,7 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 		<div
 			ref={canvasRef}
 			className="h-full w-full cursor-grab overflow-hidden bg-[var(--color-bg)]"
-			style={backgroundStyle} // Apply the new combined style
+			style={backgroundStyle}
 			onMouseDown={handleMouseDown}
 			onMouseUp={handleMouseUp}
 			onMouseMove={handleMouseMove}
@@ -148,12 +146,22 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 			onContextMenu={handleContextMenu}
 			onWheel={handleWheel}
 		>
+			{/* --- ADDED: Render the toolbar and pass the reset function --- */}
+			<CanvasToolbar onResetView={resetView} />
+
 			<motion.div
 				className="absolute"
-				style={{
-					left: view.x,
-					top: view.y,
-					scale,
+				// --- MODIFIED: Animate view and scale for smooth reset ---
+				animate={{
+					x: view.x,
+					y: view.y,
+					scale: scale,
+				}}
+				// Remove direct style binding to let framer-motion handle it
+				transition={{
+					type: "spring",
+					stiffness: 400,
+					damping: 40,
 				}}
 			>
 				{children}
