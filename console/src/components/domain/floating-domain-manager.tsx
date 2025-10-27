@@ -19,14 +19,12 @@ import { type RequestResult } from "~/api/request";
 export function FloatingDomainManager({
 	domains,
 	selectedDomain,
-	// --- CHANGE: Renamed prop for better abstraction. It now signals an intent to change the domain. ---
 	onSelectDomain,
 	addMutation,
 	removeMutation,
 }: {
 	domains: string[];
 	selectedDomain: string | null;
-	// --- CHANGE: Prop signature updated. ---
 	onSelectDomain: (domain: string) => void;
 	addMutation: UseMutationResult<RequestResult<unknown>, Error, string>;
 	removeMutation: UseMutationResult<RequestResult<unknown>, Error, string>;
@@ -35,7 +33,6 @@ export function FloatingDomainManager({
 	const [newDomain, setNewDomain] = useState("");
 
 	// --- Event Handlers ---
-
 	const handleAddDomain = (e: React.FormEvent) => {
 		e.preventDefault();
 		if (newDomain.trim()) {
@@ -61,10 +58,9 @@ export function FloatingDomainManager({
 	};
 
 	// --- Render ---
-
 	return (
 		<div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-			{/* Collapsible Add Domain Form (omitted for brevity, no changes here) */}
+			{/* Collapsible Add Domain Form */}
 			<AnimatePresence>
 				{isAdding && (
 					<motion.div
@@ -72,32 +68,41 @@ export function FloatingDomainManager({
 						animate={{ opacity: 1, y: 0 }}
 						exit={{ opacity: 0, y: 10 }}
 						transition={{ duration: 0.2, ease: "easeInOut" }}
+						// --- The motion div itself should be full width to align with the control bar below. ---
+						className="w-full"
 					>
-						<div className="w-80 rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-4 shadow-lg">
-							<form onSubmit={handleAddDomain} className="flex flex-col gap-2">
+						{/* --- Removed hardcoded w-80 to allow it to match the parent's width. --- */}
+						<div className="rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-2 shadow-lg">
+							{/* --- Changed to a single-line row layout. --- */}
+							<form
+								onSubmit={handleAddDomain}
+								className="flex flex-row items-center gap-2"
+							>
 								<input
 									type="text"
 									value={newDomain}
 									onChange={(e) => setNewDomain(e.target.value)}
 									placeholder="example.com or *.example.com"
-									className="h-10 w-full rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] placeholder-[var(--color-subtext)] transition-all focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+									// --- Added flex-grow to fill available space. ---
+									className="h-10 flex-grow rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] placeholder-[var(--color-subtext)] transition-all focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
 									disabled={addMutation.isPending}
 									autoFocus
 								/>
+								{/* --- Button is now a concise, icon-only square button. --- */}
 								<button
 									type="submit"
-									className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-theme-bg)] px-4 text-sm font-semibold text-[var(--color-text)] transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+									className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-theme-bg)] text-sm font-semibold text-[var(--color-text)] transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
 									disabled={addMutation.isPending || !newDomain.trim()}
+									title="Save Domain"
 								>
 									<Save size={16} />
-									<span>Add Domain</span>
 								</button>
-								{addMutation.isError && (
-									<p className="mt-1 text-xs text-red-500">
-										{addMutation.error?.message || "Failed to add domain."}
-									</p>
-								)}
 							</form>
+							{addMutation.isError && (
+								<p className="px-1 pt-2 text-xs text-red-500">
+									{addMutation.error?.message || "Failed to add domain."}
+								</p>
+							)}
 						</div>
 					</motion.div>
 				)}
@@ -108,11 +113,9 @@ export function FloatingDomainManager({
 				{/* Domain Selector */}
 				<Select.Root
 					value={selectedDomain ?? ""}
-					// --- CHANGE: Using the new onSelectDomain callback. ---
 					onValueChange={onSelectDomain}
 					disabled={isAdding}
 				>
-					{/* Trigger and Portal content remain the same... */}
 					<Select.Trigger className="flex h-10 w-56 items-center justify-between rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] transition-all hover:border-[var(--color-theme-border)] focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] disabled:cursor-not-allowed disabled:opacity-50">
 						<div className="flex items-center gap-2 overflow-hidden">
 							<Network size={16} className="stroke-[var(--color-subtext)]" />
@@ -149,7 +152,7 @@ export function FloatingDomainManager({
 						</Select.Content>
 					</Select.Portal>
 				</Select.Root>
-				{/* Action Buttons (omitted for brevity, no changes here) */}
+				{/* Action Buttons */}
 				<button
 					onClick={handleRemoveSelectedDomain}
 					disabled={!selectedDomain || removeMutation.isPending || isAdding}

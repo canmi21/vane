@@ -2,17 +2,18 @@
 
 import {
 	createFileRoute,
-	useParams,
 	useNavigate,
+	useParams,
 } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash, GitMerge } from "lucide-react";
-import React, { useMemo, useCallback } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Server, ServerCrash } from "lucide-react";
+import React, { useCallback, useMemo } from "react";
+import { deleteInstance, getInstance, postInstance } from "~/api/instance";
 import { type RequestResult } from "~/api/request";
-import { getInstance, postInstance, deleteInstance } from "~/api/instance";
+import { DomainCanvas } from "~/components/domain/domain-canvas";
 import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
 
-// --- API Helper Functions (no changes) ---
+// --- API Helper Functions ---
 async function listDomains(
 	instanceId: string
 ): Promise<RequestResult<ListDomainsResponse>> {
@@ -46,17 +47,8 @@ function sortDomainsList(domains: string[]): string[] {
 		const isAWildcard = a.includes("*");
 		const isBWildcard = b.includes("*");
 
-		// Rule 1: "fallback" is always last.
-		if (isAFallback !== isBFallback) {
-			return isAFallback ? 1 : -1;
-		}
-
-		// Rule 2: Wildcards come after regular domains but before "fallback".
-		if (isAWildcard !== isBWildcard) {
-			return isAWildcard ? 1 : -1;
-		}
-
-		// Rule 3: Alphabetical sort for domains of the same type.
+		if (isAFallback !== isBFallback) return isAFallback ? 1 : -1;
+		if (isAWildcard !== isBWildcard) return isAWildcard ? 1 : -1;
 		return a.localeCompare(b);
 	});
 }
@@ -84,7 +76,6 @@ function DomainDetailPage() {
 	});
 
 	const domains = useMemo(() => {
-		// --- FIX: Apply consistent sorting logic to the domain list ---
 		const unsortedDomains = domainsResult?.data?.domains ?? [];
 		return sortDomainsList(unsortedDomains);
 	}, [domainsResult]);
@@ -121,35 +112,29 @@ function DomainDetailPage() {
 	});
 
 	if (isLoading) {
-		return <StatusCard icon={Server} text="Loading Domains..." />;
+		return (
+			<div className="flex h-full w-full items-center justify-center">
+				<StatusCard icon={Server} text="Loading Domains..." />
+			</div>
+		);
 	}
 	if (isError) {
 		return (
-			<StatusCard
-				icon={ServerCrash}
-				text={error?.message || "Failed to fetch domains."}
-				isError
-			/>
+			<div className="flex h-full w-full items-center justify-center">
+				<StatusCard
+					icon={ServerCrash}
+					text={error?.message || "Failed to fetch domains."}
+					isError
+				/>
+			</div>
 		);
 	}
 
 	return (
-		<div className="relative h-full min-h-[calc(100vh-10rem)] w-full">
-			{/* Canvas Placeholder */}
-			<div className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-[var(--color-bg-alt)]">
-				<div className="flex flex-col items-center gap-4 text-center">
-					<GitMerge size={32} className="text-[var(--color-subtext)]" />
-					<p className="text-[var(--color-subtext)]">
-						Canvas for{" "}
-						<span className="font-semibold text-[var(--color-text)]">
-							{selectedDomain ?? "selected domain"}
-						</span>{" "}
-						will be here.
-					</p>
-				</div>
-			</div>
-
-			{/* Floating Domain Manager */}
+		<div className="h-full w-full">
+			<DomainCanvas>
+				{/* Canvas is now empty and ready for future content */}
+			</DomainCanvas>
 			<FloatingDomainManager
 				domains={domains}
 				selectedDomain={selectedDomain}
@@ -173,7 +158,7 @@ function StatusCard({
 }) {
 	const colorClass = isError ? "text-red-500" : "text-[var(--color-subtext)]";
 	return (
-		<div className="flex w-full items-center justify-center rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-12 shadow-sm">
+		<div className="flex w-fit items-center justify-center rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-12 shadow-sm">
 			<div className="flex flex-col items-center gap-4">
 				<Icon size={32} className={colorClass} />
 				<p className={`text-center font-medium ${colorClass}`}>{text}</p>

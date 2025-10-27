@@ -57,7 +57,7 @@ export function Sidebar() {
 	}
 
 	return (
-		<aside className="w-64 h-full bg-[var(--color-bg)] px-4 py-2 flex flex-col">
+		<aside className="w-64 h-full bg-[var(--color-bg)] px-4 py-2 flex flex-col border-r border-[var(--color-bg-alt)]">
 			<Link
 				to="/$instance/home"
 				params={{ instance }}
@@ -71,10 +71,6 @@ export function Sidebar() {
 				{navLinks.map(({ to, label, Icon }) => {
 					const targetPath = to === "/" ? `/${instance}` : `/${instance}${to}`;
 
-					// --- FIX: Updated active state logic ---
-					// A link is active if the current path is an exact match OR
-					// if it starts with the link's path followed by a '/'.
-					// This correctly highlights parent routes for nested URLs.
 					const isActive =
 						location.pathname === targetPath ||
 						location.pathname.startsWith(`${targetPath}/`);
