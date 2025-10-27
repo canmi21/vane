@@ -59,7 +59,7 @@ export function FloatingDomainManager({
 
 	// --- Render ---
 	return (
-		<div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+		<div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
 			{/* Collapsible Add Domain Form */}
 			<AnimatePresence>
 				{isAdding && (
@@ -68,30 +68,29 @@ export function FloatingDomainManager({
 						animate={{ opacity: 1, y: 0 }}
 						exit={{ opacity: 0, y: 10 }}
 						transition={{ duration: 0.2, ease: "easeInOut" }}
-						// --- The motion div itself should be full width to align with the control bar below. ---
 						className="w-full"
 					>
-						{/* --- Removed hardcoded w-80 to allow it to match the parent's width. --- */}
-						<div className="rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-2 shadow-lg">
-							{/* --- Changed to a single-line row layout. --- */}
+						{/* --- MODIFIED: Reduced padding for a tighter look --- */}
+						<div className="rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-1.5 shadow-lg">
+							{/* --- MODIFIED: Reduced gap --- */}
 							<form
 								onSubmit={handleAddDomain}
-								className="flex flex-row items-center gap-2"
+								className="flex flex-row items-center gap-1.5"
 							>
+								{/* --- MODIFIED: Reduced height --- */}
 								<input
 									type="text"
 									value={newDomain}
 									onChange={(e) => setNewDomain(e.target.value)}
-									placeholder="example.com or *.example.com"
-									// --- Added flex-grow to fill available space. ---
-									className="h-10 flex-grow rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] placeholder-[var(--color-subtext)] transition-all focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+									placeholder="example.com"
+									className="h-9 flex-grow rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] placeholder-[var(--color-subtext)] transition-all focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
 									disabled={addMutation.isPending}
 									autoFocus
 								/>
-								{/* --- Button is now a concise, icon-only square button. --- */}
+								{/* --- MODIFIED: Reduced button size --- */}
 								<button
 									type="submit"
-									className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-theme-bg)] text-sm font-semibold text-[var(--color-text)] transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+									className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-theme-bg)] text-sm font-semibold text-[var(--color-text)] transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
 									disabled={addMutation.isPending || !newDomain.trim()}
 									title="Save Domain"
 								>
@@ -99,7 +98,7 @@ export function FloatingDomainManager({
 								</button>
 							</form>
 							{addMutation.isError && (
-								<p className="px-1 pt-2 text-xs text-red-500">
+								<p className="px-1 pt-1.5 text-xs text-red-500">
 									{addMutation.error?.message || "Failed to add domain."}
 								</p>
 							)}
@@ -109,14 +108,16 @@ export function FloatingDomainManager({
 			</AnimatePresence>
 
 			{/* Main Floating Control Bar */}
-			<div className="flex h-14 w-auto items-center gap-2 rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-2 shadow-lg">
+			{/* --- MODIFIED: Reduced height, padding, and gap for a compact feel --- */}
+			<div className="flex h-12 w-auto items-center gap-1.5 rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-1.5 shadow-lg">
 				{/* Domain Selector */}
 				<Select.Root
 					value={selectedDomain ?? ""}
 					onValueChange={onSelectDomain}
 					disabled={isAdding}
 				>
-					<Select.Trigger className="flex h-10 w-56 items-center justify-between rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] transition-all hover:border-[var(--color-theme-border)] focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] disabled:cursor-not-allowed disabled:opacity-50">
+					{/* --- MODIFIED: Reduced trigger height and width --- */}
+					<Select.Trigger className="flex h-9 w-48 items-center justify-between rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-3 text-sm text-[var(--color-text)] transition-all hover:border-[var(--color-theme-border)] focus:border-[var(--color-theme-border)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] disabled:cursor-not-allowed disabled:opacity-50">
 						<div className="flex items-center gap-2 overflow-hidden">
 							<Network size={16} className="stroke-[var(--color-subtext)]" />
 							<span className="truncate">
@@ -153,10 +154,11 @@ export function FloatingDomainManager({
 					</Select.Portal>
 				</Select.Root>
 				{/* Action Buttons */}
+				{/* --- MODIFIED: Reduced button size --- */}
 				<button
 					onClick={handleRemoveSelectedDomain}
 					disabled={!selectedDomain || removeMutation.isPending || isAdding}
-					className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--color-subtext)] transition-all hover:bg-[var(--color-bg-alt)] hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+					className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-subtext)] transition-all hover:bg-[var(--color-bg-alt)] hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
 					title={
 						selectedDomain ? `Delete ${selectedDomain}` : "No domain selected"
 					}
@@ -164,9 +166,10 @@ export function FloatingDomainManager({
 					<Trash2 size={16} />
 				</button>
 
+				{/* --- MODIFIED: Reduced button size --- */}
 				<button
 					onClick={() => setIsAdding(!isAdding)}
-					className={`flex h-10 w-10 items-center justify-center rounded-lg text-sm font-semibold text-[var(--color-text)] transition-all ${
+					className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-semibold text-[var(--color-text)] transition-all ${
 						isAdding
 							? "bg-red-500/20 text-red-500 hover:bg-red-500/30"
 							: "bg-[var(--color-theme-bg)] hover:opacity-80"

@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
+import { CanvasToolbar } from "./canvas-toolbar";
 
 // --- Constants ---
 const ZOOM_SENSITIVITY = 0.001;
@@ -14,13 +15,11 @@ const MAX_SCALE = 3;
  * @param canvasRef - A React ref attached to the canvas element.
  */
 function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
-	// --- State ---
 	const [view, setView] = useState({ x: 0, y: 0 });
 	const [scale, setScale] = useState(1);
 	const isPanning = useRef(false);
 	const lastMousePosition = useRef({ x: 0, y: 0 });
 
-	// --- Mouse Panning (Right-click drag) ---
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent) => {
 			if (e.button === 2 && canvasRef.current) {
@@ -58,19 +57,15 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 		}
 	}, [canvasRef]);
 
-	// --- Trackpad & Mouse Wheel Gestures ---
 	const handleWheel = useCallback((e: React.WheelEvent) => {
-		e.preventDefault(); // Prevent page scroll
+		e.preventDefault();
 
-		// Pinch-to-zoom gesture (detected with ctrlKey on many trackpads/mice)
 		if (e.ctrlKey) {
 			const zoomAmount = e.deltaY * -ZOOM_SENSITIVITY;
 			setScale((prevScale) =>
-				// Clamp the scale between min and max values
 				Math.min(Math.max(prevScale + zoomAmount, MIN_SCALE), MAX_SCALE)
 			);
 		} else {
-			// Two-finger swipe to pan
 			const deltaX = e.deltaX;
 			const deltaY = e.deltaY;
 			setView((prevView) => ({
@@ -80,6 +75,11 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 		}
 	}, []);
 
+	const resetView = useCallback(() => {
+		setView({ x: 0, y: 0 });
+		setScale(1);
+	}, []);
+
 	const handleContextMenu = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 	}, []);
@@ -87,6 +87,7 @@ function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
 	return {
 		view,
 		scale,
+		resetView,
 		handleMouseDown,
 		handleMouseUp,
 		handleMouseMove,
@@ -102,6 +103,7 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 	const {
 		view,
 		scale,
+		resetView,
 		handleMouseDown,
 		handleMouseUp,
 		handleMouseMove,
@@ -111,28 +113,20 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 	} = useCanvasGestures(canvasRef);
 
 	const backgroundStyle: React.CSSProperties = {
-		// Define CSS variables for grid line colors
 		"--grid-line-minor-color": "var(--color-bg-alt)",
-		// --- MODIFIED: Changed to a more subtle color for the major grid lines ---
 		"--grid-line-major-color": "var(--scrollbar-thumb)",
-
-		// Layer multiple backgrounds. The first image is on top.
-		// 1. Major grid (more prominent)
-		// 2. Minor grid (less prominent)
 		backgroundImage: `
 			linear-gradient(var(--grid-line-major-color) 1px, transparent 1px),
 			linear-gradient(to right, var(--grid-line-major-color) 1px, transparent 1px),
 			linear-gradient(var(--grid-line-minor-color) 1px, transparent 1px),
 			linear-gradient(to right, var(--grid-line-minor-color) 1px, transparent 1px)
 		`,
-		// Define the size for each corresponding background image
 		backgroundSize: `
 			${100 * scale}px ${100 * scale}px,
 			${100 * scale}px ${100 * scale}px,
 			${20 * scale}px ${20 * scale}px,
 			${20 * scale}px ${20 * scale}px
 		`,
-		// A single position moves all layers together
 		backgroundPosition: `${view.x}px ${view.y}px`,
 	} as React.CSSProperties;
 
@@ -140,7 +134,7 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 		<div
 			ref={canvasRef}
 			className="h-full w-full cursor-grab overflow-hidden bg-[var(--color-bg)]"
-			style={backgroundStyle} // Apply the new combined style
+			style={backgroundStyle}
 			onMouseDown={handleMouseDown}
 			onMouseUp={handleMouseUp}
 			onMouseMove={handleMouseMove}
@@ -148,12 +142,24 @@ export function DomainCanvas({ children }: { children?: React.ReactNode }) {
 			onContextMenu={handleContextMenu}
 			onWheel={handleWheel}
 		>
+			<CanvasToolbar onResetView={resetView} />
+
 			<motion.div
-				className="absolute"
+				className="absolute inset-0 flex items-center justify-center"
+				// --- FIX: Move x and y to `style` for instant updates ---
 				style={{
-					left: view.x,
-					top: view.y,
-					scale,
+					x: view.x,
+					y: view.y,
+				}}
+				// --- Keep `scale` in `animate` for smooth transitions ---
+				animate={{
+					scale: scale,
+				}}
+				// The transition now only applies to properties in `animate` (i.e., scale)
+				transition={{
+					type: "spring",
+					stiffness: 400,
+					damping: 40,
 				}}
 			>
 				{children}
