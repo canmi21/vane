@@ -1,59 +1,12 @@
 /* src/routes/$instance/domains/$domain.tsx */
 
-import {
-	createFileRoute,
-	useNavigate,
-	useParams,
-} from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Server, ServerCrash } from "lucide-react";
-import React, { useCallback, useMemo } from "react";
-import { deleteInstance, getInstance, postInstance } from "~/api/instance";
-import { type RequestResult } from "~/api/request";
+import { createFileRoute, useParams } from "@tanstack/react-router";
+import { Server, ServerCrash, Loader2 } from "lucide-react";
+import React from "react";
 import { DomainCanvas } from "~/components/domain/domain-canvas";
 import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
-// --- 1. IMPORT the new card component ---
-import { DomainEntryPointCard } from "~/components/domain/domain-entry-point-card";
-
-// --- API Helper Functions ---
-async function listDomains(
-	instanceId: string
-): Promise<RequestResult<ListDomainsResponse>> {
-	return getInstance(instanceId, "/v1/domains");
-}
-async function createDomain(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<unknown>> {
-	const encodedDomain = encodeURIComponent(domain);
-	return postInstance(instanceId, `/v1/domains/${encodedDomain}`, {});
-}
-async function deleteDomain(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<unknown>> {
-	const encodedDomain = encodeURIComponent(domain);
-	return deleteInstance(instanceId, `/v1/domains/${encodedDomain}`);
-}
-
-// --- Data Types ---
-export interface ListDomainsResponse {
-	domains: string[];
-}
-
-// --- Ensures consistent ordering for domains ---
-function sortDomainsList(domains: string[]): string[] {
-	return [...domains].sort((a, b) => {
-		const isAFallback = a === "fallback";
-		const isBFallback = b === "fallback";
-		const isAWildcard = a.includes("*");
-		const isBWildcard = b.includes("*");
-
-		if (isAFallback !== isBFallback) return isAFallback ? 1 : -1;
-		if (isAWildcard !== isBWildcard) return isAWildcard ? 1 : -1;
-		return a.localeCompare(b);
-	});
-}
+import { useDomainData } from "~/hooks/use-domain-data";
+import { useCanvasLayout } from "~/hooks/use-canvas-layout";
 
 export const Route = createFileRoute("/$instance/domains/$domain")({
 	component: DomainDetailPage,
@@ -64,80 +17,47 @@ function DomainDetailPage() {
 		from: "/$instance/domains/$domain",
 	});
 	const selectedDomain = domain === "_" ? null : domain;
-	const queryClient = useQueryClient();
-	const navigate = useNavigate({ from: "/$instance/domains/$domain" });
 
+	// --- Custom Hooks ---
 	const {
-		data: domainsResult,
-		isLoading,
-		isError,
-		error,
-	} = useQuery<RequestResult<ListDomainsResponse>>({
-		queryKey: ["instance", instanceId, "domains"],
-		queryFn: () => listDomains(instanceId),
+		domains,
+		domainsQuery,
+		rateLimitQuery,
+		addMutation,
+		removeMutation,
+		handleDomainSelect,
+	} = useDomainData(instanceId, selectedDomain);
+
+	const { layout, handleLayoutChange } = useCanvasLayout({
+		selectedDomain,
+		rateLimitQuery,
 	});
 
-	const domains = useMemo(() => {
-		const unsortedDomains = domainsResult?.data?.domains ?? [];
-		return sortDomainsList(unsortedDomains);
-	}, [domainsResult]);
-
-	const handleDomainSelect = useCallback(
-		(newDomain: string) => {
-			navigate({
-				to: "/$instance/domains/$domain",
-				params: { instance: instanceId, domain: newDomain },
-				replace: true,
-			});
-		},
-		[navigate, instanceId]
-	);
-
-	const addMutation = useMutation<RequestResult<unknown>, Error, string>({
-		mutationFn: (newDomain) => createDomain(instanceId, newDomain),
-		onSuccess: (_, newDomain) => {
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "domains"],
-			});
-			handleDomainSelect(newDomain);
-		},
-	});
-
-	const removeMutation = useMutation<RequestResult<unknown>, Error, string>({
-		mutationFn: (domainToDelete) => deleteDomain(instanceId, domainToDelete),
-		onSuccess: () => {
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "domains"],
-			});
-			navigate({ to: "/$instance/domains", params: { instance: instanceId } });
-		},
-	});
-
-	if (isLoading) {
-		return (
-			<div className="flex h-full w-full items-center justify-center">
-				<StatusCard icon={Server} text="Loading Domains..." />
-			</div>
-		);
+	// --- Render Logic ---
+	if (domainsQuery.isLoading) {
+		return <FullPageStatus icon={Server} text="Loading Domains..." />;
 	}
-	if (isError) {
+	if (domainsQuery.isError) {
 		return (
-			<div className="flex h-full w-full items-center justify-center">
-				<StatusCard
-					icon={ServerCrash}
-					text={error?.message || "Failed to fetch domains."}
-					isError
-				/>
-			</div>
+			<FullPageStatus
+				icon={ServerCrash}
+				text={domainsQuery.error.message}
+				isError
+			/>
 		);
 	}
 
 	return (
 		<div className="h-full w-full">
-			<DomainCanvas>
-				{/* --- 2. RENDER the card if a domain is selected --- */}
-				{selectedDomain && <DomainEntryPointCard domainName={selectedDomain} />}
-			</DomainCanvas>
+			{layout && selectedDomain ? (
+				<DomainCanvas
+					layout={layout}
+					onLayoutChange={handleLayoutChange}
+					selectedDomain={selectedDomain}
+				/>
+			) : (
+				<FullPageStatus icon={Loader2} text="Loading Canvas Layout..." />
+			)}
 			<FloatingDomainManager
 				domains={domains}
 				selectedDomain={selectedDomain}
@@ -149,8 +69,7 @@ function DomainDetailPage() {
 	);
 }
 
-// --- StatusCard Component ---
-function StatusCard({
+function FullPageStatus({
 	icon: Icon,
 	text,
 	isError = false,
@@ -161,9 +80,12 @@ function StatusCard({
 }) {
 	const colorClass = isError ? "text-red-500" : "text-[var(--color-subtext)]";
 	return (
-		<div className="flex w-fit items-center justify-center rounded-xl border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-12 shadow-sm">
-			<div className="flex flex-col items-center gap-4">
-				<Icon size={32} className={colorClass} />
+		<div className="flex h-full w-full items-center justify-center">
+			<div className="flex w-fit flex-col items-center gap-4 p-12">
+				<Icon
+					size={32}
+					className={`${colorClass} ${!isError ? "animate-spin" : ""}`}
+				/>
 				<p className={`text-center font-medium ${colorClass}`}>{text}</p>
 			</div>
 		</div>

@@ -1,168 +1,158 @@
 /* src/components/domain/domain-canvas.tsx */
 
-import React, { useState, useRef, useCallback } from "react";
-import { motion } from "framer-motion";
+import { useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { CanvasToolbar } from "./canvas-toolbar";
+import { type CanvasLayout } from "~/lib/canvas-layout";
+import {
+	DomainEntryPointCard,
+	type NodeComponentProps,
+} from "./domain-entry-point-card";
+import { RateLimitCard } from "./rate-limit-card";
+import { CanvasConnector } from "./canvas-connector";
+import { useCanvasView } from "~/hooks/use-canvas-view";
+import { useCanvasInteraction } from "~/hooks/use-canvas-interaction";
 
-// --- Constants ---
-const ZOOM_SENSITIVITY = 0.001;
-const MIN_SCALE = 0.2;
-const MAX_SCALE = 3;
-
-// --- Hooks ---
-/**
- * A custom hook to handle canvas panning and zooming gestures.
- * @param canvasRef - A React ref attached to the canvas element.
- */
-function useCanvasGestures(canvasRef: React.RefObject<HTMLDivElement | null>) {
-	const [view, setView] = useState({ x: 0, y: 0 });
-	const [scale, setScale] = useState(1);
-	const isPanning = useRef(false);
-	const lastMousePosition = useRef({ x: 0, y: 0 });
-
-	const handleMouseDown = useCallback(
-		(e: React.MouseEvent) => {
-			if (e.button === 2 && canvasRef.current) {
-				isPanning.current = true;
-				lastMousePosition.current = { x: e.clientX, y: e.clientY };
-				canvasRef.current.style.cursor = "grabbing";
-				e.preventDefault();
-			}
-		},
-		[canvasRef]
-	);
-
-	const handleMouseUp = useCallback(
-		(e: React.MouseEvent) => {
-			if (e.button === 2 && canvasRef.current) {
-				isPanning.current = false;
-				canvasRef.current.style.cursor = "grab";
-			}
-		},
-		[canvasRef]
-	);
-
-	const handleMouseMove = useCallback((e: React.MouseEvent) => {
-		if (!isPanning.current) return;
-		const deltaX = e.clientX - lastMousePosition.current.x;
-		const deltaY = e.clientY - lastMousePosition.current.y;
-		lastMousePosition.current = { x: e.clientX, y: e.clientY };
-		setView((prev) => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
-	}, []);
-
-	const handleMouseLeave = useCallback(() => {
-		if (isPanning.current && canvasRef.current) {
-			isPanning.current = false;
-			canvasRef.current.style.cursor = "grab";
-		}
-	}, [canvasRef]);
-
-	const handleWheel = useCallback((e: React.WheelEvent) => {
-		e.preventDefault();
-
-		if (e.ctrlKey) {
-			const zoomAmount = e.deltaY * -ZOOM_SENSITIVITY;
-			setScale((prevScale) =>
-				Math.min(Math.max(prevScale + zoomAmount, MIN_SCALE), MAX_SCALE)
-			);
-		} else {
-			const deltaX = e.deltaX;
-			const deltaY = e.deltaY;
-			setView((prevView) => ({
-				x: prevView.x - deltaX,
-				y: prevView.y - deltaY,
-			}));
-		}
-	}, []);
-
-	const resetView = useCallback(() => {
-		setView({ x: 0, y: 0 });
-		setScale(1);
-	}, []);
-
-	const handleContextMenu = useCallback((e: React.MouseEvent) => {
-		e.preventDefault();
-	}, []);
-
-	return {
-		view,
-		scale,
-		resetView,
-		handleMouseDown,
-		handleMouseUp,
-		handleMouseMove,
-		handleMouseLeave,
-		handleContextMenu,
-		handleWheel,
-	};
+// --- Prop Types ---
+interface DomainCanvasProps {
+	layout: CanvasLayout;
+	onLayoutChange: (newLayout: CanvasLayout) => void;
+	selectedDomain: string;
 }
 
-// --- Component ---
-export function DomainCanvas({ children }: { children?: React.ReactNode }) {
-	const canvasRef = React.useRef<HTMLDivElement>(null);
-	const {
-		view,
-		scale,
-		resetView,
-		handleMouseDown,
-		handleMouseUp,
-		handleMouseMove,
-		handleMouseLeave,
-		handleContextMenu,
-		handleWheel,
-	} = useCanvasGestures(canvasRef);
+// --- Main Canvas Component ---
+export function DomainCanvas({
+	layout,
+	onLayoutChange,
+	selectedDomain,
+}: DomainCanvasProps) {
+	const canvasRef = useRef<HTMLDivElement | null>(null);
 
-	const backgroundStyle: React.CSSProperties = {
-		"--grid-line-minor-color": "var(--color-bg-alt)",
-		"--grid-line-major-color": "var(--scrollbar-thumb)",
-		backgroundImage: `
-			linear-gradient(var(--grid-line-major-color) 1px, transparent 1px),
-			linear-gradient(to right, var(--grid-line-major-color) 1px, transparent 1px),
-			linear-gradient(var(--grid-line-minor-color) 1px, transparent 1px),
-			linear-gradient(to right, var(--grid-line-minor-color) 1px, transparent 1px)
-		`,
-		backgroundSize: `
-			${100 * scale}px ${100 * scale}px,
-			${100 * scale}px ${100 * scale}px,
-			${20 * scale}px ${20 * scale}px,
-			${20 * scale}px ${20 * scale}px
-		`,
-		backgroundPosition: `${view.x}px ${view.y}px`,
-	} as React.CSSProperties;
+	// --- Custom Hooks ---
+	const { view, scale, panBy, handleFitView, handleResetView } = useCanvasView({
+		canvasRef,
+		nodes: layout.nodes,
+	});
+
+	const getConnectionPoints = useCallback(
+		(nodeId: string, handleId: string): { x: number; y: number } => {
+			const node = layout.nodes.find((n) => n.id === nodeId);
+			if (!node) return { x: 0, y: 0 };
+
+			const nodeWidth = 256;
+			const nodeHeights = { "entry-point": 83, "rate-limit": 123 };
+
+			if (node.type === "entry-point") {
+				return {
+					x: node.x + nodeWidth,
+					y: node.y + nodeHeights["entry-point"] / 2,
+				};
+			}
+			if (node.type === "rate-limit" && handleId === "input") {
+				return { x: node.x, y: node.y + nodeHeights["rate-limit"] / 2 };
+			}
+			return { x: node.x, y: node.y };
+		},
+		[layout.nodes]
+	);
+
+	const {
+		interaction,
+		mouseInCanvasCoords,
+		handleMouseDown,
+		handleMouseMove,
+		handleMouseUp,
+		handleNodeMouseDown,
+		handleHandleClick,
+		handleToggleConnectorMode,
+	} = useCanvasInteraction({
+		scale,
+		view,
+		layout,
+		onLayoutChange,
+		panBy,
+		getConnectionPoints,
+		canvasRef,
+	});
 
 	return (
 		<div
 			ref={canvasRef}
 			className="h-full w-full cursor-grab overflow-hidden bg-[var(--color-bg)]"
-			style={backgroundStyle}
+			style={{
+				backgroundImage: `linear-gradient(var(--scrollbar-thumb) 1px, transparent 1px), linear-gradient(to right, var(--scrollbar-thumb) 1px, transparent 1px), linear-gradient(var(--color-bg-alt) 1px, transparent 1px), linear-gradient(to right, var(--color-bg-alt) 1px, transparent 1px)`,
+				backgroundSize: `${100 * scale}px ${100 * scale}px, ${100 * scale}px ${100 * scale}px, ${20 * scale}px ${20 * scale}px, ${20 * scale}px ${20 * scale}px`,
+				backgroundPosition: `${view.x}px ${view.y}px`,
+			}}
 			onMouseDown={handleMouseDown}
-			onMouseUp={handleMouseUp}
 			onMouseMove={handleMouseMove}
-			onMouseLeave={handleMouseLeave}
-			onContextMenu={handleContextMenu}
-			onWheel={handleWheel}
+			onMouseUp={handleMouseUp}
+			onMouseLeave={handleMouseUp}
+			onContextMenu={(e) => {
+				e.preventDefault();
+				if (interaction.mode === "connecting") handleToggleConnectorMode();
+			}}
 		>
-			<CanvasToolbar onResetView={resetView} />
+			<CanvasToolbar
+				onResetView={handleResetView}
+				onFitView={handleFitView}
+				onToggleConnectorMode={handleToggleConnectorMode}
+				isConnectorModeActive={interaction.mode === "connecting"}
+			/>
 
 			<motion.div
-				className="absolute inset-0 flex items-center justify-center"
-				// --- FIX: Move x and y to `style` for instant updates ---
-				style={{
-					x: view.x,
-					y: view.y,
-				}}
-				// --- Keep `scale` in `animate` for smooth transitions ---
-				animate={{
-					scale: scale,
-				}}
-				// The transition now only applies to properties in `animate` (i.e., scale)
-				transition={{
-					type: "spring",
-					stiffness: 400,
-					damping: 40,
-				}}
+				className="absolute top-0 left-0"
+				style={{ x: view.x, y: view.y, scale: scale }}
 			>
-				{children}
+				{/* Render Connections */}
+				{layout.connections.map((conn) => {
+					const start = getConnectionPoints(conn.fromNodeId, conn.fromHandle);
+					const end = getConnectionPoints(conn.toNodeId, conn.toHandle);
+					return (
+						<CanvasConnector
+							key={conn.id}
+							x1={start.x}
+							y1={start.y}
+							x2={end.x}
+							y2={end.y}
+						/>
+					);
+				})}
+
+				{/* Render Nodes */}
+				{layout.nodes.map((node) => {
+					const props: NodeComponentProps = {
+						node,
+						onMouseDown: handleNodeMouseDown,
+						onHandleClick: handleHandleClick,
+						isConnecting: interaction.mode === "connecting",
+					};
+					if (node.type === "entry-point") {
+						return (
+							<DomainEntryPointCard
+								key={node.id}
+								{...props}
+								domainName={selectedDomain}
+							/>
+						);
+					}
+					if (node.type === "rate-limit") {
+						return <RateLimitCard key={node.id} {...props} />;
+					}
+					return null;
+				})}
+
+				{/* Render preview connector */}
+				<AnimatePresence>
+					{interaction.mode === "connecting" && interaction.fromNodeId && (
+						<CanvasConnector
+							x1={interaction.fromPosition.x}
+							y1={interaction.fromPosition.y}
+							x2={mouseInCanvasCoords.x}
+							y2={mouseInCanvasCoords.y}
+						/>
+					)}
+				</AnimatePresence>
 			</motion.div>
 		</div>
 	);
