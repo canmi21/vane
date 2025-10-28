@@ -13,24 +13,28 @@ import { motion } from "framer-motion";
 
 interface CanvasToolbarProps {
 	onResetView: () => void;
+	onFitView: () => void; // --- ADDED: New prop for the "fit to view" action ---
 	onToggleConnectorMode: () => void;
 	isConnectorModeActive: boolean;
 }
 
 export function CanvasToolbar({
 	onResetView,
+	onFitView, // --- ADDED: Receive the new function ---
 	onToggleConnectorMode,
 	isConnectorModeActive,
 }: CanvasToolbarProps) {
 	const tools = [
-		{ Icon: Fullscreen, tooltip: "Reset View", action: onResetView },
+		// --- MODIFIED: This icon now triggers "Fit to View" ---
+		{ Icon: Fullscreen, tooltip: "Fit to View", action: onFitView },
 		{
 			Icon: Spline,
 			tooltip: "Connect Nodes",
 			action: onToggleConnectorMode,
 			active: isConnectorModeActive,
 		},
-		{ Icon: MapPin, tooltip: "Pin", action: () => {} },
+		// --- MODIFIED: This icon now triggers "Reset View" ---
+		{ Icon: MapPin, tooltip: "Reset View", action: onResetView },
 		{ Icon: Layers2, tooltip: "Layers", action: () => {} },
 		{ Icon: CopyPlus, tooltip: "Duplicate", action: () => {} },
 		{ Icon: Plus, tooltip: "Add", action: () => {} },
