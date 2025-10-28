@@ -3,7 +3,8 @@
 import { Zap } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { motion } from "framer-motion";
-import { type NodeComponentProps } from "./domain-entry-point-card"; // Reuse the interface
+import { type NodeComponentProps } from "./domain-entry-point-card";
+import React from "react";
 
 export function RateLimitCard({
 	node,
@@ -11,6 +12,11 @@ export function RateLimitCard({
 	onHandleClick,
 	isConnecting,
 }: NodeComponentProps) {
+	const handleClicked = (e: React.MouseEvent) => {
+		e.stopPropagation();
+		onHandleClick(node.id, "input");
+	};
+
 	return (
 		<motion.div
 			className="absolute cursor-grab"
@@ -20,12 +26,10 @@ export function RateLimitCard({
 		>
 			<Tooltip.Provider delayDuration={150}>
 				<div className="relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md">
-					{/* Input Handle */}
 					<Tooltip.Root>
 						<Tooltip.Trigger asChild>
 							<div
-								data-handle-id="input"
-								onClick={(e) => onHandleClick(node.id, "input", e)}
+								onClick={handleClicked}
 								className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-3 rounded-full bg-[var(--color-bg)] border-2 border-[var(--color-theme-border)] z-10 transition-colors ${
 									isConnecting
 										? "cursor-crosshair hover:bg-[var(--color-theme-bg)]"
@@ -45,8 +49,6 @@ export function RateLimitCard({
 							</Tooltip.Content>
 						</Tooltip.Portal>
 					</Tooltip.Root>
-
-					{/* Header */}
 					<div className="flex items-center justify-between gap-2 border-b border-[var(--color-bg-alt)] p-3">
 						<div className="flex items-center gap-2">
 							<Zap size={16} className="text-[var(--color-subtext)]" />
@@ -55,8 +57,6 @@ export function RateLimitCard({
 							</p>
 						</div>
 					</div>
-
-					{/* Body */}
 					<div className="h-20" />
 				</div>
 			</Tooltip.Provider>
