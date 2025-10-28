@@ -3,7 +3,12 @@
 import { useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CanvasToolbar } from "./canvas-toolbar";
-import { type CanvasLayout } from "~/lib/canvas-layout";
+import {
+	type CanvasLayout,
+	type CanvasNode,
+	type EntryPointNodeData,
+	type RateLimitNodeData,
+} from "~/lib/canvas-layout";
 import {
 	DomainEntryPointCard,
 	type NodeComponentProps,
@@ -13,22 +18,21 @@ import { CanvasConnector } from "./canvas-connector";
 import { useCanvasView } from "~/hooks/use-canvas-view";
 import { useCanvasInteraction } from "~/hooks/use-canvas-interaction";
 
-// --- Prop Types ---
 interface DomainCanvasProps {
 	layout: CanvasLayout;
 	onLayoutChange: (newLayout: CanvasLayout) => void;
 	selectedDomain: string;
+	onAddNode: (type: "rate-limit") => void;
 }
 
-// --- Main Canvas Component ---
 export function DomainCanvas({
 	layout,
 	onLayoutChange,
 	selectedDomain,
+	onAddNode,
 }: DomainCanvasProps) {
 	const canvasRef = useRef<HTMLDivElement | null>(null);
 
-	// --- Custom Hooks ---
 	const { view, scale, panBy, handleFitView, handleResetView } = useCanvasView({
 		canvasRef,
 		nodes: layout.nodes,
@@ -40,17 +44,40 @@ export function DomainCanvas({
 			if (!node) return { x: 0, y: 0 };
 
 			const nodeWidth = 256;
-			const nodeHeights = { "entry-point": 83, "rate-limit": 123 };
+			const headerHeight = 41;
 
 			if (node.type === "entry-point") {
-				return {
-					x: node.x + nodeWidth,
-					y: node.y + nodeHeights["entry-point"] / 2,
-				};
+				const totalHeight = 83;
+				return { x: node.x + nodeWidth, y: node.y + totalHeight / 2 };
 			}
-			if (node.type === "rate-limit" && handleId === "input") {
-				return { x: node.x, y: node.y + nodeHeights["rate-limit"] / 2 };
+
+			if (node.type === "rate-limit") {
+				const typedNode = node as CanvasNode<RateLimitNodeData>;
+				const isInput = typedNode.inputs.some((h) => h.id === handleId);
+				if (isInput) {
+					// --- FINAL FIX: Calculate absolute Y by adding the body offset to the node's base Y. ---
+					const bodyTopY = typedNode.y + headerHeight;
+					const handleOffsetY = headerHeight / 2;
+					return { x: typedNode.x, y: bodyTopY + handleOffsetY };
+				} else {
+					const bodyHeight =
+						headerHeight *
+						(typedNode.outputs.length > 0 ? typedNode.outputs.length : 1);
+					const outputIndex = typedNode.outputs.findIndex(
+						(h) => h.id === handleId
+					);
+					if (outputIndex === -1) return { x: typedNode.x, y: typedNode.y };
+
+					const positionPercent =
+						typedNode.outputs.length <= 1
+							? 50
+							: (100 / (typedNode.outputs.length + 1)) * (outputIndex + 1);
+					const outputY =
+						typedNode.y + headerHeight + bodyHeight * (positionPercent / 100);
+					return { x: typedNode.x + nodeWidth, y: outputY };
+				}
 			}
+
 			return { x: node.x, y: node.y };
 		},
 		[layout.nodes]
@@ -98,13 +125,13 @@ export function DomainCanvas({
 				onFitView={handleFitView}
 				onToggleConnectorMode={handleToggleConnectorMode}
 				isConnectorModeActive={interaction.mode === "connecting"}
+				onAddNode={onAddNode}
 			/>
 
 			<motion.div
 				className="absolute top-0 left-0"
 				style={{ x: view.x, y: view.y, scale: scale }}
 			>
-				{/* Render Connections */}
 				{layout.connections.map((conn) => {
 					const start = getConnectionPoints(conn.fromNodeId, conn.fromHandle);
 					const end = getConnectionPoints(conn.toNodeId, conn.toHandle);
@@ -119,7 +146,6 @@ export function DomainCanvas({
 					);
 				})}
 
-				{/* Render Nodes */}
 				{layout.nodes.map((node) => {
 					const props: NodeComponentProps = {
 						node,
@@ -127,22 +153,29 @@ export function DomainCanvas({
 						onHandleClick: handleHandleClick,
 						isConnecting: interaction.mode === "connecting",
 					};
+
 					if (node.type === "entry-point") {
 						return (
 							<DomainEntryPointCard
 								key={node.id}
 								{...props}
+								node={node as CanvasNode<EntryPointNodeData>}
 								domainName={selectedDomain}
 							/>
 						);
 					}
 					if (node.type === "rate-limit") {
-						return <RateLimitCard key={node.id} {...props} />;
+						return (
+							<RateLimitCard
+								key={node.id}
+								{...props}
+								node={node as CanvasNode<RateLimitNodeData>}
+							/>
+						);
 					}
 					return null;
 				})}
 
-				{/* Render preview connector */}
 				<AnimatePresence>
 					{interaction.mode === "connecting" && interaction.fromNodeId && (
 						<CanvasConnector
