@@ -54,11 +54,11 @@ export function DomainCanvas({
 			if (node.type === "rate-limit") {
 				const typedNode = node as CanvasNode<RateLimitNodeData>;
 				const isInput = typedNode.inputs.some((h) => h.id === handleId);
+
 				if (isInput) {
-					// --- FINAL FIX: Calculate absolute Y by adding the body offset to the node's base Y. ---
-					const bodyTopY = typedNode.y + headerHeight;
+					const bodyTopAbsoluteY = typedNode.y + headerHeight;
 					const handleOffsetY = headerHeight / 2;
-					return { x: typedNode.x, y: bodyTopY + handleOffsetY };
+					return { x: typedNode.x, y: bodyTopAbsoluteY + handleOffsetY };
 				} else {
 					const bodyHeight =
 						headerHeight *
