@@ -6,15 +6,11 @@ import { motion } from "framer-motion";
 import { type CanvasNode } from "~/lib/canvas-layout";
 import React from "react";
 
-// Standardized props for all node components
+// --- FIX: Simplified prop type. The card no longer needs to calculate position. ---
 export interface NodeComponentProps {
 	node: CanvasNode;
 	onMouseDown: (nodeId: string, e: React.MouseEvent) => void;
-	onHandleClick: (
-		nodeId: string,
-		handleId: string,
-		e: React.MouseEvent
-	) => void;
+	onHandleClick: (nodeId: string, handleId: string) => void;
 	isConnecting: boolean;
 }
 
@@ -29,6 +25,11 @@ export function DomainEntryPointCard({
 	onHandleClick,
 	isConnecting,
 }: DomainEntryPointCardProps) {
+	const handleClicked = (e: React.MouseEvent) => {
+		e.stopPropagation();
+		onHandleClick(node.id, "output");
+	};
+
 	return (
 		<motion.div
 			className="absolute cursor-grab"
@@ -38,27 +39,21 @@ export function DomainEntryPointCard({
 		>
 			<Tooltip.Provider delayDuration={150}>
 				<div className="relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md">
-					{/* Header */}
 					<div className="flex items-center gap-2 border-b border-[var(--color-bg-alt)] p-3">
 						<Globe size={16} className="text-[var(--color-subtext)]" />
 						<p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-subtext)]">
 							Entry Point
 						</p>
 					</div>
-
-					{/* Body */}
 					<div className="p-2">
 						<p className="truncate font-medium text-[var(--color-text)]">
 							{domainName}
 						</p>
 					</div>
-
-					{/* Output Handle */}
 					<Tooltip.Root>
 						<Tooltip.Trigger asChild>
 							<div
-								data-handle-id="output" // Identify the handle
-								onClick={(e) => onHandleClick(node.id, "output", e)}
+								onClick={handleClicked}
 								className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-3 w-3 rounded-full bg-[var(--color-bg)] border-2 border-[var(--color-theme-border)] transition-colors ${
 									isConnecting
 										? "cursor-crosshair hover:bg-[var(--color-theme-bg)]"
