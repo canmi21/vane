@@ -54,22 +54,19 @@ export function DomainCanvas({
 			if (!node) return { x: 0, y: 0 };
 
 			const nodeWidth = 256;
-			const entryPointHeight = 73;
-			const rateLimitHeight = 125;
-			const handleOffset = 6; // Offset to avoid overlapping the handle circle
+			// --- FIX: Recalculated heights to include the 1px top/bottom border of the card itself. ---
+			// This should provide the final pixel-perfect centering.
+			const entryPointHeight = 83; // Header(41px) + Body(40px) + Borders(2px)
+			const rateLimitHeight = 123; // Header(41px) + Body(80px) + Borders(2px)
 
-			// --- FIX: Calculate the exact connection point, including the offset. ---
-			// This makes the CanvasConnector a pure component.
 			if (node.type === "entry-point") {
-				// Handle is on the right, so we offset to the left.
 				return {
-					x: node.x + nodeWidth - handleOffset,
+					x: node.x + nodeWidth,
 					y: node.y + entryPointHeight / 2,
 				};
 			}
 			if (node.type === "rate-limit" && handleId === "input") {
-				// Handle is on the left, so we offset to the right.
-				return { x: node.x + handleOffset, y: node.y + rateLimitHeight / 2 };
+				return { x: node.x, y: node.y + rateLimitHeight / 2 };
 			}
 			return { x: node.x, y: node.y };
 		},
