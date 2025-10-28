@@ -16,6 +16,12 @@ import { nanoid } from "nanoid";
 const ZOOM_SENSITIVITY = 0.001;
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 3;
+const NODE_WIDTH = 256;
+const NODE_HEIGHTS: Record<string, number> = {
+	"entry-point": 83,
+	"rate-limit": 123,
+};
+const DEFAULT_NODE_HEIGHT = 100;
 
 type InteractionMode =
 	| { mode: "idle" }
@@ -54,10 +60,8 @@ export function DomainCanvas({
 			if (!node) return { x: 0, y: 0 };
 
 			const nodeWidth = 256;
-			// --- FIX: Recalculated heights to include the 1px top/bottom border of the card itself. ---
-			// This should provide the final pixel-perfect centering.
-			const entryPointHeight = 83; // Header(41px) + Body(40px) + Borders(2px)
-			const rateLimitHeight = 123; // Header(41px) + Body(80px) + Borders(2px)
+			const entryPointHeight = 83;
+			const rateLimitHeight = 123;
 
 			if (node.type === "entry-point") {
 				return {
@@ -72,6 +76,57 @@ export function DomainCanvas({
 		},
 		[layout.nodes]
 	);
+
+	// --- ADDED: The logic for the "Fit to View" feature ---
+	const handleFitView = useCallback(() => {
+		if (!canvasRef.current || layout.nodes.length === 0) {
+			setView({ x: 0, y: 0 });
+			setScale(1);
+			return;
+		}
+
+		const canvasElement = canvasRef.current;
+		const { width: canvasWidth, height: canvasHeight } =
+			canvasElement.getBoundingClientRect();
+
+		let minX = Infinity,
+			minY = Infinity,
+			maxX = -Infinity,
+			maxY = -Infinity;
+
+		layout.nodes.forEach((node) => {
+			const nodeHeight = NODE_HEIGHTS[node.type] ?? DEFAULT_NODE_HEIGHT;
+			minX = Math.min(minX, node.x);
+			minY = Math.min(minY, node.y);
+			maxX = Math.max(maxX, node.x + NODE_WIDTH);
+			maxY = Math.max(maxY, node.y + nodeHeight);
+		});
+
+		const boxWidth = maxX - minX;
+		const boxHeight = maxY - minY;
+
+		if (boxWidth === 0 || boxHeight === 0) return;
+
+		const PADDING = 120; // Pixels of padding
+		const scaleX = (canvasWidth - PADDING) / boxWidth;
+		const scaleY = (canvasHeight - PADDING) / boxHeight;
+		const newScale = Math.min(scaleX, scaleY);
+		const clampedScale = Math.max(MIN_SCALE, Math.min(newScale, MAX_SCALE));
+
+		const boxCenterX = minX + boxWidth / 2;
+		const boxCenterY = minY + boxHeight / 2;
+		const newViewX = canvasWidth / 2 - boxCenterX * clampedScale;
+		const newViewY = canvasHeight / 2 - boxCenterY * clampedScale;
+
+		setView({ x: newViewX, y: newViewY });
+		setScale(clampedScale);
+	}, [layout.nodes]);
+
+	// --- ADDED: The logic for the "Reset View" feature ---
+	const handleResetView = useCallback(() => {
+		setView({ x: 0, y: 0 });
+		setScale(1);
+	}, []);
 
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
@@ -248,10 +303,9 @@ export function DomainCanvas({
 			}}
 		>
 			<CanvasToolbar
-				onResetView={() => {
-					setView({ x: 0, y: 0 });
-					setScale(1);
-				}}
+				// --- MODIFIED: Pass the correct functions to the toolbar ---
+				onResetView={handleResetView}
+				onFitView={handleFitView}
 				onToggleConnectorMode={handleToggleConnectorMode}
 				isConnectorModeActive={interaction.mode === "connecting"}
 			/>
