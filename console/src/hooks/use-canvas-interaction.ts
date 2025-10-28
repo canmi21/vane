@@ -26,7 +26,6 @@ interface UseCanvasInteractionProps {
 		nodeId: string,
 		handleId: string
 	) => { x: number; y: number };
-	// --- FIX: Allow the ref's current value to be null. ---
 	canvasRef: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -64,17 +63,21 @@ export function useCanvasInteraction({
 		[interaction.mode, canvasRef]
 	);
 
+	// --- FINAL FIX: Mouse position is now calculated relative to the canvas element itself. ---
 	const handleMouseMove = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
-			setMousePosition({ x: e.clientX, y: e.clientY });
+			// Panning and dragging rely on deltas from the raw clientX/Y, so they are handled first.
 			if (interaction.mode === "panning") {
 				const dx = e.clientX - interaction.start.x;
 				const dy = e.clientY - interaction.start.y;
 				panBy(dx, dy);
-				setInteraction({
-					...interaction,
-					start: { x: e.clientX, y: e.clientY },
-				});
+				setInteraction(
+					(prev) =>
+						({
+							...prev,
+							start: { x: e.clientX, y: e.clientY },
+						}) as InteractionMode
+				);
 			} else if (interaction.mode === "dragging") {
 				const dx = (e.clientX - interaction.start.x) / scale;
 				const dy = (e.clientY - interaction.start.y) / scale;
@@ -82,13 +85,25 @@ export function useCanvasInteraction({
 					n.id === interaction.nodeId ? { ...n, x: n.x + dx, y: n.y + dy } : n
 				);
 				onLayoutChange({ ...layout, nodes: newNodes });
-				setInteraction({
-					...interaction,
-					start: { x: e.clientX, y: e.clientY },
+				setInteraction(
+					(prev) =>
+						({
+							...prev,
+							start: { x: e.clientX, y: e.clientY },
+						}) as InteractionMode
+				);
+			}
+
+			// For calculating the preview line's end point, we need the precise relative coordinate.
+			if (canvasRef.current) {
+				const canvasRect = canvasRef.current.getBoundingClientRect();
+				setMousePosition({
+					x: e.clientX - canvasRect.left,
+					y: e.clientY - canvasRect.top,
 				});
 			}
 		},
-		[interaction, scale, layout, onLayoutChange, panBy]
+		[interaction, scale, layout, onLayoutChange, panBy, canvasRef]
 	);
 
 	const handleMouseUp = useCallback(() => {
@@ -117,14 +132,52 @@ export function useCanvasInteraction({
 		[interaction.mode]
 	);
 
+	// --- FINAL FIX: Rewritten with robust validation for creating connections. ---
 	const handleHandleClick = useCallback(
 		(nodeId: string, handleId: string) => {
-			if (interaction.mode !== "connecting" && interaction.mode !== "idle")
-				return;
-			const handlePos = getConnectionPoints(nodeId, handleId);
+			const targetNode = layout.nodes.find((n) => n.id === nodeId);
+			if (!targetNode) return;
 
+			// --- Case 1: FINISHING a connection ---
 			if (interaction.mode === "connecting") {
-				if (interaction.fromNodeId === nodeId) return;
+				const startNode = layout.nodes.find(
+					(n) => n.id === interaction.fromNodeId
+				);
+				// The startNode should always exist if we are in connecting mode from a handle click.
+				if (!startNode) {
+					setInteraction({ mode: "idle" });
+					return;
+				}
+
+				// --- Validation Checks ---
+				// Rule 1: Cannot connect a node to itself.
+				if (startNode.id === targetNode.id) return;
+				// Rule 2: Must connect an output to an input.
+				const isStartHandleOutput = startNode.outputs.some(
+					(h) => h.id === interaction.fromHandle
+				);
+				const isTargetHandleInput = targetNode.inputs.some(
+					(h) => h.id === handleId
+				);
+				if (!isStartHandleOutput || !isTargetHandleInput) return;
+				// Rule 3: Target input handle must not be occupied.
+				if (
+					layout.connections.some(
+						(c) => c.toNodeId === nodeId && c.toHandle === handleId
+					)
+				)
+					return;
+				// Rule 4: Source output handle must not be occupied.
+				if (
+					layout.connections.some(
+						(c) =>
+							c.fromNodeId === startNode.id &&
+							c.fromHandle === interaction.fromHandle
+					)
+				)
+					return;
+
+				// All checks passed. Create the new connection.
 				const newConnection: CanvasConnection = {
 					id: nanoid(),
 					fromNodeId: interaction.fromNodeId,
@@ -137,7 +190,24 @@ export function useCanvasInteraction({
 					connections: [...layout.connections, newConnection],
 				});
 				setInteraction({ mode: "idle" });
-			} else {
+
+				// --- Case 2: STARTING a new connection ---
+			} else if (interaction.mode === "idle") {
+				// Can only start a connection from an OUTPUT handle.
+				const isStartHandleOutput = targetNode.outputs.some(
+					(h) => h.id === handleId
+				);
+				if (!isStartHandleOutput) return;
+
+				// A connection can't start from an already connected output handle.
+				if (
+					layout.connections.some(
+						(c) => c.fromNodeId === nodeId && c.fromHandle === handleId
+					)
+				)
+					return;
+
+				const handlePos = getConnectionPoints(nodeId, handleId);
 				setInteraction({
 					mode: "connecting",
 					fromNodeId: nodeId,
