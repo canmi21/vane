@@ -22,7 +22,6 @@ interface UseCanvasLayoutProps {
 export function useCanvasLayout({ selectedDomain }: UseCanvasLayoutProps) {
 	const [layout, setLayout] = useState<CanvasLayout | null>(null);
 
-	// Generates the initial, minimal layout with only the entry point.
 	const generateDefaultLayout = useCallback((): CanvasLayout => {
 		const entryPointNode: CanvasNode<EntryPointNodeData> = {
 			id: "entry-point",
@@ -36,7 +35,6 @@ export function useCanvasLayout({ selectedDomain }: UseCanvasLayoutProps) {
 		return { nodes: [entryPointNode], connections: [] };
 	}, []);
 
-	// On domain change, load from localStorage or create a default layout.
 	useEffect(() => {
 		if (!selectedDomain) {
 			setLayout(null);
@@ -63,23 +61,21 @@ export function useCanvasLayout({ selectedDomain }: UseCanvasLayoutProps) {
 		[selectedDomain]
 	);
 
-	// Function to add new nodes to the canvas.
 	const addNode = (type: "rate-limit") => {
 		if (!layout) return;
 
-		// This can be expanded with a switch statement for more node types.
 		if (type === "rate-limit") {
 			const newNode: CanvasNode<RateLimitNodeData> = {
-				id: nanoid(8), // Use a shorter, unique ID
+				id: nanoid(8),
 				type: "rate-limit",
-				x: 350, // A sensible default position
+				x: 350,
 				y: 350,
 				inputs: [{ id: "input", label: "Input" }],
 				outputs: [
 					{ id: "accept", label: "Accept" },
 					{ id: "drop", label: "Drop" },
 				],
-				data: { requests_per_second: 100 }, // Default data
+				data: { requests_per_second: 100 },
 			};
 
 			const newLayout = { ...layout, nodes: [...layout.nodes, newNode] };
