@@ -17,6 +17,8 @@ import {
 	saveLayout,
 	type CanvasLayout,
 	type CanvasNode,
+	type EntryPointNodeData,
+	type RateLimitNodeData,
 } from "~/lib/canvas-layout";
 
 // --- API & Data Types ---
@@ -76,19 +78,33 @@ function DomainDetailPage() {
 		enabled: !!selectedDomain && !domainsQuery.isLoading,
 	});
 
-	// --- FIX: Wrap generateDefaultLayout in useCallback ---
-	const generateDefaultLayout = useCallback(() => {
+	const generateDefaultLayout = useCallback((): CanvasLayout => {
 		let nextX = 150;
-		const nodes: CanvasNode[] = [
-			{ id: "entry-point", type: "entry-point", x: nextX, y: 200 },
-		];
+		const nodes: CanvasNode<unknown>[] = [];
 		const connections = [];
+
+		nodes.push({
+			id: "entry-point",
+			type: "entry-point",
+			x: nextX,
+			y: 200,
+			inputs: [],
+			outputs: [{ id: "output", label: "Output" }],
+			data: {},
+		} as CanvasNode<EntryPointNodeData>);
 		nextX += 350;
 
-		const isRateLimitEnabled =
-			(rateLimitQuery.data?.data?.requests_per_second ?? 0) > 0;
-		if (isRateLimitEnabled) {
-			nodes.push({ id: "rate-limit", type: "rate-limit", x: nextX, y: 200 });
+		const rateLimitRPS = rateLimitQuery.data?.data?.requests_per_second ?? 0;
+		if (rateLimitRPS > 0) {
+			nodes.push({
+				id: "rate-limit",
+				type: "rate-limit",
+				x: nextX,
+				y: 200,
+				inputs: [{ id: "input", label: "Input" }],
+				outputs: [],
+				data: { requests_per_second: rateLimitRPS },
+			} as CanvasNode<RateLimitNodeData>);
 			connections.push({
 				id: "entry-to-ratelimit",
 				fromNodeId: "entry-point",
@@ -101,38 +117,28 @@ function DomainDetailPage() {
 	}, [rateLimitQuery.data]);
 
 	useEffect(() => {
-		if (!selectedDomain || rateLimitQuery.isLoading) return;
+		if (!selectedDomain || !rateLimitQuery.data) return;
 
+		const freshLayout = generateDefaultLayout();
 		const savedLayout = loadLayout(selectedDomain);
-		if (savedLayout) {
-			const shouldHaveRateLimit =
-				(rateLimitQuery.data?.data?.requests_per_second ?? 0) > 0;
-			const savedHasRateLimit = savedLayout.nodes.some(
-				(n) => n.type === "rate-limit"
-			);
 
-			if (shouldHaveRateLimit !== savedHasRateLimit) {
-				localStorage.removeItem(`@vane/canvas-layout/${selectedDomain}`);
-				const newLayout = generateDefaultLayout();
-				setLayout(newLayout);
-				saveLayout(selectedDomain, newLayout);
-			} else {
-				setLayout(savedLayout);
+		if (savedLayout) {
+			const positionMap = new Map<string, { x: number; y: number }>();
+			for (const node of savedLayout.nodes) {
+				positionMap.set(node.id, { x: node.x, y: node.y });
 			}
-			return;
+			for (const node of freshLayout.nodes) {
+				const savedPosition = positionMap.get(node.id);
+				if (savedPosition) {
+					node.x = savedPosition.x;
+					node.y = savedPosition.y;
+				}
+			}
 		}
 
-		const newLayout = generateDefaultLayout();
-		setLayout(newLayout);
-		saveLayout(selectedDomain, newLayout);
-
-		// --- FIX: Add generateDefaultLayout to the dependency array ---
-	}, [
-		selectedDomain,
-		rateLimitQuery.isLoading,
-		rateLimitQuery.data,
-		generateDefaultLayout,
-	]);
+		setLayout(freshLayout);
+		saveLayout(selectedDomain, freshLayout);
+	}, [selectedDomain, rateLimitQuery.data, generateDefaultLayout]);
 
 	const handleLayoutChange = useCallback(
 		(newLayout: CanvasLayout) => {
