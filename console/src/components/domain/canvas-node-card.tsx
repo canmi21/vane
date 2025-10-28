@@ -17,7 +17,7 @@ interface CanvasNodeCardProps {
 }
 
 /**
- * A generic, reusable card for representing a processing node on the canvas.
+ * Generic node card with a body height proportional to the number of outputs.
  */
 export function CanvasNodeCard({
 	icon: Icon,
@@ -25,13 +25,35 @@ export function CanvasNodeCard({
 	parameters = [],
 	outputs,
 }: CanvasNodeCardProps) {
+	const headerRef = React.useRef<HTMLDivElement>(null);
+	const [headerHeight, setHeaderHeight] = React.useState(41); // Start with a close estimate
+
+	React.useLayoutEffect(() => {
+		if (headerRef.current) {
+			setHeaderHeight(headerRef.current.offsetHeight);
+		}
+	}, []);
+
+	const bodyHeight = headerHeight * (outputs.length > 0 ? outputs.length : 1);
+
+	// --- MODIFIED: Calculate the input handle's vertical position ---
+	// It should be centered in the body, just like the outputs.
+	// Position = top of body (headerHeight) + half of body's height.
+	const inputHandleTop = headerHeight + bodyHeight / 2;
+
 	return (
 		<Tooltip.Provider delayDuration={150}>
 			<div className="relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md">
-				{/* --- MODIFIED: Centered the handle on the card's edge --- */}
+				{/* --- MODIFIED: Input Handle now positioned in the center of the body --- */}
 				<Tooltip.Root>
 					<Tooltip.Trigger asChild>
-						<div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-3 rounded-full bg-[var(--color-bg)] border-2 border-[var(--color-theme-border)] cursor-pointer" />
+						<div
+							className="absolute left-0 h-3 w-3 rounded-full bg-[var(--color-bg)] border-2 border-[var(--color-theme-border)] cursor-pointer z-10"
+							style={{
+								top: `${inputHandleTop}px`, // Use the new calculated position
+								transform: "translate(-50%, -50%)",
+							}}
+						/>
 					</Tooltip.Trigger>
 					<Tooltip.Portal>
 						<Tooltip.Content side="left" sideOffset={8} asChild>
@@ -47,14 +69,16 @@ export function CanvasNodeCard({
 				</Tooltip.Root>
 
 				{/* Card Header */}
-				<div className="flex items-center justify-between gap-2 border-b border-[var(--color-bg-alt)] p-3">
+				<div
+					ref={headerRef}
+					className="flex items-center justify-between gap-2 border-b border-[var(--color-bg-alt)] p-3"
+				>
 					<div className="flex items-center gap-2">
 						<Icon size={16} className="text-[var(--color-subtext)]" />
 						<p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-subtext)]">
 							{title}
 						</p>
 					</div>
-
 					{parameters.length > 0 && (
 						<Tooltip.Root>
 							<Tooltip.Trigger asChild>
@@ -87,21 +111,24 @@ export function CanvasNodeCard({
 					)}
 				</div>
 
-				<div className="h-10" />
+				{/* Card Body */}
+				<div className="relative" style={{ height: `${bodyHeight}px` }}>
+					{/* Output handles evenly distributed in the body section */}
+					{outputs.map((output, index) => {
+						const totalOutputs = outputs.length;
+						const positionPercent =
+							totalOutputs <= 1 ? 50 : (100 / (totalOutputs + 1)) * (index + 1);
 
-				{/* --- MODIFIED: Centered the handle on the card's edge --- */}
-				<div
-					className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 flex flex-col justify-center"
-					style={{ height: "100%" }}
-				>
-					<div
-						className="flex flex-col"
-						style={{ gap: outputs.length > 1 ? "12px" : "0" }}
-					>
-						{outputs.map((output) => (
+						return (
 							<Tooltip.Root key={output.label}>
 								<Tooltip.Trigger asChild>
-									<div className="h-3 w-3 rounded-full bg-[var(--color-bg)] border-2 border-[var(--color-theme-border)] transition-colors hover:bg-[var(--color-theme-bg)] cursor-pointer" />
+									<div
+										className="absolute right-0 h-3 w-3 rounded-full bg-[var(--color-bg)] border-2 border-[var(--color-theme-border)] transition-colors hover:bg-[var(--color-theme-bg)] cursor-pointer"
+										style={{
+											top: `${positionPercent}%`,
+											transform: "translate(50%, -50%)",
+										}}
+									/>
 								</Tooltip.Trigger>
 								<Tooltip.Portal>
 									<Tooltip.Content side="right" sideOffset={8} asChild>
@@ -115,8 +142,8 @@ export function CanvasNodeCard({
 									</Tooltip.Content>
 								</Tooltip.Portal>
 							</Tooltip.Root>
-						))}
-					</div>
+						);
+					})}
 				</div>
 			</div>
 		</Tooltip.Provider>
