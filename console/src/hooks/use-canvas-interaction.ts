@@ -14,7 +14,7 @@ export type InteractionMode =
 			fromNodeId: string;
 			fromHandle: string;
 			fromPosition: { x: number; y: number };
-	};
+	  };
 
 interface UseCanvasInteractionProps {
 	scale: number;
