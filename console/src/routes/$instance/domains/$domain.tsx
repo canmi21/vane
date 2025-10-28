@@ -18,22 +18,18 @@ function DomainDetailPage() {
 	});
 	const selectedDomain = domain === "_" ? null : domain;
 
-	// --- Custom Hooks ---
 	const {
 		domains,
 		domainsQuery,
-		rateLimitQuery,
 		addMutation,
 		removeMutation,
 		handleDomainSelect,
 	} = useDomainData(instanceId, selectedDomain);
 
-	const { layout, handleLayoutChange } = useCanvasLayout({
+	const { layout, handleLayoutChange, addNode } = useCanvasLayout({
 		selectedDomain,
-		rateLimitQuery,
 	});
 
-	// --- Render Logic ---
 	if (domainsQuery.isLoading) {
 		return <FullPageStatus icon={Server} text="Loading Domains..." />;
 	}
@@ -54,6 +50,7 @@ function DomainDetailPage() {
 					layout={layout}
 					onLayoutChange={handleLayoutChange}
 					selectedDomain={selectedDomain}
+					onAddNode={addNode}
 				/>
 			) : (
 				<FullPageStatus icon={Loader2} text="Loading Canvas Layout..." />
