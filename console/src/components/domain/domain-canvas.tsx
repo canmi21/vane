@@ -4,7 +4,10 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CanvasToolbar } from "./canvas-toolbar";
 import { type CanvasLayout, type CanvasConnection } from "~/lib/canvas-layout";
-import { DomainEntryPointCard } from "./domain-entry-point-card";
+import {
+	DomainEntryPointCard,
+	type NodeComponentProps,
+} from "./domain-entry-point-card";
 import { RateLimitCard } from "./rate-limit-card";
 import { CanvasConnector } from "./canvas-connector";
 import { nanoid } from "nanoid";
@@ -22,7 +25,7 @@ type InteractionMode =
 			mode: "connecting";
 			fromNodeId: string;
 			fromHandle: string;
-			fromPosition: { x: number; y: number };
+			fromPosition: { x: number; y: number }; // Canvas coordinates
 	  };
 
 interface DomainCanvasProps {
@@ -53,12 +56,20 @@ export function DomainCanvas({
 			const nodeWidth = 256;
 			const entryPointHeight = 73;
 			const rateLimitHeight = 125;
+			const handleOffset = 6; // Offset to avoid overlapping the handle circle
 
+			// --- FIX: Calculate the exact connection point, including the offset. ---
+			// This makes the CanvasConnector a pure component.
 			if (node.type === "entry-point") {
-				return { x: node.x + nodeWidth, y: node.y + entryPointHeight / 2 };
+				// Handle is on the right, so we offset to the left.
+				return {
+					x: node.x + nodeWidth - handleOffset,
+					y: node.y + entryPointHeight / 2,
+				};
 			}
 			if (node.type === "rate-limit" && handleId === "input") {
-				return { x: node.x, y: node.y + rateLimitHeight / 2 };
+				// Handle is on the left, so we offset to the right.
+				return { x: node.x + handleOffset, y: node.y + rateLimitHeight / 2 };
 			}
 			return { x: node.x, y: node.y };
 		},
@@ -136,21 +147,20 @@ export function DomainCanvas({
 		}
 	}, []);
 
-	// --- FIX: Re-added the manual event listener for the wheel event ---
 	useEffect(() => {
 		const canvasElement = canvasRef.current;
 		if (canvasElement) {
-			// This { passive: false } option is crucial to prevent the console warning.
 			canvasElement.addEventListener("wheel", handleWheel, { passive: false });
-			return () => {
-				canvasElement.removeEventListener("wheel", handleWheel);
-			};
+			return () => canvasElement.removeEventListener("wheel", handleWheel);
 		}
 	}, [handleWheel]);
 
 	const handleNodeMouseDown = useCallback(
 		(nodeId: string, e: React.MouseEvent) => {
-			if (e.button === 0 && interaction.mode === "idle") {
+			if (
+				e.button === 0 &&
+				(interaction.mode === "idle" || interaction.mode === "connecting")
+			) {
 				e.stopPropagation();
 				setInteraction({
 					mode: "dragging",
@@ -163,35 +173,34 @@ export function DomainCanvas({
 	);
 
 	const handleHandleClick = useCallback(
-		(nodeId: string, handleId: string, e: React.MouseEvent) => {
-			e.stopPropagation();
-			if (interaction.mode !== "connecting") return;
+		(nodeId: string, handleId: string) => {
+			if (interaction.mode !== "connecting" && interaction.mode !== "idle")
+				return;
 
 			const handlePos = getConnectionPoints(nodeId, handleId);
 
-			if (!interaction.fromNodeId) {
+			if (interaction.mode === "connecting" && interaction.fromNodeId) {
+				if (interaction.fromNodeId === nodeId) return;
+				const newConnection: CanvasConnection = {
+					id: nanoid(),
+					fromNodeId: interaction.fromNodeId,
+					fromHandle: interaction.fromHandle,
+					toNodeId: nodeId,
+					toHandle: handleId,
+				};
+				onLayoutChange({
+					...layout,
+					connections: [...layout.connections, newConnection],
+				});
+				setInteraction({ mode: "idle" });
+			} else {
 				setInteraction({
 					mode: "connecting",
 					fromNodeId: nodeId,
 					fromHandle: handleId,
 					fromPosition: handlePos,
 				});
-				return;
 			}
-			if (interaction.fromNodeId === nodeId) return;
-
-			const newConnection: CanvasConnection = {
-				id: nanoid(),
-				fromNodeId: interaction.fromNodeId,
-				fromHandle: interaction.fromHandle,
-				toNodeId: nodeId,
-				toHandle: handleId,
-			};
-			onLayoutChange({
-				...layout,
-				connections: [...layout.connections, newConnection],
-			});
-			setInteraction({ mode: "idle" });
 		},
 		[interaction, layout, onLayoutChange, getConnectionPoints]
 	);
@@ -218,6 +227,11 @@ export function DomainCanvas({
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [handleKeyDown]);
 
+	const mouseInCanvasCoords = {
+		x: (mousePosition.x - view.x) / scale,
+		y: (mousePosition.y - view.y) / scale,
+	};
+
 	return (
 		<div
 			ref={canvasRef}
@@ -231,12 +245,9 @@ export function DomainCanvas({
 			onMouseMove={handleMouseMove}
 			onMouseUp={handleMouseUp}
 			onMouseLeave={handleMouseUp}
-			// onWheel is now correctly handled by the useEffect hook above
 			onContextMenu={(e) => {
 				e.preventDefault();
-				if (interaction.mode === "connecting") {
-					setInteraction({ mode: "idle" });
-				}
+				if (interaction.mode === "connecting") setInteraction({ mode: "idle" });
 			}}
 		>
 			<CanvasToolbar
@@ -265,8 +276,9 @@ export function DomainCanvas({
 						/>
 					);
 				})}
+
 				{layout.nodes.map((node) => {
-					const props = {
+					const props: NodeComponentProps = {
 						node,
 						onMouseDown: handleNodeMouseDown,
 						onHandleClick: handleHandleClick,
@@ -286,20 +298,18 @@ export function DomainCanvas({
 					}
 					return null;
 				})}
-			</motion.div>
 
-			<AnimatePresence>
-				{interaction.mode === "connecting" && interaction.fromNodeId && (
-					<svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
+				<AnimatePresence>
+					{interaction.mode === "connecting" && interaction.fromNodeId && (
 						<CanvasConnector
-							x1={interaction.fromPosition.x * scale + view.x}
-							y1={interaction.fromPosition.y * scale + view.y}
-							x2={mousePosition.x}
-							y2={mousePosition.y}
+							x1={interaction.fromPosition.x}
+							y1={interaction.fromPosition.y}
+							x2={mouseInCanvasCoords.x}
+							y2={mouseInCanvasCoords.y}
 						/>
-					</svg>
-				)}
-			</AnimatePresence>
+					)}
+				</AnimatePresence>
+			</motion.div>
 		</div>
 	);
 }
