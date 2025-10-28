@@ -1,57 +1,12 @@
 /* src/routes/$instance/domains/$domain.tsx */
 
-import {
-	createFileRoute,
-	useNavigate,
-	useParams,
-} from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, useParams } from "@tanstack/react-router";
 import { Server, ServerCrash, Loader2 } from "lucide-react";
-import React, { useCallback, useMemo, useState, useEffect } from "react";
-import { deleteInstance, getInstance, postInstance } from "~/api/instance";
-import { type RequestResult } from "~/api/request";
+import React from "react";
 import { DomainCanvas } from "~/components/domain/domain-canvas";
 import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
-import {
-	loadLayout,
-	saveLayout,
-	type CanvasLayout,
-	type CanvasNode,
-	type EntryPointNodeData,
-	type RateLimitNodeData,
-} from "~/lib/canvas-layout";
-
-// --- API & Data Types ---
-interface ListDomainsResponse {
-	domains: string[];
-}
-async function listDomains(
-	instanceId: string
-): Promise<RequestResult<ListDomainsResponse>> {
-	return getInstance(instanceId, "/v1/domains");
-}
-async function getRateLimitConfig(
-	instanceId: string,
-	domain: string
-): Promise<RequestResult<{ requests_per_second: number }>> {
-	return getInstance(instanceId, `/v1/ratelimit/${domain}`);
-}
-const createDomain = (instanceId: string, domain: string) =>
-	postInstance(instanceId, `/v1/domains/${encodeURIComponent(domain)}`, {});
-const deleteDomain = (instanceId: string, domain: string) =>
-	deleteInstance(instanceId, `/v1/domains/${encodeURIComponent(domain)}`);
-
-function sortDomainsList(domains: string[]): string[] {
-	return [...domains].sort((a, b) => {
-		const isAFallback = a === "fallback";
-		const isBFallback = b === "fallback";
-		if (isAFallback !== isBFallback) return isAFallback ? 1 : -1;
-		const isAWildcard = a.includes("*");
-		const isBWildcard = b.includes("*");
-		if (isAWildcard !== isBWildcard) return isAWildcard ? 1 : -1;
-		return a.localeCompare(b);
-	});
-}
+import { useDomainData } from "~/hooks/use-domain-data";
+import { useCanvasLayout } from "~/hooks/use-canvas-layout";
 
 export const Route = createFileRoute("/$instance/domains/$domain")({
 	component: DomainDetailPage,
@@ -62,134 +17,27 @@ function DomainDetailPage() {
 		from: "/$instance/domains/$domain",
 	});
 	const selectedDomain = domain === "_" ? null : domain;
-	const queryClient = useQueryClient();
-	const navigate = useNavigate();
 
-	const [layout, setLayout] = useState<CanvasLayout | null>(null);
+	// --- Custom Hooks ---
+	const {
+		domains,
+		domainsQuery,
+		rateLimitQuery,
+		addMutation,
+		removeMutation,
+		handleDomainSelect,
+	} = useDomainData(instanceId, selectedDomain);
 
-	const domainsQuery = useQuery({
-		queryKey: ["instance", instanceId, "domains"],
-		queryFn: () => listDomains(instanceId),
+	const { layout, handleLayoutChange } = useCanvasLayout({
+		selectedDomain,
+		rateLimitQuery,
 	});
 
-	const rateLimitQuery = useQuery({
-		queryKey: ["instance", instanceId, "ratelimit", selectedDomain],
-		queryFn: () => getRateLimitConfig(instanceId, selectedDomain!),
-		enabled: !!selectedDomain && !domainsQuery.isLoading,
-	});
-
-	const generateDefaultLayout = useCallback((): CanvasLayout => {
-		let nextX = 150;
-		const nodes: CanvasNode<unknown>[] = [];
-		const connections = [];
-
-		nodes.push({
-			id: "entry-point",
-			type: "entry-point",
-			x: nextX,
-			y: 200,
-			inputs: [],
-			outputs: [{ id: "output", label: "Output" }],
-			data: {},
-		} as CanvasNode<EntryPointNodeData>);
-		nextX += 350;
-
-		const rateLimitRPS = rateLimitQuery.data?.data?.requests_per_second ?? 0;
-		if (rateLimitRPS > 0) {
-			nodes.push({
-				id: "rate-limit",
-				type: "rate-limit",
-				x: nextX,
-				y: 200,
-				inputs: [{ id: "input", label: "Input" }],
-				outputs: [],
-				data: { requests_per_second: rateLimitRPS },
-			} as CanvasNode<RateLimitNodeData>);
-			connections.push({
-				id: "entry-to-ratelimit",
-				fromNodeId: "entry-point",
-				fromHandle: "output",
-				toNodeId: "rate-limit",
-				toHandle: "input",
-			});
-		}
-		return { nodes, connections };
-	}, [rateLimitQuery.data]);
-
-	useEffect(() => {
-		if (!selectedDomain || !rateLimitQuery.data) return;
-
-		const freshLayout = generateDefaultLayout();
-		const savedLayout = loadLayout(selectedDomain);
-
-		if (savedLayout) {
-			const positionMap = new Map<string, { x: number; y: number }>();
-			for (const node of savedLayout.nodes) {
-				positionMap.set(node.id, { x: node.x, y: node.y });
-			}
-			for (const node of freshLayout.nodes) {
-				const savedPosition = positionMap.get(node.id);
-				if (savedPosition) {
-					node.x = savedPosition.x;
-					node.y = savedPosition.y;
-				}
-			}
-		}
-
-		setLayout(freshLayout);
-		saveLayout(selectedDomain, freshLayout);
-	}, [selectedDomain, rateLimitQuery.data, generateDefaultLayout]);
-
-	const handleLayoutChange = useCallback(
-		(newLayout: CanvasLayout) => {
-			setLayout(newLayout);
-			if (selectedDomain) saveLayout(selectedDomain, newLayout);
-		},
-		[selectedDomain]
-	);
-
-	const domains = useMemo(() => {
-		const apiDomains = domainsQuery.data?.data?.domains ?? [];
-		return sortDomainsList(apiDomains);
-	}, [domainsQuery.data]);
-
-	const handleDomainSelect = useCallback(
-		(newDomain: string) => {
-			setLayout(null);
-			navigate({
-				to: "/$instance/domains/$domain",
-				params: { instance: instanceId, domain: newDomain },
-				replace: true,
-			});
-		},
-		[navigate, instanceId]
-	);
-
-	const addMutation = useMutation<RequestResult<unknown>, Error, string>({
-		mutationFn: (newDomain) => createDomain(instanceId, newDomain),
-		onSuccess: (_, newDomain) => {
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "domains"],
-			});
-			handleDomainSelect(newDomain);
-		},
-	});
-
-	const removeMutation = useMutation<RequestResult<unknown>, Error, string>({
-		mutationFn: (domainToDelete) => deleteDomain(instanceId, domainToDelete),
-		onSuccess: () => {
-			queryClient.invalidateQueries({
-				queryKey: ["instance", instanceId, "domains"],
-			});
-			navigate({ to: "/$instance/domains", params: { instance: instanceId } });
-		},
-	});
-
-	if (domainsQuery.isLoading)
-		return (
-			<FullPageStatus icon={Server} text="Loading Domains..." isError={false} />
-		);
-	if (domainsQuery.isError)
+	// --- Render Logic ---
+	if (domainsQuery.isLoading) {
+		return <FullPageStatus icon={Server} text="Loading Domains..." />;
+	}
+	if (domainsQuery.isError) {
 		return (
 			<FullPageStatus
 				icon={ServerCrash}
@@ -197,6 +45,7 @@ function DomainDetailPage() {
 				isError
 			/>
 		);
+	}
 
 	return (
 		<div className="h-full w-full">
@@ -207,11 +56,7 @@ function DomainDetailPage() {
 					selectedDomain={selectedDomain}
 				/>
 			) : (
-				<FullPageStatus
-					icon={Loader2}
-					text="Loading Canvas Layout..."
-					isError={false}
-				/>
+				<FullPageStatus icon={Loader2} text="Loading Canvas Layout..." />
 			)}
 			<FloatingDomainManager
 				domains={domains}
@@ -227,11 +72,11 @@ function DomainDetailPage() {
 function FullPageStatus({
 	icon: Icon,
 	text,
-	isError,
+	isError = false,
 }: {
 	icon: React.ElementType;
 	text: string;
-	isError: boolean;
+	isError?: boolean;
 }) {
 	const colorClass = isError ? "text-red-500" : "text-[var(--color-subtext)]";
 	return (
