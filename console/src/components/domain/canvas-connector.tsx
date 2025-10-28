@@ -1,28 +1,29 @@
 /* src/components/domain/canvas-connector.tsx */
 
-/**
- * Renders a simple, straight SVG line to connect two nodes.
- * It's positioned absolutely relative to the starting node's container.
- */
-export function CanvasConnector({
-	width,
-	height,
-}: {
-	width: number;
-	height: number;
-}) {
-	// --- MODIFIED: The line's starting point is offset by 4px (half the handle's width) ---
-	// This prevents it from drawing over the starting handle, making the connection look clean.
-	const pathData = `M 4,${height / 2} L ${width},${height / 2}`;
+interface CanvasConnectorProps {
+	x1: number;
+	y1: number;
+	x2: number;
+	y2: number;
+}
 
+/**
+ * A pure SVG component that draws a Bézier curve between two absolute points within the canvas coordinate space.
+ */
+export function CanvasConnector({ x1, y1, x2, y2 }: CanvasConnectorProps) {
+	// Control points create a pleasing horizontal "S" curve.
+	const controlX1 = x1 + Math.abs(x2 - x1) / 2;
+	const controlY1 = y1;
+	const controlX2 = x2 - Math.abs(x2 - x1) / 2;
+	const controlY2 = y2;
+
+	const path = `M ${x1} ${y1} C ${controlX1} ${controlY1}, ${controlX2} ${controlY2}, ${x2} ${y2}`;
+
+	// This SVG sits inside the main scaled/panned div, so its coordinates are relative to that space.
 	return (
-		<svg
-			width={width}
-			height={height}
-			className="absolute top-1/2 -translate-y-1/2 left-full overflow-visible pointer-events-none"
-		>
+		<svg className="absolute top-0 left-0 w-px h-px overflow-visible pointer-events-none">
 			<path
-				d={pathData}
+				d={path}
 				stroke="var(--color-theme-border)"
 				strokeWidth="2"
 				fill="none"
