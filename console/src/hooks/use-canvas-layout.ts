@@ -53,7 +53,11 @@ export function useCanvasLayout({
 				x: 500,
 				y: 200,
 				inputs: [{ id: "input", label: "Input" }],
-				outputs: [],
+				// --- MODIFIED: Defined the two outputs for the rate-limit middleware as requested. ---
+				outputs: [
+					{ id: "accept", label: "Accept" },
+					{ id: "drop", label: "Drop" },
+				],
 				data: { requests_per_second: rateLimitRPS },
 			} as CanvasNode<RateLimitNodeData>);
 			connections.push({
@@ -69,7 +73,7 @@ export function useCanvasLayout({
 
 	useEffect(() => {
 		if (!selectedDomain || !rateLimitQuery.data) {
-			setLayout(null); // Explicitly clear layout when not ready
+			setLayout(null);
 			return;
 		}
 
