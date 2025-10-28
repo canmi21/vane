@@ -67,9 +67,10 @@ export function DomainCanvas({
 
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
-			// --- MODIFIED: Panning is now conditional on the interaction mode ---
-			// Allow panning with middle-click or right-click ONLY when idle.
-			if ((e.button === 2 || e.button === 1) && interaction.mode === "idle") {
+			if (
+				(e.button === 2 || e.button === 1) &&
+				interaction.mode !== "connecting"
+			) {
 				e.preventDefault();
 				setInteraction({
 					mode: "panning",
@@ -123,8 +124,7 @@ export function DomainCanvas({
 		}
 	}, [interaction]);
 
-	const handleWheel = useCallback((e: React.WheelEvent) => {
-		// Allow wheel interactions regardless of mode
+	const handleWheel = useCallback((e: WheelEvent) => {
 		e.preventDefault();
 		if (e.ctrlKey) {
 			const zoomAmount = e.deltaY * -ZOOM_SENSITIVITY;
@@ -135,6 +135,18 @@ export function DomainCanvas({
 			setView((v) => ({ x: v.x - e.deltaX, y: v.y - e.deltaY }));
 		}
 	}, []);
+
+	// --- FIX: Re-added the manual event listener for the wheel event ---
+	useEffect(() => {
+		const canvasElement = canvasRef.current;
+		if (canvasElement) {
+			// This { passive: false } option is crucial to prevent the console warning.
+			canvasElement.addEventListener("wheel", handleWheel, { passive: false });
+			return () => {
+				canvasElement.removeEventListener("wheel", handleWheel);
+			};
+		}
+	}, [handleWheel]);
 
 	const handleNodeMouseDown = useCallback(
 		(nodeId: string, e: React.MouseEvent) => {
@@ -153,12 +165,11 @@ export function DomainCanvas({
 	const handleHandleClick = useCallback(
 		(nodeId: string, handleId: string, e: React.MouseEvent) => {
 			e.stopPropagation();
-			if (interaction.mode !== "connecting") return; // Only allow clicks in connecting mode
+			if (interaction.mode !== "connecting") return;
 
 			const handlePos = getConnectionPoints(nodeId, handleId);
 
 			if (!interaction.fromNodeId) {
-				// This is the first click
 				setInteraction({
 					mode: "connecting",
 					fromNodeId: nodeId,
@@ -167,8 +178,7 @@ export function DomainCanvas({
 				});
 				return;
 			}
-
-			if (interaction.fromNodeId === nodeId) return; // Can't connect to self
+			if (interaction.fromNodeId === nodeId) return;
 
 			const newConnection: CanvasConnection = {
 				id: nanoid(),
@@ -221,8 +231,7 @@ export function DomainCanvas({
 			onMouseMove={handleMouseMove}
 			onMouseUp={handleMouseUp}
 			onMouseLeave={handleMouseUp}
-			onWheel={handleWheel}
-			// --- MODIFIED: onContextMenu now handles exiting connector mode ---
+			// onWheel is now correctly handled by the useEffect hook above
 			onContextMenu={(e) => {
 				e.preventDefault();
 				if (interaction.mode === "connecting") {
@@ -258,7 +267,6 @@ export function DomainCanvas({
 				})}
 				{layout.nodes.map((node) => {
 					const props = {
-						key: node.id,
 						node,
 						onMouseDown: handleNodeMouseDown,
 						onHandleClick: handleHandleClick,
@@ -266,11 +274,15 @@ export function DomainCanvas({
 					};
 					if (node.type === "entry-point") {
 						return (
-							<DomainEntryPointCard {...props} domainName={selectedDomain} />
+							<DomainEntryPointCard
+								key={node.id}
+								{...props}
+								domainName={selectedDomain}
+							/>
 						);
 					}
 					if (node.type === "rate-limit") {
-						return <RateLimitCard {...props} />;
+						return <RateLimitCard key={node.id} {...props} />;
 					}
 					return null;
 				})}
