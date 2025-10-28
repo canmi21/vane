@@ -13,19 +13,20 @@ import { motion } from "framer-motion";
 
 interface CanvasToolbarProps {
 	onResetView: () => void;
-	onFitView: () => void; // --- ADDED: New prop for the "fit to view" action ---
+	onFitView: () => void;
 	onToggleConnectorMode: () => void;
 	isConnectorModeActive: boolean;
+	onAddNode: (type: "rate-limit") => void;
 }
 
 export function CanvasToolbar({
 	onResetView,
-	onFitView, // --- ADDED: Receive the new function ---
+	onFitView,
 	onToggleConnectorMode,
 	isConnectorModeActive,
+	onAddNode,
 }: CanvasToolbarProps) {
 	const tools = [
-		// --- MODIFIED: This icon now triggers "Fit to View" ---
 		{ Icon: Fullscreen, tooltip: "Fit to View", action: onFitView },
 		{
 			Icon: Spline,
@@ -33,11 +34,14 @@ export function CanvasToolbar({
 			action: onToggleConnectorMode,
 			active: isConnectorModeActive,
 		},
-		// --- MODIFIED: This icon now triggers "Reset View" ---
 		{ Icon: MapPin, tooltip: "Reset View", action: onResetView },
 		{ Icon: Layers2, tooltip: "Layers", action: () => {} },
 		{ Icon: CopyPlus, tooltip: "Duplicate", action: () => {} },
-		{ Icon: Plus, tooltip: "Add", action: () => {} },
+		{
+			Icon: Plus,
+			tooltip: "Add Rate Limit Node",
+			action: () => onAddNode("rate-limit"),
+		},
 	];
 	return (
 		<Tooltip.Provider delayDuration={150}>
