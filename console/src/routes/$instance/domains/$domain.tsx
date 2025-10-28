@@ -76,16 +76,8 @@ function DomainDetailPage() {
 		enabled: !!selectedDomain && !domainsQuery.isLoading,
 	});
 
-	useEffect(() => {
-		if (!selectedDomain || rateLimitQuery.isLoading) return;
-
-		const savedLayout = loadLayout(selectedDomain);
-		if (savedLayout) {
-			// In the future, you might want to reconcile saved layout with current features
-			setLayout(savedLayout);
-			return;
-		}
-
+	// --- FIX: Wrap generateDefaultLayout in useCallback ---
+	const generateDefaultLayout = useCallback(() => {
 		let nextX = 150;
 		const nodes: CanvasNode[] = [
 			{ id: "entry-point", type: "entry-point", x: nextX, y: 200 },
@@ -105,11 +97,42 @@ function DomainDetailPage() {
 				toHandle: "input",
 			});
 		}
+		return { nodes, connections };
+	}, [rateLimitQuery.data]);
 
-		const newLayout = { nodes, connections };
+	useEffect(() => {
+		if (!selectedDomain || rateLimitQuery.isLoading) return;
+
+		const savedLayout = loadLayout(selectedDomain);
+		if (savedLayout) {
+			const shouldHaveRateLimit =
+				(rateLimitQuery.data?.data?.requests_per_second ?? 0) > 0;
+			const savedHasRateLimit = savedLayout.nodes.some(
+				(n) => n.type === "rate-limit"
+			);
+
+			if (shouldHaveRateLimit !== savedHasRateLimit) {
+				localStorage.removeItem(`@vane/canvas-layout/${selectedDomain}`);
+				const newLayout = generateDefaultLayout();
+				setLayout(newLayout);
+				saveLayout(selectedDomain, newLayout);
+			} else {
+				setLayout(savedLayout);
+			}
+			return;
+		}
+
+		const newLayout = generateDefaultLayout();
 		setLayout(newLayout);
 		saveLayout(selectedDomain, newLayout);
-	}, [selectedDomain, rateLimitQuery.isLoading, rateLimitQuery.data]);
+
+		// --- FIX: Add generateDefaultLayout to the dependency array ---
+	}, [
+		selectedDomain,
+		rateLimitQuery.isLoading,
+		rateLimitQuery.data,
+		generateDefaultLayout,
+	]);
 
 	const handleLayoutChange = useCallback(
 		(newLayout: CanvasLayout) => {
@@ -156,7 +179,6 @@ function DomainDetailPage() {
 		},
 	});
 
-	// --- FIX: Added the required 'isError' prop ---
 	if (domainsQuery.isLoading)
 		return (
 			<FullPageStatus icon={Server} text="Loading Domains..." isError={false} />
@@ -196,7 +218,6 @@ function DomainDetailPage() {
 	);
 }
 
-// --- FIX: Correctly typed props and logic for spinning icon ---
 function FullPageStatus({
 	icon: Icon,
 	text,
