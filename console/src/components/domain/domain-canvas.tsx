@@ -35,6 +35,7 @@ export function DomainCanvas({
 		interaction,
 		mouseInCanvasCoords,
 		selectedConnectionId,
+		selectedNodeId,
 		handleMouseDown,
 		handleMouseMove,
 		handleMouseUp,
@@ -42,6 +43,7 @@ export function DomainCanvas({
 		handleHandleClick,
 		handleConnectionClick,
 		handleDeleteSelectedConnection,
+		handleDeleteSelectedNode,
 		handleToggleConnectorMode,
 	} = useCanvasInteraction({
 		scale,
@@ -64,8 +66,8 @@ export function DomainCanvas({
 			}}
 			onMouseDown={handleMouseDown}
 			onMouseMove={handleMouseMove}
-			onMouseUp={handleMouseUp}
-			onMouseLeave={handleMouseUp}
+			onMouseUp={() => handleMouseUp()}
+			onMouseLeave={() => handleMouseUp()}
 			onContextMenu={(e) => {
 				e.preventDefault();
 				if (interaction.mode === "connecting") handleToggleConnectorMode();
@@ -79,6 +81,8 @@ export function DomainCanvas({
 				onAddNode={onAddNode}
 				selectedConnectionId={selectedConnectionId}
 				onDeleteSelectedConnection={handleDeleteSelectedConnection}
+				selectedNodeId={selectedNodeId}
+				onDeleteSelectedNode={handleDeleteSelectedNode}
 			/>
 
 			<motion.div
@@ -89,10 +93,12 @@ export function DomainCanvas({
 					layout={layout}
 					interaction={interaction}
 					selectedConnectionId={selectedConnectionId}
+					selectedNodeId={selectedNodeId}
 					mouseInCanvasCoords={mouseInCanvasCoords}
 					selectedDomain={selectedDomain}
 					getConnectionPoints={getConnectionPoints}
 					handleNodeMouseDown={handleNodeMouseDown}
+					handleNodeMouseUp={handleMouseUp}
 					handleHandleClick={handleHandleClick}
 					handleConnectionClick={handleConnectionClick}
 				/>
