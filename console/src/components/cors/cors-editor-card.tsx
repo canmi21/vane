@@ -19,7 +19,7 @@ import { type RequestResult } from "~/api/request";
 import {
 	type CorsConfig,
 	type PreflightHandling,
-} from "~/routes/$instance/cors-management/";
+} from "~/routes/$instance/cors-management/$domain";
 
 // --- Reusable Small Toggle Slider Component ---
 function SmallToggleSlider<T>({
