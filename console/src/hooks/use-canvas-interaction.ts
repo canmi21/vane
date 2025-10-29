@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect } from "react";
 import { type CanvasLayout } from "~/lib/canvas-layout";
 import { usePanningAndDragging } from "./use-panning-and-dragging";
 import { useConnectionManagement } from "./use-connection-management";
+import { useNodeManagement } from "./use-node-management";
 
 // --- Types ---
 export type InteractionMode =
@@ -49,6 +50,14 @@ export function useCanvasInteraction({
 	const [selectedConnectionId, setSelectedConnectionId] = useState<
 		string | null
 	>(null);
+	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+	const nodeManagement = useNodeManagement({
+		layout,
+		selectedNodeId,
+		setSelectedNodeId,
+		onLayoutChange,
+	});
 
 	const panningAndDragging = usePanningAndDragging({
 		scale,
@@ -59,6 +68,7 @@ export function useCanvasInteraction({
 		panBy,
 		onLayoutChange,
 		setSelectedConnectionId,
+		handleNodeClick: nodeManagement.handleNodeClick,
 	});
 
 	const connectionManagement = useConnectionManagement({
@@ -71,7 +81,6 @@ export function useCanvasInteraction({
 		getConnectionPoints,
 	});
 
-	// Some logic, like mouse move for the preview line, remains here
 	const handleOverallMouseMove = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
 			panningAndDragging.handleMouseMove(e);
@@ -92,6 +101,7 @@ export function useCanvasInteraction({
 			if (e.key === "Escape") {
 				setInteraction({ mode: "idle" });
 				setSelectedConnectionId(null);
+				setSelectedNodeId(null);
 			}
 			if (
 				(e.key === "Backspace" || e.key === "Delete") &&
@@ -99,8 +109,11 @@ export function useCanvasInteraction({
 			) {
 				connectionManagement.handleDeleteSelectedConnection();
 			}
+			if ((e.key === "Backspace" || e.key === "Delete") && selectedNodeId) {
+				nodeManagement.handleDeleteSelectedNode();
+			}
 		},
-		[selectedConnectionId, connectionManagement]
+		[selectedConnectionId, selectedNodeId, connectionManagement, nodeManagement]
 	);
 
 	useEffect(() => {
@@ -117,6 +130,7 @@ export function useCanvasInteraction({
 		interaction,
 		mouseInCanvasCoords,
 		selectedConnectionId,
+		selectedNodeId,
 		handleMouseDown: panningAndDragging.handleMouseDown,
 		handleMouseMove: handleOverallMouseMove,
 		handleMouseUp: panningAndDragging.handleMouseUp,
@@ -125,6 +139,7 @@ export function useCanvasInteraction({
 		handleConnectionClick: connectionManagement.handleConnectionClick,
 		handleDeleteSelectedConnection:
 			connectionManagement.handleDeleteSelectedConnection,
+		handleDeleteSelectedNode: nodeManagement.handleDeleteSelectedNode,
 		handleToggleConnectorMode: connectionManagement.handleToggleConnectorMode,
 	};
 }
