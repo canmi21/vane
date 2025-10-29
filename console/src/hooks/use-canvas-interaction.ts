@@ -103,14 +103,19 @@ export function useCanvasInteraction({
 		[panningAndDragging, canvasRef]
 	);
 
-	// --- FINAL FIX: A unified handler for right-clicks ---
+	// --- FINAL FIX: A handler for right-clicks that cancels actions without interfering with panning. ---
 	const handleContextMenu = useCallback(
 		(e: React.MouseEvent) => {
 			e.preventDefault();
-			setInteraction({ mode: "idle" });
+			// If in a cancellable mode like 'connecting', reset to 'idle'.
+			// This does not interfere with 'panning' mode, which is initiated by
+			// the onMouseDown event before this onContextMenu event fires.
+			if (interaction.mode === "connecting") {
+				setInteraction({ mode: "idle" });
+			}
 			deselectAll();
 		},
-		[deselectAll]
+		[interaction, setInteraction, deselectAll]
 	);
 
 	const handleKeyDown = useCallback(
