@@ -52,6 +52,11 @@ export function useCanvasInteraction({
 	>(null);
 	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
+	const deselectAll = useCallback(() => {
+		setSelectedConnectionId(null);
+		setSelectedNodeId(null);
+	}, []);
+
 	const nodeManagement = useNodeManagement({
 		layout,
 		selectedNodeId,
@@ -68,6 +73,7 @@ export function useCanvasInteraction({
 		panBy,
 		onLayoutChange,
 		setSelectedConnectionId,
+		setSelectedNodeId,
 		handleNodeClick: nodeManagement.handleNodeClick,
 	});
 
@@ -77,6 +83,7 @@ export function useCanvasInteraction({
 		selectedConnectionId,
 		setInteraction,
 		setSelectedConnectionId,
+		setSelectedNodeId,
 		onLayoutChange,
 		getConnectionPoints,
 	});
@@ -96,12 +103,21 @@ export function useCanvasInteraction({
 		[panningAndDragging, canvasRef]
 	);
 
+	// --- FINAL FIX: A unified handler for right-clicks ---
+	const handleContextMenu = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault();
+			setInteraction({ mode: "idle" });
+			deselectAll();
+		},
+		[deselectAll]
+	);
+
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				setInteraction({ mode: "idle" });
-				setSelectedConnectionId(null);
-				setSelectedNodeId(null);
+				deselectAll();
 			}
 			if (
 				(e.key === "Backspace" || e.key === "Delete") &&
@@ -113,7 +129,13 @@ export function useCanvasInteraction({
 				nodeManagement.handleDeleteSelectedNode();
 			}
 		},
-		[selectedConnectionId, selectedNodeId, connectionManagement, nodeManagement]
+		[
+			selectedConnectionId,
+			selectedNodeId,
+			connectionManagement,
+			nodeManagement,
+			deselectAll,
+		]
 	);
 
 	useEffect(() => {
@@ -141,5 +163,6 @@ export function useCanvasInteraction({
 			connectionManagement.handleDeleteSelectedConnection,
 		handleDeleteSelectedNode: nodeManagement.handleDeleteSelectedNode,
 		handleToggleConnectorMode: connectionManagement.handleToggleConnectorMode,
+		handleContextMenu, // Expose the new handler
 	};
 }
