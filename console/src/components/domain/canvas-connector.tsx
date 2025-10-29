@@ -1,13 +1,13 @@
 /* src/components/domain/canvas-connector.tsx */
 
 interface CanvasConnectorProps {
-	id: string;
+	id?: string;
 	x1: number;
 	y1: number;
 	x2: number;
 	y2: number;
-	isSelected: boolean;
-	onClick: (id: string) => void;
+	isSelected?: boolean;
+	onClick?: (id: string) => void;
 }
 
 /**
@@ -20,7 +20,7 @@ export function CanvasConnector({
 	y1,
 	x2,
 	y2,
-	isSelected,
+	isSelected = false,
 	onClick,
 }: CanvasConnectorProps) {
 	const MIN_CURVATURE = 0.3;
@@ -47,15 +47,20 @@ export function CanvasConnector({
 			className="absolute top-0 left-0 w-px h-px overflow-visible pointer-events-auto"
 			// --- FINAL FIX: Stop mousedown event to prevent canvas background from deselecting ---
 			onMouseDown={(e) => e.stopPropagation()}
-			onClick={() => onClick(id)}
+			onClick={() => {
+				// --- FINAL, FINAL FIX: Only call onClick if it's a valid function and an ID is present ---
+				if (id && onClick) {
+					onClick(id);
+				}
+			}}
 		>
-			{/* Hitbox for easier clicking */}
+			{/* Hitbox for easier clicking. Make it non-clickable if there's no handler. */}
 			<path
 				d={path}
 				stroke="transparent"
 				strokeWidth="12"
 				fill="none"
-				className="cursor-pointer"
+				className={onClick && id ? "cursor-pointer" : ""}
 			/>
 			{/* Visible Path */}
 			<path
