@@ -16,7 +16,7 @@ import { type RequestResult } from "~/api/request";
 import {
 	type CertSummary,
 	type CertInfo,
-} from "~/routes/$instance/certificates/";
+} from "~/routes/$instance/certificates/$domain";
 
 // --- New combined type for list items ---
 export type CertListItem = {
