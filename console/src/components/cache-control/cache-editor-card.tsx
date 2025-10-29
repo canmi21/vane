@@ -18,7 +18,7 @@ import { type RequestResult } from "~/api/request";
 import {
 	type CacheConfig,
 	type CacheRule,
-} from "~/routes/$instance/cache-control/";
+} from "~/routes/$instance/cache-control/$domain";
 
 // --- Reusable Small Toggle Slider Component ---
 function SmallToggleSlider<T>({
