@@ -8,7 +8,7 @@ import {
 	type UseMutationResult,
 } from "@tanstack/react-query";
 import { type RequestResult } from "~/api/request";
-import { type RateLimitConfig } from "~/routes/$instance/rate-limit/";
+import { type RateLimitConfig } from "~/routes/$instance/rate-limit/$domain";
 
 // --- Main Editor Card Component ---
 export function RateLimitEditorCard({
