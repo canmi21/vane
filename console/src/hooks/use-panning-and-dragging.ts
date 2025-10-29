@@ -13,14 +13,16 @@ interface UsePanningAndDraggingProps {
 	panBy: (dx: number, dy: number) => void;
 	onLayoutChange: (newLayout: CanvasLayout) => void;
 	setSelectedConnectionId: (id: string | null) => void;
+	setSelectedNodeId: (id: string | null) => void;
 	handleNodeClick: (nodeId: string) => void;
 }
 
-const CLICK_DRAG_THRESHOLD = 5; // Pixels a user can move before it's considered a drag
+const CLICK_DRAG_THRESHOLD = 5; // Max pixels to move to be considered a click
+const CLICK_TIME_THRESHOLD = 250; // Max milliseconds to be considered a click
 
 /**
  * A specialized hook to manage panning the canvas and dragging nodes.
- * It now intelligently distinguishes between clicks and drags.
+ * It now intelligently and robustly distinguishes between clicks and drags.
  */
 export function usePanningAndDragging({
 	scale,
@@ -31,15 +33,18 @@ export function usePanningAndDragging({
 	panBy,
 	onLayoutChange,
 	setSelectedConnectionId,
+	setSelectedNodeId,
 	handleNodeClick,
 }: UsePanningAndDraggingProps) {
-	const dragStartPos = useRef<{ x: number; y: number } | null>(null);
-	const isDragging = useRef(false);
+	const dragStartRef = useRef<{ x: number; y: number; time: number } | null>(
+		null
+	);
 
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
 			if (interaction.mode === "idle") {
 				setSelectedConnectionId(null);
+				setSelectedNodeId(null);
 			}
 
 			if (
@@ -54,7 +59,13 @@ export function usePanningAndDragging({
 				if (canvasRef.current) canvasRef.current.style.cursor = "grabbing";
 			}
 		},
-		[interaction.mode, canvasRef, setInteraction, setSelectedConnectionId]
+		[
+			interaction.mode,
+			canvasRef,
+			setInteraction,
+			setSelectedConnectionId,
+			setSelectedNodeId,
+		]
 	);
 
 	const handleNodeMouseDown = useCallback(
@@ -62,8 +73,7 @@ export function usePanningAndDragging({
 			if (e.button === 0 && interaction.mode === "idle") {
 				e.stopPropagation();
 				setSelectedConnectionId(null);
-				isDragging.current = false;
-				dragStartPos.current = { x: e.clientX, y: e.clientY };
+				dragStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
 
 				setInteraction({
 					mode: "dragging",
@@ -77,15 +87,6 @@ export function usePanningAndDragging({
 
 	const handleMouseMove = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
-			if (interaction.mode === "dragging" && dragStartPos.current) {
-				const dx = Math.abs(e.clientX - dragStartPos.current.x);
-				const dy = Math.abs(e.clientY - dragStartPos.current.y);
-
-				if (dx > CLICK_DRAG_THRESHOLD || dy > CLICK_DRAG_THRESHOLD) {
-					isDragging.current = true;
-				}
-			}
-
 			if (interaction.mode === "panning") {
 				const dx = e.clientX - interaction.start.x;
 				const dy = e.clientY - interaction.start.y;
@@ -94,7 +95,8 @@ export function usePanningAndDragging({
 					...interaction,
 					start: { x: e.clientX, y: e.clientY },
 				});
-			} else if (interaction.mode === "dragging" && isDragging.current) {
+			} else if (interaction.mode === "dragging") {
+				// Only apply movement if it's a real drag, determined by distance/time on mouseUp
 				const dx = (e.clientX - interaction.start.x) / scale;
 				const dy = (e.clientY - interaction.start.y) / scale;
 				const newNodes = layout.nodes.map((n) =>
@@ -112,12 +114,25 @@ export function usePanningAndDragging({
 
 	const handleMouseUp = useCallback(
 		(nodeId?: string) => {
-			if (interaction.mode === "dragging" && !isDragging.current && nodeId) {
-				handleNodeClick(nodeId);
+			if (interaction.mode === "dragging" && dragStartRef.current && nodeId) {
+				const { x, y, time } = dragStartRef.current;
+				const endX = (interaction.start as { x: number }).x;
+				const endY = (interaction.start as { y: number }).y;
+
+				const dx = Math.abs(endX - x);
+				const dy = Math.abs(endY - y);
+				const timeElapsed = Date.now() - time;
+
+				if (
+					dx < CLICK_DRAG_THRESHOLD &&
+					dy < CLICK_DRAG_THRESHOLD &&
+					timeElapsed < CLICK_TIME_THRESHOLD
+				) {
+					handleNodeClick(nodeId);
+				}
 			}
 
-			dragStartPos.current = null;
-			isDragging.current = false;
+			dragStartRef.current = null;
 
 			if (interaction.mode === "panning" && canvasRef.current) {
 				canvasRef.current.style.cursor = "grab";
@@ -126,7 +141,7 @@ export function usePanningAndDragging({
 				setInteraction({ mode: "idle" });
 			}
 		},
-		[interaction.mode, canvasRef, setInteraction, handleNodeClick]
+		[interaction, canvasRef, setInteraction, handleNodeClick]
 	);
 
 	return {
