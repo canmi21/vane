@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Code, Eye, Save, Loader2 } from "lucide-react";
 import { useQuery, type UseMutationResult } from "@tanstack/react-query";
 import { type RequestResult } from "~/api/request";
-import { type TemplatePayload } from "~/routes/$instance/error-pages/";
+import { type TemplatePayload } from "~/routes/$instance/error-pages/$page";
 
 export function TemplateEditorCard({
 	instanceId,
