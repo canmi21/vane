@@ -50,16 +50,6 @@ export function CanvasContent({
 	handleHandleClick,
 	handleConnectionClick,
 }: CanvasContentProps) {
-	const PreviewConnector = CanvasConnector as React.FC<{
-		x1: number;
-		y1: number;
-		x2: number;
-		y2: number;
-		id?: string;
-		isSelected?: boolean;
-		onClick?: (id: string) => void;
-	}>;
-
 	return (
 		<>
 			{layout.connections.map((conn) => {
@@ -113,7 +103,8 @@ export function CanvasContent({
 
 			<AnimatePresence>
 				{interaction.mode === "connecting" && interaction.fromNodeId && (
-					<PreviewConnector
+					// --- FINAL, FINAL FIX: This now uses the robust CanvasConnector directly without type assertions ---
+					<CanvasConnector
 						x1={interaction.fromPosition.x}
 						y1={interaction.fromPosition.y}
 						x2={mouseInCanvasCoords.x}
