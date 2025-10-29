@@ -20,6 +20,7 @@ interface CanvasContentProps {
 	layout: CanvasLayout;
 	interaction: InteractionMode;
 	selectedConnectionId: string | null;
+	selectedNodeId: string | null;
 	mouseInCanvasCoords: { x: number; y: number };
 	selectedDomain: string;
 	getConnectionPoints: (
@@ -27,6 +28,7 @@ interface CanvasContentProps {
 		handleId: string
 	) => { x: number; y: number };
 	handleNodeMouseDown: (nodeId: string, e: React.MouseEvent) => void;
+	handleNodeMouseUp: (nodeId: string) => void;
 	handleHandleClick: (nodeId: string, handleId: string) => void;
 	handleConnectionClick: (connectionId: string) => void;
 }
@@ -39,14 +41,15 @@ export function CanvasContent({
 	layout,
 	interaction,
 	selectedConnectionId,
+	selectedNodeId,
 	mouseInCanvasCoords,
 	selectedDomain,
 	getConnectionPoints,
 	handleNodeMouseDown,
+	handleNodeMouseUp,
 	handleHandleClick,
 	handleConnectionClick,
 }: CanvasContentProps) {
-	// A special version of the connector for the live preview line, which doesn't need interaction props.
 	const PreviewConnector = CanvasConnector as React.FC<{
 		x1: number;
 		y1: number;
@@ -80,8 +83,10 @@ export function CanvasContent({
 				const props: NodeComponentProps = {
 					node,
 					onMouseDown: handleNodeMouseDown,
+					onMouseUp: handleNodeMouseUp,
 					onHandleClick: handleHandleClick,
 					isConnecting: interaction.mode === "connecting",
+					isSelected: node.id === selectedNodeId,
 				};
 
 				if (node.type === "entry-point") {
