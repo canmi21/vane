@@ -33,21 +33,25 @@ export function DomainEntryPointCard({
 		onHandleClick(node.id, "output");
 	};
 
-	// --- FINAL FIX: Use the theme color for selection and a subtle ring effect ---
+	// --- FINAL, FINAL FIX: Added the missing border color class `border-[var(--color-bg-alt)]` ---
 	const cardClasses = `relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md transition-all duration-150 ${
 		isSelected ? "ring-2 ring-[var(--color-theme-border)]" : ""
 	}`;
 
 	return (
 		<motion.div
-			className="absolute cursor-grab"
+			className="absolute cursor-grab focus:outline-none"
+			tabIndex={-1}
 			style={{ x: node.x, y: node.y }}
-			onMouseDown={(e) => onMouseDown(node.id, e)}
+			onMouseDown={(e) => {
+				e.stopPropagation();
+				onMouseDown(node.id, e);
+			}}
 			onMouseUp={() => onMouseUp(node.id)}
 			whileTap={{ cursor: "grabbing" }}
 		>
-			<Tooltip.Provider delayDuration={150}>
-				<div className={cardClasses}>
+			<div className={cardClasses}>
+				<Tooltip.Provider delayDuration={150}>
 					<div className="flex items-center gap-2 border-b border-[var(--color-bg-alt)] p-3">
 						<Globe size={16} className="text-[var(--color-subtext)]" />
 						<p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-subtext)]">
@@ -82,8 +86,8 @@ export function DomainEntryPointCard({
 							</Tooltip.Content>
 						</Tooltip.Portal>
 					</Tooltip.Root>
-				</div>
-			</Tooltip.Provider>
+				</Tooltip.Provider>
+			</div>
 		</motion.div>
 	);
 }
