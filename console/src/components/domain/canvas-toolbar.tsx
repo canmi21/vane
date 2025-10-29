@@ -21,6 +21,8 @@ interface CanvasToolbarProps {
 	onAddNode: (type: "rate-limit") => void;
 	selectedConnectionId: string | null;
 	onDeleteSelectedConnection: () => void;
+	selectedNodeId: string | null;
+	onDeleteSelectedNode: () => void;
 }
 
 export function CanvasToolbar({
@@ -31,22 +33,40 @@ export function CanvasToolbar({
 	onAddNode,
 	selectedConnectionId,
 	onDeleteSelectedConnection,
+	selectedNodeId,
+	onDeleteSelectedNode,
 }: CanvasToolbarProps) {
-	const connectOrDeleteTool = selectedConnectionId
-		? {
-				Icon: X,
-				tooltip: "Delete Connection",
-				action: onDeleteSelectedConnection,
-				active: true,
-				onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
-			}
-		: {
-				Icon: Spline,
-				tooltip: "Connect Nodes",
-				action: onToggleConnectorMode,
-				active: isConnectorModeActive,
-				onMouseDown: undefined,
-			};
+	const isDeletableNodeSelected =
+		selectedNodeId && selectedNodeId !== "entry-point";
+	const isConnectionSelected = !!selectedConnectionId;
+
+	let connectOrDeleteTool;
+
+	if (isDeletableNodeSelected) {
+		connectOrDeleteTool = {
+			Icon: X,
+			tooltip: "Delete Node",
+			action: onDeleteSelectedNode,
+			active: true,
+			onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+		};
+	} else if (isConnectionSelected) {
+		connectOrDeleteTool = {
+			Icon: X,
+			tooltip: "Delete Connection",
+			action: onDeleteSelectedConnection,
+			active: true,
+			onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+		};
+	} else {
+		connectOrDeleteTool = {
+			Icon: Spline,
+			tooltip: "Connect Nodes",
+			action: onToggleConnectorMode,
+			active: isConnectorModeActive,
+			onMouseDown: undefined,
+		};
+	}
 
 	const tools = [
 		{
