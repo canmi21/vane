@@ -7,6 +7,7 @@ pub mod domain;
 pub mod header;
 pub mod instance;
 pub mod origins;
+pub mod plugins;
 pub mod ratelimit;
 pub mod templates;
 pub mod websocket;
