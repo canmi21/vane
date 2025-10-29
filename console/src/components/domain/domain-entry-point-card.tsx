@@ -6,12 +6,13 @@ import { motion } from "framer-motion";
 import { type CanvasNode } from "~/lib/canvas-layout";
 import React from "react";
 
-// --- FIX: Simplified prop type. The card no longer needs to calculate position. ---
 export interface NodeComponentProps {
 	node: CanvasNode;
 	onMouseDown: (nodeId: string, e: React.MouseEvent) => void;
+	onMouseUp: (nodeId: string) => void;
 	onHandleClick: (nodeId: string, handleId: string) => void;
 	isConnecting: boolean;
+	isSelected: boolean;
 }
 
 interface DomainEntryPointCardProps extends NodeComponentProps {
@@ -22,23 +23,31 @@ export function DomainEntryPointCard({
 	node,
 	domainName,
 	onMouseDown,
+	onMouseUp,
 	onHandleClick,
 	isConnecting,
+	isSelected,
 }: DomainEntryPointCardProps) {
 	const handleClicked = (e: React.MouseEvent) => {
 		e.stopPropagation();
 		onHandleClick(node.id, "output");
 	};
 
+	// --- FINAL FIX: Use the theme color for selection and a subtle ring effect ---
+	const cardClasses = `relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md transition-all duration-150 ${
+		isSelected ? "ring-2 ring-[var(--color-theme-border)]" : ""
+	}`;
+
 	return (
 		<motion.div
 			className="absolute cursor-grab"
 			style={{ x: node.x, y: node.y }}
 			onMouseDown={(e) => onMouseDown(node.id, e)}
+			onMouseUp={() => onMouseUp(node.id)}
 			whileTap={{ cursor: "grabbing" }}
 		>
 			<Tooltip.Provider delayDuration={150}>
-				<div className="relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md">
+				<div className={cardClasses}>
 					<div className="flex items-center gap-2 border-b border-[var(--color-bg-alt)] p-3">
 						<Globe size={16} className="text-[var(--color-subtext)]" />
 						<p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-subtext)]">
