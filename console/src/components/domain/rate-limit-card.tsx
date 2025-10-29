@@ -23,11 +23,13 @@ export function RateLimitCard({
 	isSelected,
 }: RateLimitCardProps) {
 	return (
+		// --- FINAL FIX: Add focus:outline-none and tabIndex={-1} to align with DomainEntryPointCard ---
 		<motion.div
-			className="absolute cursor-grab"
+			className="absolute cursor-grab focus:outline-none"
+			tabIndex={-1}
 			style={{ x: node.x, y: node.y }}
 			onMouseDown={(e) => {
-				e.stopPropagation(); // Stop propagation here
+				e.stopPropagation();
 				onMouseDown(node.id, e);
 			}}
 			onMouseUp={() => onMouseUp(node.id)}
