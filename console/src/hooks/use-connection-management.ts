@@ -11,8 +11,10 @@ interface UseConnectionManagementProps {
 	selectedConnectionId: string | null;
 	setInteraction: (
 		interaction: InteractionMode | ((prev: InteractionMode) => InteractionMode)
-	) => void; // More specific type for the setter
+	) => void;
 	setSelectedConnectionId: (id: string | null) => void;
+	// --- FINAL FIX: Add the missing prop to the interface type ---
+	setSelectedNodeId: (id: string | null) => void;
 	onLayoutChange: (newLayout: CanvasLayout) => void;
 	getConnectionPoints: (
 		nodeId: string,
@@ -29,12 +31,14 @@ export function useConnectionManagement({
 	selectedConnectionId,
 	setInteraction,
 	setSelectedConnectionId,
+	setSelectedNodeId,
 	onLayoutChange,
 	getConnectionPoints,
 }: UseConnectionManagementProps) {
 	const handleHandleClick = useCallback(
 		(nodeId: string, handleId: string) => {
 			setSelectedConnectionId(null);
+			setSelectedNodeId(null);
 			const clickedNode = layout.nodes.find((n) => n.id === nodeId);
 			if (!clickedNode) return;
 
@@ -92,16 +96,18 @@ export function useConnectionManagement({
 			getConnectionPoints,
 			setInteraction,
 			setSelectedConnectionId,
+			setSelectedNodeId,
 		]
 	);
 
 	const handleConnectionClick = useCallback(
 		(connectionId: string) => {
 			if (interaction.mode === "idle") {
+				setSelectedNodeId(null);
 				setSelectedConnectionId(connectionId);
 			}
 		},
-		[interaction.mode, setSelectedConnectionId]
+		[interaction.mode, setSelectedConnectionId, setSelectedNodeId]
 	);
 
 	const handleDeleteSelectedConnection = useCallback(() => {
@@ -113,9 +119,9 @@ export function useConnectionManagement({
 		setSelectedConnectionId(null);
 	}, [selectedConnectionId, layout, onLayoutChange, setSelectedConnectionId]);
 
-	// --- FINAL FIX: Add an explicit type annotation to the 'prev' parameter ---
 	const handleToggleConnectorMode = () => {
 		setSelectedConnectionId(null);
+		setSelectedNodeId(null);
 		setInteraction((prev: InteractionMode) =>
 			prev.mode === "connecting"
 				? { mode: "idle" }
