@@ -45,6 +45,7 @@ export function DomainCanvas({
 		handleDeleteSelectedConnection,
 		handleDeleteSelectedNode,
 		handleToggleConnectorMode,
+		handleContextMenu, // Destructure the new handler
 	} = useCanvasInteraction({
 		scale,
 		view,
@@ -68,10 +69,8 @@ export function DomainCanvas({
 			onMouseMove={handleMouseMove}
 			onMouseUp={() => handleMouseUp()}
 			onMouseLeave={() => handleMouseUp()}
-			onContextMenu={(e) => {
-				e.preventDefault();
-				if (interaction.mode === "connecting") handleToggleConnectorMode();
-			}}
+			// --- FINAL FIX: Use the unified context menu handler from the hook ---
+			onContextMenu={handleContextMenu}
 		>
 			<CanvasToolbar
 				onResetView={handleResetView}
