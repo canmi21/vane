@@ -45,10 +45,9 @@ export function CanvasConnector({
 	return (
 		<svg
 			className="absolute top-0 left-0 w-px h-px overflow-visible pointer-events-auto"
-			onClick={(e) => {
-				e.stopPropagation();
-				onClick(id);
-			}}
+			// --- FINAL FIX: Stop mousedown event to prevent canvas background from deselecting ---
+			onMouseDown={(e) => e.stopPropagation()}
+			onClick={() => onClick(id)}
 		>
 			{/* Hitbox for easier clicking */}
 			<path
