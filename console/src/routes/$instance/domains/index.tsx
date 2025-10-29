@@ -4,7 +4,8 @@ import { createFileRoute, useParams, Navigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Server, ServerCrash } from "lucide-react";
 import { getInstance } from "~/api/instance";
-import type { ListDomainsResponse } from "./$domain";
+// --- FINAL FIX: Import the type from its actual source file. ---
+import { type ListDomainsResponse } from "~/hooks/use-domain-data";
 
 // This function is only used here to find the first domain for redirection.
 async function listDomains(instanceId: string) {
