@@ -16,7 +16,7 @@ export type InteractionMode =
 			fromNodeId: string;
 			fromHandle: string;
 			fromPosition: { x: number; y: number };
-	  };
+	};
 
 interface UseCanvasInteractionProps {
 	scale: number;
@@ -168,6 +168,6 @@ export function useCanvasInteraction({
 			connectionManagement.handleDeleteSelectedConnection,
 		handleDeleteSelectedNode: nodeManagement.handleDeleteSelectedNode,
 		handleToggleConnectorMode: connectionManagement.handleToggleConnectorMode,
-		handleContextMenu, // Expose the new handler
+		handleContextMenu,
 	};
 }
