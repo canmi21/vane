@@ -16,7 +16,7 @@ import {
 	type UseMutationResult,
 } from "@tanstack/react-query";
 import { type RequestResult } from "~/api/request";
-import { type WebSocketConfig } from "~/routes/$instance/websocket/";
+import { type WebSocketConfig } from "~/routes/$instance/websocket/$domain";
 
 // --- Reusable Small Toggle Slider Component ---
 function SmallToggleSlider<T>({
