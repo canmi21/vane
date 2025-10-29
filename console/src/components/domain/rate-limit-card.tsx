@@ -26,7 +26,10 @@ export function RateLimitCard({
 		<motion.div
 			className="absolute cursor-grab"
 			style={{ x: node.x, y: node.y }}
-			onMouseDown={(e) => onMouseDown(node.id, e)}
+			onMouseDown={(e) => {
+				e.stopPropagation(); // Stop propagation here
+				onMouseDown(node.id, e);
+			}}
 			onMouseUp={() => onMouseUp(node.id)}
 			whileTap={{ cursor: "grabbing" }}
 		>
