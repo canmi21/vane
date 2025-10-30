@@ -12,7 +12,7 @@ use crate::{
 		domain::entrance as domain_entrance,
 		header::manager as header_manager,
 		origins::{monitor, origins},
-		plugins::builtin as plugins_handler, // Added plugin handler
+		plugins::handler as plugins_handler,
 		ratelimit::manager as ratelimit_manager,
 		templates::handler as templates_handler,
 		websocket::manager as websocket_manager,
