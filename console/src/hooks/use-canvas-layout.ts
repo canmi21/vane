@@ -7,9 +7,9 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
-	type RateLimitNodeData,
 } from "~/lib/canvas-layout";
 import { nanoid } from "nanoid";
+import { type Plugin } from "./use-plugin-data"; // Import the new Plugin type
 
 interface UseCanvasLayoutProps {
 	selectedDomain: string | null;
@@ -61,27 +61,43 @@ export function useCanvasLayout({ selectedDomain }: UseCanvasLayoutProps) {
 		[selectedDomain]
 	);
 
-	const addNode = (type: "rate-limit") => {
-		if (!layout) return;
+	// --- FINAL FIX: Generalize addNode to work with any plugin definition ---
+	const addNode = useCallback(
+		(plugin: Plugin) => {
+			if (!layout) return;
 
-		if (type === "rate-limit") {
-			const newNode: CanvasNode<RateLimitNodeData> = {
+			// Generate default data based on the plugin's input_params definition.
+			const defaultData: Record<string, unknown> = {};
+			for (const key in plugin.input_params) {
+				const param = plugin.input_params[key];
+				if (param.type === "number") {
+					// A sensible default for rate limiting.
+					defaultData[key] = key === "requests_per_second" ? 100 : 0;
+				} else {
+					defaultData[key] = "";
+				}
+			}
+
+			const newNode: CanvasNode = {
 				id: nanoid(8),
-				type: "rate-limit",
+				type: plugin.name, // The node type is now the plugin name.
 				x: 350,
 				y: 350,
+				// All plugins have a single input handle by convention.
 				inputs: [{ id: "input", label: "Input" }],
-				outputs: [
-					{ id: "accept", label: "Accept" },
-					{ id: "drop", label: "Drop" },
-				],
-				data: { requests_per_second: 100 },
+				// Outputs are dynamically generated from the plugin's 'tree'.
+				outputs: plugin.output_results.tree.map((handle) => ({
+					id: handle,
+					label: handle.charAt(0).toUpperCase() + handle.slice(1),
+				})),
+				data: defaultData,
 			};
 
 			const newLayout = { ...layout, nodes: [...layout.nodes, newNode] };
 			handleLayoutChange(newLayout);
-		}
-	};
+		},
+		[layout, handleLayoutChange]
+	);
 
 	return { layout, handleLayoutChange, addNode };
 }
