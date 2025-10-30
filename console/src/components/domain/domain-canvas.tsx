@@ -8,18 +8,21 @@ import { useCanvasView } from "~/hooks/use-canvas-view";
 import { useCanvasInteraction } from "~/hooks/use-canvas-interaction";
 import { useConnectionPoints } from "~/hooks/use-connection-points";
 import { CanvasContent } from "./canvas-content";
+import { type Plugin } from "~/hooks/use-plugin-data"; // Import type
 
 interface DomainCanvasProps {
 	layout: CanvasLayout;
 	onLayoutChange: (newLayout: CanvasLayout) => void;
 	selectedDomain: string;
-	onAddNode: (type: "rate-limit") => void;
+	plugins: Plugin[]; // Accept plugins
+	onAddNode: (plugin: Plugin) => void; // Update signature
 }
 
 export function DomainCanvas({
 	layout,
 	onLayoutChange,
 	selectedDomain,
+	plugins,
 	onAddNode,
 }: DomainCanvasProps) {
 	const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -45,7 +48,7 @@ export function DomainCanvas({
 		handleDeleteSelectedConnection,
 		handleDeleteSelectedNode,
 		handleToggleConnectorMode,
-		handleContextMenu, // Destructure the new handler
+		handleContextMenu,
 	} = useCanvasInteraction({
 		scale,
 		view,
@@ -69,10 +72,10 @@ export function DomainCanvas({
 			onMouseMove={handleMouseMove}
 			onMouseUp={() => handleMouseUp()}
 			onMouseLeave={() => handleMouseUp()}
-			// --- FINAL FIX: Use the unified context menu handler from the hook ---
 			onContextMenu={handleContextMenu}
 		>
 			<CanvasToolbar
+				plugins={plugins} // Pass to toolbar
 				onResetView={handleResetView}
 				onFitView={handleFitView}
 				onToggleConnectorMode={handleToggleConnectorMode}
@@ -95,6 +98,7 @@ export function DomainCanvas({
 					selectedNodeId={selectedNodeId}
 					mouseInCanvasCoords={mouseInCanvasCoords}
 					selectedDomain={selectedDomain}
+					plugins={plugins} // Pass to content
 					getConnectionPoints={getConnectionPoints}
 					handleNodeMouseDown={handleNodeMouseDown}
 					handleNodeMouseUp={handleMouseUp}

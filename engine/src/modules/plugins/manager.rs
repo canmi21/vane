@@ -4,32 +4,52 @@ use super::builtin::PLUGINS;
 use crate::daemon::config;
 use fancy_log::{LogLevel, log};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 
 // --- Data Structures ---
 
-/// Represents the source of a plugin, either built-in or user-defined.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum PluginSource {
-	Internal,
-	External,
+/// Defines the type of interface for the plugin.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PluginInterface {
+	#[serde(rename = "type")]
+	pub r#type: String, // e.g., "internal" or "external"
 }
 
-/// Represents a single plugin with its configuration.
+/// Defines an input parameter for a plugin.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ParamDefinition {
+	#[serde(rename = "type")]
+	pub r#type: String, // e.g., "string", "number"
+}
+
+/// Defines an output variable that a plugin can set.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct VariableDefinition {
+	#[serde(rename = "type")]
+	pub r#type: String, // e.g., "string", "number"
+}
+
+/// Defines the possible outcomes and variables set by a plugin.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct OutputResults {
+	/// A list of possible execution outcomes, e.g., ["accept", "drop"].
+	pub tree: Vec<String>,
+	/// A map of variables that can be passed to subsequent plugins.
+	#[serde(default)]
+	pub variables: HashMap<String, VariableDefinition>,
+}
+
+/// Represents a single, detailed plugin definition.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Plugin {
 	pub name: String,
 	pub version: String,
-	pub source: PluginSource,
-	#[serde(default = "default_config")]
-	pub config: Value,
-}
-
-// Provides a default empty JSON object for plugin config.
-pub fn default_config() -> Value {
-	Value::Object(serde_json::Map::new())
+	pub interface: PluginInterface,
+	pub description: String,
+	pub author: String,
+	pub url: String,
+	pub input_params: HashMap<String, ParamDefinition>,
+	pub output_results: OutputResults,
 }
 
 /// A composite key for identifying plugins, combining name and version.
@@ -48,7 +68,6 @@ pub struct AllPluginsResponse {
 // --- State Management & Logic ---
 
 /// Initializes the plugin store by loading external plugins from disk.
-/// This should be called once at application startup.
 pub async fn initialize_plugins() {
 	log(LogLevel::Info, "Initializing plugins...");
 	let path = config::get_plugins_config_path();
@@ -67,8 +86,7 @@ pub async fn initialize_plugins() {
 				Vec::new()
 			});
 
-			for mut plugin in external_plugins {
-				plugin.source = PluginSource::External; // Ensure source is always external from file
+			for plugin in external_plugins {
 				let key = (plugin.name.clone(), plugin.version.clone());
 				if plugins.contains_key(&key) {
 					log(
@@ -79,6 +97,7 @@ pub async fn initialize_plugins() {
 						),
 					);
 				} else {
+					// We trust the 'interface' field from the JSON for external plugins.
 					plugins.insert(key, plugin);
 				}
 			}
@@ -88,7 +107,6 @@ pub async fn initialize_plugins() {
 				LogLevel::Debug,
 				"plugins.json not found. Creating a new one.",
 			);
-			// Attempt to save an empty list to create the file.
 			if let Err(e) = save_external_plugins(&plugins).await {
 				log(
 					LogLevel::Error,
@@ -105,7 +123,7 @@ pub async fn save_external_plugins(store: &PluginsStore) -> Result<(), std::io::
 	let path = config::get_plugins_config_path();
 	let external_plugins: Vec<&Plugin> = store
 		.values()
-		.filter(|p| p.source == PluginSource::External)
+		.filter(|p| p.interface.r#type != "internal")
 		.collect();
 	let contents = serde_json::to_string_pretty(&external_plugins).unwrap();
 	tokio::fs::write(path, contents).await
