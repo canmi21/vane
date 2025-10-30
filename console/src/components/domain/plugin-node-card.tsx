@@ -20,8 +20,6 @@ interface PluginNodeCardProps extends NodeComponentProps {
 
 /**
  * A dynamic component that renders any plugin-based node.
- * It looks up the plugin definition and uses the generic CanvasNodeCard
- * to build the UI, including rendering the plugin's input parameters.
  */
 export function PluginNodeCard({
 	node,
@@ -70,14 +68,8 @@ export function PluginNodeCard({
 				isConnecting={isConnecting}
 				isSelected={isSelected}
 				onHandleClick={(handleId) => onHandleClick(node.id, handleId)}
-				// --- FINAL FIX: Pass all plugin details for the comprehensive tooltip ---
-				version={plugin.version}
-				description={plugin.description}
-				author={plugin.author}
-				url={plugin.url}
-				inputParams={plugin.input_params}
-				outputHandles={plugin.output_results.tree}
-				outputVariables={plugin.output_results.variables}
+				// --- FINAL FIX: Pass the entire plugin object down ---
+				plugin={plugin}
 			>
 				{/* The body of the card still displays the current values */}
 				<div className="text-center">
