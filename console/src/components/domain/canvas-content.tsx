@@ -5,16 +5,16 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
-	type RateLimitNodeData,
 } from "~/lib/canvas-layout";
 import { type InteractionMode } from "~/hooks/use-canvas-interaction";
 import {
 	type NodeComponentProps,
 	DomainEntryPointCard,
 } from "./domain-entry-point-card";
-import { RateLimitCard } from "./rate-limit-card";
 import { CanvasConnector } from "./canvas-connector";
 import React from "react";
+import { type Plugin } from "~/hooks/use-plugin-data";
+import { PluginNodeCard } from "./plugin-node-card"; // Import the new generic card
 
 interface CanvasContentProps {
 	layout: CanvasLayout;
@@ -23,6 +23,7 @@ interface CanvasContentProps {
 	selectedNodeId: string | null;
 	mouseInCanvasCoords: { x: number; y: number };
 	selectedDomain: string;
+	plugins: Plugin[]; // Pass plugins down
 	getConnectionPoints: (
 		nodeId: string,
 		handleId: string
@@ -44,6 +45,7 @@ export function CanvasContent({
 	selectedNodeId,
 	mouseInCanvasCoords,
 	selectedDomain,
+	plugins,
 	getConnectionPoints,
 	handleNodeMouseDown,
 	handleNodeMouseUp,
@@ -52,6 +54,7 @@ export function CanvasContent({
 }: CanvasContentProps) {
 	return (
 		<>
+			{/* Connection rendering remains the same */}
 			{layout.connections.map((conn) => {
 				const start = getConnectionPoints(conn.fromNodeId, conn.fromHandle);
 				const end = getConnectionPoints(conn.toNodeId, conn.toHandle);
@@ -69,6 +72,7 @@ export function CanvasContent({
 				);
 			})}
 
+			{/* Node rendering is now dynamic */}
 			{layout.nodes.map((node) => {
 				const props: NodeComponentProps = {
 					node,
@@ -89,21 +93,14 @@ export function CanvasContent({
 						/>
 					);
 				}
-				if (node.type === "rate-limit") {
-					return (
-						<RateLimitCard
-							key={node.id}
-							{...props}
-							node={node as CanvasNode<RateLimitNodeData>}
-						/>
-					);
-				}
-				return null;
+
+				// --- FINAL FIX: All other nodes are rendered by the generic PluginNodeCard ---
+				return <PluginNodeCard key={node.id} {...props} plugins={plugins} />;
 			})}
 
+			{/* Preview connector rendering remains the same */}
 			<AnimatePresence>
 				{interaction.mode === "connecting" && interaction.fromNodeId && (
-					// --- FINAL, FINAL FIX: This now uses the robust CanvasConnector directly without type assertions ---
 					<CanvasConnector
 						x1={interaction.fromPosition.x}
 						y1={interaction.fromPosition.y}
