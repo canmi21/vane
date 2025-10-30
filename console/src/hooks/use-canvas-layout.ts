@@ -1,7 +1,6 @@
 /* src/hooks/use-canvas-layout.ts */
 
 import { useState, useEffect, useCallback } from "react";
-import { type UseQueryResult } from "@tanstack/react-query";
 import {
 	loadLayout,
 	saveLayout,
@@ -10,32 +9,21 @@ import {
 	type EntryPointNodeData,
 	type RateLimitNodeData,
 } from "~/lib/canvas-layout";
-import { type RequestResult } from "~/api/request";
-
-interface RateLimitConfig {
-	requests_per_second: number;
-}
+import { nanoid } from "nanoid";
 
 interface UseCanvasLayoutProps {
 	selectedDomain: string | null;
-	rateLimitQuery: UseQueryResult<RequestResult<RateLimitConfig>>;
 }
 
 /**
- * Manages the canvas layout state, including loading from localStorage,
- * synchronizing with server data, and saving changes.
+ * Manages the canvas layout state. It is now the single source of truth,
+ * driven by user actions and persisted in localStorage.
  */
-export function useCanvasLayout({
-	selectedDomain,
-	rateLimitQuery,
-}: UseCanvasLayoutProps) {
+export function useCanvasLayout({ selectedDomain }: UseCanvasLayoutProps) {
 	const [layout, setLayout] = useState<CanvasLayout | null>(null);
 
 	const generateDefaultLayout = useCallback((): CanvasLayout => {
-		const nodes: CanvasNode<unknown>[] = [];
-		const connections = [];
-
-		nodes.push({
+		const entryPointNode: CanvasNode<EntryPointNodeData> = {
 			id: "entry-point",
 			type: "entry-point",
 			x: 150,
@@ -43,59 +31,25 @@ export function useCanvasLayout({
 			inputs: [],
 			outputs: [{ id: "output", label: "Output" }],
 			data: {},
-		} as CanvasNode<EntryPointNodeData>);
-
-		const rateLimitRPS = rateLimitQuery.data?.data?.requests_per_second ?? 0;
-		if (rateLimitRPS > 0) {
-			nodes.push({
-				id: "rate-limit",
-				type: "rate-limit",
-				x: 500,
-				y: 200,
-				inputs: [{ id: "input", label: "Input" }],
-				// --- MODIFIED: Defined the two outputs for the rate-limit middleware as requested. ---
-				outputs: [
-					{ id: "accept", label: "Accept" },
-					{ id: "drop", label: "Drop" },
-				],
-				data: { requests_per_second: rateLimitRPS },
-			} as CanvasNode<RateLimitNodeData>);
-			connections.push({
-				id: "entry-to-ratelimit",
-				fromNodeId: "entry-point",
-				fromHandle: "output",
-				toNodeId: "rate-limit",
-				toHandle: "input",
-			});
-		}
-		return { nodes, connections };
-	}, [rateLimitQuery.data]);
+		};
+		return { nodes: [entryPointNode], connections: [] };
+	}, []);
 
 	useEffect(() => {
-		if (!selectedDomain || !rateLimitQuery.data) {
+		if (!selectedDomain) {
 			setLayout(null);
 			return;
 		}
 
-		const freshLayout = generateDefaultLayout();
 		const savedLayout = loadLayout(selectedDomain);
-
 		if (savedLayout) {
-			const positionMap = new Map(
-				savedLayout.nodes.map((node) => [node.id, { x: node.x, y: node.y }])
-			);
-			freshLayout.nodes.forEach((node) => {
-				const savedPosition = positionMap.get(node.id);
-				if (savedPosition) {
-					node.x = savedPosition.x;
-					node.y = savedPosition.y;
-				}
-			});
+			setLayout(savedLayout);
+		} else {
+			const newLayout = generateDefaultLayout();
+			setLayout(newLayout);
+			saveLayout(selectedDomain, newLayout);
 		}
-
-		setLayout(freshLayout);
-		saveLayout(selectedDomain, freshLayout);
-	}, [selectedDomain, rateLimitQuery.data, generateDefaultLayout]);
+	}, [selectedDomain, generateDefaultLayout]);
 
 	const handleLayoutChange = useCallback(
 		(newLayout: CanvasLayout) => {
@@ -107,5 +61,27 @@ export function useCanvasLayout({
 		[selectedDomain]
 	);
 
-	return { layout, handleLayoutChange };
+	const addNode = (type: "rate-limit") => {
+		if (!layout) return;
+
+		if (type === "rate-limit") {
+			const newNode: CanvasNode<RateLimitNodeData> = {
+				id: nanoid(8),
+				type: "rate-limit",
+				x: 350,
+				y: 350,
+				inputs: [{ id: "input", label: "Input" }],
+				outputs: [
+					{ id: "accept", label: "Accept" },
+					{ id: "drop", label: "Drop" },
+				],
+				data: { requests_per_second: 100 },
+			};
+
+			const newLayout = { ...layout, nodes: [...layout.nodes, newNode] };
+			handleLayoutChange(newLayout);
+		}
+	};
+
+	return { layout, handleLayoutChange, addNode };
 }

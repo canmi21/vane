@@ -14,7 +14,7 @@ import {
 	type UseMutationResult,
 } from "@tanstack/react-query";
 import { type RequestResult } from "~/api/request";
-import { type HeaderConfig } from "~/routes/$instance/custom-header/";
+import { type HeaderConfig } from "~/routes/$instance/custom-header/$domain";
 
 // --- Key-Value Input Component ---
 function KeyValueInput({

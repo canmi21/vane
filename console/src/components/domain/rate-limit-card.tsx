@@ -17,26 +17,33 @@ interface RateLimitCardProps extends NodeComponentProps {
 export function RateLimitCard({
 	node,
 	onMouseDown,
+	onMouseUp,
 	onHandleClick,
 	isConnecting,
+	isSelected,
 }: RateLimitCardProps) {
 	return (
+		// --- FINAL FIX: Add focus:outline-none and tabIndex={-1} to align with DomainEntryPointCard ---
 		<motion.div
-			className="absolute cursor-grab"
+			className="absolute cursor-grab focus:outline-none"
+			tabIndex={-1}
 			style={{ x: node.x, y: node.y }}
-			onMouseDown={(e) => onMouseDown(node.id, e)}
+			onMouseDown={(e) => {
+				e.stopPropagation();
+				onMouseDown(node.id, e);
+			}}
+			onMouseUp={() => onMouseUp(node.id)}
 			whileTap={{ cursor: "grabbing" }}
 		>
-			{/* --- FIX: The Tooltip.Provider is now inside CanvasNodeCard, so it's removed from here. --- */}
 			<CanvasNodeCard
 				icon={Zap}
 				title="Rate Limit"
 				inputs={node.inputs}
 				outputs={node.outputs}
 				isConnecting={isConnecting}
+				isSelected={isSelected}
 				onHandleClick={(handleId) => onHandleClick(node.id, handleId)}
 			>
-				{/* Custom content for the body */}
 				<div className="text-center">
 					<p className="text-2xl font-semibold text-[var(--color-text)]">
 						{node.data.requests_per_second}

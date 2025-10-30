@@ -3,7 +3,10 @@
 import { Info, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { type UseQueryResult } from "@tanstack/react-query";
 import { type RequestResult } from "~/api/request";
-import { type CertInfo, type NameInfo } from "~/routes/$instance/certificates/";
+import {
+	type CertInfo,
+	type NameInfo,
+} from "~/routes/$instance/certificates/$domain";
 
 // --- Helper component for displaying a key-value pair ---
 function DetailRow({

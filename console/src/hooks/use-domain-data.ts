@@ -7,7 +7,8 @@ import { getInstance, postInstance, deleteInstance } from "~/api/instance";
 import { type RequestResult } from "~/api/request";
 
 // --- Type Definitions ---
-interface ListDomainsResponse {
+// --- FINAL FIX: Export the interface so it can be imported by other modules. ---
+export interface ListDomainsResponse {
 	domains: string[];
 }
 interface RateLimitConfig {

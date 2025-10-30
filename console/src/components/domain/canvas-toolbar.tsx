@@ -7,66 +7,145 @@ import {
 	Layers2,
 	CopyPlus,
 	Plus,
+	X,
 } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { motion } from "framer-motion";
+import React from "react";
 
 interface CanvasToolbarProps {
 	onResetView: () => void;
-	onFitView: () => void; // --- ADDED: New prop for the "fit to view" action ---
+	onFitView: () => void;
 	onToggleConnectorMode: () => void;
 	isConnectorModeActive: boolean;
+	onAddNode: (type: "rate-limit") => void;
+	selectedConnectionId: string | null;
+	onDeleteSelectedConnection: () => void;
+	selectedNodeId: string | null;
+	onDeleteSelectedNode: () => void;
 }
 
 export function CanvasToolbar({
 	onResetView,
-	onFitView, // --- ADDED: Receive the new function ---
+	onFitView,
 	onToggleConnectorMode,
 	isConnectorModeActive,
+	onAddNode,
+	selectedConnectionId,
+	onDeleteSelectedConnection,
+	selectedNodeId,
+	onDeleteSelectedNode,
 }: CanvasToolbarProps) {
-	const tools = [
-		// --- MODIFIED: This icon now triggers "Fit to View" ---
-		{ Icon: Fullscreen, tooltip: "Fit to View", action: onFitView },
-		{
+	const isDeletableNodeSelected =
+		selectedNodeId && selectedNodeId !== "entry-point";
+	const isConnectionSelected = !!selectedConnectionId;
+
+	let connectOrDeleteTool;
+
+	if (isDeletableNodeSelected) {
+		connectOrDeleteTool = {
+			Icon: X,
+			tooltip: "Delete Node",
+			action: onDeleteSelectedNode,
+			active: true,
+			onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+		};
+	} else if (isConnectionSelected) {
+		connectOrDeleteTool = {
+			Icon: X,
+			tooltip: "Delete Connection",
+			action: onDeleteSelectedConnection,
+			active: true,
+			onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+		};
+	} else {
+		connectOrDeleteTool = {
 			Icon: Spline,
 			tooltip: "Connect Nodes",
 			action: onToggleConnectorMode,
 			active: isConnectorModeActive,
+			onMouseDown: undefined,
+		};
+	}
+
+	const tools = [
+		{
+			Icon: Fullscreen,
+			tooltip: "Fit to View",
+			action: onFitView,
+			active: false,
+			onMouseDown: undefined,
 		},
-		// --- MODIFIED: This icon now triggers "Reset View" ---
-		{ Icon: MapPin, tooltip: "Reset View", action: onResetView },
-		{ Icon: Layers2, tooltip: "Layers", action: () => {} },
-		{ Icon: CopyPlus, tooltip: "Duplicate", action: () => {} },
-		{ Icon: Plus, tooltip: "Add", action: () => {} },
+		connectOrDeleteTool,
+		{
+			Icon: MapPin,
+			tooltip: "Reset View",
+			action: onResetView,
+			active: false,
+			onMouseDown: undefined,
+		},
+		{
+			Icon: Layers2,
+			tooltip: "Layers",
+			action: () => {},
+			active: false,
+			onMouseDown: undefined,
+		},
+		{
+			Icon: CopyPlus,
+			tooltip: "Duplicate",
+			action: () => {},
+			active: false,
+			onMouseDown: undefined,
+		},
+		{
+			Icon: Plus,
+			tooltip: "Add Rate Limit Node",
+			action: () => onAddNode("rate-limit"),
+			active: false,
+			onMouseDown: undefined,
+		},
 	];
+
 	return (
 		<Tooltip.Provider delayDuration={150}>
 			<div className="fixed top-4 left-[calc(50vw+8rem)] -translate-x-1/2 z-10">
 				<div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md">
-					{tools.map(({ Icon, tooltip, action, active }, index) => (
-						<Tooltip.Root key={index}>
-							<Tooltip.Trigger asChild>
-								<button
-									onClick={action}
-									className={`flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-subtext)] transition-colors hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text)] focus:outline-none ${active ? "bg-[var(--color-theme-bg)] text-[var(--color-text)]" : ""}`}
-									aria-label={tooltip}
-								>
-									<Icon size={16} />
-								</button>
-							</Tooltip.Trigger>
-							<Tooltip.Portal>
-								<Tooltip.Content sideOffset={8} asChild>
-									<motion.div
-										initial={{ opacity: 0, y: 5 }}
-										animate={{ opacity: 1, y: 0 }}
-										className="z-50 rounded-md bg-[var(--color-bg-alt)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] shadow-md"
-									>
-										{tooltip}
-									</motion.div>
-								</Tooltip.Content>
-							</Tooltip.Portal>
-						</Tooltip.Root>
-					))}
+					{tools.map(
+						({ Icon, tooltip, action, active, onMouseDown }, index) => {
+							const buttonClass = `flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-subtext)] transition-colors focus:outline-none ${
+								active
+									? "bg-[var(--color-theme-bg)] text-[var(--color-text)]"
+									: "hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text)]"
+							}`;
+
+							return (
+								<Tooltip.Root key={index}>
+									<Tooltip.Trigger asChild>
+										<button
+											onClick={action}
+											onMouseDown={onMouseDown}
+											className={buttonClass}
+											aria-label={tooltip}
+										>
+											<Icon size={16} />
+										</button>
+									</Tooltip.Trigger>
+									<Tooltip.Portal>
+										<Tooltip.Content sideOffset={8} asChild>
+											<motion.div
+												initial={{ opacity: 0, y: 5 }}
+												animate={{ opacity: 1, y: 0 }}
+												className="z-50 rounded-md bg-[var(--color-bg-alt)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] shadow-md"
+											>
+												{tooltip}
+											</motion.div>
+										</Tooltip.Content>
+									</Tooltip.Portal>
+								</Tooltip.Root>
+							);
+						}
+					)}
 				</div>
 			</div>
 		</Tooltip.Provider>
