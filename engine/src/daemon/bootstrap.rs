@@ -3,6 +3,7 @@
 use crate::config::{template, uuid};
 use crate::daemon::{config, router};
 use crate::modules::origins::task as origin_monitor_task;
+use crate::modules::plugins::builtin as plugins_task;
 use anynet::anynet;
 use axum::serve;
 use dotenvy::dotenv;
@@ -40,6 +41,9 @@ pub async fn start() {
 
 	origin_monitor_task::initialize_monitor_config().await;
 	origin_monitor_task::start_monitoring_task();
+
+	// Initialize plugins by loading from config file.
+	plugins_task::initialize_plugins().await;
 
 	let port = env::var("PORT")
 		.ok()
