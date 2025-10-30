@@ -12,6 +12,7 @@ use crate::{
 		domain::entrance as domain_entrance,
 		header::manager as header_manager,
 		origins::{monitor, origins},
+		plugins::builtin as plugins_handler, // Added plugin handler
 		ratelimit::manager as ratelimit_manager,
 		templates::handler as templates_handler,
 		websocket::manager as websocket_manager,
@@ -31,6 +32,14 @@ pub fn create_router() -> Router {
 	// Each route and method is defined on its own line.
 	let api_routes = Router::new()
 		.route("/v1/instance", get(modules::instance::get_instance_info))
+		.route("/v1/plugins", get(plugins_handler::list_plugins))
+		.route(
+			"/v1/plugins/{:name}/{:version}",
+			get(plugins_handler::get_plugin)
+				.post(plugins_handler::create_plugin)
+				.put(plugins_handler::update_plugin)
+				.delete(plugins_handler::delete_plugin),
+		)
 		.route(
 			"/v1/origins",
 			get(origins::list_origins).post(origins::create_origin),
