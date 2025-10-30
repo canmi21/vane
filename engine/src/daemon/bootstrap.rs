@@ -3,7 +3,7 @@
 use crate::config::{template, uuid};
 use crate::daemon::{config, router};
 use crate::modules::origins::task as origin_monitor_task;
-use crate::modules::plugins::builtin as plugins_task;
+use crate::modules::plugins::manager as plugins_task;
 use anynet::anynet;
 use axum::serve;
 use dotenvy::dotenv;
