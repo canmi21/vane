@@ -8,14 +8,15 @@ import { useCanvasView } from "~/hooks/use-canvas-view";
 import { useCanvasInteraction } from "~/hooks/use-canvas-interaction";
 import { useConnectionPoints } from "~/hooks/use-connection-points";
 import { CanvasContent } from "./canvas-content";
-import { type Plugin } from "~/hooks/use-plugin-data"; // Import type
+import { type Plugin } from "~/hooks/use-plugin-data";
 
 interface DomainCanvasProps {
 	layout: CanvasLayout;
 	onLayoutChange: (newLayout: CanvasLayout) => void;
 	selectedDomain: string;
-	plugins: Plugin[]; // Accept plugins
-	onAddNode: (plugin: Plugin) => void; // Update signature
+	plugins: Plugin[];
+	onAddNode: (plugin: Plugin) => void;
+	onUpdateNodeData: (nodeId: string, newData: Record<string, unknown>) => void;
 }
 
 export function DomainCanvas({
@@ -24,6 +25,7 @@ export function DomainCanvas({
 	selectedDomain,
 	plugins,
 	onAddNode,
+	onUpdateNodeData,
 }: DomainCanvasProps) {
 	const canvasRef = useRef<HTMLDivElement | null>(null);
 
@@ -32,7 +34,8 @@ export function DomainCanvas({
 		nodes: layout.nodes,
 	});
 
-	const { getConnectionPoints } = useConnectionPoints(layout);
+	// --- FINAL FIX: Pass plugins to the hook ---
+	const { getConnectionPoints } = useConnectionPoints(layout, plugins);
 
 	const {
 		interaction,
@@ -75,7 +78,7 @@ export function DomainCanvas({
 			onContextMenu={handleContextMenu}
 		>
 			<CanvasToolbar
-				plugins={plugins} // Pass to toolbar
+				plugins={plugins}
 				onResetView={handleResetView}
 				onFitView={handleFitView}
 				onToggleConnectorMode={handleToggleConnectorMode}
@@ -86,7 +89,6 @@ export function DomainCanvas({
 				selectedNodeId={selectedNodeId}
 				onDeleteSelectedNode={handleDeleteSelectedNode}
 			/>
-
 			<motion.div
 				className="absolute top-0 left-0"
 				style={{ x: view.x, y: view.y, scale: scale }}
@@ -98,12 +100,13 @@ export function DomainCanvas({
 					selectedNodeId={selectedNodeId}
 					mouseInCanvasCoords={mouseInCanvasCoords}
 					selectedDomain={selectedDomain}
-					plugins={plugins} // Pass to content
+					plugins={plugins}
 					getConnectionPoints={getConnectionPoints}
 					handleNodeMouseDown={handleNodeMouseDown}
 					handleNodeMouseUp={handleMouseUp}
 					handleHandleClick={handleHandleClick}
 					handleConnectionClick={handleConnectionClick}
+					onUpdateNodeData={onUpdateNodeData}
 				/>
 			</motion.div>
 		</div>

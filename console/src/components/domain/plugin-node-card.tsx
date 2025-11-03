@@ -6,6 +6,7 @@ import { type NodeComponentProps } from "./domain-entry-point-card";
 import { CanvasNodeCard } from "./canvas-node-card";
 import { type Plugin } from "~/hooks/use-plugin-data";
 import React from "react";
+import * as Switch from "@radix-ui/react-switch";
 
 // --- Icon Mapping ---
 const PLUGIN_ICONS: Record<string, React.ElementType> = {
@@ -16,12 +17,11 @@ const DefaultIcon = Puzzle;
 // --- Component Props ---
 interface PluginNodeCardProps extends NodeComponentProps {
 	plugins: Plugin[];
+	onDataChange: (nodeId: string, newData: Record<string, unknown>) => void;
 }
 
 /**
- * A dynamic component that renders any plugin-based node.
- * It looks up the plugin definition and uses the generic CanvasNodeCard
- * to build the UI, including rendering the plugin's input parameters.
+ * A dynamic component that renders any plugin-based node with editable fields.
  */
 export function PluginNodeCard({
 	node,
@@ -31,6 +31,7 @@ export function PluginNodeCard({
 	onHandleClick,
 	isConnecting,
 	isSelected,
+	onDataChange,
 }: PluginNodeCardProps) {
 	const plugin = plugins.find((p) => p.name === node.type);
 
@@ -49,6 +50,12 @@ export function PluginNodeCard({
 
 	const Icon = PLUGIN_ICONS[plugin.name] ?? DefaultIcon;
 	const title = plugin.name.replace(/-/g, " ");
+	const nodeData = node.data as Record<string, unknown>;
+
+	const handleValueChange = (key: string, value: string | number | boolean) => {
+		const newData = { ...nodeData, [key]: value };
+		onDataChange(node.id, newData);
+	};
 
 	return (
 		<motion.div
@@ -70,26 +77,54 @@ export function PluginNodeCard({
 				isConnecting={isConnecting}
 				isSelected={isSelected}
 				onHandleClick={(handleId) => onHandleClick(node.id, handleId)}
-				// --- FINAL FIX: Pass all plugin details for the comprehensive tooltip ---
-				version={plugin.version}
-				description={plugin.description}
-				author={plugin.author}
-				url={plugin.url}
-				inputParams={plugin.input_params}
-				outputHandles={plugin.output_results.tree}
-				outputVariables={plugin.output_results.variables}
+				plugin={plugin}
+				// --- FINAL FIX: Calculate and pass the number of input parameters ---
+				inputParamCount={Object.keys(plugin.input_params).length}
 			>
-				{/* The body of the card still displays the current values */}
-				<div className="text-center">
-					{Object.keys(plugin.input_params).map((key) => (
+				<div className="w-full space-y-2 text-left">
+					{Object.entries(plugin.input_params).map(([key, param]) => (
 						<div key={key}>
-							<p className="text-2xl font-semibold text-[var(--color-text)]">
-								{(node.data as Record<string, unknown>)[key]?.toString() ??
-									"N/A"}
-							</p>
-							<p className="text-xs text-[var(--color-subtext)]">
+							<label className="flex items-center justify-between text-xs text-[var(--color-subtext)] mb-1">
 								{key.replace(/_/g, " ")}
-							</p>
+								<span className="rounded bg-[var(--color-bg-alt)] px-1.5 py-0.5 font-mono text-xs">
+									{param.type}
+								</span>
+							</label>
+							{param.type === "string" && (
+								<input
+									type="text"
+									value={(nodeData[key] as string) ?? ""}
+									onChange={(e) => handleValueChange(key, e.target.value)}
+									onMouseDown={(e) => e.stopPropagation()}
+									className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+								/>
+							)}
+							{param.type === "number" && (
+								<input
+									type="number"
+									value={(nodeData[key] as number) ?? 0}
+									onChange={(e) => {
+										const num = parseFloat(e.target.value);
+										handleValueChange(key, isNaN(num) ? 0 : num);
+									}}
+									onMouseDown={(e) => e.stopPropagation()}
+									className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+								/>
+							)}
+							{param.type === "boolean" && (
+								<div className="flex items-center h-8">
+									<Switch.Root
+										checked={(nodeData[key] as boolean) ?? false}
+										onCheckedChange={(checked) =>
+											handleValueChange(key, checked)
+										}
+										onMouseDown={(e) => e.stopPropagation()}
+										className="w-[36px] h-[20px] bg-[var(--color-bg-alt)] rounded-full relative data-[state=checked]:bg-[var(--color-theme-bg)] transition-colors"
+									>
+										<Switch.Thumb className="block w-[14px] h-[14px] bg-white rounded-full transition-transform duration-100 translate-x-1 data-[state=checked]:translate-x-[18px]" />
+									</Switch.Root>
+								</div>
+							)}
 						</div>
 					))}
 				</div>

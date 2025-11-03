@@ -5,7 +5,8 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { motion } from "framer-motion";
 import { type Plugin } from "~/hooks/use-plugin-data";
-import React from "react"; // Import React for type hints
+import React from "react";
+import { InfoTooltip } from "./info-tooltip";
 
 interface CanvasToolbarProps {
 	plugins: Plugin[];
@@ -75,12 +76,11 @@ export function CanvasToolbar({
 		<Tooltip.Provider delayDuration={150}>
 			<div className="fixed top-4 left-1/2 -translate-x-1/2 z-10">
 				<div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md">
-					{/* Main View & Selection Tools */}
+					{/* Render all main tools */}
 					{mainTools.map(({ Icon, tooltip, action, active }, index) => (
 						<Tooltip.Root key={index}>
 							<Tooltip.Trigger asChild>
 								<button
-									// --- FINAL FIX: Use onMouseDown to prevent event bubbling to the canvas ---
 									onMouseDown={(e: React.MouseEvent) => {
 										e.stopPropagation();
 										action();
@@ -103,16 +103,11 @@ export function CanvasToolbar({
 						</Tooltip.Root>
 					))}
 
-					{/* Vertical Separator */}
-					<div className="mx-1 h-5 w-px bg-[var(--color-bg-alt)]" />
-
-					{/* Add Node button is now a Dropdown Menu */}
 					<DropdownMenu.Root>
 						<Tooltip.Root>
 							<Tooltip.Trigger asChild>
 								<DropdownMenu.Trigger asChild>
 									<button
-										// --- FINAL FIX: Stop propagation here as well for consistency ---
 										onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
 										className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-subtext)] transition-colors hover:bg-[var(--color-bg-alt)] hover:text-[var(--color-text)] focus:outline-none"
 										aria-label="Add Node"
@@ -131,7 +126,7 @@ export function CanvasToolbar({
 						<DropdownMenu.Portal>
 							<DropdownMenu.Content
 								sideOffset={8}
-								className="z-50 min-w-[180px] rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-1 shadow-md"
+								className="z-50 min-w-[240px] rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-1 shadow-md"
 								onCloseAutoFocus={(e) => e.preventDefault()}
 							>
 								<DropdownMenu.Label className="px-2 py-1.5 text-xs text-[var(--color-subtext)]">
@@ -142,14 +137,29 @@ export function CanvasToolbar({
 									<DropdownMenu.Item
 										key={`${plugin.name}-${plugin.version}`}
 										onSelect={() => onAddNode(plugin)}
-										className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm text-[var(--color-text)] outline-none hover:bg-[var(--color-theme-bg)]"
+										className="relative flex cursor-pointer select-none items-center justify-between rounded-sm px-2 py-1.5 text-sm text-[var(--color-text)] outline-none hover:bg-[var(--color-theme-bg)]"
 									>
-										<span className="flex-grow capitalize">
-											{plugin.name.replace(/-/g, " ")}
-										</span>
-										<span className="ml-2 text-xs text-[var(--color-subtext)]">
-											{plugin.version}
-										</span>
+										<div className="flex items-center gap-2">
+											<span className="capitalize">
+												{plugin.name.replace(/-/g, " ")}
+												<span className="ml-1 text-xs text-[var(--color-subtext)]">
+													{plugin.version}
+												</span>
+											</span>
+											<span
+												className={`rounded px-1.5 py-0.5 text-xs font-semibold ${
+													plugin.interface.type === "internal"
+														? "bg-blue-500/10 text-blue-400"
+														: "bg-purple-500/10 text-purple-400"
+												}`}
+											>
+												{plugin.interface.type}
+											</span>
+										</div>
+
+										<div className="pr-1">
+											<InfoTooltip plugin={plugin} />
+										</div>
 									</DropdownMenu.Item>
 								))}
 								{plugins.length === 0 && (
@@ -166,7 +176,6 @@ export function CanvasToolbar({
 	);
 }
 
-// A shared animation for tooltips for consistency.
 const TooltipAnimation = {
 	initial: { opacity: 0, y: 5 },
 	animate: { opacity: 1, y: 0 },

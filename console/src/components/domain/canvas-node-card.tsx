@@ -4,11 +4,8 @@ import React from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { motion } from "framer-motion";
 import { type NodeHandle } from "~/lib/canvas-layout";
-import { Info } from "lucide-react";
-import {
-	type ParamDefinition,
-	type VariableDefinition,
-} from "~/hooks/use-plugin-data";
+import { type Plugin } from "~/hooks/use-plugin-data";
+import { InfoTooltip } from "./info-tooltip";
 
 // --- Type Definitions ---
 interface CanvasNodeCardProps {
@@ -20,18 +17,12 @@ interface CanvasNodeCardProps {
 	onHandleClick: (handleId: string) => void;
 	isConnecting: boolean;
 	isSelected: boolean;
-	version?: string;
-	description?: string;
-	author?: string;
-	url?: string;
-	inputParams?: Record<string, ParamDefinition>;
-	outputHandles?: string[];
-	outputVariables?: Record<string, VariableDefinition>;
+	plugin?: Plugin;
+	inputParamCount?: number;
 }
 
 /**
- * A generic card for "middleware" nodes, with height driven by the number of outputs.
- * The input handle is now always centered in the first "unit" of the body.
+ * A generic card for "middleware" nodes with fully dynamic height and handle positioning.
  */
 export function CanvasNodeCard({
 	icon: Icon,
@@ -42,13 +33,8 @@ export function CanvasNodeCard({
 	onHandleClick,
 	isConnecting,
 	isSelected,
-	version,
-	description,
-	author,
-	url,
-	inputParams,
-	outputHandles,
-	outputVariables,
+	plugin,
+	inputParamCount = 0,
 }: CanvasNodeCardProps) {
 	const headerRef = React.useRef<HTMLDivElement>(null);
 	const [headerHeight, setHeaderHeight] = React.useState(41);
@@ -59,19 +45,32 @@ export function CanvasNodeCard({
 		}
 	}, []);
 
-	const bodyHeight = headerHeight * (outputs.length > 0 ? outputs.length : 1);
-	const inputHandleY = headerHeight / 2;
+	// Dynamic height calculation logic.
+	const heightFromOutputs =
+		headerHeight * (outputs.length > 0 ? outputs.length : 1);
+	const ESTIMATED_INPUT_ROW_HEIGHT = 60;
+	const PADDING = 24;
+	const heightFromInputs =
+		inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT + PADDING;
+	const bodyHeight = Math.max(heightFromOutputs, heightFromInputs);
+
+	// --- FINAL FIX: Calculate input Y-position based on the first output's position ---
+	// This logic now mirrors the calculation in `use-connection-points.ts`.
+	const firstOutputPositionPercent =
+		outputs.length <= 1 ? 50 : 100 / (outputs.length + 1);
+	const inputHandleY =
+		outputs.length > 0
+			? bodyHeight * (firstOutputPositionPercent / 100)
+			: headerHeight / 2; // Fallback if no outputs exist.
 
 	const cardClasses = `relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md transition-all duration-150 ${
 		isSelected ? "ring-2 ring-[var(--color-theme-border)]" : ""
 	}`;
 
-	const hasInfo = !!description;
-
 	return (
 		<Tooltip.Provider delayDuration={150}>
 			<div className={cardClasses}>
-				{/* Card Header */}
+				{/* Card Header (unchanged) */}
 				<div
 					ref={headerRef}
 					className="flex items-center justify-between gap-2 border-b border-[var(--color-bg-alt)] p-3"
@@ -82,96 +81,10 @@ export function CanvasNodeCard({
 							{title}
 						</p>
 					</div>
-
-					{hasInfo && (
-						<Tooltip.Root>
-							<Tooltip.Trigger asChild>
-								<button
-									className="flex-shrink-0 text-[var(--color-subtext)] transition-colors hover:text-[var(--color-text)] focus:outline-none"
-									onMouseDown={(e) => e.stopPropagation()}
-								>
-									<Info size={14} />
-								</button>
-							</Tooltip.Trigger>
-							<Tooltip.Portal>
-								<Tooltip.Content side="top" align="end" sideOffset={8}>
-									<motion.div
-										initial={{ opacity: 0, y: 5 }}
-										animate={{ opacity: 1, y: 0 }}
-										className="z-50 max-w-xs rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-3 text-xs font-medium text-[var(--color-text)] shadow-lg"
-									>
-										{/* Header */}
-										<div className="flex items-baseline justify-between gap-2 pb-2">
-											<h3 className="font-bold capitalize text-[var(--color-text)]">
-												{title}
-												<span className="ml-1.5 text-xs font-normal text-[var(--color-subtext)]">
-													{version}
-												</span>
-											</h3>
-											{author && url && (
-												<a {...linkProps} href={url}>
-													@{author}
-												</a>
-											)}
-										</div>
-
-										{/* Description */}
-										<p className="text-[var(--color-subtext)]">{description}</p>
-
-										{/* IO Details */}
-										<div className="mt-3 grid grid-cols-2 gap-3 pt-3 border-t border-[var(--color-bg-alt)]">
-											{/* Inputs Column */}
-											<div>
-												<h4 {...headingProps}>Input Params</h4>
-												<ul {...listProps}>
-													{inputParams &&
-														Object.entries(inputParams).map(([key, val]) => (
-															<li key={key}>
-																{key}: <code {...codeProps}>{val.type}</code>
-															</li>
-														))}
-												</ul>
-											</div>
-											{/* Outputs Column */}
-											<div>
-												{/* --- FINAL, FINAL FIX 1: Update heading and rendering logic --- */}
-												<h4 {...headingProps}>Output branch:</h4>
-												<ul {...listProps}>
-													{outputHandles?.map((handle) => (
-														<li key={handle}>
-															<code {...codeProps}>{handle}</code>
-														</li>
-													))}
-												</ul>
-
-												{/* --- FINAL, FINAL FIX 2: Always show variables, with a fallback --- */}
-												<h4 {...headingProps} className="mt-2">
-													Output Variables
-												</h4>
-												<ul {...listProps}>
-													{outputVariables &&
-													Object.keys(outputVariables).length > 0 ? (
-														Object.entries(outputVariables).map(
-															([key, val]) => (
-																<li key={key}>
-																	{key}: <code {...codeProps}>{val.type}</code>
-																</li>
-															)
-														)
-													) : (
-														<li>None</li>
-													)}
-												</ul>
-											</div>
-										</div>
-									</motion.div>
-								</Tooltip.Content>
-							</Tooltip.Portal>
-						</Tooltip.Root>
-					)}
+					{plugin && <InfoTooltip plugin={plugin} />}
 				</div>
 
-				{/* Card Body (unchanged) */}
+				{/* Card Body with dynamic height */}
 				<div className="relative" style={{ height: `${bodyHeight}px` }}>
 					{inputs.map((handle) => (
 						<HandleTooltip
@@ -180,6 +93,7 @@ export function CanvasNodeCard({
 							side="left"
 							onClick={onHandleClick}
 							isConnecting={isConnecting}
+							// --- FINAL FIX: Apply the new dynamic Y-position ---
 							style={{
 								top: `${inputHandleY}px`,
 								transform: "translate(-50%, -50%)",
@@ -206,9 +120,7 @@ export function CanvasNodeCard({
 							/>
 						);
 					})}
-					<div className="p-3 h-full flex items-center justify-center">
-						{children}
-					</div>
+					<div className="p-3 h-full w-full overflow-y-auto">{children}</div>
 				</div>
 			</div>
 		</Tooltip.Provider>
@@ -216,7 +128,6 @@ export function CanvasNodeCard({
 }
 
 // --- Sub-components for cleaner rendering ---
-
 interface HandleTooltipProps {
 	handle: NodeHandle;
 	side: "left" | "right";
@@ -239,7 +150,11 @@ const HandleTooltip = ({
 					e.stopPropagation();
 					onClick(handle.id);
 				}}
-				className={`absolute h-3 w-3 rounded-full bg-[var(--color-bg)] border-2 border-[var(--color-theme-border)] z-10 transition-colors ${isConnecting ? "cursor-crosshair hover:bg-[var(--color-theme-bg)]" : "cursor-pointer"}`}
+				className={`absolute h-3 w-3 rounded-full bg-[var(--color-bg)] border-2 border-[var(--color-theme-border)] z-10 transition-colors ${
+					isConnecting
+						? "cursor-crosshair hover:bg-[var(--color-theme-bg)]"
+						: "cursor-pointer"
+				}`}
 				style={style}
 			/>
 		</Tooltip.Trigger>
@@ -256,19 +171,3 @@ const HandleTooltip = ({
 		</Tooltip.Portal>
 	</Tooltip.Root>
 );
-
-// Shared props for styling the detailed info tooltip
-const headingProps = {
-	className: "font-semibold text-[var(--color-text)] mb-1",
-};
-const listProps = { className: "space-y-0.5 text-[var(--color-subtext)]" };
-const codeProps = {
-	className:
-		"px-1 py-0.5 rounded bg-[var(--color-bg-alt)] text-xs inline-block",
-};
-const linkProps = {
-	target: "_blank",
-	rel: "noopener noreferrer",
-	className: "text-[var(--color-theme-border)] hover:underline",
-	onClick: (e: React.MouseEvent) => e.stopPropagation(),
-};

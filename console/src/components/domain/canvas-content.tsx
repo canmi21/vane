@@ -14,7 +14,7 @@ import {
 import { CanvasConnector } from "./canvas-connector";
 import React from "react";
 import { type Plugin } from "~/hooks/use-plugin-data";
-import { PluginNodeCard } from "./plugin-node-card"; // Import the new generic card
+import { PluginNodeCard } from "./plugin-node-card";
 
 interface CanvasContentProps {
 	layout: CanvasLayout;
@@ -23,7 +23,7 @@ interface CanvasContentProps {
 	selectedNodeId: string | null;
 	mouseInCanvasCoords: { x: number; y: number };
 	selectedDomain: string;
-	plugins: Plugin[]; // Pass plugins down
+	plugins: Plugin[];
 	getConnectionPoints: (
 		nodeId: string,
 		handleId: string
@@ -32,11 +32,12 @@ interface CanvasContentProps {
 	handleNodeMouseUp: (nodeId: string) => void;
 	handleHandleClick: (nodeId: string, handleId: string) => void;
 	handleConnectionClick: (connectionId: string) => void;
+	// --- FINAL FIX: Add the new prop to the interface ---
+	onUpdateNodeData: (nodeId: string, newData: Record<string, unknown>) => void;
 }
 
 /**
- * A purely presentational component that renders all the nodes and connections
- * inside the canvas viewport.
+ * A purely presentational component that renders all the nodes and connections.
  */
 export function CanvasContent({
 	layout,
@@ -51,10 +52,11 @@ export function CanvasContent({
 	handleNodeMouseUp,
 	handleHandleClick,
 	handleConnectionClick,
+	onUpdateNodeData, // Destructure the prop
 }: CanvasContentProps) {
 	return (
 		<>
-			{/* Connection rendering remains the same */}
+			{/* ... (connection rendering is unchanged) ... */}
 			{layout.connections.map((conn) => {
 				const start = getConnectionPoints(conn.fromNodeId, conn.fromHandle);
 				const end = getConnectionPoints(conn.toNodeId, conn.toHandle);
@@ -71,8 +73,6 @@ export function CanvasContent({
 					/>
 				);
 			})}
-
-			{/* Node rendering is now dynamic */}
 			{layout.nodes.map((node) => {
 				const props: NodeComponentProps = {
 					node,
@@ -94,11 +94,18 @@ export function CanvasContent({
 					);
 				}
 
-				// --- FINAL FIX: All other nodes are rendered by the generic PluginNodeCard ---
-				return <PluginNodeCard key={node.id} {...props} plugins={plugins} />;
+				return (
+					<PluginNodeCard
+						key={node.id}
+						{...props}
+						plugins={plugins}
+						// --- FINAL FIX: Pass the prop down to the card ---
+						onDataChange={onUpdateNodeData}
+					/>
+				);
 			})}
 
-			{/* Preview connector rendering remains the same */}
+			{/* ... (preview connector rendering is unchanged) ... */}
 			<AnimatePresence>
 				{interaction.mode === "connecting" && interaction.fromNodeId && (
 					<CanvasConnector
