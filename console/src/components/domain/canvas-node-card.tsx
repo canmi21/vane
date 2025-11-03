@@ -5,7 +5,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { motion } from "framer-motion";
 import { type NodeHandle } from "~/lib/canvas-layout";
 import { type Plugin } from "~/hooks/use-plugin-data";
-import { InfoTooltip } from "./info-tooltip"; // Import the new reusable component
+import { InfoTooltip } from "./info-tooltip";
 
 // --- Type Definitions ---
 interface CanvasNodeCardProps {
@@ -17,12 +17,12 @@ interface CanvasNodeCardProps {
 	onHandleClick: (handleId: string) => void;
 	isConnecting: boolean;
 	isSelected: boolean;
-	// --- FINAL FIX: This now only needs the full plugin object ---
 	plugin?: Plugin;
+	inputParamCount?: number;
 }
 
 /**
- * A generic card for "middleware" nodes, with height driven by the number of outputs.
+ * A generic card for "middleware" nodes with fully dynamic height and handle positioning.
  */
 export function CanvasNodeCard({
 	icon: Icon,
@@ -34,6 +34,7 @@ export function CanvasNodeCard({
 	isConnecting,
 	isSelected,
 	plugin,
+	inputParamCount = 0,
 }: CanvasNodeCardProps) {
 	const headerRef = React.useRef<HTMLDivElement>(null);
 	const [headerHeight, setHeaderHeight] = React.useState(41);
@@ -44,8 +45,23 @@ export function CanvasNodeCard({
 		}
 	}, []);
 
-	const bodyHeight = headerHeight * (outputs.length > 0 ? outputs.length : 1);
-	const inputHandleY = headerHeight / 2;
+	// Dynamic height calculation logic.
+	const heightFromOutputs =
+		headerHeight * (outputs.length > 0 ? outputs.length : 1);
+	const ESTIMATED_INPUT_ROW_HEIGHT = 60;
+	const PADDING = 24;
+	const heightFromInputs =
+		inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT + PADDING;
+	const bodyHeight = Math.max(heightFromOutputs, heightFromInputs);
+
+	// --- FINAL FIX: Calculate input Y-position based on the first output's position ---
+	// This logic now mirrors the calculation in `use-connection-points.ts`.
+	const firstOutputPositionPercent =
+		outputs.length <= 1 ? 50 : 100 / (outputs.length + 1);
+	const inputHandleY =
+		outputs.length > 0
+			? bodyHeight * (firstOutputPositionPercent / 100)
+			: headerHeight / 2; // Fallback if no outputs exist.
 
 	const cardClasses = `relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md transition-all duration-150 ${
 		isSelected ? "ring-2 ring-[var(--color-theme-border)]" : ""
@@ -54,7 +70,7 @@ export function CanvasNodeCard({
 	return (
 		<Tooltip.Provider delayDuration={150}>
 			<div className={cardClasses}>
-				{/* Card Header */}
+				{/* Card Header (unchanged) */}
 				<div
 					ref={headerRef}
 					className="flex items-center justify-between gap-2 border-b border-[var(--color-bg-alt)] p-3"
@@ -65,12 +81,10 @@ export function CanvasNodeCard({
 							{title}
 						</p>
 					</div>
-
-					{/* --- FINAL FIX: Use the reusable InfoTooltip component --- */}
 					{plugin && <InfoTooltip plugin={plugin} />}
 				</div>
 
-				{/* Card Body (unchanged) */}
+				{/* Card Body with dynamic height */}
 				<div className="relative" style={{ height: `${bodyHeight}px` }}>
 					{inputs.map((handle) => (
 						<HandleTooltip
@@ -79,6 +93,7 @@ export function CanvasNodeCard({
 							side="left"
 							onClick={onHandleClick}
 							isConnecting={isConnecting}
+							// --- FINAL FIX: Apply the new dynamic Y-position ---
 							style={{
 								top: `${inputHandleY}px`,
 								transform: "translate(-50%, -50%)",
@@ -105,9 +120,7 @@ export function CanvasNodeCard({
 							/>
 						);
 					})}
-					<div className="p-3 h-full flex items-center justify-center">
-						{children}
-					</div>
+					<div className="p-3 h-full w-full overflow-y-auto">{children}</div>
 				</div>
 			</div>
 		</Tooltip.Provider>
@@ -115,7 +128,6 @@ export function CanvasNodeCard({
 }
 
 // --- Sub-components for cleaner rendering ---
-
 interface HandleTooltipProps {
 	handle: NodeHandle;
 	side: "left" | "right";
