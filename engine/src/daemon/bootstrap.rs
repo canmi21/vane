@@ -1,7 +1,8 @@
 /* engine/src/daemon/bootstrap.rs */
 
 use crate::config::{template, uuid};
-use crate::daemon::{config, router};
+use crate::daemon::{config, console, router};
+use crate::modules::layout::manager as layout_manager;
 use crate::modules::origins::task as origin_monitor_task;
 use crate::modules::plugins::manager as plugins_task;
 use anynet::anynet;
@@ -24,6 +25,7 @@ pub async fn start() {
 	// Initialize base configuration directories first.
 	config::initialize_config_directory();
 	template::initialize_templates();
+	console::initialize_console_config().await;
 
 	// Now, initialize the instance-specific config file (e.g., instance.json).
 	// This is a critical step; if it fails, the application cannot proceed.
@@ -44,6 +46,8 @@ pub async fn start() {
 
 	// Initialize plugins by loading from config file.
 	plugins_task::initialize_plugins().await;
+
+	layout_manager::initialize_all_layout_configs().await;
 
 	let port = env::var("PORT")
 		.ok()
