@@ -2,5 +2,6 @@
 
 pub mod bootstrap;
 pub mod config;
+pub mod console;
 pub mod root;
 pub mod router;

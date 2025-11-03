@@ -77,3 +77,8 @@ pub fn get_templates_dir() -> PathBuf {
 pub fn get_plugins_config_path() -> PathBuf {
 	get_config_dir().join("plugins.json")
 }
+
+/// Returns the full path to the `plugins.json` file.
+pub fn get_console_config_path() -> PathBuf {
+	get_config_dir().join("console.json")
+}

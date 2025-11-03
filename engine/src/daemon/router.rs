@@ -2,7 +2,7 @@
 
 use crate::{
 	common::response,
-	daemon::root::root_handler,
+	daemon::{console, root::root_handler},
 	middleware::{self, auth::auth_middleware},
 	modules::{
 		self,
@@ -11,6 +11,7 @@ use crate::{
 		cors::manager as cors_manager,
 		domain::entrance as domain_entrance,
 		header::manager as header_manager,
+		layout::manager as layout_manager,
 		origins::{monitor, origins},
 		plugins::handler as plugins_handler,
 		ratelimit::manager as ratelimit_manager,
@@ -31,7 +32,15 @@ pub fn create_router() -> Router {
 	// Define the protected API routes first for clarity.
 	// Each route and method is defined on its own line.
 	let api_routes = Router::new()
+		.route(
+			"/v1/console",
+			get(console::get_console_config).put(console::update_console_config),
+		)
 		.route("/v1/instance", get(modules::instance::get_instance_info))
+		.route(
+			"/v1/layout/{:domain}",
+			get(layout_manager::get_layout_config).put(layout_manager::update_layout_config),
+		) // Add this route
 		.route("/v1/plugins", get(plugins_handler::list_plugins))
 		.route(
 			"/v1/plugins/{:name}/{:version}",
@@ -40,6 +49,7 @@ pub fn create_router() -> Router {
 				.put(plugins_handler::update_plugin)
 				.delete(plugins_handler::delete_plugin),
 		)
+		// ... rest of the routes
 		.route(
 			"/v1/origins",
 			get(origins::list_origins).post(origins::create_origin),

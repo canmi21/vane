@@ -1,5 +1,9 @@
 /* src/lib/canvas-layout.ts */
 
+import { getInstance, putInstance } from "~/api/instance";
+import { type RequestResult } from "~/api/request";
+
+// --- Type Definitions ---
 export interface NodeHandle {
 	id: string;
 	label: string;
@@ -14,9 +18,6 @@ export interface CanvasNode<T = unknown> {
 	data: T;
 }
 export type EntryPointNodeData = Record<string, never>;
-export interface RateLimitNodeData {
-	requests_per_second: number;
-}
 export interface CanvasConnection {
 	id: string;
 	fromNodeId: string;
@@ -29,12 +30,45 @@ export interface CanvasLayout {
 	connections: CanvasConnection[];
 }
 
-// --- LocalStorage Logic ---
+// --- API Functions for Backend Synchronization ---
+
+/**
+ * Fetches the layout for a domain from the backend.
+ */
+export const getLayoutConfig = (instanceId: string, domain: string) =>
+	getInstance<CanvasLayout>(
+		instanceId,
+		`/v1/layout/${encodeURIComponent(domain)}`
+	);
+
+/**
+ * Saves the layout for a domain to the backend.
+ */
+export const updateLayoutConfig = (
+	instanceId: string,
+	domain: string,
+	layout: CanvasLayout
+): Promise<RequestResult<CanvasLayout>> => {
+	const body = layout as unknown as Record<string, unknown>;
+	return putInstance<CanvasLayout>(
+		instanceId,
+		`/v1/layout/${encodeURIComponent(domain)}`,
+		body
+	);
+};
+
+// --- FINAL FIX: Rename LocalStorage functions for clarity ---
+
 function getStorageKey(domain: string): string {
 	return `@vane/canvas-layout/${domain}`;
 }
 
-export function loadLayout(domain: string): CanvasLayout | null {
+/**
+ * Loads the layout from the browser's LocalStorage.
+ */
+export function loadLayoutFromLocalStorage(
+	domain: string
+): CanvasLayout | null {
 	const data = localStorage.getItem(getStorageKey(domain));
 	if (!data) return null;
 	try {
@@ -48,6 +82,12 @@ export function loadLayout(domain: string): CanvasLayout | null {
 	}
 }
 
-export function saveLayout(domain: string, layout: CanvasLayout): void {
+/**
+ * Saves the layout to the browser's LocalStorage.
+ */
+export function saveLayoutToLocalStorage(
+	domain: string,
+	layout: CanvasLayout
+): void {
 	localStorage.setItem(getStorageKey(domain), JSON.stringify(layout));
 }

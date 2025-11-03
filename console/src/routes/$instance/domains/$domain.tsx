@@ -2,9 +2,10 @@
 
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { Server, ServerCrash, Loader2, Puzzle } from "lucide-react";
-import React from "react"; // --- FINAL FIX: Import React for JSX ---
+import React, { useEffect, useRef } from "react";
 import { DomainCanvas } from "~/components/domain/domain-canvas";
 import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
+import { SyncStatusIndicator } from "~/components/domain/sync-status-indicator";
 import { useDomainData } from "~/hooks/use-domain-data";
 import { useCanvasLayout } from "~/hooks/use-canvas-layout";
 import { usePluginData } from "~/hooks/use-plugin-data";
@@ -19,28 +20,48 @@ function DomainDetailPage() {
 	});
 	const selectedDomain = domain === "_" ? null : domain;
 
-	const {
-		domains,
-		domainsQuery,
-		addMutation,
-		removeMutation,
-		handleDomainSelect,
-	} = useDomainData(instanceId, selectedDomain);
+	const domainData = useDomainData(instanceId, selectedDomain);
 	const pluginsQuery = usePluginData(instanceId);
 
-	const { layout, handleLayoutChange, addNode, updateNodeData } =
+	// The hook now manages its own loading state and requires the instanceId.
+	const { layout, handleLayoutChange, addNode, updateNodeData, syncStatus } =
 		useCanvasLayout({
+			instanceId, // --- FINAL FIX: Pass instanceId to the hook ---
 			selectedDomain,
 		});
 
-	if (domainsQuery.isLoading || pluginsQuery.isLoading) {
+	// --- FINAL FIX: Navigation Guard to prevent losing unsaved changes ---
+	// Use a ref to ensure the event listener always has the latest status.
+	const syncStatusRef = useRef(syncStatus);
+	useEffect(() => {
+		syncStatusRef.current = syncStatus;
+	}, [syncStatus]);
+
+	useEffect(() => {
+		const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+			// Only show the prompt if there are unsaved changes.
+			if (
+				syncStatusRef.current === "unsaved" ||
+				syncStatusRef.current === "saving"
+			) {
+				e.preventDefault();
+				e.returnValue =
+					"Waiting for layout to update. Are you sure you want to leave?";
+			}
+		};
+		window.addEventListener("beforeunload", handleBeforeUnload);
+		return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+	}, []); // Empty dependency array means this runs once on mount.
+
+	// --- Loading and Error states from various hooks ---
+	if (domainData.domainsQuery.isLoading || pluginsQuery.isLoading) {
 		return <FullPageStatus icon={Server} text="Loading Configuration..." />;
 	}
-	if (domainsQuery.isError) {
+	if (domainData.domainsQuery.isError) {
 		return (
 			<FullPageStatus
 				icon={ServerCrash}
-				text={domainsQuery.error.message}
+				text={domainData.domainsQuery.error.message}
 				isError
 			/>
 		);
@@ -58,30 +79,34 @@ function DomainDetailPage() {
 
 	return (
 		<div className="h-full w-full">
-			{layout && selectedDomain ? (
+			{/* --- FINAL FIX: Add the sync status indicator to the UI --- */}
+			<SyncStatusIndicator status={syncStatus} />
+
+			{/* --- FINAL FIX: Use syncStatus to determine loading state --- */}
+			{syncStatus === "loading" || !layout ? (
+				<FullPageStatus icon={Loader2} text="Loading Canvas Layout..." />
+			) : (
 				<DomainCanvas
 					layout={layout}
 					onLayoutChange={handleLayoutChange}
-					selectedDomain={selectedDomain}
+					selectedDomain={selectedDomain!}
 					plugins={allPlugins}
 					onAddNode={addNode}
 					onUpdateNodeData={updateNodeData}
 				/>
-			) : (
-				<FullPageStatus icon={Loader2} text="Loading Canvas Layout..." />
 			)}
 			<FloatingDomainManager
-				domains={domains}
+				domains={domainData.domains}
 				selectedDomain={selectedDomain}
-				onSelectDomain={handleDomainSelect}
-				addMutation={addMutation}
-				removeMutation={removeMutation}
+				onSelectDomain={domainData.handleDomainSelect}
+				addMutation={domainData.addMutation}
+				removeMutation={domainData.removeMutation}
 			/>
 		</div>
 	);
 }
 
-// --- FINAL FIX: Restore the FullPageStatus component definition ---
+// The FullPageStatus component for displaying loading/error states.
 function FullPageStatus({
 	icon: Icon,
 	text,
@@ -97,7 +122,7 @@ function FullPageStatus({
 			<div className="flex w-fit flex-col items-center gap-4 p-12">
 				<Icon
 					size={32}
-					className={`${colorClass} ${!isError ? "animate-spin" : ""}`}
+					className={`${colorClass} ${!isError && text.includes("Loading") ? "animate-spin" : ""}`}
 				/>
 				<p className={`text-center font-medium ${colorClass}`}>{text}</p>
 			</div>

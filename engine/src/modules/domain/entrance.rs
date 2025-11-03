@@ -1,9 +1,11 @@
 /* engine/src/modules/domain/entrance.rs */
 
-use crate::{common::response, daemon::config};
-use axum::extract::Path;
-use axum::response::IntoResponse;
-use axum::{http::StatusCode, response::Response};
+use crate::{common::response, daemon::config, modules::websocket::manager as websocket_manager};
+use axum::{
+	extract::Path,
+	http::StatusCode,
+	response::{IntoResponse, Response},
+};
 use fancy_log::{LogLevel, log};
 use serde::{Deserialize, Serialize};
 
@@ -32,30 +34,49 @@ pub fn is_valid_domain_input(domain: &str) -> bool {
 	if domain.is_empty() || domain.len() > 253 {
 		return false;
 	}
-	// Limit the depth of subdomains.
 	if domain.matches('.').count() > 32 {
 		return false;
 	}
-
-	// Handle the wildcard case by checking the part after it.
 	let domain_to_check = if let Some(stripped) = domain.strip_prefix("*.") {
 		if stripped.contains('*') {
-			return false; // Only one wildcard at the start is allowed.
+			return false;
 		}
 		stripped
 	} else {
 		domain
 	};
-
-	// A very basic check for valid characters.
 	domain_to_check
 		.split('.')
 		.all(|label| !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
 }
 
+// --- Internal Helper for Module Communication ---
+
+/// Lists all configured domain names by reading the subdirectories in the config path.
+/// This is an internal helper function intended for use by other modules (like layout manager).
+pub async fn list_domains_internal() -> Vec<String> {
+	let config_path = config::get_config_dir();
+	let mut domains = Vec::new();
+	let mut entries = match tokio::fs::read_dir(config_path).await {
+		Ok(entries) => entries,
+		Err(_) => return domains, // Return empty vec on error
+	};
+
+	while let Ok(Some(entry)) = entries.next_entry().await {
+		if let Ok(file_type) = entry.file_type().await {
+			if file_type.is_dir() {
+				let dir_name = entry.file_name().to_string_lossy().to_string();
+				if let Some(domain) = dir_name_to_domain(&dir_name) {
+					domains.push(domain);
+				}
+			}
+		}
+	}
+	domains
+}
+
 // --- API Payloads ---
 
-// This struct is no longer needed for create/delete but might be useful elsewhere.
 #[derive(Deserialize, Serialize)]
 pub struct DomainPayload {
 	pub domain: String,
@@ -71,41 +92,8 @@ pub struct ListDomainsResponse {
 /// Lists all configured domain entrances by scanning the config directory.
 pub async fn list_domains() -> Response {
 	log(LogLevel::Debug, "GET /v1/domains called");
-	let config_path = config::get_config_dir();
-	let mut domains = Vec::new();
-
-	let mut entries = match tokio::fs::read_dir(config_path).await {
-		Ok(entries) => entries,
-		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("Failed to read config directory: {}", e),
-			);
-			return response::error(
-				StatusCode::INTERNAL_SERVER_ERROR,
-				"Could not read configuration directory.".to_string(),
-			)
-			.into_response();
-		}
-	};
-
-	while let Ok(Some(entry)) = entries.next_entry().await {
-		if let Ok(file_type) = entry.file_type().await {
-			if file_type.is_dir() {
-				let dir_name = entry.file_name().to_string_lossy().to_string();
-				// Change: Allow fallback entrance to be configable
-
-				// Ignore the special [fallback] directory.
-				//if dir_name == "[fallback]" {
-				//	continue;
-				//}
-				if let Some(domain) = dir_name_to_domain(&dir_name) {
-					domains.push(domain);
-				}
-			}
-		}
-	}
-
+	// Refactored to use the internal helper function for consistency.
+	let mut domains = list_domains_internal().await;
 	domains.sort(); // For consistent ordering.
 	response::success(ListDomainsResponse { domains }).into_response()
 }
@@ -146,11 +134,15 @@ pub async fn create_domain(Path(domain): Path<String>) -> Response {
 		.into_response();
 	}
 
+	// Ensure default config files are created for the new domain.
+	websocket_manager::ensure_websocket_config_exists(&path).await;
+	// A placeholder for layout, assuming it will also have an `ensure` function.
+	// layout_manager::ensure_layout_config_exists(&path).await;
+
 	log(
 		LogLevel::Info,
 		&format!("Domain entrance created: {}", domain),
 	);
-	// --- Respond with the created domain info ---
 	(
 		StatusCode::CREATED,
 		response::success(DomainPayload { domain }),
