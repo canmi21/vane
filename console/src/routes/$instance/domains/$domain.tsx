@@ -2,12 +2,12 @@
 
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { Server, ServerCrash, Loader2, Puzzle } from "lucide-react";
-import React from "react";
+import React from "react"; // --- FINAL FIX: Import React for JSX ---
 import { DomainCanvas } from "~/components/domain/domain-canvas";
 import { FloatingDomainManager } from "~/components/domain/floating-domain-manager";
 import { useDomainData } from "~/hooks/use-domain-data";
 import { useCanvasLayout } from "~/hooks/use-canvas-layout";
-import { usePluginData } from "~/hooks/use-plugin-data"; // Import the new hook
+import { usePluginData } from "~/hooks/use-plugin-data";
 
 export const Route = createFileRoute("/$instance/domains/$domain")({
 	component: DomainDetailPage,
@@ -19,7 +19,6 @@ function DomainDetailPage() {
 	});
 	const selectedDomain = domain === "_" ? null : domain;
 
-	// Fetch domain and plugin data in parallel.
 	const {
 		domains,
 		domainsQuery,
@@ -29,12 +28,11 @@ function DomainDetailPage() {
 	} = useDomainData(instanceId, selectedDomain);
 	const pluginsQuery = usePluginData(instanceId);
 
-	// The layout hook remains the same.
-	const { layout, handleLayoutChange, addNode } = useCanvasLayout({
-		selectedDomain,
-	});
+	const { layout, handleLayoutChange, addNode, updateNodeData } =
+		useCanvasLayout({
+			selectedDomain,
+		});
 
-	// --- Updated Loading and Error States ---
 	if (domainsQuery.isLoading || pluginsQuery.isLoading) {
 		return <FullPageStatus icon={Server} text="Loading Configuration..." />;
 	}
@@ -65,8 +63,9 @@ function DomainDetailPage() {
 					layout={layout}
 					onLayoutChange={handleLayoutChange}
 					selectedDomain={selectedDomain}
-					plugins={allPlugins} // Pass plugins down
-					onAddNode={addNode} // Pass the generalized addNode function
+					plugins={allPlugins}
+					onAddNode={addNode}
+					onUpdateNodeData={updateNodeData}
 				/>
 			) : (
 				<FullPageStatus icon={Loader2} text="Loading Canvas Layout..." />
@@ -82,7 +81,7 @@ function DomainDetailPage() {
 	);
 }
 
-// FullPageStatus component remains unchanged.
+// --- FINAL FIX: Restore the FullPageStatus component definition ---
 function FullPageStatus({
 	icon: Icon,
 	text,
