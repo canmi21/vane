@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { type NodeComponentProps } from "./domain-entry-point-card";
 import { CanvasNodeCard } from "./canvas-node-card";
 import { type ErrorPageNodeData } from "~/lib/canvas-layout";
+import { useState, useEffect } from "react";
 
 // --- Component Props ---
 interface ErrorPageNodeCardProps extends NodeComponentProps {
@@ -78,23 +79,70 @@ export function ErrorPageNodeCard({
 							<label className="flex items-center justify-between text-xs text-[var(--color-subtext)] mb-1 capitalize">
 								{label}
 							</label>
-							<input
+							{/* --- FINAL FIX: Use the EditableInput component for consistent validation --- */}
+							<EditableInput
 								type={type}
-								value={nodeData[key] ?? (type === "number" ? 0 : "")}
-								onChange={(e) => {
-									const value =
-										type === "number"
-											? parseFloat(e.target.value) || 0
-											: e.target.value;
-									handleValueChange(key, value);
+								initialValue={nodeData[key]}
+								onCommit={(newValue) => {
+									handleValueChange(key, newValue as string | number);
 								}}
-								onMouseDown={(e) => e.stopPropagation()}
-								className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
 							/>
 						</div>
 					))}
 				</div>
 			</CanvasNodeCard>
 		</motion.div>
+	);
+}
+
+// --- Sub-component for handling the new validation logic ---
+
+interface EditableInputProps {
+	type: "string" | "number" | "boolean";
+	initialValue: unknown;
+	onCommit: (newValue: string | number | boolean) => void;
+}
+
+function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
+	const [localValue, setLocalValue] = useState(String(initialValue ?? ""));
+
+	useEffect(() => {
+		setLocalValue(String(initialValue ?? ""));
+	}, [initialValue]);
+
+	const handleBlur = () => {
+		const value = localValue.trim();
+
+		if (value.startsWith("{{") && value.endsWith("}}")) {
+			onCommit(value);
+			return;
+		}
+
+		switch (type) {
+			case "number": {
+				const num = parseFloat(value);
+				if (!isNaN(num)) {
+					onCommit(num);
+				} else {
+					setLocalValue(String(initialValue));
+				}
+				break;
+			}
+			case "string":
+			default:
+				onCommit(value);
+				break;
+		}
+	};
+
+	return (
+		<input
+			type="text"
+			value={localValue}
+			onChange={(e) => setLocalValue(e.target.value)}
+			onBlur={handleBlur}
+			onMouseDown={(e) => e.stopPropagation()}
+			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+		/>
 	);
 }
