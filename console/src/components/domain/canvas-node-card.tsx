@@ -45,23 +45,27 @@ export function CanvasNodeCard({
 		}
 	}, []);
 
-	// Dynamic height calculation logic.
+	// --- FINAL FIX: A new, more robust height calculation. ---
+	// We are going back to a fixed height to ensure visual handles and logical
+	// connection points are perfectly aligned. A new BOTTOM_PADDING constant
+	// is added to permanently fix the content clipping issue.
+
 	const heightFromOutputs =
 		headerHeight * (outputs.length > 0 ? outputs.length : 1);
 	const ESTIMATED_INPUT_ROW_HEIGHT = 60;
-	const PADDING = 24;
+	const TOP_PADDING = 24;
+	const BOTTOM_PADDING = 12; // Extra space to prevent clipping the last element.
 	const heightFromInputs =
-		inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT + PADDING;
+		inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT + TOP_PADDING + BOTTOM_PADDING;
 	const bodyHeight = Math.max(heightFromOutputs, heightFromInputs);
 
-	// --- FINAL FIX: Calculate input Y-position based on the first output's position ---
-	// This logic now mirrors the calculation in `use-connection-points.ts`.
+	// This calculation for handle positions is now based on a consistent and accurate height.
 	const firstOutputPositionPercent =
 		outputs.length <= 1 ? 50 : 100 / (outputs.length + 1);
 	const inputHandleY =
 		outputs.length > 0
 			? bodyHeight * (firstOutputPositionPercent / 100)
-			: headerHeight / 2; // Fallback if no outputs exist.
+			: headerHeight / 2;
 
 	const cardClasses = `relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md transition-all duration-150 ${
 		isSelected ? "ring-2 ring-[var(--color-theme-border)]" : ""
@@ -84,7 +88,7 @@ export function CanvasNodeCard({
 					{plugin && <InfoTooltip plugin={plugin} />}
 				</div>
 
-				{/* Card Body with dynamic height */}
+				{/* Card Body with a fixed, calculated height that prevents clipping. */}
 				<div className="relative" style={{ height: `${bodyHeight}px` }}>
 					{inputs.map((handle) => (
 						<HandleTooltip
@@ -93,7 +97,6 @@ export function CanvasNodeCard({
 							side="left"
 							onClick={onHandleClick}
 							isConnecting={isConnecting}
-							// --- FINAL FIX: Apply the new dynamic Y-position ---
 							style={{
 								top: `${inputHandleY}px`,
 								transform: "translate(-50%, -50%)",
@@ -127,7 +130,7 @@ export function CanvasNodeCard({
 	);
 }
 
-// --- Sub-components for cleaner rendering ---
+// --- Sub-components for cleaner rendering (unchanged) ---
 interface HandleTooltipProps {
 	handle: NodeHandle;
 	side: "left" | "right";
