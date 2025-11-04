@@ -9,6 +9,7 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
+	type ErrorPageNodeData, // --- FINAL FIX: Import the new data type ---
 } from "~/lib/canvas-layout";
 import { nanoid } from "nanoid";
 import { type Plugin } from "./use-plugin-data";
@@ -155,6 +156,35 @@ export function useCanvasLayout({
 		[layout, handleLayoutChange]
 	);
 
+	// --- FINAL FIX: Add a dedicated function to create an Error Page node. ---
+	const addErrorPageNode = useCallback(() => {
+		if (!layout) return;
+
+		const defaultData: ErrorPageNodeData = {
+			status_code: 500,
+			status_description: "Internal Server Error",
+			reason: "An internal error occurred on the server.",
+			request_id: "{{req.id}}",
+			timestamp: "{{req.timestamp}}",
+			version: "{{vane.version}}",
+			request_ip: "{{req.ip}}",
+			visitor_tip: "Please try again later or contact support.",
+			admin_guide: "Check service logs for detailed error information.",
+		};
+
+		const newNode: CanvasNode<ErrorPageNodeData> = {
+			id: nanoid(8),
+			type: "error-page",
+			x: 350,
+			y: 350,
+			inputs: [{ id: "input", label: "Input" }],
+			outputs: [], // No outputs for this node type
+			data: defaultData,
+		};
+
+		handleLayoutChange({ ...layout, nodes: [...layout.nodes, newNode] });
+	}, [layout, handleLayoutChange]);
+
 	const updateNodeData = useCallback(
 		(nodeId: string, newData: Record<string, unknown>) => {
 			if (!layout) return;
@@ -175,5 +205,12 @@ export function useCanvasLayout({
 		}
 	}, [selectedDomain, instanceId, queryClient]);
 
-	return { layout, handleLayoutChange, addNode, updateNodeData, syncStatus };
+	return {
+		layout,
+		handleLayoutChange,
+		addNode,
+		addErrorPageNode, // Export the new function
+		updateNodeData,
+		syncStatus,
+	};
 }
