@@ -22,25 +22,35 @@ export function useConnectionPoints(layout: CanvasLayout, plugins: Plugin[]) {
 				return { x: node.x + nodeWidth, y: node.y + totalHeight / 2 };
 			}
 
-			// --- FINAL FIX: Generic logic that mirrors CanvasNodeCard's rendering ---
+			if (node.type === "error-page") {
+				const isInput = node.inputs.some((h) => h.id === handleId);
+				if (isInput) {
+					const inputHandleY = headerHeight / 2;
+					return { x: node.x, y: node.y + headerHeight + inputHandleY };
+				}
+				return { x: 0, y: 0 };
+			}
+
 			const plugin = plugins.find((p) => p.name === node.type);
 
-			// Calculate bodyHeight dynamically, just like in the rendering component.
+			// --- FINAL FIX: This calculation now perfectly mirrors the one in CanvasNodeCard. ---
 			const heightFromOutputs =
 				headerHeight * (node.outputs.length > 0 ? node.outputs.length : 1);
 			const inputParamCount = plugin
 				? Object.keys(plugin.input_params).length
 				: 0;
 			const ESTIMATED_INPUT_ROW_HEIGHT = 60;
-			const PADDING = 24;
+			const TOP_PADDING = 24;
+			const BOTTOM_PADDING = 12; // Ensure this matches CanvasNodeCard
 			const heightFromInputs =
-				inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT + PADDING;
+				inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT +
+				TOP_PADDING +
+				BOTTOM_PADDING;
 			const bodyHeight = Math.max(heightFromOutputs, heightFromInputs);
 
 			const isInput = node.inputs.some((h) => h.id === handleId);
 
 			if (isInput) {
-				// Align the input handle with the first output handle.
 				const firstOutputPositionPercent =
 					node.outputs.length <= 1 ? 50 : 100 / (node.outputs.length + 1);
 				const inputHandleY =
@@ -49,7 +59,6 @@ export function useConnectionPoints(layout: CanvasLayout, plugins: Plugin[]) {
 						: headerHeight / 2; // Fallback if no outputs.
 				return { x: node.x, y: node.y + headerHeight + inputHandleY };
 			} else {
-				// Evenly space the output handles along the new dynamic bodyHeight.
 				const outputIndex = node.outputs.findIndex((h) => h.id === handleId);
 				if (outputIndex === -1) return { x: node.x, y: node.y }; // Fallback
 
