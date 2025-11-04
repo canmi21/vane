@@ -18,6 +18,20 @@ export interface CanvasNode<T = unknown> {
 	data: T;
 }
 export type EntryPointNodeData = Record<string, never>;
+
+// --- FINAL FIX: Add and export the new interface for the Error Page node's data. ---
+export interface ErrorPageNodeData {
+	status_code: number;
+	status_description: string;
+	reason: string;
+	request_id: string;
+	timestamp: string;
+	version: string;
+	request_ip: string;
+	visitor_tip: string;
+	admin_guide: string;
+}
+
 export interface CanvasConnection {
 	id: string;
 	fromNodeId: string;
@@ -57,7 +71,7 @@ export const updateLayoutConfig = (
 	);
 };
 
-// --- FINAL FIX: Rename LocalStorage functions for clarity ---
+// --- LocalStorage functions for clarity ---
 
 function getStorageKey(domain: string): string {
 	return `@vane/canvas-layout/${domain}`;
