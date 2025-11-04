@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { type NodeComponentProps } from "./domain-entry-point-card";
 import { CanvasNodeCard } from "./canvas-node-card";
 import { type Plugin } from "~/hooks/use-plugin-data";
-import React from "react";
+import React, { useState, useEffect } from "react";
 
 // --- Icon Mapping ---
 const PLUGIN_ICONS: Record<string, React.ElementType> = {
@@ -88,46 +88,85 @@ export function PluginNodeCard({
 									{param.type}
 								</span>
 							</label>
-							{param.type === "string" && (
-								<input
-									type="text"
-									value={(nodeData[key] as string) ?? ""}
-									onChange={(e) => handleValueChange(key, e.target.value)}
-									onMouseDown={(e) => e.stopPropagation()}
-									className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
-								/>
-							)}
-							{param.type === "number" && (
-								<input
-									type="number"
-									value={(nodeData[key] as number) ?? 0}
-									onChange={(e) => {
-										const num = parseFloat(e.target.value);
-										handleValueChange(key, isNaN(num) ? 0 : num);
-									}}
-									onMouseDown={(e) => e.stopPropagation()}
-									className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
-								/>
-							)}
-							{/* --- FINAL FIX: Change boolean to a constrained text input for consistency. --- */}
-							{param.type === "boolean" && (
-								<input
-									type="text"
-									value={String(nodeData[key] ?? false)}
-									onChange={(e) => {
-										// Only accept "true" (case-insensitive) as true, everything else becomes false.
-										const newBooleanValue =
-											e.target.value.toLowerCase().trim() === "true";
-										handleValueChange(key, newBooleanValue);
-									}}
-									onMouseDown={(e) => e.stopPropagation()}
-									className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
-								/>
-							)}
+							{/* --- FINAL FIX: Use the new EditableInput sub-component for all types --- */}
+							<EditableInput
+								type={param.type as "string" | "number" | "boolean"}
+								initialValue={nodeData[key]}
+								onCommit={(newValue) => {
+									handleValueChange(key, newValue);
+								}}
+							/>
 						</div>
 					))}
 				</div>
 			</CanvasNodeCard>
 		</motion.div>
+	);
+}
+
+// --- Sub-component for handling the new validation logic ---
+
+interface EditableInputProps {
+	type: "string" | "number" | "boolean";
+	initialValue: unknown;
+	onCommit: (newValue: string | number | boolean) => void;
+}
+
+/**
+ * An input that holds a local string state for editing and validates/commits on blur.
+ */
+function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
+	const [localValue, setLocalValue] = useState(String(initialValue ?? ""));
+
+	// Sync local state if the initial (prop) value changes from the outside.
+	useEffect(() => {
+		setLocalValue(String(initialValue ?? ""));
+	}, [initialValue]);
+
+	const handleBlur = () => {
+		const value = localValue.trim();
+
+		// Rule: If the value is a template variable, treat it as a valid string and commit.
+		if (value.startsWith("{{") && value.endsWith("}}")) {
+			onCommit(value);
+			return;
+		}
+
+		// Perform type-specific validation.
+		switch (type) {
+			case "number": {
+				const num = parseFloat(value);
+				if (!isNaN(num)) {
+					onCommit(num);
+				} else {
+					setLocalValue(String(initialValue)); // Revert on invalid
+				}
+				break;
+			}
+			case "boolean": {
+				const lowerValue = value.toLowerCase();
+				if (lowerValue === "true" || lowerValue === "false") {
+					onCommit(lowerValue === "true");
+				} else {
+					setLocalValue(String(initialValue)); // Revert on invalid
+				}
+				break;
+			}
+			case "string":
+			default:
+				onCommit(value);
+				break;
+		}
+	};
+
+	return (
+		<input
+			type="text" // Always "text" to allow free editing.
+			value={localValue}
+			onChange={(e) => setLocalValue(e.target.value)}
+			onBlur={handleBlur}
+			onMouseDown={(e) => e.stopPropagation()}
+			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+		/>
 	);
 }
