@@ -24,14 +24,19 @@ function DomainDetailPage() {
 	const pluginsQuery = usePluginData(instanceId);
 
 	// The hook now manages its own loading state and requires the instanceId.
-	const { layout, handleLayoutChange, addNode, updateNodeData, syncStatus } =
-		useCanvasLayout({
-			instanceId, // --- FINAL FIX: Pass instanceId to the hook ---
-			selectedDomain,
-		});
+	const {
+		layout,
+		handleLayoutChange,
+		addNode,
+		addErrorPageNode, // --- FINAL FIX (1/2): Get the new function from the hook. ---
+		updateNodeData,
+		syncStatus,
+	} = useCanvasLayout({
+		instanceId,
+		selectedDomain,
+	});
 
-	// --- FINAL FIX: Navigation Guard to prevent losing unsaved changes ---
-	// Use a ref to ensure the event listener always has the latest status.
+	// Navigation Guard to prevent losing unsaved changes
 	const syncStatusRef = useRef(syncStatus);
 	useEffect(() => {
 		syncStatusRef.current = syncStatus;
@@ -39,7 +44,6 @@ function DomainDetailPage() {
 
 	useEffect(() => {
 		const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-			// Only show the prompt if there are unsaved changes.
 			if (
 				syncStatusRef.current === "unsaved" ||
 				syncStatusRef.current === "saving"
@@ -51,7 +55,7 @@ function DomainDetailPage() {
 		};
 		window.addEventListener("beforeunload", handleBeforeUnload);
 		return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-	}, []); // Empty dependency array means this runs once on mount.
+	}, []);
 
 	// --- Loading and Error states from various hooks ---
 	if (domainData.domainsQuery.isLoading || pluginsQuery.isLoading) {
@@ -79,10 +83,8 @@ function DomainDetailPage() {
 
 	return (
 		<div className="h-full w-full">
-			{/* --- FINAL FIX: Add the sync status indicator to the UI --- */}
 			<SyncStatusIndicator status={syncStatus} />
 
-			{/* --- FINAL FIX: Use syncStatus to determine loading state --- */}
 			{syncStatus === "loading" || !layout ? (
 				<FullPageStatus icon={Loader2} text="Loading Canvas Layout..." />
 			) : (
@@ -92,6 +94,7 @@ function DomainDetailPage() {
 					selectedDomain={selectedDomain!}
 					plugins={allPlugins}
 					onAddNode={addNode}
+					onAddErrorPageNode={addErrorPageNode} // --- FINAL FIX (2/2): Pass the function down as a prop. ---
 					onUpdateNodeData={updateNodeData}
 				/>
 			)}
