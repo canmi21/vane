@@ -5,6 +5,7 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
+	type ErrorPageNodeData, // --- FINAL FIX: Import type for casting ---
 } from "~/lib/canvas-layout";
 import { type InteractionMode } from "~/hooks/use-canvas-interaction";
 import {
@@ -15,6 +16,7 @@ import { CanvasConnector } from "./canvas-connector";
 import React from "react";
 import { type Plugin } from "~/hooks/use-plugin-data";
 import { PluginNodeCard } from "./plugin-node-card";
+import { ErrorPageNodeCard } from "./error-page-node-card"; // --- FINAL FIX: Import the new component ---
 
 interface CanvasContentProps {
 	layout: CanvasLayout;
@@ -32,7 +34,6 @@ interface CanvasContentProps {
 	handleNodeMouseUp: (nodeId: string) => void;
 	handleHandleClick: (nodeId: string, handleId: string) => void;
 	handleConnectionClick: (connectionId: string) => void;
-	// --- FINAL FIX: Add the new prop to the interface ---
 	onUpdateNodeData: (nodeId: string, newData: Record<string, unknown>) => void;
 }
 
@@ -52,7 +53,7 @@ export function CanvasContent({
 	handleNodeMouseUp,
 	handleHandleClick,
 	handleConnectionClick,
-	onUpdateNodeData, // Destructure the prop
+	onUpdateNodeData,
 }: CanvasContentProps) {
 	return (
 		<>
@@ -94,12 +95,24 @@ export function CanvasContent({
 					);
 				}
 
+				// --- FINAL FIX: Add a new rendering case for the 'error-page' node type ---
+				if (node.type === "error-page") {
+					return (
+						<ErrorPageNodeCard
+							key={node.id}
+							{...props}
+							node={node as CanvasNode<ErrorPageNodeData>}
+							onDataChange={onUpdateNodeData}
+						/>
+					);
+				}
+				// --- End of new case ---
+
 				return (
 					<PluginNodeCard
 						key={node.id}
 						{...props}
 						plugins={plugins}
-						// --- FINAL FIX: Pass the prop down to the card ---
 						onDataChange={onUpdateNodeData}
 					/>
 				);
