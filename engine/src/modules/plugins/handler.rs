@@ -2,7 +2,9 @@
 
 use super::{
 	builtin::PLUGINS,
-	manager::{self, AllPluginsResponse, OutputResults, ParamDefinition, Plugin, PluginInterface},
+	manager::{
+		self, AllPluginsResponse, Author, OutputResults, ParamDefinition, Plugin, PluginInterface,
+	},
 };
 use crate::common::response;
 use axum::{
@@ -21,8 +23,7 @@ use std::collections::HashMap;
 #[derive(Deserialize, Debug)]
 pub struct CreatePluginPayload {
 	pub description: String,
-	pub author: String,
-	pub url: String,
+	pub authors: Vec<Author>,
 	pub interface_type: String, // e.g. "external-http", "wasm", etc.
 	pub input_params: HashMap<String, ParamDefinition>,
 	pub output_results: OutputResults,
@@ -32,8 +33,7 @@ pub struct CreatePluginPayload {
 #[derive(Deserialize, Debug)]
 pub struct UpdatePluginPayload {
 	pub description: Option<String>,
-	pub author: Option<String>,
-	pub url: Option<String>,
+	pub authors: Option<Vec<Author>>,
 	pub interface_type: Option<String>,
 	pub input_params: Option<HashMap<String, ParamDefinition>>,
 	pub output_results: Option<OutputResults>,
@@ -51,7 +51,6 @@ pub async fn list_plugins() -> impl IntoResponse {
 	};
 
 	for plugin in plugins.values() {
-		// Distinguish plugins by the type field in the interface struct.
 		if plugin.interface.r#type == "internal" {
 			response.internal.push(plugin.clone());
 		} else {
@@ -94,10 +93,6 @@ pub async fn create_plugin(
 	let key = (name.clone(), version.clone());
 
 	if plugins.contains_key(&key) {
-		log(
-			LogLevel::Warn,
-			&format!("Attempted to create existing plugin: {}:{}", name, version),
-		);
 		return response::error(
 			StatusCode::CONFLICT,
 			"A plugin with this name and version already exists.".to_string(),
@@ -113,13 +108,11 @@ pub async fn create_plugin(
 		.into_response();
 	}
 
-	// Create the new Plugin struct using the detailed payload.
 	let new_plugin = Plugin {
 		name,
 		version,
 		description: payload.description,
-		author: payload.author,
-		url: payload.url,
+		authors: payload.authors,
 		interface: PluginInterface {
 			r#type: payload.interface_type,
 		},
@@ -178,15 +171,11 @@ pub async fn update_plugin(
 			.into_response();
 		}
 
-		// Update fields only if they are provided in the payload.
 		if let Some(desc) = payload.description {
 			existing_plugin.description = desc;
 		}
-		if let Some(author) = payload.author {
-			existing_plugin.author = author;
-		}
-		if let Some(url) = payload.url {
-			existing_plugin.url = url;
+		if let Some(authors) = payload.authors {
+			existing_plugin.authors = authors;
 		}
 		if let Some(interface_type) = payload.interface_type {
 			if interface_type == "internal" {
