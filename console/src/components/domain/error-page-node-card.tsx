@@ -76,10 +76,10 @@ export function ErrorPageNodeCard({
 				<div className="w-full space-y-2 text-left">
 					{errorPageFields.map(({ key, label, type }) => (
 						<div key={key}>
+							{/* --- FINAL FIX: Removed the type indicator from the label. --- */}
 							<label className="flex items-center justify-between text-xs text-[var(--color-subtext)] mb-1 capitalize">
 								{label}
 							</label>
-							{/* --- FINAL FIX: Use the EditableInput component for consistent validation --- */}
 							<EditableInput
 								type={type}
 								initialValue={nodeData[key]}
@@ -98,9 +98,9 @@ export function ErrorPageNodeCard({
 // --- Sub-component for handling the new validation logic ---
 
 interface EditableInputProps {
-	type: "string" | "number" | "boolean";
+	type: "string" | "number";
 	initialValue: unknown;
-	onCommit: (newValue: string | number | boolean) => void;
+	onCommit: (newValue: string | number) => void;
 }
 
 function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
@@ -115,6 +115,12 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 
 		if (value.startsWith("{{") && value.endsWith("}}")) {
 			onCommit(value);
+			return;
+		}
+
+		if (value === "") {
+			if (type === "number") onCommit(0);
+			else onCommit("");
 			return;
 		}
 
@@ -142,7 +148,8 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 			onChange={(e) => setLocalValue(e.target.value)}
 			onBlur={handleBlur}
 			onMouseDown={(e) => e.stopPropagation()}
-			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+			placeholder={type}
+			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] placeholder:text-[var(--color-subtext)]/50"
 		/>
 	);
 }
