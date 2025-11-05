@@ -5,7 +5,8 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
-	type ErrorPageNodeData, // --- FINAL FIX: Import type for casting ---
+	type ErrorPageNodeData,
+	type ReturnResponseNodeData,
 } from "~/lib/canvas-layout";
 import { type InteractionMode } from "~/hooks/use-canvas-interaction";
 import {
@@ -16,7 +17,8 @@ import { CanvasConnector } from "./canvas-connector";
 import React from "react";
 import { type Plugin } from "~/hooks/use-plugin-data";
 import { PluginNodeCard } from "./plugin-node-card";
-import { ErrorPageNodeCard } from "./error-page-node-card"; // --- FINAL FIX: Import the new component ---
+import { ErrorPageNodeCard } from "./error-page-node-card";
+import { ReturnResponseNodeCard } from "./return-response-node-card";
 
 interface CanvasContentProps {
 	layout: CanvasLayout;
@@ -57,7 +59,6 @@ export function CanvasContent({
 }: CanvasContentProps) {
 	return (
 		<>
-			{/* ... (connection rendering is unchanged) ... */}
 			{layout.connections.map((conn) => {
 				const start = getConnectionPoints(conn.fromNodeId, conn.fromHandle);
 				const end = getConnectionPoints(conn.toNodeId, conn.toHandle);
@@ -95,7 +96,6 @@ export function CanvasContent({
 					);
 				}
 
-				// --- FINAL FIX: Add a new rendering case for the 'error-page' node type ---
 				if (node.type === "error-page") {
 					return (
 						<ErrorPageNodeCard
@@ -106,7 +106,17 @@ export function CanvasContent({
 						/>
 					);
 				}
-				// --- End of new case ---
+
+				if (node.type === "return-response") {
+					return (
+						<ReturnResponseNodeCard
+							key={node.id}
+							{...props}
+							node={node as CanvasNode<ReturnResponseNodeData>}
+							onDataChange={onUpdateNodeData}
+						/>
+					);
+				}
 
 				return (
 					<PluginNodeCard
