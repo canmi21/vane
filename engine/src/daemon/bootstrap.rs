@@ -7,6 +7,7 @@ use crate::modules::layout::manager as layout_manager;
 use crate::modules::origins::task as origin_monitor_task;
 use crate::modules::plugins::manager as plugins_manager;
 use crate::modules::router::generate::generate_router_tree;
+use crate::proxy::router::watch::{initial_load_all_routers, start_router_watcher};
 use crate::servers;
 use anynet::anynet;
 use axum::serve;
@@ -44,7 +45,6 @@ pub async fn start() {
 	console::initialize_console_config().await;
 
 	// Now, initialize the instance-specific config file (e.g., instance.json).
-	// This is a critical step; if it fails, the application cannot proceed.
 	if let Err(e) = uuid::initialize_instance_config().await {
 		log(
 			LogLevel::Error,
@@ -66,6 +66,12 @@ pub async fn start() {
 	// Ensure layout files exist, then generate router trees from them.
 	layout_manager::initialize_all_layout_configs().await;
 	generate_all_router_trees().await;
+
+	// --- NEW: Initialize Router Cache and Watcher ---
+	// This must happen AFTER router generation but BEFORE starting proxy servers.
+	initial_load_all_routers().await;
+	start_router_watcher(); // This spawns a background task.
+	// ------------------------------------------------
 
 	// --- Server Startup Logic ---
 
@@ -123,7 +129,6 @@ pub async fn start() {
 	servers::start_proxy_servers().await;
 
 	// 3. Wait for the graceful shutdown signal to complete.
-	// This keeps the main application alive until the console server is shut down.
 	if let Err(e) = console_handle.await {
 		log(
 			LogLevel::Error,
@@ -134,6 +139,7 @@ pub async fn start() {
 	log(LogLevel::Info, "Server has been shut down gracefully.");
 }
 
+// --- setup_logging, print_motd, shutdown_signal functions remain unchanged ---
 fn setup_logging() {
 	let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 	let log_level = match level.to_lowercase().as_str() {
