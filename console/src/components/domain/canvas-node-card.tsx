@@ -45,18 +45,24 @@ export function CanvasNodeCard({
 		}
 	}, []);
 
-	// --- FINAL FIX: A new, more robust height calculation. ---
-	// We are going back to a fixed height to ensure visual handles and logical
-	// connection points are perfectly aligned. A new BOTTOM_PADDING constant
-	// is added to permanently fix the content clipping issue.
-
+	// --- FINAL FIX: A new, structurally accurate height calculation formula. ---
+	// This formula precisely models the actual layout: padding + rows + gaps between rows.
+	// It replaces all previous linear estimations which were causing clipping and spacing issues.
 	const heightFromOutputs =
 		headerHeight * (outputs.length > 0 ? outputs.length : 1);
-	const ESTIMATED_INPUT_ROW_HEIGHT = 60;
-	const TOP_PADDING = 24;
-	const BOTTOM_PADDING = 12; // Extra space to prevent clipping the last element.
+
+	const ROW_HEIGHT = 52; // Actual height of one item: <label>(~16) + mb-1(4) + <input h-8>(32)
+	const GAP_HEIGHT = 8; // From the `space-y-2` class
+	const PADDING_VERTICAL = 24; // From the `p-3` class (12px top + 12px bottom)
+
+	// The total height is the sum of all rows, the gaps between them, and the vertical padding.
 	const heightFromInputs =
-		inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT + TOP_PADDING + BOTTOM_PADDING;
+		inputParamCount > 0
+			? inputParamCount * ROW_HEIGHT +
+				(inputParamCount - 1) * GAP_HEIGHT +
+				PADDING_VERTICAL
+			: PADDING_VERTICAL; // If there are no inputs, the height is just the padding.
+
 	const bodyHeight = Math.max(heightFromOutputs, heightFromInputs);
 
 	// This calculation for handle positions is now based on a consistent and accurate height.
@@ -88,7 +94,7 @@ export function CanvasNodeCard({
 					{plugin && <InfoTooltip plugin={plugin} />}
 				</div>
 
-				{/* Card Body with a fixed, calculated height that prevents clipping. */}
+				{/* Card Body with a fixed, calculated height that is now structurally accurate. */}
 				<div className="relative" style={{ height: `${bodyHeight}px` }}>
 					{inputs.map((handle) => (
 						<HandleTooltip
