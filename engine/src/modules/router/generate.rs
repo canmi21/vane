@@ -14,9 +14,12 @@ struct LayoutNode {
 	#[serde(rename = "type")]
 	node_type: String,
 	data: Value,
-	// Add the optional 'variables' field. `serde(default)` handles nodes without it.
+	// Add the optional 'variables' field.
 	#[serde(default)]
 	variables: Value,
+	// Add the optional 'version' field.
+	#[serde(default)]
+	version: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -39,12 +42,15 @@ struct LayoutConfig {
 struct TreeNode {
 	#[serde(rename = "type")]
 	node_type: String,
+	// Add the 'version' field to the output tree.
+	// It will not be serialized if it's an empty string.
+	#[serde(skip_serializing_if = "String::is_empty")]
+	version: String,
 	data: Value,
 	// Add the 'variables' field to the output tree.
-	// It will not be serialized if it's null (i.e., not present in the input).
 	#[serde(skip_serializing_if = "Value::is_null")]
 	variables: Value,
-	// The `next` field contains branches, keyed by the output handle name (e.g., "accept", "up").
+	// The `next` field contains branches, keyed by the output handle name.
 	next: HashMap<String, Box<TreeNode>>,
 }
 
@@ -184,8 +190,8 @@ fn build_node_tree(
 
 		return Some(Box::new(TreeNode {
 			node_type: current_node.node_type.clone(),
+			version: current_node.version.clone(),
 			data: current_node.data.clone(),
-			// Pass the variables from the layout node to the tree node.
 			variables: current_node.variables.clone(),
 			next: next_branches,
 		}));

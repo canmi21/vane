@@ -1,15 +1,16 @@
 /* src/components/domain/plugin-node-card.tsx */
 
-import { Zap, Puzzle } from "lucide-react";
+import { Zap, Puzzle, AppWindow, Server } from "lucide-react";
 import { motion } from "framer-motion";
 import { type NodeComponentProps } from "./domain-entry-point-card";
 import { CanvasNodeCard } from "./canvas-node-card";
 import { type Plugin } from "~/hooks/use-plugin-data";
 import React, { useState, useEffect } from "react";
 
-// --- Icon Mapping ---
+// --- Icon Mapping for Middleware Plugins ---
 const PLUGIN_ICONS: Record<string, React.ElementType> = {
 	ratelimit: Zap,
+	origins: Server, // Changed to "Server" icon
 };
 const DefaultIcon = Puzzle;
 
@@ -32,7 +33,9 @@ export function PluginNodeCard({
 	isSelected,
 	onDataChange,
 }: PluginNodeCardProps) {
-	const plugin = plugins.find((p) => p.name === node.type);
+	const plugin = plugins.find(
+		(p) => p.name === node.type && p.version === node.version
+	);
 
 	if (!plugin) {
 		return (
@@ -47,7 +50,13 @@ export function PluginNodeCard({
 		);
 	}
 
-	const Icon = PLUGIN_ICONS[plugin.name] ?? DefaultIcon;
+	// --- Icon Selection Logic ---
+	// All terminal nodes use the 'AppWindow' icon for visual consistency.
+	// Middleware plugins use the specific icon from the map or a default.
+	const Icon = plugin.output_results.return
+		? AppWindow
+		: (PLUGIN_ICONS[plugin.name] ?? DefaultIcon);
+
 	const title = plugin.name.replace(/-/g, " ");
 	const nodeData = node.data as Record<string, unknown>;
 
@@ -82,7 +91,6 @@ export function PluginNodeCard({
 				<div className="w-full space-y-2 text-left">
 					{Object.entries(plugin.input_params).map(([key, param]) => (
 						<div key={key}>
-							{/* --- FINAL FIX: Removed the type indicator from the label. --- */}
 							<label className="flex items-center justify-between text-xs text-[var(--color-subtext)] mb-1 capitalize">
 								{key.replace(/_/g, " ")}
 							</label>
@@ -101,7 +109,7 @@ export function PluginNodeCard({
 	);
 }
 
-// --- Sub-component for handling the new validation logic ---
+// --- Sub-component for handling validation logic ---
 
 interface EditableInputProps {
 	type: "string" | "number" | "boolean";
@@ -168,7 +176,6 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 			onChange={(e) => setLocalValue(e.target.value)}
 			onBlur={handleBlur}
 			onMouseDown={(e) => e.stopPropagation()}
-			// --- FINAL FIX: Added placeholder and specific class for its styling. ---
 			placeholder={type}
 			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] placeholder:text-[var(--color-subtext)]/50"
 		/>
