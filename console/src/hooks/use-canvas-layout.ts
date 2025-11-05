@@ -9,7 +9,8 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
-	type ErrorPageNodeData, // --- FINAL FIX: Import the new data type ---
+	type ErrorPageNodeData,
+	type ReturnResponseNodeData, // --- FINAL FIX: Import the new data types ---
 } from "~/lib/canvas-layout";
 import { nanoid } from "nanoid";
 import { type Plugin } from "./use-plugin-data";
@@ -156,10 +157,10 @@ export function useCanvasLayout({
 		[layout, handleLayoutChange]
 	);
 
-	// --- FINAL FIX: Add a dedicated function to create an Error Page node. ---
 	const addErrorPageNode = useCallback(() => {
 		if (!layout) return;
 
+		// --- FINAL FIX: Update default values to match user-provided code. ---
 		const defaultData: ErrorPageNodeData = {
 			status_code: 500,
 			status_description: "Internal Server Error",
@@ -179,6 +180,29 @@ export function useCanvasLayout({
 			y: 350,
 			inputs: [{ id: "input", label: "Input" }],
 			outputs: [], // No outputs for this node type
+			data: defaultData,
+		};
+
+		handleLayoutChange({ ...layout, nodes: [...layout.nodes, newNode] });
+	}, [layout, handleLayoutChange]);
+
+	// --- FINAL FIX: Add a dedicated function to create a Return Response node. ---
+	const addReturnResponseNode = useCallback(() => {
+		if (!layout) return;
+
+		const defaultData: ReturnResponseNodeData = {
+			status_code: 200,
+			header: "Content-Type: text/plain",
+			body: "Hello, from Vane!",
+		};
+
+		const newNode: CanvasNode<ReturnResponseNodeData> = {
+			id: nanoid(8),
+			type: "return-response",
+			x: 350,
+			y: 350,
+			inputs: [{ id: "input", label: "Input" }],
+			outputs: [],
 			data: defaultData,
 		};
 
@@ -209,7 +233,8 @@ export function useCanvasLayout({
 		layout,
 		handleLayoutChange,
 		addNode,
-		addErrorPageNode, // Export the new function
+		addErrorPageNode,
+		addReturnResponseNode, // Export the new function
 		updateNodeData,
 		syncStatus,
 	};
