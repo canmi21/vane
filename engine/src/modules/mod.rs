@@ -10,5 +10,6 @@ pub mod layout;
 pub mod origins;
 pub mod plugins;
 pub mod ratelimit;
+pub mod router;
 pub mod templates;
 pub mod websocket;
