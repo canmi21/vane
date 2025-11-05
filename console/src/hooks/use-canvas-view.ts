@@ -14,7 +14,7 @@ const HEADER_HEIGHT = 41;
 interface UseCanvasViewProps {
 	canvasRef: React.RefObject<HTMLDivElement | null>;
 	nodes: CanvasNode[];
-	plugins: Plugin[]; // --- FINAL FIX: Add plugins to props for height calculation ---
+	plugins: Plugin[];
 }
 
 /**
@@ -23,7 +23,7 @@ interface UseCanvasViewProps {
 export function useCanvasView({
 	canvasRef,
 	nodes,
-	plugins, // Destructure plugins
+	plugins,
 }: UseCanvasViewProps) {
 	const [view, setView] = useState({ x: 0, y: 0 });
 	const [scale, setScale] = useState(1);
@@ -67,7 +67,6 @@ export function useCanvasView({
 			maxX = -Infinity,
 			maxY = -Infinity;
 
-		// --- FINAL FIX: Dynamically calculate each node's height ---
 		nodes.forEach((node) => {
 			let nodeHeight: number;
 			if (node.type === "entry-point") {
@@ -78,6 +77,10 @@ export function useCanvasView({
 				let inputParamCount = 0;
 				if (node.type === "error-page") {
 					inputParamCount = 9; // Hardcoded count for error-page node
+				}
+				// --- FINAL FIX: Add a case for the new node type's height calculation. ---
+				else if (node.type === "return-response") {
+					inputParamCount = 3; // It has 3 parameters
 				} else {
 					const plugin = plugins.find((p) => p.name === node.type);
 					inputParamCount = plugin
