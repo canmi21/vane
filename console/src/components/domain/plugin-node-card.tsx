@@ -82,13 +82,10 @@ export function PluginNodeCard({
 				<div className="w-full space-y-2 text-left">
 					{Object.entries(plugin.input_params).map(([key, param]) => (
 						<div key={key}>
+							{/* --- FINAL FIX: Removed the type indicator from the label. --- */}
 							<label className="flex items-center justify-between text-xs text-[var(--color-subtext)] mb-1 capitalize">
 								{key.replace(/_/g, " ")}
-								<span className="rounded bg-[var(--color-bg-alt)] px-1.5 py-0.5 font-mono text-xs">
-									{param.type}
-								</span>
 							</label>
-							{/* --- FINAL FIX: Use the new EditableInput sub-component for all types --- */}
 							<EditableInput
 								type={param.type as "string" | "number" | "boolean"}
 								initialValue={nodeData[key]}
@@ -118,7 +115,6 @@ interface EditableInputProps {
 function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 	const [localValue, setLocalValue] = useState(String(initialValue ?? ""));
 
-	// Sync local state if the initial (prop) value changes from the outside.
 	useEffect(() => {
 		setLocalValue(String(initialValue ?? ""));
 	}, [initialValue]);
@@ -126,20 +122,26 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 	const handleBlur = () => {
 		const value = localValue.trim();
 
-		// Rule: If the value is a template variable, treat it as a valid string and commit.
 		if (value.startsWith("{{") && value.endsWith("}}")) {
 			onCommit(value);
 			return;
 		}
 
-		// Perform type-specific validation.
+		// If the input is cleared, commit the default empty/false value for the type.
+		if (value === "") {
+			if (type === "number") onCommit(0);
+			else if (type === "boolean") onCommit(false);
+			else onCommit("");
+			return;
+		}
+
 		switch (type) {
 			case "number": {
 				const num = parseFloat(value);
 				if (!isNaN(num)) {
 					onCommit(num);
 				} else {
-					setLocalValue(String(initialValue)); // Revert on invalid
+					setLocalValue(String(initialValue));
 				}
 				break;
 			}
@@ -148,7 +150,7 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 				if (lowerValue === "true" || lowerValue === "false") {
 					onCommit(lowerValue === "true");
 				} else {
-					setLocalValue(String(initialValue)); // Revert on invalid
+					setLocalValue(String(initialValue));
 				}
 				break;
 			}
@@ -161,12 +163,14 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 
 	return (
 		<input
-			type="text" // Always "text" to allow free editing.
+			type="text"
 			value={localValue}
 			onChange={(e) => setLocalValue(e.target.value)}
 			onBlur={handleBlur}
 			onMouseDown={(e) => e.stopPropagation()}
-			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+			// --- FINAL FIX: Added placeholder and specific class for its styling. ---
+			placeholder={type}
+			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] placeholder:text-[var(--color-subtext)]/50"
 		/>
 	);
 }
