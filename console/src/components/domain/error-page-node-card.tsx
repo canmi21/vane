@@ -1,57 +1,52 @@
-/* src/components/domain/plugin-node-card.tsx */
+/* src/components/domain/error-page-node-card.tsx */
 
-import { Zap, Puzzle } from "lucide-react";
+import { FileWarning } from "lucide-react";
 import { motion } from "framer-motion";
 import { type NodeComponentProps } from "./domain-entry-point-card";
 import { CanvasNodeCard } from "./canvas-node-card";
-import { type Plugin } from "~/hooks/use-plugin-data";
-import React, { useState, useEffect } from "react";
-
-// --- Icon Mapping ---
-const PLUGIN_ICONS: Record<string, React.ElementType> = {
-	ratelimit: Zap,
-};
-const DefaultIcon = Puzzle;
+import { type ErrorPageNodeData } from "~/lib/canvas-layout";
+import { useState, useEffect } from "react";
 
 // --- Component Props ---
-interface PluginNodeCardProps extends NodeComponentProps {
-	plugins: Plugin[];
+interface ErrorPageNodeCardProps extends NodeComponentProps {
 	onDataChange: (nodeId: string, newData: Record<string, unknown>) => void;
 }
 
+// --- Hardcoded field definitions for the error page form ---
+const errorPageFields: {
+	key: keyof ErrorPageNodeData;
+	label: string;
+	type: "number" | "string";
+}[] = [
+	{ key: "status_code", label: "Status Code", type: "number" },
+	{ key: "status_description", label: "Status Description", type: "string" },
+	{ key: "reason", label: "Reason", type: "string" },
+	{ key: "request_id", label: "Request ID", type: "string" },
+	{ key: "timestamp", label: "Timestamp", type: "string" },
+	{ key: "version", label: "Version", type: "string" },
+	{ key: "request_ip", label: "Request IP", type: "string" },
+	{ key: "visitor_tip", label: "Visitor Tip", type: "string" },
+	{ key: "admin_guide", label: "Admin Guide", type: "string" },
+];
+
 /**
- * A dynamic component that renders any plugin-based node with editable fields.
+ * A dedicated component for the 'Return Error Page' node.
  */
-export function PluginNodeCard({
+export function ErrorPageNodeCard({
 	node,
-	plugins,
 	onMouseDown,
 	onMouseUp,
 	onHandleClick,
 	isConnecting,
 	isSelected,
 	onDataChange,
-}: PluginNodeCardProps) {
-	const plugin = plugins.find((p) => p.name === node.type);
+}: ErrorPageNodeCardProps) {
+	const nodeData = node.data as ErrorPageNodeData;
 
-	if (!plugin) {
-		return (
-			<motion.div style={{ x: node.x, y: node.y }} className="absolute">
-				<div className="w-64 rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-center">
-					<p className="font-bold text-red-400">Unknown Plugin</p>
-					<p className="text-xs text-red-400/80">
-						Type: "{node.type}" not found.
-					</p>
-				</div>
-			</motion.div>
-		);
-	}
-
-	const Icon = PLUGIN_ICONS[plugin.name] ?? DefaultIcon;
-	const title = plugin.name.replace(/-/g, " ");
-	const nodeData = node.data as Record<string, unknown>;
-
-	const handleValueChange = (key: string, value: string | number | boolean) => {
+	const handleValueChange = (
+		key: keyof ErrorPageNodeData,
+		value: string | number
+	) => {
 		const newData = { ...nodeData, [key]: value };
 		onDataChange(node.id, newData);
 	};
@@ -69,28 +64,27 @@ export function PluginNodeCard({
 			whileTap={{ cursor: "grabbing" }}
 		>
 			<CanvasNodeCard
-				icon={Icon}
-				title={title}
+				icon={FileWarning}
+				title="Return Error Page"
 				inputs={node.inputs}
 				outputs={node.outputs}
 				isConnecting={isConnecting}
 				isSelected={isSelected}
 				onHandleClick={(handleId) => onHandleClick(node.id, handleId)}
-				plugin={plugin}
-				inputParamCount={Object.keys(plugin.input_params).length}
+				inputParamCount={errorPageFields.length}
 			>
 				<div className="w-full space-y-2 text-left">
-					{Object.entries(plugin.input_params).map(([key, param]) => (
+					{errorPageFields.map(({ key, label, type }) => (
 						<div key={key}>
 							{/* --- FINAL FIX: Removed the type indicator from the label. --- */}
 							<label className="flex items-center justify-between text-xs text-[var(--color-subtext)] mb-1 capitalize">
-								{key.replace(/_/g, " ")}
+								{label}
 							</label>
 							<EditableInput
-								type={param.type as "string" | "number" | "boolean"}
+								type={type}
 								initialValue={nodeData[key]}
 								onCommit={(newValue) => {
-									handleValueChange(key, newValue);
+									handleValueChange(key, newValue as string | number);
 								}}
 							/>
 						</div>
@@ -104,14 +98,11 @@ export function PluginNodeCard({
 // --- Sub-component for handling the new validation logic ---
 
 interface EditableInputProps {
-	type: "string" | "number" | "boolean";
+	type: "string" | "number";
 	initialValue: unknown;
-	onCommit: (newValue: string | number | boolean) => void;
+	onCommit: (newValue: string | number) => void;
 }
 
-/**
- * An input that holds a local string state for editing and validates/commits on blur.
- */
 function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 	const [localValue, setLocalValue] = useState(String(initialValue ?? ""));
 
@@ -127,10 +118,8 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 			return;
 		}
 
-		// If the input is cleared, commit the default empty/false value for the type.
 		if (value === "") {
 			if (type === "number") onCommit(0);
-			else if (type === "boolean") onCommit(false);
 			else onCommit("");
 			return;
 		}
@@ -140,15 +129,6 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 				const num = parseFloat(value);
 				if (!isNaN(num)) {
 					onCommit(num);
-				} else {
-					setLocalValue(String(initialValue));
-				}
-				break;
-			}
-			case "boolean": {
-				const lowerValue = value.toLowerCase();
-				if (lowerValue === "true" || lowerValue === "false") {
-					onCommit(lowerValue === "true");
 				} else {
 					setLocalValue(String(initialValue));
 				}
@@ -168,7 +148,6 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 			onChange={(e) => setLocalValue(e.target.value)}
 			onBlur={handleBlur}
 			onMouseDown={(e) => e.stopPropagation()}
-			// --- FINAL FIX: Added placeholder and specific class for its styling. ---
 			placeholder={type}
 			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] placeholder:text-[var(--color-subtext)]/50"
 		/>

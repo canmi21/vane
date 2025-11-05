@@ -45,23 +45,33 @@ export function CanvasNodeCard({
 		}
 	}, []);
 
-	// Dynamic height calculation logic.
+	// --- FINAL FIX: A new, structurally accurate height calculation formula. ---
+	// This formula precisely models the actual layout: padding + rows + gaps between rows.
+	// It replaces all previous linear estimations which were causing clipping and spacing issues.
 	const heightFromOutputs =
 		headerHeight * (outputs.length > 0 ? outputs.length : 1);
-	const ESTIMATED_INPUT_ROW_HEIGHT = 60;
-	const PADDING = 24;
+
+	const ROW_HEIGHT = 52; // Actual height of one item: <label>(~16) + mb-1(4) + <input h-8>(32)
+	const GAP_HEIGHT = 8; // From the `space-y-2` class
+	const PADDING_VERTICAL = 24; // From the `p-3` class (12px top + 12px bottom)
+
+	// The total height is the sum of all rows, the gaps between them, and the vertical padding.
 	const heightFromInputs =
-		inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT + PADDING;
+		inputParamCount > 0
+			? inputParamCount * ROW_HEIGHT +
+				(inputParamCount - 1) * GAP_HEIGHT +
+				PADDING_VERTICAL
+			: PADDING_VERTICAL; // If there are no inputs, the height is just the padding.
+
 	const bodyHeight = Math.max(heightFromOutputs, heightFromInputs);
 
-	// --- FINAL FIX: Calculate input Y-position based on the first output's position ---
-	// This logic now mirrors the calculation in `use-connection-points.ts`.
+	// This calculation for handle positions is now based on a consistent and accurate height.
 	const firstOutputPositionPercent =
 		outputs.length <= 1 ? 50 : 100 / (outputs.length + 1);
 	const inputHandleY =
 		outputs.length > 0
 			? bodyHeight * (firstOutputPositionPercent / 100)
-			: headerHeight / 2; // Fallback if no outputs exist.
+			: headerHeight / 2;
 
 	const cardClasses = `relative w-64 rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] shadow-md transition-all duration-150 ${
 		isSelected ? "ring-2 ring-[var(--color-theme-border)]" : ""
@@ -84,7 +94,7 @@ export function CanvasNodeCard({
 					{plugin && <InfoTooltip plugin={plugin} />}
 				</div>
 
-				{/* Card Body with dynamic height */}
+				{/* Card Body with a fixed, calculated height that is now structurally accurate. */}
 				<div className="relative" style={{ height: `${bodyHeight}px` }}>
 					{inputs.map((handle) => (
 						<HandleTooltip
@@ -93,7 +103,6 @@ export function CanvasNodeCard({
 							side="left"
 							onClick={onHandleClick}
 							isConnecting={isConnecting}
-							// --- FINAL FIX: Apply the new dynamic Y-position ---
 							style={{
 								top: `${inputHandleY}px`,
 								transform: "translate(-50%, -50%)",
@@ -127,7 +136,7 @@ export function CanvasNodeCard({
 	);
 }
 
-// --- Sub-components for cleaner rendering ---
+// --- Sub-components for cleaner rendering (unchanged) ---
 interface HandleTooltipProps {
 	handle: NodeHandle;
 	side: "left" | "right";

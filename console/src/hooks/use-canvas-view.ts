@@ -2,28 +2,29 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { type CanvasNode } from "~/lib/canvas-layout";
+import { type Plugin } from "./use-plugin-data"; // Import Plugin type
 
 // --- Constants ---
 const ZOOM_SENSITIVITY = 0.001;
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 3;
 const NODE_WIDTH = 256;
-const NODE_HEIGHTS: Record<string, number> = {
-	"entry-point": 83,
-	"rate-limit": 123,
-};
-const DEFAULT_NODE_HEIGHT = 100;
+const HEADER_HEIGHT = 41;
 
 interface UseCanvasViewProps {
-	// --- FIX: Allow the ref's current value to be null, matching how useRef works. ---
 	canvasRef: React.RefObject<HTMLDivElement | null>;
 	nodes: CanvasNode[];
+	plugins: Plugin[];
 }
 
 /**
  * Manages the view state (pan, zoom) of the canvas.
  */
-export function useCanvasView({ canvasRef, nodes }: UseCanvasViewProps) {
+export function useCanvasView({
+	canvasRef,
+	nodes,
+	plugins,
+}: UseCanvasViewProps) {
 	const [view, setView] = useState({ x: 0, y: 0 });
 	const [scale, setScale] = useState(1);
 
@@ -67,7 +68,36 @@ export function useCanvasView({ canvasRef, nodes }: UseCanvasViewProps) {
 			maxY = -Infinity;
 
 		nodes.forEach((node) => {
-			const nodeHeight = NODE_HEIGHTS[node.type] ?? DEFAULT_NODE_HEIGHT;
+			let nodeHeight: number;
+			if (node.type === "entry-point") {
+				nodeHeight = 83; // Entry point has a fixed height
+			} else {
+				const heightFromOutputs =
+					HEADER_HEIGHT * (node.outputs.length > 0 ? node.outputs.length : 1);
+				let inputParamCount = 0;
+				if (node.type === "error-page") {
+					inputParamCount = 9; // Hardcoded count for error-page node
+				}
+				// --- FINAL FIX: Add a case for the new node type's height calculation. ---
+				else if (node.type === "return-response") {
+					inputParamCount = 3; // It has 3 parameters
+				} else {
+					const plugin = plugins.find((p) => p.name === node.type);
+					inputParamCount = plugin
+						? Object.keys(plugin.input_params).length
+						: 0;
+				}
+				const ESTIMATED_INPUT_ROW_HEIGHT = 60;
+				const TOP_PADDING = 24;
+				const BOTTOM_PADDING = 12;
+				const heightFromInputs =
+					inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT +
+					TOP_PADDING +
+					BOTTOM_PADDING;
+				const bodyHeight = Math.max(heightFromOutputs, heightFromInputs);
+				nodeHeight = HEADER_HEIGHT + bodyHeight;
+			}
+
 			minX = Math.min(minX, node.x);
 			minY = Math.min(minY, node.y);
 			maxX = Math.max(maxX, node.x + NODE_WIDTH);
@@ -91,7 +121,7 @@ export function useCanvasView({ canvasRef, nodes }: UseCanvasViewProps) {
 
 		setView({ x: newViewX, y: newViewY });
 		setScale(clampedScale);
-	}, [nodes, canvasRef]);
+	}, [nodes, canvasRef, plugins]);
 
 	const handleResetView = useCallback(() => {
 		setView({ x: 0, y: 0 });

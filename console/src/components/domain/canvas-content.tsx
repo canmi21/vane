@@ -5,6 +5,8 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
+	type ErrorPageNodeData,
+	type ReturnResponseNodeData,
 } from "~/lib/canvas-layout";
 import { type InteractionMode } from "~/hooks/use-canvas-interaction";
 import {
@@ -15,6 +17,8 @@ import { CanvasConnector } from "./canvas-connector";
 import React from "react";
 import { type Plugin } from "~/hooks/use-plugin-data";
 import { PluginNodeCard } from "./plugin-node-card";
+import { ErrorPageNodeCard } from "./error-page-node-card";
+import { ReturnResponseNodeCard } from "./return-response-node-card";
 
 interface CanvasContentProps {
 	layout: CanvasLayout;
@@ -32,7 +36,6 @@ interface CanvasContentProps {
 	handleNodeMouseUp: (nodeId: string) => void;
 	handleHandleClick: (nodeId: string, handleId: string) => void;
 	handleConnectionClick: (connectionId: string) => void;
-	// --- FINAL FIX: Add the new prop to the interface ---
 	onUpdateNodeData: (nodeId: string, newData: Record<string, unknown>) => void;
 }
 
@@ -52,11 +55,10 @@ export function CanvasContent({
 	handleNodeMouseUp,
 	handleHandleClick,
 	handleConnectionClick,
-	onUpdateNodeData, // Destructure the prop
+	onUpdateNodeData,
 }: CanvasContentProps) {
 	return (
 		<>
-			{/* ... (connection rendering is unchanged) ... */}
 			{layout.connections.map((conn) => {
 				const start = getConnectionPoints(conn.fromNodeId, conn.fromHandle);
 				const end = getConnectionPoints(conn.toNodeId, conn.toHandle);
@@ -94,12 +96,33 @@ export function CanvasContent({
 					);
 				}
 
+				if (node.type === "error-page") {
+					return (
+						<ErrorPageNodeCard
+							key={node.id}
+							{...props}
+							node={node as CanvasNode<ErrorPageNodeData>}
+							onDataChange={onUpdateNodeData}
+						/>
+					);
+				}
+
+				if (node.type === "return-response") {
+					return (
+						<ReturnResponseNodeCard
+							key={node.id}
+							{...props}
+							node={node as CanvasNode<ReturnResponseNodeData>}
+							onDataChange={onUpdateNodeData}
+						/>
+					);
+				}
+
 				return (
 					<PluginNodeCard
 						key={node.id}
 						{...props}
 						plugins={plugins}
-						// --- FINAL FIX: Pass the prop down to the card ---
 						onDataChange={onUpdateNodeData}
 					/>
 				);

@@ -16,6 +16,8 @@ interface DomainCanvasProps {
 	selectedDomain: string;
 	plugins: Plugin[];
 	onAddNode: (plugin: Plugin) => void;
+	onAddErrorPageNode: () => void;
+	onAddReturnResponseNode: () => void; // --- FINAL FIX: Add the new prop ---
 	onUpdateNodeData: (nodeId: string, newData: Record<string, unknown>) => void;
 }
 
@@ -25,6 +27,8 @@ export function DomainCanvas({
 	selectedDomain,
 	plugins,
 	onAddNode,
+	onAddErrorPageNode,
+	onAddReturnResponseNode, // --- FINAL FIX: Destructure the prop ---
 	onUpdateNodeData,
 }: DomainCanvasProps) {
 	const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -32,9 +36,9 @@ export function DomainCanvas({
 	const { view, scale, panBy, handleFitView, handleResetView } = useCanvasView({
 		canvasRef,
 		nodes: layout.nodes,
+		plugins: plugins,
 	});
 
-	// --- FINAL FIX: Pass plugins to the hook ---
 	const { getConnectionPoints } = useConnectionPoints(layout, plugins);
 
 	const {
@@ -84,6 +88,8 @@ export function DomainCanvas({
 				onToggleConnectorMode={handleToggleConnectorMode}
 				isConnectorModeActive={interaction.mode === "connecting"}
 				onAddNode={onAddNode}
+				onAddErrorPageNode={onAddErrorPageNode}
+				onAddReturnResponseNode={onAddReturnResponseNode} // --- FINAL FIX: Pass it to the toolbar ---
 				selectedConnectionId={selectedConnectionId}
 				onDeleteSelectedConnection={handleDeleteSelectedConnection}
 				selectedNodeId={selectedNodeId}
