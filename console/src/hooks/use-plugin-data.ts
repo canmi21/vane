@@ -17,9 +17,15 @@ export interface VariableDefinition {
 	type: string;
 }
 
+export interface Author {
+	name: string;
+	url: string;
+}
+
 export interface OutputResults {
 	tree: string[];
 	variables: Record<string, VariableDefinition>;
+	return?: boolean;
 }
 
 export interface Plugin {
@@ -27,8 +33,7 @@ export interface Plugin {
 	version: string;
 	interface: PluginInterface;
 	description: string;
-	author: string;
-	url: string;
+	authors: Author[];
 	input_params: Record<string, ParamDefinition>;
 	output_results: OutputResults;
 }

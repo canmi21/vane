@@ -8,6 +8,9 @@ import {
 	X,
 	FileWarning,
 	Send,
+	Zap,
+	Puzzle,
+	Server,
 } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -23,13 +26,20 @@ interface CanvasToolbarProps {
 	onToggleConnectorMode: () => void;
 	isConnectorModeActive: boolean;
 	onAddNode: (plugin: Plugin) => void;
-	onAddErrorPageNode: () => void;
-	onAddReturnResponseNode: () => void; // --- FINAL FIX: Add prop for the new action ---
 	selectedConnectionId: string | null;
 	onDeleteSelectedConnection: () => void;
 	selectedNodeId: string | null;
 	onDeleteSelectedNode: () => void;
 }
+
+// Icon mapping for specific plugins
+const PLUGIN_ICONS: Record<string, React.ElementType> = {
+	ratelimit: Zap,
+	origins: Server,
+	"error-page": FileWarning,
+	"return-response": Send,
+};
+const DefaultIcon = Puzzle;
 
 export function CanvasToolbar({
 	plugins,
@@ -38,13 +48,15 @@ export function CanvasToolbar({
 	onToggleConnectorMode,
 	isConnectorModeActive,
 	onAddNode,
-	onAddErrorPageNode,
-	onAddReturnResponseNode, // --- FINAL FIX: Destructure new prop ---
 	selectedConnectionId,
 	onDeleteSelectedConnection,
 	selectedNodeId,
 	onDeleteSelectedNode,
 }: CanvasToolbarProps) {
+	// Separate plugins into terminal and middleware for structured menu
+	const terminalPlugins = plugins.filter((p) => p.output_results.return);
+	const middlewarePlugins = plugins.filter((p) => !p.output_results.return);
+
 	const isDeletableNodeSelected =
 		selectedNodeId && selectedNodeId !== "entry-point";
 	const isConnectionSelected = !!selectedConnectionId;
@@ -142,56 +154,26 @@ export function CanvasToolbar({
 								onCloseAutoFocus={(e) => e.preventDefault()}
 							>
 								<DropdownMenu.Label className="px-2 py-1.5 text-xs text-[var(--color-subtext)]">
-									Built-in Actions
+									Terminal Actions
 								</DropdownMenu.Label>
-								<DropdownMenu.Item
-									onSelect={onAddErrorPageNode}
-									className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-[var(--color-text)] outline-none hover:bg-[var(--color-theme-bg)]"
-								>
-									<FileWarning size={14} />
-									Return Error Page
-								</DropdownMenu.Item>
-								{/* --- FINAL FIX: Add the new menu item --- */}
-								<DropdownMenu.Item
-									onSelect={onAddReturnResponseNode}
-									className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-[var(--color-text)] outline-none hover:bg-[var(--color-theme-bg)]"
-								>
-									<Send size={14} />
-									Return Response
-								</DropdownMenu.Item>
+								{terminalPlugins.map((plugin) => (
+									<PluginMenuItem
+										key={plugin.name}
+										plugin={plugin}
+										onSelect={() => onAddNode(plugin)}
+									/>
+								))}
+
 								<DropdownMenu.Separator className="my-1 h-px bg-[var(--color-bg-alt)]" />
 								<DropdownMenu.Label className="px-2 py-1.5 text-xs text-[var(--color-subtext)]">
-									Available Plugins
+									Middleware Plugins
 								</DropdownMenu.Label>
-								<DropdownMenu.Separator className="my-1 h-px bg-[var(--color-bg-alt)]" />
-								{plugins.map((plugin) => (
-									<DropdownMenu.Item
-										key={`${plugin.name}-${plugin.version}`}
+								{middlewarePlugins.map((plugin) => (
+									<PluginMenuItem
+										key={plugin.name}
+										plugin={plugin}
 										onSelect={() => onAddNode(plugin)}
-										className="relative flex cursor-pointer select-none items-center justify-between rounded-sm px-2 py-1.5 text-sm text-[var(--color-text)] outline-none hover:bg-[var(--color-theme-bg)]"
-									>
-										<div className="flex items-center gap-2">
-											<span className="capitalize">
-												{plugin.name.replace(/-/g, " ")}
-												<span className="ml-1 text-xs text-[var(--color-subtext)]">
-													{plugin.version}
-												</span>
-											</span>
-											<span
-												className={`rounded px-1.5 py-0.5 text-xs font-semibold ${
-													plugin.interface.type === "internal"
-														? "bg-blue-500/10 text-blue-400"
-														: "bg-purple-500/10 text-purple-400"
-												}`}
-											>
-												{plugin.interface.type}
-											</span>
-										</div>
-
-										<div className="pr-1">
-											<InfoTooltip plugin={plugin} />
-										</div>
-									</DropdownMenu.Item>
+									/>
 								))}
 								{plugins.length === 0 && (
 									<div className="px-2 py-1.5 text-center text-xs text-[var(--color-subtext)]">
@@ -204,6 +186,45 @@ export function CanvasToolbar({
 				</div>
 			</div>
 		</Tooltip.Provider>
+	);
+}
+
+// Sub-component for a consistent menu item look
+function PluginMenuItem({
+	plugin,
+	onSelect,
+}: {
+	plugin: Plugin;
+	onSelect: () => void;
+}) {
+	const Icon = PLUGIN_ICONS[plugin.name] ?? DefaultIcon;
+	return (
+		<DropdownMenu.Item
+			onSelect={onSelect}
+			className="relative flex cursor-pointer select-none items-center justify-between rounded-sm px-2 py-1.5 text-sm text-[var(--color-text)] outline-none hover:bg-[var(--color-theme-bg)]"
+		>
+			<div className="flex items-center gap-2">
+				<Icon size={14} />
+				<span className="capitalize">
+					{plugin.name.replace(/-/g, " ")}
+					<span className="ml-1 text-xs text-[var(--color-subtext)]">
+						{plugin.version}
+					</span>
+				</span>
+				<span
+					className={`rounded px-1.5 py-0.5 text-xs font-semibold ${
+						plugin.interface.type === "internal"
+							? "bg-blue-500/10 text-blue-400"
+							: "bg-purple-500/10 text-purple-400"
+					}`}
+				>
+					{plugin.interface.type}
+				</span>
+			</div>
+			<div className="pr-1">
+				<InfoTooltip plugin={plugin} />
+			</div>
+		</DropdownMenu.Item>
 	);
 }
 

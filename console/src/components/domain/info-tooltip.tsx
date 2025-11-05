@@ -14,15 +14,10 @@ interface InfoTooltipProps {
  * A reusable component that displays a detailed tooltip for a given plugin.
  */
 export function InfoTooltip({ plugin }: InfoTooltipProps) {
-	const {
-		name,
-		version,
-		author,
-		url,
-		description,
-		input_params,
-		output_results,
-	} = plugin;
+	const { name, version, authors, description, input_params, output_results } =
+		plugin;
+
+	const author = authors.length > 0 ? authors[0] : null;
 
 	return (
 		<Tooltip.Root>
@@ -40,14 +35,12 @@ export function InfoTooltip({ plugin }: InfoTooltipProps) {
 					side="top"
 					align="end"
 					sideOffset={8}
-					// --- FINAL, FINAL FIX 1: Prevent interaction with the tooltip from closing the parent dropdown ---
 					onPointerDownOutside={(e) => e.preventDefault()}
-					asChild // Use asChild to pass props to the motion.div
+					asChild
 				>
 					<motion.div
 						initial={{ opacity: 0, y: 5 }}
 						animate={{ opacity: 1, y: 0 }}
-						// --- FINAL, FINAL FIX 2: Apply a high z-index here to ensure it's above the dropdown ---
 						className="z-[60] max-w-xs rounded-lg border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-3 text-xs font-medium text-[var(--color-text)] shadow-lg"
 					>
 						{/* Header */}
@@ -58,9 +51,9 @@ export function InfoTooltip({ plugin }: InfoTooltipProps) {
 									{version}
 								</span>
 							</h3>
-							{author && url && (
-								<a {...linkProps} href={url}>
-									@{author}
+							{author && (
+								<a {...linkProps} href={author.url}>
+									@{author.name}
 								</a>
 							)}
 						</div>
@@ -85,11 +78,15 @@ export function InfoTooltip({ plugin }: InfoTooltipProps) {
 							<div>
 								<h4 {...headingProps}>Output branch:</h4>
 								<ul {...listProps}>
-									{output_results.tree.map((handle) => (
-										<li key={handle}>
-											<code {...codeProps}>{handle}</code>
-										</li>
-									))}
+									{output_results.tree.length > 0 ? (
+										output_results.tree.map((handle) => (
+											<li key={handle}>
+												<code {...codeProps}>{handle}</code>
+											</li>
+										))
+									) : (
+										<li>None</li>
+									)}
 								</ul>
 
 								<h4 {...headingProps} className="mt-2">

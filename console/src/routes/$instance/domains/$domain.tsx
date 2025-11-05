@@ -23,19 +23,12 @@ function DomainDetailPage() {
 	const domainData = useDomainData(instanceId, selectedDomain);
 	const pluginsQuery = usePluginData(instanceId);
 
-	// The hook now manages its own loading state and requires the instanceId.
-	const {
-		layout,
-		handleLayoutChange,
-		addNode,
-		addErrorPageNode,
-		addReturnResponseNode, // --- FINAL FIX: Get the new function from the hook. ---
-		updateNodeData,
-		syncStatus,
-	} = useCanvasLayout({
-		instanceId,
-		selectedDomain,
-	});
+	// The hook has been simplified and no longer provides node-specific add functions.
+	const { layout, handleLayoutChange, addNode, updateNodeData, syncStatus } =
+		useCanvasLayout({
+			instanceId,
+			selectedDomain,
+		});
 
 	// Navigation Guard to prevent losing unsaved changes
 	const syncStatusRef = useRef(syncStatus);
@@ -95,8 +88,6 @@ function DomainDetailPage() {
 					selectedDomain={selectedDomain!}
 					plugins={allPlugins}
 					onAddNode={addNode}
-					onAddErrorPageNode={addErrorPageNode}
-					onAddReturnResponseNode={addReturnResponseNode} // --- FINAL FIX: Pass the function down as a prop. ---
 					onUpdateNodeData={updateNodeData}
 				/>
 			)}

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { type CanvasNode } from "~/lib/canvas-layout";
-import { type Plugin } from "./use-plugin-data"; // Import Plugin type
+import { type Plugin } from "./use-plugin-data";
 
 // --- Constants ---
 const ZOOM_SENSITIVITY = 0.001;
@@ -72,28 +72,26 @@ export function useCanvasView({
 			if (node.type === "entry-point") {
 				nodeHeight = 83; // Entry point has a fixed height
 			} else {
+				// Generic height calculation for all plugin-based nodes
+				const plugin = plugins.find(
+					(p) => p.name === node.type && p.version === node.version
+				);
 				const heightFromOutputs =
 					HEADER_HEIGHT * (node.outputs.length > 0 ? node.outputs.length : 1);
-				let inputParamCount = 0;
-				if (node.type === "error-page") {
-					inputParamCount = 9; // Hardcoded count for error-page node
-				}
-				// --- FINAL FIX: Add a case for the new node type's height calculation. ---
-				else if (node.type === "return-response") {
-					inputParamCount = 3; // It has 3 parameters
-				} else {
-					const plugin = plugins.find((p) => p.name === node.type);
-					inputParamCount = plugin
-						? Object.keys(plugin.input_params).length
-						: 0;
-				}
-				const ESTIMATED_INPUT_ROW_HEIGHT = 60;
-				const TOP_PADDING = 24;
-				const BOTTOM_PADDING = 12;
+				const inputParamCount = plugin
+					? Object.keys(plugin.input_params).length
+					: 0;
+
+				const ROW_HEIGHT = 52;
+				const GAP_HEIGHT = 8;
+				const PADDING_VERTICAL = 24;
 				const heightFromInputs =
-					inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT +
-					TOP_PADDING +
-					BOTTOM_PADDING;
+					inputParamCount > 0
+						? inputParamCount * ROW_HEIGHT +
+							(inputParamCount - 1) * GAP_HEIGHT +
+							PADDING_VERTICAL
+						: PADDING_VERTICAL;
+
 				const bodyHeight = Math.max(heightFromOutputs, heightFromInputs);
 				nodeHeight = HEADER_HEIGHT + bodyHeight;
 			}

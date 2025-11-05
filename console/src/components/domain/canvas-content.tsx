@@ -5,8 +5,6 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
-	type ErrorPageNodeData,
-	type ReturnResponseNodeData,
 } from "~/lib/canvas-layout";
 import { type InteractionMode } from "~/hooks/use-canvas-interaction";
 import {
@@ -17,8 +15,6 @@ import { CanvasConnector } from "./canvas-connector";
 import React from "react";
 import { type Plugin } from "~/hooks/use-plugin-data";
 import { PluginNodeCard } from "./plugin-node-card";
-import { ErrorPageNodeCard } from "./error-page-node-card";
-import { ReturnResponseNodeCard } from "./return-response-node-card";
 
 interface CanvasContentProps {
 	layout: CanvasLayout;
@@ -96,28 +92,7 @@ export function CanvasContent({
 					);
 				}
 
-				if (node.type === "error-page") {
-					return (
-						<ErrorPageNodeCard
-							key={node.id}
-							{...props}
-							node={node as CanvasNode<ErrorPageNodeData>}
-							onDataChange={onUpdateNodeData}
-						/>
-					);
-				}
-
-				if (node.type === "return-response") {
-					return (
-						<ReturnResponseNodeCard
-							key={node.id}
-							{...props}
-							node={node as CanvasNode<ReturnResponseNodeData>}
-							onDataChange={onUpdateNodeData}
-						/>
-					);
-				}
-
+				// All other nodes are now rendered by the dynamic PluginNodeCard.
 				return (
 					<PluginNodeCard
 						key={node.id}
@@ -128,7 +103,6 @@ export function CanvasContent({
 				);
 			})}
 
-			{/* ... (preview connector rendering is unchanged) ... */}
 			<AnimatePresence>
 				{interaction.mode === "connecting" && interaction.fromNodeId && (
 					<CanvasConnector

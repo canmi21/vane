@@ -1,42 +1,26 @@
 /* src/lib/canvas-layout.ts */
 
 import { getInstance, putInstance } from "~/api/instance";
-import { type RequestResult } from "~/api/request";
 import { type VariableDefinition } from "~/hooks/use-plugin-data";
 
 // --- Type Definitions ---
+
 export interface NodeHandle {
 	id: string;
 	label: string;
 }
-export interface CanvasNode<T = unknown> {
+
+// A generic CanvasNode that can hold any kind of data.
+export interface CanvasNode<T = Record<string, unknown>> {
 	id: string;
-	type: string;
+	type: string; // e.g., "entry-point", "ratelimit", "error-page"
+	version?: string; // e.g., "v1", to track the plugin version
 	x: number;
 	y: number;
 	inputs: NodeHandle[];
 	outputs: NodeHandle[];
 	data: T;
 	variables?: Record<string, VariableDefinition>;
-}
-export type EntryPointNodeData = Record<string, never>;
-
-export interface ErrorPageNodeData {
-	status_code: number;
-	status_description: string;
-	reason: string;
-	request_id: string;
-	timestamp: string;
-	version: string;
-	request_ip: string;
-	visitor_tip: string;
-	admin_guide: string;
-}
-
-export interface ReturnResponseNodeData {
-	status_code: number;
-	header: string;
-	body: string;
 }
 
 export interface CanvasConnection {
@@ -46,69 +30,44 @@ export interface CanvasConnection {
 	toNodeId: string;
 	toHandle: string;
 }
+
 export interface CanvasLayout {
-	nodes: CanvasNode<unknown>[];
+	nodes: CanvasNode<any>[];
 	connections: CanvasConnection[];
 }
 
-// --- API Functions for Backend Synchronization ---
+// --- Specific Node Data Types (if any) ---
 
-/**
- * Fetches the layout for a domain from the backend.
- */
+// The entry point node has no specific editable data.
+export type EntryPointNodeData = Record<string, never>;
+
+// --- API & LocalStorage Functions ---
+
+const LOCAL_STORAGE_PREFIX = "vane-canvas-layout-";
+
 export const getLayoutConfig = (instanceId: string, domain: string) =>
-	getInstance<CanvasLayout>(
-		instanceId,
-		`/v1/layout/${encodeURIComponent(domain)}`
-	);
+	getInstance<CanvasLayout>(instanceId, `/v1/layout/${domain}`);
 
-/**
- * Saves the layout for a domain to the backend.
- */
 export const updateLayoutConfig = (
 	instanceId: string,
 	domain: string,
 	layout: CanvasLayout
-): Promise<RequestResult<CanvasLayout>> => {
-	const body = layout as unknown as Record<string, unknown>;
-	return putInstance<CanvasLayout>(
-		instanceId,
-		`/v1/layout/${encodeURIComponent(domain)}`,
-		body
-	);
-};
+) => putInstance(instanceId, `/v1/layout/${domain}`, layout);
 
-// --- LocalStorage functions for clarity ---
-
-function getStorageKey(domain: string): string {
-	return `@vane/canvas-layout/${domain}`;
-}
-
-/**
- * Loads the layout from the browser's LocalStorage.
- */
-export function loadLayoutFromLocalStorage(
-	domain: string
-): CanvasLayout | null {
-	const data = localStorage.getItem(getStorageKey(domain));
-	if (!data) return null;
+export function getLayoutFromLocalStorage(domain: string): CanvasLayout | null {
 	try {
-		const parsed = JSON.parse(data);
-		if (parsed.nodes && parsed.connections) {
-			return parsed as CanvasLayout;
-		}
-		return null;
-	} catch {
+		const stored = localStorage.getItem(LOCAL_STORAGE_PREFIX + domain);
+		return stored ? JSON.parse(stored) : null;
+	} catch (error) {
+		console.error("Failed to parse layout from LocalStorage:", error);
 		return null;
 	}
 }
 
-/**
- * Saves the layout to the browser's LocalStorage.
- */
-export function saveLayoutToLocalStorage(
-	domain: string,
-	layout: CanvasLayout
-): void {
-	localStorage.setItem(getStorageKey(domain), JSON.stringify(layout));
+export function saveLayoutToLocalStorage(domain: string, layout: CanvasLayout) {
+	try {
+		localStorage.setItem(LOCAL_STORAGE_PREFIX + domain, JSON.stringify(layout));
+	} catch (error) {
+		console.error("Failed to save layout to LocalStorage:", error);
+	}
 }

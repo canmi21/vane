@@ -19,7 +19,7 @@ pub struct PluginInterface {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ParamDefinition {
 	#[serde(rename = "type")]
-	pub r#type: String, // e.g., "string", "number"
+	pub r#type: String, // e.g., "string", "number", "boolean"
 }
 
 /// Defines an output variable that a plugin can set.
@@ -29,14 +29,28 @@ pub struct VariableDefinition {
 	pub r#type: String, // e.g., "string", "number"
 }
 
-/// Defines the possible outcomes and variables set by a plugin.
+/// Defines a plugin author with their name and a URL.
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Author {
+	pub name: String,
+	pub url: String,
+}
+
+/// Defines the possible outcomes and variables set by a plugin.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct OutputResults {
-	/// A list of possible execution outcomes, e.g., ["accept", "drop"].
+	/// A list of possible execution branches. Empty for terminal nodes.
+	#[serde(default)]
 	pub tree: Vec<String>,
+
 	/// A map of variables that can be passed to subsequent plugins.
 	#[serde(default)]
 	pub variables: HashMap<String, VariableDefinition>,
+
+	/// If true, indicates this is a terminal node that ends the request flow.
+	#[serde(skip_serializing_if = "std::ops::Not::not")]
+	#[serde(default)]
+	pub r#return: bool,
 }
 
 /// Represents a single, detailed plugin definition.
@@ -46,9 +60,9 @@ pub struct Plugin {
 	pub version: String,
 	pub interface: PluginInterface,
 	pub description: String,
-	pub author: String,
-	pub url: String,
+	pub authors: Vec<Author>, // Replaced author and url
 	pub input_params: HashMap<String, ParamDefinition>,
+	#[serde(default)]
 	pub output_results: OutputResults,
 }
 
@@ -97,7 +111,6 @@ pub async fn initialize_plugins() {
 						),
 					);
 				} else {
-					// We trust the 'interface' field from the JSON for external plugins.
 					plugins.insert(key, plugin);
 				}
 			}

@@ -9,8 +9,6 @@ import {
 	type CanvasLayout,
 	type CanvasNode,
 	type EntryPointNodeData,
-	type ErrorPageNodeData,
-	type ReturnResponseNodeData,
 } from "~/lib/canvas-layout";
 import { nanoid } from "nanoid";
 import { type Plugin } from "./use-plugin-data";
@@ -128,86 +126,42 @@ export function useCanvasLayout({
 		[selectedDomain]
 	);
 
-	// The functions below now call the centralized `handleLayoutChange`.
+	// This function now handles adding ANY plugin-based node, including terminal ones.
 	const addNode = useCallback(
 		(plugin: Plugin) => {
 			if (!layout) return;
 			const defaultData: Record<string, unknown> = {};
+
+			// Set default values based on parameter type
 			for (const key in plugin.input_params) {
 				const param = plugin.input_params[key];
-				if (param.type === "number")
-					defaultData[key] = key.includes("requests") ? 100 : 0;
+				if (param.type === "number") defaultData[key] = 0;
 				else if (param.type === "boolean") defaultData[key] = false;
 				else defaultData[key] = "";
 			}
+
 			const newNode: CanvasNode = {
 				id: nanoid(8),
 				type: plugin.name,
+				version: plugin.version, // Store the version of the plugin
 				x: 350,
 				y: 350,
-				inputs: [{ id: "input", label: "Input" }],
+				// Terminal nodes (return: true) have no outputs, so their 'tree' is empty.
+				// This automatically handles creating an empty `outputs` array for them.
+				inputs: plugin.output_results.return
+					? [{ id: "input", label: "Input" }]
+					: [{ id: "input", label: "Input" }],
 				outputs: plugin.output_results.tree.map((handle) => ({
 					id: handle,
 					label: handle.charAt(0).toUpperCase() + handle.slice(1),
 				})),
 				data: defaultData,
-				// --- FINAL FIX: Persist the output variables from the plugin definition. ---
 				variables: plugin.output_results.variables,
 			};
 			handleLayoutChange({ ...layout, nodes: [...layout.nodes, newNode] });
 		},
 		[layout, handleLayoutChange]
 	);
-
-	const addErrorPageNode = useCallback(() => {
-		if (!layout) return;
-
-		const defaultData: ErrorPageNodeData = {
-			status_code: 500,
-			status_description: "Internal Server Error",
-			reason: "An internal error occurred on the server.",
-			request_id: "{{req.id}}",
-			timestamp: "{{req.timestamp}}",
-			version: "{{vane.version}}",
-			request_ip: "{{req.ip}}",
-			visitor_tip: "Please try again later or contact support.",
-			admin_guide: "Check service logs for detailed error information.",
-		};
-
-		const newNode: CanvasNode<ErrorPageNodeData> = {
-			id: nanoid(8),
-			type: "error-page",
-			x: 350,
-			y: 350,
-			inputs: [{ id: "input", label: "Input" }],
-			outputs: [],
-			data: defaultData,
-		};
-
-		handleLayoutChange({ ...layout, nodes: [...layout.nodes, newNode] });
-	}, [layout, handleLayoutChange]);
-
-	const addReturnResponseNode = useCallback(() => {
-		if (!layout) return;
-
-		const defaultData: ReturnResponseNodeData = {
-			status_code: 200,
-			header: "Content-Type: text/plain",
-			body: "Hello, from Vane!",
-		};
-
-		const newNode: CanvasNode<ReturnResponseNodeData> = {
-			id: nanoid(8),
-			type: "return-response",
-			x: 350,
-			y: 350,
-			inputs: [{ id: "input", label: "Input" }],
-			outputs: [],
-			data: defaultData,
-		};
-
-		handleLayoutChange({ ...layout, nodes: [...layout.nodes, newNode] });
-	}, [layout, handleLayoutChange]);
 
 	const updateNodeData = useCallback(
 		(nodeId: string, newData: Record<string, unknown>) => {
@@ -233,8 +187,6 @@ export function useCanvasLayout({
 		layout,
 		handleLayoutChange,
 		addNode,
-		addErrorPageNode,
-		addReturnResponseNode,
 		updateNodeData,
 		syncStatus,
 	};
