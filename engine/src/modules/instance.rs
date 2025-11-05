@@ -27,8 +27,6 @@ pub async fn get_instance_info() -> impl IntoResponse {
 	let expanded_path = shellexpand::tilde(&config_dir_str).to_string();
 	let instance_file_path = PathBuf::from(expanded_path).join("instance.json");
 
-	// FIX 3: Instead of matching directly and returning, we match and assign to a variable.
-	// This allows Rust to unify the return type of the match expression.
 	let result = match fs::read_to_string(instance_file_path) {
 		Ok(content) => match serde_json::from_str::<InstanceFile>(&content) {
 			Ok(data) => {
@@ -36,7 +34,6 @@ pub async fn get_instance_info() -> impl IntoResponse {
 					instance_id: data.instance_id,
 					created_at: data.created_at,
 				};
-				// Both branches now return a Result that can be converted to a response.
 				Ok(response::success(info))
 			}
 			Err(_) => Err(response::error(
@@ -50,7 +47,6 @@ pub async fn get_instance_info() -> impl IntoResponse {
 		)),
 	};
 
-	// Convert the final result into a response.
 	match result {
 		Ok(res) => res.into_response(),
 		Err(res) => res.into_response(),
@@ -63,11 +59,13 @@ mod tests {
 	use axum::body::to_bytes;
 	use axum::response::Response;
 	use serde_json::json;
+	use serial_test::serial;
 	use std::env;
 	use std::fs;
 	use tempfile::tempdir;
 
 	#[tokio::test]
+	#[serial]
 	async fn test_get_instance_info_success() {
 		let dir = tempdir().unwrap();
 		let config_path = dir.path().join("instance.json");
@@ -100,6 +98,7 @@ mod tests {
 	}
 
 	#[tokio::test]
+	#[serial]
 	async fn test_get_instance_info_missing_file() {
 		let dir = tempdir().unwrap();
 
@@ -117,6 +116,7 @@ mod tests {
 	}
 
 	#[tokio::test]
+	#[serial]
 	async fn test_get_instance_info_invalid_json() {
 		let dir = tempdir().unwrap();
 		let config_path = dir.path().join("instance.json");
