@@ -25,7 +25,8 @@ fn get_layout_config_path(domain: &str) -> PathBuf {
 }
 
 /// Ensures a layout.json file exists for a domain, creating an empty one if not.
-async fn ensure_layout_config_exists(domain_dir: &FilePath) {
+// --- FIX: Made this function public so it can be called from the domain module. ---
+pub async fn ensure_layout_config_exists(domain_dir: &FilePath) {
 	let layout_path = domain_dir.join("layout.json");
 	if !layout_path.exists() {
 		if let Some(dir_name) = domain_dir.file_name().and_then(|s| s.to_str()) {
