@@ -9,6 +9,7 @@ use std::sync::Arc;
 // The global, thread-safe cache for all domain routers.
 // Key: Domain name (e.g., "example.com")
 // Value: An atomically swappable Arc pointer to the parsed RouterNode.
+// This is now correctly kept private to the module.
 static ROUTER_CACHE: Lazy<DashMap<String, Arc<ArcSwap<RouterNode>>>> = Lazy::new(DashMap::new);
 
 /// Retrieves a read-only guard to the current router for a given domain.
@@ -42,4 +43,12 @@ pub fn insert_router(domain: &str, router: RouterNode) {
 /// Removes a router from the cache, for example when a domain is deleted.
 pub fn remove_router(domain: &str) {
 	ROUTER_CACHE.remove(domain);
+}
+
+// --- FIX: Add a public, test-only function to clear the cache. ---
+/// Clears the entire router cache.
+/// This function is only compiled and available in test environments.
+#[cfg(test)]
+pub fn clear_cache() {
+	ROUTER_CACHE.clear();
 }

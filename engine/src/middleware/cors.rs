@@ -33,11 +33,14 @@ mod tests {
 	use axum::body::Body;
 	use axum::http::{Method, Request};
 	use axum::{Router, routing::get};
+	use serial_test::serial; // <-- FIX: Import the serial macro.
 	use std::env;
 	use tower::ServiceExt; // for `oneshot`
 
 	#[tokio::test]
+	#[serial] // <-- FIX: Add attribute to serialize test execution.
 	async fn test_create_cors_layer_default() {
+		// Setup: Ensure CORS is not set.
 		unsafe { env::remove_var("CORS") };
 
 		let cors_layer = create_cors_layer();
@@ -61,7 +64,9 @@ mod tests {
 	}
 
 	#[tokio::test]
+	#[serial]
 	async fn test_create_cors_layer_with_custom_origin() {
+		// Setup: Set custom CORS origin.
 		unsafe { env::set_var("CORS", "http://custom-origin.com") };
 
 		let cors_layer = create_cors_layer();
@@ -83,11 +88,14 @@ mod tests {
 			"http://custom-origin.com"
 		);
 
+		// Teardown: Clean up the environment variable.
 		unsafe { env::remove_var("CORS") };
 	}
 
 	#[tokio::test]
+	#[serial] // <-- FIX: Add attribute to serialize test execution.
 	async fn test_create_cors_layer_reject_unlisted_origin() {
+		// Setup: Ensure CORS is not set.
 		unsafe { env::remove_var("CORS") };
 
 		let cors_layer = create_cors_layer();

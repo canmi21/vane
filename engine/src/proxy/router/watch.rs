@@ -6,7 +6,7 @@ use crate::modules::domain::entrance as domain_helper;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use once_cell::sync::Lazy; // <-- ADD THIS
+use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -14,7 +14,6 @@ use tokio::task::JoinHandle;
 // Manages debouncing tasks for router reloads.
 // Key: Domain name (e.g., "example.com")
 // Value: The handle to the scheduled tokio task that will perform the reload.
-// --- FIX: Use Lazy to initialize the static DashMap at runtime. ---
 static DEBOUNCE_TASKS: Lazy<DashMap<String, JoinHandle<()>>> = Lazy::new(DashMap::new);
 
 /// The main entry point to start the file system watcher.
@@ -102,7 +101,6 @@ fn schedule_reload(domain: String) {
 		&format!("Scheduling router reload for '{}' in 2s.", domain),
 	);
 
-	// --- FIX: Clone domain for use inside the async task. ---
 	let domain_clone = domain.clone();
 	let new_task = tokio::spawn(async move {
 		tokio::time::sleep(Duration::from_secs(2)).await;
@@ -111,7 +109,6 @@ fn schedule_reload(domain: String) {
 		hotswap::load_and_swap_router(&domain_clone).await;
 	});
 
-	// The original `domain` is moved here.
 	DEBOUNCE_TASKS.insert(domain, new_task);
 }
 
@@ -143,4 +140,158 @@ pub async fn initial_load_all_routers() {
 		hotswap::load_and_swap_router(&domain).await;
 	}
 	log(LogLevel::Info, "Initial router load complete.");
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::proxy::router::cache; // <-- No longer need to import ROUTER_CACHE
+	use serial_test::serial;
+	use std::env;
+	use tempfile::tempdir;
+
+	#[tokio::test]
+	#[serial]
+	async fn test_initial_load_all_routers_success() {
+		// Setup: Create an isolated environment
+		let tmp_dir = tempdir().unwrap();
+		let config_dir = tmp_dir.path();
+		let original_env = env::var("CONFIG_DIR").ok();
+		unsafe {
+			env::set_var("CONFIG_DIR", config_dir.to_str().unwrap());
+		}
+		cache::clear_cache(); // FIX: Use the public test function
+
+		// Create a domain with a valid router
+		let domain1_dir = config_dir.join("[example.com]");
+		tokio::fs::create_dir(&domain1_dir).await.unwrap();
+		tokio::fs::write(
+			domain1_dir.join("router.gen"),
+			r#"{"type": "test-node", "data": {}}"#,
+		)
+		.await
+		.unwrap();
+
+		// Create another domain with no router file
+		let domain2_dir = config_dir.join("[no-router.com]");
+		tokio::fs::create_dir(&domain2_dir).await.unwrap();
+
+		// Action: Run the initial loader
+		initial_load_all_routers().await;
+
+		// Assert: Check the cache state via public API
+		assert!(
+			cache::get_router("example.com").is_some(),
+			"Router for example.com should be loaded"
+		);
+		assert!(
+			cache::get_router("no-router.com").is_none(),
+			"Domain with no router file should not be in cache"
+		);
+
+		// Teardown
+		if let Some(orig) = original_env {
+			unsafe { env::set_var("CONFIG_DIR", orig) };
+		} else {
+			unsafe { env::remove_var("CONFIG_DIR") };
+		}
+		cache::clear_cache();
+	}
+
+	#[tokio::test]
+	#[serial]
+	async fn test_load_and_swap_router_lifecycle() {
+		// Setup
+		let tmp_dir = tempdir().unwrap();
+		let config_dir = tmp_dir.path();
+		let original_env = env::var("CONFIG_DIR").ok();
+		unsafe {
+			env::set_var("CONFIG_DIR", config_dir.to_str().unwrap());
+		}
+		cache::clear_cache();
+
+		let domain_dir = config_dir.join("[test.com]");
+		tokio::fs::create_dir(&domain_dir).await.unwrap();
+		let router_path = domain_dir.join("router.gen");
+
+		// 1. Create and Load
+		tokio::fs::write(&router_path, r#"{"type": "v1", "data": {}}"#)
+			.await
+			.unwrap();
+		hotswap::load_and_swap_router("test.com").await;
+		let router_v1 = cache::get_router("test.com").unwrap();
+		// FIX: Access field directly on the Guard via auto-deref.
+		assert_eq!(router_v1.node_type, "v1");
+
+		// 2. Update and Swap
+		tokio::fs::write(&router_path, r#"{"type": "v2", "data": {}}"#)
+			.await
+			.unwrap();
+		hotswap::load_and_swap_router("test.com").await;
+		let router_v2 = cache::get_router("test.com").unwrap();
+		assert_eq!(
+			// FIX: Access field directly on the Guard via auto-deref.
+			router_v2.node_type,
+			"v2",
+			"Router should be atomically swapped to v2"
+		);
+
+		// 3. Delete file and Unload
+		tokio::fs::remove_file(&router_path).await.unwrap();
+		hotswap::load_and_swap_router("test.com").await;
+		assert!(
+			cache::get_router("test.com").is_none(),
+			"Router should be removed from cache after file deletion"
+		);
+
+		// Teardown
+		if let Some(orig) = original_env {
+			unsafe { env::set_var("CONFIG_DIR", orig) };
+		} else {
+			unsafe { env::remove_var("CONFIG_DIR") };
+		}
+		cache::clear_cache();
+	}
+
+	#[tokio::test]
+	#[serial]
+	async fn test_load_router_handles_invalid_and_empty_files() {
+		// Setup
+		let tmp_dir = tempdir().unwrap();
+		let config_dir = tmp_dir.path();
+		let original_env = env::var("CONFIG_DIR").ok();
+		unsafe {
+			env::set_var("CONFIG_DIR", config_dir.to_str().unwrap());
+		}
+		cache::clear_cache();
+		let domain_dir = config_dir.join("[bad.com]");
+		tokio::fs::create_dir(&domain_dir).await.unwrap();
+		let router_path = domain_dir.join("router.gen");
+
+		// 1. Load with invalid JSON
+		tokio::fs::write(&router_path, r#"{"type": "bad" "#)
+			.await
+			.unwrap();
+		hotswap::load_and_swap_router("bad.com").await;
+		assert!(
+			cache::get_router("bad.com").is_none(),
+			"Invalid JSON should not be loaded into cache"
+		);
+
+		// 2. Load with empty content
+		tokio::fs::write(&router_path, "   ").await.unwrap(); // Whitespace only
+		hotswap::load_and_swap_router("bad.com").await;
+		assert!(
+			cache::get_router("bad.com").is_none(),
+			"Empty file should not be loaded into cache"
+		);
+
+		// Teardown
+		if let Some(orig) = original_env {
+			unsafe { env::set_var("CONFIG_DIR", orig) };
+		} else {
+			unsafe { env::remove_var("CONFIG_DIR") };
+		}
+		cache::clear_cache();
+	}
 }

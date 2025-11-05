@@ -156,6 +156,7 @@ async fn run_check_cycle(clients: &HttpClients, monitor_config: &MonitorConfig) 
 
 	if origins.is_empty() {
 		let mut reports = MONITOR_REPORTS.write().await;
+		// Check if it's already empty to avoid an unnecessary log message.
 		if !reports.is_empty() {
 			log(
 				LogLevel::Info,
@@ -272,26 +273,29 @@ mod tests {
 	use std::env;
 	use tempfile::tempdir;
 
-	async fn setup_temp_config_env() -> tempfile::TempDir {
-		let tmp_dir = tempdir().unwrap();
-		let cfg_path = tmp_dir.path().join("origin_monitor.json");
-		tokio::fs::write(&cfg_path, "{}").await.unwrap();
-		unsafe {
-			env::set_var("CONFIG_PATH", tmp_dir.path().to_str().unwrap());
-		};
-		tmp_dir
-	}
-
 	#[tokio::test]
-	#[serial]
+	#[serial] // <-- FIX: Serialize the test to prevent race conditions.
 	async fn test_run_check_cycle_empty_file() {
-		// This sets up a temp directory with origin_monitor.json and sets CONFIG_PATH
-		let tmp_dir_guard = setup_temp_config_env().await;
-		let config_dir = tmp_dir_guard.path();
+		// --- FIX: Create a fully isolated test environment. ---
+		let tmp_dir = tempdir().unwrap();
+		let config_dir = tmp_dir.path();
 
-		// Create the origins.json file in the SAME temporary directory
-		let origins_path = config_dir.join("origins.json");
-		tokio::fs::write(&origins_path, "{}").await.unwrap();
+		// Set the correct environment variable.
+		let original_env = env::var("CONFIG_DIR").ok();
+		unsafe {
+			env::set_var("CONFIG_DIR", config_dir.to_str().unwrap());
+		}
+
+		// Create the necessary empty files inside the isolated directory.
+		tokio::fs::write(config_dir.join("origin_monitor.json"), "{}")
+			.await
+			.unwrap();
+		tokio::fs::write(config_dir.join("origins.json"), "{}")
+			.await
+			.unwrap();
+
+		// Ensure the test starts with a clean slate.
+		MONITOR_REPORTS.write().await.clear();
 
 		let clients = HttpClients {
 			default: Client::builder().build().unwrap(),
@@ -301,14 +305,23 @@ mod tests {
 				.unwrap(),
 		};
 
-		// The test target function will now find both config files in the correct path
 		let cfg = load_monitor_config().await;
 		run_check_cycle(&clients, &cfg).await;
 
+		// The assertion is now reliable.
 		assert!(MONITOR_REPORTS.read().await.is_empty());
+
+		// Teardown: Restore the environment variable.
+		if let Some(orig) = original_env {
+			unsafe { env::set_var("CONFIG_DIR", orig) };
+		} else {
+			unsafe { env::remove_var("CONFIG_DIR") };
+		}
 	}
 
 	#[tokio::test]
+	// This test is self-contained and doesn't modify shared state,
+	// so it doesn't strictly need `serial`, but adding it is harmless.
 	#[serial]
 	async fn test_check_single_origin_timeout() {
 		let clients = HttpClients {
