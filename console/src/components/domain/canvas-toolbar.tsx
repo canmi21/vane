@@ -1,6 +1,14 @@
 /* src/components/domain/canvas-toolbar.tsx */
 
-import { Fullscreen, Spline, MapPin, Plus, X, FileWarning } from "lucide-react"; // Import new icon
+import {
+	Fullscreen,
+	Spline,
+	MapPin,
+	Plus,
+	X,
+	FileWarning,
+	Send,
+} from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { motion } from "framer-motion";
@@ -15,7 +23,8 @@ interface CanvasToolbarProps {
 	onToggleConnectorMode: () => void;
 	isConnectorModeActive: boolean;
 	onAddNode: (plugin: Plugin) => void;
-	onAddErrorPageNode: () => void; // --- FINAL FIX: Add prop for the new action ---
+	onAddErrorPageNode: () => void;
+	onAddReturnResponseNode: () => void; // --- FINAL FIX: Add prop for the new action ---
 	selectedConnectionId: string | null;
 	onDeleteSelectedConnection: () => void;
 	selectedNodeId: string | null;
@@ -29,7 +38,8 @@ export function CanvasToolbar({
 	onToggleConnectorMode,
 	isConnectorModeActive,
 	onAddNode,
-	onAddErrorPageNode, // Destructure new prop
+	onAddErrorPageNode,
+	onAddReturnResponseNode, // --- FINAL FIX: Destructure new prop ---
 	selectedConnectionId,
 	onDeleteSelectedConnection,
 	selectedNodeId,
@@ -131,7 +141,6 @@ export function CanvasToolbar({
 								className="z-50 min-w-[240px] rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg)] p-1 shadow-md"
 								onCloseAutoFocus={(e) => e.preventDefault()}
 							>
-								{/* --- FINAL FIX: Add a new section for built-in actions --- */}
 								<DropdownMenu.Label className="px-2 py-1.5 text-xs text-[var(--color-subtext)]">
 									Built-in Actions
 								</DropdownMenu.Label>
@@ -142,8 +151,15 @@ export function CanvasToolbar({
 									<FileWarning size={14} />
 									Return Error Page
 								</DropdownMenu.Item>
+								{/* --- FINAL FIX: Add the new menu item --- */}
+								<DropdownMenu.Item
+									onSelect={onAddReturnResponseNode}
+									className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-[var(--color-text)] outline-none hover:bg-[var(--color-theme-bg)]"
+								>
+									<Send size={14} />
+									Return Response
+								</DropdownMenu.Item>
 								<DropdownMenu.Separator className="my-1 h-px bg-[var(--color-bg-alt)]" />
-								{/* --- End of new section --- */}
 								<DropdownMenu.Label className="px-2 py-1.5 text-xs text-[var(--color-subtext)]">
 									Available Plugins
 								</DropdownMenu.Label>
