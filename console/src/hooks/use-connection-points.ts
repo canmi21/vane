@@ -22,18 +22,19 @@ export function useConnectionPoints(layout: CanvasLayout, plugins: Plugin[]) {
 				return { x: node.x + nodeWidth, y: node.y + totalHeight / 2 };
 			}
 
-			if (node.type === "error-page") {
+			// --- FINAL FIX: Include the new node type in this logic block for terminal nodes. ---
+			if (node.type === "error-page" || node.type === "return-response") {
 				const isInput = node.inputs.some((h) => h.id === handleId);
 				if (isInput) {
+					// These nodes have no outputs, so vertically center the input handle.
 					const inputHandleY = headerHeight / 2;
 					return { x: node.x, y: node.y + headerHeight + inputHandleY };
 				}
-				return { x: 0, y: 0 };
+				return { x: 0, y: 0 }; // No outputs
 			}
 
 			const plugin = plugins.find((p) => p.name === node.type);
 
-			// --- FINAL FIX: This calculation now perfectly mirrors the one in CanvasNodeCard. ---
 			const heightFromOutputs =
 				headerHeight * (node.outputs.length > 0 ? node.outputs.length : 1);
 			const inputParamCount = plugin
@@ -41,7 +42,7 @@ export function useConnectionPoints(layout: CanvasLayout, plugins: Plugin[]) {
 				: 0;
 			const ESTIMATED_INPUT_ROW_HEIGHT = 60;
 			const TOP_PADDING = 24;
-			const BOTTOM_PADDING = 12; // Ensure this matches CanvasNodeCard
+			const BOTTOM_PADDING = 12;
 			const heightFromInputs =
 				inputParamCount * ESTIMATED_INPUT_ROW_HEIGHT +
 				TOP_PADDING +
