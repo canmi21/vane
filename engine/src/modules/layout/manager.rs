@@ -2,7 +2,7 @@
 
 use crate::{
 	common::response, daemon::config, modules::domain::entrance as domain_helper,
-	modules::router::generate::generate_router_tree,
+	proxy::router::generate::generate_router_tree,
 };
 use axum::{
 	Json,
