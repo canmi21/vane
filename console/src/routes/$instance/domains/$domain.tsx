@@ -28,7 +28,8 @@ function DomainDetailPage() {
 		layout,
 		handleLayoutChange,
 		addNode,
-		addErrorPageNode, // --- FINAL FIX (1/2): Get the new function from the hook. ---
+		addErrorPageNode,
+		addReturnResponseNode, // --- FINAL FIX: Get the new function from the hook. ---
 		updateNodeData,
 		syncStatus,
 	} = useCanvasLayout({
@@ -94,7 +95,8 @@ function DomainDetailPage() {
 					selectedDomain={selectedDomain!}
 					plugins={allPlugins}
 					onAddNode={addNode}
-					onAddErrorPageNode={addErrorPageNode} // --- FINAL FIX (2/2): Pass the function down as a prop. ---
+					onAddErrorPageNode={addErrorPageNode}
+					onAddReturnResponseNode={addReturnResponseNode} // --- FINAL FIX: Pass the function down as a prop. ---
 					onUpdateNodeData={updateNodeData}
 				/>
 			)}
