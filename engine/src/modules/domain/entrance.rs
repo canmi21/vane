@@ -1,6 +1,10 @@
 /* engine/src/modules/domain/entrance.rs */
 
-use crate::{common::response, daemon::config, modules::websocket::manager as websocket_manager};
+// --- FIX: Add layout_manager to imports. ---
+use crate::{
+	common::response, daemon::config, modules::layout::manager as layout_manager,
+	modules::websocket::manager as websocket_manager,
+};
 use axum::{
 	extract::Path,
 	http::StatusCode,
@@ -136,8 +140,8 @@ pub async fn create_domain(Path(domain): Path<String>) -> Response {
 
 	// Ensure default config files are created for the new domain.
 	websocket_manager::ensure_websocket_config_exists(&path).await;
-	// A placeholder for layout, assuming it will also have an `ensure` function.
-	// layout_manager::ensure_layout_config_exists(&path).await;
+	// --- FIX: Ensure the default layout.json is also created. ---
+	layout_manager::ensure_layout_config_exists(&path).await;
 
 	log(
 		LogLevel::Info,

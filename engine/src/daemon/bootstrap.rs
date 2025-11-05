@@ -7,6 +7,8 @@ use crate::modules::layout::manager as layout_manager;
 use crate::modules::origins::task as origin_monitor_task;
 use crate::modules::plugins::manager as plugins_manager;
 use crate::modules::router::generate::generate_router_tree;
+use crate::proxy::router::watch::{initial_load_all_routers, start_router_watcher};
+use crate::servers;
 use anynet::anynet;
 use axum::serve;
 use dotenvy::dotenv;
@@ -43,7 +45,6 @@ pub async fn start() {
 	console::initialize_console_config().await;
 
 	// Now, initialize the instance-specific config file (e.g., instance.json).
-	// This is a critical step; if it fails, the application cannot proceed.
 	if let Err(e) = uuid::initialize_instance_config().await {
 		log(
 			LogLevel::Error,
@@ -66,6 +67,15 @@ pub async fn start() {
 	layout_manager::initialize_all_layout_configs().await;
 	generate_all_router_trees().await;
 
+	// --- NEW: Initialize Router Cache and Watcher ---
+	// This must happen AFTER router generation but BEFORE starting proxy servers.
+	initial_load_all_routers().await;
+	start_router_watcher(); // This spawns a background task.
+	// ------------------------------------------------
+
+	// --- Server Startup Logic ---
+
+	// 1. Setup and spawn the Axum management console server.
 	let port = env::var("PORT")
 		.ok()
 		.and_then(|s| s.parse::<u16>().ok())
@@ -97,14 +107,39 @@ pub async fn start() {
 
 	let listener = TcpListener::bind(addr).await.unwrap();
 
-	serve(listener, app.into_make_service())
-		.with_graceful_shutdown(shutdown_signal())
-		.await
-		.unwrap();
+	log(
+		LogLevel::Info,
+		&format!("Management console listening on {}", addr),
+	);
+
+	let console_server =
+		serve(listener, app.into_make_service()).with_graceful_shutdown(shutdown_signal());
+
+	// Spawn the management console to run in the background.
+	let console_handle = tokio::spawn(async move {
+		if let Err(e) = console_server.await {
+			log(
+				LogLevel::Error,
+				&format!("Management console server error: {}", e),
+			);
+		}
+	});
+
+	// 2. Start the actual proxy servers for handling public traffic.
+	servers::start_proxy_servers().await;
+
+	// 3. Wait for the graceful shutdown signal to complete.
+	if let Err(e) = console_handle.await {
+		log(
+			LogLevel::Error,
+			&format!("Management console task failed: {}", e),
+		);
+	}
 
 	log(LogLevel::Info, "Server has been shut down gracefully.");
 }
 
+// --- setup_logging, print_motd, shutdown_signal functions remain unchanged ---
 fn setup_logging() {
 	let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 	let log_level = match level.to_lowercase().as_str() {
@@ -146,8 +181,8 @@ async fn shutdown_signal() {
 	let terminate = std::future::pending::<()>();
 
 	tokio::select! {
-					_ = ctrl_c => {},
-					_ = terminate => {},
+		_ = ctrl_c => {},
+		_ = terminate => {},
 	}
 
 	log(LogLevel::Info, "Signal received, shutdown now...");

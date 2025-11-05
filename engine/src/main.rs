@@ -7,6 +7,7 @@ pub mod config;
 pub mod daemon;
 pub mod middleware;
 pub mod modules;
+pub mod proxy;
 pub mod servers;
 
 #[tokio::main]
