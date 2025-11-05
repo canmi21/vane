@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { type NodeComponentProps } from "./domain-entry-point-card";
 import { CanvasNodeCard } from "./canvas-node-card";
 import { type ReturnResponseNodeData } from "~/lib/canvas-layout";
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 // --- Component Props ---
 interface ReturnResponseNodeCardProps extends NodeComponentProps {
@@ -13,7 +13,6 @@ interface ReturnResponseNodeCardProps extends NodeComponentProps {
 }
 
 // --- Hardcoded field definitions for the response form ---
-// --- FINAL FIX: Changed header and body types from 'textarea' to 'string' for single-line inputs. ---
 const responseFields: {
 	key: keyof ReturnResponseNodeData;
 	label: string;
@@ -71,6 +70,7 @@ export function ReturnResponseNodeCard({
 				<div className="w-full space-y-2 text-left">
 					{responseFields.map(({ key, label, type }) => (
 						<div key={key}>
+							{/* --- FINAL FIX: Removed the type indicator from the label. --- */}
 							<label className="flex items-center justify-between text-xs text-[var(--color-subtext)] mb-1 capitalize">
 								{label}
 							</label>
@@ -91,7 +91,6 @@ export function ReturnResponseNodeCard({
 
 // --- Sub-component for handling validation logic ---
 
-// --- FINAL FIX: Removed 'textarea' from the type definition. ---
 interface EditableInputProps {
 	type: "string" | "number";
 	initialValue: unknown;
@@ -105,11 +104,17 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 		setLocalValue(String(initialValue ?? ""));
 	}, [initialValue]);
 
-	const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-		const value = e.target.value.trim();
+	const handleBlur = () => {
+		const value = localValue.trim();
 
 		if (value.startsWith("{{") && value.endsWith("}}")) {
 			onCommit(value);
+			return;
+		}
+
+		if (value === "") {
+			if (type === "number") onCommit(0);
+			else onCommit("");
 			return;
 		}
 
@@ -130,7 +135,6 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 		}
 	};
 
-	// --- FINAL FIX: This component now only renders a single-line input. ---
 	return (
 		<input
 			type="text"
@@ -138,7 +142,8 @@ function EditableInput({ type, initialValue, onCommit }: EditableInputProps) {
 			onChange={(e) => setLocalValue(e.target.value)}
 			onBlur={handleBlur}
 			onMouseDown={(e) => e.stopPropagation()}
-			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)]"
+			placeholder={type}
+			className="w-full h-8 rounded-md border border-[var(--color-bg-alt)] bg-[var(--color-bg-alt)] px-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-theme-border)] placeholder:text-[var(--color-subtext)]/50"
 		/>
 	);
 }
