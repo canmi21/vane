@@ -1,6 +1,9 @@
 /* engine/src/modules/layout/manager.rs */
 
-use crate::{common::response, daemon::config, modules::domain::entrance as domain_helper};
+use crate::{
+	common::response, daemon::config, modules::domain::entrance as domain_helper,
+	modules::router::generate::generate_router_tree,
+};
 use axum::{
 	Json,
 	extract::Path,
@@ -26,7 +29,6 @@ async fn ensure_layout_config_exists(domain_dir: &FilePath) {
 	let layout_path = domain_dir.join("layout.json");
 	if !layout_path.exists() {
 		if let Some(dir_name) = domain_dir.file_name().and_then(|s| s.to_str()) {
-			// Default content is an empty JSON object.
 			if let Err(e) = tokio::fs::write(&layout_path, "{}").await {
 				log(
 					LogLevel::Error,
@@ -50,12 +52,9 @@ async fn ensure_layout_config_exists(domain_dir: &FilePath) {
 pub async fn initialize_all_layout_configs() {
 	log(LogLevel::Info, "Checking for layout.json in all domains...");
 	let config_dir = config::get_config_dir();
-	// This now calls the correct function which returns Vec<String>.
 	let domains = domain_helper::list_domains_internal().await;
 
-	// The loop now works correctly as `domain_name` is an owned String.
 	for domain_name in domains {
-		// We pass a reference `&domain_name` to the helper function.
 		let domain_dir = config_dir.join(domain_helper::domain_to_dir_name(&domain_name));
 		if domain_dir.is_dir() {
 			ensure_layout_config_exists(&domain_dir).await;
@@ -107,7 +106,7 @@ pub async fn get_layout_config(Path(domain): Path<String>) -> Response {
 	}
 }
 
-/// Updates the layout configuration for a specific domain.
+/// Updates the layout configuration for a specific domain and regenerates the router tree.
 pub async fn update_layout_config(
 	Path(domain): Path<String>,
 	Json(payload): Json<Value>,
@@ -132,6 +131,10 @@ pub async fn update_layout_config(
 				)
 				.into_response();
 			}
+
+			// Trigger router tree regeneration after successful update.
+			generate_router_tree(&domain).await;
+
 			response::success(payload).into_response()
 		}
 		Err(_) => {

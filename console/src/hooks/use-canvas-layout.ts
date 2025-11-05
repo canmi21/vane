@@ -10,7 +10,7 @@ import {
 	type CanvasNode,
 	type EntryPointNodeData,
 	type ErrorPageNodeData,
-	type ReturnResponseNodeData, // --- FINAL FIX: Import the new data types ---
+	type ReturnResponseNodeData,
 } from "~/lib/canvas-layout";
 import { nanoid } from "nanoid";
 import { type Plugin } from "./use-plugin-data";
@@ -151,6 +151,8 @@ export function useCanvasLayout({
 					label: handle.charAt(0).toUpperCase() + handle.slice(1),
 				})),
 				data: defaultData,
+				// --- FINAL FIX: Persist the output variables from the plugin definition. ---
+				variables: plugin.output_results.variables,
 			};
 			handleLayoutChange({ ...layout, nodes: [...layout.nodes, newNode] });
 		},
@@ -160,7 +162,6 @@ export function useCanvasLayout({
 	const addErrorPageNode = useCallback(() => {
 		if (!layout) return;
 
-		// --- FINAL FIX: Update default values to match user-provided code. ---
 		const defaultData: ErrorPageNodeData = {
 			status_code: 500,
 			status_description: "Internal Server Error",
@@ -179,14 +180,13 @@ export function useCanvasLayout({
 			x: 350,
 			y: 350,
 			inputs: [{ id: "input", label: "Input" }],
-			outputs: [], // No outputs for this node type
+			outputs: [],
 			data: defaultData,
 		};
 
 		handleLayoutChange({ ...layout, nodes: [...layout.nodes, newNode] });
 	}, [layout, handleLayoutChange]);
 
-	// --- FINAL FIX: Add a dedicated function to create a Return Response node. ---
 	const addReturnResponseNode = useCallback(() => {
 		if (!layout) return;
 
@@ -234,7 +234,7 @@ export function useCanvasLayout({
 		handleLayoutChange,
 		addNode,
 		addErrorPageNode,
-		addReturnResponseNode, // Export the new function
+		addReturnResponseNode,
 		updateNodeData,
 		syncStatus,
 	};

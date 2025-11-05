@@ -2,6 +2,7 @@
 
 import { getInstance, putInstance } from "~/api/instance";
 import { type RequestResult } from "~/api/request";
+import { type VariableDefinition } from "~/hooks/use-plugin-data";
 
 // --- Type Definitions ---
 export interface NodeHandle {
@@ -16,6 +17,7 @@ export interface CanvasNode<T = unknown> {
 	inputs: NodeHandle[];
 	outputs: NodeHandle[];
 	data: T;
+	variables?: Record<string, VariableDefinition>;
 }
 export type EntryPointNodeData = Record<string, never>;
 
@@ -31,7 +33,6 @@ export interface ErrorPageNodeData {
 	admin_guide: string;
 }
 
-// --- FINAL FIX: Add and export the new interface for the Return Response node. ---
 export interface ReturnResponseNodeData {
 	status_code: number;
 	header: string;

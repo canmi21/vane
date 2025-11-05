@@ -2,9 +2,11 @@
 
 use crate::config::{template, uuid};
 use crate::daemon::{config, console, router};
+use crate::modules::domain::entrance as domain_helper;
 use crate::modules::layout::manager as layout_manager;
 use crate::modules::origins::task as origin_monitor_task;
-use crate::modules::plugins::manager as plugins_task;
+use crate::modules::plugins::manager as plugins_manager;
+use crate::modules::router::generate::generate_router_tree;
 use anynet::anynet;
 use axum::serve;
 use dotenvy::dotenv;
@@ -16,6 +18,19 @@ use std::process;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::task;
+
+/// Scans all domains and generates their router trees on startup.
+async fn generate_all_router_trees() {
+	log(
+		LogLevel::Info,
+		"Generating router trees for all domains on startup...",
+	);
+	let domains = domain_helper::list_domains_internal().await;
+	for domain in domains {
+		generate_router_tree(&domain).await;
+	}
+	log(LogLevel::Info, "Router tree generation complete.");
+}
 
 pub async fn start() {
 	dotenv().ok();
@@ -45,16 +60,17 @@ pub async fn start() {
 	origin_monitor_task::start_monitoring_task();
 
 	// Initialize plugins by loading from config file.
-	plugins_task::initialize_plugins().await;
+	plugins_manager::initialize_plugins().await;
 
+	// Ensure layout files exist, then generate router trees from them.
 	layout_manager::initialize_all_layout_configs().await;
+	generate_all_router_trees().await;
 
 	let port = env::var("PORT")
 		.ok()
 		.and_then(|s| s.parse::<u16>().ok())
 		.unwrap_or(3333);
 
-	// Check for the new environment variable. Default to `true` if not specified.
 	let detect_public_network = env::var("DETECT_PUBLIC_NETWORK")
 		.unwrap_or_else(|_| "true".to_string())
 		.to_lowercase()
@@ -63,14 +79,11 @@ pub async fn start() {
 	let app = router::create_router();
 	let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-	// Run the potentially blocking anynet! macro in a dedicated thread.
 	let port_clone = port;
 	if let Err(e) = task::spawn_blocking(move || {
 		if detect_public_network {
-			// This can be slow as it makes an external HTTP request.
 			anynet!(port = port_clone, public = true);
 		} else {
-			// This is faster as it only scans local interfaces.
 			anynet!(port = port_clone);
 		}
 	})
