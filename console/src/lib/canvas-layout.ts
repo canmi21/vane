@@ -19,7 +19,6 @@ export interface CanvasNode<T = unknown> {
 }
 export type EntryPointNodeData = Record<string, never>;
 
-// --- FINAL FIX: Add and export the new interface for the Error Page node's data. ---
 export interface ErrorPageNodeData {
 	status_code: number;
 	status_description: string;
@@ -30,6 +29,13 @@ export interface ErrorPageNodeData {
 	request_ip: string;
 	visitor_tip: string;
 	admin_guide: string;
+}
+
+// --- FINAL FIX: Add and export the new interface for the Return Response node. ---
+export interface ReturnResponseNodeData {
+	status_code: number;
+	header: string;
+	body: string;
 }
 
 export interface CanvasConnection {
