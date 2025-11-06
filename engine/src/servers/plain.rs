@@ -3,6 +3,7 @@
 use crate::proxy::domain;
 use fancy_log::{LogLevel, log};
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -87,7 +88,7 @@ async fn handle_connection(mut socket: TcpStream, peer_addr: SocketAddr) {
 				let domains = domain::get_domain_list();
 				let matched_domain = match_domain(host, &domains);
 				log(
-					LogLevel::Info,
+					LogLevel::Debug,
 					&format!(
 						"{} request for host '{}' matched to domain '{}'",
 						version, host, matched_domain
@@ -98,6 +99,19 @@ async fn handle_connection(mut socket: TcpStream, peer_addr: SocketAddr) {
 					LogLevel::Warn,
 					&format!("{} request received with no Host header.", version),
 				);
+
+				log(LogLevel::Debug, "Hard RST has been triggered.");
+
+				// --- FIX: Set SO_LINGER to 0 to force a hard reset (RST) on close. ---
+				if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
+					log(
+						LogLevel::Warn,
+						&format!("Failed to set linger option: {}", e),
+					);
+				}
+
+				// Now, when the function returns, the socket drop will be abrupt.
+				return;
 			}
 
 			// TODO: Hand off the connection to the full request/response handler.
@@ -114,7 +128,6 @@ async fn handle_connection(mut socket: TcpStream, peer_addr: SocketAddr) {
 /// Matches a host against the configured domain list with specific precedence.
 fn match_domain<'a>(host: &str, domains: &'a [String]) -> &'a str {
 	// Exact match.
-	// --- FIX: Find the matching domain in the `domains` slice and return a slice with that lifetime. ---
 	if let Some(domain) = domains.iter().find(|d| d.as_str() == host) {
 		return domain;
 	}
