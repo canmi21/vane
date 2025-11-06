@@ -2,7 +2,7 @@
 
 use super::hotswap;
 use crate::daemon::config;
-use crate::modules::domain::entrance as domain_helper;
+use crate::proxy::domain::handler as domain_helper;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
