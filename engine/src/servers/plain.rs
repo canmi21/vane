@@ -100,14 +100,14 @@ async fn handle_connection(mut socket: TcpStream, peer_addr: SocketAddr) {
 					&format!("{} request received with no Host header.", version),
 				);
 
-				log(LogLevel::Debug, "Hard RST has been triggered.");
-
 				// --- FIX: Set SO_LINGER to 0 to force a hard reset (RST) on close. ---
 				if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
 					log(
 						LogLevel::Warn,
 						&format!("Failed to set linger option: {}", e),
 					);
+				} else {
+					log(LogLevel::Debug, "Hard RST has been triggered.");
 				}
 
 				// Now, when the function returns, the socket drop will be abrupt.
