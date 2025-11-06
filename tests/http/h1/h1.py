@@ -2,6 +2,7 @@
 
 import socket
 
+
 def send_request(host: str, port: int):
     """
     Connects to the server, sends a raw HTTP/1.0 GET request,
@@ -26,7 +27,7 @@ def send_request(host: str, port: int):
             print("\nSending Request")
             print(request_text.strip())
 
-            s.sendall(request_text.encode('utf-8'))
+            s.sendall(request_text.encode("utf-8"))
 
             response_parts = []
             while True:
@@ -35,7 +36,7 @@ def send_request(host: str, port: int):
                     break
                 response_parts.append(data)
 
-        full_response = b"".join(response_parts).decode('utf-8', errors='ignore')
+        full_response = b"".join(response_parts).decode("utf-8", errors="ignore")
 
         print("\nFull Response Received")
         print(full_response)
