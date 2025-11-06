@@ -8,6 +8,7 @@ from tests.utils.test_helpers import (
     read_origins,
 )
 
+
 def run():
     tmp = backup_origins_if_exists()
     try:
@@ -61,6 +62,7 @@ def run():
 
     finally:
         restore_origins_if_backup(tmp)
+
 
 if __name__ == "__main__":
     run()
