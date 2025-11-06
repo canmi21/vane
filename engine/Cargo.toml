@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "3.0.23"
+version = "3.0.25"
 edition = "2024"
 description = "A flow-based, event-driven Rust reverse proxy engine with hot-reloadable routing, unified middleware runtime, and HTTP/3 support."
 license = "AGPL-3.0"
@@ -72,10 +72,10 @@ time = { version = "0.3", features = ["serde", "serde-well-known"] }
 der = "0.7"
 oid-registry = "0.8"
 rust-embed = "8"
-notify = "8.2.0"
-arc-swap = "1.7.1"
-dashmap = "6.1.0"
-httparse = "1.10.1"
+notify = "8"
+arc-swap = "1"
+dashmap = "6"
+httparse = "1"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }

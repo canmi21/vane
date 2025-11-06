@@ -22,6 +22,7 @@ if port_from_env is False:
 else:
     PORT = int(port_from_env)
 
+
 def main():
     """
     Runs a sequence of HTTP/1 tests against the Vane engine.

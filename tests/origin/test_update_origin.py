@@ -8,6 +8,7 @@ from tests.utils.test_helpers import (
     http_put,
 )
 
+
 def run():
     tmp = backup_origins_if_exists()
     try:
@@ -26,6 +27,7 @@ def run():
         assert int(origin["port"]) == 6010
     finally:
         restore_origins_if_backup(tmp)
+
 
 if __name__ == "__main__":
     run()

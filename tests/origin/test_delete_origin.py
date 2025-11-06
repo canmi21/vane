@@ -10,6 +10,7 @@ from tests.utils.test_helpers import (
     http_delete,
 )
 
+
 def run():
     tmp = backup_origins_if_exists()
     created_ids = []
@@ -45,6 +46,7 @@ def run():
             except Exception:
                 pass
         restore_origins_if_backup(tmp)
+
 
 if __name__ == "__main__":
     run()
