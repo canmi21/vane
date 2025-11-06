@@ -1,8 +1,10 @@
 /* engine/src/servers/plain.rs */
 
+use crate::proxy::domain;
 use fancy_log::{LogLevel, log};
 use std::net::SocketAddr;
-use tokio::net::TcpListener;
+use tokio::io::AsyncReadExt;
+use tokio::net::{TcpListener, TcpStream};
 
 /// Starts a TCP listener for plain HTTP traffic on the given address.
 pub async fn start(addr: SocketAddr) {
@@ -22,16 +24,12 @@ pub async fn start(addr: SocketAddr) {
 		}
 	};
 
-	// Loop to accept incoming connections.
-	// The actual request handling logic will be added here later.
 	loop {
 		match listener.accept().await {
-			Ok((_socket, peer_addr)) => {
-				log(
-					LogLevel::Debug,
-					&format!("Accepted new plain HTTP connection from: {}", peer_addr),
-				);
-				// TODO: Hand off the connection to the router/handler.
+			Ok((socket, peer_addr)) => {
+				tokio::spawn(async move {
+					handle_connection(socket, peer_addr).await;
+				});
 			}
 			Err(e) => {
 				log(
@@ -41,4 +39,94 @@ pub async fn start(addr: SocketAddr) {
 			}
 		}
 	}
+}
+
+/// Handles an individual incoming TCP connection.
+async fn handle_connection(mut socket: TcpStream, peer_addr: SocketAddr) {
+	log(
+		LogLevel::Debug,
+		&format!("Accepted new plain HTTP connection from: {}", peer_addr),
+	);
+
+	let mut buffer = [0; 8192];
+
+	let bytes_read = match socket.read(&mut buffer).await {
+		Ok(0) => {
+			log(LogLevel::Debug, "Client disconnected before sending data.");
+			return;
+		}
+		Ok(n) => n,
+		Err(e) => {
+			log(
+				LogLevel::Warn,
+				&format!("Failed to read from socket: {}", e),
+			);
+			return;
+		}
+	};
+
+	let mut headers = [httparse::EMPTY_HEADER; 64];
+	let mut req = httparse::Request::new(&mut headers);
+
+	match req.parse(&buffer[..bytes_read]) {
+		Ok(httparse::Status::Complete(_)) => {
+			let version = if req.version == Some(0) {
+				"HTTP/1.0"
+			} else {
+				"HTTP/1.1"
+			};
+
+			let host_opt = req
+				.headers
+				.iter()
+				.find(|h| h.name.eq_ignore_ascii_case("Host"))
+				.and_then(|h| std::str::from_utf8(h.value).ok())
+				.map(|s| s.split(':').next().unwrap_or(s));
+
+			if let Some(host) = host_opt {
+				let domains = domain::get_domain_list();
+				let matched_domain = match_domain(host, &domains);
+				log(
+					LogLevel::Info,
+					&format!(
+						"{} request for host '{}' matched to domain '{}'",
+						version, host, matched_domain
+					),
+				);
+			} else {
+				log(
+					LogLevel::Warn,
+					&format!("{} request received with no Host header.", version),
+				);
+			}
+
+			// TODO: Hand off the connection to the full request/response handler.
+		}
+		_ => {
+			log(
+				LogLevel::Warn,
+				"Received a malformed or incomplete HTTP request.",
+			);
+		}
+	}
+}
+
+/// Matches a host against the configured domain list with specific precedence.
+fn match_domain<'a>(host: &str, domains: &'a [String]) -> &'a str {
+	// Exact match.
+	// --- FIX: Find the matching domain in the `domains` slice and return a slice with that lifetime. ---
+	if let Some(domain) = domains.iter().find(|d| d.as_str() == host) {
+		return domain;
+	}
+
+	// Wildcard match.
+	if let Some((_, suffix)) = host.split_once('.') {
+		let wildcard_domain = format!("*.{}", suffix);
+		if let Some(domain) = domains.iter().find(|d| d.as_str() == wildcard_domain) {
+			return domain;
+		}
+	}
+
+	// Fallback.
+	"fallback"
 }
