@@ -75,6 +75,7 @@ rust-embed = "8"
 notify = "8.2.0"
 arc-swap = "1.7.1"
 dashmap = "6.1.0"
+httparse = "1.10.1"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
