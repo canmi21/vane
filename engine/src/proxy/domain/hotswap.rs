@@ -1,6 +1,6 @@
 /* engine/src/proxy/domain/hotswap.rs */
 
-use crate::modules::domain::entrance as domain_helper;
+use crate::proxy::domain::handler as domain_helper;
 use arc_swap::{ArcSwap, Guard};
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
