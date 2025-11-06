@@ -7,6 +7,7 @@ from tests.utils.test_helpers import (
     http_post,
 )
 
+
 def run():
     tmp = backup_origins_if_exists()
     try:
@@ -18,6 +19,7 @@ def run():
             raise AssertionError("Invalid URL accepted")
     finally:
         restore_origins_if_backup(tmp)
+
 
 if __name__ == "__main__":
     run()
