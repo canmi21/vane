@@ -1,5 +1,6 @@
 /* engine/src/proxy/domain/mod.rs */
 
+pub mod handler;
 pub mod hotswap;
 pub mod watchdog;
 
