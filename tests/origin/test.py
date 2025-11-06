@@ -42,6 +42,8 @@ for name in tests:
 passed = sum(1 for r in results if r[1])
 failed = len(results) - passed
 print()
-print(f"test result: {'ok' if failed==0 else 'FAILED'}. {passed} passed; {failed} failed")
+print(
+    f"test result: {'ok' if failed == 0 else 'FAILED'}. {passed} passed; {failed} failed"
+)
 if failed:
     sys.exit(1)
