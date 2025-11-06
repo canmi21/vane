@@ -7,6 +7,7 @@ from tests.utils.test_helpers import (
     read_origins,
 )
 
+
 def run():
     tmp = backup_origins_if_exists()
     try:
@@ -14,8 +15,8 @@ def run():
         urls = [
             "http://m1.example/one",
             "http://m2.example/two",
-            "m3.example",            # no scheme
-            "192.168.9.9:4000",      # ip
+            "m3.example",  # no scheme
+            "192.168.9.9:4000",  # ip
         ]
         for u in urls:
             r = http_post("/v1/origins", {"url": u})
@@ -27,6 +28,7 @@ def run():
             assert found, f"{u} not found in file"
     finally:
         restore_origins_if_backup(tmp)
+
 
 if __name__ == "__main__":
     run()
