@@ -2,11 +2,11 @@
 
 use crate::config::{template, uuid};
 use crate::daemon::{config, console, router};
-use crate::modules::domain::entrance as domain_helper;
 use crate::modules::layout::manager as layout_manager;
 use crate::modules::origins::task as origin_monitor_task;
 use crate::modules::plugins::manager as plugins_manager;
 use crate::proxy::domain;
+use crate::proxy::domain::handler as domain_helper;
 use crate::proxy::router::generate::generate_router_tree;
 use crate::proxy::router::watch::{initial_load_all_routers, start_router_watcher};
 use crate::servers;
