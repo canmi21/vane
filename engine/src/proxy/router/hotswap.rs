@@ -2,7 +2,7 @@
 
 use super::{cache, structure::RouterNode};
 use crate::daemon::config;
-use crate::modules::domain::entrance as domain_helper;
+use crate::proxy::domain::handler as domain_helper;
 use fancy_log::{LogLevel, log};
 
 /// Reads a `router.gen` file from disk, parses it, and atomically swaps it into the cache.
