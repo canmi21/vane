@@ -8,6 +8,7 @@ from tests.utils.test_helpers import (
     http_put,
 )
 
+
 def run():
     tmp = backup_origins_if_exists()
     try:
@@ -24,6 +25,7 @@ def run():
         assert newdata[_id]["skip_ssl_verify"] is True
     finally:
         restore_origins_if_backup(tmp)
+
 
 if __name__ == "__main__":
     run()
