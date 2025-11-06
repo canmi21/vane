@@ -1,6 +1,6 @@
 /* engine/src/modules/ratelimit/manager.rs */
 
-use crate::{common::response, daemon::config, modules::domain::entrance as domain_helper};
+use crate::{common::response, daemon::config, proxy::domain::handler as domain_helper};
 use axum::{
 	Json,
 	extract::Path,

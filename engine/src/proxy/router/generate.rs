@@ -1,6 +1,6 @@
-/* engine/src/modules/router/generate.rs */
+/* engine/src/proxy/router/generate.rs */
 
-use crate::{daemon::config, modules::domain::entrance as domain_helper};
+use crate::{daemon::config, proxy::domain::handler as domain_helper};
 use fancy_log::{LogLevel, log};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

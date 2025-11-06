@@ -9,7 +9,6 @@ use crate::{
 		cache::manager as cache_manager,
 		certs::manager as certs_manager,
 		cors::manager as cors_manager,
-		domain::entrance as domain_entrance,
 		header::manager as header_manager,
 		layout::manager as layout_manager,
 		origins::{monitor, origins},
@@ -18,6 +17,7 @@ use crate::{
 		templates::handler as templates_handler,
 		websocket::manager as websocket_manager,
 	},
+	proxy::domain::handler as domain_entrance,
 };
 use axum::{
 	Router,

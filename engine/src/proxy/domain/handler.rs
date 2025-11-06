@@ -1,4 +1,4 @@
-/* engine/src/modules/domain/entrance.rs */
+/* engine/src/proxy/domain/handler.rs */
 
 // --- FIX: Add layout_manager to imports. ---
 use crate::{

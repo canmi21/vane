@@ -2,11 +2,12 @@
 
 use crate::config::{template, uuid};
 use crate::daemon::{config, console, router};
-use crate::modules::domain::entrance as domain_helper;
 use crate::modules::layout::manager as layout_manager;
 use crate::modules::origins::task as origin_monitor_task;
 use crate::modules::plugins::manager as plugins_manager;
-use crate::modules::router::generate::generate_router_tree;
+use crate::proxy::domain;
+use crate::proxy::domain::handler as domain_helper;
+use crate::proxy::router::generate::generate_router_tree;
 use crate::proxy::router::watch::{initial_load_all_routers, start_router_watcher};
 use crate::servers;
 use anynet::anynet;
@@ -39,12 +40,10 @@ pub async fn start() {
 	setup_logging();
 	print_motd();
 
-	// Initialize base configuration directories first.
 	config::initialize_config_directory();
 	template::initialize_templates();
 	console::initialize_console_config().await;
 
-	// Now, initialize the instance-specific config file (e.g., instance.json).
 	if let Err(e) = uuid::initialize_instance_config().await {
 		log(
 			LogLevel::Error,
@@ -60,22 +59,17 @@ pub async fn start() {
 	origin_monitor_task::initialize_monitor_config().await;
 	origin_monitor_task::start_monitoring_task();
 
-	// Initialize plugins by loading from config file.
 	plugins_manager::initialize_plugins().await;
 
-	// Ensure layout files exist, then generate router trees from them.
 	layout_manager::initialize_all_layout_configs().await;
 	generate_all_router_trees().await;
 
-	// --- NEW: Initialize Router Cache and Watcher ---
-	// This must happen AFTER router generation but BEFORE starting proxy servers.
 	initial_load_all_routers().await;
-	start_router_watcher(); // This spawns a background task.
-	// ------------------------------------------------
+	start_router_watcher();
 
-	// --- Server Startup Logic ---
+	domain::initial_load_domains().await;
+	domain::start_domain_watchdog();
 
-	// 1. Setup and spawn the Axum management console server.
 	let port = env::var("PORT")
 		.ok()
 		.and_then(|s| s.parse::<u16>().ok())
@@ -115,7 +109,6 @@ pub async fn start() {
 	let console_server =
 		serve(listener, app.into_make_service()).with_graceful_shutdown(shutdown_signal());
 
-	// Spawn the management console to run in the background.
 	let console_handle = tokio::spawn(async move {
 		if let Err(e) = console_server.await {
 			log(
@@ -125,10 +118,8 @@ pub async fn start() {
 		}
 	});
 
-	// 2. Start the actual proxy servers for handling public traffic.
 	servers::start_proxy_servers().await;
 
-	// 3. Wait for the graceful shutdown signal to complete.
 	if let Err(e) = console_handle.await {
 		log(
 			LogLevel::Error,
@@ -139,7 +130,6 @@ pub async fn start() {
 	log(LogLevel::Info, "Server has been shut down gracefully.");
 }
 
-// --- setup_logging, print_motd, shutdown_signal functions remain unchanged ---
 fn setup_logging() {
 	let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 	let log_level = match level.to_lowercase().as_str() {
