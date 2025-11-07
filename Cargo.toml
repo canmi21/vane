@@ -1,13 +1,15 @@
 [package]
 name = "vane"
 version = "0.1.1"
-edition = "2024"
-license = "MIT"
+categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
-repository = "https://github.com/canmi21/vane"
-readme = "README.md"
+edition = "2024"
+rust-version = { workspace = true }
+homepage = "https://github.com/canmi21/vane"
 keywords = ["network", "server", "web", "vane", "proxy"]
-categories = ["network-programming", "web-programming", "development-tools"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/canmi21/vane"
 
 [[bin]]
 name = "vane"
@@ -43,3 +45,66 @@ codegen-units = 1
 strip = true
 opt-level = "z"
 panic = "abort"
+
+[workspace]
+resolver = "3"
+
+[workspace.package]
+rust-version = "1.89"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+type_complexity = "allow"
+
+await_holding_lock = "warn"
+dbg_macro = "warn"
+empty_enum = "warn"
+enum_glob_use = "warn"
+equatable_if_let = "warn"
+exit = "warn"
+filter_map_next = "warn"
+fn_params_excessive_bools = "warn"
+if_let_mutex = "warn"
+implicit_clone = "warn"
+imprecise_flops = "warn"
+inefficient_to_string = "warn"
+linkedlist = "warn"
+lossy_float_literal = "warn"
+macro_use_imports = "warn"
+manual_let_else = "warn"
+match_same_arms = "warn"
+match_wildcard_for_single_variants = "warn"
+mem_forget = "warn"
+must_use_candidate = "warn"
+needless_borrow = "warn"
+needless_continue = "warn"
+needless_pass_by_ref_mut = "warn"
+needless_pass_by_value = "warn"
+option_option = "warn"
+redundant_clone = "warn"
+ref_option = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+return_self_not_must_use = "warn"
+single_match_else = "warn"
+str_to_string = "warn"
+suboptimal_flops = "warn"
+todo = "warn"
+trivially_copy_pass_by_ref = "warn"
+uninlined_format_args = "warn"
+unnested_or_patterns = "warn"
+unused_self = "warn"
+use_self = "warn"
+verbose_file_reads = "warn"
+
+rust_2018_idioms = { level = "warn", priority = -1 }
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+# configuration for https://github.com/crate-ci/typos
+[workspace.metadata.typos.default.extend-identifiers]
+# These have been fixed in the past, but are still present in the changelog.
+DefaultOnFailedUpdgrade = "DefaultOnFailedUpdgrade"
+OnFailedUpdgrade = "OnFailedUpdgrade"
