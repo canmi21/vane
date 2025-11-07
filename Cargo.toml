@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.1.2"
+version = "0.0.1"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -11,9 +11,16 @@ license = "MIT"
 readme = "README.md"
 repository = "https://github.com/canmi21/vane"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [[bin]]
 name = "vane"
 path = "src/main.rs"
+
+[features]
+default = ["full"]
+full = []
 
 [dependencies]
 tokio = { version = "1", features = ["full", "signal"] }
@@ -45,6 +52,9 @@ codegen-units = 1
 strip = true
 opt-level = "z"
 panic = "abort"
+
+[lints]
+workspace = true
 
 [workspace]
 resolver = "3"
