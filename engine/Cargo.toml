@@ -1,6 +1,0 @@
-[package]
-name = "engine"
-version = "3.0.1"
-edition = "2024"
-
-[dependencies]
