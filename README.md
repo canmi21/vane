@@ -21,7 +21,3 @@
 ##### 🚧 **Currently under active development.** 🏷️ **Latest stable version:** [**v1.2.9**](https://github.com/canmi21/vane/tree/v1.2.9)
 
 ![Alt](https://repobeats.axiom.co/api/embed/7009037d4d229500d74271e074eba47d4eede868.svg "Repobeats analytics image")
-
-**✦** **`Polygon`** / **`Ethereum`**: `0x35D143d9DC624feC921a3925Fa84dea9d1DfDCAe`
-
-If you found this project helpful, consider supporting domain & server maintenance.

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["engine", "modules/totp"]
+members = ["engine"]
 
 [profile.release]
 lto = true
