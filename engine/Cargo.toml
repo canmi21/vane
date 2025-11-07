@@ -15,43 +15,44 @@ path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full", "signal"] }
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
+rcgen = "0.14"
+webpki-roots = "1"
+rustls = { version = "0.23", features = ["ring", "aws-lc-rs"] }
+rustls-pemfile = "2"
+futures = "0.3"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = { version = "0.8", features = ["macros"] }
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tower = { version = "0.5", features = ["full"] }
-tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
-rustls = { version = "0.23", features = ["ring", "aws-lc-rs"] }
-rustls-pemfile = "2"
-base64 = "0.22"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+headers = "0.4"
+httparse = "1"
 http-body-util = "0.1"
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
-hyper-rustls = { version = "0.27", features = ["webpki-roots", "http2"] }
-futures = "0.3"
-futures-util = "0.3"
+toml = "0.9"
+base64 = "0.22"
 dotenvy = "0.15"
 fancy-log = "0.1"
-shellexpand = "3"
-anyhow = "1"
 lazy-motd = "1"
-chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+shellexpand = "3"
 path-clean = "1"
 percent-encoding = "2"
-headers = "0.4"
-toml = "0.9"
-webpki-roots = "1"
-rcgen = "0.14"
+include_dir = "0.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
 h3 = "0.0.8"
 h3-quinn = "0.0.10"
 quinn = { version = "0.11", features = ["rustls"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-bytes = "1"
 http = "1"
-include_dir = "0.7"
+bytes = "1"
 lazy-limit = "1"
 governor = "0.10"
 nonzero = "0.2"
@@ -75,7 +76,6 @@ rust-embed = "8"
 notify = "8"
 arc-swap = "1"
 dashmap = "6"
-httparse = "1"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
