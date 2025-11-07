@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "3.0.0"
+version = "3.0.1"
 edition = "2024"
 license = "AGPL-3.0"
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
