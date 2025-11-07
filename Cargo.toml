@@ -1,16 +1,25 @@
-[workspace]
-resolver = "3"
-members = ["engine"]
+[package]
+name = "vane"
+version = "3.0.0"
+edition = "2024"
+license = "AGPL-3.0"
+description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
+repository = "https://github.com/canmi21/vane"
+readme = "./../README.md"
+keywords = ["network", "server", "web", "vane", "proxy"]
+categories = ["network-programming", "web-programming", "development-tools"]
 
 [profile.release]
 lto = true
 codegen-units = 1
 opt-level = "z"
 
-[profile.opt]
+[profile.minimum]
 inherits = "release"
 lto = true
 codegen-units = 1
 strip = true
 opt-level = "z"
 panic = "abort"
+
+[dependencies]
