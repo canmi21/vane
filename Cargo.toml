@@ -32,6 +32,7 @@ fancy-log = "0.1"
 shellexpand = "3"
 lazy-motd = "1"
 chrono = { version = "0.4", features = ["serde"] }
+anynet = "1"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
