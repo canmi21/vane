@@ -1,5 +1,4 @@
 # Logs
-logs
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -25,10 +24,13 @@ coverage
 
 # rust
 target
-pkg
+filerouter
+
+# python
+.venv
+__pycache__
 
 # Editor directories and files
-.vscode/*
 !.vscode/extensions.json
 .idea
 *.suo
@@ -36,3 +38,7 @@ pkg
 *.njsproj
 *.sln
 *.sw?
+
+# Added by cargo
+
+/target
