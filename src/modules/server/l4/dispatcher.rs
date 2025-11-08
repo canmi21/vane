@@ -4,6 +4,7 @@ use super::{
 	balancer,
 	model::{DetectMethod, TcpConfig, TcpDestination},
 };
+use crate::common::getenv;
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
@@ -58,8 +59,14 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 	let mut rules = config.rules.clone();
 	rules.sort_by_key(|r| r.priority);
 
-	// Peek at the initial data from the socket without consuming it.
-	let mut buf = [0; 64]; // A 64-byte buffer is usually enough for protocol detection.
+	// Read the detection buffer limit from environment variables.
+	let limit_str = getenv::get_env("TCP_DETECT_LIMIT", "64".to_string());
+	let limit = limit_str.parse::<usize>().unwrap_or(64);
+	const MAX_DETECT_LIMIT: usize = 8192; // 8KB sanity cap.
+	let final_limit = limit.min(MAX_DETECT_LIMIT);
+
+	// Use a dynamically sized Vec instead of a fixed array.
+	let mut buf = vec![0u8; final_limit];
 	let n = match socket.peek(&mut buf).await {
 		Ok(n) => n,
 		Err(e) => {
@@ -71,7 +78,6 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 		}
 	};
 
-	// If the client sends no data, we can't detect anything.
 	if n == 0 {
 		log(
 			LogLevel::Debug,
@@ -88,26 +94,19 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 	for rule in rules {
 		let matches = match &rule.detect.method {
 			DetectMethod::Magic => {
-				// Pattern is like "0x16". We parse it to a byte.
 				if let Some(hex_str) = rule.detect.pattern.strip_prefix("0x") {
 					if let Ok(byte) = u8::from_str_radix(hex_str, 16) {
 						incoming_data.starts_with(&[byte])
 					} else {
-						false // Invalid pattern
+						false
 					}
 				} else {
-					false // Invalid pattern format
+					false
 				}
 			}
-			DetectMethod::Prefix => {
-				// Pattern is a string like "GET ".
-				incoming_data.starts_with(rule.detect.pattern.as_bytes())
-			}
+			DetectMethod::Prefix => incoming_data.starts_with(rule.detect.pattern.as_bytes()),
 			DetectMethod::Regex => {
-				// Compile the regex. This should not fail due to pre-validation.
 				if let Ok(re) = fancy_regex::Regex::new(&rule.detect.pattern) {
-					// Regex works on strings, so we attempt a UTF-8 conversion.
-					// This is safe because if it's not valid UTF-8, it can't match a text regex.
 					if let Ok(data_str) = std::str::from_utf8(incoming_data) {
 						re.is_match(data_str).unwrap_or(false)
 					} else {
@@ -130,21 +129,16 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 
 			match rule.destination {
 				TcpDestination::Resolver { resolver } => {
-					// TODO: Hand off to the L7 resolver.
 					log(
 						LogLevel::Debug,
 						&format!("⚙ Handing off to L7 resolver: {}", resolver),
 					);
-					// For now, we just close the connection.
 					return;
 				}
 				TcpDestination::Forward { ref forward } => {
 					if let Some(target) = balancer::select_target(port, &rule.name, forward) {
-						// We found a target, now proxy the connection.
-						// The proxy function will consume the socket and handle everything else.
 						proxy_connection(socket, (target.ip, target.port)).await;
 					} else {
-						// No available targets were found for this rule.
 						log(
 							LogLevel::Warn,
 							&format!(
@@ -153,13 +147,12 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 							),
 						);
 					}
-					return; // Stop processing further rules once one has been actioned.
+					return;
 				}
 			}
 		}
 	}
 
-	// If no rule matched after checking all of them.
 	log(
 		LogLevel::Warn,
 		&format!(
@@ -167,6 +160,5 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 			peer_addr
 		),
 	);
-	// Forcefully close the connection. The drop is implicit, but shutdown sends RST.
 	let _ = socket.shutdown().await;
 }

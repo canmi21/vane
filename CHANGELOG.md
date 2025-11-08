@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.2 (8. Nov, 2025)
+
+- **Added:** A new `TCP_DETECT_LIMIT` environment variable (default: 64 bytes) to configure the size of the initial data buffer for L4 protocol detection, allowing for performance tuning.
+
 ## 0.1.1 (8. Nov, 2025)
 
 - **Added:** Support for `regex` as a protocol detection method, allowing for more complex and precise matching of L4 traffic.
