@@ -1,52 +1,22 @@
 /* src/modules/ports/hotswap.rs */
 
-use super::super::server::l4::model::{TcpConfig, UdpConfig};
+use super::super::server::l4::{
+	loader,
+	model::{TcpConfig, UdpConfig},
+};
 use super::{
-	listener, loader,
+	listener,
 	model::{PortState, PortStatus, Protocol},
 };
 use crate::common::{getconf, getenv};
 use fancy_log::{LogLevel, log};
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::mpsc;
 
-/// Returns the filesystem path for a given port's configuration directory.
-fn get_port_config_path(port: u16) -> PathBuf {
-	getconf::get_config_dir().join(format!("[{}]", port))
-}
-
-/// Creates a default, empty listener config file.
-pub fn create_protocol_listener(port: u16, protocol: &Protocol) -> std::io::Result<()> {
-	let port_dir = get_port_config_path(port);
-	if !port_dir.exists() {
-		fs::create_dir(&port_dir)?;
-	}
-	let file_name = match protocol {
-		Protocol::Tcp => "tcp.toml",
-		Protocol::Udp => "udp.toml",
-	};
-	fs::File::create(port_dir.join(file_name))?;
-	Ok(())
-}
-
-/// Deletes all possible config files for a protocol.
-pub fn delete_protocol_listener(port: u16, protocol: &Protocol) -> std::io::Result<()> {
-	let port_dir = get_port_config_path(port);
-	if !port_dir.exists() {
-		return Ok(());
-	}
-	let base_name = match protocol {
-		Protocol::Tcp => "tcp",
-		Protocol::Udp => "udp",
-	};
-	for ext in ["toml", "yaml", "json", "ron"] {
-		let path = port_dir.join(format!("{}.{}", base_name, ext));
-		if path.exists() {
-			fs::remove_file(path)?;
-		}
-	}
-	Ok(())
-}
+// REMOVED: The following functions were moved to `src/modules/server/l4/fs.rs`
+// - get_port_config_path
+// - create_protocol_listener
+// - delete_protocol_listener
 
 /// Scans the configuration directory, loading and validating all listener configs.
 pub fn scan_ports_config() -> Vec<PortStatus> {
