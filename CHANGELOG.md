@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.4 (8. Nov, 2025)
+
+- **Added:** Implemented full L4 UDP transparent proxy functionality, including a stateful session manager to maintain client-to-target affinity.
+- **Added:** A new UDP session manager (`session.rs`) with a background cleanup task to prune idle sessions and enforce a configurable memory limit via `UDP_SESSION_BUFFER`.
+- **Added:** A new IP utility (`ip.rs`) to apply different timeouts for private (`UDP_TIMEOUT_LOCAL`) versus public (`UDP_TIMEOUT_REMOTE`) upstream targets.
+- **Changed:** The health checker now employs a reactive model for UDP, temporarily marking targets as unavailable on send failures.
+- **Changed:** The load balancer has been updated to use the new reactive health status when selecting UDP targets.
+- **Changed:** L4 proxy logic has been refactored into a dedicated `proxy.rs` module for better separation of concerns.
+- **Fixed:** Corrected a critical bug where the UDP listener would not process any incoming datagrams due to an incorrect task structure.
+- **Fixed:** The `prefix` detection method has been corrected to find a pattern anywhere within the initial data buffer, enabling proper detection of protocols like DNS.
+
 ## 0.1.3 (8. Nov, 2025)
 
 - **Added:** A new `fallback` protocol detection method (`detect = { method = "fallback", pattern = "any" }`) to create unconditional catch-all rules, typically placed last in priority.
