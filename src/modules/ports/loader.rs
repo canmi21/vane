@@ -6,7 +6,8 @@ use serde::de::DeserializeOwned;
 use std::{fs, path::Path};
 use validator::Validate;
 
-const EXTENSIONS: [&str; 4] = ["toml", "yaml", "json", "ron"];
+// Removed "ron" (and "vane") from the list of supported extensions.
+const EXTENSIONS: [&str; 3] = ["toml", "yaml", "json"];
 
 /// A trait to abstract the pre-processing of loaded configs before validation.
 pub trait PreProcess {
@@ -75,11 +76,12 @@ where
 		.extension()
 		.and_then(|s| s.to_str())
 		.unwrap_or("");
+
+	// Removed the match arm for "ron" / "vane".
 	let config_result: Result<T, String> = match ext {
 		"toml" => toml::from_str(&content).map_err(|e| e.to_string()),
 		"yaml" => serde_yaml::from_str(&content).map_err(|e| e.to_string()),
 		"json" => serde_json::from_str(&content).map_err(|e| e.to_string()),
-		"ron" => ron::from_str(&content).map_err(|e| e.to_string()),
 		_ => return None,
 	};
 
