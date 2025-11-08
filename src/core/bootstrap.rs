@@ -16,7 +16,7 @@ use tokio::task;
 
 use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
-use crate::modules::ports::{hotswap, model::PortState};
+use crate::modules::ports::{hotswap, listener, model::PortState};
 
 pub async fn start() {
 	dotenv().ok();
@@ -25,7 +25,25 @@ pub async fn start() {
 
 	let config_change_receiver = requirements::initialize().await;
 
+	// --- Initialize Port State and Start Listeners ---
 	let initial_ports = hotswap::scan_ports_config();
+	log(
+		LogLevel::Info,
+		"⚙ Initializing listeners from existing config...",
+	);
+	for status in &initial_ports {
+		if status.active {
+			for protocol in &status.protocols {
+				let proto_str = format!("{:?}", protocol).to_uppercase();
+				log(
+					LogLevel::Info,
+					&format!("↑ PORT {} {} UP", status.port, proto_str),
+				);
+				listener::start_listener(status.port, protocol.clone());
+			}
+		}
+	}
+
 	let port_state: PortState = Arc::new(ArcSwap::new(Arc::new(initial_ports)));
 	tokio::spawn(hotswap::listen_for_updates(
 		port_state.clone(),
@@ -62,8 +80,6 @@ pub async fn start() {
 		([0; 4], port).into()
 	};
 
-	// `create_router()` returns a `Router<PortState>`.
-	// We now provide the actual state instance to create the final application service.
 	let app = router::create_router();
 
 	if let Err(e) = task::spawn_blocking(move || {
@@ -85,7 +101,6 @@ pub async fn start() {
 
 	let tcp_notifier = shutdown_notifier.clone();
 	let tcp_listener = TcpListener::bind(addr).await.unwrap();
-	// When converting the app to a service, we provide the state.
 	let tcp_server = serve(tcp_listener, app.clone().with_state(port_state.clone()))
 		.with_graceful_shutdown(async move {
 			tcp_notifier.notified().await;
@@ -99,7 +114,6 @@ pub async fn start() {
 
 	let unix_handle = if let Some(listener) = unix_socket_listener {
 		let unix_notifier = shutdown_notifier.clone();
-		// Also provide the state to the unix socket server instance.
 		let unix_server =
 			serve(listener, app.with_state(port_state)).with_graceful_shutdown(async move {
 				unix_notifier.notified().await;
