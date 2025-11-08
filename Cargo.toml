@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.0.13"
+version = "0.1.0"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -43,6 +43,7 @@ ron = "0.11"
 validator = { version = "0.20", features = ["derive"] }
 regex = "1"
 lazy_static = "1"
+rand = "0.9"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
