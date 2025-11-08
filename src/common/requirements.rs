@@ -14,15 +14,12 @@ fn ensure_config_files_exist() {
 }
 
 /// Spawns a background task to watch the config directory with debouncing.
-/// Returns a receiver channel that will get a message on stable changes.
 fn start_config_watcher() -> mpsc::Receiver<()> {
-	// The final channel that the main application will listen on.
 	let (debounced_tx, debounced_rx) = mpsc::channel(1);
 
 	tokio::spawn(async move {
 		log(LogLevel::Debug, "➜ Starting config file watcher...");
 
-		// An internal channel for the watcher to send raw, non-debounced events.
 		let (watcher_tx, mut watcher_rx) = mpsc::channel(32);
 
 		let mut watcher =
@@ -32,7 +29,6 @@ fn start_config_watcher() -> mpsc::Receiver<()> {
 						LogLevel::Debug,
 						&format!("⇆ FS Event detected: {:?}", event.kind),
 					);
-					// Use try_send to avoid blocking the file watcher thread.
 					let _ = watcher_tx.try_send(());
 				}
 			}) {
@@ -59,25 +55,18 @@ fn start_config_watcher() -> mpsc::Receiver<()> {
 			return;
 		}
 
-		// This loop performs the debouncing.
 		loop {
-			// Wait for the first event. If the channel closes, the task ends.
 			if watcher_rx.recv().await.is_none() {
 				break;
 			}
 
-			// Wait for a 2-second quiet period.
 			'debounce: loop {
 				tokio::select! {
-					// If another event comes in, restart the 2-second timer.
 					Some(_) = watcher_rx.recv() => {
 						continue 'debounce;
 					}
-					// If the timer completes, the changes are stable.
 					_ = sleep(Duration::from_secs(2)) => {
-						// Send the single "stable" signal to the main application.
 						if debounced_tx.send(()).await.is_err() {
-							// If the main app is no longer listening, we can stop.
 							return;
 						}
 						break 'debounce;
@@ -87,18 +76,17 @@ fn start_config_watcher() -> mpsc::Receiver<()> {
 		}
 	});
 
-	// Return the receiver for the debounced channel.
 	debounced_rx
 }
 
-/// Runs all pre-flight checks and starts background tasks.
+/// Runs all pre-flight checks and starts background tasks required by the application.
 pub async fn initialize() -> mpsc::Receiver<()> {
-	// Part 1: Pre-flight checks
 	ensure_config_files_exist();
 
-	// Part 2: Pre-flight tasks
 	let config_change_receiver = start_config_watcher();
-	health::start_health_checker_task();
+
+	health::initial_health_check().await;
+	health::start_periodic_health_checker();
 
 	config_change_receiver
 }
