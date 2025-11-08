@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
 use std::{collections::HashSet, time::Duration};
-use tokio::{net::TcpStream, time::Instant};
+use tokio::{net::TcpStream, task::JoinHandle, time::Instant};
 
 /// Represents the health status of a single target.
 #[derive(Debug, Clone)]
@@ -49,42 +49,62 @@ async fn check_target_health(target: Target) {
 	TARGET_HEALTH_REGISTRY.insert(target, health_status);
 }
 
-/// A background task that periodically checks the health of all configured targets.
-pub fn start_health_checker_task() {
-	log(LogLevel::Debug, "⚙ Starting L4 target health checker...");
-	tokio::spawn(async move {
-		let mut interval = tokio::time::interval(Duration::from_secs(5));
-		loop {
-			interval.tick().await;
-
-			// Collect all unique targets from the current global config.
-			let mut unique_targets = HashSet::new();
-			let config_guard = CONFIG_STATE.load();
-			for port_status in config_guard.iter() {
-				if let Some(tcp_config) = &port_status.tcp_config {
-					for rule in &tcp_config.rules {
-						if let super::model::TcpDestination::Forward {
-							forward: Forward {
-								targets, fallbacks, ..
-							},
-						} = &rule.destination
-						{
-							for target in targets.iter().cloned() {
-								unique_targets.insert(target);
-							}
-							for fallback in fallbacks.iter().cloned() {
-								unique_targets.insert(fallback);
-							}
-						}
+/// Gathers all unique targets from the global config and spawns health check tasks for them.
+fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
+	let mut unique_targets = HashSet::new();
+	let config_guard = CONFIG_STATE.load();
+	for port_status in config_guard.iter() {
+		if let Some(tcp_config) = &port_status.tcp_config {
+			for rule in &tcp_config.rules {
+				if let super::model::TcpDestination::Forward {
+					forward: Forward {
+						targets, fallbacks, ..
+					},
+				} = &rule.destination
+				{
+					for target in targets.iter().cloned() {
+						unique_targets.insert(target);
+					}
+					for fallback in fallbacks.iter().cloned() {
+						unique_targets.insert(fallback);
 					}
 				}
-				// NOTE: UDP health checks could be added here in the future.
 			}
+		}
+	}
 
-			// Spawn a task for each target to check its health in parallel.
-			for target in unique_targets {
-				tokio::spawn(check_target_health(target));
-			}
+	// Spawn a task for each target to check its health in parallel and return their handles.
+	unique_targets
+		.into_iter()
+		.map(|target| tokio::spawn(check_target_health(target)))
+		.collect()
+}
+
+/// Performs an initial health check and waits for all checks to complete.
+pub async fn initial_health_check() {
+	log(LogLevel::Debug, "⚙ Performing initial health check...");
+	let handles = run_health_check_cycle();
+	for handle in handles {
+		// We wait here to ensure the registry is populated before the app starts serving traffic.
+		let _ = handle.await;
+	}
+	log(LogLevel::Debug, "✓ Initial health check complete.");
+}
+
+/// Spawns a background task that periodically checks the health of all configured targets.
+pub fn start_periodic_health_checker() {
+	log(
+		LogLevel::Debug,
+		"⚙ Starting periodic L4 target health checker...",
+	);
+	tokio::spawn(async move {
+		let mut interval = tokio::time::interval(Duration::from_secs(5));
+		// The first tick is immediate, but we wait for the duration to pass first to avoid
+		// running immediately after the initial check.
+		loop {
+			interval.tick().await;
+			// For periodic checks, we "fire and forget", not waiting for them to complete.
+			run_health_check_cycle();
 		}
 	});
 }
