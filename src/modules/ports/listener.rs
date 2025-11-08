@@ -42,7 +42,6 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 
 			let bind_and_spawn_result = match protocol {
 				Protocol::Tcp => {
-					// Perform the bind inside the if/else block to avoid the trait object issue.
 					let bind_result = if listen_ipv6 {
 						TcpListener::bind(("::", port)).await
 					} else {
@@ -63,7 +62,6 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 					}
 				}
 				Protocol::Udp => {
-					// Repeat the pattern for UdpSocket.
 					let bind_result = if listen_ipv6 {
 						UdpSocket::bind(("::", port)).await
 					} else {
