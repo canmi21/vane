@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.9 (8. Nov, 2025)
+
+- **Fixed:** Corrected a critical bug where listeners for ports that were already configured at application startup were not being activated. The application now correctly scans and starts all required listeners from the existing configuration when it first launches.
+
 ## 0.0.8 (8. Nov, 2025)
 
 - **Added:** Implemented the core listener functionality. The application now actively binds to and listens on TCP and UDP ports as specified by the configuration files.
