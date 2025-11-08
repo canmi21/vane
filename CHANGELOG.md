@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.12 (8. Nov, 2025)
+
+- **Changed:** Refactored the L4 configuration architecture for a clearer separation of concerns. All configuration file loading, parsing, and filesystem logic has been moved from the `ports` module into the `server::l4` module.
+- **Changed:** The `ports` module is now streamlined to be exclusively responsible for the runtime management and lifecycle of network listeners.
+- **Added:** A new `server::l4::fs` module now centralizes all filesystem operations for listener configurations.
+- **Added:** A new `server::l4::loader` module, residing within the L4 feature module, now handles the parsing and validation of configuration files.
+
 ## 0.0.11 (8. Nov, 2025)
 
 - **Breaking:** Removed support for the RON (`.ron`) configuration format due to persistent parsing issues with its underlying library. The supported formats are now TOML, YAML, and JSON.
