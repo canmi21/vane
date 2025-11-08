@@ -1,7 +1,7 @@
 /* src/modules/ports/handler.rs */
 
 use super::{
-	listener,
+	hotswap,
 	model::{PortState, Protocol},
 };
 use axum::{
@@ -14,7 +14,7 @@ use std::fs;
 use crate::common::{getconf, portool};
 use crate::core::response;
 
-/// GET /ports - Lists all configured port numbers.
+/// Handles GET /ports - Lists all configured port numbers from the filesystem.
 pub async fn get_ports_handler() -> Response {
 	let config_dir = getconf::get_config_dir();
 	let mut ports = Vec::new();
@@ -24,11 +24,7 @@ pub async fn get_ports_handler() -> Response {
 		Err(e) => {
 			return response::error(
 				StatusCode::INTERNAL_SERVER_ERROR,
-				format!(
-					"Failed to read config directory {}: {}",
-					config_dir.display(),
-					e
-				),
+				format!("Failed to read config directory: {}", e),
 			)
 			.into_response();
 		}
@@ -51,12 +47,11 @@ pub async fn get_ports_handler() -> Response {
 	response::success(ports).into_response()
 }
 
-/// GET /ports/{:port} - Shows the live status of a single port.
+/// Handles GET /ports/{:port} - Shows the live in-memory status of a single port.
 pub async fn get_port_status_handler(
 	State(state): State<PortState>,
 	Path(port): Path<u16>,
 ) -> Response {
-	// Load the current, atomically-held state.
 	let state_guard = state.load();
 	let port_status = state_guard.iter().find(|p| p.port == port);
 
@@ -70,7 +65,7 @@ pub async fn get_port_status_handler(
 	}
 }
 
-/// POST /ports/{:port} - Creates a new, empty port configuration directory.
+/// Handles POST /ports/{:port} - Creates a new port configuration directory.
 pub async fn post_port_handler(Path(port): Path<u16>) -> Response {
 	if !portool::is_valid_port(port) {
 		return response::error(StatusCode::BAD_REQUEST, "Invalid port number.".to_string())
@@ -94,7 +89,7 @@ pub async fn post_port_handler(Path(port): Path<u16>) -> Response {
 	}
 }
 
-/// DELETE /ports/{:port} - Deletes a port configuration directory.
+/// Handles DELETE /ports/{:port} - Deletes a port configuration directory.
 pub async fn delete_port_handler(Path(port): Path<u16>) -> Response {
 	let port_dir = getconf::get_config_dir().join(format!("[{}]", port));
 	if !port_dir.exists() {
@@ -114,7 +109,7 @@ pub async fn delete_port_handler(Path(port): Path<u16>) -> Response {
 	}
 }
 
-/// POST /ports/{:port}/{:protocol} - Adds a protocol listener to a port.
+/// Handles POST /ports/{:port}/{:protocol} - Adds a protocol listener to a port.
 pub async fn post_protocol_handler(Path((port, protocol_str)): Path<(u16, String)>) -> Response {
 	let protocol = match protocol_str.as_str() {
 		"tcp" => Protocol::Tcp,
@@ -128,7 +123,7 @@ pub async fn post_protocol_handler(Path((port, protocol_str)): Path<(u16, String
 		}
 	};
 
-	match listener::create_protocol_listener(port, &protocol) {
+	match hotswap::create_protocol_listener(port, &protocol) {
 		Ok(_) => (StatusCode::CREATED).into_response(),
 		Err(e) => response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
@@ -138,7 +133,7 @@ pub async fn post_protocol_handler(Path((port, protocol_str)): Path<(u16, String
 	}
 }
 
-/// DELETE /ports/{:port}/{:protocol} - Removes a protocol listener from a port.
+/// Handles DELETE /ports/{:port}/{:protocol} - Removes a protocol listener from a port.
 pub async fn delete_protocol_handler(Path((port, protocol_str)): Path<(u16, String)>) -> Response {
 	let protocol = match protocol_str.as_str() {
 		"tcp" => Protocol::Tcp,
@@ -152,7 +147,7 @@ pub async fn delete_protocol_handler(Path((port, protocol_str)): Path<(u16, Stri
 		}
 	};
 
-	match listener::delete_protocol_listener(port, &protocol) {
+	match hotswap::delete_protocol_listener(port, &protocol) {
 		Ok(_) => (StatusCode::NO_CONTENT).into_response(),
 		Err(e) => response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
