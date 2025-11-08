@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.8 (8. Nov, 2025)
+
+- **Added:** Implemented the core listener functionality. The application now actively binds to and listens on TCP and UDP ports as specified by the configuration files.
+- **Added:** An asynchronous task manager to control the lifecycle of each network listener, spawning a dedicated Tokio task for each active protocol on a port.
+- **Added:** A robust retry mechanism for port binding. If a port is already in use, the application will attempt to bind it again with an increasing backoff delay.
+- **Added:** A global, thread-safe task registry (`DashMap`) to track the real-time state of all running listener tasks.
+- **Added:** Listeners now support a graceful shutdown mechanism, entering a "draining" state to stop accepting new connections before terminating.
+- **Changed:** The configuration hot-swap system is now fully connected to the task manager, starting and stopping live network listeners based on the detected file changes.
+- **Changed:** Dynamic port listeners now respect the global `LISTEN_IPV6` environment variable, enabling binding to either IPv4-only or dual-stack IPv6 addresses.
+- **Changed:** Refactored the `ports` module by splitting logic into `tasks.rs` (the workers), `listener.rs` (the manager), and `hotswap.rs` (the config link) for better separation of concerns.
+
 ## 0.0.7 (8. Nov, 2025)
 
 - **Added:** A configuration hot-swap mechanism that automatically reloads listener settings when files in the config directory change.
