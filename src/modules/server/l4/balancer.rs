@@ -1,7 +1,7 @@
 /* src/modules/server/l4/balancer.rs */
 
 use super::{
-	health::TARGET_HEALTH_REGISTRY,
+	health::{TARGET_HEALTH_REGISTRY, is_udp_target_healthy},
 	model::{Forward, Strategy, Target},
 };
 use dashmap::DashMap;
@@ -9,13 +9,10 @@ use once_cell::sync::Lazy;
 use rand::prelude::IndexedRandom;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-// Global state for Serial (Round Robin) counters.
-// The key is a unique identifier for the rule: (listening_port, rule_name).
 static SERIAL_COUNTERS: Lazy<DashMap<(u16, String), AtomicUsize>> = Lazy::new(DashMap::new);
 
-/// Selects a target from a forward configuration based on health and strategy.
-pub fn select_target(port: u16, rule_name: &str, forward_config: &Forward) -> Option<Target> {
-	// Filter primary targets that are available.
+/// Selects a TCP target from a forward configuration based on health and strategy.
+pub fn select_tcp_target(port: u16, rule_name: &str, forward_config: &Forward) -> Option<Target> {
 	let available_targets: Vec<&Target> = forward_config
 		.targets
 		.iter()
@@ -25,8 +22,6 @@ pub fn select_target(port: u16, rule_name: &str, forward_config: &Forward) -> Op
 				.map_or(false, |h| h.available)
 		})
 		.collect();
-
-	// If there are available primary targets, use them. Otherwise, try fallbacks.
 	let chosen_pool = if !available_targets.is_empty() {
 		available_targets
 	} else {
@@ -40,19 +35,44 @@ pub fn select_target(port: u16, rule_name: &str, forward_config: &Forward) -> Op
 			})
 			.collect()
 	};
+	choose_from_pool(port, rule_name, &forward_config.strategy, chosen_pool)
+}
 
-	if chosen_pool.is_empty() {
-		return None; // No available targets in either pool.
+/// Selects a UDP target from a forward configuration based on health and strategy.
+pub fn select_udp_target(port: u16, rule_name: &str, forward_config: &Forward) -> Option<Target> {
+	let available_targets: Vec<&Target> = forward_config
+		.targets
+		.iter()
+		.filter(|t| is_udp_target_healthy(t))
+		.collect();
+	let chosen_pool = if !available_targets.is_empty() {
+		available_targets
+	} else {
+		forward_config
+			.fallbacks
+			.iter()
+			.filter(|t| is_udp_target_healthy(t))
+			.collect()
+	};
+	choose_from_pool(port, rule_name, &forward_config.strategy, chosen_pool)
+}
+
+/// Chooses a target from a pool based on the configured strategy.
+fn choose_from_pool(
+	port: u16,
+	rule_name: &str,
+	strategy: &Strategy,
+	pool: Vec<&Target>,
+) -> Option<Target> {
+	if pool.is_empty() {
+		return None;
 	}
-
-	match forward_config.strategy {
+	match strategy {
 		Strategy::Random => {
-			// Create a thread-local random number generator.
 			let mut rng = rand::rng();
-			// .choose() is provided by the SliceRandom trait.
-			chosen_pool.choose(&mut rng).map(|t| (*t).clone())
+			pool.choose(&mut rng).map(|t| (*t).clone())
 		}
-		Strategy::Fastest => chosen_pool
+		Strategy::Fastest => pool
 			.iter()
 			.min_by_key(|t| {
 				TARGET_HEALTH_REGISTRY
@@ -63,9 +83,8 @@ pub fn select_target(port: u16, rule_name: &str, forward_config: &Forward) -> Op
 		Strategy::Serial => {
 			let key = (port, rule_name.to_string());
 			let counter = SERIAL_COUNTERS.entry(key).or_default();
-			// fetch_add provides atomic increment and returns the old value.
-			let index = counter.fetch_add(1, Ordering::Relaxed) % chosen_pool.len();
-			chosen_pool.get(index).map(|t| (*t).clone())
+			let index = counter.fetch_add(1, Ordering::Relaxed) % pool.len();
+			pool.get(index).map(|t| (*t).clone())
 		}
 	}
 }
