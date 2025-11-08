@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.2 (8. Nov, 2025)
+
 - **added:** Integrated `tokio` (async runtime with full + signal features) to handle concurrent tasks and graceful shutdown.
 - **added:** Introduced `axum` (v0.8 with macros) as the HTTP server framework for building management APIs.
 - **added:** Enabled structured serialization/deserialization using `serde` and `serde_json`.
