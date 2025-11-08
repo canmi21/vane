@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.1 (8. Nov, 2025)
+
+- **Added:** Support for `regex` as a protocol detection method, allowing for more complex and precise matching of L4 traffic.
+- **Changed:** The health check module has been refactored to distinguish between a blocking initial check and subsequent periodic checks.
+- **Fixed:** Corrected a critical race condition in the application startup sequence. The initial health check now runs *after* the configuration has been loaded, eliminating the initial window where all targets were considered unavailable.
+
 ## 0.1.0 (8. Nov, 2025)
 
 - **Added:** Implemented full L4 TCP transparent proxy functionality. After protocol detection, connections are now forwarded to healthy backend targets.
