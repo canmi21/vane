@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.0.12 (8. Nov, 2025)
 
-- **Changed:** Refactored the L4 configuration architecture for a clearer separation of concerns. All configuration file loading, parsing, and filesystem logic has been moved from the `ports` module into the `server::l4` module.
-- **Changed:** The `ports` module is now streamlined to be exclusively responsible for the runtime management and lifecycle of network listeners.
 - **Added:** A new `server::l4::fs` module now centralizes all filesystem operations for listener configurations.
 - **Added:** A new `server::l4::loader` module, residing within the L4 feature module, now handles the parsing and validation of configuration files.
+- **Changed:** Refactored the L4 configuration architecture for a clearer separation of concerns. All configuration file loading, parsing, and filesystem logic has been moved from the `ports` module into the `server::l4` module.
+- **Changed:** The `ports` module is now streamlined to be exclusively responsible for the runtime management and lifecycle of network listeners.
 
 ## 0.0.11 (8. Nov, 2025)
 
@@ -32,9 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.0.9 (8. Nov, 2025)
 
-- **Fixed:** Corrected a critical bug where listeners configured at application startup were not being activated. The application now correctly scans and starts all required listeners when it first launches.
 - **Changed:** The application startup sequence has been refined. Dynamic port listeners are now initialized *after* the management console and network discovery have started, ensuring a cleaner and more logical boot order.
 - **Changed:** Listener status logs (`UP`/`DOWN`) are now more descriptive, specifying whether the listener is binding to `IPv4` or dual-stack `IPv4 + IPv6`.
+- **Fixed:** Corrected a critical bug where listeners configured at application startup were not being activated. The application now correctly scans and starts all required listeners when it first launches.
 
 ## 0.0.8 (8. Nov, 2025)
 
