@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.3 (8. Nov, 2025)
+
+- **Added:** A utility module (`portool`) to validate network port numbers.
+- **Added:** Configuration via `CONSOLE_LISTEN_IPV6` environment variable to enable api listening on IPv6 addresses.
+- **Changed:** Refactored environment variable handling into a centralized `getenv` utility for improved reusability.
+- **Changed:** Enhanced server startup logic to validate the listening port, with a fallback to a default value if the configured port is invalid.
+
 ## 0.0.2 (8. Nov, 2025)
 
 - **added:** Integrated `tokio` (async runtime with full + signal features) to handle concurrent tasks and graceful shutdown.
