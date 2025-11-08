@@ -1,12 +1,55 @@
 /* src/modules/server/l4/dispatcher.rs */
 
-use super::model::{DetectMethod, TcpConfig, TcpDestination};
+use super::{
+	balancer,
+	model::{DetectMethod, TcpConfig, TcpDestination},
+};
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
+/// Forwards a TCP stream to a chosen upstream target, copying data in both directions.
+async fn proxy_connection(mut client_socket: TcpStream, target_addr: (String, u16)) {
+	let peer_addr = client_socket
+		.peer_addr()
+		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
+	let target_str = format!("{}:{}", target_addr.0, target_addr.1);
+
+	log(
+		LogLevel::Debug,
+		&format!("➜ Proxying connection from {} to {}", peer_addr, target_str),
+	);
+
+	match TcpStream::connect(target_addr).await {
+		Ok(mut upstream_socket) => {
+			match tokio::io::copy_bidirectional(&mut client_socket, &mut upstream_socket).await {
+				Ok((up, down)) => log(
+					LogLevel::Debug,
+					&format!(
+						"✓ Proxy finished for {}. Upstream: {} bytes, Downstream: {} bytes.",
+						peer_addr, up, down
+					),
+				),
+				Err(e) => log(
+					LogLevel::Warn,
+					&format!("✗ Proxy error for {}: {}", peer_addr, e),
+				),
+			}
+		}
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!(
+					"✗ Failed to connect to upstream target {}: {}",
+					target_str, e
+				),
+			);
+		}
+	}
+}
+
 /// Dispatches an incoming TCP connection based on the listener's configuration.
-pub async fn dispatch_tcp_connection(mut socket: TcpStream, config: Arc<TcpConfig>) {
+pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: Arc<TcpConfig>) {
 	let peer_addr = socket
 		.peer_addr()
 		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
@@ -63,11 +106,10 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, config: Arc<TcpConfi
 		};
 
 		if matches {
-			// MODIFIED: Updated log format as per the new request.
 			log(
 				LogLevel::Info,
 				&format!(
-					"⇅ Matched Protocol[{:}] {} for connection from {}",
+					"⇅ Matched Protocol[{}] {} for connection from {}",
 					rule.priority, rule.name, peer_addr
 				),
 			);
@@ -82,14 +124,22 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, config: Arc<TcpConfi
 					// For now, we just close the connection.
 					return;
 				}
-				TcpDestination::Forward { forward: _ } => {
-					// TODO: Implement the L4 forwarding logic.
-					log(
-						LogLevel::Debug,
-						"⚙ Destination is 'forward'. Proxy logic to be implemented.",
-					);
-					// For now, we just close the connection.
-					return;
+				TcpDestination::Forward { ref forward } => {
+					if let Some(target) = balancer::select_target(port, &rule.name, forward) {
+						// We found a target, now proxy the connection.
+						// The proxy function will consume the socket and handle everything else.
+						proxy_connection(socket, (target.ip, target.port)).await;
+					} else {
+						// No available targets were found for this rule.
+						log(
+							LogLevel::Warn,
+							&format!(
+								"✗ No available targets for protocol '{}' from {}. Dropping.",
+								rule.name, peer_addr
+							),
+						);
+					}
+					return; // Stop processing further rules once one has been actioned.
 				}
 			}
 		}
