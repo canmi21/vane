@@ -58,14 +58,14 @@ pub struct TcpSession {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TcpDestination {
 	Resolver { resolver: String },
-	Forward(Forward),
+	Forward { forward: Forward },
 }
 
 impl Validate for TcpDestination {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		match self {
 			TcpDestination::Resolver { .. } => Ok(()),
-			TcpDestination::Forward(f) => f.validate(),
+			TcpDestination::Forward { forward } => forward.validate(),
 		}
 	}
 }
@@ -75,14 +75,14 @@ impl Validate for TcpDestination {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UdpDestination {
 	Resolver { resolver: String },
-	Forward(Forward),
+	Forward { forward: Forward },
 }
 
 impl Validate for UdpDestination {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		match self {
 			UdpDestination::Resolver { .. } => Ok(()),
-			UdpDestination::Forward(f) => f.validate(),
+			UdpDestination::Forward { forward } => forward.validate(),
 		}
 	}
 }
@@ -197,7 +197,7 @@ pub fn validate_tcp_rules(rules: &[TcpProtocolRule]) -> Result<(), ValidationErr
 			return Err(err);
 		}
 		if rule.session.is_some() {
-			if let TcpDestination::Forward(_) = &rule.destination {
+			if let TcpDestination::Forward { .. } = &rule.destination {
 				let mut err = ValidationError::new("session_with_forward");
 				err.message =
 					Some("The 'session' block is only allowed for 'resolver' type destinations.".into());
