@@ -5,3 +5,4 @@ pub mod daemon;
 pub mod response;
 pub mod root;
 pub mod router;
+pub mod socket;
