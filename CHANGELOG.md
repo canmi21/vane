@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.5 (8. Nov, 2025)
+
+- **Added:** The management console now listens on a Unix domain socket (`/var/run/vane/console.sock` by default) in addition to the TCP port, configurable via the `SOCKET_DIR` environment variable.
+- **Added:** Implemented automatic cleanup of the Unix socket file upon graceful shutdown.
+- **Changed:** The server will now detect and remove a stale socket file from a previous run to prevent startup failures.
+- **Fixed:** Refactored the graceful shutdown mechanism to use a central `tokio::sync::Notify`, resolving an issue where shutdown signals were processed multiple times, causing duplicate log messages.
+
 ## 0.0.4 (8. Nov, 2025)
 
 - **Added:** A configuration management module (`getconf`) to handle config directory resolution and initialization.
