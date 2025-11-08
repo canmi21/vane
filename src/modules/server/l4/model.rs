@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use validator::{Validate, ValidationError, ValidationErrors};
 
 /// A single forwarding target, containing an IP and port.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Target {
 	pub ip: String,
 	pub port: u16,
