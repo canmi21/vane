@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.0 (8. Nov, 2025)
+
+- **Added:** Implemented full L4 TCP transparent proxy functionality. After protocol detection, connections are now forwarded to healthy backend targets.
+- **Added:** A background health checker that periodically monitors the availability and latency of all configured `targets` and `fallbacks` via non-intrusive TCP connection tests.
+- **Added:** A load balancer with three configurable strategies (`Random`, `Serial`, `Fastest`) to select the optimal backend target based on real-time health data.
+- **Added:** The load balancer now seamlessly fails over to `fallback` targets if all primary `targets` are determined to be unavailable by the health checker.
+- **Changed:** The L4 dispatcher is now fully integrated with the load balancer, selecting a healthy target for each new connection based on its configured strategy.
+- **Changed:** The application bootstrap process now initializes and starts the global health checker as a persistent background task.
+
 ## 0.0.13 (8. Nov, 2025)
 
 - **Added:** An L4 connection dispatcher (`l4/dispatcher.rs`) responsible for protocol detection. The dispatcher implements `magic` (byte matching) and `prefix` (string matching) detection methods by peeking at the initial TCP stream data.
