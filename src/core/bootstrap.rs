@@ -17,7 +17,10 @@ use tokio::time::{Duration, sleep};
 
 use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
-use crate::modules::ports::{hotswap, listener, model::PortState};
+use crate::modules::ports::{
+	hotswap, listener,
+	model::{PortState, Protocol},
+};
 
 pub async fn start() {
 	dotenv().ok();
@@ -108,22 +111,15 @@ pub async fn start() {
 
 	tokio::spawn(async move {
 		let timeout = sleep(Duration::from_millis(2100));
-
 		tokio::select! {
-			_ = anynet_handle => {
-				log(LogLevel::Debug, "⚙ Anynet completed before timeout.");
-			}
-			_ = timeout => {
-				log(LogLevel::Debug, "⚙ Anynet timeout reached.");
-			}
+			_ = anynet_handle => { log(LogLevel::Debug, "⚙ Anynet completed before timeout."); }
+			_ = timeout => { log(LogLevel::Debug, "⚙ Anynet timeout reached."); }
 		}
 
 		log(
 			LogLevel::Info,
 			"⚙ Initializing listeners from existing config...",
 		);
-
-		// Determine the IP version string just once before the loop.
 		let ip_version_str =
 			if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
 				"IPv4 + IPv6"
@@ -132,15 +128,20 @@ pub async fn start() {
 			};
 
 		for status in &initial_ports {
-			if status.active {
-				for protocol in &status.protocols {
-					let proto_str = format!("{:?}", protocol).to_uppercase();
-					log(
-						LogLevel::Info,
-						&format!("↑ {} PORT {} {} UP", ip_version_str, status.port, proto_str),
-					);
-					listener::start_listener(status.port, protocol.clone());
-				}
+			// Check the specific config fields, not `.protocols`.
+			if status.tcp_config.is_some() {
+				log(
+					LogLevel::Info,
+					&format!("↑ {} PORT {} TCP UP", ip_version_str, status.port),
+				);
+				listener::start_listener(status.port, Protocol::Tcp);
+			}
+			if status.udp_config.is_some() {
+				log(
+					LogLevel::Info,
+					&format!("↑ {} PORT {} UDP UP", ip_version_str, status.port),
+				);
+				listener::start_listener(status.port, Protocol::Udp);
 			}
 		}
 	});
@@ -204,7 +205,6 @@ async fn wait_for_shutdown_signal() {
 			.await
 			.expect("failed to install Ctrl+C handler");
 	};
-
 	#[cfg(unix)]
 	let terminate = async {
 		signal::unix::signal(signal::unix::SignalKind::terminate())
@@ -212,12 +212,7 @@ async fn wait_for_shutdown_signal() {
 			.recv()
 			.await;
 	};
-
 	#[cfg(not(unix))]
 	let terminate = std::future::pending::<()>();
-
-	tokio::select! {
-		_ = ctrl_c => {},
-		_ = terminate => {},
-	}
+	tokio::select! { _ = ctrl_c => {}, _ = terminate => {}, }
 }
