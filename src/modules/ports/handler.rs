@@ -1,25 +1,22 @@
 /* src/modules/ports/handler.rs */
 
-use super::{
-	hotswap,
-	model::{PortState, Protocol},
-};
+use super::model::{PortState, Protocol};
+use crate::common::{getconf, portool};
+use crate::core::response;
+use crate::modules::server::l4::fs;
 use axum::{
 	extract::{Path, State},
 	http::StatusCode,
 	response::{IntoResponse, Response},
 };
-use std::fs;
-
-use crate::common::{getconf, portool};
-use crate::core::response;
+use std::fs as std_fs; // Renamed to avoid conflict with our fs module
 
 /// Handles GET /ports - Lists all configured port numbers from the filesystem.
 pub async fn get_ports_handler() -> Response {
 	let config_dir = getconf::get_config_dir();
 	let mut ports = Vec::new();
 
-	let entries = match fs::read_dir(&config_dir) {
+	let entries = match std_fs::read_dir(&config_dir) {
 		Ok(entries) => entries,
 		Err(e) => {
 			return response::error(
@@ -79,7 +76,7 @@ pub async fn post_port_handler(Path(port): Path<u16>) -> Response {
 		)
 		.into_response();
 	}
-	match fs::create_dir(&port_dir) {
+	match std_fs::create_dir(&port_dir) {
 		Ok(_) => (StatusCode::CREATED).into_response(),
 		Err(e) => response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
@@ -99,7 +96,7 @@ pub async fn delete_port_handler(Path(port): Path<u16>) -> Response {
 		)
 		.into_response();
 	}
-	match fs::remove_dir_all(&port_dir) {
+	match std_fs::remove_dir_all(&port_dir) {
 		Ok(_) => (StatusCode::NO_CONTENT).into_response(),
 		Err(e) => response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
@@ -123,7 +120,8 @@ pub async fn post_protocol_handler(Path((port, protocol_str)): Path<(u16, String
 		}
 	};
 
-	match hotswap::create_protocol_listener(port, &protocol) {
+	// UPDATED: Call the function from its new location in l4::fs
+	match fs::create_protocol_listener(port, &protocol) {
 		Ok(_) => (StatusCode::CREATED).into_response(),
 		Err(e) => response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
@@ -147,7 +145,8 @@ pub async fn delete_protocol_handler(Path((port, protocol_str)): Path<(u16, Stri
 		}
 	};
 
-	match hotswap::delete_protocol_listener(port, &protocol) {
+	// UPDATED: Call the function from its new location in l4::fs
+	match fs::delete_protocol_listener(port, &protocol) {
 		Ok(_) => (StatusCode::NO_CONTENT).into_response(),
 		Err(e) => response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
