@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.7 (8. Nov, 2025)
+
+- **Added:** A configuration hot-swap mechanism that automatically reloads listener settings when files in the config directory change.
+- **Added:** The file watcher uses a 2-second debouncing period to ensure it only reloads after file operations have stabilized.
+- **Added:** An in-memory, atomically swappable state (`ArcSwap`) now holds the live configuration of all ports, allowing for thread-safe reads and updates.
+- **Added:** A new `GET /ports/{:port}` endpoint to retrieve the detailed live status (active state, protocols) of a single port from the in-memory state.
+- **Added:** New endpoints `POST /ports/{:port}/{:protocol}` and `DELETE /ports/{:port}/{:protocol}` to manage individual TCP or UDP listeners for a port.
+- **Changed:** The hot-swap logic now calculates a precise diff and logs declarative "UP" and "DOWN" messages for each listener that is added or removed.
+- **Changed:** Application startup logic has been refactored into a `common/requirements.rs` module for better organization.
+- **Fixed:** Corrected Axum router's state management by updating function signatures to `Router<PortState>` and using the `.with_state()` method properly during server initialization.
+
 ## 0.0.6 (8. Nov, 2025)
 
 - **Added:** A new API endpoint group (`/ports`) for dynamically managing listener port configurations.
