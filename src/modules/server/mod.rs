@@ -1,5 +1,4 @@
 /* src/modules/server/mod.rs */
 
-pub mod plain;
-pub mod quic;
-pub mod tls;
+pub mod l4;
+pub mod l7;
