@@ -11,12 +11,15 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::task;
 
-use crate::common::{getenv, portool};
+use crate::common::{getconf, getenv, portool};
 use crate::core::router;
 
 pub async fn start() {
 	dotenv().ok();
 	setup_logging();
+
+	getconf::init_config_files(vec!["etc/listener.toml"]);
+
 	print_motd();
 
 	// Get port from environment, parse, and validate.
