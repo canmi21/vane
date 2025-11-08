@@ -116,6 +116,7 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 					false
 				}
 			}
+			DetectMethod::Fallback => true,
 		};
 
 		if matches {

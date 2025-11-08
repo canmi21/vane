@@ -18,6 +18,7 @@ pub enum DetectMethod {
 	Magic,
 	Prefix,
 	Regex,
+	Fallback,
 }
 
 /// The configuration for how to detect a protocol.
@@ -96,7 +97,6 @@ lazy_static::lazy_static! {
 /// A rule for a specific TCP protocol.
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
 pub struct TcpProtocolRule {
-	// Remove quotes from path - it should reference the static variable directly
 	#[validate(regex(path = *NAME_REGEX, message = "can only contain lowercase letters and numbers"))]
 	pub name: String,
 	#[validate(range(min = 1))]
@@ -129,18 +129,13 @@ pub struct TcpConfig {
 	pub rules: Vec<TcpProtocolRule>,
 }
 
-// Manual implementation of Validate for TcpConfig
 impl Validate for TcpConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		let mut result = Ok(());
-
-		// Validate each rule using nested validation
 		for (i, rule) in self.rules.iter().enumerate() {
 			let field_name = Box::leak(format!("rules[{}]", i).into_boxed_str());
 			result = ValidationErrors::merge(result, field_name, rule.validate());
 		}
-
-		// Apply custom validation
 		if let Err(e) = validate_tcp_rules(&self.rules) {
 			if let Err(ref mut errors) = result {
 				errors.add("rules", e);
@@ -150,7 +145,6 @@ impl Validate for TcpConfig {
 				result = Err(errors);
 			}
 		}
-
 		result
 	}
 }
@@ -162,18 +156,13 @@ pub struct UdpConfig {
 	pub rules: Vec<UdpProtocolRule>,
 }
 
-// Manual implementation of Validate for UdpConfig
 impl Validate for UdpConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		let mut result = Ok(());
-
-		// Validate each rule using nested validation
 		for (i, rule) in self.rules.iter().enumerate() {
 			let field_name = Box::leak(format!("rules[{}]", i).into_boxed_str());
 			result = ValidationErrors::merge(result, field_name, rule.validate());
 		}
-
-		// Apply custom validation
 		if let Err(e) = validate_udp_rules(&self.rules) {
 			if let Err(ref mut errors) = result {
 				errors.add("rules", e);
@@ -183,7 +172,6 @@ impl Validate for UdpConfig {
 				result = Err(errors);
 			}
 		}
-
 		result
 	}
 }
@@ -205,14 +193,23 @@ pub fn validate_tcp_rules(rules: &[TcpProtocolRule]) -> Result<(), ValidationErr
 				return Err(err);
 			}
 		}
-		// ADDED: Validate regex pattern if the method is Regex.
-		if rule.detect.method == DetectMethod::Regex {
-			if fancy_regex::Regex::new(&rule.detect.pattern).is_err() {
-				let mut err = ValidationError::new("invalid_regex");
-				err.message =
-					Some(format!("Pattern '{}' is not a valid regex.", rule.detect.pattern).into());
-				return Err(err);
+		match rule.detect.method {
+			DetectMethod::Regex => {
+				if fancy_regex::Regex::new(&rule.detect.pattern).is_err() {
+					let mut err = ValidationError::new("invalid_regex");
+					err.message =
+						Some(format!("Pattern '{}' is not a valid regex.", rule.detect.pattern).into());
+					return Err(err);
+				}
 			}
+			DetectMethod::Fallback => {
+				if rule.detect.pattern != "any" {
+					let mut err = ValidationError::new("invalid_fallback_pattern");
+					err.message = Some("Pattern for 'fallback' method must be 'any'.".into());
+					return Err(err);
+				}
+			}
+			_ => {}
 		}
 	}
 	Ok(())
@@ -227,14 +224,23 @@ pub fn validate_udp_rules(rules: &[UdpProtocolRule]) -> Result<(), ValidationErr
 			err.message = Some("Priorities must be unique within a listener config.".into());
 			return Err(err);
 		}
-		// ADDED: Validate regex pattern if the method is Regex.
-		if rule.detect.method == DetectMethod::Regex {
-			if fancy_regex::Regex::new(&rule.detect.pattern).is_err() {
-				let mut err = ValidationError::new("invalid_regex");
-				err.message =
-					Some(format!("Pattern '{}' is not a valid regex.", rule.detect.pattern).into());
-				return Err(err);
+		match rule.detect.method {
+			DetectMethod::Regex => {
+				if fancy_regex::Regex::new(&rule.detect.pattern).is_err() {
+					let mut err = ValidationError::new("invalid_regex");
+					err.message =
+						Some(format!("Pattern '{}' is not a valid regex.", rule.detect.pattern).into());
+					return Err(err);
+				}
 			}
+			DetectMethod::Fallback => {
+				if rule.detect.pattern != "any" {
+					let mut err = ValidationError::new("invalid_fallback_pattern");
+					err.message = Some("Pattern for 'fallback' method must be 'any'.".into());
+					return Err(err);
+				}
+			}
+			_ => {}
 		}
 	}
 	Ok(())

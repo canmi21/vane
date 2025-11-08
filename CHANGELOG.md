@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.3 (8. Nov, 2025)
+
+- **Added:** A new `fallback` protocol detection method (`detect = { method = "fallback", pattern = "any" }`) to create unconditional catch-all rules, typically placed last in priority.
+- **Added:** The configuration validator now enforces that the `pattern` for the `fallback` method must be `"any"`.
+- **Changed:** The L4 dispatcher has been updated to correctly process the new `fallback` detection method.
+
 ## 0.1.2 (8. Nov, 2025)
 
 - **Added:** A new `TCP_DETECT_LIMIT` environment variable (default: 64 bytes) to configure the size of the initial data buffer for L4 protocol detection, allowing for performance tuning.
