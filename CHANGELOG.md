@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.12 (8. Nov, 2025)
+
+- **Changed:** Refactored the L4 configuration architecture for a clearer separation of concerns. All configuration file loading, parsing, and filesystem logic has been moved from the `ports` module into the `server::l4` module.
+- **Changed:** The `ports` module is now streamlined to be exclusively responsible for the runtime management and lifecycle of network listeners.
+- **Added:** A new `server::l4::fs` module now centralizes all filesystem operations for listener configurations.
+- **Added:** A new `server::l4::loader` module, residing within the L4 feature module, now handles the parsing and validation of configuration files.
+
+## 0.0.11 (8. Nov, 2025)
+
+- **Breaking:** Removed support for the RON (`.ron`) configuration format due to persistent parsing issues with its underlying library. The supported formats are now TOML, YAML, and JSON.
+- **Fixed:** Corrected a critical data model deserialization bug in `TcpDestination` and `UdpDestination` that prevented the parsing of nested `forward` blocks in all configuration formats.
+- **Fixed:** Resolved a TOML parsing error by adjusting the expected configuration structure to correctly handle inline tables for `forward` type destinations.
+
+## 0.0.10 (8. Nov, 2025)
+
+- **Added:** A comprehensive L4 configuration system with distinct models for TCP and UDP listeners, defined in `src/modules/server/l4/model.rs`.
+- **Added:** Support for loading listener configurations in four formats: TOML, YAML, JSON, and RON. The system automatically detects and parses the correct format.
+- **Added:** Advanced, multi-level validation for all configuration files using the `validator` crate. This includes checks for unique priorities, required fields, regex patterns for names, and custom logical rules (e.g., `session` blocks are only valid for `resolver` destinations).
+- **Added:** A generic configuration loader (`loader.rs`) responsible for parsing, pre-processing (e.g., lowercasing names), and validating configuration files.
+- **Changed:** The configuration hot-swap mechanism is now powered by the new loader. It performs a full validation and parsing of changed files, only starting/stopping listeners if the new configuration is valid.
+- **Changed:** The application will now detect and log warnings for conflicting configuration files (e.g., `tcp.toml` and `tcp.json` in the same directory) and deactivate the listener for that port and protocol to ensure safety.
+- **Changed:** The internal `PortStatus` model has been upgraded to hold the complete, parsed `TcpConfig` or `UdpConfig` for each listener, providing the live configuration to the rest of the application.
+
+## 0.0.9 (8. Nov, 2025)
+
+- **Fixed:** Corrected a critical bug where listeners configured at application startup were not being activated. The application now correctly scans and starts all required listeners when it first launches.
+- **Changed:** The application startup sequence has been refined. Dynamic port listeners are now initialized *after* the management console and network discovery have started, ensuring a cleaner and more logical boot order.
+- **Changed:** Listener status logs (`UP`/`DOWN`) are now more descriptive, specifying whether the listener is binding to `IPv4` or dual-stack `IPv4 + IPv6`.
+
+## 0.0.8 (8. Nov, 2025)
+
+- **Added:** Implemented the core listener functionality. The application now actively binds to and listens on TCP and UDP ports as specified by the configuration files.
+- **Added:** An asynchronous task manager to control the lifecycle of each network listener, spawning a dedicated Tokio task for each active protocol on a port.
+- **Added:** A robust retry mechanism for port binding. If a port is already in use, the application will attempt to bind it again with an increasing backoff delay.
+- **Added:** A global, thread-safe task registry (`DashMap`) to track the real-time state of all running listener tasks.
+- **Added:** Listeners now support a graceful shutdown mechanism, entering a "draining" state to stop accepting new connections before terminating.
+- **Changed:** The configuration hot-swap system is now fully connected to the task manager, starting and stopping live network listeners based on the detected file changes.
+- **Changed:** Dynamic port listeners now respect the global `LISTEN_IPV6` environment variable, enabling binding to either IPv4-only or dual-stack IPv6 addresses.
+- **Changed:** Refactored the `ports` module by splitting logic into `tasks.rs` (the workers), `listener.rs` (the manager), and `hotswap.rs` (the config link) for better separation of concerns.
+
 ## 0.0.7 (8. Nov, 2025)
 
 - **Added:** A configuration hot-swap mechanism that automatically reloads listener settings when files in the config directory change.
