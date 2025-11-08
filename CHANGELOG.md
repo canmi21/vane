@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.4 (8. Nov, 2025)
+
+- **Added:** A configuration management module (`getconf`) to handle config directory resolution and initialization.
+- **Changed:** The application now automatically creates the configuration directory (`~/vane/` by default) and any necessary default config files on first run.
+
 ## 0.0.3 (8. Nov, 2025)
 
 - **Added:** A utility module (`portool`) to validate network port numbers.
