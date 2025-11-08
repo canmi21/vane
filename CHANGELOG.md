@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.11 (8. Nov, 2025)
+
+- **Breaking:** Removed support for the RON (`.ron`) configuration format due to persistent parsing issues with its underlying library. The supported formats are now TOML, YAML, and JSON.
+- **Fixed:** Corrected a critical data model deserialization bug in `TcpDestination` and `UdpDestination` that prevented the parsing of nested `forward` blocks in all configuration formats.
+- **Fixed:** Resolved a TOML parsing error by adjusting the expected configuration structure to correctly handle inline tables for `forward` type destinations.
+
+## 0.0.10 (8. Nov, 2025)
+
+- **Added:** A comprehensive L4 configuration system with distinct models for TCP and UDP listeners, defined in `src/modules/server/l4/model.rs`.
+- **Added:** Support for loading listener configurations in four formats: TOML, YAML, JSON, and RON. The system automatically detects and parses the correct format.
+- **Added:** Advanced, multi-level validation for all configuration files using the `validator` crate. This includes checks for unique priorities, required fields, regex patterns for names, and custom logical rules (e.g., `session` blocks are only valid for `resolver` destinations).
+- **Added:** A generic configuration loader (`loader.rs`) responsible for parsing, pre-processing (e.g., lowercasing names), and validating configuration files.
+- **Changed:** The configuration hot-swap mechanism is now powered by the new loader. It performs a full validation and parsing of changed files, only starting/stopping listeners if the new configuration is valid.
+- **Changed:** The application will now detect and log warnings for conflicting configuration files (e.g., `tcp.toml` and `tcp.json` in the same directory) and deactivate the listener for that port and protocol to ensure safety.
+- **Changed:** The internal `PortStatus` model has been upgraded to hold the complete, parsed `TcpConfig` or `UdpConfig` for each listener, providing the live configuration to the rest of the application.
+
 ## 0.0.9 (8. Nov, 2025)
 
 - **Fixed:** Corrected a critical bug where listeners configured at application startup were not being activated. The application now correctly scans and starts all required listeners when it first launches.
