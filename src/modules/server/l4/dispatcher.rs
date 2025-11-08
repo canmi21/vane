@@ -55,17 +55,14 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 		.peer_addr()
 		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
 
-	// Clone the rules and sort them by priority, ascending.
 	let mut rules = config.rules.clone();
 	rules.sort_by_key(|r| r.priority);
 
-	// Read the detection buffer limit from environment variables.
 	let limit_str = getenv::get_env("TCP_DETECT_LIMIT", "64".to_string());
 	let limit = limit_str.parse::<usize>().unwrap_or(64);
-	const MAX_DETECT_LIMIT: usize = 8192; // 8KB sanity cap.
+	const MAX_DETECT_LIMIT: usize = 8192;
 	let final_limit = limit.min(MAX_DETECT_LIMIT);
 
-	// Use a dynamically sized Vec instead of a fixed array.
 	let mut buf = vec![0u8; final_limit];
 	let n = match socket.peek(&mut buf).await {
 		Ok(n) => n,
@@ -74,7 +71,7 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 				LogLevel::Warn,
 				&format!("✗ Failed to peek initial data from {}: {}", peer_addr, e),
 			);
-			return; // Connection is likely dead.
+			return;
 		}
 	};
 
@@ -95,16 +92,17 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 		let matches = match &rule.detect.method {
 			DetectMethod::Magic => {
 				if let Some(hex_str) = rule.detect.pattern.strip_prefix("0x") {
-					if let Ok(byte) = u8::from_str_radix(hex_str, 16) {
-						incoming_data.starts_with(&[byte])
-					} else {
-						false
-					}
+					u8::from_str_radix(hex_str, 16).map_or(false, |b| incoming_data.starts_with(&[b]))
 				} else {
 					false
 				}
 			}
-			DetectMethod::Prefix => incoming_data.starts_with(rule.detect.pattern.as_bytes()),
+			DetectMethod::Prefix => {
+				let pattern_bytes = rule.detect.pattern.as_bytes();
+				incoming_data
+					.windows(pattern_bytes.len())
+					.any(|window| window == pattern_bytes)
+			}
 			DetectMethod::Regex => {
 				if let Ok(re) = fancy_regex::Regex::new(&rule.detect.pattern) {
 					if let Ok(data_str) = std::str::from_utf8(incoming_data) {
@@ -137,7 +135,7 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 					return;
 				}
 				TcpDestination::Forward { ref forward } => {
-					if let Some(target) = balancer::select_target(port, &rule.name, forward) {
+					if let Some(target) = balancer::select_tcp_target(port, &rule.name, forward) {
 						proxy_connection(socket, (target.ip, target.port)).await;
 					} else {
 						log(
