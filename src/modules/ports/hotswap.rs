@@ -5,6 +5,7 @@ use super::{
 	model::{PortState, PortStatus, Protocol},
 };
 use crate::common::getconf;
+use crate::common::getenv;
 use fancy_log::{LogLevel, log};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -83,6 +84,14 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
 pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
+	// Determine the IP version string once when the task starts.
+	let ip_version_str =
+		if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
+			"IPv4 + IPv6"
+		} else {
+			"IPv4"
+		};
+
 	while rx.recv().await.is_some() {
 		log(LogLevel::Info, "✓ Config change detected, diff...");
 		let old_statuses = state.load();
@@ -104,7 +113,12 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 					for p in new_protocols.difference(old_protocols) {
 						log(
 							LogLevel::Info,
-							&format!("↑ PORT {} {} UP", port, format_protocol(p)),
+							&format!(
+								"↑ {} PORT {} {} UP",
+								ip_version_str,
+								port,
+								format_protocol(p)
+							),
 						);
 						has_changes = true;
 						listener::start_listener(*port, p.clone());
@@ -114,7 +128,12 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 					for p in new_protocols {
 						log(
 							LogLevel::Info,
-							&format!("↑ PORT {} {} UP", port, format_protocol(p)),
+							&format!(
+								"↑ {} PORT {} {} UP",
+								ip_version_str,
+								port,
+								format_protocol(p)
+							),
 						);
 						has_changes = true;
 						listener::start_listener(*port, p.clone());
@@ -130,7 +149,12 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 					for p in old_protocols.difference(new_protocols) {
 						log(
 							LogLevel::Info,
-							&format!("↓ PORT {} {} DOWN", port, format_protocol(p)),
+							&format!(
+								"↓ {} PORT {} {} DOWN",
+								ip_version_str,
+								port,
+								format_protocol(p)
+							),
 						);
 						has_changes = true;
 						listener::stop_listener(*port, p.clone());
@@ -140,7 +164,12 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 					for p in old_protocols {
 						log(
 							LogLevel::Info,
-							&format!("↓ PORT {} {} DOWN", port, format_protocol(p)),
+							&format!(
+								"↓ {} PORT {} {} DOWN",
+								ip_version_str,
+								port,
+								format_protocol(p)
+							),
 						);
 						has_changes = true;
 						listener::stop_listener(*port, p.clone());
