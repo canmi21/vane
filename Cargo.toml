@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.0.4"
+version = "0.0.7"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -33,6 +33,8 @@ shellexpand = "3"
 lazy-motd = "1"
 chrono = { version = "0.4", features = ["serde"] }
 anynet = "1"
+notify = "8"
+arc-swap = "1"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
