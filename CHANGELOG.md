@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Added:** A new API endpoint group (`/ports`) for dynamically managing listener port configurations.
 - **Added:** `GET /ports` to list all configured ports by scanning the configuration directory.
-- **Added:** `POST /ports/:port` to create a new port listener by creating a corresponding `[<port>]` directory.
-- **Added:** `DELETE /ports/:port` to remove a port listener by deleting its configuration directory.
+- **Added:** `POST /ports/{:port}` to create a new port listener by creating a corresponding `[<port>]` directory.
+- **Added:** `DELETE /ports/{:port}` to remove a port listener by deleting its configuration directory.
 - **Added:** A new request logging middleware that logs all incoming API calls, using `INFO` level for mutating requests (POST, DELETE) and `DEBUG` for read-only requests (GET).
 - **Changed:** All API handlers now use the standardized JSON response format provided by the `response` module.
 - **Changed:** Refactored API handler functions to follow a consistent naming convention (`{method}_{object}_handler`).
