@@ -26,9 +26,12 @@ pub async fn start() {
 	setup_logging();
 	print_motd();
 
-	let config_change_receiver = requirements::initialize().await;
+	// Scan config from disk FIRST.
 	let initial_ports = hotswap::scan_ports_config();
+	// Immediately populate the global state so other modules can access it.
 	CONFIG_STATE.store(Arc::new(initial_ports.clone()));
+	// Now initialize background tasks. The health check inside will see the populated state.
+	let config_change_receiver = requirements::initialize().await;
 
 	// Spawn hotswap listener without passing state; it will use the global state.
 	tokio::spawn(hotswap::listen_for_updates(config_change_receiver));
@@ -68,7 +71,7 @@ pub async fn start() {
 
 	let tcp_notifier = shutdown_notifier.clone();
 	let tcp_listener = TcpListener::bind(addr).await.unwrap();
-	// MODIFIED: Provide the global state to the axum server.
+	// Provide the global state to the axum server.
 	let tcp_server = serve(tcp_listener, app.clone().with_state(CONFIG_STATE.clone()))
 		.with_graceful_shutdown(async move {
 			tcp_notifier.notified().await;
@@ -82,7 +85,7 @@ pub async fn start() {
 
 	let unix_handle = if let Some(listener) = unix_socket_listener {
 		let unix_notifier = shutdown_notifier.clone();
-		// MODIFIED: Provide the global state to the axum server.
+		// Provide the global state to the axum server.
 		let unix_server =
 			serve(listener, app.with_state(CONFIG_STATE.clone())).with_graceful_shutdown(async move {
 				unix_notifier.notified().await;
@@ -126,7 +129,6 @@ pub async fn start() {
 			};
 
 		for status in &initial_ports {
-			// Check the specific config fields, not `.protocols`.
 			if status.tcp_config.is_some() {
 				log(
 					LogLevel::Info,
