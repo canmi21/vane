@@ -103,6 +103,20 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 				// Pattern is a string like "GET ".
 				incoming_data.starts_with(rule.detect.pattern.as_bytes())
 			}
+			DetectMethod::Regex => {
+				// Compile the regex. This should not fail due to pre-validation.
+				if let Ok(re) = fancy_regex::Regex::new(&rule.detect.pattern) {
+					// Regex works on strings, so we attempt a UTF-8 conversion.
+					// This is safe because if it's not valid UTF-8, it can't match a text regex.
+					if let Ok(data_str) = std::str::from_utf8(incoming_data) {
+						re.is_match(data_str).unwrap_or(false)
+					} else {
+						false
+					}
+				} else {
+					false
+				}
+			}
 		};
 
 		if matches {
