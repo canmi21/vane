@@ -13,6 +13,7 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::Notify;
 use tokio::task;
+use tokio::time::{Duration, sleep};
 
 use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
@@ -25,26 +26,9 @@ pub async fn start() {
 
 	let config_change_receiver = requirements::initialize().await;
 
-	// --- Initialize Port State and Start Listeners ---
 	let initial_ports = hotswap::scan_ports_config();
-	log(
-		LogLevel::Info,
-		"⚙ Initializing listeners from existing config...",
-	);
-	for status in &initial_ports {
-		if status.active {
-			for protocol in &status.protocols {
-				let proto_str = format!("{:?}", protocol).to_uppercase();
-				log(
-					LogLevel::Info,
-					&format!("↑ PORT {} {} UP", status.port, proto_str),
-				);
-				listener::start_listener(status.port, protocol.clone());
-			}
-		}
-	}
+	let port_state: PortState = Arc::new(ArcSwap::new(Arc::new(initial_ports.clone())));
 
-	let port_state: PortState = Arc::new(ArcSwap::new(Arc::new(initial_ports)));
 	tokio::spawn(hotswap::listen_for_updates(
 		port_state.clone(),
 		config_change_receiver,
@@ -81,22 +65,6 @@ pub async fn start() {
 	};
 
 	let app = router::create_router();
-
-	if let Err(e) = task::spawn_blocking(move || {
-		if detect_public_network {
-			anynet!(port = port, public = true);
-		} else {
-			anynet!(port = port);
-		}
-	})
-	.await
-	{
-		log(
-			LogLevel::Error,
-			&format!("✗ Anynet panicked in a blocking task: {}", e),
-		);
-	}
-
 	let shutdown_notifier = Arc::new(Notify::new());
 
 	let tcp_notifier = shutdown_notifier.clone();
@@ -129,6 +97,53 @@ pub async fn start() {
 	} else {
 		None
 	};
+
+	let anynet_handle = task::spawn_blocking(move || {
+		if detect_public_network {
+			anynet!(port = port, public = true);
+		} else {
+			anynet!(port = port);
+		}
+	});
+
+	tokio::spawn(async move {
+		let timeout = sleep(Duration::from_millis(2100));
+
+		tokio::select! {
+			_ = anynet_handle => {
+				log(LogLevel::Debug, "⚙ Anynet completed before timeout.");
+			}
+			_ = timeout => {
+				log(LogLevel::Debug, "⚙ Anynet timeout reached.");
+			}
+		}
+
+		log(
+			LogLevel::Info,
+			"⚙ Initializing listeners from existing config...",
+		);
+
+		// Determine the IP version string just once before the loop.
+		let ip_version_str =
+			if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
+				"IPv4 + IPv6"
+			} else {
+				"IPv4"
+			};
+
+		for status in &initial_ports {
+			if status.active {
+				for protocol in &status.protocols {
+					let proto_str = format!("{:?}", protocol).to_uppercase();
+					log(
+						LogLevel::Info,
+						&format!("↑ {} PORT {} {} UP", ip_version_str, status.port, proto_str),
+					);
+					listener::start_listener(status.port, protocol.clone());
+				}
+			}
+		}
+	});
 
 	wait_for_shutdown_signal().await;
 	log(LogLevel::Info, "➜ Signal received, shutdown now...");
