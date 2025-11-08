@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.0.9 (8. Nov, 2025)
 
-- **Fixed:** Corrected a critical bug where listeners for ports that were already configured at application startup were not being activated. The application now correctly scans and starts all required listeners from the existing configuration when it first launches.
+- **Fixed:** Corrected a critical bug where listeners configured at application startup were not being activated. The application now correctly scans and starts all required listeners when it first launches.
+- **Changed:** The application startup sequence has been refined. Dynamic port listeners are now initialized *after* the management console and network discovery have started, ensuring a cleaner and more logical boot order.
+- **Changed:** Listener status logs (`UP`/`DOWN`) are now more descriptive, specifying whether the listener is binding to `IPv4` or dual-stack `IPv4 + IPv6`.
 
 ## 0.0.8 (8. Nov, 2025)
 
