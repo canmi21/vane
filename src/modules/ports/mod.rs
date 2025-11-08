@@ -4,3 +4,4 @@ pub mod handler;
 pub mod hotswap;
 pub mod listener;
 pub mod model;
+pub mod tasks;
