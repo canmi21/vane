@@ -1,16 +1,13 @@
 /* src/modules/ports/hotswap.rs */
 
+use super::super::server::l4::model::{TcpConfig, UdpConfig};
 use super::{
-	listener,
+	listener, loader,
 	model::{PortState, PortStatus, Protocol},
 };
-use crate::common::getconf;
-use crate::common::getenv;
+use crate::common::{getconf, getenv};
 use fancy_log::{LogLevel, log};
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 use tokio::sync::mpsc;
 
 /// Returns the filesystem path for a given port's configuration directory.
@@ -18,38 +15,40 @@ fn get_port_config_path(port: u16) -> PathBuf {
 	getconf::get_config_dir().join(format!("[{}]", port))
 }
 
-/// Creates a protocol-specific listener config file (e.g., tcp.yaml).
+/// Creates a default, empty listener config file.
 pub fn create_protocol_listener(port: u16, protocol: &Protocol) -> std::io::Result<()> {
 	let port_dir = get_port_config_path(port);
 	if !port_dir.exists() {
 		fs::create_dir(&port_dir)?;
 	}
-	let protocol_str = match protocol {
-		Protocol::Tcp => "tcp.yaml",
-		Protocol::Udp => "udp.yaml",
+	let file_name = match protocol {
+		Protocol::Tcp => "tcp.toml",
+		Protocol::Udp => "udp.toml",
 	};
-	fs::File::create(port_dir.join(protocol_str))?;
+	fs::File::create(port_dir.join(file_name))?;
 	Ok(())
 }
 
-/// Deletes a protocol-specific listener config file.
+/// Deletes all possible config files for a protocol.
 pub fn delete_protocol_listener(port: u16, protocol: &Protocol) -> std::io::Result<()> {
 	let port_dir = get_port_config_path(port);
 	if !port_dir.exists() {
 		return Ok(());
 	}
-	let protocol_str = match protocol {
-		Protocol::Tcp => "tcp.yaml",
-		Protocol::Udp => "udp.yaml",
+	let base_name = match protocol {
+		Protocol::Tcp => "tcp",
+		Protocol::Udp => "udp",
 	};
-	let config_file_path = port_dir.join(protocol_str);
-	if config_file_path.exists() {
-		fs::remove_file(config_file_path)?;
+	for ext in ["toml", "yaml", "json", "ron"] {
+		let path = port_dir.join(format!("{}.{}", base_name, ext));
+		if path.exists() {
+			fs::remove_file(path)?;
+		}
 	}
 	Ok(())
 }
 
-/// Scans the configuration directory and builds a complete list of port statuses.
+/// Scans the configuration directory, loading and validating all listener configs.
 pub fn scan_ports_config() -> Vec<PortStatus> {
 	let config_dir = getconf::get_config_dir();
 	let mut statuses = Vec::new();
@@ -61,18 +60,15 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 			if let Some(name) = entry.file_name().to_str() {
 				if name.starts_with('[') && name.ends_with(']') {
 					if let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
-						let mut protocols = Vec::new();
-						let port_config_path = entry.path();
-						if port_config_path.join("tcp.yaml").exists() {
-							protocols.push(Protocol::Tcp);
-						}
-						if port_config_path.join("udp.yaml").exists() {
-							protocols.push(Protocol::Udp);
-						}
+						let port_path = entry.path();
+						let tcp_config = loader::load_config::<TcpConfig>(port, "tcp", &port_path.join("tcp"));
+						let udp_config = loader::load_config::<UdpConfig>(port, "udp", &port_path.join("udp"));
+
 						statuses.push(PortStatus {
 							port,
-							active: !protocols.is_empty(),
-							protocols,
+							active: tcp_config.is_some() || udp_config.is_some(),
+							tcp_config: tcp_config.map(Arc::new),
+							udp_config: udp_config.map(Arc::new),
 						});
 					}
 				}
@@ -84,7 +80,6 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
 pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
-	// Determine the IP version string once when the task starts.
 	let ip_version_str =
 		if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
 			"IPv4 + IPv6"
@@ -96,84 +91,90 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 		log(LogLevel::Info, "✓ Config change detected, diff...");
 		let old_statuses = state.load();
 		let new_statuses = scan_ports_config();
-		let old_map: HashMap<u16, HashSet<Protocol>> = old_statuses
+
+		type PortConfigMap = HashMap<u16, (bool, bool)>;
+		let old_map: PortConfigMap = old_statuses
 			.iter()
-			.map(|s| (s.port, s.protocols.iter().cloned().collect()))
+			.map(|s| (s.port, (s.tcp_config.is_some(), s.udp_config.is_some())))
 			.collect();
-		let new_map: HashMap<u16, HashSet<Protocol>> = new_statuses
+		let new_map: PortConfigMap = new_statuses
 			.iter()
-			.map(|s| (s.port, s.protocols.iter().cloned().collect()))
+			.map(|s| (s.port, (s.tcp_config.is_some(), s.udp_config.is_some())))
 			.collect();
+
 		let mut has_changes = false;
 
-		for (port, new_protocols) in &new_map {
-			let format_protocol = |p: &Protocol| format!("{:?}", p).to_uppercase();
-			match old_map.get(port) {
-				Some(old_protocols) => {
-					for p in new_protocols.difference(old_protocols) {
-						log(
-							LogLevel::Info,
-							&format!(
-								"↑ {} PORT {} {} UP",
-								ip_version_str,
-								port,
-								format_protocol(p)
-							),
-						);
-						has_changes = true;
-						listener::start_listener(*port, p.clone());
-					}
+		for (port, (new_tcp, new_udp)) in &new_map {
+			if let Some((old_tcp, old_udp)) = old_map.get(port) {
+				if *new_tcp && !*old_tcp {
+					log(
+						LogLevel::Info,
+						&format!("↑ {} PORT {} TCP UP", ip_version_str, port),
+					);
+					listener::start_listener(*port, Protocol::Tcp);
+					has_changes = true;
 				}
-				None => {
-					for p in new_protocols {
-						log(
-							LogLevel::Info,
-							&format!(
-								"↑ {} PORT {} {} UP",
-								ip_version_str,
-								port,
-								format_protocol(p)
-							),
-						);
-						has_changes = true;
-						listener::start_listener(*port, p.clone());
-					}
+				if !*new_tcp && *old_tcp {
+					log(
+						LogLevel::Info,
+						&format!("↓ {} PORT {} TCP DOWN", ip_version_str, port),
+					);
+					listener::stop_listener(*port, Protocol::Tcp);
+					has_changes = true;
+				}
+				if *new_udp && !*old_udp {
+					log(
+						LogLevel::Info,
+						&format!("↑ {} PORT {} UDP UP", ip_version_str, port),
+					);
+					listener::start_listener(*port, Protocol::Udp);
+					has_changes = true;
+				}
+				if !*new_udp && *old_udp {
+					log(
+						LogLevel::Info,
+						&format!("↓ {} PORT {} UDP DOWN", ip_version_str, port),
+					);
+					listener::stop_listener(*port, Protocol::Udp);
+					has_changes = true;
+				}
+			} else {
+				if *new_tcp {
+					log(
+						LogLevel::Info,
+						&format!("↑ {} PORT {} TCP UP", ip_version_str, port),
+					);
+					listener::start_listener(*port, Protocol::Tcp);
+					has_changes = true;
+				}
+				if *new_udp {
+					log(
+						LogLevel::Info,
+						&format!("↑ {} PORT {} UDP UP", ip_version_str, port),
+					);
+					listener::start_listener(*port, Protocol::Udp);
+					has_changes = true;
 				}
 			}
 		}
 
-		for (port, old_protocols) in &old_map {
-			let format_protocol = |p: &Protocol| format!("{:?}", p).to_uppercase();
-			match new_map.get(port) {
-				Some(new_protocols) => {
-					for p in old_protocols.difference(new_protocols) {
-						log(
-							LogLevel::Info,
-							&format!(
-								"↓ {} PORT {} {} DOWN",
-								ip_version_str,
-								port,
-								format_protocol(p)
-							),
-						);
-						has_changes = true;
-						listener::stop_listener(*port, p.clone());
-					}
+		for (port, (old_tcp, old_udp)) in &old_map {
+			if !new_map.contains_key(port) {
+				if *old_tcp {
+					log(
+						LogLevel::Info,
+						&format!("↓ {} PORT {} TCP DOWN", ip_version_str, port),
+					);
+					listener::stop_listener(*port, Protocol::Tcp);
+					has_changes = true;
 				}
-				None => {
-					for p in old_protocols {
-						log(
-							LogLevel::Info,
-							&format!(
-								"↓ {} PORT {} {} DOWN",
-								ip_version_str,
-								port,
-								format_protocol(p)
-							),
-						);
-						has_changes = true;
-						listener::stop_listener(*port, p.clone());
-					}
+				if *old_udp {
+					log(
+						LogLevel::Info,
+						&format!("↓ {} PORT {} UDP DOWN", ip_version_str, port),
+					);
+					listener::stop_listener(*port, Protocol::Udp);
+					has_changes = true;
 				}
 			}
 		}
