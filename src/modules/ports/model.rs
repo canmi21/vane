@@ -30,6 +30,10 @@ pub struct PortStatus {
 /// A thread-safe, atomically swappable container for the list of port configurations.
 pub type PortState = Arc<ArcSwap<Vec<PortStatus>>>;
 
+// NEW: A global static reference to the PortState for easy access from tasks.
+pub static CONFIG_STATE: Lazy<PortState> =
+	Lazy::new(|| Arc::new(ArcSwap::new(Arc::new(Vec::new()))));
+
 /// Represents the runtime state of an individual network listener task.
 pub enum ListenerState {
 	Active,

@@ -1,7 +1,6 @@
 /* src/core/bootstrap.rs */
 
 use anynet::anynet;
-use arc_swap::ArcSwap;
 use axum::serve;
 use dotenvy::dotenv;
 use fancy_log::{LogLevel, log, set_log_level};
@@ -19,7 +18,7 @@ use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
 use crate::modules::ports::{
 	hotswap, listener,
-	model::{PortState, Protocol},
+	model::{CONFIG_STATE, Protocol},
 };
 
 pub async fn start() {
@@ -28,14 +27,11 @@ pub async fn start() {
 	print_motd();
 
 	let config_change_receiver = requirements::initialize().await;
-
 	let initial_ports = hotswap::scan_ports_config();
-	let port_state: PortState = Arc::new(ArcSwap::new(Arc::new(initial_ports.clone())));
+	CONFIG_STATE.store(Arc::new(initial_ports.clone()));
 
-	tokio::spawn(hotswap::listen_for_updates(
-		port_state.clone(),
-		config_change_receiver,
-	));
+	// Spawn hotswap listener without passing state; it will use the global state.
+	tokio::spawn(hotswap::listen_for_updates(config_change_receiver));
 
 	let unix_socket_listener = match socket::bind_unix_socket().await {
 		Ok(listener) => Some(listener),
@@ -72,7 +68,8 @@ pub async fn start() {
 
 	let tcp_notifier = shutdown_notifier.clone();
 	let tcp_listener = TcpListener::bind(addr).await.unwrap();
-	let tcp_server = serve(tcp_listener, app.clone().with_state(port_state.clone()))
+	// MODIFIED: Provide the global state to the axum server.
+	let tcp_server = serve(tcp_listener, app.clone().with_state(CONFIG_STATE.clone()))
 		.with_graceful_shutdown(async move {
 			tcp_notifier.notified().await;
 		});
@@ -85,8 +82,9 @@ pub async fn start() {
 
 	let unix_handle = if let Some(listener) = unix_socket_listener {
 		let unix_notifier = shutdown_notifier.clone();
+		// MODIFIED: Provide the global state to the axum server.
 		let unix_server =
-			serve(listener, app.with_state(port_state)).with_graceful_shutdown(async move {
+			serve(listener, app.with_state(CONFIG_STATE.clone())).with_graceful_shutdown(async move {
 				unix_notifier.notified().await;
 			});
 		Some(tokio::spawn(async move {

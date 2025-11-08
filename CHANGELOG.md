@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.0.13 (8. Nov, 2025)
+
+- **Added:** An L4 connection dispatcher (`l4/dispatcher.rs`) responsible for protocol detection. The dispatcher implements `magic` (byte matching) and `prefix` (string matching) detection methods by peeking at the initial TCP stream data.
+- **Changed:** Refactored the application's state management to use a globally accessible, static `CONFIG_STATE` to provide tasks with direct, thread-safe access to the current listener configuration.
+- **Changed:** The TCP listener task in `ports/tasks.rs` now delegates incoming connections to the new L4 dispatcher for protocol analysis and routing.
+- **Changed:** Updated the log format for matched protocols to `⇅ [{priority}] Matched protocol {protocol} for connection from {ip:port}` for improved clarity.
+
 ## 0.0.12 (8. Nov, 2025)
 
 - **Added:** A new `server::l4::fs` module now centralizes all filesystem operations for listener configurations.

@@ -1,6 +1,7 @@
 /* src/modules/ports/tasks.rs */
 
-use super::model::{ListenerState, Protocol, TASK_REGISTRY};
+use super::model::{CONFIG_STATE, ListenerState, Protocol, TASK_REGISTRY};
+use crate::modules::server::l4::dispatcher;
 use fancy_log::{LogLevel, log};
 use tokio::{
 	net::{TcpListener, UdpSocket},
@@ -15,7 +16,8 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 	tokio::spawn(async move {
 		loop {
 			tokio::select! {
-				Ok((_socket, addr)) = listener.accept() => {
+				// MODIFIED: Renamed _socket to socket to use it.
+				Ok((socket, addr)) = listener.accept() => {
 					if let Some(task) = TASK_REGISTRY.get(&key) {
 						let mut state = task.state.lock().await;
 						if let ListenerState::Draining {..} = *state {
@@ -24,8 +26,24 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 						}
 						*state = ListenerState::Active;
 					}
-					// TODO: Handle the actual proxying of the connection.
+
 					log(LogLevel::Debug, &format!("⚙ Accepted TCP connection from {} on port {}", addr, port));
+
+					// Get the current configuration for this port.
+					let config_guard = CONFIG_STATE.load();
+					let port_status = config_guard.iter().find(|s| s.port == port);
+
+					if let Some(status) = port_status {
+						if let Some(tcp_config) = status.tcp_config.clone() {
+							// Spawn a new task to handle the connection dispatching.
+							tokio::spawn(async move {
+								dispatcher::dispatch_tcp_connection(socket, tcp_config).await;
+							});
+						} else {
+							// This should not happen if the listener is up, but as a safeguard:
+							log(LogLevel::Warn, &format!("✗ TCP listener is active on port {}, but no config found. Dropping connection from {}.", port, addr));
+						}
+					}
 				}
 				_ = &mut shutdown_rx => {
 					log(LogLevel::Debug, &format!("⚙ TCP listener on port {} received shutdown signal.", port));
@@ -53,7 +71,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 		loop {
 			tokio::select! {
 				Ok((len, addr)) = socket.recv_from(&mut buf) => {
-					// TODO: Handle the actual proxying of the UDP datagram.
+					// TODO: Handle the actual proxying of the UDP datagram using a similar dispatcher pattern.
 					log(LogLevel::Debug, &format!("⚙ Received {} bytes via UDP from {} on port {}", len, addr, port));
 				}
 				_ = &mut shutdown_rx => {

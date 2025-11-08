@@ -1,24 +1,18 @@
 /* src/modules/ports/hotswap.rs */
 
-use super::super::server::l4::{
-	loader,
-	model::{TcpConfig, UdpConfig},
-};
 use super::{
+	super::server::l4::{
+		loader,
+		model::{TcpConfig, UdpConfig},
+	},
 	listener,
-	model::{PortState, PortStatus, Protocol},
+	model::{CONFIG_STATE, PortStatus, Protocol},
 };
 use crate::common::{getconf, getenv};
 use fancy_log::{LogLevel, log};
 use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::mpsc;
 
-// REMOVED: The following functions were moved to `src/modules/server/l4/fs.rs`
-// - get_port_config_path
-// - create_protocol_listener
-// - delete_protocol_listener
-
-/// Scans the configuration directory, loading and validating all listener configs.
 pub fn scan_ports_config() -> Vec<PortStatus> {
 	let config_dir = getconf::get_config_dir();
 	let mut statuses = Vec::new();
@@ -49,7 +43,7 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 }
 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
-pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
+pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 	let ip_version_str =
 		if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
 			"IPv4 + IPv6"
@@ -59,7 +53,7 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 
 	while rx.recv().await.is_some() {
 		log(LogLevel::Info, "✓ Config change detected, diff...");
-		let old_statuses = state.load();
+		let old_statuses = CONFIG_STATE.load();
 		let new_statuses = scan_ports_config();
 
 		type PortConfigMap = HashMap<u16, (bool, bool)>;
@@ -152,6 +146,6 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 		if !has_changes {
 			log(LogLevel::Debug, "⚙ No effective changes detected.");
 		}
-		state.store(Arc::new(new_statuses));
+		CONFIG_STATE.store(Arc::new(new_statuses));
 	}
 }
