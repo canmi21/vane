@@ -1,6 +1,7 @@
 /* src/common/requirements.rs */
 
 use crate::common::getconf;
+use crate::modules::server::l4::health;
 use fancy_log::{LogLevel, log};
 use notify::{RecursiveMode, Watcher};
 use std::time::Duration;
@@ -69,7 +70,7 @@ fn start_config_watcher() -> mpsc::Receiver<()> {
 			'debounce: loop {
 				tokio::select! {
 					// If another event comes in, restart the 2-second timer.
-					_ = watcher_rx.recv() => {
+					Some(_) = watcher_rx.recv() => {
 						continue 'debounce;
 					}
 					// If the timer completes, the changes are stable.
@@ -97,6 +98,7 @@ pub async fn initialize() -> mpsc::Receiver<()> {
 
 	// Part 2: Pre-flight tasks
 	let config_change_receiver = start_config_watcher();
+	health::start_health_checker_task();
 
 	config_change_receiver
 }
