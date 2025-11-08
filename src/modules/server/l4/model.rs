@@ -17,6 +17,7 @@ pub struct Target {
 pub enum DetectMethod {
 	Magic,
 	Prefix,
+	Regex,
 }
 
 /// The configuration for how to detect a protocol.
@@ -204,6 +205,15 @@ pub fn validate_tcp_rules(rules: &[TcpProtocolRule]) -> Result<(), ValidationErr
 				return Err(err);
 			}
 		}
+		// ADDED: Validate regex pattern if the method is Regex.
+		if rule.detect.method == DetectMethod::Regex {
+			if fancy_regex::Regex::new(&rule.detect.pattern).is_err() {
+				let mut err = ValidationError::new("invalid_regex");
+				err.message =
+					Some(format!("Pattern '{}' is not a valid regex.", rule.detect.pattern).into());
+				return Err(err);
+			}
+		}
 	}
 	Ok(())
 }
@@ -216,6 +226,15 @@ pub fn validate_udp_rules(rules: &[UdpProtocolRule]) -> Result<(), ValidationErr
 			let mut err = ValidationError::new("unique_priorities");
 			err.message = Some("Priorities must be unique within a listener config.".into());
 			return Err(err);
+		}
+		// ADDED: Validate regex pattern if the method is Regex.
+		if rule.detect.method == DetectMethod::Regex {
+			if fancy_regex::Regex::new(&rule.detect.pattern).is_err() {
+				let mut err = ValidationError::new("invalid_regex");
+				err.message =
+					Some(format!("Pattern '{}' is not a valid regex.", rule.detect.pattern).into());
+				return Err(err);
+			}
 		}
 	}
 	Ok(())
