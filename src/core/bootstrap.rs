@@ -11,6 +11,7 @@ use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::task;
 
+use crate::common::{getenv, portool};
 use crate::core::router;
 
 pub async fn start() {
@@ -18,18 +19,33 @@ pub async fn start() {
 	setup_logging();
 	print_motd();
 
-	let port = env::var("PORT")
-		.ok()
-		.and_then(|s| s.parse::<u16>().ok())
-		.unwrap_or(3333);
+	// Get port from environment, parse, and validate.
+	let requested_port = getenv::get_env("PORT", "3333".to_string())
+		.parse::<u16>()
+		.unwrap_or(0); // Default to 0 on parse error for validation.
 
-	let detect_public_network = env::var("DETECT_PUBLIC_NETWORK")
-		.unwrap_or_else(|_| "true".to_string())
-		.to_lowercase()
-		!= "false";
+	let port = if portool::is_valid_port(requested_port) {
+		requested_port
+	} else {
+		3333 // Fallback to default port if invalid.
+	};
+
+	let detect_public_network = getenv::to_lowercase(&getenv::get_env(
+		"DETECT_PUBLIC_NETWORK",
+		"true".to_string(),
+	)) != "false";
+
+	// Determine whether to listen on IPv6 or IPv4.
+	let listen_ipv6 =
+		getenv::to_lowercase(&getenv::get_env("CONSOLE_LISTEN_IPV6", "false".to_string())) == "true";
+
+	let addr: SocketAddr = if listen_ipv6 {
+		([0, 0, 0, 0, 0, 0, 0, 0], port).into() // Listen on :: (IPv6)
+	} else {
+		([0, 0, 0, 0], port).into() // Listen on 0.0.0.0 (IPv4)
+	};
 
 	let app = router::create_router();
-	let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
 	let port_clone = port;
 	if let Err(e) = task::spawn_blocking(move || {
@@ -48,11 +64,6 @@ pub async fn start() {
 	}
 
 	let listener = TcpListener::bind(addr).await.unwrap();
-
-	log(
-		LogLevel::Info,
-		&format!("Management console listening on {}", addr),
-	);
 
 	let console_server =
 		serve(listener, app.into_make_service()).with_graceful_shutdown(shutdown_signal());
