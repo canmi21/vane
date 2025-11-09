@@ -1,7 +1,7 @@
 /* src/modules/ports/hotswap.rs */
 
 use super::{
-	super::server::l4::{
+	super::stack::transport::{
 		loader,
 		model::{TcpConfig, UdpConfig},
 	},
