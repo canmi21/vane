@@ -24,7 +24,6 @@ coverage
 
 # rust
 target
-filerouter
 
 # python
 .venv
