@@ -53,6 +53,9 @@ chrono = { version = "0.4", features = ["serde"] }
 [dev-dependencies]
 serial_test = "2"
 tempfile = "3"
+dirs = "6"
+temp-env = "0.3"
+tower = "0.5"
 
 [profile.release]
 lto = true
