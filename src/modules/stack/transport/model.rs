@@ -2,13 +2,47 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::net::IpAddr;
 use validator::{Validate, ValidationError, ValidationErrors};
 
-/// A single forwarding target, containing an IP and port.
+/// The final, resolved representation of a target: a concrete IP and port.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Target {
+pub struct ResolvedTarget {
 	pub ip: String,
 	pub port: u16,
+}
+
+/// Represents a target in the configuration file, which can be an IP, domain, or node.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[serde(untagged)]
+pub enum Target {
+	Ip { ip: String, port: u16 },
+	Domain { domain: String, port: u16 },
+	Node { node: String, port: u16 },
+}
+
+impl Validate for Target {
+	fn validate(&self) -> Result<(), ValidationErrors> {
+		let mut errors = ValidationErrors::new();
+		match self {
+			Target::Ip { ip, .. } => {
+				if ip.parse::<IpAddr>().is_err() {
+					errors.add("ip", ValidationError::new("ip"));
+				}
+			}
+			Target::Domain { domain, .. } => {
+				if domain.is_empty() || domain.len() > 253 {
+					errors.add("domain", ValidationError::new("hostname"));
+				}
+			}
+			Target::Node { .. } => { /* Node name validity is checked implicitly */ }
+		}
+		if errors.is_empty() {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
 }
 
 /// The method used for L4 protocol detection.
@@ -21,7 +55,6 @@ pub enum DetectMethod {
 	Fallback,
 }
 
-/// The configuration for how to detect a protocol.
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
 pub struct Detect {
 	pub method: DetectMethod,
@@ -29,7 +62,6 @@ pub struct Detect {
 	pub pattern: String,
 }
 
-/// The load balancing strategy for forwarders.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Strategy {
@@ -38,24 +70,49 @@ pub enum Strategy {
 	Fastest,
 }
 
-/// Configuration for L4 forwarding (shared by TCP and UDP).
-#[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Forward {
 	pub strategy: Strategy,
-	#[validate(length(min = 1, message = "must have at least one target"))]
+	#[serde(default)]
 	pub targets: Vec<Target>,
 	#[serde(default)]
 	pub fallbacks: Vec<Target>,
 }
 
-/// TCP-specific session configuration for resolver destinations.
+impl Validate for Forward {
+	fn validate(&self) -> Result<(), ValidationErrors> {
+		let mut errors = ValidationErrors::new();
+
+		if self.targets.is_empty() {
+			let mut err = ValidationError::new("length");
+			err.message = Some("must have at least one target".into());
+			errors.add("targets", err);
+		}
+
+		for (i, target) in self.targets.iter().enumerate() {
+			let field_name = Box::leak(format!("targets[{}]", i).into_boxed_str());
+			errors.merge_self(field_name, target.validate());
+		}
+
+		for (i, target) in self.fallbacks.iter().enumerate() {
+			let field_name = Box::leak(format!("fallbacks[{}]", i).into_boxed_str());
+			errors.merge_self(field_name, target.validate());
+		}
+
+		if errors.is_empty() {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct TcpSession {
 	pub keepalive: bool,
 	pub timeout: u64,
 }
 
-/// Defines the destination for a TCP protocol rule.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TcpDestination {
@@ -72,7 +129,6 @@ impl Validate for TcpDestination {
 	}
 }
 
-/// Defines the destination for a UDP protocol rule.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UdpDestination {
@@ -89,12 +145,10 @@ impl Validate for UdpDestination {
 	}
 }
 
-// Define the static regex at the module level for the validator to use.
 lazy_static::lazy_static! {
-		static ref NAME_REGEX: regex::Regex = regex::Regex::new(r"^[a-z0-9]+$").unwrap();
+	static ref NAME_REGEX: regex::Regex = regex::Regex::new(r"^[a-z0-9]+$").unwrap();
 }
 
-/// A rule for a specific TCP protocol.
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
 pub struct TcpProtocolRule {
 	#[validate(regex(path = *NAME_REGEX, message = "can only contain lowercase letters and numbers"))]
@@ -109,7 +163,6 @@ pub struct TcpProtocolRule {
 	pub destination: TcpDestination,
 }
 
-/// A rule for a specific UDP protocol.
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
 pub struct UdpProtocolRule {
 	#[validate(regex(path = *NAME_REGEX, message = "can only contain lowercase letters and numbers"))]
@@ -122,7 +175,6 @@ pub struct UdpProtocolRule {
 	pub destination: UdpDestination,
 }
 
-/// The top-level configuration structure for a TCP listener.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct TcpConfig {
 	#[serde(rename = "protocols")]
@@ -131,7 +183,7 @@ pub struct TcpConfig {
 
 impl Validate for TcpConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
-		let mut result = Ok(());
+		let mut result: Result<(), ValidationErrors> = Ok(());
 		for (i, rule) in self.rules.iter().enumerate() {
 			let field_name = Box::leak(format!("rules[{}]", i).into_boxed_str());
 			result = ValidationErrors::merge(result, field_name, rule.validate());
@@ -149,7 +201,6 @@ impl Validate for TcpConfig {
 	}
 }
 
-/// The top-level configuration structure for a UDP listener.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UdpConfig {
 	#[serde(rename = "protocols")]
@@ -158,7 +209,7 @@ pub struct UdpConfig {
 
 impl Validate for UdpConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
-		let mut result = Ok(());
+		let mut result: Result<(), ValidationErrors> = Ok(());
 		for (i, rule) in self.rules.iter().enumerate() {
 			let field_name = Box::leak(format!("rules[{}]", i).into_boxed_str());
 			result = ValidationErrors::merge(result, field_name, rule.validate());
@@ -176,7 +227,6 @@ impl Validate for UdpConfig {
 	}
 }
 
-/// Custom validation for TCP rules to check for unique priorities and session logic.
 pub fn validate_tcp_rules(rules: &[TcpProtocolRule]) -> Result<(), ValidationError> {
 	let mut priorities = HashSet::new();
 	for rule in rules {
@@ -215,7 +265,6 @@ pub fn validate_tcp_rules(rules: &[TcpProtocolRule]) -> Result<(), ValidationErr
 	Ok(())
 }
 
-/// Custom validation for UDP rules to check for unique priorities.
 pub fn validate_udp_rules(rules: &[UdpProtocolRule]) -> Result<(), ValidationError> {
 	let mut priorities = HashSet::new();
 	for rule in rules {
