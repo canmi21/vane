@@ -1,58 +1,33 @@
 /* src/modules/ports/hotswap.rs */
 
-use super::super::server::l4::model::{TcpConfig, UdpConfig};
 use super::{
-	listener, loader,
-	model::{PortState, PortStatus, Protocol},
+	super::stack::transport::{
+		loader,
+		model::{TcpConfig, UdpConfig},
+	},
+	listener,
+	model::{CONFIG_STATE, PortStatus, Protocol},
 };
 use crate::common::{getconf, getenv};
 use fancy_log::{LogLevel, log};
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::mpsc;
 
-/// Returns the filesystem path for a given port's configuration directory.
-fn get_port_config_path(port: u16) -> PathBuf {
-	getconf::get_config_dir().join(format!("[{}]", port))
-}
-
-/// Creates a default, empty listener config file.
-pub fn create_protocol_listener(port: u16, protocol: &Protocol) -> std::io::Result<()> {
-	let port_dir = get_port_config_path(port);
-	if !port_dir.exists() {
-		fs::create_dir(&port_dir)?;
-	}
-	let file_name = match protocol {
-		Protocol::Tcp => "tcp.toml",
-		Protocol::Udp => "udp.toml",
-	};
-	fs::File::create(port_dir.join(file_name))?;
-	Ok(())
-}
-
-/// Deletes all possible config files for a protocol.
-pub fn delete_protocol_listener(port: u16, protocol: &Protocol) -> std::io::Result<()> {
-	let port_dir = get_port_config_path(port);
-	if !port_dir.exists() {
-		return Ok(());
-	}
-	let base_name = match protocol {
-		Protocol::Tcp => "tcp",
-		Protocol::Udp => "udp",
-	};
-	for ext in ["toml", "yaml", "json", "ron"] {
-		let path = port_dir.join(format!("{}.{}", base_name, ext));
-		if path.exists() {
-			fs::remove_file(path)?;
-		}
-	}
-	Ok(())
-}
-
-/// Scans the configuration directory, loading and validating all listener configs.
+/// Scans the 'listener' config subdirectory for port configurations.
+///
+/// This function reads each subdirectory within `CONFIG_DIR/listener/` that is
+/// named like `[<port>]`, and attempts to load `tcp.{toml|yaml|json}` and
+/// `udp.{toml|yaml|json}` files within it. It returns a vector of `PortStatus`
+/// representing the discovered configurations.
 pub fn scan_ports_config() -> Vec<PortStatus> {
-	let config_dir = getconf::get_config_dir();
+	let listener_dir = getconf::get_config_dir().join("listener");
 	let mut statuses = Vec::new();
-	if let Ok(entries) = fs::read_dir(config_dir) {
+
+	if !listener_dir.exists() || !listener_dir.is_dir() {
+		return statuses;
+	}
+
+	if let Ok(entries) = fs::read_dir(listener_dir) {
 		for entry in entries.flatten() {
 			if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
 				continue;
@@ -79,7 +54,12 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 }
 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
-pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
+///
+/// This async function waits on a channel for a signal that the configuration
+/// has changed. Upon receiving a signal, it re-scans the port configurations,
+/// compares the new state with the old one, and issues commands to start or
+/// stop TCP/UDP listeners accordingly.
+pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 	let ip_version_str =
 		if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
 			"IPv4 + IPv6"
@@ -88,8 +68,11 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 		};
 
 	while rx.recv().await.is_some() {
-		log(LogLevel::Info, "✓ Config change detected, diff...");
-		let old_statuses = state.load();
+		log(
+			LogLevel::Info,
+			"➜ Config change signal received, diffing listeners...",
+		);
+		let old_statuses = CONFIG_STATE.load();
 		let new_statuses = scan_ports_config();
 
 		type PortConfigMap = HashMap<u16, (bool, bool)>;
@@ -180,8 +163,8 @@ pub async fn listen_for_updates(state: PortState, mut rx: mpsc::Receiver<()>) {
 		}
 
 		if !has_changes {
-			log(LogLevel::Debug, "⚙ No effective changes detected.");
+			log(LogLevel::Debug, "⚙ No effective listener changes detected.");
 		}
-		state.store(Arc::new(new_statuses));
+		CONFIG_STATE.store(Arc::new(new_statuses));
 	}
 }
