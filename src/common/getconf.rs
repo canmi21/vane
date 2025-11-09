@@ -77,3 +77,45 @@ pub fn init_config_files(files_to_check: Vec<&str>) {
 		}
 	}
 }
+
+/// Ensures a specific subdirectory exists within the main configuration directory.
+///
+/// If the directory does not exist, it will be created.
+pub fn init_config_dir(dir_name: &str) {
+	let config_dir = get_config_dir();
+	let full_path = config_dir.join(dir_name);
+
+	if full_path.exists() {
+		// If path exists but is not a directory, it's an issue.
+		if !full_path.is_dir() {
+			log(
+				LogLevel::Error,
+				&format!(
+					"Path {} exists but is not a directory.",
+					full_path.display()
+				),
+			);
+		}
+		// If it exists and is a directory, do nothing.
+		return;
+	}
+
+	// Directory does not exist, so create it.
+	match fs::create_dir_all(&full_path) {
+		Ok(_) => log(
+			LogLevel::Debug,
+			&format!(
+				"Created default config directory at: {}",
+				full_path.display()
+			),
+		),
+		Err(e) => log(
+			LogLevel::Error,
+			&format!(
+				"Failed to create config directory {}: {}",
+				full_path.display(),
+				e
+			),
+		),
+	}
+}
