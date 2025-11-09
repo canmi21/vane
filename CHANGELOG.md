@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Added:** Implemented a hot-swap mechanism for the `nodes` configuration. The application now watches the `nodes` file and reloads it automatically on change.
 - **Changed:** The `nodes` data model has been redesigned to support a more flexible structure, allowing multiple IP configurations (with different ports and types) under a single named node.
 - **Changed:** The application's file watcher has been re-architected to be context-aware. It now intelligently distinguishes between changes to `listener` configurations and the global `nodes` configuration, dispatching update signals to the correct modules.
-- **Changed:** The IP address utility (`ip.rs`) has been refactore-d to use stable Rust methods for checking private IPv6 ranges, removing the dependency on unstable nightly features.
+- **Changed:** The IP address utility (`ip.rs`) has been refactore-d to use stable Rust methods for checking private IPv6 ranges, removing the dependency on [unstable](https://github.com/rust-lang/rust/issues/27709) nightly features.
 - **Fixed:** Corrected a critical bug in the `nodes` loader where it would attempt to parse a file before checking for conflicts. The loader now correctly prioritizes the conflict check.
 - **Fixed:** Resolved a compilation error by implementing the `Hash` trait for the `IpType` enum in the `nodes` data model.
 - **Fixed:** Corrected a critical bug where the file watcher process would terminate prematurely, disabling all configuration hot-swap functionality.
