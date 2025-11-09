@@ -13,10 +13,21 @@ use fancy_log::{LogLevel, log};
 use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::mpsc;
 
+/// Scans the 'listener' config subdirectory for port configurations.
+///
+/// This function reads each subdirectory within `CONFIG_DIR/listener/` that is
+/// named like `[<port>]`, and attempts to load `tcp.{toml|yaml|json}` and
+/// `udp.{toml|yaml|json}` files within it. It returns a vector of `PortStatus`
+/// representing the discovered configurations.
 pub fn scan_ports_config() -> Vec<PortStatus> {
-	let config_dir = getconf::get_config_dir();
+	let listener_dir = getconf::get_config_dir().join("listener");
 	let mut statuses = Vec::new();
-	if let Ok(entries) = fs::read_dir(config_dir) {
+
+	if !listener_dir.exists() || !listener_dir.is_dir() {
+		return statuses;
+	}
+
+	if let Ok(entries) = fs::read_dir(listener_dir) {
 		for entry in entries.flatten() {
 			if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
 				continue;
@@ -43,6 +54,11 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 }
 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
+///
+/// This async function waits on a channel for a signal that the configuration
+/// has changed. Upon receiving a signal, it re-scans the port configurations,
+/// compares the new state with the old one, and issues commands to start or
+/// stop TCP/UDP listeners accordingly.
 pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 	let ip_version_str =
 		if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
@@ -52,7 +68,10 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 		};
 
 	while rx.recv().await.is_some() {
-		log(LogLevel::Info, "✓ Config change detected, diff...");
+		log(
+			LogLevel::Info,
+			"➜ Config change signal received, diffing listeners...",
+		);
 		let old_statuses = CONFIG_STATE.load();
 		let new_statuses = scan_ports_config();
 
@@ -144,7 +163,7 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 		}
 
 		if !has_changes {
-			log(LogLevel::Debug, "⚙ No effective changes detected.");
+			log(LogLevel::Debug, "⚙ No effective listener changes detected.");
 		}
 		CONFIG_STATE.store(Arc::new(new_statuses));
 	}
