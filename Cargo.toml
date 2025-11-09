@@ -5,7 +5,7 @@ categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
 rust-version = { workspace = true }
-homepage = "https://github.com/canmi21/vane"
+homepage = "https://vaneproxy.com"
 keywords = ["network", "server", "web", "vane", "proxy"]
 license = "MIT"
 readme = "README.md"
