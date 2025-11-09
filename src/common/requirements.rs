@@ -1,7 +1,7 @@
 /* src/common/requirements.rs */
 
 use crate::common::getconf;
-use crate::modules::server::l4::{health, session};
+use crate::modules::stack::transport::{health, session};
 use fancy_log::{LogLevel, log};
 use notify::{RecursiveMode, Watcher};
 use std::time::Duration;
