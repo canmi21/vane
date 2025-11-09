@@ -6,7 +6,6 @@ use super::{
 	session::{REVERSE_SESSIONS, SESSIONS, Session},
 };
 use crate::common::{getenv, ip};
-use fancy_log::{LogLevel, log};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::{
@@ -83,25 +82,27 @@ async fn get_or_create_session(
 	}
 
 	if let UdpDestination::Forward { ref forward } = rule.destination {
-		if let Some(target) = balancer::select_udp_target(port, &rule.name, forward) {
-			if let Ok(upstream_socket) = bind_upstream_socket(&target.ip.parse().ok()?).await {
-				let upstream_arc = Arc::new(upstream_socket);
-				if let Ok(local_addr) = upstream_arc.local_addr() {
-					let new_session = Arc::new(Session {
-						target: target.clone(),
-						upstream_socket: upstream_arc.clone(),
-						last_seen: Instant::now(),
-					});
-					SESSIONS.insert(client_addr, new_session.clone());
-					REVERSE_SESSIONS.insert(local_addr, client_addr);
-					let timeout_ms_str = if ip::is_private_ip(&target.ip.parse().ok()?) {
-						getenv::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
-					} else {
-						getenv::get_env("UDP_TIMEOUT_REMOTE", "5000".to_string())
-					};
-					let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(5000);
-					spawn_reply_handler(upstream_arc, main_socket, Duration::from_millis(timeout_ms));
-					return Some(new_session);
+		if let Some(target) = balancer::select_udp_target(port, &rule.name, forward).await {
+			if let Ok(target_ip) = target.ip.parse() {
+				if let Ok(upstream_socket) = bind_upstream_socket(&target_ip).await {
+					let upstream_arc = Arc::new(upstream_socket);
+					if let Ok(local_addr) = upstream_arc.local_addr() {
+						let new_session = Arc::new(Session {
+							target, // This is now a ResolvedTarget
+							upstream_socket: upstream_arc.clone(),
+							last_seen: Instant::now(),
+						});
+						SESSIONS.insert(client_addr, new_session.clone());
+						REVERSE_SESSIONS.insert(local_addr, client_addr);
+						let timeout_ms_str = if ip::is_private_ip(&target_ip) {
+							getenv::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
+						} else {
+							getenv::get_env("UDP_TIMEOUT_REMOTE", "5000".to_string())
+						};
+						let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(5000);
+						spawn_reply_handler(upstream_arc, main_socket, Duration::from_millis(timeout_ms));
+						return Some(new_session);
+					}
 				}
 			}
 		}
@@ -109,7 +110,7 @@ async fn get_or_create_session(
 	None
 }
 
-/// Dispatches a single incoming UDP datagram based on the listener's configuration.
+/// Dispatches a single incoming UDP datagram.
 pub async fn dispatch_udp_datagram(
 	socket: Arc<UdpSocket>,
 	port: u16,
@@ -150,13 +151,6 @@ pub async fn dispatch_udp_datagram(
 		};
 
 		if matches {
-			log(
-				LogLevel::Info,
-				&format!(
-					"⇅ Matched Protocol[{}] {} for connection from {}",
-					rule.priority, rule.name, client_addr
-				),
-			);
 			if let Some(session) = get_or_create_session(client_addr, port, &rule, socket.clone()).await {
 				let target_addr = (session.target.ip.as_str(), session.target.port);
 				if session
@@ -172,14 +166,7 @@ pub async fn dispatch_udp_datagram(
 					SESSIONS.remove(&client_addr);
 				}
 			}
-			return; // Rule matched, stop processing.
+			return;
 		}
 	}
-	log(
-		LogLevel::Warn,
-		&format!(
-			"✗ No protocol matched for datagram from {}. Dropping.",
-			client_addr
-		),
-	);
 }
