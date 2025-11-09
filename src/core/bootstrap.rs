@@ -16,25 +16,37 @@ use tokio::time::{Duration, sleep};
 
 use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
-use crate::modules::ports::{
-	hotswap, listener,
-	model::{CONFIG_STATE, Protocol},
-};
+// Import both the nodes and ports modules.
+use crate::modules::{nodes, ports};
 
 pub async fn start() {
 	dotenv().ok();
 	setup_logging();
 	print_motd();
 
-	// Scan config from disk FIRST.
-	let initial_ports = hotswap::scan_ports_config();
-	// Immediately populate the global state so other modules can access it.
-	CONFIG_STATE.store(Arc::new(initial_ports.clone()));
-	// Now initialize background tasks. The health check inside will see the populated state.
-	let config_change_receiver = requirements::initialize().await;
+	// Scan initial configs from disk FIRST.
+	let initial_ports = ports::hotswap::scan_ports_config();
+	let initial_nodes = nodes::hotswap::scan_nodes_config();
 
-	// Spawn hotswap listener without passing state; it will use the global state.
-	tokio::spawn(hotswap::listen_for_updates(config_change_receiver));
+	// Immediately populate the global states so other modules can access them.
+	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
+	if let Some(nodes_config) = initial_nodes {
+		nodes::model::NODES_STATE.store(Arc::new(nodes_config));
+	}
+
+	// Now initialize background tasks. The health check inside will see the populated state.
+	// This now returns a struct with separate receivers for ports and nodes.
+	let config_change_receivers = requirements::initialize().await;
+
+	// Spawn a hotswap listener for port changes.
+	tokio::spawn(ports::hotswap::listen_for_updates(
+		config_change_receivers.ports,
+	));
+
+	// Spawn a separate hotswap listener for node changes.
+	tokio::spawn(nodes::hotswap::listen_for_updates(
+		config_change_receivers.nodes,
+	));
 
 	let unix_socket_listener = match socket::bind_unix_socket().await {
 		Ok(listener) => Some(listener),
@@ -72,10 +84,13 @@ pub async fn start() {
 	let tcp_notifier = shutdown_notifier.clone();
 	let tcp_listener = TcpListener::bind(addr).await.unwrap();
 	// Provide the global state to the axum server.
-	let tcp_server = serve(tcp_listener, app.clone().with_state(CONFIG_STATE.clone()))
-		.with_graceful_shutdown(async move {
-			tcp_notifier.notified().await;
-		});
+	let tcp_server = serve(
+		tcp_listener,
+		app.clone().with_state(ports::model::CONFIG_STATE.clone()),
+	)
+	.with_graceful_shutdown(async move {
+		tcp_notifier.notified().await;
+	});
 
 	let tcp_handle = tokio::spawn(async move {
 		if let Err(e) = tcp_server.await {
@@ -86,8 +101,8 @@ pub async fn start() {
 	let unix_handle = if let Some(listener) = unix_socket_listener {
 		let unix_notifier = shutdown_notifier.clone();
 		// Provide the global state to the axum server.
-		let unix_server =
-			serve(listener, app.with_state(CONFIG_STATE.clone())).with_graceful_shutdown(async move {
+		let unix_server = serve(listener, app.with_state(ports::model::CONFIG_STATE.clone()))
+			.with_graceful_shutdown(async move {
 				unix_notifier.notified().await;
 			});
 		Some(tokio::spawn(async move {
@@ -134,14 +149,14 @@ pub async fn start() {
 					LogLevel::Info,
 					&format!("↑ {} PORT {} TCP UP", ip_version_str, status.port),
 				);
-				listener::start_listener(status.port, Protocol::Tcp);
+				ports::listener::start_listener(status.port, ports::model::Protocol::Tcp);
 			}
 			if status.udp_config.is_some() {
 				log(
 					LogLevel::Info,
 					&format!("↑ {} PORT {} UDP UP", ip_version_str, status.port),
 				);
-				listener::start_listener(status.port, Protocol::Udp);
+				ports::listener::start_listener(status.port, ports::model::Protocol::Udp);
 			}
 		}
 	});
