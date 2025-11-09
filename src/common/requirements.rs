@@ -3,56 +3,83 @@
 use crate::common::getconf;
 use crate::modules::stack::transport::{health, session};
 use fancy_log::{LogLevel, log};
-use notify::{RecursiveMode, Watcher};
-use std::time::Duration;
+use notify::{Event, RecursiveMode, Watcher};
+use std::{ffi::OsStr, time::Duration};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
-/// Ensures that all required directories and default files exist.
-fn ensure_config_files_exist() {
-	getconf::init_config_dir("listener");
-	getconf::init_config_files(vec!["listener/unixsocket.yml"]);
+/// A container for the different configuration change receivers.
+pub struct ConfigChangeReceivers {
+	pub ports: mpsc::Receiver<()>,
+	pub nodes: mpsc::Receiver<()>,
 }
 
-/// Spawns a background task to watch the config directory with debouncing.
-fn start_config_watcher() -> mpsc::Receiver<()> {
-	let (debounced_tx, debounced_rx) = mpsc::channel(1);
-	let listener_dir = getconf::get_config_dir().join("listener");
+/// Ensures that all required directories and default files exist.
+fn ensure_config_files_exist() {
+	getconf::init_config_dirs(vec!["listener", "resolver"]);
+	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml"]);
+}
 
+/// Spawns background tasks to watch the config directory and notify modules of changes.
+fn start_config_watchers() -> ConfigChangeReceivers {
+	let (ports_debounced_tx, ports_debounced_rx) = mpsc::channel(1);
+	let (nodes_debounced_tx, nodes_debounced_rx) = mpsc::channel(1);
+
+	// Create raw channels to send immediate, pre-debounced signals.
+	let (ports_raw_tx, mut ports_raw_rx) = mpsc::channel(32);
+	let (nodes_raw_tx, mut nodes_raw_rx) = mpsc::channel(32);
+
+	// Spawn a dedicated, long-running task for the ports debouncer.
+	tokio::spawn(async move {
+		while ports_raw_rx.recv().await.is_some() {
+			'debounce: loop {
+				tokio::select! {
+						Some(_) = ports_raw_rx.recv() => { continue 'debounce; }
+						_ = sleep(Duration::from_secs(2)) => {
+								if ports_debounced_tx.send(()).await.is_err() { return; }
+								break 'debounce;
+						}
+				}
+			}
+		}
+	});
+
+	// Spawn a dedicated, long-running task for the nodes debouncer.
+	tokio::spawn(async move {
+		while nodes_raw_rx.recv().await.is_some() {
+			'debounce: loop {
+				tokio::select! {
+						Some(_) = nodes_raw_rx.recv() => { continue 'debounce; }
+						_ = sleep(Duration::from_secs(2)) => {
+								if nodes_debounced_tx.send(()).await.is_err() { return; }
+								break 'debounce;
+						}
+				}
+			}
+		}
+	});
+
+	// Spawn the main, long-running watcher task. Its primary job is to keep the
+	// `watcher` object alive and multiplex events to the debouncer tasks.
 	tokio::spawn(async move {
 		log(LogLevel::Debug, "➜ Starting config file watcher...");
-		let (watcher_tx, mut watcher_rx) = mpsc::channel(32);
-		let mut watcher =
-			match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-				if let Ok(event) = res {
-					let is_listener_related = event
-						.paths
-						.iter()
-						.any(|path| path.starts_with(&listener_dir));
+		let (event_tx, mut event_rx) = mpsc::channel::<Event>(32);
 
-					if is_listener_related {
-						log(
-							LogLevel::Debug,
-							&format!("⇆ FS Event in 'listener' detected: {:?}", event.kind),
-						);
-						let _ = watcher_tx.try_send(());
-					} else {
-						log(
-							LogLevel::Debug,
-							&format!("⚙ FS Event ignored (not in 'listener'): {:?}", event.paths),
-						);
-					}
-				}
-			}) {
-				Ok(w) => w,
-				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ Failed to create file watcher: {}", e),
-					);
-					return;
-				}
-			};
+		// This `watcher` is moved into the async block and will live as long as the task.
+		let mut watcher = match notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+			if let Ok(event) = res {
+				let _ = event_tx.try_send(event);
+			}
+		}) {
+			Ok(w) => w,
+			Err(e) => {
+				log(
+					LogLevel::Error,
+					&format!("✗ Failed to create file watcher: {}", e),
+				);
+				return;
+			}
+		};
 
 		let config_dir = getconf::get_config_dir();
 		if let Err(e) = watcher.watch(&config_dir, RecursiveMode::Recursive) {
@@ -67,19 +94,34 @@ fn start_config_watcher() -> mpsc::Receiver<()> {
 			return;
 		}
 
-		loop {
-			if watcher_rx.recv().await.is_none() {
-				break;
-			}
-			'debounce: loop {
-				tokio::select! {
-					Some(_) = watcher_rx.recv() => { continue 'debounce; }
-					_ = sleep(Duration::from_secs(2)) => { if debounced_tx.send(()).await.is_err() { return; } break 'debounce; }
-				}
+		let listener_dir = config_dir.join("listener");
+		// This loop runs forever, keeping the task and the `watcher` alive.
+		while let Some(event) = event_rx.recv().await {
+			log(
+				LogLevel::Debug,
+				&format!("⇆ FS Event detected: {:?}", event.kind),
+			);
+			if event.paths.iter().any(|p| p.starts_with(&listener_dir)) {
+				let _ = ports_raw_tx.try_send(());
+			} else if event
+				.paths
+				.iter()
+				.any(|p| p.file_stem() == Some(OsStr::new("nodes")))
+			{
+				let _ = nodes_raw_tx.try_send(());
+			} else {
+				log(
+					LogLevel::Debug,
+					&format!("⚙ FS Event ignored (unrelated path): {:?}", event.paths),
+				);
 			}
 		}
 	});
-	debounced_rx
+
+	ConfigChangeReceivers {
+		ports: ports_debounced_rx,
+		nodes: nodes_debounced_rx,
+	}
 }
 
 /// Runs all pre-flight checks and starts background tasks required by the application.
@@ -88,11 +130,11 @@ fn start_config_watcher() -> mpsc::Receiver<()> {
 /// the configuration structure is in place, starts the file watcher for dynamic
 /// configuration updates, and launches periodic background tasks for health
 /// checking and session management.
-pub async fn initialize() -> mpsc::Receiver<()> {
+pub async fn initialize() -> ConfigChangeReceivers {
 	ensure_config_files_exist();
-	let config_change_receiver = start_config_watcher();
+	let config_change_receivers = start_config_watchers();
 	health::initial_health_check().await;
 	health::start_periodic_health_checkers();
 	session::start_session_cleanup_task();
-	config_change_receiver
+	config_change_receivers
 }
