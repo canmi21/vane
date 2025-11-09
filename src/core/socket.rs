@@ -87,3 +87,28 @@ pub fn cleanup_unix_socket() {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use serial_test::serial;
+	use temp_env;
+	use tempfile::tempdir;
+
+	/// Tests that the socket path is correctly derived from the environment or the default.
+	#[test]
+	#[serial]
+	fn test_socket_path_resolution() {
+		// Test with environment variable set
+		let temp_dir = tempdir().unwrap();
+		let temp_path = temp_dir.path();
+		temp_env::with_var("SOCKET_DIR", Some(temp_path.to_str().unwrap()), || {
+			assert_eq!(get_socket_path(), temp_path.join("console.sock"));
+		});
+
+		// Test fallback to default when environment variable is not set
+		temp_env::with_var_unset("SOCKET_DIR", || {
+			assert_eq!(get_socket_path(), Path::new("/var/run/vane/console.sock"));
+		});
+	}
+}

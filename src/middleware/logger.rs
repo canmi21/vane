@@ -31,3 +31,58 @@ pub async fn log_requests(request: Request<Body>, next: Next) -> Response {
 
 	next.run(request).await
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use axum::{
+		Router,
+		http::StatusCode,
+		middleware,
+		routing::{get, post},
+	};
+	use tower::util::ServiceExt;
+
+	/// A simple handler to be used as the final destination in the middleware chain.
+	async fn handler() -> (StatusCode, &'static str) {
+		(StatusCode::OK, "Success")
+	}
+
+	/// Tests that a non-mutating method (GET) is processed correctly.
+	/// This implicitly verifies that the DEBUG log path is taken without panicking.
+	#[tokio::test]
+	async fn test_logs_non_mutating_request() {
+		let app = Router::new()
+			.route("/", get(handler))
+			.layer(middleware::from_fn(log_requests));
+
+		let request = Request::builder()
+			.method(Method::GET)
+			.uri("/")
+			.body(Body::empty())
+			.unwrap();
+
+		let response = app.oneshot(request).await.unwrap();
+
+		assert_eq!(response.status(), StatusCode::OK);
+	}
+
+	/// Tests that a mutating method (POST) is processed correctly.
+	/// This implicitly verifies that the INFO log path is taken without panicking.
+	#[tokio::test]
+	async fn test_logs_mutating_request() {
+		let app = Router::new()
+			.route("/", post(handler))
+			.layer(middleware::from_fn(log_requests));
+
+		let request = Request::builder()
+			.method(Method::POST)
+			.uri("/")
+			.body(Body::empty())
+			.unwrap();
+
+		let response = app.oneshot(request).await.unwrap();
+
+		assert_eq!(response.status(), StatusCode::OK);
+	}
+}
