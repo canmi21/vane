@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.9 (9. Nov, 2025)
+
+- **Changed:** Architecturally refactored the L4 transport layer models (`src/modules/stack/transport/`) to enforce the Single Responsibility Principle. The original monolithic `model.rs` has been split into multiple, more focused files (`model.rs`, `tcp.rs`, `udp.rs`, `validator.rs`), significantly improving code organization and maintainability without introducing breaking changes to the configuration format.
+
 ## 0.1.8 (9. Nov, 2025)
 
 - **Breaking:** Redesigned the forwarding target model (`Target`). It is now a flexible enum supporting `ip`, `domain`, or `node` types, requiring changes to all listener configuration files. For example, a target is now defined as `{ ip: "1.1.1.1", port: 80 }` or `{ domain: "example.com", port: 443 }`.
