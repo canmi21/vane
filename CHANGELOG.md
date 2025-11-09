@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.6 (9. Nov, 2025)
+
+- **Breaking:** The listener configuration directory structure has been changed. All port configurations (e.g., `[80]/`) must now reside within a `listener` subdirectory. The application will no longer scan the root config directory for listeners.
+- **Changed:** The configuration hot-swap watcher is now context-aware. It only triggers a listener reload when changes are detected specifically within the `listener` subdirectory, improving efficiency.
+- **Changed:** The application bootstrap process now ensures the `listener` configuration subdirectory exists on startup.
+
 ## 0.1.5 (9. Nov, 2025)
 
 - **Breaking:** The `server` module has been fully restructured into a new `stack` architecture, separating protocol and transport layers for clearer layering and modularity.
