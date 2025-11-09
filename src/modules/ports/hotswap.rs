@@ -1,10 +1,7 @@
 /* src/modules/ports/hotswap.rs */
 
 use super::{
-	super::stack::transport::{
-		loader,
-		model::{TcpConfig, UdpConfig},
-	},
+	super::stack::transport::{loader, tcp::TcpConfig, udp::UdpConfig},
 	listener,
 	model::{CONFIG_STATE, PortStatus, Protocol},
 };
@@ -255,8 +252,8 @@ destination = { type = "forward", forward = { strategy = "random", targets = [{ 
 				!s9999.active,
 				"Port 9999 should be inactive with no config files"
 			);
-			assert!(s9090.tcp_config.is_none());
-			assert!(s9090.udp_config.is_some());
+			assert!(s9999.tcp_config.is_none());
+			assert!(s9999.udp_config.is_none());
 		});
 	}
 }
