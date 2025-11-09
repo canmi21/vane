@@ -53,9 +53,10 @@ chrono = { version = "0.4", features = ["serde"] }
 [dev-dependencies]
 serial_test = "2"
 tempfile = "3"
-dirs = "6"
 temp-env = "0.3"
+dirs = "6"
 tower = "0.5"
+axum = { version = "0.8", features = ["macros"] }
 
 [profile.release]
 lto = true
