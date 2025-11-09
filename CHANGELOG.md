@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.5 (9. Nov, 2025)
+
+- **Breaking:** The `server` module has been fully restructured into a new `stack` architecture, separating protocol and transport layers for clearer layering and modularity.
+- **Added:** Introduced L4–L7 layered directories (`l4`, `l5`, `l7`) to explicitly define network stack hierarchy.
+- **Changed:** All protocol-related logic (`plain`, `quic`, `tls`) migrated under `stack/protocol`.
+- **Changed:** Transport-related components (`balancer`, `proxy`, `session`) moved under `stack/transport`.
+- **Changed:** Internal routing and module imports updated to reflect the new `stack` namespace.
+
 ## 0.1.4 (8. Nov, 2025)
 
 - **Added:** Implemented full L4 UDP transparent proxy functionality, including a stateful session manager to maintain client-to-target affinity.
