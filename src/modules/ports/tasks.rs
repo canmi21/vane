@@ -1,7 +1,7 @@
 /* src/modules/ports/tasks.rs */
 
 use super::model::{CONFIG_STATE, ListenerState, Protocol, TASK_REGISTRY};
-use crate::modules::server::l4::{dispatcher, proxy};
+use crate::modules::stack::transport::{dispatcher, proxy};
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::{
