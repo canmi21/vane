@@ -7,12 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.7 (9. Nov, 2025)
+
+- **Added:** A new global `nodes` configuration system for service discovery. The application can now load a central list of named nodes from `nodes.yaml`, `nodes.json`, or `nodes.toml`.
+- **Added:** Implemented a hot-swap mechanism for the `nodes` configuration. The application now watches the `nodes` file and reloads it automatically on change.
+- **Changed:** The `nodes` data model has been redesigned to support a more flexible structure, allowing multiple IP configurations (with different ports and types) under a single named node.
+- **Changed:** The application's file watcher has been re-architected to be context-aware. It now intelligently distinguishes between changes to `listener` configurations and the global `nodes` configuration, dispatching update signals to the correct modules.
+- **Changed:** The IP address utility (`ip.rs`) has been refactore-d to use stable Rust methods for checking private IPv6 ranges, removing the dependency on unstable nightly features.
+- **Fixed:** Corrected a critical bug in the `nodes` loader where it would attempt to parse a file before checking for conflicts. The loader now correctly prioritizes the conflict check.
+- **Fixed:** Resolved a compilation error by implementing the `Hash` trait for the `IpType` enum in the `nodes` data model.
+- **Fixed:** Corrected a critical bug where the file watcher process would terminate prematurely, disabling all configuration hot-swap functionality.
+
+## 0.1.6 (9. Nov, 2025)
+
+- **Breaking:** The listener configuration directory structure has been changed. All port configurations (e.g., `[80]/`) must now reside within a `listener` subdirectory. The application will no longer scan the root config directory for listeners.
+- **Changed:** The configuration hot-swap watcher is now context-aware. It only triggers a listener reload when changes are detected specifically within the `listener` subdirectory, improving efficiency.
+- **Changed:** The application bootstrap process now ensures the `listener` configuration subdirectory exists on startup.
+
+## 0.1.5 (9. Nov, 2025)
+
+- **Breaking:** The `server` module has been fully restructured into a new `stack` architecture, separating protocol and transport layers for clearer layering and modularity.
+- **Added:** Introduced L4–L7 layered directories (`l4`, `l5`, `l7`) to explicitly define network stack hierarchy.
+- **Changed:** All protocol-related logic (`plain`, `quic`, `tls`) migrated under `stack/protocol`.
+- **Changed:** Transport-related components (`balancer`, `proxy`, `session`) moved under `stack/transport`.
+- **Changed:** Internal routing and module imports updated to reflect the new `stack` namespace.
+
+## 0.1.4 (8. Nov, 2025)
+
+- **Added:** Implemented full L4 UDP transparent proxy functionality, including a stateful session manager to maintain client-to-target affinity.
+- **Added:** A new UDP session manager (`session.rs`) with a background cleanup task to prune idle sessions and enforce a configurable memory limit via `UDP_SESSION_BUFFER`.
+- **Added:** A new IP utility (`ip.rs`) to apply different timeouts for private (`UDP_TIMEOUT_LOCAL`) versus public (`UDP_TIMEOUT_REMOTE`) upstream targets.
+- **Changed:** The health checker now employs a reactive model for UDP, temporarily marking targets as unavailable on send failures.
+- **Changed:** The load balancer has been updated to use the new reactive health status when selecting UDP targets.
+- **Changed:** L4 proxy logic has been refactored into a dedicated `proxy.rs` module for better separation of concerns.
+- **Fixed:** Corrected a critical bug where the UDP listener would not process any incoming datagrams due to an incorrect task structure.
+- **Fixed:** The `prefix` detection method has been corrected to find a pattern anywhere within the initial data buffer, enabling proper detection of protocols like DNS.
+
+## 0.1.3 (8. Nov, 2025)
+
+- **Added:** A new `fallback` protocol detection method (`detect = { method = "fallback", pattern = "any" }`) to create unconditional catch-all rules, typically placed last in priority.
+- **Added:** The configuration validator now enforces that the `pattern` for the `fallback` method must be `"any"`.
+- **Changed:** The L4 dispatcher has been updated to correctly process the new `fallback` detection method.
+
+## 0.1.2 (8. Nov, 2025)
+
+- **Added:** A new `TCP_DETECT_LIMIT` environment variable (default: 64 bytes) to configure the size of the initial data buffer for L4 protocol detection, allowing for performance tuning.
+
+## 0.1.1 (8. Nov, 2025)
+
+- **Added:** Support for `regex` as a protocol detection method, allowing for more complex and precise matching of L4 traffic.
+- **Changed:** The health check module has been refactored to distinguish between a blocking initial check and subsequent periodic checks.
+- **Fixed:** Corrected a critical race condition in the application startup sequence. The initial health check now runs *after* the configuration has been loaded, eliminating the initial window where all targets were considered unavailable.
+
+## 0.1.0 (8. Nov, 2025)
+
+- **Added:** Implemented full L4 TCP transparent proxy functionality. After protocol detection, connections are now forwarded to healthy backend targets.
+- **Added:** A background health checker that periodically monitors the availability and latency of all configured `targets` and `fallbacks` via non-intrusive TCP connection tests.
+- **Added:** A load balancer with three configurable strategies (`Random`, `Serial`, `Fastest`) to select the optimal backend target based on real-time health data.
+- **Added:** The load balancer now seamlessly fails over to `fallback` targets if all primary `targets` are determined to be unavailable by the health checker.
+- **Changed:** The L4 dispatcher is now fully integrated with the load balancer, selecting a healthy target for each new connection based on its configured strategy.
+- **Changed:** The application bootstrap process now initializes and starts the global health checker as a persistent background task.
+
+## 0.0.13 (8. Nov, 2025)
+
+- **Added:** An L4 connection dispatcher (`l4/dispatcher.rs`) responsible for protocol detection. The dispatcher implements `magic` (byte matching) and `prefix` (string matching) detection methods by peeking at the initial TCP stream data.
+- **Changed:** Refactored the application's state management to use a globally accessible, static `CONFIG_STATE` to provide tasks with direct, thread-safe access to the current listener configuration.
+- **Changed:** The TCP listener task in `ports/tasks.rs` now delegates incoming connections to the new L4 dispatcher for protocol analysis and routing.
+- **Changed:** Updated the log format for matched protocols to `⇅ [{priority}] Matched protocol {protocol} for connection from {ip:port}` for improved clarity.
+
 ## 0.0.12 (8. Nov, 2025)
 
-- **Changed:** Refactored the L4 configuration architecture for a clearer separation of concerns. All configuration file loading, parsing, and filesystem logic has been moved from the `ports` module into the `server::l4` module.
-- **Changed:** The `ports` module is now streamlined to be exclusively responsible for the runtime management and lifecycle of network listeners.
 - **Added:** A new `server::l4::fs` module now centralizes all filesystem operations for listener configurations.
 - **Added:** A new `server::l4::loader` module, residing within the L4 feature module, now handles the parsing and validation of configuration files.
+- **Changed:** Refactored the L4 configuration architecture for a clearer separation of concerns. All configuration file loading, parsing, and filesystem logic has been moved from the `ports` module into the `server::l4` module.
+- **Changed:** The `ports` module is now streamlined to be exclusively responsible for the runtime management and lifecycle of network listeners.
 
 ## 0.0.11 (8. Nov, 2025)
 
@@ -32,9 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.0.9 (8. Nov, 2025)
 
-- **Fixed:** Corrected a critical bug where listeners configured at application startup were not being activated. The application now correctly scans and starts all required listeners when it first launches.
 - **Changed:** The application startup sequence has been refined. Dynamic port listeners are now initialized *after* the management console and network discovery have started, ensuring a cleaner and more logical boot order.
 - **Changed:** Listener status logs (`UP`/`DOWN`) are now more descriptive, specifying whether the listener is binding to `IPv4` or dual-stack `IPv4 + IPv6`.
+- **Fixed:** Corrected a critical bug where listeners configured at application startup were not being activated. The application now correctly scans and starts all required listeners when it first launches.
 
 ## 0.0.8 (8. Nov, 2025)
 
