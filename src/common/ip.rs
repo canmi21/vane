@@ -40,3 +40,63 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
 		IpAddr::V6(ipv6) => is_private_ipv6(ipv6),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::net::{Ipv4Addr, Ipv6Addr};
+
+	/// Tests various private and special-use IPv4 address ranges.
+	#[test]
+	fn test_ipv4_private_ranges() {
+		// Private networks
+		assert!(is_private_ipv4(&Ipv4Addr::new(10, 0, 0, 1)));
+		assert!(is_private_ipv4(&Ipv4Addr::new(172, 16, 0, 1)));
+		assert!(is_private_ipv4(&Ipv4Addr::new(192, 168, 1, 1)));
+
+		// Special-use addresses
+		assert!(is_private_ipv4(&Ipv4Addr::new(127, 0, 0, 1))); // Loopback
+		assert!(is_private_ipv4(&Ipv4Addr::new(169, 254, 0, 1))); // Link-local
+		assert!(is_private_ipv4(&Ipv4Addr::new(0, 0, 0, 0))); // Unspecified
+		assert!(is_private_ipv4(&Ipv4Addr::new(192, 0, 2, 1))); // Documentation
+		assert!(is_private_ipv4(&Ipv4Addr::new(255, 255, 255, 255))); // Broadcast
+		assert!(is_private_ipv4(&Ipv4Addr::new(100, 64, 0, 1))); // Carrier-grade NAT
+
+		// Public address
+		assert!(!is_private_ipv4(&Ipv4Addr::new(8, 8, 8, 8)));
+	}
+
+	/// Tests various non-global and special-use IPv6 address ranges.
+	#[test]
+	fn test_ipv6_private_ranges() {
+		// Special-use addresses
+		assert!(is_private_ipv6(&Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0))); // Unspecified (::)
+		assert!(is_private_ipv6(&Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))); // Loopback (::1)
+		assert!(is_private_ipv6(&Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 1))); // Unique-local
+		assert!(is_private_ipv6(&Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1))); // Link-local
+		assert!(is_private_ipv6(&Ipv6Addr::new(
+			0x2001, 0x0db8, 0, 0, 0, 0, 0, 1
+		))); // Documentation
+
+		// Public address
+		assert!(!is_private_ipv6(&Ipv6Addr::new(
+			0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888
+		)));
+	}
+
+	/// Tests the main dispatcher function `is_private_ip` for both v4 and v6.
+	#[test]
+	fn test_is_private_ip_delegation() {
+		// IPv4 checks
+		let private_ipv4 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
+		let public_ipv4 = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+		assert!(is_private_ip(&private_ipv4));
+		assert!(!is_private_ip(&public_ipv4));
+
+		// IPv6 checks
+		let private_ipv6 = IpAddr::V6(Ipv6Addr::new(0xfd12, 0x3456, 0x789a, 0, 0, 0, 0, 1));
+		let public_ipv6 = IpAddr::V6(Ipv6Addr::new(0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 1111));
+		assert!(is_private_ip(&private_ipv6));
+		assert!(!is_private_ip(&public_ipv6));
+	}
+}

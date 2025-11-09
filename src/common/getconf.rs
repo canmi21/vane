@@ -115,3 +115,71 @@ pub fn init_config_dirs(dir_names: Vec<&str>) {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use dirs;
+	use serial_test::serial;
+	use temp_env;
+	use tempfile::tempdir;
+
+	/// Tests that the config dir is correctly retrieved from the environment variable.
+	#[test]
+	#[serial]
+	fn test_get_config_dir_from_env() {
+		let temp_dir = tempdir().unwrap();
+		let temp_path_str = temp_dir.path().to_str().unwrap();
+
+		temp_env::with_var("CONFIG_DIR", Some(temp_path_str), || {
+			assert_eq!(get_config_dir(), temp_dir.path());
+		});
+	}
+
+	/// Tests that the config dir falls back to the default when the env var is not set.
+	#[test]
+	#[serial]
+	fn test_get_config_dir_default_fallback() {
+		temp_env::with_var_unset("CONFIG_DIR", || {
+			let home_dir = dirs::home_dir().unwrap();
+			let expected_path = home_dir.join("vane/");
+			assert_eq!(get_config_dir(), expected_path);
+		});
+	}
+
+	/// Tests the creation of specified configuration files and their subdirectories.
+	#[test]
+	#[serial]
+	fn test_init_config_files_creation() {
+		let temp_dir = tempdir().unwrap();
+		let temp_path = temp_dir.path();
+
+		temp_env::with_var("CONFIG_DIR", Some(temp_path.to_str().unwrap()), || {
+			let files_to_create = vec!["nodes.toml", "listener/80/tcp.yaml"];
+			init_config_files(files_to_create);
+
+			assert!(temp_path.join("nodes.toml").exists());
+			assert!(temp_path.join("nodes.toml").is_file());
+			assert!(temp_path.join("listener/80/tcp.yaml").exists());
+			assert!(temp_path.join("listener/80/tcp.yaml").is_file());
+		});
+	}
+
+	/// Tests the creation of specified configuration directories.
+	#[test]
+	#[serial]
+	fn test_init_config_dirs_creation() {
+		let temp_dir = tempdir().unwrap();
+		let temp_path = temp_dir.path();
+
+		temp_env::with_var("CONFIG_DIR", Some(temp_path.to_str().unwrap()), || {
+			let dirs_to_create = vec!["listener", "ssl_certs"];
+			init_config_dirs(dirs_to_create);
+
+			assert!(temp_path.join("listener").exists());
+			assert!(temp_path.join("listener").is_dir());
+			assert!(temp_path.join("ssl_certs").exists());
+			assert!(temp_path.join("ssl_certs").is_dir());
+		});
+	}
+}
