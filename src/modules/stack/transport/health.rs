@@ -1,9 +1,6 @@
 /* src/modules/stack/transport/health.rs */
 
-use super::{
-	model::{ResolvedTarget, TcpDestination},
-	resolver,
-};
+use super::{model::ResolvedTarget, resolver, tcp::TcpDestination};
 use crate::modules::ports::model::CONFIG_STATE;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
