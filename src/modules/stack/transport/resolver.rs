@@ -98,3 +98,167 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 	}
 	resolved
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::modules::nodes::model::{IpType, NodesConfig, ProcessedNode};
+	use serial_test::serial;
+	use std::sync::Arc;
+
+	/// Cleans up the NODES_STATE global after a test by storing a default, empty config.
+	fn cleanup_globals() {
+		NODES_STATE.store(Arc::new(NodesConfig::default()));
+	}
+
+	/// Tests that a simple Ip target is resolved correctly (pass-through).
+	#[tokio::test]
+	#[serial]
+	async fn test_resolve_ip_target() {
+		cleanup_globals();
+		let targets = vec![Target::Ip {
+			ip: "192.168.1.1".to_string(),
+			port: 8080,
+		}];
+		let resolved = resolve_targets(&targets).await;
+
+		assert_eq!(resolved.len(), 1);
+		assert_eq!(
+			resolved[0],
+			ResolvedTarget {
+				ip: "192.168.1.1".to_string(),
+				port: 8080
+			}
+		);
+	}
+
+	/// Tests that a Node target is correctly resolved from the global NODES_STATE.
+	#[tokio::test]
+	#[serial]
+	async fn test_resolve_node_target() {
+		// 1. Setup: Create a mock nodes configuration and load it into the global state.
+		let mock_nodes_config = NodesConfig {
+			processed: vec![
+				ProcessedNode {
+					node_name: "cache-redis".to_string(),
+					address: "10.0.1.5".to_string(),
+					port: 6379,
+					ip_type: IpType::Ipv4,
+				},
+				ProcessedNode {
+					node_name: "database".to_string(),
+					address: "10.0.2.10".to_string(),
+					port: 5432,
+					ip_type: IpType::Ipv4,
+				},
+			],
+			..Default::default()
+		};
+		NODES_STATE.store(Arc::new(mock_nodes_config));
+
+		// 2. Define targets, including one that exists and one that doesn't.
+		let targets = vec![
+			Target::Node {
+				node: "cache-redis".to_string(),
+				port: 6379,
+			},
+			Target::Node {
+				node: "non-existent-node".to_string(),
+				port: 1234,
+			},
+		];
+
+		// 3. Act: Resolve the targets.
+		let resolved = resolve_targets(&targets).await;
+
+		// 4. Assert: Verify that only the valid node was resolved.
+		assert_eq!(
+			resolved.len(),
+			1,
+			"Should only resolve the node that exists in the state"
+		);
+		assert_eq!(
+			resolved[0],
+			ResolvedTarget {
+				ip: "10.0.1.5".to_string(),
+				port: 6379
+			}
+		);
+
+		cleanup_globals();
+	}
+
+	/// Tests that a Domain target ('localhost') is resolved correctly.
+	#[tokio::test]
+	#[serial]
+	async fn test_resolve_domain_target_localhost() {
+		cleanup_globals();
+		let targets = vec![Target::Domain {
+			domain: "localhost".to_string(),
+			port: 9000,
+		}];
+		let resolved = resolve_targets(&targets).await;
+
+		assert!(
+			!resolved.is_empty(),
+			"Resolving 'localhost' should yield at least one IP (v4 or v6)"
+		);
+		// Check that one of the common localhost IPs is present.
+		let has_localhost_ip = resolved
+			.iter()
+			.any(|rt| rt.ip == "127.0.0.1" || rt.ip == "::1");
+		assert!(
+			has_localhost_ip,
+			"Resolved list should contain a standard localhost IP"
+		);
+		assert_eq!(
+			resolved[0].port, 9000,
+			"Port should be correctly carried over"
+		);
+	}
+
+	/// Tests resolving a mix of all target types in a single call.
+	#[tokio::test]
+	#[serial]
+	async fn test_resolve_mixed_targets() {
+		// 1. Setup Node state
+		let mock_nodes_config = NodesConfig {
+			processed: vec![ProcessedNode {
+				node_name: "api".to_string(),
+				address: "172.16.0.100".to_string(),
+				port: 80,
+				ip_type: IpType::Ipv4, // CORRECTED: Used the correct enum variant
+			}],
+			..Default::default()
+		};
+		NODES_STATE.store(Arc::new(mock_nodes_config));
+
+		// 2. Define mixed targets
+		let targets = vec![
+			Target::Ip {
+				ip: "8.8.8.8".to_string(),
+				port: 53,
+			},
+			Target::Node {
+				node: "api".to_string(),
+				port: 80,
+			},
+		];
+
+		// 3. Act
+		let resolved = resolve_targets(&targets).await;
+
+		// 4. Assert
+		assert_eq!(resolved.len(), 2, "Should resolve both IP and Node targets");
+		assert!(resolved.contains(&ResolvedTarget {
+			ip: "8.8.8.8".to_string(),
+			port: 53
+		}));
+		assert!(resolved.contains(&ResolvedTarget {
+			ip: "172.16.0.100".to_string(),
+			port: 80
+		}));
+
+		cleanup_globals();
+	}
+}
