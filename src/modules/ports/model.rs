@@ -65,3 +65,98 @@ mod serde_arc {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::modules::stack::transport::model::{
+		Detect, DetectMethod, Forward, Strategy, TcpDestination, TcpProtocolRule,
+	};
+	use serde_json::json;
+
+	/// Tests that the Protocol enum serializes to the correct lowercase string.
+	#[test]
+	fn test_protocol_serialization() {
+		let tcp = Protocol::Tcp;
+		let udp = Protocol::Udp;
+		assert_eq!(serde_json::to_string(&tcp).unwrap(), "\"tcp\"");
+		assert_eq!(serde_json::to_string(&udp).unwrap(), "\"udp\"");
+	}
+
+	/// Tests the serialization logic of the PortStatus struct.
+	///
+	/// This test verifies:
+	/// - All fields are present when configs are Some(...).
+	/// - The custom `serde_arc` helper correctly serializes the inner config.
+	/// - `skip_serializing_if` correctly omits fields that are None.
+	#[test]
+	fn test_port_status_serialization() {
+		// Create a minimal but valid TcpConfig to place inside an Arc.
+		let dummy_tcp_config = Arc::new(TcpConfig {
+			rules: vec![TcpProtocolRule {
+				name: "test".to_string(),
+				priority: 1,
+				detect: Detect {
+					method: DetectMethod::Fallback,
+					pattern: "any".to_string(),
+				},
+				session: None,
+				destination: TcpDestination::Forward {
+					forward: Forward {
+						strategy: Strategy::Random,
+						targets: vec![],
+						fallbacks: vec![],
+					},
+				},
+			}],
+		});
+
+		// 1. Test case with both TCP and UDP configs present.
+		let full_status = PortStatus {
+			port: 8080,
+			active: true,
+			tcp_config: Some(dummy_tcp_config.clone()),
+			udp_config: None, // UdpConfig is different, so we test with None here.
+		};
+
+		let full_json = serde_json::to_value(&full_status).unwrap();
+		let expected_full_json = json!({
+			"port": 8080,
+			"active": true,
+			"tcp_config": {
+				"protocols": [{
+					"name": "test",
+					"priority": 1,
+					"detect": { "method": "fallback", "pattern": "any" },
+					"session": null,
+					"destination": {
+						"type": "forward",
+						"forward": {
+							"strategy": "random",
+							"targets": [],
+							"fallbacks": []
+						}
+					}
+				}]
+			}
+			// udp_config is correctly skipped because it's None.
+		});
+		assert_eq!(full_json, expected_full_json);
+
+		// 2. Test case with no configs, ensuring they are skipped.
+		let minimal_status = PortStatus {
+			port: 9090,
+			active: false,
+			tcp_config: None,
+			udp_config: None,
+		};
+
+		let minimal_json = serde_json::to_value(&minimal_status).unwrap();
+		let expected_minimal_json = json!({
+			"port": 9090,
+			"active": false
+			// Both tcp_config and udp_config are correctly skipped.
+		});
+		assert_eq!(minimal_json, expected_minimal_json);
+	}
+}
