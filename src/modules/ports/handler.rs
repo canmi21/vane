@@ -155,3 +155,74 @@ pub async fn delete_protocol_handler(Path((port, protocol_str)): Path<(u16, Stri
 		.into_response(),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::modules::ports::model::{PortState, PortStatus};
+	use arc_swap::ArcSwap;
+	use axum::{
+		Router,
+		body::Body,
+		http::{Request, StatusCode},
+		routing::{delete, get, post},
+	};
+	use serde_json::Value;
+	use std::sync::Arc;
+	use tower::util::ServiceExt;
+
+	/// Helper to build a test router with the necessary state and handlers.
+	fn build_test_router(state: PortState) -> Router {
+		Router::new()
+			.route("/ports", get(get_ports_handler))
+			.route("/ports/{port}", get(get_port_status_handler))
+			.route("/ports/{port}", post(post_port_handler))
+			.route("/ports/{port}", delete(delete_port_handler))
+			.route("/ports/{port}/{protocol}", post(post_protocol_handler))
+			.route("/ports/{port}/{protocol}", delete(delete_protocol_handler))
+			.with_state(state)
+	}
+
+	/// Helper to deserialize the body of a response into JSON.
+	async fn get_body_as_json(response: Response) -> Value {
+		let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		if body_bytes.is_empty() {
+			return Value::Null;
+		}
+		serde_json::from_slice(&body_bytes).unwrap()
+	}
+
+	/// Tests the handler for getting a port's live status from memory.
+	#[tokio::test]
+	async fn test_get_port_status_from_state() {
+		// Prepare a mock in-memory state.
+		let mock_status = PortStatus {
+			port: 9090,
+			active: true,
+			tcp_config: None, // Simplified for this test
+			udp_config: None,
+		};
+		let state = Arc::new(ArcSwap::new(Arc::new(vec![mock_status])));
+		let app = build_test_router(state);
+
+		// 1. Request a port that exists in the state.
+		let req = Request::builder()
+			.uri("/ports/9090")
+			.body(Body::empty())
+			.unwrap();
+		let res = app.clone().oneshot(req).await.unwrap();
+		assert_eq!(res.status(), StatusCode::OK);
+		let body = get_body_as_json(res).await;
+		assert_eq!(body["data"]["port"], 9090);
+
+		// 2. Request a port that does NOT exist in the state.
+		let req = Request::builder()
+			.uri("/ports/1234")
+			.body(Body::empty())
+			.unwrap();
+		let res = app.clone().oneshot(req).await.unwrap();
+		assert_eq!(res.status(), StatusCode::NOT_FOUND);
+	}
+}
