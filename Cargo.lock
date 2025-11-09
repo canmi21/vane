@@ -1772,6 +1772,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "temp-env"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96374855068f47402c3121c6eed88d29cb1de8f3ab27090e273e420bdabcf050"
+dependencies = [
+ "parking_lot",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2161,6 +2170,7 @@ dependencies = [
  "axum",
  "chrono",
  "dashmap 6.1.0",
+ "dirs",
  "dotenvy",
  "fancy-log",
  "fancy-regex",
@@ -2175,9 +2185,11 @@ dependencies = [
  "serde_yaml",
  "serial_test",
  "shellexpand",
+ "temp-env",
  "tempfile",
  "tokio",
  "toml",
+ "tower",
  "trust-dns-resolver",
  "uuid",
  "validator",
