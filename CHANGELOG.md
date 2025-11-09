@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.8 (9. Nov, 2025)
+
+- **Breaking:** Redesigned the forwarding target model (`Target`). It is now a flexible enum supporting `ip`, `domain`, or `node` types, requiring changes to all listener configuration files. For example, a target is now defined as `{ ip: "1.1.1.1", port: 80 }` or `{ domain: "example.com", port: 443 }`.
+- **Added:** Integrated a new asynchronous DNS resolver module (`resolver.rs`) built upon `trust-dns-resolver`. This allows Vane to use domain names as backend targets and dynamically resolve them to IP addresses.
+- **Changed:** The entire L4 proxy chain, including the health checker (`health.rs`) and load balancer (`balancer.rs`), has been refactored to be fully asynchronous. The balancer now resolves all `domain` and `node` targets into concrete IP addresses before applying health checks and balancing strategies.
+- **Changed:** The health check mechanism is now resolver-aware. It periodically re-resolves all targets, enabling the system to automatically detect and adapt to changes in DNS records for `domain` targets and updates to the global `nodes` configuration.
+- **Fixed:** Corrected a critical startup race condition. The bootstrap process now guarantees that the global `nodes` configuration is loaded before listener configurations, ensuring that `node`-type targets are always resolvable during initial health checks.
+
 ## 0.1.7 (9. Nov, 2025)
 
 - **Added:** A new global `nodes` configuration system for service discovery. The application can now load a central list of named nodes from `nodes.yaml`, `nodes.json`, or `nodes.toml`.
