@@ -168,3 +168,95 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 		CONFIG_STATE.store(Arc::new(new_statuses));
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::fs;
+	use temp_env;
+	use tempfile::tempdir;
+
+	// A minimal, but structurally valid, TCP config for testing purposes.
+	const DUMMY_TCP_CONFIG: &str = r#"
+[[protocols]]
+name = "catchall"
+priority = 1
+detect = { method = "fallback", pattern = "any" }
+destination = { type = "forward", forward = { strategy = "random", targets = [{ ip = "127.0.0.1", port = 1 }] } }
+"#;
+
+	// A minimal, but structurally valid, UDP config for testing purposes.
+	// CORRECTED: Used valid TOML string escape sequences for the pattern.
+	const DUMMY_UDP_CONFIG: &str = r#"
+[[protocols]]
+name = "dns"
+priority = 1
+detect = { method = "prefix", pattern = "\u0000\u0001" }
+destination = { type = "forward", forward = { strategy = "random", targets = [{ ip = "1.1.1.1", port = 53 }] } }
+"#;
+
+	/// Tests the port scanning logic under various filesystem conditions.
+	#[test]
+	#[serial_test::serial]
+	fn test_scan_ports_logic() {
+		let temp_dir = tempdir().unwrap();
+		let config_path = temp_dir.path();
+		let listener_path = config_path.join("listener");
+		fs::create_dir(&listener_path).unwrap();
+
+		temp_env::with_var("CONFIG_DIR", Some(config_path.to_str().unwrap()), || {
+			// 1. No port directories exist, should return empty.
+			let statuses = scan_ports_config();
+			assert!(statuses.is_empty());
+
+			// 2. Create a full setup:
+			// - Port 8080 with TCP only
+			fs::create_dir(listener_path.join("[8080]")).unwrap();
+			fs::write(listener_path.join("[8080]/tcp.toml"), DUMMY_TCP_CONFIG).unwrap();
+			// - Port 9090 with UDP only
+			fs::create_dir(listener_path.join("[9090]")).unwrap();
+			fs::write(listener_path.join("[9090]/udp.toml"), DUMMY_UDP_CONFIG).unwrap();
+			// - Port 9999 with an empty directory (inactive)
+			fs::create_dir(listener_path.join("[9999]")).unwrap();
+			// - A non-port file to be ignored
+			fs::write(listener_path.join("readme.txt"), "ignore me").unwrap();
+
+			// 3. Scan again and verify the results.
+			let mut statuses = scan_ports_config();
+			// Sort by port to make assertions predictable.
+			statuses.sort_by_key(|s| s.port);
+
+			assert_eq!(statuses.len(), 3);
+
+			// Verify Port 8080
+			let s8080 = statuses.get(0).unwrap();
+			assert_eq!(s8080.port, 8080);
+			assert!(
+				s8080.active,
+				"Port 8080 should be active with a valid TCP config"
+			);
+			assert!(s8080.tcp_config.is_some());
+			assert!(s8080.udp_config.is_none());
+
+			// Verify Port 9090
+			let s9090 = statuses.get(1).unwrap();
+			assert_eq!(s9090.port, 9090);
+			assert!(
+				s9090.active,
+				"Port 9090 should be active with a valid UDP config"
+			);
+			assert!(s9090.tcp_config.is_none());
+			assert!(s9090.udp_config.is_some());
+
+			// Verify Port 9999
+			let s9999 = statuses.get(2).unwrap();
+			assert_eq!(s9999.port, 9999);
+			assert!(
+				!s9999.active,
+				"Port 9999 should be inactive with no config files"
+			);
+			assert!(s9090.tcp_config.is_none());
+			assert!(s9090.udp_config.is_some());
+		});
+	}
+}
