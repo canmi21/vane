@@ -2,8 +2,9 @@
 
 use super::{
 	balancer, health,
-	model::{DetectMethod, UdpConfig, UdpDestination},
+	model::DetectMethod,
 	session::{REVERSE_SESSIONS, SESSIONS, Session},
+	udp::{UdpConfig, UdpDestination, UdpProtocolRule},
 };
 use crate::common::{getenv, ip};
 use std::net::{IpAddr, SocketAddr};
@@ -61,7 +62,7 @@ fn spawn_reply_handler(
 async fn get_or_create_session(
 	client_addr: SocketAddr,
 	port: u16,
-	rule: &super::model::UdpProtocolRule,
+	rule: &UdpProtocolRule,
 	main_socket: Arc<UdpSocket>,
 ) -> Option<Arc<Session>> {
 	if let Some(session) = SESSIONS.get(&client_addr) {
