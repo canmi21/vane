@@ -16,7 +16,6 @@ use tokio::time::{Duration, sleep};
 
 use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
-// Import both the nodes and ports modules.
 use crate::modules::{nodes, ports};
 
 pub async fn start() {
@@ -24,18 +23,17 @@ pub async fn start() {
 	setup_logging();
 	print_motd();
 
-	// Scan initial configs from disk FIRST.
-	let initial_ports = ports::hotswap::scan_ports_config();
-	let initial_nodes = nodes::hotswap::scan_nodes_config();
-
-	// Immediately populate the global states so other modules can access them.
-	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
-	if let Some(nodes_config) = initial_nodes {
-		nodes::model::NODES_STATE.store(Arc::new(nodes_config));
+	// CORRECTED STARTUP ORDER:
+	// 1. Load nodes first, as they are a dependency for resolving targets in ports.
+	if let Some(initial_nodes) = nodes::hotswap::scan_nodes_config() {
+		nodes::model::NODES_STATE.store(Arc::new(initial_nodes));
 	}
 
-	// Now initialize background tasks. The health check inside will see the populated state.
-	// This now returns a struct with separate receivers for ports and nodes.
+	// 2. Now load ports. The resolver used by the health checker can now access the nodes state.
+	let initial_ports = ports::hotswap::scan_ports_config();
+	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
+
+	// 3. Initialize background tasks. The health check inside will now see both populated states.
 	let config_change_receivers = requirements::initialize().await;
 
 	// Spawn a hotswap listener for port changes.
@@ -83,7 +81,6 @@ pub async fn start() {
 
 	let tcp_notifier = shutdown_notifier.clone();
 	let tcp_listener = TcpListener::bind(addr).await.unwrap();
-	// Provide the global state to the axum server.
 	let tcp_server = serve(
 		tcp_listener,
 		app.clone().with_state(ports::model::CONFIG_STATE.clone()),
@@ -100,7 +97,6 @@ pub async fn start() {
 
 	let unix_handle = if let Some(listener) = unix_socket_listener {
 		let unix_notifier = shutdown_notifier.clone();
-		// Provide the global state to the axum server.
 		let unix_server = serve(listener, app.with_state(ports::model::CONFIG_STATE.clone()))
 			.with_graceful_shutdown(async move {
 				unix_notifier.notified().await;
