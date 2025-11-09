@@ -22,18 +22,17 @@ pub fn get_config_dir() -> PathBuf {
 pub fn init_config_files(files_to_check: Vec<&str>) {
 	let config_dir = get_config_dir();
 
-	// First, ensure the main configuration directory exists.
 	if !config_dir.exists() {
 		if let Err(e) = fs::create_dir_all(&config_dir) {
 			log(
 				LogLevel::Error,
 				&format!(
-					"Failed to create main config directory {}: {}",
+					"✗ Failed to create main config directory {}: {}",
 					config_dir.display(),
 					e
 				),
 			);
-			return; // Can't proceed if the base directory fails to be created.
+			return;
 		}
 	}
 
@@ -44,32 +43,29 @@ pub fn init_config_files(files_to_check: Vec<&str>) {
 			continue;
 		}
 
-		// Ensure the parent directory for the specific file exists. This handles
-		// subdirectories within config_dir like 'etc/'.
 		if let Some(parent_dir) = full_path.parent() {
 			if let Err(e) = fs::create_dir_all(parent_dir) {
 				log(
 					LogLevel::Error,
 					&format!(
-						"Failed to create config subdirectory {}: {}",
+						"✗ Failed to create config subdirectory {}: {}",
 						parent_dir.display(),
 						e
 					),
 				);
-				continue; // Skip to the next file on error.
+				continue;
 			}
 		}
 
-		// Create an empty file.
 		match fs::File::create(&full_path) {
 			Ok(_) => log(
 				LogLevel::Debug,
-				&format!("Created default config file at: {}", full_path.display()),
+				&format!("⚙ Created default config file at: {}", full_path.display()),
 			),
 			Err(e) => log(
 				LogLevel::Error,
 				&format!(
-					"Failed to create config file {}: {}",
+					"✗ Failed to create config file {}: {}",
 					full_path.display(),
 					e
 				),
@@ -78,44 +74,44 @@ pub fn init_config_files(files_to_check: Vec<&str>) {
 	}
 }
 
-/// Ensures a specific subdirectory exists within the main configuration directory.
+/// Ensures a list of subdirectories exists within the main configuration directory.
 ///
-/// If the directory does not exist, it will be created.
-pub fn init_config_dir(dir_name: &str) {
+/// For each directory name provided, it checks if the directory exists and creates
+/// it if it does not.
+pub fn init_config_dirs(dir_names: Vec<&str>) {
 	let config_dir = get_config_dir();
-	let full_path = config_dir.join(dir_name);
+	for dir_name in dir_names {
+		let full_path = config_dir.join(dir_name);
 
-	if full_path.exists() {
-		// If path exists but is not a directory, it's an issue.
-		if !full_path.is_dir() {
-			log(
-				LogLevel::Error,
+		if full_path.exists() {
+			if !full_path.is_dir() {
+				log(
+					LogLevel::Error,
+					&format!(
+						"✗ Path {} exists but is not a directory.",
+						full_path.display()
+					),
+				);
+			}
+			continue;
+		}
+
+		match fs::create_dir_all(&full_path) {
+			Ok(_) => log(
+				LogLevel::Debug,
 				&format!(
-					"Path {} exists but is not a directory.",
+					"⚙ Created default config directory at: {}",
 					full_path.display()
 				),
-			);
+			),
+			Err(e) => log(
+				LogLevel::Error,
+				&format!(
+					"✗ Failed to create config directory {}: {}",
+					full_path.display(),
+					e
+				),
+			),
 		}
-		// If it exists and is a directory, do nothing.
-		return;
-	}
-
-	// Directory does not exist, so create it.
-	match fs::create_dir_all(&full_path) {
-		Ok(_) => log(
-			LogLevel::Debug,
-			&format!(
-				"Created default config directory at: {}",
-				full_path.display()
-			),
-		),
-		Err(e) => log(
-			LogLevel::Error,
-			&format!(
-				"Failed to create config directory {}: {}",
-				full_path.display(),
-				e
-			),
-		),
 	}
 }
