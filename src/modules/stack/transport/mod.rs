@@ -7,4 +7,5 @@ pub mod health;
 pub mod loader;
 pub mod model;
 pub mod proxy;
+pub mod resolver;
 pub mod session;
