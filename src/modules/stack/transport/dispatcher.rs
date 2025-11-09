@@ -2,7 +2,8 @@
 
 use super::{
 	balancer,
-	model::{DetectMethod, ResolvedTarget, TcpConfig, TcpDestination},
+	model::{DetectMethod, ResolvedTarget},
+	tcp::{TcpConfig, TcpDestination},
 };
 use crate::common::getenv;
 use fancy_log::{LogLevel, log};
@@ -126,6 +127,7 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 						LogLevel::Debug,
 						&format!("⚙ Handing off to L7 resolver: {}", resolver),
 					);
+					// TODO: Implement the resolver handoff logic.
 					return;
 				}
 				TcpDestination::Forward { ref forward } => {
