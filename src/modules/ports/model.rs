@@ -1,6 +1,6 @@
 /* src/modules/ports/model.rs */
 
-use super::super::server::l4::model::{TcpConfig, UdpConfig};
+use super::super::stack::transport::model::{TcpConfig, UdpConfig};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
