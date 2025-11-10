@@ -4,7 +4,7 @@ use crate::common::getconf;
 use crate::modules::stack::transport::{health, session};
 use fancy_log::{LogLevel, log};
 use notify::{Event, RecursiveMode, Watcher};
-use std::{ffi::OsStr, time::Duration};
+use std::{ffi::OsStr, fs, time::Duration};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
@@ -94,7 +94,23 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 			return;
 		}
 
-		let listener_dir = config_dir.join("listener");
+		// Canonicalize the listener directory path to resolve symlinks (e.g., /var -> /private/var on macOS).
+		// This ensures that the path we are checking against matches the fully resolved path from the FS event.
+		let listener_dir = match fs::canonicalize(config_dir.join("listener")) {
+			Ok(path) => path,
+			Err(e) => {
+				log(
+					LogLevel::Error,
+					&format!(
+						"✗ Could not canonicalize listener directory path. File watching may be unreliable: {}",
+						e
+					),
+				);
+				// Fallback to the non-canonicalized path, though the problem will likely persist.
+				config_dir.join("listener")
+			}
+		};
+
 		// This loop runs forever, keeping the task and the `watcher` alive.
 		while let Some(event) = event_rx.recv().await {
 			log(
