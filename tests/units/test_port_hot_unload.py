@@ -2,7 +2,7 @@
 
 from typing import Tuple
 from utils.template import VaneInstance
-from utils.port_config_utils import TOML_CONTENT, UP_STRING, DOWN_STRING, wait_for_log
+from .config_utils import TOML_HTTP_SIMPLE, PORT_80_TCP_UP, DOWN_STRING, wait_for_log
 
 
 def run(debug_mode: bool) -> Tuple[bool, str]:
@@ -16,10 +16,12 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
         listener_dir = vane.tmpdir / "listener" / "[80]"
         listener_dir.mkdir(parents=True, exist_ok=True)
         config_file_path = listener_dir / "tcp.toml"
-        config_file_path.write_text(TOML_CONTENT)
+        # Use the corrected constant name
+        config_file_path.write_text(TOML_HTTP_SIMPLE)
 
         with vane:
-            if not wait_for_log(vane, UP_STRING, 10):
+            # Use the corrected constant name
+            if not wait_for_log(vane, PORT_80_TCP_UP, 10):
                 return (
                     False,
                     "  └─ Details: Prerequisite failed - listener did not start initially.",
