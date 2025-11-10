@@ -12,6 +12,8 @@ from units import (
     test_config_formats_toml_yaml,
     test_config_formats_json_toml,
     test_config_formats_yaml_json,
+    test_dynamic_port,
+    test_multi_port_binding,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -25,6 +27,8 @@ TEST_SUITE = [
     ("units.test_config_formats_toml_yaml", test_config_formats_toml_yaml.run),
     ("units.test_config_formats_json_toml", test_config_formats_json_toml.run),
     ("units.test_config_formats_yaml_json", test_config_formats_yaml_json.run),
+    ("units.test_dynamic_port", test_dynamic_port.run),
+    ("units.test_multi_port_binding", test_multi_port_binding.run),
 ]
 
 
