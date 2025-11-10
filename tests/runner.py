@@ -18,6 +18,10 @@ from units import (
     test_tcp_filtering,
     test_mix_port_forwarding,
     test_protocol_priority,
+    test_duplicate_configs,
+    test_invalid_json,
+    test_invalid_toml,
+    test_invalid_yaml,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -37,6 +41,10 @@ TEST_SUITE = [
     ("units.test_tcp_filtering", test_tcp_filtering.run),
     ("units.test_mix_port_forwarding", test_mix_port_forwarding.run),
     ("units.test_protocol_priority", test_protocol_priority.run),
+    ("units.test_duplicate_configs", test_duplicate_configs.run),
+    ("units.test_invalid_json", test_invalid_json.run),
+    ("units.test_invalid_toml", test_invalid_toml.run),
+    ("units.test_invalid_yaml", test_invalid_yaml.run),
 ]
 
 
@@ -57,7 +65,6 @@ def run_suite(debug_mode: bool, args: list):
 
     ns, _ = parser.parse_known_args(args)
 
-    # Convert TEST_SUITE to indexed list for filtering
     all_tests: List[Tuple[int, str, Callable[[bool], Tuple[bool, str]]]] = [
         (i, name, func) for i, (name, func) in enumerate(TEST_SUITE, 1)
     ]
@@ -102,7 +109,7 @@ def run_suite(debug_mode: bool, args: list):
     print(f"Running {total_tests} tests...")
     for i, (test_num, name, test_func) in enumerate(test_suite, 1):
         print(
-            f"[{i}/{total_tests}] (Test #{test_num}) Running: {name} ... ",
+            f"[{i}/{total_tests}] #{test_num} Running: {name} ... ",
             end="",
             flush=True,
         )
