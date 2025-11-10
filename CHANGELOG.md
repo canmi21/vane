@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.10 (10. Nov, 2025)
+
+- **Fixed:** Resolved a critical bug in the file watcher (`requirements.rs`) where configuration changes in the `listener` directory were being ignored on macOS and other systems that use symbolic links for temporary directories (e.g., `/var` -> `/private/var`). The watcher now correctly canonicalizes paths before comparison, ensuring that hot-reloading for listeners is triggered reliably across all platforms.
+
 ## 0.1.9 (9. Nov, 2025)
 
 - **Changed:** Architecturally refactored the L4 transport layer models (`src/modules/stack/transport/`) to enforce the Single Responsibility Principle. The original monolithic `model.rs` has been split into multiple, more focused files (`model.rs`, `tcp.rs`, `udp.rs`, `validator.rs`), significantly improving code organization and maintainability without introducing breaking changes to the configuration format.
