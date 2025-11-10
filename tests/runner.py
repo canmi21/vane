@@ -2,20 +2,19 @@
 
 import sys
 import time
-from units import test_env_loglevel
+from units import test_env_loglevel, test_socket_dir, test_console
 
 # The master list of all tests to be executed sequentially.
 TEST_SUITE = [
     ("units.test_env_loglevel", test_env_loglevel.run),
+    ("units.test_socket_dir", test_socket_dir.run),
+    ("units.test_console", test_console.run),
 ]
 
 
 def run_suite(debug_mode: bool):
     """
     Runs all defined tests sequentially and reports a summary.
-
-    Args:
-        debug_mode: If True, prints sub-process logs even for successful tests.
     """
     total_tests = len(TEST_SUITE)
     passed_count = 0
