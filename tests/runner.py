@@ -2,13 +2,14 @@
 
 import sys
 import time
-from units import test_env_loglevel, test_socket_dir, test_console
+from units import test_env_loglevel, test_socket_dir, test_console, test_port_config
 
 # The master list of all tests to be executed sequentially.
 TEST_SUITE = [
     ("units.test_env_loglevel", test_env_loglevel.run),
     ("units.test_socket_dir", test_socket_dir.run),
     ("units.test_console", test_console.run),
+    ("units.test_port_config", test_port_config.run),
 ]
 
 
@@ -40,7 +41,7 @@ def run_suite(debug_mode: bool):
 
     duration = time.monotonic() - start_time
     print()
-    print("--- Test Summary ---")
+    print("+ Test Summary")
     print(
         f"Result: {passed_count} passed, {failed_count} failed out of {total_tests} total tests."
     )
