@@ -28,6 +28,7 @@ target
 # python
 .venv
 __pycache__
+.ruff_cache
 
 # Editor directories and files
 !.vscode/extensions.json
