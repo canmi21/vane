@@ -1,4 +1,5 @@
 * text=auto eol=lf
 *.rs linguist-language=Rust
+*.py linguist-language=Python
 *.astro linguist-language=Astro
 *.html linguist-detectable=false
