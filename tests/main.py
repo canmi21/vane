@@ -9,12 +9,15 @@ import runner
 def main():
     """Main entry point for the test runner."""
     project_root = pathlib.Path(__file__).parent.parent.resolve()
-    # Check for the --debug flag
-    debug_mode = "--debug" in sys.argv
+
+    # Extract --debug flag and other arguments separately
+    args = sys.argv[1:]
+    debug_mode = "--debug" in args
+    if debug_mode:
+        args.remove("--debug")
 
     try:
         bin_name, version = check_pkg_version.get_package_info(project_root)
-
         system_info.print_header(bin_name, version)
 
         print()
@@ -23,7 +26,8 @@ def main():
 
         print()
         print("+ TEST EXECUTION PHASE +")
-        runner.run_suite(debug_mode)
+        # Pass the remaining arguments to the test suite runner
+        runner.run_suite(debug_mode, args)
 
     except (FileNotFoundError, KeyError, ValueError, RuntimeError) as e:
         print(f"\n+ FATAL ERROR: {e}", file=sys.stderr)
