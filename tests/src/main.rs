@@ -1,12 +1,13 @@
 /* tests/src/main.rs */
 
-mod build;
+mod builder;
+mod runner;
 
 fn main() {
 	println!("Building binary for testing...");
 	println!(""); // Blank line for separation
 
-	match build::builder::run() {
+	match builder::run() {
 		Ok(_) => {
 			println!("\nBinary built successfully.");
 			// TODO: Add subsequent test execution steps here.
