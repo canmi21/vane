@@ -9,6 +9,9 @@ from units import (
     test_port_cold_load,
     test_port_hot_unload,
     test_port_hot_reload,
+    test_config_formats_toml_yaml,
+    test_config_formats_json_toml,
+    test_config_formats_yaml_json,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -19,6 +22,9 @@ TEST_SUITE = [
     ("units.test_port_cold_load", test_port_cold_load.run),
     ("units.test_port_hot_unload", test_port_hot_unload.run),
     ("units.test_port_hot_reload", test_port_hot_reload.run),
+    ("units.test_config_formats_toml_yaml", test_config_formats_toml_yaml.run),
+    ("units.test_config_formats_json_toml", test_config_formats_json_toml.run),
+    ("units.test_config_formats_yaml_json", test_config_formats_yaml_json.run),
 ]
 
 
