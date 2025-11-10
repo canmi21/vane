@@ -1805,6 +1805,10 @@ dependencies = [
 [[package]]
 name = "tests"
 version = "1.0.0"
+dependencies = [
+ "rand 0.9.2",
+ "tempfile",
+]
 
 [[package]]
 name = "thiserror"
