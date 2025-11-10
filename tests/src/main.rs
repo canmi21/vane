@@ -2,10 +2,11 @@
 
 mod builder;
 mod runner;
+mod setup;
 
 fn main() {
 	println!("Building binary for testing...");
-	println!(""); // Blank line for separation
+	println!("");
 
 	match builder::run() {
 		Ok(_) => {
