@@ -15,6 +15,9 @@ from units import (
     test_dynamic_port,
     test_multi_port_binding,
     test_tcp_proxy,
+    test_tcp_filtering,
+    test_mix_port_forwarding,
+    test_protocol_priority,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -31,20 +34,78 @@ TEST_SUITE = [
     ("units.test_dynamic_port", test_dynamic_port.run),
     ("units.test_multi_port_binding", test_multi_port_binding.run),
     ("units.test_tcp_proxy", test_tcp_proxy.run),
+    ("units.test_tcp_filtering", test_tcp_filtering.run),
+    ("units.test_mix_port_forwarding", test_mix_port_forwarding.run),
+    ("units.test_protocol_priority", test_protocol_priority.run),
 ]
 
 
-def run_suite(debug_mode: bool):
+def run_suite(debug_mode: bool, args: list):
     """
-    Runs all defined tests sequentially and reports a summary.
+    Runs a filtered and ordered test suite based on command-line arguments.
     """
-    total_tests = len(TEST_SUITE)
+    import argparse
+    from typing import List, Tuple, Callable
+
+    parser = argparse.ArgumentParser(description="Vane Test Runner")
+    parser.add_argument(
+        "--start", type=int, help="Start tests from this number (inclusive)."
+    )
+    parser.add_argument(
+        "--skip", type=str, help="Skip specific tests. E.g., '3', '1-2', '1,5,6'."
+    )
+
+    ns, _ = parser.parse_known_args(args)
+
+    # Convert TEST_SUITE to indexed list for filtering
+    all_tests: List[Tuple[int, str, Callable[[bool], Tuple[bool, str]]]] = [
+        (i, name, func) for i, (name, func) in enumerate(TEST_SUITE, 1)
+    ]
+
+    test_suite = all_tests
+
+    if ns.start:
+        test_suite = [t for t in test_suite if t[0] >= ns.start]
+
+    if ns.skip:
+
+        def _parse_skip_string(skip_str: str) -> set[int]:
+            indices_to_skip = set()
+            parts = skip_str.split(",")
+            for part in parts:
+                if "-" in part:
+                    try:
+                        start, end = map(int, part.split("-"))
+                        if start < end:
+                            indices_to_skip.update(range(start, end + 1))
+                    except ValueError:
+                        continue
+                else:
+                    try:
+                        indices_to_skip.add(int(part))
+                    except ValueError:
+                        continue
+            return indices_to_skip
+
+        indices_to_skip = _parse_skip_string(ns.skip)
+        test_suite = [t for t in test_suite if t[0] not in indices_to_skip]
+
+    total_tests = len(test_suite)
+    if total_tests == 0:
+        print("No tests to run after filtering.")
+        return
+
     passed_count = 0
     failed_count = 0
     start_time = time.monotonic()
 
-    for i, (name, test_func) in enumerate(TEST_SUITE, 1):
-        print(f"[{i}/{total_tests}] Running test: {name} ... ", end="", flush=True)
+    print(f"Running {total_tests} tests...")
+    for i, (test_num, name, test_func) in enumerate(test_suite, 1):
+        print(
+            f"[{i}/{total_tests}] (Test #{test_num}) Running: {name} ... ",
+            end="",
+            flush=True,
+        )
 
         try:
             success, details = test_func(debug_mode)
