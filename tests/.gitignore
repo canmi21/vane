@@ -1,6 +1,0 @@
-.DS_Store
-.env
-target
-.venv
-__pycache__
-dist
