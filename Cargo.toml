@@ -76,7 +76,6 @@ workspace = true
 
 [workspace]
 resolver = "3"
-members = ["tests"]
 
 [workspace.package]
 rust-version = "1.89"
