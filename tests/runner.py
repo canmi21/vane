@@ -25,6 +25,7 @@ from units import (
     test_strategy_serial,
     test_strategy_random,
     test_strategy_fastest,
+    test_no_available_targets,  # --- NEW ---
 )
 
 # The master list of all tests to be executed sequentially.
@@ -51,6 +52,8 @@ TEST_SUITE = [
     ("units.test_strategy_serial", test_strategy_serial.run),
     ("units.test_strategy_random", test_strategy_random.run),
     ("units.test_strategy_fastest", test_strategy_fastest.run),
+    # --- This section is updated ---
+    ("units.test_no_available_targets", test_no_available_targets.run),
 ]
 
 
