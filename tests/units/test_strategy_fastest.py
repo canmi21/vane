@@ -13,7 +13,6 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
     approach: one real HTTP server as the fast target, and multiple, correctly
     simulated slow TCP servers as decoys.
     """
-    # --- THIS SECTION IS CORRECTED ---
     # The type hint now correctly refers to the real classes being used,
     # resolving the Pylance error.
     all_servers: List[
