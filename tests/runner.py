@@ -104,9 +104,16 @@ def run_suite(debug_mode: bool, args: list):
     passed_count, failed_count = 0, 0
     start_time = time.monotonic()
     print(f"Running {total_tests} tests...")
+
+    # Determine the padding width based on the total number of tests.
+    # This ensures that for 1-99 tests we get "01", for 100-999 we get "001", etc.
+    width = len(str(total_tests))
+
     for i, (test_num, name, test_func) in enumerate(test_suite, 1):
         print(
-            f"[{i}/{total_tests}] #{test_num} Running: {name} ... ", end="", flush=True
+            f"[{i:0{width}}/{total_tests}] #{test_num} Running: {name} ... ",
+            end="",
+            flush=True,
         )
         try:
             success, details = test_func(debug_mode)
