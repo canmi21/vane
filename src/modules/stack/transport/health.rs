@@ -65,6 +65,23 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 		.collect()
 }
 
+/// Proactively marks a TCP target as unavailable in the health registry.
+/// This is called when a real connection attempt fails, allowing for faster failure detection.
+pub fn mark_tcp_target_unhealthy(target: &ResolvedTarget) {
+	if let Some(mut health_entry) = TARGET_HEALTH_REGISTRY.get_mut(target) {
+		if health_entry.available {
+			log(
+				LogLevel::Warn,
+				&format!(
+					"✗ Proactively marked TCP target {}:{} as unavailable due to connection failure.",
+					target.ip, target.port
+				),
+			);
+			health_entry.available = false;
+		}
+	}
+}
+
 pub fn mark_udp_target_unhealthy(target: &ResolvedTarget) {
 	UNHEALTHY_UDP_TARGETS.insert(target.clone(), Instant::now());
 }
