@@ -58,30 +58,38 @@ fn spawn_reply_handler(
 	});
 }
 
-/// Gets or creates a new session for a client.
+/// Gets an existing session or creates a new one for a client.
+/// This function is carefully structured to avoid deadlocks when updating a session.
 async fn get_or_create_session(
 	client_addr: SocketAddr,
 	port: u16,
 	rule: &UdpProtocolRule,
 	main_socket: Arc<UdpSocket>,
 ) -> Option<Arc<Session>> {
-	if let Some(session) = SESSIONS.get(&client_addr) {
+	// Atomically remove the session to update it. This is the key to avoiding a
+	// read-lock -> write-lock deadlock that would occur if we used .get() and
+	// then .insert() within the same scope.
+	if let Some((_, session)) = SESSIONS.remove(&client_addr) {
 		if health::is_udp_target_healthy(&session.target) {
-			let new_session = Arc::new(Session {
+			// If the session is healthy, update its timestamp and re-insert it.
+			let updated_session = Arc::new(Session {
 				target: session.target.clone(),
 				upstream_socket: session.upstream_socket.clone(),
 				last_seen: Instant::now(),
 			});
-			SESSIONS.insert(client_addr, new_session.clone());
-			return Some(new_session);
+			SESSIONS.insert(client_addr, updated_session.clone());
+			return Some(updated_session);
 		} else {
+			// If the target has become unhealthy, clean up the reverse mapping
+			// and let the session stay removed. We'll then fall through to create a new one.
 			if let Ok(addr) = session.upstream_socket.local_addr() {
 				REVERSE_SESSIONS.remove(&addr);
 			}
-			SESSIONS.remove(&client_addr);
 		}
 	}
 
+	// If we reach here, it means no session existed, or it was unhealthy and has been cleared.
+	// We now create a brand new session.
 	if let UdpDestination::Forward { ref forward } = rule.destination {
 		if let Some(target) = balancer::select_udp_target(port, &rule.name, forward).await {
 			if let Ok(target_ip) = target.ip.parse() {
@@ -89,12 +97,13 @@ async fn get_or_create_session(
 					let upstream_arc = Arc::new(upstream_socket);
 					if let Ok(local_addr) = upstream_arc.local_addr() {
 						let new_session = Arc::new(Session {
-							target, // This is now a ResolvedTarget
+							target,
 							upstream_socket: upstream_arc.clone(),
 							last_seen: Instant::now(),
 						});
 						SESSIONS.insert(client_addr, new_session.clone());
 						REVERSE_SESSIONS.insert(local_addr, client_addr);
+
 						let timeout_ms_str = if ip::is_private_ip(&target_ip) {
 							getenv::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
 						} else {
