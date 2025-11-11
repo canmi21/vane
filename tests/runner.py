@@ -33,7 +33,8 @@ from units import (
     test_fallback_auto_recovery,
     test_capture_all_fallback,
     test_udp_proxy,
-    test_udp_fallback,  # Import the new UDP fallback test case
+    test_udp_fallback,
+    test_udp_single_client_burst,  # Import the new UDP test case
 )
 
 # The master list of all tests to be executed sequentially.
@@ -74,8 +75,9 @@ TEST_SUITE = [
     ("units.test_fallback_auto_recovery", test_fallback_auto_recovery.run),
     ("units.test_capture_all_fallback", test_capture_all_fallback.run),
     ("units.test_udp_proxy", test_udp_proxy.run),
-    # Add the new test case to the very end of the suite.
     ("units.test_udp_fallback", test_udp_fallback.run),
+    # Add the new test case to the very end of the suite.
+    ("units.test_udp_single_client_burst", test_udp_single_client_burst.run),
 ]
 
 
