@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.13 (11. Nov, 2025)
+
+- **Fixed:** Corrected a critical deadlock in the UDP session handler (`proxy.rs`) that caused significant packet loss for traffic bursts from a single client. The session update logic could previously cause a lock contention, resulting in only the first packet of a sequence being proxied. The update mechanism is now fully atomic, ensuring reliable session affinity and correct handling of high-throughput UDP streams from a single source.
+
 ## 0.1.12 (11. Nov, 2025)
 
 - **Fixed:** Corrected a flaw in the health-checking logic where a backend, once marked as "down" by a reactive connection failure, would not be automatically brought back into service by the periodic health checker. The state management in `health.rs` has been made more robust; the periodic checker now reliably overwrites the "unhealthy" status upon successful reconnection, ensuring that recovered backends are correctly returned to the active load-balancing pool.
