@@ -28,6 +28,7 @@ from units import (
     test_no_available_targets,
     test_routing_to_single_available_target,
     test_serial_strategy_with_runtime_failure,
+    test_backend_auto_recovery,  # --- NEW ---
 )
 
 # The master list of all tests to be executed sequentially.
@@ -63,6 +64,8 @@ TEST_SUITE = [
         "units.test_serial_strategy_with_runtime_failure",
         test_serial_strategy_with_runtime_failure.run,
     ),
+    # --- This section is updated ---
+    ("units.test_backend_auto_recovery", test_backend_auto_recovery.run),
 ]
 
 
@@ -82,9 +85,6 @@ def run_suite(debug_mode: bool, args: list):
     )
     ns, _ = parser.parse_known_args(args)
 
-    # --- THIS SECTION IS UPDATED ---
-    # Determine the padding for the absolute test number (#M) based on the
-    # total number of tests in the master suite.
     total_in_master_suite = len(TEST_SUITE)
     width_absolute = len(str(total_in_master_suite))
 
@@ -125,8 +125,6 @@ def run_suite(debug_mode: bool, args: list):
     start_time = time.monotonic()
     print(f"Running {total_to_run} tests...")
 
-    # Determine the padding for the running counter (i/N) based on the
-    # number of tests that will actually be run.
     width_running = len(str(total_to_run))
 
     for i, (test_num, name, test_func) in enumerate(test_suite, 1):
