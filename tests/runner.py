@@ -31,7 +31,9 @@ from units import (
     test_backend_auto_recovery,
     test_fallback_routing,
     test_fallback_auto_recovery,
-    test_capture_all_fallback,  # --- NEW ---
+    test_capture_all_fallback,
+    test_udp_proxy,
+    test_udp_fallback,  # Import the new UDP fallback test case
 )
 
 # The master list of all tests to be executed sequentially.
@@ -70,8 +72,10 @@ TEST_SUITE = [
     ("units.test_backend_auto_recovery", test_backend_auto_recovery.run),
     ("units.test_fallback_routing", test_fallback_routing.run),
     ("units.test_fallback_auto_recovery", test_fallback_auto_recovery.run),
-    # --- This section is updated ---
     ("units.test_capture_all_fallback", test_capture_all_fallback.run),
+    ("units.test_udp_proxy", test_udp_proxy.run),
+    # Add the new test case to the very end of the suite.
+    ("units.test_udp_fallback", test_udp_fallback.run),
 ]
 
 
