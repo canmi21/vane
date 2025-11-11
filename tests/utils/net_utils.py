@@ -6,6 +6,8 @@ import random
 import threading
 import socketserver
 import time
+import ssl
+import pathlib
 from typing import cast
 
 
@@ -55,93 +57,49 @@ def wait_for_tcp_port_ready(port: int, timeout: float = 2.0) -> bool:
             with socket.create_connection(("127.0.0.1", port), timeout=0.1):
                 return True
         except (socket.timeout, ConnectionRefusedError):
-            time.sleep(0.1)  # Wait a bit before retrying
+            time.sleep(0.1)
     return False
 
 
-# --- Connection Recorder Server ---
+# --- Connection Recorder Servers ---
 class ConnectionRecorderHandler(socketserver.BaseRequestHandler):
     @property
     def _recorder_server(self) -> ConnectionRecorderTCPServer:
         return cast(ConnectionRecorderTCPServer, self.server)
 
     def handle(self):
-        self._recorder_server.connection_count += 1
+        # The lock ensures that in a concurrent environment, the counter
+        # increment is atomic, preventing race conditions.
+        with self._recorder_server.count_lock:
+            self._recorder_server.connection_count += 1
         try:
-            while True:
-                data = self.request.recv(1024)
-                if not data:
-                    break
-        except (ConnectionResetError, BrokenPipeError):
+            # The handler's responsibility is now to simply accept, count,
+            # consume any incoming data, and then immediately close the
+            # connection. This creates a predictable lifecycle.
+            self.request.recv(1024)
+        except (ConnectionResetError, BrokenPipeError, ssl.SSLError):
+            # Client disconnected abruptly or a TLS error occurred.
             pass
         finally:
+            # By design, the server now always closes the connection first.
             self.request.close()
 
 
-class ConnectionRecorderTCPServer(socketserver.TCPServer):
+class ConnectionRecorderTCPServer(socketserver.ThreadingTCPServer):
+    """
+    A multi-threaded TCP server that records the total number of connections.
+    It uses ThreadingTCPServer to handle multiple simultaneous connections
+    robustly, which is essential for accurate testing under load.
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.connection_count, self._thread = 0, None
-        self.allow_reuse_address = True
-
-    def start(self):
-        self._thread = threading.Thread(target=self.serve_forever)
-        self._thread.daemon = True
-        self._thread.start()
-
-    def stop(self):
-        if self._thread:
-            self.shutdown()
-            self.server_close()
-            self._thread.join()
-
-
-# --- FINAL, CORRECT SLOW TCP SERVER IMPLEMENTATION ---
-
-
-class SlowTCPHandler(socketserver.BaseRequestHandler):
-    """
-    A handler that correctly simulates a slow server. It introduces a delay
-    IMMEDIATELY upon connection acceptance, then waits passively for the client
-    to send data or close the connection. IT DOES NOT CLOSE THE CONNECTION ITSELF.
-    """
-
-    @property
-    def _slow_server(self) -> SlowTCPServer:
-        return cast(SlowTCPServer, self.server)
-
-    def handle(self):
-        # 1. Inject delay immediately. This is the crucial part. Any attempt by
-        #    the client to write data will be blocked for this duration.
-        time.sleep(self._slow_server.delay_sec)
-
-        # 2. Passively wait for data or client-side close. This prevents the
-        #    "Connection reset by peer" error and correctly mimics a slow,
-        #    but not broken, server.
-        try:
-            while True:
-                data = self.request.recv(1024)
-                if not data:
-                    # Client closed the connection gracefully.
-                    break
-        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
-            # Client closed the connection abruptly.
-            pass
-        finally:
-            self.request.close()
-
-
-class SlowTCPServer(socketserver.TCPServer):
-    """
-    A TCP server that uses the SlowTCPHandler to correctly simulate latency
-    at the application layer, making it perceptible to proxy servers.
-    """
-
-    def __init__(self, server_address, RequestHandlerClass, delay_sec: float = 0.1):
-        super().__init__(server_address, RequestHandlerClass)
-        self.delay_sec = delay_sec
+        self.connection_count = 0
         self._thread = None
         self.allow_reuse_address = True
+        # A lock is crucial to protect the counter during concurrent access
+        # from multiple handler threads.
+        self.count_lock = threading.Lock()
 
     def start(self):
         self._thread = threading.Thread(target=self.serve_forever)
@@ -153,3 +111,27 @@ class SlowTCPServer(socketserver.TCPServer):
             self.shutdown()
             self.server_close()
             self._thread.join()
+
+
+class TLSConnectionRecorderServer(ConnectionRecorderTCPServer):
+    """
+    A multi-threaded TLS server that records the total number of connections.
+    It wraps incoming connections in a TLS context using a provided
+    self-signed certificate.
+    """
+
+    def __init__(
+        self,
+        server_address,
+        RequestHandlerClass,
+        certfile: pathlib.Path,
+        keyfile: pathlib.Path,
+    ):
+        super().__init__(server_address, RequestHandlerClass)
+        self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.ssl_context.load_cert_chain(certfile, keyfile)
+
+    def get_request(self):
+        """Wraps the accepted socket with the TLS context."""
+        sock, addr = self.socket.accept()
+        return self.ssl_context.wrap_socket(sock, server_side=True), addr
