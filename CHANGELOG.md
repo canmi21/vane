@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.1.11 (11. Nov, 2025)
 
+- **Changed:** Enhanced the flexibility of the health-checking system (`health.rs`) by exposing its core timing parameters as environment variables. Operators can now fine-tune the TCP probe interval (`HEALTH_TCP_INTERVAL_SECS`), connection timeout (`HEALTH_TCP_CONNECT_TIMEOUT_MS`), and the UDP unhealthy target TTL (`HEALTH_UDP_UNHEALTHY_TTL_SECS`) without needing to recompile the application.
 - **Fixed:** Resolved a significant TCP failover delay by implementing a reactive health-checking mechanism. Previously, the system would only detect a failed backend during its periodic health check cycle (every 5 seconds). Now, when a proxy connection attempt fails (e.g., `Connection refused`), the dispatcher immediately marks the target as unavailable. This ensures that subsequent traffic is instantly rerouted to healthy backends, dramatically improving reliability during runtime outages.
 
 ## 0.1.10 (10. Nov, 2025)
