@@ -135,3 +135,53 @@ class TLSConnectionRecorderServer(ConnectionRecorderTCPServer):
         """Wraps the accepted socket with the TLS context."""
         sock, addr = self.socket.accept()
         return self.ssl_context.wrap_socket(sock, server_side=True), addr
+
+
+# --- Slow TCP Server for Latency Simulation ---
+class SlowTCPHandler(socketserver.BaseRequestHandler):
+    """
+    A handler that correctly simulates a slow server. It introduces a delay
+    IMMEDIATELY upon connection acceptance, then waits passively for the client
+    to send data or close the connection.
+    """
+
+    @property
+    def _slow_server(self) -> SlowTCPServer:
+        return cast(SlowTCPServer, self.server)
+
+    def handle(self):
+        # Inject an application-level delay to simulate network or server latency.
+        time.sleep(self._slow_server.delay_sec)
+        try:
+            # Passively wait for data or a client-side close to correctly
+            # mimic a slow, but not broken, server.
+            while self.request.recv(1024):
+                pass
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            # Client closed the connection abruptly.
+            pass
+        finally:
+            self.request.close()
+
+
+class SlowTCPServer(socketserver.ThreadingTCPServer):
+    """
+    A multi-threaded TCP server that uses SlowTCPHandler to simulate latency.
+    """
+
+    def __init__(self, server_address, RequestHandlerClass, delay_sec: float = 0.1):
+        super().__init__(server_address, RequestHandlerClass)
+        self.delay_sec = delay_sec
+        self._thread = None
+        self.allow_reuse_address = True
+
+    def start(self):
+        self._thread = threading.Thread(target=self.serve_forever)
+        self._thread.daemon = True
+        self._thread.start()
+
+    def stop(self):
+        if self._thread:
+            self.shutdown()
+            self.server_close()
+            self._thread.join()
