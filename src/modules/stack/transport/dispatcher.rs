@@ -1,7 +1,7 @@
 /* src/modules/stack/transport/dispatcher.rs */
 
 use super::{
-	balancer,
+	balancer, health,
 	model::{DetectMethod, ResolvedTarget},
 	tcp::{TcpConfig, TcpDestination},
 };
@@ -44,6 +44,8 @@ async fn proxy_connection(mut client_socket: TcpStream, target: ResolvedTarget) 
 					target_str, e
 				),
 			);
+			// Reactively mark this target as unhealthy immediately.
+			health::mark_tcp_target_unhealthy(&target);
 		}
 	}
 }
