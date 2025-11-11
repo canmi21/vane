@@ -25,7 +25,9 @@ from units import (
     test_strategy_serial,
     test_strategy_random,
     test_strategy_fastest,
-    test_no_available_targets,  # --- NEW ---
+    test_no_available_targets,
+    test_routing_to_single_available_target,
+    test_serial_strategy_with_runtime_failure,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -52,8 +54,15 @@ TEST_SUITE = [
     ("units.test_strategy_serial", test_strategy_serial.run),
     ("units.test_strategy_random", test_strategy_random.run),
     ("units.test_strategy_fastest", test_strategy_fastest.run),
-    # --- This section is updated ---
     ("units.test_no_available_targets", test_no_available_targets.run),
+    (
+        "units.test_routing_to_single_available_target",
+        test_routing_to_single_available_target.run,
+    ),
+    (
+        "units.test_serial_strategy_with_runtime_failure",
+        test_serial_strategy_with_runtime_failure.run,
+    ),
 ]
 
 
@@ -72,6 +81,13 @@ def run_suite(debug_mode: bool, args: list):
         "--skip", type=str, help="Skip specific tests. E.g., '3', '1-2', '1,5,6'."
     )
     ns, _ = parser.parse_known_args(args)
+
+    # --- THIS SECTION IS UPDATED ---
+    # Determine the padding for the absolute test number (#M) based on the
+    # total number of tests in the master suite.
+    total_in_master_suite = len(TEST_SUITE)
+    width_absolute = len(str(total_in_master_suite))
+
     all_tests: List[Tuple[int, str, Callable[[bool], Tuple[bool, str]]]] = [
         (i, name, func) for i, (name, func) in enumerate(TEST_SUITE, 1)
     ]
@@ -100,21 +116,22 @@ def run_suite(debug_mode: bool, args: list):
 
         indices_to_skip = _parse_skip_string(ns.skip)
         test_suite = [t for t in test_suite if t[0] not in indices_to_skip]
-    total_tests = len(test_suite)
-    if total_tests == 0:
+
+    total_to_run = len(test_suite)
+    if total_to_run == 0:
         print("No tests to run after filtering.")
         return
     passed_count, failed_count = 0, 0
     start_time = time.monotonic()
-    print(f"Running {total_tests} tests...")
+    print(f"Running {total_to_run} tests...")
 
-    # Determine the padding width based on the total number of tests.
-    # This ensures that for 1-99 tests we get "01", for 100-999 we get "001", etc.
-    width = len(str(total_tests))
+    # Determine the padding for the running counter (i/N) based on the
+    # number of tests that will actually be run.
+    width_running = len(str(total_to_run))
 
     for i, (test_num, name, test_func) in enumerate(test_suite, 1):
         print(
-            f"[{i:0{width}}/{total_tests}] #{test_num} Running: {name} ... ",
+            f"[{i:0{width_running}}/{total_to_run}] #{test_num:0{width_absolute}} Running: {name} ... ",
             end="",
             flush=True,
         )
@@ -135,7 +152,7 @@ def run_suite(debug_mode: bool, args: list):
     print()
     print("+ Test Summary")
     print(
-        f"Result: {passed_count} passed, {failed_count} failed out of {total_tests} total tests."
+        f"Result: {passed_count} passed, {failed_count} failed out of {total_to_run} total tests."
     )
     print(f"Total duration: {duration:.2f}s")
     if failed_count > 0:
