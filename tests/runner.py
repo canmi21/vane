@@ -23,6 +23,8 @@ from units import (
     test_invalid_toml,
     test_invalid_yaml,
     test_strategy_serial,
+    test_strategy_random,
+    test_strategy_fastest,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -47,6 +49,8 @@ TEST_SUITE = [
     ("units.test_invalid_toml", test_invalid_toml.run),
     ("units.test_invalid_yaml", test_invalid_yaml.run),
     ("units.test_strategy_serial", test_strategy_serial.run),
+    ("units.test_strategy_random", test_strategy_random.run),
+    ("units.test_strategy_fastest", test_strategy_fastest.run),
 ]
 
 
@@ -54,7 +58,6 @@ def run_suite(debug_mode: bool, args: list):
     """
     Runs a filtered and ordered test suite based on command-line arguments.
     """
-    # ... (The rest of this file remains unchanged) ...
     import argparse
     from typing import List, Tuple, Callable
 
@@ -65,18 +68,13 @@ def run_suite(debug_mode: bool, args: list):
     parser.add_argument(
         "--skip", type=str, help="Skip specific tests. E.g., '3', '1-2', '1,5,6'."
     )
-
     ns, _ = parser.parse_known_args(args)
-
     all_tests: List[Tuple[int, str, Callable[[bool], Tuple[bool, str]]]] = [
         (i, name, func) for i, (name, func) in enumerate(TEST_SUITE, 1)
     ]
-
     test_suite = all_tests
-
     if ns.start:
         test_suite = [t for t in test_suite if t[0] >= ns.start]
-
     if ns.skip:
 
         def _parse_skip_string(skip_str: str) -> set[int]:
@@ -99,24 +97,17 @@ def run_suite(debug_mode: bool, args: list):
 
         indices_to_skip = _parse_skip_string(ns.skip)
         test_suite = [t for t in test_suite if t[0] not in indices_to_skip]
-
     total_tests = len(test_suite)
     if total_tests == 0:
         print("No tests to run after filtering.")
         return
-
-    passed_count = 0
-    failed_count = 0
+    passed_count, failed_count = 0, 0
     start_time = time.monotonic()
-
     print(f"Running {total_tests} tests...")
     for i, (test_num, name, test_func) in enumerate(test_suite, 1):
         print(
-            f"[{i}/{total_tests}] #{test_num} Running: {name} ... ",
-            end="",
-            flush=True,
+            f"[{i}/{total_tests}] #{test_num} Running: {name} ... ", end="", flush=True
         )
-
         try:
             success, details = test_func(debug_mode)
             if success:
@@ -130,7 +121,6 @@ def run_suite(debug_mode: bool, args: list):
             print("CRASHED", file=sys.stderr)
             print(f"  └─ Unhandled Exception: {e}\n", file=sys.stderr)
             failed_count += 1
-
     duration = time.monotonic() - start_time
     print()
     print("+ Test Summary")
@@ -138,6 +128,5 @@ def run_suite(debug_mode: bool, args: list):
         f"Result: {passed_count} passed, {failed_count} failed out of {total_tests} total tests."
     )
     print(f"Total duration: {duration:.2f}s")
-
     if failed_count > 0:
         sys.exit(1)
