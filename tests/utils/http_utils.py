@@ -74,28 +74,40 @@ class StoppableHTTPServer(HTTPServer):
             self._thread.join()
 
 
-class DelayedStoppableHTTPServer(StoppableHTTPServer):
+# --- NEW, NON-INTRUSIVE CLASSES FOR LATENCY TESTING ---
+
+
+class DelayedRequestRecorderHandler(RequestRecorderHandler):
     """
-    An HTTPServer that can be stopped and can introduce an artificial delay
-    during the TCP handshake phase to simulate network latency.
+    A new, specialized handler that inherits from RequestRecorderHandler and
+    adds a delay at the very beginning of the connection handling process.
+    """
+
+    def handle(self) -> None:
+        """
+        Overrides the base handle method to inject a delay. It reads the delay
+        duration from a `delay_sec` attribute on its server instance.
+        """
+        delay = getattr(self.server, "delay_sec", 0.0)
+        time.sleep(delay)
+        super().handle()
+
+
+class SlowStoppableHTTPServer(StoppableHTTPServer):
+    """
+    A new, specialized server that inherits from the original StoppableHTTPServer.
+    Its sole purpose is to store a `delay_sec` value for the
+    DelayedRequestRecorderHandler to use.
     """
 
     def __init__(
         self,
         server_address: Tuple[str, int],
         RequestHandlerClass: Any,
-        handshake_delay_sec: float = 0.0,
+        delay_sec: float,
     ):
-        self.handshake_delay_sec = handshake_delay_sec
+        self.delay_sec = delay_sec
         super().__init__(server_address, RequestHandlerClass)
-
-    def get_request(self) -> Tuple[Any, Any]:
-        """
-        Overrides the default request getter to add a delay before accepting
-        the connection, simulating handshake latency.
-        """
-        time.sleep(self.handshake_delay_sec)
-        return self.socket.accept()
 
 
 def send_test_requests(
