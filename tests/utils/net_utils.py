@@ -61,44 +61,33 @@ def wait_for_tcp_port_ready(port: int, timeout: float = 2.0) -> bool:
     return False
 
 
-# --- Connection Recorder Servers ---
+# --- Connection Recorder Servers (TCP) ---
 class ConnectionRecorderHandler(socketserver.BaseRequestHandler):
     @property
     def _recorder_server(self) -> ConnectionRecorderTCPServer:
         return cast(ConnectionRecorderTCPServer, self.server)
 
     def handle(self):
-        # The lock ensures that in a concurrent environment, the counter
-        # increment is atomic, preventing race conditions.
         with self._recorder_server.count_lock:
             self._recorder_server.connection_count += 1
         try:
-            # The handler's responsibility is now to simply accept, count,
-            # consume any incoming data, and then immediately close the
-            # connection. This creates a predictable lifecycle.
             self.request.recv(1024)
         except (ConnectionResetError, BrokenPipeError, ssl.SSLError):
-            # Client disconnected abruptly or a TLS error occurred.
             pass
         finally:
-            # By design, the server now always closes the connection first.
             self.request.close()
 
 
 class ConnectionRecorderTCPServer(socketserver.ThreadingTCPServer):
-    """
-    A multi-threaded TCP server that records the total number of connections.
-    It uses ThreadingTCPServer to handle multiple simultaneous connections
-    robustly, which is essential for accurate testing under load.
-    """
+    """A multi-threaded TCP server that records the total number of connections."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, server_address, RequestHandlerClass):
+        # Using an explicit signature is more robust than generic *args, **kwargs
+        # for ensuring the handler is correctly registered by the base class.
+        super().__init__(server_address, RequestHandlerClass)
         self.connection_count = 0
         self._thread = None
         self.allow_reuse_address = True
-        # A lock is crucial to protect the counter during concurrent access
-        # from multiple handler threads.
         self.count_lock = threading.Lock()
 
     def start(self):
@@ -114,11 +103,7 @@ class ConnectionRecorderTCPServer(socketserver.ThreadingTCPServer):
 
 
 class TLSConnectionRecorderServer(ConnectionRecorderTCPServer):
-    """
-    A multi-threaded TLS server that records the total number of connections.
-    It wraps incoming connections in a TLS context using a provided
-    self-signed certificate.
-    """
+    """A multi-threaded TLS server that records the total number of connections."""
 
     def __init__(
         self,
@@ -132,42 +117,96 @@ class TLSConnectionRecorderServer(ConnectionRecorderTCPServer):
         self.ssl_context.load_cert_chain(certfile, keyfile)
 
     def get_request(self):
-        """Wraps the accepted socket with the TLS context."""
         sock, addr = self.socket.accept()
         return self.ssl_context.wrap_socket(sock, server_side=True), addr
 
 
+# --- UDP Test Servers ---
+class PredefinedResponseUDPHandler(socketserver.BaseRequestHandler):
+    """A UDP handler that sends a single, predefined response to any request."""
+
+    def handle(self):
+        socket = self.request[1]
+        server = cast(ResponseUDPServer, self.server)
+        socket.sendto(server.response_data, self.client_address)
+
+
+class ResponseUDPServer(socketserver.ThreadingUDPServer):
+    """A multi-threaded UDP server that gives a fixed response to any query."""
+
+    def __init__(self, server_address, RequestHandlerClass, response_data: bytes):
+        super().__init__(server_address, RequestHandlerClass)
+        self.response_data = response_data
+        self._thread = None
+        self.allow_reuse_address = True
+
+    def start(self):
+        self._thread = threading.Thread(target=self.serve_forever)
+        self._thread.daemon = True
+        self._thread.start()
+
+    def stop(self):
+        if self._thread:
+            self.shutdown()
+            self.server_close()
+            self._thread.join()
+
+
+class PacketRecorderUDPHandler(socketserver.BaseRequestHandler):
+    """A UDP handler that simply counts received packets thread-safely."""
+
+    def handle(self):
+        server = cast(PacketRecorderUDPServer, self.server)
+        with server.count_lock:
+            server.packet_count += 1
+
+
+class PacketRecorderUDPServer(socketserver.ThreadingUDPServer):
+    """A multi-threaded UDP server that counts the total number of packets received."""
+
+    def __init__(self, server_address, RequestHandlerClass):
+        # This explicit __init__ signature is crucial. The generic *args, **kwargs
+        # can cause the RequestHandlerClass to not be properly registered by the
+        # underlying socketserver, turning the server into a black hole.
+        super().__init__(server_address, RequestHandlerClass)
+        self.packet_count = 0
+        self._thread = None
+        self.allow_reuse_address = True
+        self.count_lock = threading.Lock()
+
+    def start(self):
+        self._thread = threading.Thread(target=self.serve_forever)
+        self._thread.daemon = True
+        self._thread.start()
+
+    def stop(self):
+        if self._thread:
+            self.shutdown()
+            self.server_close()
+            self._thread.join()
+
+
 # --- Slow TCP Server for Latency Simulation ---
 class SlowTCPHandler(socketserver.BaseRequestHandler):
-    """
-    A handler that correctly simulates a slow server. It introduces a delay
-    IMMEDIATELY upon connection acceptance, then waits passively for the client
-    to send data or close the connection.
-    """
+    """A handler that simulates a slow server by introducing a delay."""
 
     @property
     def _slow_server(self) -> SlowTCPServer:
         return cast(SlowTCPServer, self.server)
 
     def handle(self):
-        # Inject an application-level delay to simulate network or server latency.
         time.sleep(self._slow_server.delay_sec)
         try:
-            # Passively wait for data or a client-side close to correctly
-            # mimic a slow, but not broken, server.
             while self.request.recv(1024):
                 pass
         except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
-            # Client closed the connection abruptly.
             pass
         finally:
             self.request.close()
 
 
 class SlowTCPServer(socketserver.ThreadingTCPServer):
-    """
-    A multi-threaded TCP server that uses SlowTCPHandler to simulate latency.
-    """
+    """A multi-threaded TCP server that uses SlowTCPHandler to simulate latency."""
 
     def __init__(self, server_address, RequestHandlerClass, delay_sec: float = 0.1):
         super().__init__(server_address, RequestHandlerClass)
