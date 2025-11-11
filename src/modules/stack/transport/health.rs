@@ -14,6 +14,16 @@ pub struct TargetHealth {
 	pub latency: Duration,
 }
 
+impl TargetHealth {
+	/// Creates a new, explicitly unhealthy status.
+	fn unhealthy() -> Self {
+		TargetHealth {
+			available: false,
+			latency: Duration::MAX,
+		}
+	}
+}
+
 pub static TARGET_HEALTH_REGISTRY: Lazy<DashMap<ResolvedTarget, TargetHealth>> =
 	Lazy::new(DashMap::new);
 static UNHEALTHY_UDP_TARGETS: Lazy<DashMap<ResolvedTarget, Instant>> = Lazy::new(DashMap::new);
@@ -28,15 +38,27 @@ async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 		TcpStream::connect((target.ip.as_str(), target.port)),
 	)
 	.await;
+
 	let health_status = match check_result {
-		Ok(Ok(_)) => TargetHealth {
-			available: true,
-			latency: start.elapsed(),
-		},
-		_ => TargetHealth {
-			available: false,
-			latency: Duration::MAX,
-		},
+		Ok(Ok(_)) => {
+			let latency = start.elapsed();
+			if let Some(existing) = TARGET_HEALTH_REGISTRY.get_mut(&target) {
+				if !existing.available {
+					log(
+						LogLevel::Info,
+						&format!(
+							"✓ TCP target {}:{} has recovered and is back online (latency: {:?}).",
+							target.ip, target.port, latency
+						),
+					);
+				}
+			}
+			TargetHealth {
+				available: true,
+				latency,
+			}
+		}
+		_ => TargetHealth::unhealthy(),
 	};
 	TARGET_HEALTH_REGISTRY.insert(target, health_status);
 }
@@ -73,17 +95,21 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 /// Proactively marks a TCP target as unavailable in the health registry.
 /// This is called when a real connection attempt fails, allowing for faster failure detection.
 pub fn mark_tcp_target_unhealthy(target: &ResolvedTarget) {
-	if let Some(mut health_entry) = TARGET_HEALTH_REGISTRY.get_mut(target) {
-		if health_entry.available {
-			log(
-				LogLevel::Warn,
-				&format!(
-					"✗ Proactively marked TCP target {}:{} as unavailable due to connection failure.",
-					target.ip, target.port
-				),
-			);
-			health_entry.available = false;
-		}
+	// Use insert to create or overwrite the entry with a definitive unhealthy status.
+	// This is more robust than get_mut as it handles cases where the target might not
+	// yet be in the registry and ensures the state is fully consistent.
+	if TARGET_HEALTH_REGISTRY
+		.get(target)
+		.map_or(true, |h| h.available)
+	{
+		log(
+			LogLevel::Warn,
+			&format!(
+				"✗ Proactively marked TCP target {}:{} as unavailable due to connection failure.",
+				target.ip, target.port
+			),
+		);
+		TARGET_HEALTH_REGISTRY.insert(target.clone(), TargetHealth::unhealthy());
 	}
 }
 
@@ -124,7 +150,10 @@ pub fn start_periodic_health_checkers() {
 		let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
 		loop {
 			interval.tick().await;
-			let _ = run_health_check_cycle().await;
+			let handles = run_health_check_cycle().await;
+			for handle in handles {
+				let _ = handle.await;
+			}
 		}
 	});
 
