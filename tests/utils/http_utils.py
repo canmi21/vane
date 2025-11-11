@@ -3,6 +3,7 @@
 from __future__ import annotations
 import threading
 import requests
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import List, Dict, Any, Tuple, cast
 
@@ -71,6 +72,30 @@ class StoppableHTTPServer(HTTPServer):
             self.shutdown()
             self.server_close()
             self._thread.join()
+
+
+class DelayedStoppableHTTPServer(StoppableHTTPServer):
+    """
+    An HTTPServer that can be stopped and can introduce an artificial delay
+    during the TCP handshake phase to simulate network latency.
+    """
+
+    def __init__(
+        self,
+        server_address: Tuple[str, int],
+        RequestHandlerClass: Any,
+        handshake_delay_sec: float = 0.0,
+    ):
+        self.handshake_delay_sec = handshake_delay_sec
+        super().__init__(server_address, RequestHandlerClass)
+
+    def get_request(self) -> Tuple[Any, Any]:
+        """
+        Overrides the default request getter to add a delay before accepting
+        the connection, simulating handshake latency.
+        """
+        time.sleep(self.handshake_delay_sec)
+        return self.socket.accept()
 
 
 def send_test_requests(
