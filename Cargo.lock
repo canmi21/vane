@@ -2175,7 +2175,7 @@ dependencies = [
 
 [[package]]
 name = "vane"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anynet",
  "arc-swap",
