@@ -1,7 +1,7 @@
 /* src/modules/stack/transport/health.rs */
 
 use super::{model::ResolvedTarget, resolver, tcp::TcpDestination};
-use crate::modules::ports::model::CONFIG_STATE;
+use crate::{common::getenv, modules::ports::model::CONFIG_STATE};
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
@@ -19,9 +19,10 @@ pub static TARGET_HEALTH_REGISTRY: Lazy<DashMap<ResolvedTarget, TargetHealth>> =
 static UNHEALTHY_UDP_TARGETS: Lazy<DashMap<ResolvedTarget, Instant>> = Lazy::new(DashMap::new);
 
 /// Performs a quick TCP connection test to a resolved target.
-async fn check_tcp_target_health(target: ResolvedTarget) {
+/// The connection timeout is configurable via the HEALTH_TCP_CONNECT_TIMEOUT_MS environment variable.
+async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 	let start = Instant::now();
-	let timeout = Duration::from_secs(2);
+	let timeout = Duration::from_millis(timeout_ms);
 	let check_result = tokio::time::timeout(
 		timeout,
 		TcpStream::connect((target.ip.as_str(), target.port)),
@@ -45,6 +46,10 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 	let mut unique_targets = HashSet::new();
 	let config_guard = CONFIG_STATE.load();
 
+	let connect_timeout_ms = getenv::get_env("HEALTH_TCP_CONNECT_TIMEOUT_MS", "2000".to_string())
+		.parse::<u64>()
+		.unwrap_or(2000);
+
 	for port_status in config_guard.iter() {
 		if let Some(tcp_config) = &port_status.tcp_config {
 			for rule in &tcp_config.rules {
@@ -61,7 +66,7 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 	}
 	unique_targets
 		.into_iter()
-		.map(|target| tokio::spawn(check_tcp_target_health(target)))
+		.map(|target| tokio::spawn(check_tcp_target_health(target, connect_timeout_ms)))
 		.collect()
 }
 
@@ -102,18 +107,38 @@ pub async fn initial_health_check() {
 	log(LogLevel::Debug, "✓ Initial TCP health check complete.");
 }
 
+/// Starts background tasks for periodic TCP health checks and UDP session cleanup.
+///
+/// The intervals for these tasks are configurable via environment variables:
+/// - `HEALTH_TCP_INTERVAL_SECS`: Interval for TCP health checks (default: 5s).
+/// - `HEALTH_UDP_CLEANUP_INTERVAL_SECS`: Interval for UDP cleanup task (default: 5s).
+/// - `HEALTH_UDP_UNHEALTHY_TTL_SECS`: TTL for an unhealthy UDP target (default: 10s).
 pub fn start_periodic_health_checkers() {
 	log(LogLevel::Debug, "⚙ Starting periodic health checkers...");
+
+	// Periodic TCP health checker task.
 	tokio::spawn(async move {
-		let mut interval = tokio::time::interval(Duration::from_secs(5));
+		let interval_secs = getenv::get_env("HEALTH_TCP_INTERVAL_SECS", "5".to_string())
+			.parse::<u64>()
+			.unwrap_or(5);
+		let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
 		loop {
 			interval.tick().await;
 			let _ = run_health_check_cycle().await;
 		}
 	});
+
+	// Periodic cleanup task for unhealthy UDP targets.
 	tokio::spawn(async move {
-		let mut interval = tokio::time::interval(Duration::from_secs(5));
-		let unhealthy_ttl = Duration::from_secs(10);
+		let interval_secs = getenv::get_env("HEALTH_UDP_CLEANUP_INTERVAL_SECS", "5".to_string())
+			.parse::<u64>()
+			.unwrap_or(5);
+		let unhealthy_ttl_secs = getenv::get_env("HEALTH_UDP_UNHEALTHY_TTL_SECS", "10".to_string())
+			.parse::<u64>()
+			.unwrap_or(10);
+
+		let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+		let unhealthy_ttl = Duration::from_secs(unhealthy_ttl_secs);
 		loop {
 			interval.tick().await;
 			UNHEALTHY_UDP_TARGETS.retain(|_, v| v.elapsed() < unhealthy_ttl);
