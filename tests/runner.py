@@ -22,6 +22,7 @@ from units import (
     test_invalid_json,
     test_invalid_toml,
     test_invalid_yaml,
+    test_strategy_serial,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -45,6 +46,7 @@ TEST_SUITE = [
     ("units.test_invalid_json", test_invalid_json.run),
     ("units.test_invalid_toml", test_invalid_toml.run),
     ("units.test_invalid_yaml", test_invalid_yaml.run),
+    ("units.test_strategy_serial", test_strategy_serial.run),
 ]
 
 
@@ -52,6 +54,7 @@ def run_suite(debug_mode: bool, args: list):
     """
     Runs a filtered and ordered test suite based on command-line arguments.
     """
+    # ... (The rest of this file remains unchanged) ...
     import argparse
     from typing import List, Tuple, Callable
 
