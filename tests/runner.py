@@ -30,7 +30,8 @@ from units import (
     test_serial_strategy_with_runtime_failure,
     test_backend_auto_recovery,
     test_fallback_routing,
-    test_fallback_auto_recovery,  # --- NEW ---
+    test_fallback_auto_recovery,
+    test_capture_all_fallback,  # --- NEW ---
 )
 
 # The master list of all tests to be executed sequentially.
@@ -68,8 +69,9 @@ TEST_SUITE = [
     ),
     ("units.test_backend_auto_recovery", test_backend_auto_recovery.run),
     ("units.test_fallback_routing", test_fallback_routing.run),
-    # --- This section is updated ---
     ("units.test_fallback_auto_recovery", test_fallback_auto_recovery.run),
+    # --- This section is updated ---
+    ("units.test_capture_all_fallback", test_capture_all_fallback.run),
 ]
 
 
