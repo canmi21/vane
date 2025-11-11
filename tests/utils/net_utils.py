@@ -44,6 +44,21 @@ def find_available_tcp_port() -> int:
     raise RuntimeError("Could not find an available TCP port.")
 
 
+def wait_for_tcp_port_ready(port: int, timeout: float = 2.0) -> bool:
+    """
+    Waits for a TCP port to become ready and accept a connection. This is a
+    reliable way to ensure a server has started before proceeding.
+    """
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < timeout:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                return True
+        except (socket.timeout, ConnectionRefusedError):
+            time.sleep(0.1)  # Wait a bit before retrying
+    return False
+
+
 # --- Connection Recorder Server (Existing) ---
 class ConnectionRecorderHandler(socketserver.BaseRequestHandler):
     @property
@@ -81,35 +96,51 @@ class ConnectionRecorderTCPServer(socketserver.TCPServer):
             self._thread.join()
 
 
-# --- Slow TCP Server ---
-class SlowConnectionHandler(socketserver.BaseRequestHandler):
-    """A handler that introduces a delay then waits for the client to close."""
+# --- FINAL, CORRECT SLOW TCP SERVER IMPLEMENTATION ---
+
+
+class SlowTCPHandler(socketserver.BaseRequestHandler):
+    """
+    A handler that correctly simulates a slow server. It introduces a delay
+    IMMEDIATELY upon connection acceptance, then waits passively for the client
+    to send data or close the connection. IT DOES NOT CLOSE THE CONNECTION ITSELF.
+    """
 
     @property
     def _slow_server(self) -> SlowTCPServer:
         return cast(SlowTCPServer, self.server)
 
     def handle(self):
-        self._slow_server.connection_count += 1
+        # 1. Inject delay immediately. This is the crucial part. Any attempt by
+        #    the client to write data will be blocked for this duration.
         time.sleep(self._slow_server.delay_sec)
-        # Robustly wait for the client to finish, preventing reset errors.
+
+        # 2. Passively wait for data or client-side close. This prevents the
+        #    "Connection reset by peer" error and correctly mimics a slow,
+        #    but not broken, server.
         try:
             while True:
                 data = self.request.recv(1024)
                 if not data:
+                    # Client closed the connection gracefully.
                     break
-        except (ConnectionResetError, BrokenPipeError):
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            # Client closed the connection abruptly.
             pass
         finally:
             self.request.close()
 
 
 class SlowTCPServer(socketserver.TCPServer):
-    """A TCP server that intentionally delays responding."""
+    """
+    A TCP server that uses the SlowTCPHandler to correctly simulate latency
+    at the application layer, making it perceptible to proxy servers.
+    """
 
     def __init__(self, server_address, RequestHandlerClass, delay_sec: float = 0.1):
         super().__init__(server_address, RequestHandlerClass)
-        self.delay_sec, self.connection_count, self._thread = delay_sec, 0, None
+        self.delay_sec = delay_sec
+        self._thread = None
         self.allow_reuse_address = True
 
     def start(self):
