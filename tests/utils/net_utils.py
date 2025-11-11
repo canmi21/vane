@@ -59,7 +59,7 @@ def wait_for_tcp_port_ready(port: int, timeout: float = 2.0) -> bool:
     return False
 
 
-# --- Connection Recorder Server (Existing) ---
+# --- Connection Recorder Server ---
 class ConnectionRecorderHandler(socketserver.BaseRequestHandler):
     @property
     def _recorder_server(self) -> ConnectionRecorderTCPServer:
