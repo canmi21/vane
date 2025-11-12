@@ -47,8 +47,10 @@ fn spawn_reply_handler(
 						}
 					}
 					_ => {
-						if let Some((_, client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {
-							SESSIONS.remove(&client_addr);
+						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {
+							// Note: We can't easily clean the primary SESSIONS map here
+							// because we don't know the protocol name. The main cleanup
+							// task will handle the dangling session entry.
 						}
 						break;
 					}
@@ -58,38 +60,31 @@ fn spawn_reply_handler(
 	});
 }
 
-/// Gets an existing session or creates a new one for a client.
-/// This function is carefully structured to avoid deadlocks when updating a session.
+/// Gets an existing session or creates a new one for a client, based on the matched protocol rule.
 async fn get_or_create_session(
 	client_addr: SocketAddr,
 	port: u16,
 	rule: &UdpProtocolRule,
 	main_socket: Arc<UdpSocket>,
 ) -> Option<Arc<Session>> {
-	// Atomically remove the session to update it. This is the key to avoiding a
-	// read-lock -> write-lock deadlock that would occur if we used .get() and
-	// then .insert() within the same scope.
-	if let Some((_, session)) = SESSIONS.remove(&client_addr) {
+	let session_key = (client_addr, rule.name.clone());
+
+	if let Some((_, session)) = SESSIONS.remove(&session_key) {
 		if health::is_udp_target_healthy(&session.target) {
-			// If the session is healthy, update its timestamp and re-insert it.
 			let updated_session = Arc::new(Session {
 				target: session.target.clone(),
 				upstream_socket: session.upstream_socket.clone(),
 				last_seen: Instant::now(),
 			});
-			SESSIONS.insert(client_addr, updated_session.clone());
+			SESSIONS.insert(session_key, updated_session.clone());
 			return Some(updated_session);
 		} else {
-			// If the target has become unhealthy, clean up the reverse mapping
-			// and let the session stay removed. We'll then fall through to create a new one.
 			if let Ok(addr) = session.upstream_socket.local_addr() {
 				REVERSE_SESSIONS.remove(&addr);
 			}
 		}
 	}
 
-	// If we reach here, it means no session existed, or it was unhealthy and has been cleared.
-	// We now create a brand new session.
 	if let UdpDestination::Forward { ref forward } = rule.destination {
 		if let Some(target) = balancer::select_udp_target(port, &rule.name, forward).await {
 			if let Ok(target_ip) = target.ip.parse() {
@@ -101,7 +96,7 @@ async fn get_or_create_session(
 							upstream_socket: upstream_arc.clone(),
 							last_seen: Instant::now(),
 						});
-						SESSIONS.insert(client_addr, new_session.clone());
+						SESSIONS.insert(session_key, new_session.clone());
 						REVERSE_SESSIONS.insert(local_addr, client_addr);
 
 						let timeout_ms_str = if ip::is_private_ip(&target_ip) {
@@ -170,10 +165,11 @@ pub async fn dispatch_udp_datagram(
 					.is_err()
 				{
 					health::mark_udp_target_unhealthy(&session.target);
+					let session_key = (client_addr, rule.name.clone());
 					if let Ok(addr) = session.upstream_socket.local_addr() {
 						REVERSE_SESSIONS.remove(&addr);
 					}
-					SESSIONS.remove(&client_addr);
+					SESSIONS.remove(&session_key);
 				}
 			}
 			return;
