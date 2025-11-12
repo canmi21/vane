@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.14 (12. Nov, 2025)
+
+- **Fixed:** Corrected a critical flaw in UDP mix-port forwarding where the session management mechanism was not protocol-aware. Previously, all datagrams from a single client IP:port were incorrectly locked to the backend of the first-matched protocol. The session key is now a composite of `(client_address, protocol_name)`, ensuring that different traffic types (e.g., DNS and QUIC) from the same client are correctly segregated and routed to their respective backends.
+- **Changed:** The UDP session timeout is now configurable via the `UDP_SESSION_TIMEOUT_SECS` environment variable, defaulting to 30 seconds.
+
 ## 0.1.13 (11. Nov, 2025)
 
 - **Fixed:** Corrected a critical deadlock in the UDP session handler (`proxy.rs`) that caused significant packet loss for traffic bursts from a single client. The session update logic could previously cause a lock contention, resulting in only the first packet of a sequence being proxied. The update mechanism is now fully atomic, ensuring reliable session affinity and correct handling of high-throughput UDP streams from a single source.
