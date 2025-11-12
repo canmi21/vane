@@ -17,26 +17,41 @@ pub struct Session {
 	pub last_seen: Instant,
 }
 
-pub static SESSIONS: Lazy<DashMap<SocketAddr, Arc<Session>>> = Lazy::new(DashMap::new);
+/// A globally shared, thread-safe map for UDP sessions.
+/// The key is a tuple of (client_address, protocol_name) to ensure
+/// that traffic from a single client can be routed to different backends
+/// based on the matched protocol rule.
+pub static SESSIONS: Lazy<DashMap<(SocketAddr, String), Arc<Session>>> = Lazy::new(DashMap::new);
+
+/// A reverse mapping from an upstream socket's ephemeral address back to the client's address.
+/// This is essential for routing replies correctly.
 pub static REVERSE_SESSIONS: Lazy<DashMap<SocketAddr, SocketAddr>> = Lazy::new(DashMap::new);
 
 /// Spawns a background task to clean up expired UDP sessions.
+/// The session timeout is configurable via the `UDP_SESSION_TIMEOUT_SECS` environment variable.
 pub fn start_session_cleanup_task() {
 	log(LogLevel::Debug, "⚙ Starting UDP session cleanup task...");
 	let buffer_limit_str = getenv::get_env("UDP_SESSION_BUFFER", "4194304".to_string());
 	let buffer_limit = buffer_limit_str.parse::<usize>().unwrap_or(4_194_304);
+
 	tokio::spawn(async move {
+		let session_timeout_secs = getenv::get_env("UDP_SESSION_TIMEOUT_SECS", "30".to_string())
+			.parse::<u64>()
+			.unwrap_or(30);
+		let session_timeout = Duration::from_secs(session_timeout_secs);
+
 		let mut interval = tokio::time::interval(Duration::from_secs(10));
 		loop {
 			interval.tick().await;
-			let session_timeout = Duration::from_secs(30);
 			let now = Instant::now();
 			let mut expired_keys = Vec::new();
+
 			for entry in SESSIONS.iter() {
 				if now.duration_since(entry.value().last_seen) > session_timeout {
-					expired_keys.push(*entry.key());
+					expired_keys.push(entry.key().clone());
 				}
 			}
+
 			for key in expired_keys {
 				if let Some((_, session)) = SESSIONS.remove(&key) {
 					if let Ok(addr) = session.upstream_socket.local_addr() {
@@ -44,8 +59,10 @@ pub fn start_session_cleanup_task() {
 					}
 				}
 			}
+
+			// Memory limit enforcement logic remains the same.
 			let current_size =
-				SESSIONS.len() * (mem::size_of::<SocketAddr>() + mem::size_of::<Arc<Session>>());
+				SESSIONS.len() * (mem::size_of::<(SocketAddr, String)>() + mem::size_of::<Arc<Session>>());
 			if current_size > buffer_limit {
 				log(
 					LogLevel::Warn,
@@ -56,7 +73,7 @@ pub fn start_session_cleanup_task() {
 				);
 				let mut all_sessions: Vec<_> = SESSIONS
 					.iter()
-					.map(|e| (*e.key(), e.value().last_seen))
+					.map(|e| (e.key().clone(), e.value().last_seen))
 					.collect();
 				all_sessions.sort_by_key(|a| a.1);
 				let to_prune_count = (SESSIONS.len() as f64 * 0.1).ceil() as usize;
