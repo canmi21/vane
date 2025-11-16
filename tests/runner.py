@@ -39,6 +39,8 @@ from units import (
     test_udp_mix_port_forwarding,
     test_listen_dual_stack,
     test_node_forwarding,
+    test_domain_forwarding,
+    test_custom_resolver,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -85,6 +87,8 @@ TEST_SUITE = [
     ("units.test_udp_mix_port_forwarding", test_udp_mix_port_forwarding.run),
     ("units.test_listen_dual_stack", test_listen_dual_stack.run),
     ("units.test_node_forwarding", test_node_forwarding.run),
+    ("units.test_domain_forwarding", test_domain_forwarding.run),
+    ("units.test_custom_resolver", test_custom_resolver.run),
 ]
 
 
