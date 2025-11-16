@@ -36,7 +36,8 @@ from units import (
     test_udp_fallback,
     test_udp_single_client_burst,
     test_udp_strategy_serial,
-    test_udp_mix_port_forwarding,  # Import the new UDP test case
+    test_udp_mix_port_forwarding,
+    test_listen_dual_stack,  # Import the new test case
 )
 
 # The master list of all tests to be executed sequentially.
@@ -80,8 +81,9 @@ TEST_SUITE = [
     ("units.test_udp_fallback", test_udp_fallback.run),
     ("units.test_udp_single_client_burst", test_udp_single_client_burst.run),
     ("units.test_udp_strategy_serial", test_udp_strategy_serial.run),
-    # Add the new test case to the very end of the suite.
     ("units.test_udp_mix_port_forwarding", test_udp_mix_port_forwarding.run),
+    # Add the new test case to the very end of the suite.
+    ("units.test_listen_dual_stack", test_listen_dual_stack.run),
 ]
 
 
