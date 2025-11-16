@@ -8,7 +8,7 @@ import socketserver
 import time
 import ssl
 import pathlib
-from typing import cast
+from typing import cast, Dict
 
 
 # --- Port Finding Functions ---
@@ -82,8 +82,6 @@ class ConnectionRecorderTCPServer(socketserver.ThreadingTCPServer):
     """A multi-threaded TCP server that records the total number of connections."""
 
     def __init__(self, server_address, RequestHandlerClass):
-        # Using an explicit signature is more robust than generic *args, **kwargs
-        # for ensuring the handler is correctly registered by the base class.
         super().__init__(server_address, RequestHandlerClass)
         self.connection_count = 0
         self._thread = None
@@ -126,9 +124,9 @@ class PredefinedResponseUDPHandler(socketserver.BaseRequestHandler):
     """A UDP handler that sends a single, predefined response to any request."""
 
     def handle(self):
-        socket = self.request[1]
+        sock = self.request[1]
         server = cast(ResponseUDPServer, self.server)
-        socket.sendto(server.response_data, self.client_address)
+        sock.sendto(server.response_data, self.client_address)
 
 
 class ResponseUDPServer(socketserver.ThreadingUDPServer):
@@ -165,14 +163,89 @@ class PacketRecorderUDPServer(socketserver.ThreadingUDPServer):
     """A multi-threaded UDP server that counts the total number of packets received."""
 
     def __init__(self, server_address, RequestHandlerClass):
-        # This explicit __init__ signature is crucial. The generic *args, **kwargs
-        # can cause the RequestHandlerClass to not be properly registered by the
-        # underlying socketserver, turning the server into a black hole.
         super().__init__(server_address, RequestHandlerClass)
         self.packet_count = 0
         self._thread = None
         self.allow_reuse_address = True
         self.count_lock = threading.Lock()
+
+    def start(self):
+        self._thread = threading.Thread(target=self.serve_forever)
+        self._thread.daemon = True
+        self._thread.start()
+
+    def stop(self):
+        if self._thread:
+            self.shutdown()
+            self.server_close()
+            self._thread.join()
+
+
+class CustomDnsHandler(socketserver.BaseRequestHandler):
+    """
+    A simple DNS handler that responds to A record queries for specific
+    domains with pre-configured IP addresses.
+    """
+
+    def handle(self):
+        data, sock = self.request
+        server = cast(CustomDnsServer, self.server)
+
+        # Extract the transaction ID from the query.
+        transaction_id = data[:2]
+
+        # A crude but effective way to find the queried domain.
+        # It finds the first null byte after the header and extracts the labels.
+        qname_end_idx = data.find(b"\x00", 12)
+        if qname_end_idx == -1:
+            return
+
+        # Format: [len]label[len]label...
+        qname_bytes = data[12 : qname_end_idx + 1]
+        labels = []
+        i = 0
+        while i < len(qname_bytes):
+            length = qname_bytes[i]
+            if length == 0:
+                break
+            labels.append(qname_bytes[i + 1 : i + 1 + length].decode("utf-8"))
+            i += 1 + length
+        domain = ".".join(labels)
+
+        # Check if we have a record for this domain.
+        if domain in server.a_records:
+            ip_str = server.a_records[domain]
+            ip_bytes = socket.inet_aton(ip_str)
+
+            # Construct the DNS response.
+            response = (
+                transaction_id
+                + b"\x81\x80"  # Flags: Standard query response, no error
+                + b"\x00\x01"  # Questions: 1
+                + b"\x00\x01"  # Answer RRs: 1
+                + b"\x00\x00"  # Authority RRs: 0
+                + b"\x00\x00"  # Additional RRs: 0
+                + qname_bytes  # The original question
+                + b"\x00\x01"  # Type: A
+                + b"\x00\x01"  # Class: IN
+                + b"\xc0\x0c"  # Pointer to the question name
+                + b"\x00\x01"  # Type: A
+                + b"\x00\x01"  # Class: IN
+                + b"\x00\x00\x00\x3c"  # TTL: 60 seconds
+                + b"\x00\x04"  # Data length: 4 bytes
+                + ip_bytes  # The IP address
+            )
+            sock.sendto(response, self.client_address)
+
+
+class CustomDnsServer(socketserver.ThreadingUDPServer):
+    """A configurable, multi-threaded DNS server for testing custom resolvers."""
+
+    def __init__(self, server_address, RequestHandlerClass, a_records: Dict[str, str]):
+        super().__init__(server_address, RequestHandlerClass)
+        self.a_records = a_records
+        self._thread = None
+        self.allow_reuse_address = True
 
     def start(self):
         self._thread = threading.Thread(target=self.serve_forever)
