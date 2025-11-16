@@ -11,7 +11,8 @@ use validator::Validate;
 /// Scans and loads the nodes configuration, handling conflicts and validation.
 pub fn scan_nodes_config() -> Option<NodesConfig> {
 	let config_dir = getconf::get_config_dir();
-	let supported_extensions = ["yaml", "json", "toml"];
+	// FIX: Add "yml" to the list of supported extensions for YAML files.
+	let supported_extensions = ["yml", "yaml", "json", "toml"];
 	let mut found_files: Vec<PathBuf> = Vec::new();
 
 	for ext in supported_extensions {
@@ -21,7 +22,6 @@ pub fn scan_nodes_config() -> Option<NodesConfig> {
 		}
 	}
 
-	// CRITICAL FIX: Immediately check for conflicts before any other action.
 	if found_files.len() > 1 {
 		log(
 			LogLevel::Error,
@@ -33,12 +33,10 @@ pub fn scan_nodes_config() -> Option<NodesConfig> {
 		return None;
 	}
 
-	// If no files are found, return a default empty config.
 	if found_files.is_empty() {
 		return Some(NodesConfig::default());
 	}
 
-	// From here on, we know there is exactly one file.
 	let config_path = &found_files[0];
 	let content = match fs::read_to_string(config_path) {
 		Ok(c) => c,
@@ -60,7 +58,7 @@ pub fn scan_nodes_config() -> Option<NodesConfig> {
 		.and_then(|s| s.to_str())
 		.unwrap_or("");
 	let parse_result: Result<NodesConfig, String> = match extension {
-		"yaml" => serde_yaml::from_str(&content).map_err(|e| e.to_string()),
+		"yml" | "yaml" => serde_yaml::from_str(&content).map_err(|e| e.to_string()),
 		"json" => serde_json::from_str(&content).map_err(|e| e.to_string()),
 		"toml" => toml::from_str(&content).map_err(|e| e.to_string()),
 		_ => unreachable!(),
