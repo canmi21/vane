@@ -5,7 +5,7 @@ use crate::modules::ports::model::Protocol;
 use std::{fs, io, path::PathBuf};
 
 // The list of supported config file extensions.
-const SUPPORTED_EXTENSIONS: [&str; 3] = ["toml", "yaml", "json"];
+const SUPPORTED_EXTENSIONS: [&str; 4] = ["toml", "yml", "yaml", "json"];
 
 /// Returns the filesystem path for a given port's configuration directory.
 fn get_port_config_path(port: u16) -> PathBuf {
