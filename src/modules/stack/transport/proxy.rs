@@ -6,7 +6,10 @@ use super::{
 	session::{REVERSE_SESSIONS, SESSIONS, Session},
 	udp::{UdpConfig, UdpDestination, UdpProtocolRule},
 };
-use crate::common::{getenv, ip};
+use crate::{
+	common::{getenv, ip},
+	modules::kv::KvStore, // Import KvStore
+};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::{
@@ -66,6 +69,7 @@ async fn get_or_create_session(
 	port: u16,
 	rule: &UdpProtocolRule,
 	main_socket: Arc<UdpSocket>,
+	_kv_store: &KvStore, // Pass KvStore, unused for now but available for future logic
 ) -> Option<Arc<Session>> {
 	let session_key = (client_addr, rule.name.clone());
 
@@ -122,6 +126,7 @@ pub async fn dispatch_udp_datagram(
 	config: Arc<UdpConfig>,
 	datagram: Vec<u8>,
 	client_addr: SocketAddr,
+	kv_store: KvStore, // Accept the KvStore
 ) {
 	let mut rules = config.rules.clone();
 	rules.sort_by_key(|r| r.priority);
@@ -156,7 +161,9 @@ pub async fn dispatch_udp_datagram(
 		};
 
 		if matches {
-			if let Some(session) = get_or_create_session(client_addr, port, &rule, socket.clone()).await {
+			if let Some(session) =
+				get_or_create_session(client_addr, port, &rule, socket.clone(), &kv_store).await
+			{
 				let target_addr = (session.target.ip.as_str(), session.target.port);
 				if session
 					.upstream_socket
