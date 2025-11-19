@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.1.15"
+version = "0.1.16"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -44,7 +44,7 @@ regex = "1"
 lazy_static = "1"
 rand = "0.9"
 fancy-regex = "0.16"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 trust-dns-resolver = "0.23"
 futures = "0.3"
 
