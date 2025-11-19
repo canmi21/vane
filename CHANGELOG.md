@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.1.16 (20. Nov, 2025)
+
+- **Added:** Architecturally enhanced the connection handling pipeline by introducing a per-connection Key-Value store (`KvStore`). This foundational feature, managed by the new `modules/kv` module, automatically attaches essential metadata (`conn.uuid`, `conn.ip`, `conn.timestamp`, etc.) to every TCP and UDP connection upon creation, enabling advanced context-aware processing in future protocol layers.
+- **Fixed:** Resolved a compilation error in the `kv` module by correcting the UUID generation method to `Uuid::now_v7`, which correctly uses the system's current time without requiring a manual timestamp argument.
+
 ## 0.1.15 (16. Nov, 2025)
 
 - **Fixed:** The `nodes` configuration loader (`nodes/hotswap.rs`) now correctly recognizes both `.yml` and `.yaml` file extensions. This resolves a critical bug where a valid `nodes.yml` file was being ignored, causing the global node state to be empty and all `node:` type target resolutions to fail.
