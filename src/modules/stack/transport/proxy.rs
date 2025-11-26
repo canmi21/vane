@@ -2,22 +2,75 @@
 
 use super::{
 	balancer, health,
-	model::DetectMethod,
+	model::{DetectMethod, ResolvedTarget},
 	session::{REVERSE_SESSIONS, SESSIONS, Session},
 	udp::{UdpConfig, UdpDestination, UdpProtocolRule},
 };
 use crate::{
 	common::{getenv, ip},
-	modules::kv::KvStore, // Import KvStore
+	modules::kv::KvStore,
 };
+use fancy_log::{LogLevel, log};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::{
-	net::UdpSocket,
+	io,
+	net::{TcpStream, UdpSocket},
 	time::{Duration, Instant},
 };
 
-/// Binds a new UDP socket for proxying to an upstream target.
+pub async fn proxy_tcp_stream(
+	mut client_socket: TcpStream,
+	target: ResolvedTarget,
+) -> io::Result<(u64, u64)> {
+	let peer_addr = client_socket
+		.peer_addr()
+		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
+	let target_str = format!("{}:{}", target.ip, target.port);
+	log(
+		LogLevel::Debug,
+		&format!(
+			"➜ Proxying TCP connection from {} to {}",
+			peer_addr, target_str
+		),
+	);
+
+	match TcpStream::connect((target.ip.as_str(), target.port)).await {
+		Ok(mut upstream_socket) => {
+			match tokio::io::copy_bidirectional(&mut client_socket, &mut upstream_socket).await {
+				Ok((up, down)) => {
+					log(
+						LogLevel::Debug,
+						&format!(
+							"✓ TCP proxy finished for {}. Upstream: {} bytes, Downstream: {} bytes.",
+							peer_addr, up, down
+						),
+					);
+					Ok((up, down))
+				}
+				Err(e) => {
+					log(
+						LogLevel::Warn,
+						&format!("✗ TCP proxy error for {}: {}", peer_addr, e),
+					);
+					Err(e)
+				}
+			}
+		}
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!(
+					"✗ Failed to connect to upstream target {}: {}",
+					target_str, e
+				),
+			);
+			health::mark_tcp_target_unhealthy(&target);
+			Err(e)
+		}
+	}
+}
+
 async fn bind_upstream_socket(target_ip: &IpAddr) -> Result<UdpSocket, std::io::Error> {
 	let bind_addr: SocketAddr = if target_ip.is_ipv6() {
 		([0; 16], 0).into()
@@ -27,7 +80,6 @@ async fn bind_upstream_socket(target_ip: &IpAddr) -> Result<UdpSocket, std::io::
 	UdpSocket::bind(bind_addr).await
 }
 
-/// Spawns a task to handle replies from an upstream socket back to the client.
 fn spawn_reply_handler(
 	upstream_socket: Arc<UdpSocket>,
 	main_socket: Arc<UdpSocket>,
@@ -50,11 +102,7 @@ fn spawn_reply_handler(
 						}
 					}
 					_ => {
-						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {
-							// Note: We can't easily clean the primary SESSIONS map here
-							// because we don't know the protocol name. The main cleanup
-							// task will handle the dangling session entry.
-						}
+						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {}
 						break;
 					}
 				}
@@ -63,13 +111,12 @@ fn spawn_reply_handler(
 	});
 }
 
-/// Gets an existing session or creates a new one for a client, based on the matched protocol rule.
 async fn get_or_create_session(
 	client_addr: SocketAddr,
 	port: u16,
 	rule: &UdpProtocolRule,
 	main_socket: Arc<UdpSocket>,
-	_kv_store: &KvStore, // Pass KvStore, unused for now but available for future logic
+	_kv_store: &KvStore,
 ) -> Option<Arc<Session>> {
 	let session_key = (client_addr, rule.name.clone());
 
@@ -119,67 +166,73 @@ async fn get_or_create_session(
 	None
 }
 
-/// Dispatches a single incoming UDP datagram.
 pub async fn dispatch_udp_datagram(
 	socket: Arc<UdpSocket>,
 	port: u16,
 	config: Arc<UdpConfig>,
 	datagram: Vec<u8>,
 	client_addr: SocketAddr,
-	kv_store: KvStore, // Accept the KvStore
+	kv_store: KvStore,
 ) {
-	let mut rules = config.rules.clone();
-	rules.sort_by_key(|r| r.priority);
+	if let UdpConfig::Legacy(legacy_config) = &*config {
+		let mut rules = legacy_config.rules.clone();
+		rules.sort_by_key(|r| r.priority);
 
-	for rule in rules {
-		let matches = match &rule.detect.method {
-			DetectMethod::Magic => {
-				if let Some(hex_str) = rule.detect.pattern.strip_prefix("0x") {
-					u8::from_str_radix(hex_str, 16).map_or(false, |b| datagram.starts_with(&[b]))
-				} else {
-					false
-				}
-			}
-			DetectMethod::Prefix => {
-				let pattern_bytes = rule.detect.pattern.as_bytes();
-				datagram
-					.windows(pattern_bytes.len())
-					.any(|window| window == pattern_bytes)
-			}
-			DetectMethod::Regex => {
-				if let Ok(re) = fancy_regex::Regex::new(&rule.detect.pattern) {
-					if let Ok(data_str) = std::str::from_utf8(&datagram) {
-						re.is_match(data_str).unwrap_or(false)
+		for rule in rules {
+			let matches = match &rule.detect.method {
+				DetectMethod::Magic => {
+					if let Some(hex_str) = rule.detect.pattern.strip_prefix("0x") {
+						u8::from_str_radix(hex_str, 16).map_or(false, |b| datagram.starts_with(&[b]))
 					} else {
 						false
 					}
-				} else {
-					false
 				}
-			}
-			DetectMethod::Fallback => true,
-		};
-
-		if matches {
-			if let Some(session) =
-				get_or_create_session(client_addr, port, &rule, socket.clone(), &kv_store).await
-			{
-				let target_addr = (session.target.ip.as_str(), session.target.port);
-				if session
-					.upstream_socket
-					.send_to(&datagram, target_addr)
-					.await
-					.is_err()
-				{
-					health::mark_udp_target_unhealthy(&session.target);
-					let session_key = (client_addr, rule.name.clone());
-					if let Ok(addr) = session.upstream_socket.local_addr() {
-						REVERSE_SESSIONS.remove(&addr);
+				DetectMethod::Prefix => {
+					let pattern_bytes = rule.detect.pattern.as_bytes();
+					datagram
+						.windows(pattern_bytes.len())
+						.any(|window| window == pattern_bytes)
+				}
+				DetectMethod::Regex => {
+					if let Ok(re) = fancy_regex::Regex::new(&rule.detect.pattern) {
+						if let Ok(data_str) = std::str::from_utf8(&datagram) {
+							re.is_match(data_str).unwrap_or(false)
+						} else {
+							false
+						}
+					} else {
+						false
 					}
-					SESSIONS.remove(&session_key);
 				}
+				DetectMethod::Fallback => true,
+			};
+
+			if matches {
+				if let Some(session) =
+					get_or_create_session(client_addr, port, &rule, socket.clone(), &kv_store).await
+				{
+					let target_addr = (session.target.ip.as_str(), session.target.port);
+					if session
+						.upstream_socket
+						.send_to(&datagram, target_addr)
+						.await
+						.is_err()
+					{
+						health::mark_udp_target_unhealthy(&session.target);
+						let session_key = (client_addr, rule.name.clone());
+						if let Ok(addr) = session.upstream_socket.local_addr() {
+							REVERSE_SESSIONS.remove(&addr);
+						}
+						SESSIONS.remove(&session_key);
+					}
+				}
+				return;
 			}
-			return;
 		}
+	} else {
+		log(
+			LogLevel::Debug,
+			"⚙ TODO: UDP Flow Engine execution path not yet implemented.",
+		);
 	}
 }
