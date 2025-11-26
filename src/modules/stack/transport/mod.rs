@@ -2,6 +2,7 @@
 
 pub mod balancer;
 pub mod dispatcher;
+pub mod flow;
 pub mod fs;
 pub mod health;
 pub mod loader;
