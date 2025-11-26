@@ -1,6 +1,7 @@
 {
-    "python.defaultInterpreterPath": "tests/.venv/bin/python",
+    "python.defaultInterpreterPath": "./.venv/bin/python",
     "python.analysis.extraPaths": [
-        "tests/.venv/lib/python3.13/site-packages"
+        "./.venv/lib/python3.13/site-packages",
+        "./tests/utils"
     ]
 }
