@@ -1,12 +1,15 @@
 /* src/modules/stack/transport/dispatcher.rs */
 
 use super::{
-	balancer,
+	balancer, flow,
 	model::DetectMethod,
 	proxy,
 	tcp::{LegacyTcpConfig, TcpConfig, TcpDestination},
 };
-use crate::{common::getenv, modules::kv::KvStore};
+use crate::{
+	common::getenv,
+	modules::{kv::KvStore, plugins::model::ConnectionObject},
+};
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
@@ -17,20 +20,17 @@ pub async fn dispatch_tcp_connection(
 	socket: TcpStream,
 	port: u16,
 	config: Arc<TcpConfig>,
-	mut kv_store: KvStore, // Made mutable to support the new Flow path
+	mut kv_store: KvStore,
 ) {
 	let peer_addr = socket
 		.peer_addr()
 		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
 
-	// --- RUNTIME BRANCHING ---
 	match &*config {
 		TcpConfig::Legacy(legacy_config) => {
-			// If it's the old format, execute the original logic.
 			dispatch_legacy_tcp(socket, port, legacy_config, kv_store).await;
 		}
-		TcpConfig::Flow(_flow_config) => {
-			// If it's the new format, execute the new logic stub.
+		TcpConfig::Flow(flow_config) => {
 			log(
 				LogLevel::Debug,
 				&format!(
@@ -48,18 +48,19 @@ pub async fn dispatch_tcp_connection(
 			match socket.peek(&mut buf).await {
 				Ok(n) => {
 					if n > 0 {
-						// Store the peeked data in the KvStore for plugins to use.
 						let payload_hex = hex::encode(&buf[..n]);
-						kv_store.insert("transport.peek_buffer_hex".to_string(), payload_hex);
+						kv_store.insert("req.peek_buffer_hex".to_string(), payload_hex);
+						kv_store.insert("conn.proto".to_string(), "tcp".to_string());
 
-						// TODO: Implement the Flow Engine executor here.
-						log(
-							LogLevel::Debug,
-							&format!(
-								"⚙ TODO: Flow Engine execution for connection from {} on port {}.",
-								peer_addr, port
-							),
-						);
+						let conn_object = ConnectionObject::Tcp(socket);
+
+						if let Err(e) = flow::execute(&flow_config.connection, &mut kv_store, conn_object).await
+						{
+							log(
+								LogLevel::Error,
+								&format!("✗ Flow execution failed for {}: {}", peer_addr, e),
+							);
+						}
 					} else {
 						log(
 							LogLevel::Debug,
@@ -85,12 +86,11 @@ pub async fn dispatch_tcp_connection(
 }
 
 /// The original dispatch logic, refactored into its own function for the legacy path.
-/// Its behavior is identical to the previous version.
 async fn dispatch_legacy_tcp(
 	mut socket: TcpStream,
 	port: u16,
 	config: &LegacyTcpConfig,
-	_kv_store: KvStore, // Unused in this path
+	_kv_store: KvStore,
 ) {
 	let peer_addr = socket
 		.peer_addr()
