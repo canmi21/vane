@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.1 (26. Nov, 2025)
+
+- **Changed:** Architecturally refactored the plugin registry into a dual-registry system. A static, immutable registry now safely houses all built-in plugins, while a new, atomically swappable (`ArcSwap`) registry has been introduced to support the future hot-reloading of external plugins.
+- **Changed:** The global plugin lookup strategy (`get_plugin`) now prioritizes the internal registry, ensuring that core plugin functionality cannot be overridden by external plugins, thus enhancing system stability and security.
+- **Fixed:** Corrected a series of critical compilation errors in the new flow-based configuration validator (`validator.rs`), primarily by replacing the direct `impl Validate` on an external type with a `#[validate(custom = "...")]` approach, thereby satisfying Rust's orphan rule.
+- **Fixed:** Resolved a compilation failure in the plugin registry caused by a typo (`Lazy_new` instead of `Lazy::new`) during the initialization of static components.
+
 ## 0.2.0 (26. Nov, 2025)
 
 - **Added:** Introduced a powerful, experimental flow-based processing engine as a new configuration format. Listeners can now be defined using a flexible, tree-like `connection` structure, enabling composable, multi-layer processing pipelines.
