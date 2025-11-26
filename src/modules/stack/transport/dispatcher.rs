@@ -1,23 +1,38 @@
 /* src/modules/stack/transport/dispatcher.rs */
 
 use super::{
-	balancer,
-	model::{DetectMethod, ResolvedTarget, TcpConfig, TcpDestination},
+	balancer, health,
+	model::{DetectMethod, ResolvedTarget},
+	tcp::{TcpConfig, TcpDestination},
 };
-use crate::common::getenv;
+use crate::{common::getenv, modules::kv::KvStore};
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 /// Forwards a TCP stream to a chosen upstream target.
-async fn proxy_connection(mut client_socket: TcpStream, target: ResolvedTarget) {
+async fn proxy_connection(
+	mut client_socket: TcpStream,
+	target: ResolvedTarget,
+	kv_store: &KvStore,
+) {
 	let peer_addr = client_socket
 		.peer_addr()
 		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
 	let target_str = format!("{}:{}", target.ip, target.port);
+
+	// Enhance logging with the connection UUID.
+	let uuid = kv_store
+		.get("conn.uuid")
+		.cloned()
+		.unwrap_or_else(|| "unknown-uuid".to_string());
+
 	log(
 		LogLevel::Debug,
-		&format!("➜ Proxying connection from {} to {}", peer_addr, target_str),
+		&format!(
+			"➜ [conn:{}] Proxying connection from {} to {}",
+			uuid, peer_addr, target_str
+		),
 	);
 	match TcpStream::connect((target.ip.as_str(), target.port)).await {
 		Ok(mut upstream_socket) => {
@@ -25,13 +40,13 @@ async fn proxy_connection(mut client_socket: TcpStream, target: ResolvedTarget) 
 				Ok((up, down)) => log(
 					LogLevel::Debug,
 					&format!(
-						"✓ Proxy finished for {}. Upstream: {} bytes, Downstream: {} bytes.",
-						peer_addr, up, down
+						"✓ [conn:{}] Proxy finished for {}. Upstream: {} bytes, Downstream: {} bytes.",
+						uuid, peer_addr, up, down
 					),
 				),
 				Err(e) => log(
 					LogLevel::Warn,
-					&format!("✗ Proxy error for {}: {}", peer_addr, e),
+					&format!("✗ [conn:{}] Proxy error for {}: {}", uuid, peer_addr, e),
 				),
 			}
 		}
@@ -39,16 +54,23 @@ async fn proxy_connection(mut client_socket: TcpStream, target: ResolvedTarget) 
 			log(
 				LogLevel::Error,
 				&format!(
-					"✗ Failed to connect to upstream target {}: {}",
-					target_str, e
+					"✗ [conn:{}] Failed to connect to upstream target {}: {}",
+					uuid, target_str, e
 				),
 			);
+			// Reactively mark this target as unhealthy immediately.
+			health::mark_tcp_target_unhealthy(&target);
 		}
 	}
 }
 
 /// Dispatches an incoming TCP connection based on the listener's configuration.
-pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: Arc<TcpConfig>) {
+pub async fn dispatch_tcp_connection(
+	mut socket: TcpStream,
+	port: u16,
+	config: Arc<TcpConfig>,
+	kv_store: KvStore,
+) {
 	let peer_addr = socket
 		.peer_addr()
 		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
@@ -126,11 +148,12 @@ pub async fn dispatch_tcp_connection(mut socket: TcpStream, port: u16, config: A
 						LogLevel::Debug,
 						&format!("⚙ Handing off to L7 resolver: {}", resolver),
 					);
+					// TODO: Implement the resolver handoff logic.
 					return;
 				}
 				TcpDestination::Forward { ref forward } => {
 					if let Some(target) = balancer::select_tcp_target(port, &rule.name, forward).await {
-						proxy_connection(socket, target).await;
+						proxy_connection(socket, target, &kv_store).await;
 					} else {
 						log(
 							LogLevel::Warn,

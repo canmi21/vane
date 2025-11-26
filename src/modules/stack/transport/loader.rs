@@ -1,6 +1,6 @@
 /* src/modules/stack/transport/loader.rs */
 
-use super::model::{TcpConfig, UdpConfig};
+use super::{tcp::TcpConfig, udp::UdpConfig};
 use fancy_log::{LogLevel, log};
 use serde::de::DeserializeOwned;
 use std::{fs, path::Path};

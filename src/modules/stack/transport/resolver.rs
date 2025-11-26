@@ -75,16 +75,27 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 			}
 			Target::Node { node, port } => {
 				let mut found = false;
-				for p_node in &nodes_config.processed {
-					if &p_node.node_name == node && p_node.port == *port {
-						resolved.push(ResolvedTarget {
-							ip: p_node.address.clone(),
-							port: *port,
-						});
-						found = true;
+				if let Some(found_node) = nodes_config.nodes.iter().find(|n| &n.name == node) {
+					for ip_config in &found_node.ips {
+						if ip_config.ports.contains(port) {
+							resolved.push(ResolvedTarget {
+								ip: ip_config.address.clone(),
+								port: *port,
+							});
+							found = true;
+						}
 					}
 				}
+
 				if !found {
+					// ADDED: Detailed debug log before the warning.
+					log(
+						LogLevel::Debug,
+						&format!(
+							"⚙ Node lookup failed. Current nodes state being searched: {:?}",
+							nodes_config.nodes
+						),
+					);
 					log(
 						LogLevel::Warn,
 						&format!(
@@ -102,7 +113,7 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::modules::nodes::model::{IpType, NodesConfig, ProcessedNode};
+	use crate::modules::nodes::model::{IpConfig, IpType, Node, NodesConfig};
 	use serial_test::serial;
 	use std::sync::Arc;
 
@@ -138,29 +149,38 @@ mod tests {
 	async fn test_resolve_node_target() {
 		// 1. Setup: Create a mock nodes configuration and load it into the global state.
 		let mock_nodes_config = NodesConfig {
-			processed: vec![
-				ProcessedNode {
-					node_name: "cache-redis".to_string(),
-					address: "10.0.1.5".to_string(),
-					port: 6379,
-					ip_type: IpType::Ipv4,
+			nodes: vec![
+				Node {
+					name: "cache-redis".to_string(),
+					ips: vec![IpConfig {
+						address: "10.0.1.5".to_string(),
+						ports: vec![6379, 6380], // Supports multiple ports
+						r#type: IpType::Ipv4,
+					}],
 				},
-				ProcessedNode {
-					node_name: "database".to_string(),
-					address: "10.0.2.10".to_string(),
-					port: 5432,
-					ip_type: IpType::Ipv4,
+				Node {
+					name: "database".to_string(),
+					ips: vec![IpConfig {
+						address: "10.0.2.10".to_string(),
+						ports: vec![5432],
+						r#type: IpType::Ipv4,
+					}],
 				},
 			],
 			..Default::default()
 		};
 		NODES_STATE.store(Arc::new(mock_nodes_config));
 
-		// 2. Define targets, including one that exists and one that doesn't.
+		// 2. Define targets, including one that exists, one that exists with a different port,
+		// and one that doesn't exist.
 		let targets = vec![
 			Target::Node {
 				node: "cache-redis".to_string(),
-				port: 6379,
+				port: 6379, // This one should match
+			},
+			Target::Node {
+				node: "cache-redis".to_string(),
+				port: 9999, // This one should NOT match
 			},
 			Target::Node {
 				node: "non-existent-node".to_string(),
@@ -171,11 +191,11 @@ mod tests {
 		// 3. Act: Resolve the targets.
 		let resolved = resolve_targets(&targets).await;
 
-		// 4. Assert: Verify that only the valid node was resolved.
+		// 4. Assert: Verify that only the valid node with the correct port was resolved.
 		assert_eq!(
 			resolved.len(),
 			1,
-			"Should only resolve the node that exists in the state"
+			"Should only resolve the node that exists in the state with a matching port"
 		);
 		assert_eq!(
 			resolved[0],
@@ -223,11 +243,13 @@ mod tests {
 	async fn test_resolve_mixed_targets() {
 		// 1. Setup Node state
 		let mock_nodes_config = NodesConfig {
-			processed: vec![ProcessedNode {
-				node_name: "api".to_string(),
-				address: "172.16.0.100".to_string(),
-				port: 80,
-				ip_type: IpType::Ipv4, // CORRECTED: Used the correct enum variant
+			nodes: vec![Node {
+				name: "api".to_string(),
+				ips: vec![IpConfig {
+					address: "172.16.0.100".to_string(),
+					ports: vec![80, 443],
+					r#type: IpType::Ipv4,
+				}],
 			}],
 			..Default::default()
 		};

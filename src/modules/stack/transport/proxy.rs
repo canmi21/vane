@@ -2,10 +2,14 @@
 
 use super::{
 	balancer, health,
-	model::{DetectMethod, UdpConfig, UdpDestination},
+	model::DetectMethod,
 	session::{REVERSE_SESSIONS, SESSIONS, Session},
+	udp::{UdpConfig, UdpDestination, UdpProtocolRule},
 };
-use crate::common::{getenv, ip};
+use crate::{
+	common::{getenv, ip},
+	modules::kv::KvStore, // Import KvStore
+};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::{
@@ -46,8 +50,10 @@ fn spawn_reply_handler(
 						}
 					}
 					_ => {
-						if let Some((_, client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {
-							SESSIONS.remove(&client_addr);
+						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {
+							// Note: We can't easily clean the primary SESSIONS map here
+							// because we don't know the protocol name. The main cleanup
+							// task will handle the dangling session entry.
 						}
 						break;
 					}
@@ -57,27 +63,29 @@ fn spawn_reply_handler(
 	});
 }
 
-/// Gets or creates a new session for a client.
+/// Gets an existing session or creates a new one for a client, based on the matched protocol rule.
 async fn get_or_create_session(
 	client_addr: SocketAddr,
 	port: u16,
-	rule: &super::model::UdpProtocolRule,
+	rule: &UdpProtocolRule,
 	main_socket: Arc<UdpSocket>,
+	_kv_store: &KvStore, // Pass KvStore, unused for now but available for future logic
 ) -> Option<Arc<Session>> {
-	if let Some(session) = SESSIONS.get(&client_addr) {
+	let session_key = (client_addr, rule.name.clone());
+
+	if let Some((_, session)) = SESSIONS.remove(&session_key) {
 		if health::is_udp_target_healthy(&session.target) {
-			let new_session = Arc::new(Session {
+			let updated_session = Arc::new(Session {
 				target: session.target.clone(),
 				upstream_socket: session.upstream_socket.clone(),
 				last_seen: Instant::now(),
 			});
-			SESSIONS.insert(client_addr, new_session.clone());
-			return Some(new_session);
+			SESSIONS.insert(session_key, updated_session.clone());
+			return Some(updated_session);
 		} else {
 			if let Ok(addr) = session.upstream_socket.local_addr() {
 				REVERSE_SESSIONS.remove(&addr);
 			}
-			SESSIONS.remove(&client_addr);
 		}
 	}
 
@@ -88,12 +96,13 @@ async fn get_or_create_session(
 					let upstream_arc = Arc::new(upstream_socket);
 					if let Ok(local_addr) = upstream_arc.local_addr() {
 						let new_session = Arc::new(Session {
-							target, // This is now a ResolvedTarget
+							target,
 							upstream_socket: upstream_arc.clone(),
 							last_seen: Instant::now(),
 						});
-						SESSIONS.insert(client_addr, new_session.clone());
+						SESSIONS.insert(session_key, new_session.clone());
 						REVERSE_SESSIONS.insert(local_addr, client_addr);
+
 						let timeout_ms_str = if ip::is_private_ip(&target_ip) {
 							getenv::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
 						} else {
@@ -117,6 +126,7 @@ pub async fn dispatch_udp_datagram(
 	config: Arc<UdpConfig>,
 	datagram: Vec<u8>,
 	client_addr: SocketAddr,
+	kv_store: KvStore, // Accept the KvStore
 ) {
 	let mut rules = config.rules.clone();
 	rules.sort_by_key(|r| r.priority);
@@ -151,7 +161,9 @@ pub async fn dispatch_udp_datagram(
 		};
 
 		if matches {
-			if let Some(session) = get_or_create_session(client_addr, port, &rule, socket.clone()).await {
+			if let Some(session) =
+				get_or_create_session(client_addr, port, &rule, socket.clone(), &kv_store).await
+			{
 				let target_addr = (session.target.ip.as_str(), session.target.port);
 				if session
 					.upstream_socket
@@ -160,10 +172,11 @@ pub async fn dispatch_udp_datagram(
 					.is_err()
 				{
 					health::mark_udp_target_unhealthy(&session.target);
+					let session_key = (client_addr, rule.name.clone());
 					if let Ok(addr) = session.upstream_socket.local_addr() {
 						REVERSE_SESSIONS.remove(&addr);
 					}
-					SESSIONS.remove(&client_addr);
+					SESSIONS.remove(&session_key);
 				}
 			}
 			return;
