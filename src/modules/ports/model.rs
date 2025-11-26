@@ -71,7 +71,8 @@ mod tests {
 	use super::*;
 	use crate::modules::stack::transport::{
 		model::{Detect, DetectMethod, Forward, Strategy},
-		tcp::{TcpConfig, TcpDestination, TcpProtocolRule},
+		// CORRECTED: Import the necessary structs for building the test case.
+		tcp::{LegacyTcpConfig, TcpConfig, TcpDestination, TcpProtocolRule},
 	};
 	use serde_json::json;
 
@@ -85,15 +86,11 @@ mod tests {
 	}
 
 	/// Tests the serialization logic of the PortStatus struct.
-	///
-	/// This test verifies:
-	/// - All fields are present when configs are Some(...).
-	/// - The custom `serde_arc` helper correctly serializes the inner config.
-	/// - `skip_serializing_if` correctly omits fields that are None.
 	#[test]
 	fn test_port_status_serialization() {
-		// Create a minimal but valid TcpConfig to place inside an Arc.
-		let dummy_tcp_config = Arc::new(TcpConfig {
+		// CORRECTED: Build the test case by creating the inner `LegacyTcpConfig` struct
+		// first, and then wrapping it in the `TcpConfig::Legacy` enum variant.
+		let dummy_legacy_config = LegacyTcpConfig {
 			rules: vec![TcpProtocolRule {
 				name: "test".to_string(),
 				priority: 1,
@@ -110,14 +107,15 @@ mod tests {
 					},
 				},
 			}],
-		});
+		};
+		let dummy_tcp_config = Arc::new(TcpConfig::Legacy(dummy_legacy_config));
 
-		// 1. Test case with both TCP and UDP configs present.
+		// 1. Test case with a TCP config present.
 		let full_status = PortStatus {
 			port: 8080,
 			active: true,
 			tcp_config: Some(dummy_tcp_config.clone()),
-			udp_config: None, // UdpConfig is different, so we test with None here.
+			udp_config: None,
 		};
 
 		let full_json = serde_json::to_value(&full_status).unwrap();
@@ -140,7 +138,6 @@ mod tests {
 					}
 				}]
 			}
-			// udp_config is correctly skipped because it's None.
 		});
 		assert_eq!(full_json, expected_full_json);
 
@@ -156,7 +153,6 @@ mod tests {
 		let expected_minimal_json = json!({
 			"port": 9090,
 			"active": false
-			// Both tcp_config and udp_config are correctly skipped.
 		});
 		assert_eq!(minimal_json, expected_minimal_json);
 	}
