@@ -1,7 +1,7 @@
 /* src/modules/stack/transport/validator.rs */
 
 use crate::modules::plugins::{
-	model::{Middleware, ParamType, ProcessingStep},
+	model::{ParamType, ProcessingStep},
 	registry,
 };
 use serde_json::Value;
@@ -10,9 +10,6 @@ use validator::{ValidationError, ValidationErrors};
 
 use super::tcp::TcpProtocolRule;
 use super::udp::UdpProtocolRule;
-
-// Remove the impl Validate for ProcessingStep - this violates the orphan rule
-// Instead, we'll validate it manually in the function
 
 /// Recursively validates a flow-based configuration tree.
 pub fn validate_flow_config(step: &ProcessingStep) -> Result<(), ValidationErrors> {
@@ -24,7 +21,6 @@ pub fn validate_flow_config(step: &ProcessingStep) -> Result<(), ValidationError
 		return Err(errors);
 	}
 
-	// This unwarp is safe due to the preceding guard clause that ensures the HashMap is not empty.
 	let (plugin_name, instance) = step.iter().next().unwrap();
 	let mut errors = ValidationErrors::new();
 
@@ -39,22 +35,21 @@ pub fn validate_flow_config(step: &ProcessingStep) -> Result<(), ValidationError
 	};
 
 	if let Err(e) = validate_plugin_inputs(plugin_name, &plugin.params(), &instance.input) {
-		// Use merge_self instead of merge
 		errors.merge_self("input", Err(e));
 	}
 
-	// Check if plugin is a middleware by trying to call output() method
-	// We need to check if the plugin implements Middleware trait differently
-	// Since we can't downcast to unsized trait object, we'll assume all plugins
-	// with output field in instance are middleware
+	// Use helper method instead of downcast_ref to check if it's middleware
 	if !instance.output.is_empty() {
-		// The plugin has outputs, so validate them
-		if let Some(middleware) = plugin.as_any().downcast_ref::<Box<dyn Middleware>>() {
+		if let Some(middleware) = plugin.as_middleware() {
 			if let Err(e) =
 				validate_middleware_outputs(plugin_name, middleware.output(), &instance.output)
 			{
 				errors.merge_self("output", Err(e));
 			}
+		} else {
+			// It has outputs defined in config, but the plugin identifies itself as NOT a middleware (e.g. Terminator)
+			// Ideally we should warn or error here, but for now we just proceed to recursive validation
+			// to catch errors in the nested children.
 		}
 
 		for (_branch, next_step) in &instance.output {
