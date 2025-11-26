@@ -37,6 +37,10 @@ impl Plugin for TransparentProxyPlugin {
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
+
+	fn as_terminator(&self) -> Option<&dyn Terminator> {
+		Some(self)
+	}
 }
 
 #[async_trait]
