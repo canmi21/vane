@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.0 (26. Nov, 2025)
+
+- **Added:** Introduced a powerful, experimental flow-based processing engine as a new configuration format. Listeners can now be defined using a flexible, tree-like `connection` structure, enabling composable, multi-layer processing pipelines.
+- **Added:** Architected a comprehensive plugin system, clearly distinguishing between `Middleware` (intermediate steps with named output branches) and `Terminator` (flow endpoints that finalize a connection).
+- **Added:** Implemented a global, thread-safe Plugin Registry for dynamic lookup and validation of all built-in and future custom plugins.
+- **Added:** Shipped the first set of internal plugins to power the new flow engine:
+  - `internal.protocol.detect` (Middleware)
+  - `internal.transport.abort` (Terminator)
+  - `internal.transport.proxy.transparent` (Terminator)
+- **Added:** Introduced a per-connection Key-Value store (`KvStore`) that attaches a unique context (UUID, source IP, etc.) to every connection, enabling stateful, context-aware processing across all plugin layers.
+- **Changed:** **Architectural:** Refactored the core configuration models (`TcpConfig`, `UdpConfig`) into `enum`s. The system now seamlessly supports both the legacy `protocols` array and the new `connection` tree formats within the same listener file, ensuring full backward compatibility.
+- **Changed:** The configuration validator (`validator.rs`) has been significantly enhanced to be dual-mode. It now includes a powerful, recursive validation engine for the new flow-based format, which cross-references the Plugin Registry to verify plugin names, required parameters, and data types at load time.
+- **Changed:** Refactored the core L4 transparent proxy logic, extracting the TCP stream handling from `dispatcher.rs` into a reusable `proxy::proxy_tcp_stream` function. This function is now leveraged by both the legacy `forward` destination and the new `internal.transport.proxy.transparent` terminator plugin.
+- **Changed:** The runtime dispatcher (`dispatcher.rs`) and UDP proxy (`proxy.rs`) are now aware of the dual-config format, branching their execution logic based on whether a listener is configured with `protocols` or a `connection` flow.
+- **Fixed:** Resolved a fundamental architectural issue by introducing the `async-trait` crate. This makes the `Middleware` and `Terminator` plugin traits object-safe (`dyn Trait`), enabling their storage in a dynamic registry.
+- **Fixed:** Corrected numerous compilation errors related to the `validator` crate, including fixing orphan rule violations by using a manual `impl Validate`, adding `#[validate(nested)]` where required, and using the correct error-handling APIs.
+- **Fixed:** Addressed a wide range of compilation errors, including incorrect trait bounds (`PartialEq`, `Eq`), lifetime issues with static strings, and incorrect `lazy_static` pathing in derive macros, ensuring the codebase is fully compliant with the compiler.
+
+## 0.1.16 (20. Nov, 2025)
+
+- **Added:** Architecturally enhanced the connection handling pipeline by introducing a per-connection Key-Value store (`KvStore`). This foundational feature, managed by the new `modules/kv` module, automatically attaches essential metadata (`conn.uuid`, `conn.ip`, `conn.timestamp`, etc.) to every TCP and UDP connection upon creation, enabling advanced context-aware processing in future protocol layers.
+- **Fixed:** Resolved a compilation error in the `kv` module by correcting the UUID generation method to `Uuid::now_v7`, which correctly uses the system's current time without requiring a manual timestamp argument.
+
+## 0.1.15 (16. Nov, 2025)
+
+- **Fixed:** The `nodes` configuration loader (`nodes/hotswap.rs`) now correctly recognizes both `.yml` and `.yaml` file extensions. This resolves a critical bug where a valid `nodes.yml` file was being ignored, causing the global node state to be empty and all `node:` type target resolutions to fail.
+- **Changed:** Added more detailed debug logging to the node resolver (`resolver.rs`) to improve diagnostics when a node lookup fails.
+
+## 0.1.14 (12. Nov, 2025)
+
+- **Fixed:** Corrected a critical flaw in UDP mix-port forwarding where the session management mechanism was not protocol-aware. Previously, all datagrams from a single client IP:port were incorrectly locked to the backend of the first-matched protocol. The session key is now a composite of `(client_address, protocol_name)`, ensuring that different traffic types (e.g., DNS and QUIC) from the same client are correctly segregated and routed to their respective backends.
+- **Changed:** The UDP session timeout is now configurable via the `UDP_SESSION_TIMEOUT_SECS` environment variable, defaulting to 30 seconds.
+
+## 0.1.13 (11. Nov, 2025)
+
+- **Fixed:** Corrected a critical deadlock in the UDP session handler (`proxy.rs`) that caused significant packet loss for traffic bursts from a single client. The session update logic could previously cause a lock contention, resulting in only the first packet of a sequence being proxied. The update mechanism is now fully atomic, ensuring reliable session affinity and correct handling of high-throughput UDP streams from a single source.
+
+## 0.1.12 (11. Nov, 2025)
+
+- **Fixed:** Corrected a flaw in the health-checking logic where a backend, once marked as "down" by a reactive connection failure, would not be automatically brought back into service by the periodic health checker. The state management in `health.rs` has been made more robust; the periodic checker now reliably overwrites the "unhealthy" status upon successful reconnection, ensuring that recovered backends are correctly returned to the active load-balancing pool.
+
+## 0.1.11 (11. Nov, 2025)
+
+- **Changed:** Enhanced the flexibility of the health-checking system (`health.rs`) by exposing its core timing parameters as environment variables. Operators can now fine-tune the TCP probe interval (`HEALTH_TCP_INTERVAL_SECS`), connection timeout (`HEALTH_TCP_CONNECT_TIMEOUT_MS`), and the UDP unhealthy target TTL (`HEALTH_UDP_UNHEALTHY_TTL_SECS`) without needing to recompile the application.
+- **Fixed:** Resolved a significant TCP failover delay by implementing a reactive health-checking mechanism. Previously, the system would only detect a failed backend during its periodic health check cycle (every 5 seconds). Now, when a proxy connection attempt fails (e.g., `Connection refused`), the dispatcher immediately marks the target as unavailable. This ensures that subsequent traffic is instantly rerouted to healthy backends, dramatically improving reliability during runtime outages.
+
+## 0.1.10 (10. Nov, 2025)
+
+- **Fixed:** Resolved a critical bug in the file watcher (`requirements.rs`) where configuration changes in the `listener` directory were being ignored on macOS and other systems that use symbolic links for temporary directories (e.g., `/var` -> `/private/var`). The watcher now correctly canonicalizes paths before comparison, ensuring that hot-reloading for listeners is triggered reliably across all platforms.
+
 ## 0.1.9 (9. Nov, 2025)
 
 - **Changed:** Architecturally refactored the L4 transport layer models (`src/modules/stack/transport/`) to enforce the Single Responsibility Principle. The original monolithic `model.rs` has been split into multiple, more focused files (`model.rs`, `tcp.rs`, `udp.rs`, `validator.rs`), significantly improving code organization and maintainability without introducing breaking changes to the configuration format.
