@@ -53,11 +53,19 @@ pub enum ConnectionObject {
 }
 
 /// A generic base trait for all plugins.
-/// It now requires the `Any` trait for downcasting and is object-safe.
+/// It now includes helper methods for trait object casting.
 pub trait Plugin: Send + Sync + Any {
 	fn name(&self) -> &'static str;
 	fn params(&self) -> Vec<ParamDef>;
 	fn as_any(&self) -> &dyn Any;
+
+	fn as_middleware(&self) -> Option<&dyn Middleware> {
+		None
+	}
+
+	fn as_terminator(&self) -> Option<&dyn Terminator> {
+		None
+	}
 }
 
 /// A trait for "Middleware" plugins, made object-safe with async-trait.
