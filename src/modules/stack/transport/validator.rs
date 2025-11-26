@@ -24,6 +24,7 @@ pub fn validate_flow_config(step: &ProcessingStep) -> Result<(), ValidationError
 		return Err(errors);
 	}
 
+	// This unwarp is safe due to the preceding guard clause that ensures the HashMap is not empty.
 	let (plugin_name, instance) = step.iter().next().unwrap();
 	let mut errors = ValidationErrors::new();
 
