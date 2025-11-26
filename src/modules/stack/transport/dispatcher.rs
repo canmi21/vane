@@ -1,75 +1,96 @@
 /* src/modules/stack/transport/dispatcher.rs */
 
 use super::{
-	balancer, health,
-	model::{DetectMethod, ResolvedTarget},
-	tcp::{TcpConfig, TcpDestination},
+	balancer,
+	model::DetectMethod,
+	proxy,
+	tcp::{LegacyTcpConfig, TcpConfig, TcpDestination},
 };
 use crate::{common::getenv, modules::kv::KvStore};
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-/// Forwards a TCP stream to a chosen upstream target.
-async fn proxy_connection(
-	mut client_socket: TcpStream,
-	target: ResolvedTarget,
-	kv_store: &KvStore,
+/// Dispatches an incoming TCP connection.
+/// It now matches on the config type to decide which execution path to take.
+pub async fn dispatch_tcp_connection(
+	socket: TcpStream,
+	port: u16,
+	config: Arc<TcpConfig>,
+	mut kv_store: KvStore, // Made mutable to support the new Flow path
 ) {
-	let peer_addr = client_socket
+	let peer_addr = socket
 		.peer_addr()
 		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
-	let target_str = format!("{}:{}", target.ip, target.port);
 
-	// Enhance logging with the connection UUID.
-	let uuid = kv_store
-		.get("conn.uuid")
-		.cloned()
-		.unwrap_or_else(|| "unknown-uuid".to_string());
-
-	log(
-		LogLevel::Debug,
-		&format!(
-			"➜ [conn:{}] Proxying connection from {} to {}",
-			uuid, peer_addr, target_str
-		),
-	);
-	match TcpStream::connect((target.ip.as_str(), target.port)).await {
-		Ok(mut upstream_socket) => {
-			match tokio::io::copy_bidirectional(&mut client_socket, &mut upstream_socket).await {
-				Ok((up, down)) => log(
-					LogLevel::Debug,
-					&format!(
-						"✓ [conn:{}] Proxy finished for {}. Upstream: {} bytes, Downstream: {} bytes.",
-						uuid, peer_addr, up, down
-					),
-				),
-				Err(e) => log(
-					LogLevel::Warn,
-					&format!("✗ [conn:{}] Proxy error for {}: {}", uuid, peer_addr, e),
-				),
-			}
+	// --- RUNTIME BRANCHING ---
+	match &*config {
+		TcpConfig::Legacy(legacy_config) => {
+			// If it's the old format, execute the original logic.
+			dispatch_legacy_tcp(socket, port, legacy_config, kv_store).await;
 		}
-		Err(e) => {
+		TcpConfig::Flow(_flow_config) => {
+			// If it's the new format, execute the new logic stub.
 			log(
-				LogLevel::Error,
+				LogLevel::Debug,
 				&format!(
-					"✗ [conn:{}] Failed to connect to upstream target {}: {}",
-					uuid, target_str, e
+					"⚙ Entering Flow Engine path for connection from {}.",
+					peer_addr
 				),
 			);
-			// Reactively mark this target as unhealthy immediately.
-			health::mark_tcp_target_unhealthy(&target);
+
+			let limit_str = getenv::get_env("TCP_DETECT_LIMIT", "64".to_string());
+			let limit = limit_str.parse::<usize>().unwrap_or(64);
+			const MAX_DETECT_LIMIT: usize = 8192;
+			let final_limit = limit.min(MAX_DETECT_LIMIT);
+			let mut buf = vec![0u8; final_limit];
+
+			match socket.peek(&mut buf).await {
+				Ok(n) => {
+					if n > 0 {
+						// Store the peeked data in the KvStore for plugins to use.
+						let payload_hex = hex::encode(&buf[..n]);
+						kv_store.insert("transport.peek_buffer_hex".to_string(), payload_hex);
+
+						// TODO: Implement the Flow Engine executor here.
+						log(
+							LogLevel::Debug,
+							&format!(
+								"⚙ TODO: Flow Engine execution for connection from {} on port {}.",
+								peer_addr, port
+							),
+						);
+					} else {
+						log(
+							LogLevel::Debug,
+							&format!(
+								"⚙ Connection from {} closed before sending data (Flow path).",
+								peer_addr
+							),
+						);
+					}
+				}
+				Err(e) => {
+					log(
+						LogLevel::Warn,
+						&format!(
+							"✗ Failed to peek initial data from {} (Flow path): {}",
+							peer_addr, e
+						),
+					);
+				}
+			}
 		}
 	}
 }
 
-/// Dispatches an incoming TCP connection based on the listener's configuration.
-pub async fn dispatch_tcp_connection(
+/// The original dispatch logic, refactored into its own function for the legacy path.
+/// Its behavior is identical to the previous version.
+async fn dispatch_legacy_tcp(
 	mut socket: TcpStream,
 	port: u16,
-	config: Arc<TcpConfig>,
-	kv_store: KvStore,
+	config: &LegacyTcpConfig,
+	_kv_store: KvStore, // Unused in this path
 ) {
 	let peer_addr = socket
 		.peer_addr()
@@ -153,7 +174,7 @@ pub async fn dispatch_tcp_connection(
 				}
 				TcpDestination::Forward { ref forward } => {
 					if let Some(target) = balancer::select_tcp_target(port, &rule.name, forward).await {
-						proxy_connection(socket, target, &kv_store).await;
+						let _ = proxy::proxy_tcp_stream(socket, target).await;
 					} else {
 						log(
 							LogLevel::Warn,

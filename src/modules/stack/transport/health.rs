@@ -1,6 +1,10 @@
 /* src/modules/stack/transport/health.rs */
 
-use super::{model::ResolvedTarget, resolver, tcp::TcpDestination};
+use super::{
+	model::ResolvedTarget,
+	resolver,
+	tcp::{TcpConfig, TcpDestination},
+};
 use crate::{common::getenv, modules::ports::model::CONFIG_STATE};
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
@@ -15,7 +19,6 @@ pub struct TargetHealth {
 }
 
 impl TargetHealth {
-	/// Creates a new, explicitly unhealthy status.
 	fn unhealthy() -> Self {
 		TargetHealth {
 			available: false,
@@ -28,8 +31,6 @@ pub static TARGET_HEALTH_REGISTRY: Lazy<DashMap<ResolvedTarget, TargetHealth>> =
 	Lazy::new(DashMap::new);
 static UNHEALTHY_UDP_TARGETS: Lazy<DashMap<ResolvedTarget, Instant>> = Lazy::new(DashMap::new);
 
-/// Performs a quick TCP connection test to a resolved target.
-/// The connection timeout is configurable via the HEALTH_TCP_CONNECT_TIMEOUT_MS environment variable.
 async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 	let start = Instant::now();
 	let timeout = Duration::from_millis(timeout_ms);
@@ -63,7 +64,6 @@ async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 	TARGET_HEALTH_REGISTRY.insert(target, health_status);
 }
 
-/// Gathers all unique targets, resolves them, and spawns health checks.
 async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 	let mut unique_targets = HashSet::new();
 	let config_guard = CONFIG_STATE.load();
@@ -74,13 +74,15 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 
 	for port_status in config_guard.iter() {
 		if let Some(tcp_config) = &port_status.tcp_config {
-			for rule in &tcp_config.rules {
-				if let TcpDestination::Forward { forward } = &rule.destination {
-					for rt in resolver::resolve_targets(&forward.targets).await {
-						unique_targets.insert(rt);
-					}
-					for rt in resolver::resolve_targets(&forward.fallbacks).await {
-						unique_targets.insert(rt);
+			if let TcpConfig::Legacy(legacy_config) = &**tcp_config {
+				for rule in &legacy_config.rules {
+					if let TcpDestination::Forward { forward } = &rule.destination {
+						for rt in resolver::resolve_targets(&forward.targets).await {
+							unique_targets.insert(rt);
+						}
+						for rt in resolver::resolve_targets(&forward.fallbacks).await {
+							unique_targets.insert(rt);
+						}
 					}
 				}
 			}
@@ -92,12 +94,7 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 		.collect()
 }
 
-/// Proactively marks a TCP target as unavailable in the health registry.
-/// This is called when a real connection attempt fails, allowing for faster failure detection.
 pub fn mark_tcp_target_unhealthy(target: &ResolvedTarget) {
-	// Use insert to create or overwrite the entry with a definitive unhealthy status.
-	// This is more robust than get_mut as it handles cases where the target might not
-	// yet be in the registry and ensures the state is fully consistent.
 	if TARGET_HEALTH_REGISTRY
 		.get(target)
 		.map_or(true, |h| h.available)
@@ -133,16 +130,8 @@ pub async fn initial_health_check() {
 	log(LogLevel::Debug, "✓ Initial TCP health check complete.");
 }
 
-/// Starts background tasks for periodic TCP health checks and UDP session cleanup.
-///
-/// The intervals for these tasks are configurable via environment variables:
-/// - `HEALTH_TCP_INTERVAL_SECS`: Interval for TCP health checks (default: 5s).
-/// - `HEALTH_UDP_CLEANUP_INTERVAL_SECS`: Interval for UDP cleanup task (default: 5s).
-/// - `HEALTH_UDP_UNHEALTHY_TTL_SECS`: TTL for an unhealthy UDP target (default: 10s).
 pub fn start_periodic_health_checkers() {
 	log(LogLevel::Debug, "⚙ Starting periodic health checkers...");
-
-	// Periodic TCP health checker task.
 	tokio::spawn(async move {
 		let interval_secs = getenv::get_env("HEALTH_TCP_INTERVAL_SECS", "5".to_string())
 			.parse::<u64>()
@@ -156,8 +145,6 @@ pub fn start_periodic_health_checkers() {
 			}
 		}
 	});
-
-	// Periodic cleanup task for unhealthy UDP targets.
 	tokio::spawn(async move {
 		let interval_secs = getenv::get_env("HEALTH_UDP_CLEANUP_INTERVAL_SECS", "5".to_string())
 			.parse::<u64>()

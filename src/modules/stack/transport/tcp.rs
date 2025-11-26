@@ -1,9 +1,12 @@
 /* src/modules/stack/transport/tcp.rs */
 
+use crate::modules::plugins::model::ProcessingStep;
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationErrors};
 
-use super::model::{Detect, Forward, NAME_REGEX};
+use super::model::{Detect, Forward};
+
+// --- Legacy `protocols` Format ---
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct TcpSession {
@@ -29,7 +32,10 @@ impl Validate for TcpDestination {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
 pub struct TcpProtocolRule {
-	#[validate(regex(path = *NAME_REGEX, message = "can only contain lowercase letters and numbers"))]
+	#[validate(regex(
+		path = *super::model::NAME_REGEX,
+		message = "can only contain lowercase letters and numbers"
+	))]
 	pub name: String,
 	#[validate(range(min = 1))]
 	pub priority: u32,
@@ -41,28 +47,56 @@ pub struct TcpProtocolRule {
 	pub destination: TcpDestination,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct TcpConfig {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Validate)]
+pub struct LegacyTcpConfig {
 	#[serde(rename = "protocols")]
+	#[validate(nested)]
 	pub rules: Vec<TcpProtocolRule>,
+}
+
+// --- New `connection` (Flow) Format ---
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct FlowConfig {
+	// Cannot use #[validate(nested)] on HashMap
+	pub connection: ProcessingStep,
+}
+
+impl Validate for FlowConfig {
+	fn validate(&self) -> Result<(), ValidationErrors> {
+		super::validator::validate_flow_config(&self.connection)
+	}
+}
+
+// --- Unified Configuration Enum ---
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum TcpConfig {
+	Flow(FlowConfig),
+	Legacy(LegacyTcpConfig),
 }
 
 impl Validate for TcpConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
-		let mut result: Result<(), ValidationErrors> = Ok(());
-		for (i, rule) in self.rules.iter().enumerate() {
-			let field_name = Box::leak(format!("rules[{}]", i).into_boxed_str());
-			result = ValidationErrors::merge(result, field_name, rule.validate());
-		}
-		if let Err(e) = super::validator::validate_tcp_rules(&self.rules) {
-			if let Err(ref mut errors) = result {
-				errors.add("rules", e);
-			} else {
-				let mut errors = ValidationErrors::new();
-				errors.add("rules", e);
-				result = Err(errors);
+		match self {
+			TcpConfig::Legacy(config) => {
+				let mut result = config.validate();
+				if let Err(e) = super::validator::validate_tcp_rules(&config.rules) {
+					match result {
+						Ok(()) => {
+							let mut errors = ValidationErrors::new();
+							errors.add("rules", e);
+							result = Err(errors);
+						}
+						Err(ref mut errors) => {
+							errors.add("rules", e);
+						}
+					}
+				}
+				result
 			}
+			TcpConfig::Flow(config) => config.validate(),
 		}
-		result
 	}
 }
