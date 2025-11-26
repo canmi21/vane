@@ -1,7 +1,10 @@
 /* src/modules/ports/tasks.rs */
 
 use super::model::{CONFIG_STATE, ListenerState, Protocol, TASK_REGISTRY};
-use crate::modules::stack::transport::{dispatcher, proxy};
+use crate::modules::{
+	kv, // Import the new kv module
+	stack::transport::{dispatcher, proxy},
+};
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::{
@@ -25,12 +28,16 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 						}
 						*state = ListenerState::Active;
 					}
+
+					// Create the KV store as soon as the connection is accepted.
+					let kv_store = kv::new(&addr, "tcp");
+
 					log(LogLevel::Debug, &format!("⚙ Accepted TCP connection from {} on port {}", addr, port));
 					let config_guard = CONFIG_STATE.load();
 					let port_status = config_guard.iter().find(|s| s.port == port);
 					if let Some(status) = port_status {
 						if let Some(tcp_config) = status.tcp_config.clone() {
-							tokio::spawn(async move { dispatcher::dispatch_tcp_connection(socket, port, tcp_config).await; });
+							tokio::spawn(async move { dispatcher::dispatch_tcp_connection(socket, port, tcp_config, kv_store).await; });
 						} else {
 							log(LogLevel::Warn, &format!("✗ TCP listener is active on port {}, but no config found. Dropping connection from {}.", port, addr));
 						}
@@ -72,8 +79,11 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 							let socket_clone = socket_arc.clone();
 							let config_clone = udp_config.clone();
 
+							// Create the KV store as soon as the datagram is received.
+							let kv_store = kv::new(&client_addr, "udp");
+
 							tokio::spawn(async move {
-								proxy::dispatch_udp_datagram(socket_clone, port, config_clone, datagram, client_addr).await;
+								proxy::dispatch_udp_datagram(socket_clone, port, config_clone, datagram, client_addr, kv_store).await;
 							});
 						}
 						_ = &mut shutdown_rx => {

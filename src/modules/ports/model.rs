@@ -1,6 +1,6 @@
 /* src/modules/ports/model.rs */
 
-use super::super::stack::transport::model::{TcpConfig, UdpConfig};
+use super::super::stack::transport::{tcp::TcpConfig, udp::UdpConfig};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
@@ -69,8 +69,9 @@ mod serde_arc {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::modules::stack::transport::model::{
-		Detect, DetectMethod, Forward, Strategy, TcpDestination, TcpProtocolRule,
+	use crate::modules::stack::transport::{
+		model::{Detect, DetectMethod, Forward, Strategy},
+		tcp::{TcpConfig, TcpDestination, TcpProtocolRule},
 	};
 	use serde_json::json;
 
