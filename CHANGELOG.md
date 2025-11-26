@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.0 (26. Nov, 2025)
+
+- **Added:** Introduced a powerful, experimental flow-based processing engine as a new configuration format. Listeners can now be defined using a flexible, tree-like `connection` structure, enabling composable, multi-layer processing pipelines.
+- **Added:** Architected a comprehensive plugin system, clearly distinguishing between `Middleware` (intermediate steps with named output branches) and `Terminator` (flow endpoints that finalize a connection).
+- **Added:** Implemented a global, thread-safe Plugin Registry for dynamic lookup and validation of all built-in and future custom plugins.
+- **Added:** Shipped the first set of internal plugins to power the new flow engine:
+  - `internal.protocol.detect` (Middleware)
+  - `internal.transport.abort` (Terminator)
+  - `internal.transport.proxy.transparent` (Terminator)
+- **Added:** Introduced a per-connection Key-Value store (`KvStore`) that attaches a unique context (UUID, source IP, etc.) to every connection, enabling stateful, context-aware processing across all plugin layers.
+- **Changed:** **Architectural:** Refactored the core configuration models (`TcpConfig`, `UdpConfig`) into `enum`s. The system now seamlessly supports both the legacy `protocols` array and the new `connection` tree formats within the same listener file, ensuring full backward compatibility.
+- **Changed:** The configuration validator (`validator.rs`) has been significantly enhanced to be dual-mode. It now includes a powerful, recursive validation engine for the new flow-based format, which cross-references the Plugin Registry to verify plugin names, required parameters, and data types at load time.
+- **Changed:** Refactored the core L4 transparent proxy logic, extracting the TCP stream handling from `dispatcher.rs` into a reusable `proxy::proxy_tcp_stream` function. This function is now leveraged by both the legacy `forward` destination and the new `internal.transport.proxy.transparent` terminator plugin.
+- **Changed:** The runtime dispatcher (`dispatcher.rs`) and UDP proxy (`proxy.rs`) are now aware of the dual-config format, branching their execution logic based on whether a listener is configured with `protocols` or a `connection` flow.
+- **Fixed:** Resolved a fundamental architectural issue by introducing the `async-trait` crate. This makes the `Middleware` and `Terminator` plugin traits object-safe (`dyn Trait`), enabling their storage in a dynamic registry.
+- **Fixed:** Corrected numerous compilation errors related to the `validator` crate, including fixing orphan rule violations by using a manual `impl Validate`, adding `#[validate(nested)]` where required, and using the correct error-handling APIs.
+- **Fixed:** Addressed a wide range of compilation errors, including incorrect trait bounds (`PartialEq`, `Eq`), lifetime issues with static strings, and incorrect `lazy_static` pathing in derive macros, ensuring the codebase is fully compliant with the compiler.
+
 ## 0.1.16 (20. Nov, 2025)
 
 - **Added:** Architecturally enhanced the connection handling pipeline by introducing a per-connection Key-Value store (`KvStore`). This foundational feature, managed by the new `modules/kv` module, automatically attaches essential metadata (`conn.uuid`, `conn.ip`, `conn.timestamp`, etc.) to every TCP and UDP connection upon creation, enabling advanced context-aware processing in future protocol layers.
