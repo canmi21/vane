@@ -1,9 +1,12 @@
 /* src/modules/stack/transport/udp.rs */
 
+use crate::modules::plugins::model::ProcessingStep;
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationErrors};
 
-use super::model::{Detect, Forward, NAME_REGEX};
+use super::model::{Detect, Forward};
+
+// --- Legacy `protocols` Format ---
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -23,7 +26,10 @@ impl Validate for UdpDestination {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
 pub struct UdpProtocolRule {
-	#[validate(regex(path = *NAME_REGEX, message = "can only contain lowercase letters and numbers"))]
+	#[validate(regex(
+		path = *super::model::NAME_REGEX,
+		message = "can only contain lowercase letters and numbers"
+	))]
 	pub name: String,
 	#[validate(range(min = 1))]
 	pub priority: u32,
@@ -33,28 +39,54 @@ pub struct UdpProtocolRule {
 	pub destination: UdpDestination,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct UdpConfig {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Validate)]
+pub struct LegacyUdpConfig {
 	#[serde(rename = "protocols")]
+	#[validate(nested)]
 	pub rules: Vec<UdpProtocolRule>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct FlowConfig {
+	// Cannot use #[validate(nested)] on HashMap
+	pub connection: ProcessingStep,
+}
+
+impl Validate for FlowConfig {
+	fn validate(&self) -> Result<(), ValidationErrors> {
+		super::validator::validate_flow_config(&self.connection)
+	}
+}
+
+// --- Unified Configuration Enum ---
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum UdpConfig {
+	Flow(FlowConfig),
+	Legacy(LegacyUdpConfig),
 }
 
 impl Validate for UdpConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
-		let mut result: Result<(), ValidationErrors> = Ok(());
-		for (i, rule) in self.rules.iter().enumerate() {
-			let field_name = Box::leak(format!("rules[{}]", i).into_boxed_str());
-			result = ValidationErrors::merge(result, field_name, rule.validate());
-		}
-		if let Err(e) = super::validator::validate_udp_rules(&self.rules) {
-			if let Err(ref mut errors) = result {
-				errors.add("rules", e);
-			} else {
-				let mut errors = ValidationErrors::new();
-				errors.add("rules", e);
-				result = Err(errors);
+		match self {
+			UdpConfig::Legacy(config) => {
+				let mut result = config.validate();
+				if let Err(e) = super::validator::validate_udp_rules(&config.rules) {
+					match result {
+						Ok(()) => {
+							let mut errors = ValidationErrors::new();
+							errors.add("rules", e);
+							result = Err(errors);
+						}
+						Err(ref mut errors) => {
+							errors.add("rules", e);
+						}
+					}
+				}
+				result
 			}
+			UdpConfig::Flow(config) => config.validate(),
 		}
-		result
 	}
 }
