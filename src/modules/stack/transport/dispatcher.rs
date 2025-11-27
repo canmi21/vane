@@ -1,7 +1,7 @@
 /* src/modules/stack/transport/dispatcher.rs */
 
 use super::{
-	balancer, flow,
+	balancer, context, flow,
 	model::DetectMethod,
 	proxy,
 	tcp::{LegacyTcpConfig, TcpConfig, TcpDestination},
@@ -17,7 +17,7 @@ use tokio::{io::AsyncWriteExt, net::TcpStream};
 /// Dispatches an incoming TCP connection.
 /// It now matches on the config type to decide which execution path to take.
 pub async fn dispatch_tcp_connection(
-	socket: TcpStream,
+	mut socket: TcpStream, // Mutable to allow context population (peeking)
 	port: u16,
 	config: Arc<TcpConfig>,
 	mut kv_store: KvStore,
@@ -39,21 +39,11 @@ pub async fn dispatch_tcp_connection(
 				),
 			);
 
-			let limit_str = getenv::get_env("TCP_DETECT_LIMIT", "64".to_string());
-			let limit = limit_str.parse::<usize>().unwrap_or(64);
-			const MAX_DETECT_LIMIT: usize = 8192;
-			let final_limit = limit.min(MAX_DETECT_LIMIT);
-			let mut buf = vec![0u8; final_limit];
-
-			match socket.peek(&mut buf).await {
+			// Use the dedicated context module to populate KvStore
+			match context::populate_tcp_context(&mut socket, &mut kv_store).await {
 				Ok(n) => {
 					if n > 0 {
-						let payload_hex = hex::encode(&buf[..n]);
-						kv_store.insert("req.peek_buffer_hex".to_string(), payload_hex);
-						kv_store.insert("conn.proto".to_string(), "tcp".to_string());
-
 						let conn_object = ConnectionObject::Tcp(socket);
-
 						if let Err(e) = flow::execute(&flow_config.connection, &mut kv_store, conn_object).await
 						{
 							log(
