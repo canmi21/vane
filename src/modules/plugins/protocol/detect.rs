@@ -54,6 +54,10 @@ impl Plugin for ProtocolDetectPlugin {
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
+
+	fn as_middleware(&self) -> Option<&dyn Middleware> {
+		Some(self)
+	}
 }
 
 #[async_trait]
