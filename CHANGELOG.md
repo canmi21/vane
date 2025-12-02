@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.4 (2. Dec, 2025)
+
+- **Added:** Significantly enhanced the `internal.protocol.detect` middleware with robust, multi-dimensional heuristic checks for **DNS** (validating QR bit, Opcode, and QDCOUNT) and **QUIC** (validating Fixed Bit and Version per RFC 9000), ensuring zero-collision protocol identification.
+- **Changed:** Refined the UDP Flow Engine execution model to enforce strict **per-packet decision making**. Unlike the legacy sticky session mode, the Flow Engine now evaluates the plugin tree for every single datagram, using internal NAT mappings solely for routing return traffic from upstream backends.
+- **Fixed:** Resolved a critical false-positive detection issue where DNS packets with specific random Transaction IDs (starting with `0xC0`) were misidentified as QUIC traffic due to overlapping header signatures.
+
+## 0.2.3 (2. Dec, 2025)
+
+- **Added:** Extended the Flow Engine to fully support UDP traffic. UDP listeners configured with the new `connection` format can now process datagrams through the plugin tree, enabling the same flexible middleware and terminator logic previously available only for TCP.
+- **Added:** Implemented a dedicated `context` module (`src/modules/stack/transport/context.rs`) to centralize connection context initialization. This module strictly handles data peeking (TCP) or payload extraction (UDP) and populates the `KvStore` with standardized keys like `conn.proto` and `req.peek_buffer_hex`, adhering to the Single Responsibility Principle.
+- **Changed:** Updated the `internal.transport.proxy.transparent` terminator plugin to support UDP connections. It now leverages a newly extracted `proxy_udp_direct` core function to handle UDP session management, NAT mapping, and bidirectional forwarding within the flow architecture.
+- **Changed:** Refactored the UDP dispatch logic (`src/modules/stack/transport/proxy.rs`) to integrate with the Flow Engine. The dispatcher now dynamically branches execution between the legacy `protocols` list and the new `connection` tree based on the loaded configuration.
+
+## 0.2.2 (26. Nov, 2025)
+
+- **Added:** Implemented the core Flow Engine Executor (`src/modules/stack/transport/flow.rs`). This module recursively traverses the plugin tree, resolves `{{template}}` variables from the `KvStore`, executes `Middleware` and `Terminator` logic, and handles conditional branch routing.
+- **Added:** Integrated the Flow Engine into the main TCP dispatcher. The system now intelligently peeks the initial connection payload, injects it into the `KvStore` (as `req.peek_buffer_hex`), and hands control to the new executor when a listener is configured with the `connection` format.
+- **Fixed:** Resolved a critical runtime failure where the Flow Engine could not identify plugin types ("Plugin is neither a valid Middleware nor a Terminator"). This was due to Rust's inability to directly downcast `Box<dyn Plugin>` trait objects. The issue was fixed by adding safe `as_middleware` and `as_terminator` helper methods to the base `Plugin` trait.
+- **Fixed:** Corrected the validation logic in `validator.rs` to utilize the new safe type coercion methods, ensuring that flow configurations are correctly validated against the plugin registry.
+
 ## 0.2.1 (26. Nov, 2025)
 
 - **Changed:** Architecturally refactored the plugin registry into a dual-registry system. A static, immutable registry now safely houses all built-in plugins, while a new, atomically swappable (`ArcSwap`) registry has been introduced to support the future hot-reloading of external plugins.
