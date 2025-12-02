@@ -76,10 +76,26 @@ impl Terminator for TransparentProxyPlugin {
 			("tcp", ConnectionObject::Tcp(stream)) => {
 				proxy::proxy_tcp_stream(stream, target).await?;
 			}
-			("udp", ConnectionObject::Udp { .. }) => {
+			(
+				"udp",
+				ConnectionObject::Udp {
+					socket,
+					datagram,
+					client_addr,
+				},
+			) => {
 				log(
 					LogLevel::Debug,
-					"⚙ TODO: UDP transparent proxy terminator not yet implemented.",
+					&format!(
+						"➜ Proxying UDP datagram from {} to {}:{}",
+						client_addr, target.ip, target.port
+					),
+				);
+				proxy::proxy_udp_direct(socket, &datagram, client_addr, target).await?;
+
+				log(
+					LogLevel::Debug,
+					&format!("✓ UDP proxy action initiated for {}.", client_addr),
 				);
 			}
 			(proto, _) => {
