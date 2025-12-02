@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.4 (2. Dec, 2025)
+
+- **Added:** Significantly enhanced the `internal.protocol.detect` middleware with robust, multi-dimensional heuristic checks for **DNS** (validating QR bit, Opcode, and QDCOUNT) and **QUIC** (validating Fixed Bit and Version per RFC 9000), ensuring zero-collision protocol identification.
+- **Changed:** Refined the UDP Flow Engine execution model to enforce strict **per-packet decision making**. Unlike the legacy sticky session mode, the Flow Engine now evaluates the plugin tree for every single datagram, using internal NAT mappings solely for routing return traffic from upstream backends.
+- **Fixed:** Resolved a critical false-positive detection issue where DNS packets with specific random Transaction IDs (starting with `0xC0`) were misidentified as QUIC traffic due to overlapping header signatures.
+
 ## 0.2.3 (2. Dec, 2025)
 
 - **Added:** Extended the Flow Engine to fully support UDP traffic. UDP listeners configured with the new `connection` format can now process datagrams through the plugin tree, enabling the same flexible middleware and terminator logic previously available only for TCP.
