@@ -1,7 +1,9 @@
 /* src/modules/stack/transport/mod.rs */
 
 pub mod balancer;
+pub mod context;
 pub mod dispatcher;
+pub mod flow;
 pub mod fs;
 pub mod health;
 pub mod loader;
