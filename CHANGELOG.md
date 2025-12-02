@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.3 (2. Dec, 2025)
+
+- **Added:** Extended the Flow Engine to fully support UDP traffic. UDP listeners configured with the new `connection` format can now process datagrams through the plugin tree, enabling the same flexible middleware and terminator logic previously available only for TCP.
+- **Added:** Implemented a dedicated `context` module (`src/modules/stack/transport/context.rs`) to centralize connection context initialization. This module strictly handles data peeking (TCP) or payload extraction (UDP) and populates the `KvStore` with standardized keys like `conn.proto` and `req.peek_buffer_hex`, adhering to the Single Responsibility Principle.
+- **Changed:** Updated the `internal.transport.proxy.transparent` terminator plugin to support UDP connections. It now leverages a newly extracted `proxy_udp_direct` core function to handle UDP session management, NAT mapping, and bidirectional forwarding within the flow architecture.
+- **Changed:** Refactored the UDP dispatch logic (`src/modules/stack/transport/proxy.rs`) to integrate with the Flow Engine. The dispatcher now dynamically branches execution between the legacy `protocols` list and the new `connection` tree based on the loaded configuration.
+
 ## 0.2.2 (26. Nov, 2025)
 
 - **Added:** Implemented the core Flow Engine Executor (`src/modules/stack/transport/flow.rs`). This module recursively traverses the plugin tree, resolves `{{template}}` variables from the `KvStore`, executes `Middleware` and `Terminator` logic, and handles conditional branch routing.
