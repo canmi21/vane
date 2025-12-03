@@ -21,7 +21,6 @@ class RequestRecorderHandler(BaseHTTPRequestHandler):
         return cast(StoppableHTTPServer, self.server)
 
     def _record_request(self):
-        # Use the type-safe property to access the custom list.
         self._stoppable_server.received_requests.append(
             {
                 "method": self.command,
@@ -74,18 +73,17 @@ class StoppableHTTPServer(HTTPServer):
             self._thread.join()
 
 
-# --- NEW, NON-INTRUSIVE CLASSES FOR LATENCY TESTING ---
-
-
+# --- Latency Testing Classes ---
 class DelayedRequestRecorderHandler(RequestRecorderHandler):
     """
-    A new, specialized handler that inherits from RequestRecorderHandler and
-    adds a delay at the very beginning of the connection handling process.
+
+    A specialized handler that inherits from RequestRecorderHandler and adds
+    a delay at the beginning of the connection handling process.
     """
 
     def handle(self) -> None:
         """
-        Overrides the base handle method to inject a delay. It reads the delay
+        Overrides the base handle method to inject a delay, reading the
         duration from a `delay_sec` attribute on its server instance.
         """
         delay = getattr(self.server, "delay_sec", 0.0)
@@ -95,8 +93,7 @@ class DelayedRequestRecorderHandler(RequestRecorderHandler):
 
 class SlowStoppableHTTPServer(StoppableHTTPServer):
     """
-    A new, specialized server that inherits from the original StoppableHTTPServer.
-    Its sole purpose is to store a `delay_sec` value for the
+    A specialized server that stores a `delay_sec` value for the
     DelayedRequestRecorderHandler to use.
     """
 
@@ -111,18 +108,32 @@ class SlowStoppableHTTPServer(StoppableHTTPServer):
 
 
 def send_test_requests(
-    port: int, methods: List[str], paths: List[str]
+    port: int,
+    methods: List[str],
+    paths: List[str],
+    timeout: float = 2.0,
 ) -> Tuple[bool, List[Dict[str, str]]]:
     """
-    Sends a series of HTTP requests and returns a list of what was sent.
+    Sends a series of HTTP requests with a configurable timeout and returns a
+    list of what was sent. It tolerates individual request failures.
     """
     sent_requests = []
     base_url = f"http://127.0.0.1:{port}"
-    try:
-        for path in paths:
-            for method in methods:
-                requests.request(method, f"{base_url}{path}", timeout=2)
+
+    # The try-except block is now correctly placed inside the loop. This ensures
+    # that a single failed request (like a timeout in the 'fastest' strategy
+    # test) does not prematurely terminate the entire send sequence.
+    for path in paths:
+        for method in methods:
+            try:
+                requests.request(method, f"{base_url}{path}", timeout=timeout)
                 sent_requests.append({"method": method, "path": path})
-    except requests.exceptions.RequestException:
-        return (False, [])
+            except requests.exceptions.RequestException:
+                # In tests like 'fastest', some requests are expected to fail.
+                # We ignore these failures and continue with the next request.
+                pass
+
+    # The function now always returns True, as its purpose is to attempt all
+    # sends, not to guarantee the success of all of them. The success is
+    # verified by the backend counters in the actual test case.
     return (True, sent_requests)
