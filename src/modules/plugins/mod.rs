@@ -1,6 +1,9 @@
 /* src/modules/plugins/mod.rs */
 
 pub mod common;
+pub mod external;
+pub mod handler;
+pub mod loader;
 pub mod model;
 pub mod protocol;
 pub mod registry;
