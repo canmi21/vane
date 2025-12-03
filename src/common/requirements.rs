@@ -17,7 +17,7 @@ pub struct ConfigChangeReceivers {
 /// Ensures that all required directories and default files exist.
 fn ensure_config_files_exist() {
 	getconf::init_config_dirs(vec!["listener", "resolver"]);
-	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml"]);
+	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"]);
 }
 
 /// Spawns background tasks to watch the config directory and notify modules of changes.
@@ -141,11 +141,6 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 }
 
 /// Runs all pre-flight checks and starts background tasks required by the application.
-///
-/// This function is the main entry point for application initialization. It ensures
-/// the configuration structure is in place, starts the file watcher for dynamic
-/// configuration updates, and launches periodic background tasks for health
-/// checking and session management.
 pub async fn initialize() -> ConfigChangeReceivers {
 	ensure_config_files_exist();
 	let config_change_receivers = start_config_watchers();

@@ -22,7 +22,7 @@ use tokio::{
 	time::{Duration, Instant},
 };
 
-// --- TCP Logic ---
+// --- TCP Logic (Unchanged) ---
 
 pub async fn proxy_tcp_stream(
 	mut client_socket: TcpStream,
@@ -99,6 +99,7 @@ fn spawn_reply_handler(
 				match tokio::time::timeout(timeout, upstream_socket.recv_from(&mut buf)).await {
 					Ok(Ok((len, _))) => {
 						if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr) {
+							// Check if the main socket is still valid/open is handled by send_to failure
 							if main_socket
 								.send_to(&buf[..len], *client_addr)
 								.await
@@ -109,6 +110,7 @@ fn spawn_reply_handler(
 						}
 					}
 					_ => {
+						// Timeout or error, clean up the reverse mapping
 						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {}
 						break;
 					}
@@ -118,25 +120,31 @@ fn spawn_reply_handler(
 	});
 }
 
-/// Directly proxies a UDP datagram to a specific target, handling session management.
-/// This is used by the Flow Engine's Transparent Proxy plugin.
+/// Directly proxies a UDP datagram to a specific target.
 ///
-/// It uses a simplified session key: `(client_addr, target_string)`.
+/// **Design Note for Flow Engine:**
+/// This function treats the "Session" purely as a **NAT Mapping** for return traffic.
+/// It does NOT imply a sticky logic bypass. Every packet calls this function anew.
+///
+/// - If a mapping exists (re-using an upstream socket), it is used for performance and to receive replies.
+/// - If the Flow Engine changes the target for the next packet, a NEW mapping (socket) is created,
+///   completely independent of the previous one.
 pub async fn proxy_udp_direct(
 	main_socket: Arc<UdpSocket>,
 	datagram: &[u8],
 	client_addr: SocketAddr,
 	target: ResolvedTarget,
 ) -> io::Result<()> {
-	// Construct a unique key for this flow.
-	// We use the target string as the "protocol discriminator" to allow one client
-	// to talk to multiple backends simultaneously.
-	let discriminator = format!("flow:{}:{}", target.ip, target.port);
-	let session_key = (client_addr, discriminator.clone());
+	// We create a unique key combining Client + Target.
+	// This ensures that if the Flow switches the target for the same client,
+	// we use a different socket/mapping.
+	let nat_key = format!("flow:{}:{}", target.ip, target.port);
+	let session_key = (client_addr, nat_key.clone());
 
-	// 1. Try to find an existing healthy session
+	// 1. Check for existing NAT mapping (Upstream Socket Reuse)
 	if let Some((_, session)) = SESSIONS.remove(&session_key) {
 		if health::is_udp_target_healthy(&session.target) {
+			// Update activity timestamp to prevent premature cleanup
 			let updated_session = Arc::new(Session {
 				target: session.target.clone(),
 				upstream_socket: session.upstream_socket.clone(),
@@ -144,7 +152,7 @@ pub async fn proxy_udp_direct(
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
-			// Send data
+			// Forward the datagram using the existing upstream socket
 			let target_addr = (
 				updated_session.target.ip.as_str(),
 				updated_session.target.port,
@@ -155,7 +163,6 @@ pub async fn proxy_udp_direct(
 				.await
 				.is_err()
 			{
-				// Handle send error
 				health::mark_udp_target_unhealthy(&updated_session.target);
 				if let Ok(addr) = updated_session.upstream_socket.local_addr() {
 					REVERSE_SESSIONS.remove(&addr);
@@ -168,47 +175,53 @@ pub async fn proxy_udp_direct(
 			}
 			return Ok(());
 		} else {
-			// Session exists but target is unhealthy; teardown and fall through to create new one
+			// Target is unhealthy, drop this mapping and try to create a new one
 			if let Ok(addr) = session.upstream_socket.local_addr() {
 				REVERSE_SESSIONS.remove(&addr);
 			}
 		}
 	}
 
-	// 2. Create new session
+	// 2. Create new NAT mapping (New Upstream Socket)
 	if let Ok(target_ip) = target.ip.parse::<IpAddr>() {
 		if let Ok(upstream_socket) = bind_upstream_socket(&target_ip).await {
 			let upstream_arc = Arc::new(upstream_socket);
+
 			if let Ok(local_addr) = upstream_arc.local_addr() {
 				let new_session = Arc::new(Session {
 					target: target.clone(),
 					upstream_socket: upstream_arc.clone(),
 					last_seen: Instant::now(),
 				});
+
+				// Store mappings
 				SESSIONS.insert(session_key, new_session.clone());
 				REVERSE_SESSIONS.insert(local_addr, client_addr);
 
+				// Determine timeout (NAT TTL)
 				let timeout_ms_str = if ip::is_private_ip(&target_ip) {
 					getenv::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
 				} else {
 					getenv::get_env("UDP_TIMEOUT_REMOTE", "5000".to_string())
 				};
 				let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(5000);
+
+				// Spawn background task to handle return traffic (Back-to-Client)
 				spawn_reply_handler(
 					upstream_arc.clone(),
 					main_socket,
 					Duration::from_millis(timeout_ms),
 				);
 
-				// Send initial data
+				// Send the initial datagram
 				let target_addr = (target.ip.as_str(), target.port);
 				upstream_arc.send_to(datagram, target_addr).await?;
 
 				log(
 					LogLevel::Debug,
 					&format!(
-						"➜ Created new UDP session for {} -> {}",
-						client_addr, discriminator
+						"➜ Established UDP NAT mapping: {} <-> {}",
+						client_addr, nat_key
 					),
 				);
 				return Ok(());
@@ -218,11 +231,11 @@ pub async fn proxy_udp_direct(
 
 	Err(io::Error::new(
 		io::ErrorKind::Other,
-		"Failed to create UDP session",
+		"Failed to create UDP NAT mapping",
 	))
 }
 
-// Internal helper for Legacy Mode
+// Internal helper for Legacy Mode (Stickiness is strictly enforced here)
 async fn get_or_create_legacy_session(
 	client_addr: SocketAddr,
 	port: u16,
@@ -278,7 +291,9 @@ async fn get_or_create_legacy_session(
 }
 
 /// Dispatches an incoming UDP datagram.
-/// Matches on config type to route to Legacy or Flow logic.
+///
+/// - Legacy Mode: Uses `get_or_create_legacy_session` (Sticky Logic).
+/// - Flow Mode: ALWAYS executes the full Flow pipeline for EVERY packet.
 pub async fn dispatch_udp_datagram(
 	socket: Arc<UdpSocket>,
 	port: u16,
@@ -350,7 +365,7 @@ pub async fn dispatch_udp_datagram(
 				&format!("⚙ Entering Flow Engine path for UDP from {}.", client_addr),
 			);
 
-			// 1. Populate Context
+			// 1. Populate Context (Extract payload for inspection)
 			context::populate_udp_context(&datagram, &mut kv_store);
 
 			// 2. Wrap Connection Object
@@ -361,6 +376,7 @@ pub async fn dispatch_udp_datagram(
 			};
 
 			// 3. Execute Flow
+			// This happens for EVERY packet. No session stickiness bypasses this.
 			if let Err(e) = flow::execute(&flow_config.connection, &mut kv_store, conn_object).await {
 				log(
 					LogLevel::Error,

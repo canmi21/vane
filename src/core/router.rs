@@ -3,7 +3,10 @@
 use crate::{
 	core::{response, root::root_handler},
 	middleware::logger,
-	modules::ports::{handler as ports_handler, model::PortState},
+	modules::{
+		plugins::handler as plugins_handler,
+		ports::{handler as ports_handler, model::PortState},
+	},
 };
 use axum::{
 	Router,
@@ -29,10 +32,17 @@ pub fn create_router() -> Router<PortState> {
 			"/ports/{:port}/{:protocol}",
 			post(ports_handler::post_protocol_handler).delete(ports_handler::delete_protocol_handler),
 		)
+		.route("/plugins", get(plugins_handler::list_plugins_handler))
+		.route(
+			"/plugins/{:name}",
+			post(plugins_handler::create_plugin_handler)
+				.put(plugins_handler::update_plugin_handler)
+				.delete(plugins_handler::delete_plugin_handler),
+		)
 		.layer(middleware::from_fn(logger::log_requests))
 		.fallback(not_found_handler)
 }
 
 async fn not_found_handler() -> impl IntoResponse {
-	response::error(StatusCode::NOT_FOUND, "Resource not found.".to_string())
+	response::error(StatusCode::NOT_FOUND, "Resource not found.".to_string()).into_response()
 }
