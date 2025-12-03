@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.5 (3. Dec, 2025)
+
+- **Changed:** Enhanced the configuration diffing logic to perform a deep equality check (`PartialEq`) on loaded `TcpConfig` and `UdpConfig` objects.
+- **Changed:** Implemented a new `RELOAD` lifecycle action. When a configuration change is detected for an active port, the listener is now automatically stopped and immediately restarted to apply the new settings, clearly logged as `↻ ... RELOAD (Config Changed)`.
+- **Fixed:** Resolved a critical issue in the configuration hot-swap mechanism (`src/modules/ports/hotswap.rs`) where changes to the *content* of an existing listener's file (e.g., updating flow rules, targets, or logic) were ignored if the listener remained active. The system previously only tracked the presence of a configuration, failing to trigger updates for in-place modifications.
+
 ## 0.2.4 (2. Dec, 2025)
 
 - **Added:** Significantly enhanced the `internal.protocol.detect` middleware with robust, multi-dimensional heuristic checks for **DNS** (validating QR bit, Opcode, and QDCOUNT) and **QUIC** (validating Fixed Bit and Version per RFC 9000), ensuring zero-collision protocol identification.
