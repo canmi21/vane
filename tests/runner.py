@@ -2,107 +2,15 @@
 
 import sys
 import time
-from units import (
-    test_env_loglevel,
-    test_socket_dir,
-    test_console,
-    test_port_cold_load,
-    test_port_hot_unload,
-    test_port_hot_reload,
-    test_config_formats_toml_yaml,
-    test_config_formats_json_toml,
-    test_config_formats_yaml_json,
-    test_dynamic_port,
-    test_multi_port_binding,
-    test_tcp_proxy,
-    test_tcp_filtering,
-    test_mix_port_forwarding,
-    test_protocol_priority,
-    test_duplicate_configs,
-    test_invalid_json,
-    test_invalid_toml,
-    test_invalid_yaml,
-    test_strategy_serial,
-    test_strategy_random,
-    test_strategy_fastest,
-    test_no_available_targets,
-    test_routing_to_single_available_target,
-    test_serial_strategy_with_runtime_failure,
-    test_backend_auto_recovery,
-    test_fallback_routing,
-    test_fallback_auto_recovery,
-    test_capture_all_fallback,
-    test_udp_proxy,
-    test_udp_fallback,
-    test_udp_single_client_burst,
-    test_udp_strategy_serial,
-    test_udp_mix_port_forwarding,
-    test_listen_dual_stack,
-    test_node_forwarding,
-    test_domain_forwarding,
-    test_custom_resolver,
-    test_flow_engine_basic,
-    test_flow_engine_udp,
-    test_logic_hot_reload,
-    test_flow_ratelimit,
-)
 
-# The master list of all tests to be executed sequentially.
-TEST_SUITE = [
-    ("units.test_env_loglevel", test_env_loglevel.run),
-    ("units.test_socket_dir", test_socket_dir.run),
-    ("units.test_console", test_console.run),
-    ("units.test_port_cold_load", test_port_cold_load.run),
-    ("units.test_port_hot_unload", test_port_hot_unload.run),
-    ("units.test_port_hot_reload", test_port_hot_reload.run),
-    ("units.test_config_formats_toml_yaml", test_config_formats_toml_yaml.run),
-    ("units.test_config_formats_json_toml", test_config_formats_json_toml.run),
-    ("units.test_config_formats_yaml_json", test_config_formats_yaml_json.run),
-    ("units.test_dynamic_port", test_dynamic_port.run),
-    ("units.test_multi_port_binding", test_multi_port_binding.run),
-    ("units.test_tcp_proxy", test_tcp_proxy.run),
-    ("units.test_tcp_filtering", test_tcp_filtering.run),
-    ("units.test_mix_port_forwarding", test_mix_port_forwarding.run),
-    ("units.test_protocol_priority", test_protocol_priority.run),
-    ("units.test_duplicate_configs", test_duplicate_configs.run),
-    ("units.test_invalid_json", test_invalid_json.run),
-    ("units.test_invalid_toml", test_invalid_toml.run),
-    ("units.test_invalid_yaml", test_invalid_yaml.run),
-    ("units.test_strategy_serial", test_strategy_serial.run),
-    ("units.test_strategy_random", test_strategy_random.run),
-    ("units.test_strategy_fastest", test_strategy_fastest.run),
-    ("units.test_no_available_targets", test_no_available_targets.run),
-    (
-        "units.test_routing_to_single_available_target",
-        test_routing_to_single_available_target.run,
-    ),
-    (
-        "units.test_serial_strategy_with_runtime_failure",
-        test_serial_strategy_with_runtime_failure.run,
-    ),
-    ("units.test_backend_auto_recovery", test_backend_auto_recovery.run),
-    ("units.test_fallback_routing", test_fallback_routing.run),
-    ("units.test_fallback_auto_recovery", test_fallback_auto_recovery.run),
-    ("units.test_capture_all_fallback", test_capture_all_fallback.run),
-    ("units.test_udp_proxy", test_udp_proxy.run),
-    ("units.test_udp_fallback", test_udp_fallback.run),
-    ("units.test_udp_single_client_burst", test_udp_single_client_burst.run),
-    ("units.test_udp_strategy_serial", test_udp_strategy_serial.run),
-    ("units.test_udp_mix_port_forwarding", test_udp_mix_port_forwarding.run),
-    ("units.test_listen_dual_stack", test_listen_dual_stack.run),
-    ("units.test_node_forwarding", test_node_forwarding.run),
-    ("units.test_domain_forwarding", test_domain_forwarding.run),
-    ("units.test_custom_resolver", test_custom_resolver.run),
-    ("units.test_flow_engine_basic", test_flow_engine_basic.run),
-    ("units.test_flow_engine_udp", test_flow_engine_udp.run),
-    ("units.test_logic_hot_reload", test_logic_hot_reload.run),
-    ("units.test_flow_ratelimit", test_flow_ratelimit.run),
-]
+# The runner now only needs to import the master list from the registry file.
+from test_suite import TEST_SUITE
 
 
 def run_suite(debug_mode: bool, args: list):
     """
     Runs a filtered and ordered test suite based on command-line arguments.
+    The test cases themselves are defined in `test_suite.py`.
     """
     import argparse
     from typing import List, Tuple, Callable
@@ -114,6 +22,10 @@ def run_suite(debug_mode: bool, args: list):
     parser.add_argument(
         "--skip", type=str, help="Skip specific tests. E.g., '3', '1-2', '1,5,6'."
     )
+    # The runner can also accept filter strings to run a subset of tests.
+    parser.add_argument(
+        "filters", nargs="*", help="Run only tests whose names contain these strings."
+    )
     ns, _ = parser.parse_known_args(args)
 
     total_in_master_suite = len(TEST_SUITE)
@@ -123,6 +35,10 @@ def run_suite(debug_mode: bool, args: list):
         (i, name, func) for i, (name, func) in enumerate(TEST_SUITE, 1)
     ]
     test_suite = all_tests
+
+    # --- Filtering Logic ---
+    if ns.filters:
+        test_suite = [t for t in test_suite if any(f in t[1] for f in ns.filters)]
     if ns.start:
         test_suite = [t for t in test_suite if t[0] >= ns.start]
     if ns.skip:
@@ -134,7 +50,7 @@ def run_suite(debug_mode: bool, args: list):
                 if "-" in part:
                     try:
                         start, end = map(int, part.split("-"))
-                        if start < end:
+                        if start <= end:
                             indices_to_skip.update(range(start, end + 1))
                     except ValueError:
                         continue
@@ -148,13 +64,15 @@ def run_suite(debug_mode: bool, args: list):
         indices_to_skip = _parse_skip_string(ns.skip)
         test_suite = [t for t in test_suite if t[0] not in indices_to_skip]
 
+    # --- Execution Logic ---
     total_to_run = len(test_suite)
     if total_to_run == 0:
         print("No tests to run after filtering.")
         return
+
     passed_count, failed_count = 0, 0
     start_time = time.monotonic()
-    print(f"Running {total_to_run} tests...")
+    print(f"Running {total_to_run} test(s)...")
 
     width_running = len(str(total_to_run))
 
@@ -178,6 +96,8 @@ def run_suite(debug_mode: bool, args: list):
             print(f"  └─ Unhandled Exception: {e}\n", file=sys.stderr)
             failed_count += 1
     duration = time.monotonic() - start_time
+
+    # --- Summary ---
     print()
     print("+ Test Summary")
     print(
