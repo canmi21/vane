@@ -16,7 +16,11 @@ use tokio::time::{Duration, sleep};
 
 use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
-use crate::modules::{nodes, ports};
+use crate::modules::{
+	nodes,
+	plugins::loader as plugin_loader, // Added import
+	ports,
+};
 
 pub async fn start() {
 	dotenv().ok();
@@ -24,17 +28,20 @@ pub async fn start() {
 	print_motd();
 
 	// CORRECTED STARTUP ORDER:
-	// 1. Load nodes first, as they are a dependency for resolving targets in ports.
+	// 1. Load nodes first.
 	if let Some(initial_nodes) = nodes::hotswap::scan_nodes_config() {
 		nodes::model::NODES_STATE.store(Arc::new(initial_nodes));
 	}
 
-	// 2. Now load ports. The resolver used by the health checker can now access the nodes state.
+	// 2. Load ports.
 	let initial_ports = ports::hotswap::scan_ports_config();
 	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
 
-	// 3. Initialize background tasks. The health check inside will now see both populated states.
+	// 3. Initialize background tasks.
 	let config_change_receivers = requirements::initialize().await;
+
+	// 4. Initialize External Plugins
+	plugin_loader::initialize();
 
 	// Spawn a hotswap listener for port changes.
 	tokio::spawn(ports::hotswap::listen_for_updates(
