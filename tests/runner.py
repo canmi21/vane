@@ -44,6 +44,7 @@ from units import (
     test_flow_engine_basic,
     test_flow_engine_udp,
     test_logic_hot_reload,
+    test_flow_ratelimit,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -95,6 +96,7 @@ TEST_SUITE = [
     ("units.test_flow_engine_basic", test_flow_engine_basic.run),
     ("units.test_flow_engine_udp", test_flow_engine_udp.run),
     ("units.test_logic_hot_reload", test_logic_hot_reload.run),
+    ("units.test_flow_ratelimit", test_flow_ratelimit.run),
 ]
 
 
