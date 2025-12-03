@@ -22,12 +22,12 @@ impl Plugin for TransparentProxyPlugin {
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
 			ParamDef {
-				name: "target.ip",
+				name: "target.ip".into(),
 				required: true,
 				param_type: ParamType::String,
 			},
 			ParamDef {
-				name: "target.port",
+				name: "target.port".into(),
 				required: true,
 				param_type: ParamType::Integer,
 			},
