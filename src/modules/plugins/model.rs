@@ -20,6 +20,47 @@ pub struct PluginInstance {
 
 pub type ProcessingStep = HashMap<String, PluginInstance>;
 
+// --- External Plugin Models ---
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalPluginDriver {
+	/// HTTP/HTTPS POST to a URL.
+	Http { url: String },
+	/// HTTP POST over a Unix Domain Socket.
+	Unix { path: String },
+	/// Execute a local binary with env vars, capture stdout.
+	Bin {
+		path: String,
+		#[serde(default)]
+		env: HashMap<String, String>,
+	},
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginRole {
+	Middleware,
+	Terminator,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ExternalPluginConfig {
+	pub name: String,
+	pub role: PluginRole,
+	pub driver: ExternalPluginDriver,
+	/// If defined, these params are required when invoking the plugin.
+	#[serde(default)]
+	pub params: Vec<ExternalParamDef>,
+}
+
+/// Simplified param definition for serialization
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ExternalParamDef {
+	pub name: String,
+	pub required: bool,
+}
+
 // --- Plugin Trait Definitions ---
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +96,7 @@ pub enum ConnectionObject {
 /// A generic base trait for all plugins.
 /// It now includes helper methods for trait object casting.
 pub trait Plugin: Send + Sync + Any {
-	fn name(&self) -> &'static str;
+	fn name(&self) -> &str;
 	fn params(&self) -> Vec<ParamDef>;
 	fn as_any(&self) -> &dyn Any;
 
