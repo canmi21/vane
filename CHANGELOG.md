@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.0 (3. Dec, 2025)
+
+- **Added:** Introduced the **External Plugin System**, enabling the integration of custom logic via three distinct drivers: `Http` (Remote Webhook), `Unix` (Local Socket), and `Bin` (Executable/Shell). This allows developers to extend Vane's functionality using any language or local tool.
+- **Added:** Implemented a full RESTful management API (`/plugins`) supporting dynamic registration, updates, deletion, and listing of external plugins without requiring a service restart.
+- **Added:** Integrated a persistent storage layer (`plugins.json`) which automatically saves and restores registered external plugins across system reboots.
+- **Added:** Implemented strict connectivity validation for new plugins. HTTP endpoints are now verified via an `OPTIONS` request during registration to ensure availability. This check can be bypassed for development using the `SKIP_VALIDATE_CONNECTIVITY` environment variable.
+- **Changed:** Enforced a critical security boundary: External plugins are now strictly limited to the `Middleware` role. The system explicitly rejects any attempt to register external code as a `Terminator` to protect core connection handling logic.
+- **Fixed:** Resolved a potential startup failure where a newly created, empty `plugins.json` file would cause a JSON parsing error. The loader now detects zero-byte files and automatically initializes them with a valid default structure (`{}`).
+
 ## 0.2.6 (3. Dec, 2025)
 
 - **Added:** Introduced two new high-performance rate-limiting middleware plugins: `internal.common.ratelimit.sec` and `internal.common.ratelimit.min`. These plugins enable precise traffic control based on arbitrary context keys (e.g., `{{conn.ip}}`), supporting separate counters for per-second and per-minute windows.
