@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.2.3"
+version = "0.3.0"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -50,6 +50,7 @@ futures = "0.3"
 anyhow = "1"
 hex = "0.4"
 async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
