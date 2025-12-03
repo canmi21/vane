@@ -11,11 +11,6 @@ use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::mpsc;
 
 /// Scans the 'listener' config subdirectory for port configurations.
-///
-/// This function reads each subdirectory within `CONFIG_DIR/listener/` that is
-/// named like `[<port>]`, and attempts to load `tcp.{toml|yaml|json}` and
-/// `udp.{toml|yaml|json}` files within it. It returns a vector of `PortStatus`
-/// representing the discovered configurations.
 pub fn scan_ports_config() -> Vec<PortStatus> {
 	let listener_dir = getconf::get_config_dir().join("listener");
 	let mut statuses = Vec::new();
@@ -51,11 +46,6 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 }
 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
-///
-/// This async function waits on a channel for a signal that the configuration
-/// has changed. Upon receiving a signal, it re-scans the port configurations,
-/// compares the new state with the old one, and issues commands to start or
-/// stop TCP/UDP listeners accordingly.
 pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 	let ip_version_str =
 		if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
@@ -72,54 +62,100 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 		let old_statuses = CONFIG_STATE.load();
 		let new_statuses = scan_ports_config();
 
-		type PortConfigMap = HashMap<u16, (bool, bool)>;
-		let old_map: PortConfigMap = old_statuses
+		// We update the global state *before* restarting listeners so that new tasks
+		// pick up the new config immediately.
+		CONFIG_STATE.store(Arc::new(new_statuses.clone()));
+
+		// Use a Map that stores the full config for comparison.
+		// Key: Port
+		// Value: (Option<Arc<TcpConfig>>, Option<Arc<UdpConfig>>)
+		type ConfigMap = HashMap<u16, (Option<Arc<TcpConfig>>, Option<Arc<UdpConfig>>)>;
+
+		let old_map: ConfigMap = old_statuses
 			.iter()
-			.map(|s| (s.port, (s.tcp_config.is_some(), s.udp_config.is_some())))
+			.map(|s| (s.port, (s.tcp_config.clone(), s.udp_config.clone())))
 			.collect();
-		let new_map: PortConfigMap = new_statuses
+
+		let new_map: ConfigMap = new_statuses
 			.iter()
-			.map(|s| (s.port, (s.tcp_config.is_some(), s.udp_config.is_some())))
+			.map(|s| (s.port, (s.tcp_config.clone(), s.udp_config.clone())))
 			.collect();
 
 		let mut has_changes = false;
 
+		// 1. Check for New or Modified ports
 		for (port, (new_tcp, new_udp)) in &new_map {
 			if let Some((old_tcp, old_udp)) = old_map.get(port) {
-				if *new_tcp && !*old_tcp {
+				// --- TCP Logic ---
+				if new_tcp.is_some() && old_tcp.is_none() {
+					// Added
 					log(
 						LogLevel::Info,
 						&format!("↑ {} PORT {} TCP UP", ip_version_str, port),
 					);
 					listener::start_listener(*port, Protocol::Tcp);
 					has_changes = true;
-				}
-				if !*new_tcp && *old_tcp {
+				} else if new_tcp.is_none() && old_tcp.is_some() {
+					// Removed
 					log(
 						LogLevel::Info,
 						&format!("↓ {} PORT {} TCP DOWN", ip_version_str, port),
 					);
 					listener::stop_listener(*port, Protocol::Tcp);
 					has_changes = true;
+				} else if let (Some(new_c), Some(old_c)) = (new_tcp, old_tcp) {
+					// Both exist, check for content changes
+					if new_c != old_c {
+						log(
+							LogLevel::Info,
+							&format!(
+								"↻ {} PORT {} TCP RELOAD (Config Changed)",
+								ip_version_str, port
+							),
+						);
+						// Restart to apply new config
+						listener::stop_listener(*port, Protocol::Tcp);
+						listener::start_listener(*port, Protocol::Tcp);
+						has_changes = true;
+					}
 				}
-				if *new_udp && !*old_udp {
+
+				// --- UDP Logic ---
+				if new_udp.is_some() && old_udp.is_none() {
+					// Added
 					log(
 						LogLevel::Info,
 						&format!("↑ {} PORT {} UDP UP", ip_version_str, port),
 					);
 					listener::start_listener(*port, Protocol::Udp);
 					has_changes = true;
-				}
-				if !*new_udp && *old_udp {
+				} else if new_udp.is_none() && old_udp.is_some() {
+					// Removed
 					log(
 						LogLevel::Info,
 						&format!("↓ {} PORT {} UDP DOWN", ip_version_str, port),
 					);
 					listener::stop_listener(*port, Protocol::Udp);
 					has_changes = true;
+				} else if let (Some(new_c), Some(old_c)) = (new_udp, old_udp) {
+					// Both exist, check for content changes
+					if new_c != old_c {
+						log(
+							LogLevel::Info,
+							&format!(
+								"↻ {} PORT {} UDP RELOAD (Config Changed)",
+								ip_version_str, port
+							),
+						);
+						// Restart to apply new config
+						listener::stop_listener(*port, Protocol::Udp);
+						listener::start_listener(*port, Protocol::Udp);
+						has_changes = true;
+					}
 				}
 			} else {
-				if *new_tcp {
+				// Port didn't exist before, purely new
+				if new_tcp.is_some() {
 					log(
 						LogLevel::Info,
 						&format!("↑ {} PORT {} TCP UP", ip_version_str, port),
@@ -127,7 +163,7 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 					listener::start_listener(*port, Protocol::Tcp);
 					has_changes = true;
 				}
-				if *new_udp {
+				if new_udp.is_some() {
 					log(
 						LogLevel::Info,
 						&format!("↑ {} PORT {} UDP UP", ip_version_str, port),
@@ -138,9 +174,10 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 			}
 		}
 
+		// 2. Check for Completely Removed ports
 		for (port, (old_tcp, old_udp)) in &old_map {
 			if !new_map.contains_key(port) {
-				if *old_tcp {
+				if old_tcp.is_some() {
 					log(
 						LogLevel::Info,
 						&format!("↓ {} PORT {} TCP DOWN", ip_version_str, port),
@@ -148,7 +185,7 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 					listener::stop_listener(*port, Protocol::Tcp);
 					has_changes = true;
 				}
-				if *old_udp {
+				if old_udp.is_some() {
 					log(
 						LogLevel::Info,
 						&format!("↓ {} PORT {} UDP DOWN", ip_version_str, port),
@@ -162,7 +199,6 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 		if !has_changes {
 			log(LogLevel::Debug, "⚙ No effective listener changes detected.");
 		}
-		CONFIG_STATE.store(Arc::new(new_statuses));
 	}
 }
 
@@ -183,7 +219,6 @@ destination = { type = "forward", forward = { strategy = "random", targets = [{ 
 "#;
 
 	// A minimal, but structurally valid, UDP config for testing purposes.
-	// CORRECTED: Used valid TOML string escape sequences for the pattern.
 	const DUMMY_UDP_CONFIG: &str = r#"
 [[protocols]]
 name = "dns"
@@ -192,7 +227,6 @@ detect = { method = "prefix", pattern = "\u0000\u0001" }
 destination = { type = "forward", forward = { strategy = "random", targets = [{ ip = "1.1.1.1", port = 53 }] } }
 "#;
 
-	/// Tests the port scanning logic under various filesystem conditions.
 	#[test]
 	#[serial_test::serial]
 	fn test_scan_ports_logic() {
@@ -220,38 +254,25 @@ destination = { type = "forward", forward = { strategy = "random", targets = [{ 
 
 			// 3. Scan again and verify the results.
 			let mut statuses = scan_ports_config();
-			// Sort by port to make assertions predictable.
 			statuses.sort_by_key(|s| s.port);
 
 			assert_eq!(statuses.len(), 3);
 
-			// Verify Port 8080
 			let s8080 = statuses.get(0).unwrap();
 			assert_eq!(s8080.port, 8080);
-			assert!(
-				s8080.active,
-				"Port 8080 should be active with a valid TCP config"
-			);
+			assert!(s8080.active);
 			assert!(s8080.tcp_config.is_some());
 			assert!(s8080.udp_config.is_none());
 
-			// Verify Port 9090
 			let s9090 = statuses.get(1).unwrap();
 			assert_eq!(s9090.port, 9090);
-			assert!(
-				s9090.active,
-				"Port 9090 should be active with a valid UDP config"
-			);
+			assert!(s9090.active);
 			assert!(s9090.tcp_config.is_none());
 			assert!(s9090.udp_config.is_some());
 
-			// Verify Port 9999
 			let s9999 = statuses.get(2).unwrap();
 			assert_eq!(s9999.port, 9999);
-			assert!(
-				!s9999.active,
-				"Port 9999 should be inactive with no config files"
-			);
+			assert!(!s9999.active);
 			assert!(s9999.tcp_config.is_none());
 			assert!(s9999.udp_config.is_none());
 		});
