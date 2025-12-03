@@ -1,6 +1,7 @@
 /* src/modules/plugins/registry.rs */
 
 use super::{
+	common::ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin},
 	model::Plugin,
 	protocol::detect::ProtocolDetectPlugin,
 	terminator::transport::{
@@ -21,6 +22,8 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		Arc::new(ProtocolDetectPlugin),
 		Arc::new(AbortConnectionPlugin),
 		Arc::new(TransparentProxyPlugin),
+		Arc::new(KeywordRateLimitSecPlugin),
+		Arc::new(KeywordRateLimitMinPlugin),
 	];
 
 	for plugin in plugins {
@@ -36,9 +39,6 @@ static EXTERNAL_PLUGIN_REGISTRY: Lazy<ArcSwap<DashMap<String, Arc<dyn Plugin>>>>
 	Lazy::new(|| ArcSwap::new(Arc::new(DashMap::new())));
 
 /// Finds a plugin by its name, searching internal plugins first, then external ones.
-///
-/// This is the primary lookup function. It prioritizes built-in plugins to ensure
-/// that core functionality cannot be overridden by external plugins.
 pub fn get_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
 	get_internal_plugin(name).or_else(|| get_external_plugin(name))
 }
@@ -58,14 +58,22 @@ pub fn get_external_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
 		.map(|plugin| plugin.value().clone())
 }
 
+/// Returns a list of all currently registered external plugins.
+pub fn list_external_plugins() -> Vec<Arc<dyn Plugin>> {
+	let external_plugins = EXTERNAL_PLUGIN_REGISTRY.load();
+	external_plugins
+		.iter()
+		.map(|entry| entry.value().clone())
+		.collect()
+}
+
 /// Atomically replaces the entire set of external plugins.
-/// This is the entry point for a future hot-reloading mechanism.
+/// This is the entry point for bulk loading or hot-swapping.
 pub fn load_external_plugins(new_plugins: DashMap<String, Arc<dyn Plugin>>) {
 	EXTERNAL_PLUGIN_REGISTRY.store(Arc::new(new_plugins));
 }
 
-/// Atomically clears all external plugins, restoring the system to a
-/// built-in-only state.
+/// Atomically clears all external plugins.
 pub fn clear_external_plugins() {
 	EXTERNAL_PLUGIN_REGISTRY.store(Arc::new(DashMap::new()));
 }
