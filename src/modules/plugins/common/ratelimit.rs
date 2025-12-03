@@ -12,7 +12,7 @@ use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
 use serde_json::Value;
-use std::{any::Any, sync::Arc, time::Duration};
+use std::{any::Any, borrow::Cow, sync::Arc, time::Duration};
 
 // --- Global State ---
 
@@ -103,12 +103,12 @@ impl Plugin for KeywordRateLimitSecPlugin {
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
 			ParamDef {
-				name: "key",
+				name: "key".into(),
 				required: true,
 				param_type: ParamType::String,
 			},
 			ParamDef {
-				name: "limit",
+				name: "limit".into(),
 				required: true,
 				param_type: ParamType::Integer,
 			},
@@ -126,8 +126,8 @@ impl Plugin for KeywordRateLimitSecPlugin {
 
 #[async_trait]
 impl Middleware for KeywordRateLimitSecPlugin {
-	fn output(&self) -> Vec<&'static str> {
-		vec!["true", "false"]
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		vec!["true".into(), "false".into()]
 	}
 
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
@@ -188,12 +188,12 @@ impl Plugin for KeywordRateLimitMinPlugin {
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
 			ParamDef {
-				name: "key",
+				name: "key".into(),
 				required: true,
 				param_type: ParamType::String,
 			},
 			ParamDef {
-				name: "limit",
+				name: "limit".into(),
 				required: true,
 				param_type: ParamType::Integer,
 			},
@@ -211,8 +211,8 @@ impl Plugin for KeywordRateLimitMinPlugin {
 
 #[async_trait]
 impl Middleware for KeywordRateLimitMinPlugin {
-	fn output(&self) -> Vec<&'static str> {
-		vec!["true", "false"]
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		vec!["true".into(), "false".into()]
 	}
 
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
