@@ -5,7 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{any::Any, collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{any::Any, borrow::Cow, collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::net::{TcpStream, UdpSocket};
 
 // --- Configuration Data Structures ---
@@ -72,7 +72,8 @@ pub enum ParamType {
 }
 
 pub struct ParamDef {
-	pub name: &'static str,
+	/// Use Cow to support both static strings (internal) and owned strings (external).
+	pub name: Cow<'static, str>,
 	pub required: bool,
 	pub param_type: ParamType,
 }
@@ -94,7 +95,6 @@ pub enum ConnectionObject {
 }
 
 /// A generic base trait for all plugins.
-/// It now includes helper methods for trait object casting.
 pub trait Plugin: Send + Sync + Any {
 	fn name(&self) -> &str;
 	fn params(&self) -> Vec<ParamDef>;
@@ -112,7 +112,9 @@ pub trait Plugin: Send + Sync + Any {
 /// A trait for "Middleware" plugins, made object-safe with async-trait.
 #[async_trait]
 pub trait Middleware: Plugin {
-	fn output(&self) -> Vec<&'static str>;
+	/// Returns the list of possible output branches.
+	/// Uses Cow to support both static (internal) and dynamic (future external) branch names.
+	fn output(&self) -> Vec<Cow<'static, str>>;
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
 }
 
