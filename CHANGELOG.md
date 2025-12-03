@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.6 (3. Dec, 2025)
+
+- **Added:** Introduced two new high-performance rate-limiting middleware plugins: `internal.common.ratelimit.sec` and `internal.common.ratelimit.min`. These plugins enable precise traffic control based on arbitrary context keys (e.g., `{{conn.ip}}`), supporting separate counters for per-second and per-minute windows.
+- **Added:** Implemented a robust memory management system for the rate limiters, configurable via `MAX_LIMITER_MEMORY` (default: 4MB).
+- **Added:** Designed a "self-preservation" eviction strategy for the rate limiter pools. Instead of rejecting traffic when memory limits are reached, the system now randomly prunes approximately 10% of the oldest entries, preventing Out-Of-Memory (OOM) crashes while maximizing service availability under heavy load.
+- **Added:** Integrated asynchronous background cleanup tasks that automatically reset rate-limit counters at 1-second and 60-second intervals, ensuring accurate window enforcement with zero impact on request latency.
+
 ## 0.2.5 (3. Dec, 2025)
 
 - **Changed:** Enhanced the configuration diffing logic to perform a deep equality check (`PartialEq`) on loaded `TcpConfig` and `UdpConfig` objects.
