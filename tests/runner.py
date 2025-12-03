@@ -42,6 +42,7 @@ from units import (
     test_domain_forwarding,
     test_custom_resolver,
     test_flow_engine_basic,
+    test_flow_engine_udp,
 )
 
 # The master list of all tests to be executed sequentially.
@@ -91,6 +92,7 @@ TEST_SUITE = [
     ("units.test_domain_forwarding", test_domain_forwarding.run),
     ("units.test_custom_resolver", test_custom_resolver.run),
     ("units.test_flow_engine_basic", test_flow_engine_basic.run),
+    ("units.test_flow_engine_udp", test_flow_engine_udp.run),
 ]
 
 
