@@ -1,6 +1,7 @@
 /* src/modules/plugins/registry.rs */
 
 use super::{
+	common::ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin},
 	model::Plugin,
 	protocol::detect::ProtocolDetectPlugin,
 	terminator::transport::{
@@ -21,6 +22,8 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		Arc::new(ProtocolDetectPlugin),
 		Arc::new(AbortConnectionPlugin),
 		Arc::new(TransparentProxyPlugin),
+		Arc::new(KeywordRateLimitSecPlugin),
+		Arc::new(KeywordRateLimitMinPlugin),
 	];
 
 	for plugin in plugins {
