@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.1 (3. Dec, 2025)
+
+- **Changed:** **Architectural Refactor:** Refactored the core `ParamDef` structure and `Middleware::output` signature to utilize `Cow<'static, str>` instead of `&'static str`. This creates a unified type system that efficiently handles both zero-cost static strings for built-in plugins and owned, garbage-collected strings for external plugins.
+- **Fixed:** Eliminated a memory leak in the `ExternalPlugin` loader. Dynamic parameter names are no longer forced into `'static` lifetime via `Box::leak`, allowing for safe creation and destruction of external plugin definitions without residual memory usage.
+- **Fixed:** Updated the recursive flow validator (`validator.rs`) to strictly handle Copy-on-Write string comparisons, ensuring accurate validation logic for mixed static/dynamic plugin environments.
+
+## 0.3.0 (3. Dec, 2025)
+
+- **Added:** Introduced the **External Plugin System**, enabling the integration of custom logic via three distinct drivers: `Http` (Remote Webhook), `Unix` (Local Socket), and `Bin` (Executable/Shell). This allows developers to extend Vane's functionality using any language or local tool.
+- **Added:** Implemented a full RESTful management API (`/plugins`) supporting dynamic registration, updates, deletion, and listing of external plugins without requiring a service restart.
+- **Added:** Integrated a persistent storage layer (`plugins.json`) which automatically saves and restores registered external plugins across system reboots.
+- **Added:** Implemented strict connectivity validation for new plugins. HTTP endpoints are now verified via an `OPTIONS` request during registration to ensure availability. This check can be bypassed for development using the `SKIP_VALIDATE_CONNECTIVITY` environment variable.
+- **Changed:** Enforced a critical security boundary: External plugins are now strictly limited to the `Middleware` role. The system explicitly rejects any attempt to register external code as a `Terminator` to protect core connection handling logic.
+- **Fixed:** Resolved a potential startup failure where a newly created, empty `plugins.json` file would cause a JSON parsing error. The loader now detects zero-byte files and automatically initializes them with a valid default structure (`{}`).
+
+## 0.2.6 (3. Dec, 2025)
+
+- **Added:** Introduced two new high-performance rate-limiting middleware plugins: `internal.common.ratelimit.sec` and `internal.common.ratelimit.min`. These plugins enable precise traffic control based on arbitrary context keys (e.g., `{{conn.ip}}`), supporting separate counters for per-second and per-minute windows.
+- **Added:** Implemented a robust memory management system for the rate limiters, configurable via `MAX_LIMITER_MEMORY` (default: 4MB).
+- **Added:** Designed a "self-preservation" eviction strategy for the rate limiter pools. Instead of rejecting traffic when memory limits are reached, the system now randomly prunes approximately 10% of the oldest entries, preventing Out-Of-Memory (OOM) crashes while maximizing service availability under heavy load.
+- **Added:** Integrated asynchronous background cleanup tasks that automatically reset rate-limit counters at 1-second and 60-second intervals, ensuring accurate window enforcement with zero impact on request latency.
+
+## 0.2.5 (3. Dec, 2025)
+
+- **Changed:** Enhanced the configuration diffing logic to perform a deep equality check (`PartialEq`) on loaded `TcpConfig` and `UdpConfig` objects.
+- **Changed:** Implemented a new `RELOAD` lifecycle action. When a configuration change is detected for an active port, the listener is now automatically stopped and immediately restarted to apply the new settings, clearly logged as `↻ ... RELOAD (Config Changed)`.
+- **Fixed:** Resolved a critical issue in the configuration hot-swap mechanism (`src/modules/ports/hotswap.rs`) where changes to the *content* of an existing listener's file (e.g., updating flow rules, targets, or logic) were ignored if the listener remained active. The system previously only tracked the presence of a configuration, failing to trigger updates for in-place modifications.
+
 ## 0.2.4 (2. Dec, 2025)
 
 - **Added:** Significantly enhanced the `internal.protocol.detect` middleware with robust, multi-dimensional heuristic checks for **DNS** (validating QR bit, Opcode, and QDCOUNT) and **QUIC** (validating Fixed Bit and Version per RFC 9000), ensuring zero-collision protocol identification.
