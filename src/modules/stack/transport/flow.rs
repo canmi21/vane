@@ -54,7 +54,8 @@ pub async fn execute(
 			}
 		}
 
-		if let Some(next_step) = instance.output.get(output.branch) {
+		// Fix: Use as_ref() to borrow Cow<'static, str> as &str for HashMap lookup
+		if let Some(next_step) = instance.output.get(output.branch.as_ref()) {
 			return Box::pin(execute(next_step, kv, conn)).await;
 		} else {
 			return Err(anyhow!(
