@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.3 (4. Dec, 2025)
+
+- **Added:** Fully implemented the `http` and `unix` external plugin drivers. These drivers now function as fully compliant API clients, transmitting plugin inputs via POST requests and parsing responses according to a strict data contract.
+- **Added:** Implemented a lightweight, dependency-free HTTP/1.1 client for the `unix` driver, enabling high-performance, low-latency communication with local plugins via Unix Domain Sockets without the overhead of a full HTTP stack.
+- **Added:** Introduced the `EXTERNAL_HTTPS_CALL_SKIP_TLS_VERIFY` environment variable, allowing operators to globally disable TLS certificate verification for external HTTP plugins (e.g., when using self-signed certificates in internal networks).
+- **Changed:** Enforced a standardized **API Response Contract** for all external plugins. To ensure reliability, external services must now return a unified JSON structure (`{ "status": "success", "data": ... }`), mirroring Vane's internal management API format.
+
 ## 0.3.2 (4. Dec, 2025)
 
 - **Breaking:** Redesigned the external plugin execution model. The `bin` driver has been replaced by a more robust `command` driver. Configuration now requires explicit `program`, `args`, and `env` fields, enabling secure, shell-independent execution of binaries and interpreters (e.g., Python, Node.js) in restricted environments (Distroless/Musl).
