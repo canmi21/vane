@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.2 (4. Dec, 2025)
+
+- **Breaking:** Redesigned the external plugin execution model. The `bin` driver has been replaced by a more robust `command` driver. Configuration now requires explicit `program`, `args`, and `env` fields, enabling secure, shell-independent execution of binaries and interpreters (e.g., Python, Node.js) in restricted environments (Distroless/Musl).
+- **Added:** Implemented the **JSON-over-Stdin** protocol for external command plugins. Vane now streams `ResolvedInputs` as a JSON payload to the child process's standard input and strictly parses standard output as `MiddlewareOutput` JSON, allowing for rich data exchange without command-line argument limits.
+- **Added:** Integrated automatic **PATH resolution** for the `command` driver. Vane now intelligently searches the system `PATH` environment variable if the specified `program` is not a direct file path, simulating standard OS behavior.
+- **Changed:** Architecturally decoupled the plugin execution logic into a dedicated `drivers` module (`exec`, `httpx`, `unix`), strictly enforcing the Single Responsibility Principle (SRP) and creating a foundation for future driver expansions.
+- **Changed:** Updated the entire Plugin ecosystem to utilize `Cow<'static, str>` for parameter names and output branches, finalizing the transition to a zero-overhead, memory-safe string handling model.
+
 ## 0.3.1 (3. Dec, 2025)
 
 - **Changed:** **Architectural Refactor:** Refactored the core `ParamDef` structure and `Middleware::output` signature to utilize `Cow<'static, str>` instead of `&'static str`. This creates a unified type system that efficiently handles both zero-cost static strings for built-in plugins and owned, garbage-collected strings for external plugins.
