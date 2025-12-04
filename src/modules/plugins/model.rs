@@ -29,9 +29,15 @@ pub enum ExternalPluginDriver {
 	Http { url: String },
 	/// HTTP POST over a Unix Domain Socket.
 	Unix { path: String },
-	/// Execute a local binary with env vars, capture stdout.
-	Bin {
-		path: String,
+	/// Execute a command/program with arguments and environment variables.
+	/// Inputs are sent via Stdin (JSON), output is read from Stdout (JSON).
+	Command {
+		/// The program to execute (e.g., "python3", "/usr/bin/node", "./my-plugin").
+		program: String,
+		/// Arguments to pass to the program (e.g., ["script.py", "-v"]).
+		#[serde(default)]
+		args: Vec<String>,
+		/// Additional environment variables to set for the process.
 		#[serde(default)]
 		env: HashMap<String, String>,
 	},
@@ -80,8 +86,9 @@ pub struct ParamDef {
 
 pub type ResolvedInputs = HashMap<String, Value>;
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct MiddlewareOutput {
-	pub branch: &'static str,
+	pub branch: Cow<'static, str>,
 	pub write_to_kv: Option<HashMap<String, String>>,
 }
 
