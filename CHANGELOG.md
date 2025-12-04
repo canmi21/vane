@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.4 (4. Dec, 2025)
+
+- **Changed:** Migrated the core DNS resolution dependency from the deprecated `trust-dns-resolver` to `hickory-resolver` (v0.25+). This modernization refactors the resolver initialization logic to utilize the new `TokioResolver::builder_with_config` pattern, aligning with the latest async IO standards.
+- **Fixed:** Resolved the critical [**CVE-2024-12224**](https://rustsec.org/advisories/RUSTSEC-2024-0421) vulnerability in the dependency tree. By upgrading to `hickory-resolver`, Vane eliminates the risks associated with the flawed `idna` (v0.4.0) crate, ensuring robust protection against Punycode spoofing and homograph attacks in domain resolution.
+
 ## 0.3.3 (4. Dec, 2025)
 
 - **Added:** Fully implemented the `http` and `unix` external plugin drivers. These drivers now function as fully compliant API clients, transmitting plugin inputs via POST requests and parsing responses according to a strict data contract.
