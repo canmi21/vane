@@ -11,6 +11,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use fancy_log::{LogLevel, log};
 use std::any::Any;
+use std::borrow::Cow;
 use std::path::Path;
 use std::time::Duration;
 
@@ -98,7 +99,6 @@ impl ExternalPlugin {
 				if !Path::new(path).exists() {
 					return Err(anyhow!("Binary executable not found at: {}", path));
 				}
-				// Check for execute permissions on Unix systems could go here.
 				Ok(())
 			}
 		}
@@ -117,10 +117,8 @@ impl Plugin for ExternalPlugin {
 			.params
 			.iter()
 			.map(|p| ParamDef {
-				// Note: We leak memory here because ParamDef requires static str,
-				// but since plugins are long-lived, this is acceptable for now.
-				// A better refactor would change ParamDef to use String or Cow.
-				name: Box::leak(p.name.clone().into_boxed_str()),
+				// Use Cow::Owned for runtime strings. No more memory leak.
+				name: Cow::Owned(p.name.clone()),
 				required: p.required,
 				param_type: ParamType::String, // Defaulting to String for external APIs
 			})
@@ -149,9 +147,10 @@ impl Plugin for ExternalPlugin {
 
 #[async_trait]
 impl Middleware for ExternalPlugin {
-	fn output(&self) -> Vec<&'static str> {
+	// Updated return type to match trait definition
+	fn output(&self) -> Vec<Cow<'static, str>> {
 		// External middleware conventionally has "success" and "failure"
-		vec!["success", "failure"]
+		vec!["success".into(), "failure".into()]
 	}
 
 	async fn execute(&self, _inputs: ResolvedInputs) -> Result<MiddlewareOutput> {

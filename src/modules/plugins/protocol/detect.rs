@@ -6,7 +6,7 @@ use crate::modules::plugins::model::{
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::any::Any;
+use std::{any::Any, borrow::Cow};
 
 /// Core detection logic. This is a pure, stateless function.
 fn detect(payload: &[u8], method: &str) -> bool {
@@ -89,12 +89,12 @@ impl Plugin for ProtocolDetectPlugin {
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
 			ParamDef {
-				name: "method",
+				name: "method".into(),
 				required: true,
 				param_type: ParamType::String,
 			},
 			ParamDef {
-				name: "payload",
+				name: "payload".into(),
 				required: true,
 				param_type: ParamType::Bytes,
 			},
@@ -112,8 +112,8 @@ impl Plugin for ProtocolDetectPlugin {
 
 #[async_trait]
 impl Middleware for ProtocolDetectPlugin {
-	fn output(&self) -> Vec<&'static str> {
-		vec!["true", "false"]
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		vec!["true".into(), "false".into()]
 	}
 
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
