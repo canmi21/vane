@@ -5,6 +5,7 @@ use crate::modules::plugins::{
 	registry,
 };
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use validator::{ValidationError, ValidationErrors};
 
@@ -74,7 +75,11 @@ fn validate_plugin_inputs(
 	let mut errors = ValidationErrors::new();
 
 	for input_name in inputs.keys() {
-		if !param_defs.iter().any(|p| p.name == input_name) {
+		// Fix E0277: Explicitly dereference both Cow and String to compare slices
+		if !param_defs
+			.iter()
+			.any(|p| p.name.as_ref() == input_name.as_str())
+		{
 			let mut err = ValidationError::new("unknown_parameter");
 			err.message = Some(
 				format!(
@@ -88,7 +93,8 @@ fn validate_plugin_inputs(
 	}
 
 	for def in param_defs {
-		match inputs.get(def.name) {
+		// Fix E0308: Explicitly borrow the name from Cow
+		match inputs.get(def.name.as_ref()) {
 			Some(value) => {
 				if value
 					.as_str()
@@ -133,11 +139,12 @@ fn validate_plugin_inputs(
 
 fn validate_middleware_outputs(
 	plugin_name: &str,
-	expected_branches: Vec<&str>,
+	expected_branches: Vec<Cow<'static, str>>,
 	outputs: &HashMap<String, ProcessingStep>,
 ) -> Result<(), ValidationErrors> {
 	let mut errors = ValidationErrors::new();
-	let expected_set: HashSet<_> = expected_branches.into_iter().collect();
+	// Convert Vec<Cow> to HashSet<&str> for efficient lookup
+	let expected_set: HashSet<&str> = expected_branches.iter().map(|s| s.as_ref()).collect();
 
 	for branch_name in outputs.keys() {
 		if !expected_set.contains(branch_name.as_str()) {
