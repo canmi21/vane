@@ -30,14 +30,10 @@ pub enum ExternalPluginDriver {
 	/// HTTP POST over a Unix Domain Socket.
 	Unix { path: String },
 	/// Execute a command/program with arguments and environment variables.
-	/// Inputs are sent via Stdin (JSON), output is read from Stdout (JSON).
 	Command {
-		/// The program to execute (e.g., "python3", "/usr/bin/node", "./my-plugin").
 		program: String,
-		/// Arguments to pass to the program (e.g., ["script.py", "-v"]).
 		#[serde(default)]
 		args: Vec<String>,
-		/// Additional environment variables to set for the process.
 		#[serde(default)]
 		env: HashMap<String, String>,
 	},
@@ -55,16 +51,25 @@ pub struct ExternalPluginConfig {
 	pub name: String,
 	pub role: PluginRole,
 	pub driver: ExternalPluginDriver,
-	/// If defined, these params are required when invoking the plugin.
 	#[serde(default)]
 	pub params: Vec<ExternalParamDef>,
 }
 
-/// Simplified param definition for serialization
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExternalParamDef {
 	pub name: String,
 	pub required: bool,
+}
+
+// --- API Contract (Mirroring core/response.rs) ---
+
+/// Represents the strict JSON response format expected from external plugins.
+/// This mirrors the `ApiResponse` struct in `src/core/response.rs`.
+#[derive(Deserialize, Debug)]
+pub struct ExternalApiResponse<T> {
+	pub status: String,
+	pub data: Option<T>,
+	pub message: Option<String>,
 }
 
 // --- Plugin Trait Definitions ---
@@ -78,7 +83,6 @@ pub enum ParamType {
 }
 
 pub struct ParamDef {
-	/// Use Cow to support both static strings (internal) and owned strings (external).
 	pub name: Cow<'static, str>,
 	pub required: bool,
 	pub param_type: ParamType,
@@ -119,8 +123,6 @@ pub trait Plugin: Send + Sync + Any {
 /// A trait for "Middleware" plugins, made object-safe with async-trait.
 #[async_trait]
 pub trait Middleware: Plugin {
-	/// Returns the list of possible output branches.
-	/// Uses Cow to support both static (internal) and dynamic (future external) branch names.
 	fn output(&self) -> Vec<Cow<'static, str>>;
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
 }
