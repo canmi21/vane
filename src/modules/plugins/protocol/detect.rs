@@ -132,7 +132,7 @@ impl Middleware for ProtocolDetectPlugin {
 		let branch = if result { "true" } else { "false" };
 
 		Ok(MiddlewareOutput {
-			branch,
+			branch: branch.into(),
 			write_to_kv: None,
 		})
 	}
