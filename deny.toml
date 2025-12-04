@@ -11,7 +11,11 @@ allow = [
     "Apache-2.0",
     "BSD-3-Clause",
     "MIT",
+		"ISC",
+		"CC0-1.0",
+		"MPL-2.0",
     "Unicode-3.0",
+		"CDLA-Permissive-2.0",
 ]
 
 [bans]
@@ -22,8 +26,28 @@ skip-tree = [
     { name = "base64" },
     # parking_lot pulls in old versions of windows-sys
     { name = "windows-sys" },
+		{ name = "winapi" },
+		{ name = "windows-core" },
+		{ name = "windows-result" },
+		{ name = "windows-strings" },
     # pulled in by quickcheck and cookie
     { name = "rand" },
+		{ name = "bitflags" },
+		{ name = "hashbrown" },
+		{ name = "http" },
+		{ name = "http-body" },
+		{ name = "hyper" },
+		{ name = "hyper-rustls" },
+		{ name = "idna" },
+		{ name = "reqwest" },
+		{ name = "rustls" },
+		{ name = "rustls-webpki" },
+		{ name = "socket2" },
+		{ name = "sync_wrapper" },
+		{ name = "thiserror" },
+		{ name = "thiserror-impl" },
+		{ name = "tokio-rustls" },
+		{ name = "webpki-roots" },
 ]
 
 [sources]
