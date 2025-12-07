@@ -93,7 +93,7 @@ pub type ResolvedInputs = HashMap<String, Value>;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MiddlewareOutput {
 	pub branch: Cow<'static, str>,
-	pub write_to_kv: Option<HashMap<String, String>>,
+	pub store: Option<HashMap<String, String>>,
 }
 
 pub enum ConnectionObject {
