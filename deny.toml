@@ -8,11 +8,11 @@ ignore = []
 [licenses]
 confidence-threshold = 0.8
 allow = [
+		"CC0-1.0",
+		"ISC",
+		"MIT",
     "Apache-2.0",
     "BSD-3-Clause",
-    "MIT",
-		"ISC",
-		"CC0-1.0",
 		"MPL-2.0",
     "Unicode-3.0",
 		"CDLA-Permissive-2.0",
