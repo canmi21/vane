@@ -62,7 +62,7 @@ async fn execute_recursive(
 		);
 
 		// --- ENFORCE NAMESPACE ISOLATION BASED ON FLOW PATH ---
-		if let Some(updates) = output.write_to_kv {
+		if let Some(updates) = output.store {
 			for (raw_key, value) in updates {
 				// Key becomes: plugin.{flow_path}.{sanitized_plugin_name}.{raw_key}
 				// This ensures that even if the same plugin is used multiple times in different
