@@ -144,7 +144,7 @@ impl Middleware for KeywordRateLimitSecPlugin {
 		if !check_key_length(key) {
 			return Ok(MiddlewareOutput {
 				branch: "false".into(),
-				write_to_kv: None,
+				store: None,
 			});
 		}
 
@@ -171,7 +171,7 @@ impl Middleware for KeywordRateLimitSecPlugin {
 
 		Ok(MiddlewareOutput {
 			branch: branch.into(),
-			write_to_kv: None,
+			store: None,
 		})
 	}
 }
@@ -229,7 +229,7 @@ impl Middleware for KeywordRateLimitMinPlugin {
 		if !check_key_length(key) {
 			return Ok(MiddlewareOutput {
 				branch: "false".into(),
-				write_to_kv: None,
+				store: None,
 			});
 		}
 
@@ -255,7 +255,7 @@ impl Middleware for KeywordRateLimitMinPlugin {
 
 		Ok(MiddlewareOutput {
 			branch: branch.into(),
-			write_to_kv: None,
+			store: None,
 		})
 	}
 }
