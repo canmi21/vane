@@ -133,7 +133,7 @@ impl Middleware for ProtocolDetectPlugin {
 
 		Ok(MiddlewareOutput {
 			branch: branch.into(),
-			write_to_kv: None,
+			store: None,
 		})
 	}
 }
