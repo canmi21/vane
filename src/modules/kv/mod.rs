@@ -1,5 +1,7 @@
 /* src/modules/kv/mod.rs */
 
+pub mod plugin_output;
+
 use chrono::Utc;
 use std::{collections::HashMap, net::SocketAddr};
 use uuid::Uuid;
