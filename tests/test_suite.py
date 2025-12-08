@@ -52,6 +52,8 @@ from units import (
     test_flow_engine_udp,
     test_logic_hot_reload,
     test_flow_ratelimit,
+    test_external_plugin_registration,
+    test_external_plugin_persistence,
 )
 
 # The master list of all tests to be executed sequentially. This is the single
@@ -105,4 +107,6 @@ TEST_SUITE = [
     ("units.test_flow_engine_udp", test_flow_engine_udp.run),
     ("units.test_logic_hot_reload", test_logic_hot_reload.run),
     ("units.test_flow_ratelimit", test_flow_ratelimit.run),
+    ("units.test_external_plugin_registration", test_external_plugin_registration.run),
+    ("units.test_external_plugin_persistence", test_external_plugin_persistence.run),
 ]
