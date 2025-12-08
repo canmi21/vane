@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.5 (8. Dec, 2025)
+
+- **Added:** Implemented strict **KV Namespace Isolation** for the Flow Engine. Plugin outputs are now automatically namespaced using the unique execution path (`plugin.{flow_path}.{name}.{key}`), allowing identical plugins to be nested or reused multiple times within a complex flow tree without variable collision or state corruption.
+- **Changed:** Refactored the recursive `Flow` executor (`src/modules/stack/transport/flow.rs`) to propagate a dynamic `flow_path` context string throughout the execution chain, establishing the architectural foundation for scoped state management.
+- **Fixed:** Resolved a JSON deserialization mismatch in the External Plugin Registration API. The `ExternalPluginDriver` configuration now strictly enforces **Internal Tagging** (requiring a `"type"` discriminator field), fixing 400 Bad Request errors and aligning the server-side parser with the client-side JSON contract.
+
 ## 0.3.4 (4. Dec, 2025)
 
 - **Changed:** Migrated the core DNS resolution dependency from the deprecated `trust-dns-resolver` to `hickory-resolver` (v0.25+). This modernization refactors the resolver initialization logic to utilize the new `TokioResolver::builder_with_config` pattern, aligning with the latest async IO standards.
