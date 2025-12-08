@@ -1,6 +1,7 @@
 /* src/modules/plugins/mod.rs */
 
 pub mod common;
+pub mod drivers;
 pub mod external;
 pub mod handler;
 pub mod loader;

@@ -29,9 +29,11 @@ pub enum ExternalPluginDriver {
 	Http { url: String },
 	/// HTTP POST over a Unix Domain Socket.
 	Unix { path: String },
-	/// Execute a local binary with env vars, capture stdout.
-	Bin {
-		path: String,
+	/// Execute a command/program with arguments and environment variables.
+	Command {
+		program: String,
+		#[serde(default)]
+		args: Vec<String>,
 		#[serde(default)]
 		env: HashMap<String, String>,
 	},
@@ -49,16 +51,25 @@ pub struct ExternalPluginConfig {
 	pub name: String,
 	pub role: PluginRole,
 	pub driver: ExternalPluginDriver,
-	/// If defined, these params are required when invoking the plugin.
 	#[serde(default)]
 	pub params: Vec<ExternalParamDef>,
 }
 
-/// Simplified param definition for serialization
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExternalParamDef {
 	pub name: String,
 	pub required: bool,
+}
+
+// --- API Contract (Mirroring core/response.rs) ---
+
+/// Represents the strict JSON response format expected from external plugins.
+/// This mirrors the `ApiResponse` struct in `src/core/response.rs`.
+#[derive(Deserialize, Debug)]
+pub struct ExternalApiResponse<T> {
+	pub status: String,
+	pub data: Option<T>,
+	pub message: Option<String>,
 }
 
 // --- Plugin Trait Definitions ---
@@ -72,7 +83,6 @@ pub enum ParamType {
 }
 
 pub struct ParamDef {
-	/// Use Cow to support both static strings (internal) and owned strings (external).
 	pub name: Cow<'static, str>,
 	pub required: bool,
 	pub param_type: ParamType,
@@ -80,9 +90,10 @@ pub struct ParamDef {
 
 pub type ResolvedInputs = HashMap<String, Value>;
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct MiddlewareOutput {
-	pub branch: &'static str,
-	pub write_to_kv: Option<HashMap<String, String>>,
+	pub branch: Cow<'static, str>,
+	pub store: Option<HashMap<String, String>>,
 }
 
 pub enum ConnectionObject {
@@ -112,8 +123,6 @@ pub trait Plugin: Send + Sync + Any {
 /// A trait for "Middleware" plugins, made object-safe with async-trait.
 #[async_trait]
 pub trait Middleware: Plugin {
-	/// Returns the list of possible output branches.
-	/// Uses Cow to support both static (internal) and dynamic (future external) branch names.
 	fn output(&self) -> Vec<Cow<'static, str>>;
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
 }
