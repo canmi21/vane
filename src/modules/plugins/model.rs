@@ -23,7 +23,7 @@ pub type ProcessingStep = HashMap<String, PluginInstance>;
 // --- External Plugin Models ---
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ExternalPluginDriver {
 	/// HTTP/HTTPS POST to a URL.
 	Http { url: String },
