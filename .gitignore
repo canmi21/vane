@@ -42,3 +42,11 @@ __pycache__
 # Added by cargo
 
 /target
+
+# Test Build Bins
+test_c_template
+test_rust_template
+test_zig_template
+test_go_template
+test_cpp_template
+test_java_template.class
