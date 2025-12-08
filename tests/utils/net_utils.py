@@ -61,6 +61,14 @@ def wait_for_tcp_port_ready(port: int, timeout: float = 2.0) -> bool:
     return False
 
 
+def wait_for_port(port: int, timeout: float = 2.0) -> bool:
+    """
+    Generic alias for waiting for a TCP port to be open.
+    Used by integration tests to verify API availability.
+    """
+    return wait_for_tcp_port_ready(port, timeout)
+
+
 # --- Connection Recorder Servers (TCP) ---
 class ConnectionRecorderHandler(socketserver.BaseRequestHandler):
     @property
