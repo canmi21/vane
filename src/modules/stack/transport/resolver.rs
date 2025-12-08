@@ -4,15 +4,17 @@ use super::model::{ResolvedTarget, Target};
 use crate::common::getenv;
 use crate::modules::nodes::model::NODES_STATE;
 use fancy_log::{LogLevel, log};
+use hickory_resolver::{
+	TokioResolver,
+	config::{NameServerConfig, ResolverConfig, ResolverOpts},
+	name_server::TokioConnectionProvider,
+	proto::xfer::Protocol,
+};
 use once_cell::sync::Lazy;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
-use trust_dns_resolver::{
-	TokioAsyncResolver,
-	config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts},
-};
 
-static DNS_RESOLVER: Lazy<TokioAsyncResolver> = Lazy::new(|| {
+static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 	let ns1_str = getenv::get_env("NAMESERVER1", "1.1.1.1".to_string());
 	let ns1_port_str = getenv::get_env("NAMESERVER1_PORT", "53".to_string());
 	let ns2_str = getenv::get_env("NAMESERVER2", "8.8.8.8".to_string());
@@ -40,7 +42,10 @@ static DNS_RESOLVER: Lazy<TokioAsyncResolver> = Lazy::new(|| {
 		);
 	}
 
-	TokioAsyncResolver::tokio(config, ResolverOpts::default())
+	// Correct construction for Hickory Resolver 0.25+ using Builder pattern
+	TokioResolver::builder_with_config(config, TokioConnectionProvider::default())
+		.with_options(ResolverOpts::default())
+		.build()
 });
 
 /// Resolves a list of abstract Targets into a flat list of concrete ResolvedTargets.
@@ -88,7 +93,6 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 				}
 
 				if !found {
-					// ADDED: Detailed debug log before the warning.
 					log(
 						LogLevel::Debug,
 						&format!(
@@ -147,7 +151,6 @@ mod tests {
 	#[tokio::test]
 	#[serial]
 	async fn test_resolve_node_target() {
-		// 1. Setup: Create a mock nodes configuration and load it into the global state.
 		let mock_nodes_config = NodesConfig {
 			nodes: vec![
 				Node {
@@ -171,16 +174,14 @@ mod tests {
 		};
 		NODES_STATE.store(Arc::new(mock_nodes_config));
 
-		// 2. Define targets, including one that exists, one that exists with a different port,
-		// and one that doesn't exist.
 		let targets = vec![
 			Target::Node {
 				node: "cache-redis".to_string(),
-				port: 6379, // This one should match
+				port: 6379,
 			},
 			Target::Node {
 				node: "cache-redis".to_string(),
-				port: 9999, // This one should NOT match
+				port: 9999, // Should NOT match
 			},
 			Target::Node {
 				node: "non-existent-node".to_string(),
@@ -188,15 +189,9 @@ mod tests {
 			},
 		];
 
-		// 3. Act: Resolve the targets.
 		let resolved = resolve_targets(&targets).await;
 
-		// 4. Assert: Verify that only the valid node with the correct port was resolved.
-		assert_eq!(
-			resolved.len(),
-			1,
-			"Should only resolve the node that exists in the state with a matching port"
-		);
+		assert_eq!(resolved.len(), 1);
 		assert_eq!(
 			resolved[0],
 			ResolvedTarget {
@@ -219,29 +214,18 @@ mod tests {
 		}];
 		let resolved = resolve_targets(&targets).await;
 
-		assert!(
-			!resolved.is_empty(),
-			"Resolving 'localhost' should yield at least one IP (v4 or v6)"
-		);
-		// Check that one of the common localhost IPs is present.
+		assert!(!resolved.is_empty());
 		let has_localhost_ip = resolved
 			.iter()
 			.any(|rt| rt.ip == "127.0.0.1" || rt.ip == "::1");
-		assert!(
-			has_localhost_ip,
-			"Resolved list should contain a standard localhost IP"
-		);
-		assert_eq!(
-			resolved[0].port, 9000,
-			"Port should be correctly carried over"
-		);
+		assert!(has_localhost_ip);
+		assert_eq!(resolved[0].port, 9000);
 	}
 
 	/// Tests resolving a mix of all target types in a single call.
 	#[tokio::test]
 	#[serial]
 	async fn test_resolve_mixed_targets() {
-		// 1. Setup Node state
 		let mock_nodes_config = NodesConfig {
 			nodes: vec![Node {
 				name: "api".to_string(),
@@ -255,7 +239,6 @@ mod tests {
 		};
 		NODES_STATE.store(Arc::new(mock_nodes_config));
 
-		// 2. Define mixed targets
 		let targets = vec![
 			Target::Ip {
 				ip: "8.8.8.8".to_string(),
@@ -267,11 +250,9 @@ mod tests {
 			},
 		];
 
-		// 3. Act
 		let resolved = resolve_targets(&targets).await;
 
-		// 4. Assert
-		assert_eq!(resolved.len(), 2, "Should resolve both IP and Node targets");
+		assert_eq!(resolved.len(), 2);
 		assert!(resolved.contains(&ResolvedTarget {
 			ip: "8.8.8.8".to_string(),
 			port: 53

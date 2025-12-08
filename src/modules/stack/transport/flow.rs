@@ -1,7 +1,7 @@
 /* src/modules/stack/transport/flow.rs */
 
 use crate::modules::{
-	kv::KvStore,
+	kv::{KvStore, plugin_output},
 	plugins::{
 		model::{ConnectionObject, ProcessingStep},
 		registry,
@@ -11,11 +11,22 @@ use anyhow::{Context, Result, anyhow};
 use fancy_log::{LogLevel, log};
 use serde_json::Value;
 
-/// Executes a Flow configuration by recursively traversing the plugin tree.
+/// Public entry point for executing a flow.
+/// Initializes the flow path as empty (root).
 pub async fn execute(
 	step: &ProcessingStep,
 	kv: &mut KvStore,
 	conn: ConnectionObject,
+) -> Result<()> {
+	execute_recursive(step, kv, conn, "".to_string()).await
+}
+
+/// Internal recursive executor that maintains the current flow path for isolation.
+async fn execute_recursive(
+	step: &ProcessingStep,
+	kv: &mut KvStore,
+	conn: ConnectionObject,
+	flow_path: String,
 ) -> Result<()> {
 	let (plugin_name, instance) = step
 		.iter()
@@ -29,11 +40,13 @@ pub async fn execute(
 
 	log(
 		LogLevel::Debug,
-		&format!("➜ Executing plugin: {}", plugin_name),
+		&format!(
+			"➜ Executing plugin: {} (Path: '{}')",
+			plugin_name, flow_path
+		),
 	);
 
 	// Middleware execution (Intermediate nodes)
-	// We use the new helper method instead of downcasting `dyn Any`.
 	if let Some(middleware) = plugin.as_middleware() {
 		let output = middleware
 			.execute(resolved_inputs)
@@ -48,14 +61,28 @@ pub async fn execute(
 			),
 		);
 
-		if let Some(updates) = output.write_to_kv {
-			for (k, v) in updates {
-				kv.insert(k, v);
+		// --- ENFORCE NAMESPACE ISOLATION BASED ON FLOW PATH ---
+		if let Some(updates) = output.store {
+			for (raw_key, value) in updates {
+				// Key becomes: plugin.{flow_path}.{sanitized_plugin_name}.{raw_key}
+				// This ensures that even if the same plugin is used multiple times in different
+				// branches/levels, their outputs are stored in distinct keys.
+				let namespaced_key = plugin_output::format_scoped_key(&flow_path, plugin_name, &raw_key);
+
+				log(
+					LogLevel::Debug,
+					&format!("⚙ KV Update (Isolated): {} = {}", namespaced_key, value),
+				);
+				kv.insert(namespaced_key, value);
 			}
 		}
 
-		if let Some(next_step) = instance.output.get(output.branch) {
-			return Box::pin(execute(next_step, kv, conn)).await;
+		if let Some(next_step) = instance.output.get(output.branch.as_ref()) {
+			// Calculate the path for the next step: {current}.{sanitized_plugin}.{branch}
+			let next_flow_path =
+				plugin_output::next_path(&flow_path, plugin_name, output.branch.as_ref());
+
+			return Box::pin(execute_recursive(next_step, kv, conn, next_flow_path)).await;
 		} else {
 			return Err(anyhow!(
 				"Flow stalled: Middleware '{}' returned branch '{}', but no matching output path is configured.",
