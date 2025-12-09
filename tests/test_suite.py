@@ -68,6 +68,7 @@ from units import (
     test_external_plugin_java,
     test_external_plugin_exec_failure,
     test_external_plugin_exec_env,
+    test_external_plugin_httpx,
 )
 
 # The master list of all tests to be executed sequentially. This is the single
@@ -137,4 +138,5 @@ TEST_SUITE = [
     ("units.test_external_plugin_java", test_external_plugin_java.run),
     ("units.test_external_plugin_exec_failure", test_external_plugin_exec_failure.run),
     ("units.test_external_plugin_exec_env", test_external_plugin_exec_env.run),
+    ("units.test_external_plugin_httpx", test_external_plugin_httpx.run),
 ]
