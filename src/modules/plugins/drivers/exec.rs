@@ -24,7 +24,9 @@ pub async fn execute(
 	cmd.envs(env);
 	cmd.stdin(Stdio::piped());
 	cmd.stdout(Stdio::piped());
-	cmd.stderr(Stdio::inherit()); // Pipe stderr to main log for debugging
+	// Refactor: Capture stderr to pipe instead of inheriting directly to terminal.
+	// This allows us to wrap plugin logs with Vane's logging system.
+	cmd.stderr(Stdio::piped());
 
 	let mut child = cmd
 		.spawn()
@@ -39,11 +41,22 @@ pub async fn execute(
 			.map_err(|e| anyhow!("Failed to write to plugin stdin: {}", e))?;
 	}
 
-	// Wait for output
+	// Wait for output (captures stdout and stderr)
 	let output = child
 		.wait_with_output()
 		.await
 		.map_err(|e| anyhow!("Plugin process failed during execution: {}", e))?;
+
+	// Refactor: Process captured stderr and log as Debug level.
+	// This hides plugin internal logs during normal operation unless LOG_LEVEL=debug.
+	if !output.stderr.is_empty() {
+		let stderr_output = String::from_utf8_lossy(&output.stderr);
+		for line in stderr_output.lines() {
+			if !line.trim().is_empty() {
+				log(LogLevel::Debug, &format!("{}", line));
+			}
+		}
+	}
 
 	if !output.status.success() {
 		return Err(anyhow!(
