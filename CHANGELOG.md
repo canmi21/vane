@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.6 (9. Dec, 2025)
+
+- **Changed:** Enhanced the `exec` plugin driver to capture `stderr` output from child processes. Plugin logs are now sanitized and piped directly into Vane's structured logging system at the `Debug` level, preventing console pollution while maintaining observability.
+- **Fixed:** Resolved an input compatibility issue in the `exec` driver where line-buffered readers (e.g., Bash `read`, Java `Scanner`) failed to detect JSON payloads. The system now automatically appends a newline (`\n`) to the standard input stream, ensuring robust inter-process communication across all programming languages.
+
 ## 0.3.5 (8. Dec, 2025)
 
 - **Added:** Implemented strict **KV Namespace Isolation** for the Flow Engine. Plugin outputs are now automatically namespaced using the unique execution path (`plugin.{flow_path}.{name}.{key}`), allowing identical plugins to be nested or reused multiple times within a complex flow tree without variable collision or state corruption.
