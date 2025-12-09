@@ -64,6 +64,7 @@ from units import (
     test_external_plugin_lua,
     test_external_plugin_shell,
     test_external_plugin_java,
+    test_external_plugin_exec_failure,
 )
 
 # The master list of all tests to be executed sequentially. This is the single
@@ -131,4 +132,5 @@ TEST_SUITE = [
     ("units.test_external_plugin_lua", test_external_plugin_lua.run),
     ("units.test_external_plugin_shell", test_external_plugin_shell.run),
     ("units.test_external_plugin_java", test_external_plugin_java.run),
+    ("units.test_external_plugin_exec_failure", test_external_plugin_exec_failure.run),
 ]
