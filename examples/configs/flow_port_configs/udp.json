@@ -1,0 +1,40 @@
+{
+  "connection": {
+    "internal.protocol.detect": {
+      "input": {
+        "method": "dns",
+        "payload": "{{req.peek_buffer_hex}}"
+      },
+      "output": {
+        "true": {
+          "my_external_logger": {
+            "input": {
+              "msg": "DNS Query Received",
+              "src_ip": "{{conn.ip}}"
+            },
+            "output": {
+              "success": {
+                "internal.transport.proxy.transparent": {
+                  "input": {
+                    "target.ip": "8.8.8.8",
+                    "target.port": 53
+                  }
+                }
+              },
+              "failure": {
+                "internal.transport.abort": {
+                  "input": {}
+                }
+              }
+            }
+          }
+        },
+        "false": {
+          "internal.transport.abort": {
+            "input": {}
+          }
+        }
+      }
+    }
+  }
+}
