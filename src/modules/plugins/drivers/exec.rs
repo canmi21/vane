@@ -33,7 +33,11 @@ pub async fn execute(
 		.map_err(|e| anyhow!("Failed to spawn plugin process: {}", e))?;
 
 	// Write inputs to Stdin
-	let input_payload = serde_json::to_vec(&inputs)?;
+	let mut input_payload = serde_json::to_vec(&inputs)?;
+	// Fix: Append a newline to ensure line-based readers (like 'read' in shell)
+	// detect the input correctly. JSON ignores this whitespace.
+	input_payload.push(b'\n');
+
 	if let Some(mut stdin) = child.stdin.take() {
 		stdin
 			.write_all(&input_payload)
