@@ -1,0 +1,24 @@
+# A high-performance UDP listener configuration using the Flow Engine.
+
+[connection."internal.protocol.detect"]
+[connection."internal.protocol.detect".input]
+method = "dns"
+payload = "{{req.peek_buffer_hex}}"
+
+# Branch: Packet IS DNS ("true")
+[connection."internal.protocol.detect".output."true".my_external_logger]
+[connection."internal.protocol.detect".output."true".my_external_logger.input]
+msg = "DNS Query Received"
+src_ip = "{{conn.ip}}"
+
+[connection."internal.protocol.detect".output."true".my_external_logger.output.success."internal.transport.proxy.transparent"]
+[connection."internal.protocol.detect".output."true".my_external_logger.output.success."internal.transport.proxy.transparent".input]
+"target.ip" = "8.8.8.8"
+"target.port" = 53
+
+[connection."internal.protocol.detect".output."true".my_external_logger.output.failure."internal.transport.abort"]
+[connection."internal.protocol.detect".output."true".my_external_logger.output.failure."internal.transport.abort".input]
+
+# Branch: Packet is NOT DNS ("false")
+[connection."internal.protocol.detect".output."false"."internal.transport.abort"]
+[connection."internal.protocol.detect".output."false"."internal.transport.abort".input]
