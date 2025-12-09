@@ -1,0 +1,34 @@
+# A robust TCP listener configuration using the Flow Engine.
+#
+# Logic:
+# 1. Detect if the traffic is HTTP.
+# 2. If HTTP ("true"), execute an external authentication plugin.
+# 3. If Auth succeeds ("success"), transparently proxy to a backend.
+# 4. In all other cases (Not HTTP, Auth Failed), abort the connection.
+
+connection:
+  internal.protocol.detect:
+    input:
+      method: "http"
+      payload: "{{req.peek_buffer_hex}}"
+    output:
+      # Branch: Protocol IS HTTP
+      "true":
+        # Assumption: 'my_external_auth' is a registered external plugin
+        # verifying a token from the connection context or payload.
+        my_external_auth:
+          input:
+            auth_token: "secret123" # Static input for demo
+          output:
+            "success":
+              internal.transport.proxy.transparent:
+                input:
+                  target.ip: "127.0.0.1"
+                  target.port: 8080
+            "failure":
+              internal.transport.abort:
+                input: {}
+      # Branch: Protocol is NOT HTTP
+      "false":
+        internal.transport.abort:
+          input: {}
