@@ -1,5 +1,3 @@
-# tests/test_suite.py
-
 """
 This module acts as the central registry for all test cases in the suite.
 
@@ -54,6 +52,7 @@ from units import (
     test_flow_ratelimit,
     test_external_plugin_registration,
     test_external_plugin_persistence,
+    test_external_plugin_exec_flow,
 )
 
 # The master list of all tests to be executed sequentially. This is the single
@@ -109,4 +108,5 @@ TEST_SUITE = [
     ("units.test_flow_ratelimit", test_flow_ratelimit.run),
     ("units.test_external_plugin_registration", test_external_plugin_registration.run),
     ("units.test_external_plugin_persistence", test_external_plugin_persistence.run),
+    ("units.test_external_plugin_exec_flow", test_external_plugin_exec_flow.run),
 ]
