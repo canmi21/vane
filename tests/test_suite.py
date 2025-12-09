@@ -53,6 +53,17 @@ from units import (
     test_external_plugin_registration,
     test_external_plugin_persistence,
     test_external_plugin_exec_flow,
+    test_external_plugin_c,
+    test_external_plugin_cpp,
+    test_external_plugin_go,
+    test_external_plugin_rust,
+    test_external_plugin_zig,
+    test_external_plugin_python,
+    test_external_plugin_node,
+    test_external_plugin_ruby,
+    test_external_plugin_lua,
+    test_external_plugin_shell,
+    test_external_plugin_java,
 )
 
 # The master list of all tests to be executed sequentially. This is the single
@@ -109,4 +120,15 @@ TEST_SUITE = [
     ("units.test_external_plugin_registration", test_external_plugin_registration.run),
     ("units.test_external_plugin_persistence", test_external_plugin_persistence.run),
     ("units.test_external_plugin_exec_flow", test_external_plugin_exec_flow.run),
+    ("units.test_external_plugin_c", test_external_plugin_c.run),
+    ("units.test_external_plugin_cpp", test_external_plugin_cpp.run),
+    ("units.test_external_plugin_go", test_external_plugin_go.run),
+    ("units.test_external_plugin_rust", test_external_plugin_rust.run),
+    ("units.test_external_plugin_zig", test_external_plugin_zig.run),
+    ("units.test_external_plugin_python", test_external_plugin_python.run),
+    ("units.test_external_plugin_node", test_external_plugin_node.run),
+    ("units.test_external_plugin_ruby", test_external_plugin_ruby.run),
+    ("units.test_external_plugin_lua", test_external_plugin_lua.run),
+    ("units.test_external_plugin_shell", test_external_plugin_shell.run),
+    ("units.test_external_plugin_java", test_external_plugin_java.run),
 ]
