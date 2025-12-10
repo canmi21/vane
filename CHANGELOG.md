@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.1 (11. Dec, 2025)
+
+- **Added:** Implemented the L4+ Resolver Infrastructure. The system now actively scans and manages `config/resolver/{protocol}.{yaml|yml|json|toml}` configurations, allowing high-level protocol flows (e.g., TLS, HTTP) to be defined independently of physical L4 listeners.
+- **Added:** Enforced a "Zero Tolerance" configuration policy for Resolvers. The loader now strictly prohibits parallel configuration files for the same protocol (e.g., simultaneous `tls.yaml` and `tls.json`). If conflicts are detected, the specific protocol is explicitly disabled to prevent undefined runtime behavior.
+- **Changed:** Generalized the core configuration loader (`src/modules/stack/transport/loader.rs`). Extracted file reading, parsing, and validation into a reusable public `load_file` API, decoupling the loading logic from port-specific implementations.
+- **Changed:** Integrated L4+ Resolvers into the system lifecycle. The bootstrap sequence and file watchers (`requirements.rs`) now initialize resolver states and monitor the `resolver/` directory for real-time updates, synchronizing changes via `ArcSwap`.
+- **Changed:** Restructured the internal plugin hierarchy by moving the `upgrade` terminator to a dedicated `src/modules/plugins/terminator/upgrader/` directory, architecturaly separating layer-transition logic from standard transport terminators.
+
 ## 0.4.0 (10. Dec, 2025)
 
 - **Breaking:** Redesigned the core `Terminator` plugin trait architecture (Terminator 2.0). The `execute` method signature has changed to return a `TerminatorResult` enum (supporting `Finished` or `Upgrade`) instead of a simple `Result`, enabling plugins to dictate complex flow control actions beyond simple termination.
