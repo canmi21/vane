@@ -24,14 +24,20 @@ pub async fn execute(
 	cmd.envs(env);
 	cmd.stdin(Stdio::piped());
 	cmd.stdout(Stdio::piped());
-	cmd.stderr(Stdio::inherit()); // Pipe stderr to main log for debugging
+	// Refactor: Capture stderr to pipe instead of inheriting directly to terminal.
+	// This allows us to wrap plugin logs with Vane's logging system.
+	cmd.stderr(Stdio::piped());
 
 	let mut child = cmd
 		.spawn()
 		.map_err(|e| anyhow!("Failed to spawn plugin process: {}", e))?;
 
 	// Write inputs to Stdin
-	let input_payload = serde_json::to_vec(&inputs)?;
+	let mut input_payload = serde_json::to_vec(&inputs)?;
+	// Fix: Append a newline to ensure line-based readers (like 'read' in shell)
+	// detect the input correctly. JSON ignores this whitespace.
+	input_payload.push(b'\n');
+
 	if let Some(mut stdin) = child.stdin.take() {
 		stdin
 			.write_all(&input_payload)
@@ -39,11 +45,22 @@ pub async fn execute(
 			.map_err(|e| anyhow!("Failed to write to plugin stdin: {}", e))?;
 	}
 
-	// Wait for output
+	// Wait for output (captures stdout and stderr)
 	let output = child
 		.wait_with_output()
 		.await
 		.map_err(|e| anyhow!("Plugin process failed during execution: {}", e))?;
+
+	// Refactor: Process captured stderr and log as Debug level.
+	// This hides plugin internal logs during normal operation unless LOG_LEVEL=debug.
+	if !output.stderr.is_empty() {
+		let stderr_output = String::from_utf8_lossy(&output.stderr);
+		for line in stderr_output.lines() {
+			if !line.trim().is_empty() {
+				log(LogLevel::Debug, &format!("{}", line));
+			}
+		}
+	}
 
 	if !output.status.success() {
 		return Err(anyhow!(
