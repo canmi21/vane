@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.7 (10. Dec, 2025)
+
+- **Added:** Introduced two new core plugins for the Flow Engine: `internal.transport.proxy.node` and `internal.transport.proxy.domain`. These plugins enable direct L4 traffic termination to named Nodes (from `nodes.yaml`) or dynamic Domains (via DNS), streamlining complex routing configurations without requiring external scripts.
+- **Changed:** Refactored the internal proxy architecture by extracting the core execution logic into a shared `proxy` module. This unifies the implementation of all transport terminators (IP, Node, Domain), reducing code duplication and ensuring consistent behavior across different target types.
+- **Changed:** Deprecated the `internal.transport.proxy.transparent` plugin name in favor of the more concise `internal.transport.proxy`. The legacy name remains supported as an alias to maintain backward compatibility with existing flow configurations.
+- **Changed:** Enhanced the `resolver` module to expose a public `resolve_domain_to_ips` helper function, allowing internal plugins to leverage the centralized, high-performance async DNS resolver for dynamic target resolution.
+
+## 0.3.6 (9. Dec, 2025)
+
+- **Changed:** Enhanced the `exec` plugin driver to capture `stderr` output from child processes. Plugin logs are now sanitized and piped directly into Vane's structured logging system at the `Debug` level, preventing console pollution while maintaining observability.
+- **Fixed:** Resolved an input compatibility issue in the `exec` driver where line-buffered readers (e.g., Bash `read`, Java `Scanner`) failed to detect JSON payloads. The system now automatically appends a newline (`\n`) to the standard input stream, ensuring robust inter-process communication across all programming languages.
+
 ## 0.3.5 (8. Dec, 2025)
 
 - **Added:** Implemented strict **KV Namespace Isolation** for the Flow Engine. Plugin outputs are now automatically namespaced using the unique execution path (`plugin.{flow_path}.{name}.{key}`), allowing identical plugins to be nested or reused multiple times within a complex flow tree without variable collision or state corruption.
