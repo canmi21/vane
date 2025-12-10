@@ -3,12 +3,16 @@
 import sys
 import pathlib
 from prepare import check_pkg_version, check_pkg_installation, system_info
+from utils import env_loader
 import runner
 
 
 def main():
     """Main entry point for the test runner."""
     project_root = pathlib.Path(__file__).parent.parent.resolve()
+
+    # Load environment variables from .env immediately
+    env_loader.load_env(project_root, allowed_keys=["DEV_PROJECT_DIR"])
 
     # Extract --debug flag and other arguments separately
     args = sys.argv[1:]
