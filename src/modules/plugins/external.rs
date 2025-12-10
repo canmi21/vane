@@ -3,8 +3,8 @@
 use super::{
 	drivers,
 	model::{
-		ExternalPluginConfig, ExternalPluginDriver, Middleware, MiddlewareOutput, ParamDef, ParamType,
-		Plugin, PluginRole, ResolvedInputs, Terminator,
+		ExternalPluginConfig, ExternalPluginDriver, Layer, Middleware, MiddlewareOutput, ParamDef,
+		ParamType, Plugin, PluginRole, ResolvedInputs, Terminator, TerminatorResult,
 	},
 };
 use crate::common::getenv;
@@ -162,12 +162,16 @@ impl Middleware for ExternalPlugin {
 
 #[async_trait]
 impl Terminator for ExternalPlugin {
+	fn supported_layers(&self) -> Vec<Layer> {
+		vec![] // Not supported
+	}
+
 	async fn execute(
 		&self,
 		_inputs: ResolvedInputs,
 		_kv: &KvStore,
 		_conn: ConnectionObject,
-	) -> Result<()> {
+	) -> Result<TerminatorResult> {
 		Err(anyhow!(
 			"Execution Error: External plugins cannot be executed as Terminators."
 		))

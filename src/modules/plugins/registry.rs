@@ -6,7 +6,7 @@ use super::{
 	protocol::detect::ProtocolDetectPlugin,
 	terminator::transport::{
 		abort_connection::AbortConnectionPlugin, proxy_domain::ProxyDomainPlugin,
-		proxy_node::ProxyNodePlugin, transparent_proxy::TransparentProxyPlugin,
+		proxy_node::ProxyNodePlugin, transparent_proxy::TransparentProxyPlugin, upgrade::UpgradePlugin,
 	},
 };
 use arc_swap::ArcSwap;
@@ -29,6 +29,7 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		transparent_proxy.clone(),
 		Arc::new(ProxyNodePlugin),
 		Arc::new(ProxyDomainPlugin),
+		Arc::new(UpgradePlugin),
 		Arc::new(KeywordRateLimitSecPlugin),
 		Arc::new(KeywordRateLimitMinPlugin),
 	];

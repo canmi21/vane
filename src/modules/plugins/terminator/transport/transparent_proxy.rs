@@ -3,7 +3,10 @@
 use super::proxy::execute_proxy;
 use crate::modules::{
 	kv::KvStore,
-	plugins::model::{ConnectionObject, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator},
+	plugins::model::{
+		ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
+		TerminatorResult,
+	},
 	stack::transport::model::ResolvedTarget,
 };
 use anyhow::{Result, anyhow};
@@ -12,10 +15,6 @@ use serde_json::Value;
 use std::any::Any;
 
 /// A built-in Terminator plugin to proxy a connection transparently using explicit IP and Port.
-///
-/// Registered as:
-/// 1. "internal.transport.proxy" (Preferred)
-/// 2. "internal.transport.proxy.transparent" (Legacy/Alias)
 pub struct TransparentProxyPlugin;
 
 impl Plugin for TransparentProxyPlugin {
@@ -49,12 +48,18 @@ impl Plugin for TransparentProxyPlugin {
 
 #[async_trait]
 impl Terminator for TransparentProxyPlugin {
+	fn supported_layers(&self) -> Vec<Layer> {
+		// Transparent proxying is primarily an L4 operation,
+		// but can theoretically work on L4+ streams if treated as raw.
+		vec![Layer::L4, Layer::L4Plus]
+	}
+
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
 		kv: &KvStore,
 		conn: ConnectionObject,
-	) -> Result<()> {
+	) -> Result<TerminatorResult> {
 		let target_ip = inputs
 			.get("target.ip")
 			.and_then(Value::as_str)
@@ -71,6 +76,7 @@ impl Terminator for TransparentProxyPlugin {
 			port: target_port,
 		};
 
-		execute_proxy(target, kv, conn).await
+		execute_proxy(target, kv, conn).await?;
+		Ok(TerminatorResult::Finished)
 	}
 }
