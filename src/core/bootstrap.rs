@@ -18,8 +18,9 @@ use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
 use crate::modules::{
 	nodes,
-	plugins::loader as plugin_loader, // Added import
+	plugins::loader as plugin_loader,
 	ports,
+	stack::protocol::carrier::{hotswap as resolver_hotswap, model as resolver_model},
 };
 
 pub async fn start() {
@@ -33,24 +34,41 @@ pub async fn start() {
 		nodes::model::NODES_STATE.store(Arc::new(initial_nodes));
 	}
 
-	// 2. Load ports.
+	// 2. Load ports (L4 Listeners).
 	let initial_ports = ports::hotswap::scan_ports_config();
 	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
 
-	// 3. Initialize background tasks.
+	// 3. Load Resolvers (L4+ Protocols).
+	// This allows Vane to know how to handle upgraded connections (e.g., TLS, HTTP).
+	let initial_resolvers = resolver_hotswap::scan_resolver_config();
+	resolver_model::RESOLVER_REGISTRY.store(Arc::new(initial_resolvers));
+	log(
+		LogLevel::Info,
+		&format!(
+			"✓ Loaded {} resolver protocols.",
+			resolver_model::RESOLVER_REGISTRY.load().len()
+		),
+	);
+
+	// 4. Initialize background tasks (File Watchers & Health Checks).
 	let config_change_receivers = requirements::initialize().await;
 
-	// 4. Initialize External Plugins
+	// 5. Initialize External Plugins.
 	plugin_loader::initialize();
 
-	// Spawn a hotswap listener for port changes.
+	// Spawn hotswap listener for port changes.
 	tokio::spawn(ports::hotswap::listen_for_updates(
 		config_change_receivers.ports,
 	));
 
-	// Spawn a separate hotswap listener for node changes.
+	// Spawn hotswap listener for node changes.
 	tokio::spawn(nodes::hotswap::listen_for_updates(
 		config_change_receivers.nodes,
+	));
+
+	// Spawn hotswap listener for resolver changes.
+	tokio::spawn(resolver_hotswap::listen_for_updates(
+		config_change_receivers.resolvers,
 	));
 
 	let unix_socket_listener = match socket::bind_unix_socket().await {
