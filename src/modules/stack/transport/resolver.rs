@@ -48,6 +48,22 @@ static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 		.build()
 });
 
+/// Resolves a domain name to a list of IP addresses.
+/// This helper is exposed for use by plugins (e.g., ProxyDomainPlugin).
+pub async fn resolve_domain_to_ips(domain: &str) -> Vec<IpAddr> {
+	log(LogLevel::Debug, &format!("⚙ Resolving domain: {}", domain));
+	match DNS_RESOLVER.lookup_ip(domain).await {
+		Ok(lookup) => lookup.iter().collect(),
+		Err(e) => {
+			log(
+				LogLevel::Warn,
+				&format!("✗ DNS lookup failed for {}: {}", domain, e),
+			);
+			Vec::new()
+		}
+	}
+}
+
 /// Resolves a list of abstract Targets into a flat list of concrete ResolvedTargets.
 pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 	let mut resolved = Vec::new();
@@ -62,20 +78,12 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 				});
 			}
 			Target::Domain { domain, port } => {
-				log(LogLevel::Debug, &format!("⚙ Resolving domain: {}", domain));
-				match DNS_RESOLVER.lookup_ip(domain.as_str()).await {
-					Ok(lookup) => {
-						for ip in lookup.iter() {
-							resolved.push(ResolvedTarget {
-								ip: ip.to_string(),
-								port: *port,
-							});
-						}
-					}
-					Err(e) => log(
-						LogLevel::Warn,
-						&format!("✗ DNS lookup failed for {}: {}", domain, e),
-					),
+				let ips = resolve_domain_to_ips(domain).await;
+				for ip in ips {
+					resolved.push(ResolvedTarget {
+						ip: ip.to_string(),
+						port: *port,
+					});
 				}
 			}
 			Target::Node { node, port } => {
