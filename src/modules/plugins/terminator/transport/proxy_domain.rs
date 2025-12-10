@@ -3,7 +3,10 @@
 use super::proxy::execute_proxy;
 use crate::modules::{
 	kv::KvStore,
-	plugins::model::{ConnectionObject, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator},
+	plugins::model::{
+		ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
+		TerminatorResult,
+	},
 	stack::transport::{model::ResolvedTarget, resolver},
 };
 use anyhow::{Result, anyhow};
@@ -13,7 +16,6 @@ use std::any::Any;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A built-in Terminator plugin to proxy a connection to a domain.
-/// Resolves the domain to IPs and selects one for the connection.
 pub struct ProxyDomainPlugin;
 
 impl Plugin for ProxyDomainPlugin {
@@ -47,12 +49,16 @@ impl Plugin for ProxyDomainPlugin {
 
 #[async_trait]
 impl Terminator for ProxyDomainPlugin {
+	fn supported_layers(&self) -> Vec<Layer> {
+		vec![Layer::L4, Layer::L4Plus]
+	}
+
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
 		kv: &KvStore,
 		conn: ConnectionObject,
-	) -> Result<()> {
+	) -> Result<TerminatorResult> {
 		let target_domain = inputs
 			.get("target.domain")
 			.and_then(Value::as_str)
@@ -74,7 +80,7 @@ impl Terminator for ProxyDomainPlugin {
 			));
 		}
 
-		// Random selection (Load Balancing) if multiple A/AAAA records exist
+		// Random selection (Load Balancing)
 		let selected_ip = if ips.len() == 1 {
 			ips[0]
 		} else {
@@ -91,6 +97,7 @@ impl Terminator for ProxyDomainPlugin {
 			port: target_port,
 		};
 
-		execute_proxy(target, kv, conn).await
+		execute_proxy(target, kv, conn).await?;
+		Ok(TerminatorResult::Finished)
 	}
 }
