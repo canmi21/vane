@@ -2,7 +2,9 @@
 
 use crate::modules::{
 	kv::KvStore,
-	plugins::model::{ConnectionObject, ParamDef, Plugin, ResolvedInputs, Terminator},
+	plugins::model::{
+		ConnectionObject, Layer, ParamDef, Plugin, ResolvedInputs, Terminator, TerminatorResult,
+	},
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -33,18 +35,21 @@ impl Plugin for AbortConnectionPlugin {
 
 #[async_trait]
 impl Terminator for AbortConnectionPlugin {
+	fn supported_layers(&self) -> Vec<Layer> {
+		// Abort is universally applicable
+		vec![Layer::L4, Layer::L4Plus, Layer::L7]
+	}
+
 	async fn execute(
 		&self,
 		_inputs: ResolvedInputs,
 		_kv: &KvStore,
 		conn: ConnectionObject,
-	) -> Result<()> {
+	) -> Result<TerminatorResult> {
 		log(LogLevel::Debug, "➜ Aborting connection intentionally...");
 
 		match conn {
 			ConnectionObject::Tcp(mut stream) => {
-				// We attempt to shutdown cleanly, but if it fails (e.g. already closed),
-				// we don't treat it as a plugin error.
 				if let Err(e) = stream.shutdown().await {
 					log(
 						LogLevel::Debug,
@@ -53,13 +58,10 @@ impl Terminator for AbortConnectionPlugin {
 				}
 			}
 			ConnectionObject::Udp { .. } => {
-				// UDP is connectionless; dropping the ConnectionObject implies
-				// no further packets are sent/received for this flow context.
 				log(LogLevel::Debug, "⚙ UDP flow dropped.");
 			}
 		}
 
-		// Return Ok(()) so the engine logs "✓ Flow terminated successfully"
-		Ok(())
+		Ok(TerminatorResult::Finished)
 	}
 }
