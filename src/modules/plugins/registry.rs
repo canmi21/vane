@@ -5,7 +5,8 @@ use super::{
 	model::Plugin,
 	protocol::detect::ProtocolDetectPlugin,
 	terminator::transport::{
-		abort_connection::AbortConnectionPlugin, transparent_proxy::TransparentProxyPlugin,
+		abort_connection::AbortConnectionPlugin, proxy_domain::ProxyDomainPlugin,
+		proxy_node::ProxyNodePlugin, transparent_proxy::TransparentProxyPlugin,
 	},
 };
 use arc_swap::ArcSwap;
@@ -18,17 +19,31 @@ use std::sync::Arc;
 static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::new(|| {
 	let registry = DashMap::new();
 
+	// Create shared instances for plugins that require aliases
+	let transparent_proxy = Arc::new(TransparentProxyPlugin);
+
 	let plugins: Vec<Arc<dyn Plugin>> = vec![
 		Arc::new(ProtocolDetectPlugin),
 		Arc::new(AbortConnectionPlugin),
-		Arc::new(TransparentProxyPlugin),
+		// Register the TransparentProxyPlugin (Name: internal.transport.proxy)
+		transparent_proxy.clone(),
+		Arc::new(ProxyNodePlugin),
+		Arc::new(ProxyDomainPlugin),
 		Arc::new(KeywordRateLimitSecPlugin),
 		Arc::new(KeywordRateLimitMinPlugin),
 	];
 
+	// Standard Registration
 	for plugin in plugins {
 		registry.insert(plugin.name().to_string(), plugin);
 	}
+
+	// Alias Registration: Maintain backward compatibility for "internal.transport.proxy.transparent"
+	// This ensures both keys point to the exact same plugin instance.
+	registry.insert(
+		"internal.transport.proxy.transparent".to_string(),
+		transparent_proxy,
+	);
 
 	registry
 });
