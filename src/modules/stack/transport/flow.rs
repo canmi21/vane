@@ -71,7 +71,7 @@ async fn execute_recursive(
 
 				log(
 					LogLevel::Debug,
-					&format!("⚙ KV Update (Isolated): {} = {}", namespaced_key, value),
+					&format!("⚙ KV Update: {} = {}", namespaced_key, value),
 				);
 				kv.insert(namespaced_key, value);
 			}
