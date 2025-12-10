@@ -6,8 +6,9 @@ use super::{
 	protocol::detect::ProtocolDetectPlugin,
 	terminator::transport::{
 		abort_connection::AbortConnectionPlugin, proxy_domain::ProxyDomainPlugin,
-		proxy_node::ProxyNodePlugin, transparent_proxy::TransparentProxyPlugin, upgrade::UpgradePlugin,
+		proxy_node::ProxyNodePlugin, transparent_proxy::TransparentProxyPlugin,
 	},
+	terminator::upgrader::upgrade::UpgradePlugin,
 };
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
