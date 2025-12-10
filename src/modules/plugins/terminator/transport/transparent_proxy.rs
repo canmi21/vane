@@ -1,22 +1,26 @@
 /* src/modules/plugins/terminator/transport/transparent_proxy.rs */
 
+use super::proxy::execute_proxy;
 use crate::modules::{
 	kv::KvStore,
 	plugins::model::{ConnectionObject, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator},
-	stack::transport::{model::ResolvedTarget, proxy},
+	stack::transport::model::ResolvedTarget,
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use fancy_log::{LogLevel, log};
 use serde_json::Value;
 use std::any::Any;
 
-/// A built-in Terminator plugin to proxy a connection transparently.
+/// A built-in Terminator plugin to proxy a connection transparently using explicit IP and Port.
+///
+/// Registered as:
+/// 1. "internal.transport.proxy" (Preferred)
+/// 2. "internal.transport.proxy.transparent" (Legacy/Alias)
 pub struct TransparentProxyPlugin;
 
 impl Plugin for TransparentProxyPlugin {
 	fn name(&self) -> &'static str {
-		"internal.transport.proxy.transparent"
+		"internal.transport.proxy"
 	}
 
 	fn params(&self) -> Vec<ParamDef> {
@@ -67,45 +71,6 @@ impl Terminator for TransparentProxyPlugin {
 			port: target_port,
 		};
 
-		let protocol = kv
-			.get("conn.proto")
-			.map(|s| s.as_str())
-			.unwrap_or("unknown");
-
-		match (protocol, conn) {
-			("tcp", ConnectionObject::Tcp(stream)) => {
-				proxy::proxy_tcp_stream(stream, target).await?;
-			}
-			(
-				"udp",
-				ConnectionObject::Udp {
-					socket,
-					datagram,
-					client_addr,
-				},
-			) => {
-				log(
-					LogLevel::Debug,
-					&format!(
-						"➜ Proxying UDP datagram from {} to {}:{}",
-						client_addr, target.ip, target.port
-					),
-				);
-				proxy::proxy_udp_direct(socket, &datagram, client_addr, target).await?;
-
-				log(
-					LogLevel::Debug,
-					&format!("✓ UDP proxy action initiated for {}.", client_addr),
-				);
-			}
-			(proto, _) => {
-				return Err(anyhow!(
-					"Protocol mismatch: KvStore says '{}', but received a different ConnectionObject type.",
-					proto
-				));
-			}
-		}
-
-		Ok(())
+		execute_proxy(target, kv, conn).await
 	}
 }
