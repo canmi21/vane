@@ -64,7 +64,6 @@ pub struct ExternalParamDef {
 // --- API Contract (Mirroring core/response.rs) ---
 
 /// Represents the strict JSON response format expected from external plugins.
-/// This mirrors the `ApiResponse` struct in `src/core/response.rs`.
 #[derive(Deserialize, Debug)]
 pub struct ExternalApiResponse<T> {
 	pub status: String,
@@ -105,6 +104,31 @@ pub enum ConnectionObject {
 	},
 }
 
+/// Defines the operational layers within Vane.
+/// Terminators must declare which layers they support to ensure architectural safety.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layer {
+	/// Layer 4: Raw TCP/UDP Transport (Listener Level)
+	L4,
+	/// Layer 4+: Encrypted/Enhanced Transport (e.g., TLS, QUIC) (Resolver Level)
+	L4Plus,
+	/// Layer 7: Application Layer (e.g., HTTP)
+	L7,
+}
+
+/// The result of a Terminator execution.
+#[derive(Debug)]
+pub enum TerminatorResult {
+	/// The connection flow has been completed (proxied, aborted, or handled).
+	/// The engine should stop processing this connection.
+	Finished,
+
+	/// The connection should be upgraded to a higher protocol layer.
+	/// The engine should keep the connection alive and transfer control to the
+	/// specified protocol resolver (e.g., "tls", "http").
+	Upgrade { protocol: String },
+}
+
 /// A generic base trait for all plugins.
 pub trait Plugin: Send + Sync + Any {
 	fn name(&self) -> &str;
@@ -130,10 +154,15 @@ pub trait Middleware: Plugin {
 /// A trait for "Terminator" plugins, made object-safe with async-trait.
 #[async_trait]
 pub trait Terminator: Plugin {
+	/// Returns the layers where this terminator is valid.
+	fn supported_layers(&self) -> Vec<Layer>;
+
+	/// Executes the termination logic.
+	/// Returns a `TerminatorResult` indicating whether to finish or upgrade the flow.
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
 		kv: &KvStore,
 		conn: ConnectionObject,
-	) -> Result<()>;
+	) -> Result<TerminatorResult>;
 }
