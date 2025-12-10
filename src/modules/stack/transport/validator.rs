@@ -1,7 +1,7 @@
 /* src/modules/stack/transport/validator.rs */
 
 use crate::modules::plugins::{
-	model::{ParamType, ProcessingStep},
+	model::{Layer, ParamType, ProcessingStep},
 	registry,
 };
 use serde_json::Value;
@@ -13,7 +13,12 @@ use super::tcp::TcpProtocolRule;
 use super::udp::UdpProtocolRule;
 
 /// Recursively validates a flow-based configuration tree.
-pub fn validate_flow_config(step: &ProcessingStep) -> Result<(), ValidationErrors> {
+///
+/// # Arguments
+/// * `step` - The current processing step to validate.
+/// * `layer` - The architectural layer this config belongs to (e.g., L4, L4Plus, L7).
+///             This is used to ensure Terminators are allowed to run in this context.
+pub fn validate_flow_config(step: &ProcessingStep, layer: Layer) -> Result<(), ValidationErrors> {
 	if step.len() != 1 {
 		let mut err = ValidationError::new("processing_step_size");
 		err.message = Some("Each processing step must contain exactly one plugin key.".into());
@@ -35,10 +40,28 @@ pub fn validate_flow_config(step: &ProcessingStep) -> Result<(), ValidationError
 		}
 	};
 
+	// 1. Validate Parameter Types
 	if let Err(e) = validate_plugin_inputs(plugin_name, &plugin.params(), &instance.input) {
 		errors.merge_self("input", Err(e));
 	}
 
+	// 2. Validate Layer Compatibility (For Terminators)
+	if let Some(terminator) = plugin.as_terminator() {
+		let supported = terminator.supported_layers();
+		if !supported.contains(&layer) {
+			let mut err = ValidationError::new("invalid_layer");
+			err.message = Some(
+				format!(
+					"Plugin '{}' is not supported at layer {:?}. Supported layers: {:?}",
+					plugin_name, layer, supported
+				)
+				.into(),
+			);
+			errors.add(Box::leak(plugin_name.clone().into_boxed_str()), err);
+		}
+	}
+
+	// 3. Validate Middleware Outputs and Recursion
 	// Use helper method instead of downcast_ref to check if it's middleware
 	if !instance.output.is_empty() {
 		if let Some(middleware) = plugin.as_middleware() {
@@ -49,12 +72,11 @@ pub fn validate_flow_config(step: &ProcessingStep) -> Result<(), ValidationError
 			}
 		} else {
 			// It has outputs defined in config, but the plugin identifies itself as NOT a middleware (e.g. Terminator)
-			// Ideally we should warn or error here, but for now we just proceed to recursive validation
-			// to catch errors in the nested children.
+			// While unexpected, we proceed to validate children to catch nested errors.
 		}
 
 		for (_branch, next_step) in &instance.output {
-			if let Err(e) = validate_flow_config(next_step) {
+			if let Err(e) = validate_flow_config(next_step, layer) {
 				errors.merge_self("output", Err(e));
 			}
 		}
@@ -75,7 +97,6 @@ fn validate_plugin_inputs(
 	let mut errors = ValidationErrors::new();
 
 	for input_name in inputs.keys() {
-		// Fix E0277: Explicitly dereference both Cow and String to compare slices
 		if !param_defs
 			.iter()
 			.any(|p| p.name.as_ref() == input_name.as_str())
@@ -93,9 +114,9 @@ fn validate_plugin_inputs(
 	}
 
 	for def in param_defs {
-		// Fix E0308: Explicitly borrow the name from Cow
 		match inputs.get(def.name.as_ref()) {
 			Some(value) => {
+				// Skip type validation for template strings {{...}}
 				if value
 					.as_str()
 					.map_or(false, |s| s.starts_with("{{") && s.ends_with("}}"))
@@ -143,7 +164,6 @@ fn validate_middleware_outputs(
 	outputs: &HashMap<String, ProcessingStep>,
 ) -> Result<(), ValidationErrors> {
 	let mut errors = ValidationErrors::new();
-	// Convert Vec<Cow> to HashSet<&str> for efficient lookup
 	let expected_set: HashSet<&str> = expected_branches.iter().map(|s| s.as_ref()).collect();
 
 	for branch_name in outputs.keys() {

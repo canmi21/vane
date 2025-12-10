@@ -1,6 +1,6 @@
 /* src/modules/stack/transport/udp.rs */
 
-use crate::modules::plugins::model::ProcessingStep;
+use crate::modules::plugins::model::{Layer, ProcessingStep};
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationErrors};
 
@@ -27,9 +27,9 @@ impl Validate for UdpDestination {
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
 pub struct UdpProtocolRule {
 	#[validate(regex(
-		path = *super::model::NAME_REGEX,
-		message = "can only contain lowercase letters and numbers"
-	))]
+        path = *super::model::NAME_REGEX,
+        message = "can only contain lowercase letters and numbers"
+    ))]
 	pub name: String,
 	#[validate(range(min = 1))]
 	pub priority: u32,
@@ -54,7 +54,8 @@ pub struct FlowConfig {
 
 impl Validate for FlowConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
-		super::validator::validate_flow_config(&self.connection)
+		// Fix: Explicitly pass Layer::L4 context for validation
+		super::validator::validate_flow_config(&self.connection, Layer::L4)
 	}
 }
 
