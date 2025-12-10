@@ -3,7 +3,7 @@
 use crate::modules::{
 	kv::{KvStore, plugin_output},
 	plugins::{
-		model::{ConnectionObject, ProcessingStep},
+		model::{ConnectionObject, ProcessingStep, TerminatorResult},
 		registry,
 	},
 };
@@ -12,12 +12,20 @@ use fancy_log::{LogLevel, log};
 use serde_json::Value;
 
 /// Public entry point for executing a flow.
-/// Initializes the flow path as empty (root).
+/// Initializes the flow path as empty (root) and injects the initial layer context.
+///
+/// Returns a `TerminatorResult` which instructs the Dispatcher on the next physical action
+/// (e.g., Close connection, or Upgrade socket to TLS/HTTP).
 pub async fn execute(
 	step: &ProcessingStep,
 	kv: &mut KvStore,
 	conn: ConnectionObject,
-) -> Result<()> {
+) -> Result<TerminatorResult> {
+	// Inject the initial layer context.
+	// Since this is the entry point from a Port Listener, it is always Layer 4.
+	// This allows plugins to know which layer they are running in via {{conn.layer}}.
+	kv.insert("conn.layer".to_string(), "l4".to_string());
+
 	execute_recursive(step, kv, conn, "".to_string()).await
 }
 
@@ -27,7 +35,7 @@ async fn execute_recursive(
 	kv: &mut KvStore,
 	conn: ConnectionObject,
 	flow_path: String,
-) -> Result<()> {
+) -> Result<TerminatorResult> {
 	let (plugin_name, instance) = step
 		.iter()
 		.next()
@@ -65,8 +73,6 @@ async fn execute_recursive(
 		if let Some(updates) = output.store {
 			for (raw_key, value) in updates {
 				// Key becomes: plugin.{flow_path}.{sanitized_plugin_name}.{raw_key}
-				// This ensures that even if the same plugin is used multiple times in different
-				// branches/levels, their outputs are stored in distinct keys.
 				let namespaced_key = plugin_output::format_scoped_key(&flow_path, plugin_name, &raw_key);
 
 				log(
@@ -82,6 +88,7 @@ async fn execute_recursive(
 			let next_flow_path =
 				plugin_output::next_path(&flow_path, plugin_name, output.branch.as_ref());
 
+			// Recursively execute the next step and bubble up the TerminatorResult
 			return Box::pin(execute_recursive(next_step, kv, conn, next_flow_path)).await;
 		} else {
 			return Err(anyhow!(
@@ -94,16 +101,31 @@ async fn execute_recursive(
 
 	// Terminator execution (Leaf nodes)
 	if let Some(terminator) = plugin.as_terminator() {
-		terminator
+		// Execute the terminator logic
+		let result = terminator
 			.execute(resolved_inputs, kv, conn)
 			.await
 			.with_context(|| format!("Error executing terminator '{}'", plugin_name))?;
 
-		log(
-			LogLevel::Debug,
-			&format!("✓ Flow terminated successfully by '{}'", plugin_name),
-		);
-		return Ok(());
+		match &result {
+			TerminatorResult::Finished => {
+				log(
+					LogLevel::Debug,
+					&format!("✓ Flow terminated successfully by '{}'", plugin_name),
+				);
+			}
+			TerminatorResult::Upgrade { protocol } => {
+				log(
+					LogLevel::Info,
+					&format!(
+						"➜ Flow upgrade requested by '{}' -> Protocol: {}",
+						plugin_name, protocol
+					),
+				);
+			}
+		}
+
+		return Ok(result);
 	}
 
 	Err(anyhow!(
