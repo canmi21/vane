@@ -3,24 +3,20 @@
 # Print debug info to Stderr
 echo "⚙ Starting execution..." >&2
 
-# Read all stdin safely
-input_raw=""
-while IFS= read -r line; do
-    input_raw="${input_raw}${line}\n"
-done
+# Read all stdin safely using cat, which is robust for buffered input
+input_raw=$(cat)
 
 if [ -z "$input_raw" ]; then
     echo "✗ No input received on Stdin!" >&2
     exit 1
 fi
 
-# Remove trailing newline
-input_raw=$(echo -e "$input_raw" | sed '$ s/\n$//')
-
 echo "⚙ Received Input: $input_raw" >&2
 
 # Parse JSON manually for {"auth_token":"..."} structure
-auth_token=$(echo "$input_raw" | grep -oP '"auth_token":"\K[^"]+')
+# We use 'sed' instead of 'grep -P' because macOS (BSD) grep does not support Perl regex.
+# Logic: Find "auth_token":"VALUE", capture VALUE, and print it.
+auth_token=$(echo "$input_raw" | sed -n 's/.*"auth_token":"\([^"]*\)".*/\1/p')
 
 # Business Logic
 if [ "$auth_token" = "secret123" ]; then

@@ -1,0 +1,9 @@
+nodes:
+  - name: lo
+    ips:
+      - address: 1.1.1.1
+        ports: [80, 443, 53]
+        type: ipv4
+      - address: 2001:db8::5
+        ports: [80, 443]
+        type: ipv6

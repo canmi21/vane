@@ -1,0 +1,39 @@
+{
+  "connection": {
+    "internal.protocol.detect": {
+      "input": {
+        "method": "http",
+        "payload": "{{req.peek_buffer_hex}}"
+      },
+      "output": {
+        "true": {
+          "my_external_auth": {
+            "input": {
+              "auth_token": "secret123"
+            },
+            "output": {
+              "success": {
+                "internal.transport.proxy.transparent": {
+                  "input": {
+                    "target.ip": "127.0.0.1",
+                    "target.port": 8080
+                  }
+                }
+              },
+              "failure": {
+                "internal.transport.abort": {
+                  "input": {}
+                }
+              }
+            }
+          }
+        },
+        "false": {
+          "internal.transport.abort": {
+            "input": {}
+          }
+        }
+      }
+    }
+  }
+}
