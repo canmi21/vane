@@ -4,7 +4,10 @@ use super::proxy::execute_proxy;
 use crate::modules::{
 	kv::KvStore,
 	nodes::model::NODES_STATE,
-	plugins::model::{ConnectionObject, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator},
+	plugins::model::{
+		ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
+		TerminatorResult,
+	},
 	stack::transport::model::ResolvedTarget,
 };
 use anyhow::{Result, anyhow};
@@ -14,7 +17,6 @@ use std::any::Any;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A built-in Terminator plugin to proxy a connection to a specific Node.
-/// Resolves the Node name to an IP address that supports the requested port.
 pub struct ProxyNodePlugin;
 
 impl Plugin for ProxyNodePlugin {
@@ -48,12 +50,16 @@ impl Plugin for ProxyNodePlugin {
 
 #[async_trait]
 impl Terminator for ProxyNodePlugin {
+	fn supported_layers(&self) -> Vec<Layer> {
+		vec![Layer::L4, Layer::L4Plus]
+	}
+
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
 		kv: &KvStore,
 		conn: ConnectionObject,
-	) -> Result<()> {
+	) -> Result<TerminatorResult> {
 		let target_node_name = inputs
 			.get("target.node")
 			.and_then(Value::as_str)
@@ -85,7 +91,6 @@ impl Terminator for ProxyNodePlugin {
 		}
 
 		// Random selection (Load Balancing)
-		// Using SystemTime to avoid external 'rand' dependency if not present in Cargo.toml
 		let selected_ip = if candidates.len() == 1 {
 			candidates[0]
 		} else {
@@ -102,6 +107,7 @@ impl Terminator for ProxyNodePlugin {
 			port: target_port,
 		};
 
-		execute_proxy(target, kv, conn).await
+		execute_proxy(target, kv, conn).await?;
+		Ok(TerminatorResult::Finished)
 	}
 }
