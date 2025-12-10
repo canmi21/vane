@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.0 (10. Dec, 2025)
+
+- **Breaking:** Redesigned the core `Terminator` plugin trait architecture (Terminator 2.0). The `execute` method signature has changed to return a `TerminatorResult` enum (supporting `Finished` or `Upgrade`) instead of a simple `Result`, enabling plugins to dictate complex flow control actions beyond simple termination.
+- **Added:** Introduced the `internal.transport.upgrade` plugin. This critical component acts as an architectural bridge, allowing L4 connections to preserve their underlying socket state while transitioning control to higher-level L4+ (TLS) or L7 (HTTP) resolvers.
+- **Added:** Implemented strict **Layer Awareness** in the plugin system. Terminators must now explicitly declare their supported architectural layers (`L4`, `L4Plus`, `L7`), and the configuration validator strictly enforces these constraints to prevent invalid cross-layer plugin usage.
+- **Added:** Automatic injection of the `{{conn.layer}}` system variable (initializing as `"l4"` at the listener entry point), allowing flow logic and plugins to dynamically adapt behavior based on the current protocol depth.
+- **Changed:** Upgraded the Flow Engine's recursive executor (`src/modules/stack/transport/flow.rs`) to support **Signal Bubbling**. The engine now captures and propagates termination signals from deep within the flow tree back to the central Dispatcher, enabling stateful protocol transitions.
+
 ## 0.3.7 (10. Dec, 2025)
 
 - **Added:** Introduced two new core plugins for the Flow Engine: `internal.transport.proxy.node` and `internal.transport.proxy.domain`. These plugins enable direct L4 traffic termination to named Nodes (from `nodes.yaml`) or dynamic Domains (via DNS), streamlining complex routing configurations without requiring external scripts.
