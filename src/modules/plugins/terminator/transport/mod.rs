@@ -5,3 +5,4 @@ pub mod proxy;
 pub mod proxy_domain;
 pub mod proxy_node;
 pub mod transparent_proxy;
+pub mod upgrade;
