@@ -1,7 +1,4 @@
 /* src/modules/plugins/terminator/transport/mod.rs */
 
-pub mod abort_connection;
+pub mod abort;
 pub mod proxy;
-pub mod proxy_domain;
-pub mod proxy_node;
-pub mod transparent_proxy;
