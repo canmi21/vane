@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.2 (11. Dec, 2025)
+
+- **Breaking:** Refactored the internal plugin module structure. Moved `abort_connection.rs` to `abort.rs` and reorganized all transport proxy plugins into a modular `src/modules/plugins/terminator/transport/proxy/` directory to support complex multiprotocol implementations.
+- **Added:** Introduced the `ByteStream` trait abstraction and the `ConnectionObject::Stream` variant. This enables the Flow Engine to pass generic, encrypted, or virtual streams (L4+) through the same pipeline as raw TCP/UDP sockets (L4).
+- **Changed:** Upgraded the `internal.transport.proxy` plugin family (IP, Node, Domain) to support **Polymorphic Dispatching**. These plugins now automatically detect the underlying connection type (`TcpStream` vs `ByteStream`) and select the appropriate forwarding strategy, enabling seamless proxying for both raw L4 and upgraded L4+ protocols.
+- **Changed:** Enhanced the Resolver configuration loader (`hotswap.rs`) with a **Keep-Last-Known-Good** fallback strategy. If a runtime configuration update contains conflicts or validation errors, the system now preserves the previous valid state instead of disabling the protocol, ensuring higher availability during config rollouts.
+
 ## 0.4.1 (11. Dec, 2025)
 
 - **Added:** Implemented the L4+ Resolver Infrastructure. The system now actively scans and manages `config/resolver/{protocol}.{yaml|yml|json|toml}` configurations, allowing high-level protocol flows (e.g., TLS, HTTP) to be defined independently of physical L4 listeners.
