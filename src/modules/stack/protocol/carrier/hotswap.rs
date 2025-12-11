@@ -8,24 +8,29 @@ use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-/// Scans the 'resolver' config subdirectory for protocol configurations.
+/// Scans the 'resolver' config subdirectory and rebuilds the registry.
 ///
-/// Enforces a strict "Zero Tolerance" rule for parallel configurations:
-/// If multiple config files exist for the same protocol (e.g., tls.yaml AND tls.json),
-/// the ENTIRE protocol is ignored/disabled, and an error is logged.
+/// Implements "Keep Last Known Good" strategy:
+/// - **Success**: Updates to the new configuration.
+/// - **Failure** (Conflict/Invalid): Retains the configuration from the CURRENT registry.
+///   (On first load, current is empty, so it correctly falls back to "disabled").
+/// - **Missing**: Removes the configuration (disable).
 pub fn scan_resolver_config() -> DashMap<String, Arc<ResolverConfig>> {
 	let resolver_dir = getconf::get_config_dir().join("resolver");
-	let registry = DashMap::new();
+	let new_registry = DashMap::new();
+
+	// Snapshot current state for fallback logic
+	let current_state = RESOLVER_REGISTRY.load();
 
 	if !resolver_dir.exists() || !resolver_dir.is_dir() {
-		return registry;
+		return new_registry;
 	}
 
 	for &protocol in SUPPORTED_UPGRADE_PROTOCOLS {
 		let mut found_files = Vec::new();
 		let extensions = ["yaml", "yml", "json", "toml"];
 
-		// 1. Scan for all possible config files for this protocol
+		// 1. Scan for all possible config files
 		for ext in &extensions {
 			let file_path = resolver_dir.join(format!("{}.{}", protocol, ext));
 			if file_path.exists() {
@@ -33,9 +38,23 @@ pub fn scan_resolver_config() -> DashMap<String, Arc<ResolverConfig>> {
 			}
 		}
 
-		// 2. Strict Conflict Check
+		// 2. Decide action based on file count
+		if found_files.is_empty() {
+			// Case: Removed
+			if current_state.contains_key(protocol) {
+				log(
+					LogLevel::Info,
+					&format!(
+						"↓ Resolver protocol '{}' config file removed. Disabling.",
+						protocol
+					),
+				);
+			}
+			continue;
+		}
+
 		if found_files.len() > 1 {
-			// Collect file names for the error message
+			// Case: Conflict
 			let file_names: Vec<_> = found_files
 				.iter()
 				.filter_map(|p| p.file_name().and_then(|n| n.to_str()))
@@ -44,28 +63,48 @@ pub fn scan_resolver_config() -> DashMap<String, Arc<ResolverConfig>> {
 			log(
 				LogLevel::Error,
 				&format!(
-					"✗ Configuration Conflict: Multiple config files found for protocol '{}': {:?}. This protocol will be DISABLED until the conflict is resolved.",
+					"✗ Config Conflict for '{}': Multiple files found {:?}. Keeping last known good version.",
 					protocol, file_names
 				),
 			);
-			// Skip loading for this protocol entirely
+
+			// Fallback: Copy from old registry if exists
+			if let Some(old_config) = current_state.get(protocol) {
+				new_registry.insert(protocol.to_string(), old_config.value().clone());
+			}
 			continue;
 		}
 
-		// 3. Load if exactly one file exists
-		if let Some(file_path) = found_files.first() {
-			// loader::load_file returns Option<T>, handling parse/validation errors internally.
-			if let Some(config) = loader::load_file::<ResolverConfig>(file_path) {
-				registry.insert(protocol.to_string(), Arc::new(config));
+		// Case: Single File found, try to load
+		let file_path = &found_files[0];
+		match loader::load_file::<ResolverConfig>(file_path) {
+			Some(config) => {
+				// Success
+				new_registry.insert(protocol.to_string(), Arc::new(config));
 				log(
 					LogLevel::Debug,
 					&format!("⚙ Loaded resolver config for protocol: {}", protocol),
 				);
 			}
+			None => {
+				// Failure (Validation/Parse error) - Logged by loader
+				log(
+					LogLevel::Warn,
+					&format!(
+						"⚠ Failed to load new config for '{}'. Keeping last known good version.",
+						protocol
+					),
+				);
+
+				// Fallback: Copy from old registry if exists
+				if let Some(old_config) = current_state.get(protocol) {
+					new_registry.insert(protocol.to_string(), old_config.value().clone());
+				}
+			}
 		}
 	}
 
-	registry
+	new_registry
 }
 
 /// Listens for update signals and reloads the resolver registry.
@@ -73,16 +112,14 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 	while rx.recv().await.is_some() {
 		log(
 			LogLevel::Info,
-			"➜ Resolver config change signal received, reloading...",
+			"➜ Resolver config change detected, resyncing...",
 		);
 
 		let new_registry = scan_resolver_config();
 
 		// Atomic Swap
-		// If a protocol had a conflict during scan, it will be missing from new_registry,
-		// effectively disabling it at runtime (which is the desired safe behavior).
 		RESOLVER_REGISTRY.store(Arc::new(new_registry));
 
-		log(LogLevel::Info, "✓ Resolver configurations reloaded.");
+		log(LogLevel::Info, "✓ Resolver configurations synchronized.");
 	}
 }
