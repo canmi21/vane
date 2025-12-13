@@ -1,12 +1,12 @@
 /* src/modules/plugins/registry.rs */
 
 use super::{
-	common::ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin},
-	model::Plugin,
-	protocol::{
-		detect::ProtocolDetectPlugin,
-		tls::{alpn::TlsAlpnPlugin, sni::TlsSniPlugin},
+	common::{
+		matcher::CommonMatchPlugin,
+		ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin},
 	},
+	model::Plugin,
+	protocol::detect::ProtocolDetectPlugin,
 	terminator::{
 		transport::{
 			abort::AbortConnectionPlugin,
@@ -25,10 +25,10 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 	let transparent_proxy = Arc::new(TransparentProxyPlugin);
 
 	let plugins: Vec<Arc<dyn Plugin>> = vec![
+		// Core Logic
 		Arc::new(ProtocolDetectPlugin),
-		// TLS Plugins
-		Arc::new(TlsSniPlugin),
-		Arc::new(TlsAlpnPlugin),
+		// Universal Matcher
+		Arc::new(CommonMatchPlugin),
 		// Terminators
 		Arc::new(AbortConnectionPlugin),
 		transparent_proxy.clone(),
