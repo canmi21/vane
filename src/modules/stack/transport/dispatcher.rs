@@ -18,7 +18,6 @@ use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-/// Dispatches an incoming TCP connection.
 pub async fn dispatch_tcp_connection(
 	mut socket: TcpStream,
 	port: u16,
@@ -45,35 +44,28 @@ pub async fn dispatch_tcp_connection(
 			match context::populate_tcp_context(&mut socket, &mut kv_store).await {
 				Ok(n) => {
 					if n > 0 {
-						// Create ConnectionObject (L4)
 						let conn_object = ConnectionObject::Tcp(socket);
-
-						// Execute L4 Flow
-						// The flow engine takes ownership of conn_object.
-						// If it finishes normally, the socket is dropped (closed) or consumed by a proxy.
-						// If it upgrades, it returns the socket back in TerminatorResult::Upgrade.
 						let result = flow::execute(&flow_config.connection, &mut kv_store, conn_object).await;
 
 						match result {
 							Ok(TerminatorResult::Finished) => {
 								log(LogLevel::Debug, "✓ Connection handled at L4.");
 							}
-							Ok(TerminatorResult::Upgrade { protocol, conn }) => {
-								// 🚀 UPGRADE LOGIC
+							Ok(TerminatorResult::Upgrade {
+								protocol,
+								conn,
+								parent_path,
+							}) => {
 								log(
 									LogLevel::Info,
 									&format!("➜ Upgrading connection to: {}", protocol),
 								);
 
 								match (protocol.as_str(), conn) {
-									// Case: L4 TCP -> L4+ TLS
 									("tls", ConnectionObject::Tcp(stream)) => {
-										// Handover to TLS Carrier
-										// TODO: Pass actual parent flow path if we track it in result.
-										let parent_path = "".to_string();
 										tokio::spawn(async move {
 											if let Err(e) = carrier::tls::run(stream, &mut kv_store, parent_path).await {
-												log(LogLevel::Error, &format!("✗ TLS Carrier failed: {}", e));
+												log(LogLevel::Error, &format!("✗ TLS Carrier failed: {:#}", e));
 											}
 										});
 									}
@@ -94,7 +86,7 @@ pub async fn dispatch_tcp_connection(
 							Err(e) => {
 								log(
 									LogLevel::Error,
-									&format!("✗ Flow execution failed for {}: {}", peer_addr, e),
+									&format!("✗ Flow execution failed for {}: {:#}", peer_addr, e),
 								);
 							}
 						}
@@ -122,7 +114,6 @@ pub async fn dispatch_tcp_connection(
 	}
 }
 
-/// The original dispatch logic, refactored into its own function for the legacy path.
 async fn dispatch_legacy_tcp(
 	mut socket: TcpStream,
 	port: u16,
@@ -202,18 +193,17 @@ async fn dispatch_legacy_tcp(
 			);
 			match rule.destination {
 				TcpDestination::Resolver { resolver } => {
-					// Legacy config trying to use Resolver:
-					// We map this to the modern Upgrade logic manually here.
 					log(
 						LogLevel::Debug,
 						&format!("⚙ Legacy Resolver Handoff: {} -> L4+", resolver),
 					);
-					// Manually trigger upgrade logic for legacy path
 					tokio::spawn(async move {
-						// TODO: KvStore is empty here, we might need to populate it if legacy resolvers need context.
 						let mut kv = KvStore::new();
 						if let Err(e) = carrier::tls::run(socket, &mut kv, "".to_string()).await {
-							log(LogLevel::Error, &format!("✗ Legacy Resolver failed: {}", e));
+							log(
+								LogLevel::Error,
+								&format!("✗ Legacy Resolver failed: {:#}", e),
+							);
 						}
 					});
 					return;
