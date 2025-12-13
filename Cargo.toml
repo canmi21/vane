@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.4.5"
+version = "0.4.6"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -51,6 +51,8 @@ hex = "0.4"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 hickory-resolver = "0.25"
+tls-parser = "0.12"
+nom = "8"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
