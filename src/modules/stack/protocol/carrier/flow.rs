@@ -11,17 +11,13 @@ use anyhow::{Context, Result, anyhow};
 use fancy_log::{LogLevel, log};
 use serde_json::Value;
 
-/// Public entry point for executing an L4+ flow.
 pub async fn execute(
 	step: &ProcessingStep,
 	kv: &mut KvStore,
 	conn: ConnectionObject,
 	parent_path: String,
 ) -> Result<TerminatorResult> {
-	// Update layer marker
 	kv.insert("conn.layer".to_string(), "l4plus".to_string());
-
-	// Continue recursion from the parent path
 	execute_recursive(step, kv, conn, parent_path).await
 }
 
@@ -44,12 +40,11 @@ async fn execute_recursive(
 	log(
 		LogLevel::Debug,
 		&format!(
-			"➜ [L4+] Executing plugin: {} (Path: '{}')",
+			"➜ Executing plugin: {} (Path: '{}')",
 			plugin_name, flow_path
 		),
 	);
 
-	// Middleware execution
 	if let Some(middleware) = plugin.as_middleware() {
 		let output = middleware
 			.execute(resolved_inputs)
@@ -64,7 +59,6 @@ async fn execute_recursive(
 			),
 		);
 
-		// Namespace Isolation
 		if let Some(updates) = output.store {
 			for (raw_key, value) in updates {
 				let namespaced_key = plugin_output::format_scoped_key(&flow_path, plugin_name, &raw_key);
@@ -90,37 +84,43 @@ async fn execute_recursive(
 		}
 	}
 
-	// Terminator execution
 	if let Some(terminator) = plugin.as_terminator() {
 		let result = terminator
 			.execute(resolved_inputs, kv, conn)
 			.await
 			.with_context(|| format!("Error executing terminator '{}'", plugin_name))?;
 
-		match &result {
+		match result {
 			TerminatorResult::Finished => {
 				log(
 					LogLevel::Debug,
-					&format!("✓ [L4+] Flow terminated successfully by '{}'", plugin_name),
+					&format!("✓ Flow terminated successfully by '{}'", plugin_name),
 				);
+				Ok(TerminatorResult::Finished)
 			}
-			TerminatorResult::Upgrade { protocol, .. } => {
+			TerminatorResult::Upgrade { protocol, conn, .. } => {
 				log(
 					LogLevel::Info,
 					&format!(
-						"➜ [L4+] Flow upgrade requested by '{}' -> Protocol: {}",
+						"➜ Flow upgrade requested by '{}' -> Protocol: {}",
 						plugin_name, protocol
 					),
 				);
+				// FIXED: Use actual protocol name
+				let upgrade_path = plugin_output::next_path(&flow_path, plugin_name, &protocol);
+				Ok(TerminatorResult::Upgrade {
+					protocol,
+					conn,
+					parent_path: upgrade_path,
+				})
 			}
 		}
-		return Ok(result);
+	} else {
+		Err(anyhow!(
+			"Plugin '{}' is neither a valid Middleware nor a Terminator.",
+			plugin_name
+		))
 	}
-
-	Err(anyhow!(
-		"Plugin '{}' is neither a valid Middleware nor a Terminator.",
-		plugin_name
-	))
 }
 
 fn resolve_inputs(
@@ -134,6 +134,14 @@ fn resolve_inputs(
 				let lookup_key = &s[2..s.len() - 2];
 				if let Some(kv_value) = kv.get(lookup_key) {
 					resolved.insert(key.clone(), Value::String(kv_value.clone()));
+				} else {
+					log(
+						LogLevel::Warn,
+						&format!(
+							"⚙ Template resolution failed: Key '{}' not found in KvStore.",
+							lookup_key
+						),
+					);
 				}
 			}
 		}
