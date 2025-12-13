@@ -12,19 +12,15 @@ use fancy_log::{LogLevel, log};
 use serde_json::Value;
 
 /// Public entry point for executing a flow.
-/// Initializes the flow path as empty (root) and injects the initial layer context.
 pub async fn execute(
 	step: &ProcessingStep,
 	kv: &mut KvStore,
 	conn: ConnectionObject,
 ) -> Result<TerminatorResult> {
-	// Inject the initial layer context.
 	kv.insert("conn.layer".to_string(), "l4".to_string());
-
 	execute_recursive(step, kv, conn, "".to_string()).await
 }
 
-/// Internal recursive executor that maintains the current flow path for isolation.
 async fn execute_recursive(
 	step: &ProcessingStep,
 	kv: &mut KvStore,
@@ -49,7 +45,6 @@ async fn execute_recursive(
 		),
 	);
 
-	// Middleware execution (Intermediate nodes)
 	if let Some(middleware) = plugin.as_middleware() {
 		let output = middleware
 			.execute(resolved_inputs)
@@ -64,12 +59,9 @@ async fn execute_recursive(
 			),
 		);
 
-		// --- ENFORCE NAMESPACE ISOLATION BASED ON FLOW PATH ---
 		if let Some(updates) = output.store {
 			for (raw_key, value) in updates {
-				// Key becomes: plugin.{flow_path}.{sanitized_plugin_name}.{raw_key}
 				let namespaced_key = plugin_output::format_scoped_key(&flow_path, plugin_name, &raw_key);
-
 				log(
 					LogLevel::Debug,
 					&format!("⚙ KV Update: {} = {}", namespaced_key, value),
@@ -79,11 +71,9 @@ async fn execute_recursive(
 		}
 
 		if let Some(next_step) = instance.output.get(output.branch.as_ref()) {
-			// Calculate the path for the next step: {current}.{sanitized_plugin}.{branch}
 			let next_flow_path =
 				plugin_output::next_path(&flow_path, plugin_name, output.branch.as_ref());
 
-			// Recursively execute the next step and bubble up the TerminatorResult
 			return Box::pin(execute_recursive(next_step, kv, conn, next_flow_path)).await;
 		} else {
 			return Err(anyhow!(
@@ -94,22 +84,21 @@ async fn execute_recursive(
 		}
 	}
 
-	// Terminator execution (Leaf nodes)
 	if let Some(terminator) = plugin.as_terminator() {
-		// Execute the terminator logic
 		let result = terminator
 			.execute(resolved_inputs, kv, conn)
 			.await
 			.with_context(|| format!("Error executing terminator '{}'", plugin_name))?;
 
-		match &result {
+		match result {
 			TerminatorResult::Finished => {
 				log(
 					LogLevel::Debug,
 					&format!("✓ Flow terminated successfully by '{}'", plugin_name),
 				);
+				Ok(TerminatorResult::Finished)
 			}
-			TerminatorResult::Upgrade { protocol, .. } => {
+			TerminatorResult::Upgrade { protocol, conn, .. } => {
 				log(
 					LogLevel::Info,
 					&format!(
@@ -117,25 +106,28 @@ async fn execute_recursive(
 						plugin_name, protocol
 					),
 				);
+				// FIXED: Use the actual protocol name (e.g., "tls") as the branch name
+				let upgrade_path = plugin_output::next_path(&flow_path, plugin_name, &protocol);
+				Ok(TerminatorResult::Upgrade {
+					protocol,
+					conn,
+					parent_path: upgrade_path,
+				})
 			}
 		}
-
-		return Ok(result);
+	} else {
+		Err(anyhow!(
+			"Plugin '{}' is neither a valid Middleware nor a Terminator.",
+			plugin_name
+		))
 	}
-
-	Err(anyhow!(
-		"Plugin '{}' is neither a valid Middleware nor a Terminator.",
-		plugin_name
-	))
 }
 
-/// Resolves input parameters by replacing `{{key}}` templates with values from the KvStore.
 fn resolve_inputs(
 	inputs: &std::collections::HashMap<String, Value>,
 	kv: &KvStore,
 ) -> std::collections::HashMap<String, Value> {
 	let mut resolved = inputs.clone();
-
 	for (key, value) in inputs {
 		if let Some(s) = value.as_str() {
 			if s.starts_with("{{") && s.ends_with("}}") {
