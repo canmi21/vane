@@ -5,7 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{any::Any, borrow::Cow, collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{any::Any, borrow::Cow, collections::HashMap, fmt, net::SocketAddr, sync::Arc};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpStream, UdpSocket};
 
@@ -26,11 +26,12 @@ pub type ProcessingStep = HashMap<String, PluginInstance>;
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum ExternalPluginDriver {
-	/// HTTP/HTTPS POST to a URL.
-	Http { url: String },
-	/// HTTP POST over a Unix Domain Socket.
-	Unix { path: String },
-	/// Execute a command/program with arguments and environment variables.
+	Http {
+		url: String,
+	},
+	Unix {
+		path: String,
+	},
 	Command {
 		program: String,
 		#[serde(default)]
@@ -62,7 +63,7 @@ pub struct ExternalParamDef {
 	pub required: bool,
 }
 
-// --- API Contract (Mirroring core/response.rs) ---
+// --- API Contract ---
 
 #[derive(Deserialize, Debug)]
 pub struct ExternalApiResponse<T> {
@@ -97,36 +98,38 @@ pub struct MiddlewareOutput {
 
 // --- Connection Object Abstraction ---
 
-/// A trait alias for any stream that supports async reading and writing.
 pub trait ByteStream: AsyncRead + AsyncWrite + Unpin + Send + Sync {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send + Sync> ByteStream for T {}
 
-/// The runtime object passed through the flow engine.
-/// It evolves as it moves up the layers (L4 -> L4+ -> L7).
-#[derive(Debug)]
 pub enum ConnectionObject {
-	/// Layer 4: Raw TCP Stream
 	Tcp(TcpStream),
-
-	/// Layer 4: Raw UDP Socket Context
 	Udp {
 		socket: Arc<UdpSocket>,
 		datagram: Vec<u8>,
 		client_addr: SocketAddr,
 	},
-
-	/// Layer 4+ / Layer 5: Encrypted or Abstracted Stream
 	Stream(Box<dyn ByteStream>),
 }
 
-// Manual Debug implementation for Box<dyn ByteStream> because traits don't auto-derive Debug.
-impl std::fmt::Debug for Box<dyn ByteStream> {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "ByteStream(...)")
+impl fmt::Debug for ConnectionObject {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			ConnectionObject::Tcp(stream) => f
+				.debug_struct("ConnectionObject::Tcp")
+				.field("peer_addr", &stream.peer_addr().ok())
+				.finish(),
+			ConnectionObject::Udp { client_addr, .. } => f
+				.debug_struct("ConnectionObject::Udp")
+				.field("client_addr", client_addr)
+				.finish(),
+			ConnectionObject::Stream(_) => f
+				.debug_struct("ConnectionObject::Stream")
+				.field("type", &"Box<dyn ByteStream>")
+				.finish(),
+		}
 	}
 }
 
-/// Defines the operational layers within Vane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
 	L4,
@@ -134,22 +137,16 @@ pub enum Layer {
 	L7,
 }
 
-/// The result of a Terminator execution.
 #[derive(Debug)]
 pub enum TerminatorResult {
-	/// The connection flow has been completed (proxied, aborted, or handled).
 	Finished,
-
-	/// The connection should be upgraded to a higher protocol layer.
-	/// The Terminator must return the `ConnectionObject` (ownership transfer)
-	/// so the engine can pass it to the next layer.
 	Upgrade {
 		protocol: String,
 		conn: ConnectionObject,
+		parent_path: String, // Added field to track path continuity
 	},
 }
 
-/// A generic base trait for all plugins.
 pub trait Plugin: Send + Sync + Any {
 	fn name(&self) -> &str;
 	fn params(&self) -> Vec<ParamDef>;
