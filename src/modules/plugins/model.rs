@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{any::Any, borrow::Cow, collections::HashMap, net::SocketAddr, sync::Arc};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpStream, UdpSocket};
 
 // --- Configuration Data Structures ---
@@ -63,7 +64,6 @@ pub struct ExternalParamDef {
 
 // --- API Contract (Mirroring core/response.rs) ---
 
-/// Represents the strict JSON response format expected from external plugins.
 #[derive(Deserialize, Debug)]
 pub struct ExternalApiResponse<T> {
 	pub status: String,
@@ -95,37 +95,43 @@ pub struct MiddlewareOutput {
 	pub store: Option<HashMap<String, String>>,
 }
 
+// --- Connection Object Abstraction ---
+
+/// A trait alias for any stream that supports async reading and writing.
+/// This covers TcpStream, TlsStream, UnixStream, etc.
+pub trait ByteStream: AsyncRead + AsyncWrite + Unpin + Send + Sync {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + Sync> ByteStream for T {}
+
+/// The runtime object passed through the flow engine.
+/// It evolves as it moves up the layers (L4 -> L4+ -> L7).
 pub enum ConnectionObject {
+	/// Layer 4: Raw TCP Stream
 	Tcp(TcpStream),
+
+	/// Layer 4: Raw UDP Socket Context
 	Udp {
 		socket: Arc<UdpSocket>,
 		datagram: Vec<u8>,
 		client_addr: SocketAddr,
 	},
+
+	/// Layer 4+ / Layer 5: Encrypted or Abstracted Stream
+	/// Use Box<dyn ByteStream> to hold TlsStream or other stream wrappers dynamically.
+	Stream(Box<dyn ByteStream>),
 }
 
 /// Defines the operational layers within Vane.
-/// Terminators must declare which layers they support to ensure architectural safety.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
-	/// Layer 4: Raw TCP/UDP Transport (Listener Level)
 	L4,
-	/// Layer 4+: Encrypted/Enhanced Transport (e.g., TLS, QUIC) (Resolver Level)
 	L4Plus,
-	/// Layer 7: Application Layer (e.g., HTTP)
 	L7,
 }
 
 /// The result of a Terminator execution.
 #[derive(Debug)]
 pub enum TerminatorResult {
-	/// The connection flow has been completed (proxied, aborted, or handled).
-	/// The engine should stop processing this connection.
 	Finished,
-
-	/// The connection should be upgraded to a higher protocol layer.
-	/// The engine should keep the connection alive and transfer control to the
-	/// specified protocol resolver (e.g., "tls", "http").
 	Upgrade { protocol: String },
 }
 
@@ -144,21 +150,15 @@ pub trait Plugin: Send + Sync + Any {
 	}
 }
 
-/// A trait for "Middleware" plugins, made object-safe with async-trait.
 #[async_trait]
 pub trait Middleware: Plugin {
 	fn output(&self) -> Vec<Cow<'static, str>>;
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
 }
 
-/// A trait for "Terminator" plugins, made object-safe with async-trait.
 #[async_trait]
 pub trait Terminator: Plugin {
-	/// Returns the layers where this terminator is valid.
 	fn supported_layers(&self) -> Vec<Layer>;
-
-	/// Executes the termination logic.
-	/// Returns a `TerminatorResult` indicating whether to finish or upgrade the flow.
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
