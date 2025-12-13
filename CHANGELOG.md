@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.3 (13. Dec, 2025)
+
+- **Breaking:** Refactored `TerminatorResult::Upgrade` to carry the active `ConnectionObject`. This architectural shift requires plugins to yield ownership of the underlying connection upon upgrade, ensuring the socket remains alive during L4-to-L4+ transitions.
+- **Added:** Implemented L4+ Context Injection via the new `carrier/context.rs` module. This standardizes the population of protocol-specific metadata (e.g., `tls.sni`, `conn.layer`) into the KVStore immediately after a connection upgrade.
+- **Changed:** Upgraded the Core Dispatcher (`dispatcher.rs`) to handle physical socket handover. It now captures the `ConnectionObject` returned by an Upgrade signal and spawns the specific Carrier logic (e.g., TLS runtime), completing the "Protocol Elevator" implementation.
+- **Changed:** Updated the Flow Engine (`flow.rs`) and the `internal.transport.upgrade` plugin to support the new return signature, ensuring proper ownership transfer of `TcpStream` and `ByteStream` objects throughout the execution tree.
+
+## 0.4.2 (11. Dec, 2025)
+
+- **Breaking:** Refactored the internal plugin module structure. Moved `abort_connection.rs` to `abort.rs` and reorganized all transport proxy plugins into a modular `src/modules/plugins/terminator/transport/proxy/` directory to support complex multiprotocol implementations.
+- **Added:** Introduced the `ByteStream` trait abstraction and the `ConnectionObject::Stream` variant. This enables the Flow Engine to pass generic, encrypted, or virtual streams (L4+) through the same pipeline as raw TCP/UDP sockets (L4).
+- **Changed:** Upgraded the `internal.transport.proxy` plugin family (IP, Node, Domain) to support **Polymorphic Dispatching**. These plugins now automatically detect the underlying connection type (`TcpStream` vs `ByteStream`) and select the appropriate forwarding strategy, enabling seamless proxying for both raw L4 and upgraded L4+ protocols.
+- **Changed:** Enhanced the Resolver configuration loader (`hotswap.rs`) with a **Keep-Last-Known-Good** fallback strategy. If a runtime configuration update contains conflicts or validation errors, the system now preserves the previous valid state instead of disabling the protocol, ensuring higher availability during config rollouts.
+
 ## 0.4.1 (11. Dec, 2025)
 
 - **Added:** Implemented the L4+ Resolver Infrastructure. The system now actively scans and manages `config/resolver/{protocol}.{yaml|yml|json|toml}` configurations, allowing high-level protocol flows (e.g., TLS, HTTP) to be defined independently of physical L4 listeners.
