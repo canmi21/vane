@@ -3,7 +3,10 @@
 use super::{
 	common::ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin},
 	model::Plugin,
-	protocol::detect::ProtocolDetectPlugin,
+	protocol::{
+		detect::ProtocolDetectPlugin,
+		tls::{alpn::TlsAlpnPlugin, sni::TlsSniPlugin},
+	},
 	terminator::{
 		transport::{
 			abort::AbortConnectionPlugin,
@@ -17,31 +20,30 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 
-/// A static, compile-time registry for all built-in plugins.
 static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::new(|| {
 	let registry = DashMap::new();
-
-	// Create shared instances for plugins that require aliases
 	let transparent_proxy = Arc::new(TransparentProxyPlugin);
 
 	let plugins: Vec<Arc<dyn Plugin>> = vec![
 		Arc::new(ProtocolDetectPlugin),
+		// TLS Plugins
+		Arc::new(TlsSniPlugin),
+		Arc::new(TlsAlpnPlugin),
+		// Terminators
 		Arc::new(AbortConnectionPlugin),
-		// Register the TransparentProxyPlugin (Name: internal.transport.proxy)
 		transparent_proxy.clone(),
 		Arc::new(ProxyNodePlugin),
 		Arc::new(ProxyDomainPlugin),
 		Arc::new(UpgradePlugin),
+		// Ratelimits
 		Arc::new(KeywordRateLimitSecPlugin),
 		Arc::new(KeywordRateLimitMinPlugin),
 	];
 
-	// Standard Registration
 	for plugin in plugins {
 		registry.insert(plugin.name().to_string(), plugin);
 	}
 
-	// Alias Registration
 	registry.insert(
 		"internal.transport.proxy.transparent".to_string(),
 		transparent_proxy,
@@ -50,7 +52,6 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 	registry
 });
 
-// ... (rest of the file remains unchanged) ...
 static EXTERNAL_PLUGIN_REGISTRY: Lazy<ArcSwap<DashMap<String, Arc<dyn Plugin>>>> =
 	Lazy::new(|| ArcSwap::new(Arc::new(DashMap::new())));
 
