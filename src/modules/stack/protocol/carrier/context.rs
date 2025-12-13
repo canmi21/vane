@@ -3,7 +3,6 @@
 use crate::modules::{kv::KvStore, plugins::protocol::tls::clienthello::TlsClientHelloData};
 use fancy_log::{LogLevel, log};
 
-/// Injects standard L4+ context variables into the KV Store.
 pub fn inject_common(kv: &mut KvStore, protocol: &str) {
 	log(
 		LogLevel::Debug,
@@ -14,14 +13,25 @@ pub fn inject_common(kv: &mut KvStore, protocol: &str) {
 	kv.insert("conn.proto".to_string(), protocol.to_string());
 }
 
-/// Injects comprehensive TLS ClientHello data into the KV Store.
 pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
+	log(
+		LogLevel::Debug,
+		&format!(
+			"⚙ Parsed ClientHello -> SNI: {:?}, ALPN: {:?}, LegacyVer: {}",
+			data.sni, data.alpn, data.legacy_version
+		),
+	);
+
 	if let Some(sni) = data.sni {
 		kv.insert("tls.sni".to_string(), sni);
+	} else {
+		log(
+			LogLevel::Debug,
+			"⚙ Warning: SNI field is empty in parsed data.",
+		);
 	}
 
 	if !data.alpn.is_empty() {
-		// e.g. "h2,http/1.1"
 		kv.insert("tls.alpn".to_string(), data.alpn.join(","));
 	}
 
@@ -36,7 +46,6 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 		"tls.compression".to_string(),
 		data.compression_methods.join(","),
 	);
-
 	kv.insert(
 		"tls.supported_versions".to_string(),
 		data.supported_versions.join(","),
@@ -65,8 +74,6 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 	kv.insert("tls.has_grease".to_string(), data.has_grease.to_string());
 }
 
-/// Injects QUIC specific context.
-/// Does NOT assume "h3". QUIC ALPN must be parsed from the ClientHello in the QUIC handshake.
 pub fn inject_quic(kv: &mut KvStore, sni: Option<&str>, alpn: Option<&str>) {
 	if let Some(domain) = sni {
 		kv.insert("quic.sni".to_string(), domain.to_string());
