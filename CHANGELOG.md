@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.5 (13. Dec, 2025)
+
+- **Added:** Introduced `internal.common.match`, a universal logic middleware. This plugin performs boolean comparisons between dynamic KVStore variables and static values, enabling flexible routing logic across all protocol layers. Supported operators now include verbose aliases:
+  - Equality: `==`, `eq`, `equal`, `equals`
+  - Inequality: `!=`, `ne`, `notequal`, `not_equal`
+  - String ops: `contains`, `startswith`, `endswith`
+- **Added:** Implemented comprehensive **TLS ClientHello Fingerprinting**. The system now parses and extracts the following metadata from the raw handshake:
+  - **Basics:** SNI (Server Name Indication), ALPN (Application-Layer Protocol Negotiation), Legacy Protocol Version, Session ID, Random Bytes.
+  - **Cryptographic Params:** Cipher Suites, Compression Methods, Supported Groups (Elliptic Curves), Signature Algorithms.
+  - **Extensions:** Supported Versions (TLS 1.3), Key Share Groups, PSK Key Exchange Modes, Renegotiation Info.
+  - **Security:** GREASE value detection (RFC 8701).
+- **Changed:** Expanded the L4+ Context Injector (`context.rs`) to automatically populate the KVStore with the full spectrum of extracted TLS data (e.g., `tls.cipher_suites`, `tls.supported_groups`) immediately upon handshake detection.
+- **Changed:** Removed the specialized `internal.protocol.tls.sni` and `internal.protocol.tls.alpn` plugins. These specific routing functions are now superseded by the combination of automatic Context Injection and the generic `internal.common.match` plugin.
+
 ## 0.4.4 (13. Dec, 2025)
 
 - **Added:** Implemented advanced L4+ TLS routing capabilities with two new middleware plugins: `internal.protocol.tls.sni` and `internal.protocol.tls.alpn`. These plugins enable granular traffic filtering and branching based on Server Name Indication and Application-Layer Protocol Negotiation extensions without requiring TLS termination.
