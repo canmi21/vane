@@ -13,17 +13,12 @@ use serde_json::Value;
 
 /// Public entry point for executing a flow.
 /// Initializes the flow path as empty (root) and injects the initial layer context.
-///
-/// Returns a `TerminatorResult` which instructs the Dispatcher on the next physical action
-/// (e.g., Close connection, or Upgrade socket to TLS/HTTP).
 pub async fn execute(
 	step: &ProcessingStep,
 	kv: &mut KvStore,
 	conn: ConnectionObject,
 ) -> Result<TerminatorResult> {
 	// Inject the initial layer context.
-	// Since this is the entry point from a Port Listener, it is always Layer 4.
-	// This allows plugins to know which layer they are running in via {{conn.layer}}.
 	kv.insert("conn.layer".to_string(), "l4".to_string());
 
 	execute_recursive(step, kv, conn, "".to_string()).await
@@ -114,7 +109,7 @@ async fn execute_recursive(
 					&format!("✓ Flow terminated successfully by '{}'", plugin_name),
 				);
 			}
-			TerminatorResult::Upgrade { protocol } => {
+			TerminatorResult::Upgrade { protocol, .. } => {
 				log(
 					LogLevel::Info,
 					&format!(
