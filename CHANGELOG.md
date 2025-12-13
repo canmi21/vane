@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.6 (13. Dec, 2025)
+
+- **Changed:** Implemented **Flow Path Inheritance** for protocol upgrades. The L4 Flow Engine now calculates and passes the exact execution path (e.g., `...internal_transport_upgrade.tls`) to the L4+ engine via the `TerminatorResult`. This ensures KV namespace isolation remains consistent and collision-free across protocol layer transitions.
+- **Changed:** Enhanced the `internal.common.match` middleware to support verbose operator aliases (`equal`, `not_equal`, `starts_with`, `ends_with`, `contain`) and added debug logging for runtime value comparisons.
+- **Changed:** Upgraded error propagation across the Dispatcher, Proxy, and Flow engines. System logs now use the alternate formatting `{:#}` to display the full error chain (Context + Root Cause), exposing underlying I/O errors (e.g., "Connection reset by peer") previously masked by generic wrapper messages.
+- **Fixed:** Replaced the manual `ClientHello` byte parser with the robust `tls-parser` crate. This resolves compilation type mismatches and ensures accurate extraction of complex TLS extensions (SNI, ALPN, Key Shares) regardless of field ordering or padding.
+
 ## 0.4.5 (13. Dec, 2025)
 
 - **Added:** Introduced `internal.common.match`, a universal logic middleware. This plugin performs boolean comparisons between dynamic KVStore variables and static values, enabling flexible routing logic across all protocol layers. Supported operators now include verbose aliases:
