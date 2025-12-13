@@ -98,12 +98,12 @@ pub struct MiddlewareOutput {
 // --- Connection Object Abstraction ---
 
 /// A trait alias for any stream that supports async reading and writing.
-/// This covers TcpStream, TlsStream, UnixStream, etc.
 pub trait ByteStream: AsyncRead + AsyncWrite + Unpin + Send + Sync {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send + Sync> ByteStream for T {}
 
 /// The runtime object passed through the flow engine.
 /// It evolves as it moves up the layers (L4 -> L4+ -> L7).
+#[derive(Debug)]
 pub enum ConnectionObject {
 	/// Layer 4: Raw TCP Stream
 	Tcp(TcpStream),
@@ -116,8 +116,14 @@ pub enum ConnectionObject {
 	},
 
 	/// Layer 4+ / Layer 5: Encrypted or Abstracted Stream
-	/// Use Box<dyn ByteStream> to hold TlsStream or other stream wrappers dynamically.
 	Stream(Box<dyn ByteStream>),
+}
+
+// Manual Debug implementation for Box<dyn ByteStream> because traits don't auto-derive Debug.
+impl std::fmt::Debug for Box<dyn ByteStream> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "ByteStream(...)")
+	}
 }
 
 /// Defines the operational layers within Vane.
@@ -131,8 +137,16 @@ pub enum Layer {
 /// The result of a Terminator execution.
 #[derive(Debug)]
 pub enum TerminatorResult {
+	/// The connection flow has been completed (proxied, aborted, or handled).
 	Finished,
-	Upgrade { protocol: String },
+
+	/// The connection should be upgraded to a higher protocol layer.
+	/// The Terminator must return the `ConnectionObject` (ownership transfer)
+	/// so the engine can pass it to the next layer.
+	Upgrade {
+		protocol: String,
+		conn: ConnectionObject,
+	},
 }
 
 /// A generic base trait for all plugins.
