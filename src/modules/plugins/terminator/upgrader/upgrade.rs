@@ -50,7 +50,7 @@ impl Terminator for UpgradePlugin {
 		&self,
 		inputs: ResolvedInputs,
 		_kv: &KvStore,
-		_conn: ConnectionObject,
+		conn: ConnectionObject,
 	) -> Result<TerminatorResult> {
 		let protocol = inputs
 			.get("protocol")
@@ -62,8 +62,10 @@ impl Terminator for UpgradePlugin {
 			&format!("➜ Signal upgrade to protocol: {}", protocol),
 		);
 
+		// We MUST return the connection object back to the engine!
 		Ok(TerminatorResult::Upgrade {
 			protocol: protocol.to_string(),
+			conn,
 		})
 	}
 }
