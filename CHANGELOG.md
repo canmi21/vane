@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.3 (13. Dec, 2025)
+
+- **Breaking:** Refactored `TerminatorResult::Upgrade` to carry the active `ConnectionObject`. This architectural shift requires plugins to yield ownership of the underlying connection upon upgrade, ensuring the socket remains alive during L4-to-L4+ transitions.
+- **Added:** Implemented L4+ Context Injection via the new `carrier/context.rs` module. This standardizes the population of protocol-specific metadata (e.g., `tls.sni`, `conn.layer`) into the KVStore immediately after a connection upgrade.
+- **Changed:** Upgraded the Core Dispatcher (`dispatcher.rs`) to handle physical socket handover. It now captures the `ConnectionObject` returned by an Upgrade signal and spawns the specific Carrier logic (e.g., TLS runtime), completing the "Protocol Elevator" implementation.
+- **Changed:** Updated the Flow Engine (`flow.rs`) and the `internal.transport.upgrade` plugin to support the new return signature, ensuring proper ownership transfer of `TcpStream` and `ByteStream` objects throughout the execution tree.
+
 ## 0.4.2 (11. Dec, 2025)
 
 - **Breaking:** Refactored the internal plugin module structure. Moved `abort_connection.rs` to `abort.rs` and reorganized all transport proxy plugins into a modular `src/modules/plugins/terminator/transport/proxy/` directory to support complex multiprotocol implementations.
