@@ -12,6 +12,7 @@ use tokio::time::sleep;
 pub struct ConfigChangeReceivers {
 	pub ports: mpsc::Receiver<()>,
 	pub nodes: mpsc::Receiver<()>,
+	pub resolvers: mpsc::Receiver<()>,
 }
 
 /// Ensures that all required directories and default files exist.
@@ -24,21 +25,23 @@ fn ensure_config_files_exist() {
 fn start_config_watchers() -> ConfigChangeReceivers {
 	let (ports_debounced_tx, ports_debounced_rx) = mpsc::channel(1);
 	let (nodes_debounced_tx, nodes_debounced_rx) = mpsc::channel(1);
+	let (resolvers_debounced_tx, resolvers_debounced_rx) = mpsc::channel(1);
 
 	// Create raw channels to send immediate, pre-debounced signals.
 	let (ports_raw_tx, mut ports_raw_rx) = mpsc::channel(32);
 	let (nodes_raw_tx, mut nodes_raw_rx) = mpsc::channel(32);
+	let (resolvers_raw_tx, mut resolvers_raw_rx) = mpsc::channel(32);
 
 	// Spawn a dedicated, long-running task for the ports debouncer.
 	tokio::spawn(async move {
 		while ports_raw_rx.recv().await.is_some() {
 			'debounce: loop {
 				tokio::select! {
-						Some(_) = ports_raw_rx.recv() => { continue 'debounce; }
-						_ = sleep(Duration::from_secs(2)) => {
-								if ports_debounced_tx.send(()).await.is_err() { return; }
-								break 'debounce;
-						}
+								Some(_) = ports_raw_rx.recv() => { continue 'debounce; }
+								_ = sleep(Duration::from_secs(2)) => {
+												if ports_debounced_tx.send(()).await.is_err() { return; }
+												break 'debounce;
+								}
 				}
 			}
 		}
@@ -49,11 +52,26 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 		while nodes_raw_rx.recv().await.is_some() {
 			'debounce: loop {
 				tokio::select! {
-						Some(_) = nodes_raw_rx.recv() => { continue 'debounce; }
-						_ = sleep(Duration::from_secs(2)) => {
-								if nodes_debounced_tx.send(()).await.is_err() { return; }
-								break 'debounce;
-						}
+								Some(_) = nodes_raw_rx.recv() => { continue 'debounce; }
+								_ = sleep(Duration::from_secs(2)) => {
+												if nodes_debounced_tx.send(()).await.is_err() { return; }
+												break 'debounce;
+								}
+				}
+			}
+		}
+	});
+
+	// Spawn a dedicated, long-running task for the resolvers debouncer.
+	tokio::spawn(async move {
+		while resolvers_raw_rx.recv().await.is_some() {
+			'debounce: loop {
+				tokio::select! {
+								Some(_) = resolvers_raw_rx.recv() => { continue 'debounce; }
+								_ = sleep(Duration::from_secs(2)) => {
+												if resolvers_debounced_tx.send(()).await.is_err() { return; }
+												break 'debounce;
+								}
 				}
 			}
 		}
@@ -94,21 +112,15 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 			return;
 		}
 
-		// Canonicalize the listener directory path to resolve symlinks (e.g., /var -> /private/var on macOS).
-		// This ensures that the path we are checking against matches the fully resolved path from the FS event.
+		// Canonicalize directories to resolve symlinks and ensure path matching logic works.
 		let listener_dir = match fs::canonicalize(config_dir.join("listener")) {
 			Ok(path) => path,
-			Err(e) => {
-				log(
-					LogLevel::Error,
-					&format!(
-						"✗ Could not canonicalize listener directory path. File watching may be unreliable: {}",
-						e
-					),
-				);
-				// Fallback to the non-canonicalized path, though the problem will likely persist.
-				config_dir.join("listener")
-			}
+			Err(_) => config_dir.join("listener"),
+		};
+
+		let resolver_dir = match fs::canonicalize(config_dir.join("resolver")) {
+			Ok(path) => path,
+			Err(_) => config_dir.join("resolver"),
 		};
 
 		// This loop runs forever, keeping the task and the `watcher` alive.
@@ -117,6 +129,8 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 				LogLevel::Debug,
 				&format!("⇆ FS Event detected: {:?}", event.kind),
 			);
+
+			// Dispatch events based on path prefixes
 			if event.paths.iter().any(|p| p.starts_with(&listener_dir)) {
 				let _ = ports_raw_tx.try_send(());
 			} else if event
@@ -125,6 +139,8 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 				.any(|p| p.file_stem() == Some(OsStr::new("nodes")))
 			{
 				let _ = nodes_raw_tx.try_send(());
+			} else if event.paths.iter().any(|p| p.starts_with(&resolver_dir)) {
+				let _ = resolvers_raw_tx.try_send(());
 			} else {
 				log(
 					LogLevel::Debug,
@@ -137,6 +153,7 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 	ConfigChangeReceivers {
 		ports: ports_debounced_rx,
 		nodes: nodes_debounced_rx,
+		resolvers: resolvers_debounced_rx,
 	}
 }
 
