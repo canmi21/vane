@@ -47,14 +47,33 @@ pub async fn execute_proxy(
 			datagram,
 			client_addr,
 		} => {
-			log(
-				LogLevel::Debug,
-				&format!(
-					"➜ Proxying UDP datagram from {} to {}:{}",
-					client_addr, target.ip, target.port
-				),
-			);
-			proxy::proxy_udp_direct(socket, &datagram, client_addr, target).await?;
+			// Check if we are running inside a QUIC Carrier context (L4+).
+			// If so, we must use the session-aware association proxy to ensure
+			// replies can be routed back to the correct client.
+			let is_quic = kv
+				.get("conn.proto.carrier")
+				.map(|p| p == "quic")
+				.unwrap_or(false);
+
+			if is_quic {
+				log(
+					LogLevel::Debug,
+					&format!(
+						"➜ Proxying QUIC flow from {} to upstream {}:{}",
+						client_addr, target.ip, target.port
+					),
+				);
+				proxy::proxy_quic_association(socket, &datagram, client_addr, target).await?;
+			} else {
+				log(
+					LogLevel::Debug,
+					&format!(
+						"➜ Proxying UDP datagram from {} to {}:{}",
+						client_addr, target.ip, target.port
+					),
+				);
+				proxy::proxy_udp_direct(socket, &datagram, client_addr, target).await?;
+			}
 
 			log(
 				LogLevel::Debug,
