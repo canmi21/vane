@@ -43,7 +43,7 @@ validator = { version = "0.20", features = ["derive"] }
 regex = "1"
 lazy_static = "1"
 rand = "0.9"
-fancy-regex = "0.16"
+fancy-regex = "0.17"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 futures = "0.3"
 anyhow = "1"
@@ -58,7 +58,7 @@ nom = "8"
 chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
-serial_test = "2"
+serial_test = "3"
 tempfile = "3"
 temp-env = "0.3"
 dirs = "6"
@@ -85,7 +85,7 @@ workspace = true
 resolver = "3"
 
 [workspace.package]
-rust-version = "1.89"
+rust-version = "1.92"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

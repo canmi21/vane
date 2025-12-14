@@ -9,8 +9,8 @@ pub fn inject_common(kv: &mut KvStore, protocol: &str) {
 		&format!("⚙ Injecting L4+ Context for protocol: {}", protocol),
 	);
 
-	kv.insert("conn.layer".to_string(), "l4plus".to_string());
-	kv.insert("conn.proto".to_string(), protocol.to_string());
+	kv.insert("conn.layer".to_string(), "l4p".to_string());
+	kv.insert("conn.proto.carrier".to_string(), protocol.to_string());
 }
 
 pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
