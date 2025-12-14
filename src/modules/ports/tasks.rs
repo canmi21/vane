@@ -2,8 +2,8 @@
 
 use super::model::{CONFIG_STATE, ListenerState, Protocol, TASK_REGISTRY};
 use crate::modules::{
-	kv, // Import the new kv module
-	stack::transport::{dispatcher, proxy},
+	kv,
+	stack::transport::{dispatcher, udp},
 };
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
@@ -83,7 +83,8 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 							let kv_store = kv::new(&client_addr, "udp");
 
 							tokio::spawn(async move {
-								proxy::dispatch_udp_datagram(socket_clone, port, config_clone, datagram, client_addr, kv_store).await;
+								// FIXED: Route to the 'udp' module dispatcher which handles Flow Upgrade
+								udp::dispatch_udp_datagram(socket_clone, port, config_clone, datagram, client_addr, kv_store).await;
 							});
 						}
 						_ = &mut shutdown_rx => {
