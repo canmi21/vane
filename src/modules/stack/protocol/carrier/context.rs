@@ -1,6 +1,9 @@
 /* src/modules/stack/protocol/carrier/context.rs */
 
-use crate::modules::{kv::KvStore, plugins::protocol::tls::clienthello::TlsClientHelloData};
+use crate::modules::{
+	kv::KvStore,
+	plugins::protocol::{quic::parser::QuicInitialData, tls::clienthello::TlsClientHelloData},
+};
 use fancy_log::{LogLevel, log};
 
 pub fn inject_common(kv: &mut KvStore, protocol: &str) {
@@ -74,11 +77,27 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 	kv.insert("tls.has_grease".to_string(), data.has_grease.to_string());
 }
 
-pub fn inject_quic(kv: &mut KvStore, sni: Option<&str>, alpn: Option<&str>) {
-	if let Some(domain) = sni {
-		kv.insert("quic.sni".to_string(), domain.to_string());
+pub fn inject_quic_data(kv: &mut KvStore, data: QuicInitialData) {
+	log(
+		LogLevel::Debug,
+		&format!(
+			"⚙ Parsed QUIC Initial -> DCID: {}, SCID: {}, Ver: {}",
+			data.dcid, data.scid, data.version
+		),
+	);
+
+	kv.insert("quic.dcid".to_string(), data.dcid);
+	kv.insert("quic.scid".to_string(), data.scid);
+	kv.insert("quic.version".to_string(), data.version);
+
+	if let Some(token) = data.token {
+		kv.insert("quic.token".to_string(), token);
 	}
-	if let Some(proto) = alpn {
-		kv.insert("quic.alpn".to_string(), proto.to_string());
+
+	if let Some(sni) = data.sni_hint {
+		kv.insert("quic.sni".to_string(), sni);
+	}
+	if let Some(alpn) = data.alpn_hint {
+		kv.insert("quic.alpn".to_string(), alpn);
 	}
 }
