@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.8 (14. Dec, 2025)
+
+- **Added:** Implemented a dedicated **Certificate Management Module** (`src/modules/certs`). This system provides hot-swappable, in-memory storage for TLS certificates (`Arc<CertifiedKey>`) using `rustls-pemfile` and `ring` crypto providers.
+- **Added:** Enforced a **Strict Validation Policy** for certificate loading. The loader automatically resolves file conflicts (discarding ambiguous pairs like `app.crt` + `app.pem`) and mandates the presence of a matching `.key` file before admitting credentials into the registry.
+- **Changed:** Integrated the **Keep-Last-Known-Good** strategy for certificate updates. Runtime modification of certificate files now triggers a safe reload process that rejects invalid or malformed keys, preventing service interruptions by preserving the previously valid state.
+- **Changed:** Optimized the **Bootstrap Sequence**. Certificate initialization has been moved ahead of L4 Listener binding, ensuring that all cryptographic materials are pre-loaded and ready for immediate SSL handshakes upon socket activation.
+- **Changed:** Refactored core error handling to use `thiserror`. This improves diagnostic clarity within the configuration and loader subsystems by providing structured, chainable error contexts.
+
 ## 0.4.7 (14. Dec, 2025)
 
 - **Added:** Implemented the **L4+ QUIC Carrier Engine**. Vane can now accept raw UDP datagrams, detect QUIC traffic, and "upgrade" the flow to the QUIC layer. This includes an RFC 9000 compliant parser that extracts Initial Packet headers (DCID, SCID, Version, Token) and populates the KV Store (e.g., `quic.dcid`, `quic.version`) for routing decisions.
