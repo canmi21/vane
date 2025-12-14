@@ -1,7 +1,7 @@
 /* src/modules/plugins/terminator/transport/proxy/proxy.rs */
 
 use crate::modules::stack::transport::model::ResolvedTarget;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result}; // Removed 'anyhow' macro import as it's not needed with .context()
 use std::sync::Arc;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::{Duration, timeout};
@@ -42,9 +42,10 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 	let server_to_client = tokio::io::copy(&mut upstream_read, &mut client_write);
 
 	// Race the two copy tasks
+	// Use .context() to preserve the chain.
 	tokio::select! {
-			res = client_to_server => res.map(|_| ()).map_err(|e| anyhow!("Client->Server copy failed: {}", e)),
-			res = server_to_client => res.map(|_| ()).map_err(|e| anyhow!("Server->Client copy failed: {}", e)),
+		res = client_to_server => res.map(|_| ()).context("Client->Server copy failed"),
+		res = server_to_client => res.map(|_| ()).context("Server->Client copy failed"),
 	}
 }
 
@@ -80,9 +81,10 @@ pub async fn proxy_generic_stream(
 	let client_to_server = tokio::io::copy(&mut client_read, &mut upstream_write);
 	let server_to_client = tokio::io::copy(&mut upstream_read, &mut client_write);
 
+	// Use .context() to preserve the chain.
 	tokio::select! {
-			res = client_to_server => res.map(|_| ()).map_err(|e| anyhow!("L4+ Client->Server copy failed: {}", e)),
-			res = server_to_client => res.map(|_| ()).map_err(|e| anyhow!("L4+ Server->Client copy failed: {}", e)),
+		res = client_to_server => res.map(|_| ()).context("L4+ Client->Server copy failed"),
+		res = server_to_client => res.map(|_| ()).context("L4+ Server->Client copy failed"),
 	}
 }
 

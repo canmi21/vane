@@ -5,6 +5,7 @@ use crate::modules::plugins::model::{
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use fancy_log::{LogLevel, log};
 use serde_json::Value;
 use std::{any::Any, borrow::Cow};
 
@@ -73,6 +74,14 @@ impl Middleware for CommonMatchPlugin {
 			.and_then(Value::as_str)
 			.unwrap_or("==")
 			.to_lowercase();
+
+		log(
+			LogLevel::Debug,
+			&format!(
+				"⚙ Match Plugin: Comparing Left='{}' with Right='{}' (Op: '{}')",
+				left, right, operator
+			),
+		);
 
 		let result = match operator.as_str() {
 			// Equality

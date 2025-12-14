@@ -13,8 +13,6 @@ use fancy_log::{LogLevel, log};
 use serde_json::Value;
 use std::any::Any;
 
-/// A built-in Terminator plugin to upgrade the connection protocol.
-/// This transfers control from the current layer (e.g., L4) to a higher layer resolver (e.g., L4+ TLS).
 pub struct UpgradePlugin;
 
 impl Plugin for UpgradePlugin {
@@ -42,7 +40,6 @@ impl Plugin for UpgradePlugin {
 #[async_trait]
 impl Terminator for UpgradePlugin {
 	fn supported_layers(&self) -> Vec<Layer> {
-		// Can be used at L4 (to upgrade to L4+ TLS) or L4+ (to upgrade to L7 HTTP)
 		vec![Layer::L4, Layer::L4Plus]
 	}
 
@@ -62,10 +59,10 @@ impl Terminator for UpgradePlugin {
 			&format!("➜ Signal upgrade to protocol: {}", protocol),
 		);
 
-		// We MUST return the connection object back to the engine!
 		Ok(TerminatorResult::Upgrade {
 			protocol: protocol.to_string(),
 			conn,
+			parent_path: String::new(), // Engine will overwrite this with correct path
 		})
 	}
 }
