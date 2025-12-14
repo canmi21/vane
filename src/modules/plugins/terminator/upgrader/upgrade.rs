@@ -54,6 +54,37 @@ impl Terminator for UpgradePlugin {
 			.and_then(Value::as_str)
 			.ok_or_else(|| anyhow!("Resolved input 'protocol' is missing or not a string"))?;
 
+		// Enforce strict transmission layer compatibility rules.
+		// A TCP stream cannot become a QUIC stream, and UDP cannot become TLS (directly).
+		match (&conn, protocol) {
+			(ConnectionObject::Tcp(_), "tls") | (ConnectionObject::Tcp(_), "http") => {
+				// Valid: TCP -> Stream Protocols
+			}
+			(ConnectionObject::Udp { .. }, "quic") => {
+				// Valid: UDP -> QUIC
+			}
+			(ConnectionObject::Tcp(_), "quic") => {
+				return Err(anyhow!(
+					"Invalid Upgrade: Cannot upgrade TCP connection to QUIC."
+				));
+			}
+			(ConnectionObject::Udp { .. }, "tls") | (ConnectionObject::Udp { .. }, "http") => {
+				return Err(anyhow!(
+					"Invalid Upgrade: Cannot upgrade UDP connection to stream-based protocols (TLS/HTTP) directly."
+				));
+			}
+			_ => {
+				// Fallback for unknown protocols or abstract streams, allow with warning
+				log(
+					LogLevel::Warn,
+					&format!(
+						"⚠ Allowing unchecked upgrade to '{}' for connection state.",
+						protocol
+					),
+				);
+			}
+		}
+
 		log(
 			LogLevel::Debug,
 			&format!("➜ Signal upgrade to protocol: {}", protocol),
