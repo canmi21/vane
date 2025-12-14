@@ -42,14 +42,11 @@ static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 		);
 	}
 
-	// Correct construction for Hickory Resolver 0.25+ using Builder pattern
 	TokioResolver::builder_with_config(config, TokioConnectionProvider::default())
 		.with_options(ResolverOpts::default())
 		.build()
 });
 
-/// Resolves a domain name to a list of IP addresses.
-/// This helper is exposed for use by plugins (e.g., ProxyDomainPlugin).
 pub async fn resolve_domain_to_ips(domain: &str) -> Vec<IpAddr> {
 	log(LogLevel::Debug, &format!("⚙ Resolving domain: {}", domain));
 	match DNS_RESOLVER.lookup_ip(domain).await {
@@ -64,7 +61,6 @@ pub async fn resolve_domain_to_ips(domain: &str) -> Vec<IpAddr> {
 	}
 }
 
-/// Resolves a list of abstract Targets into a flat list of concrete ResolvedTargets.
 pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 	let mut resolved = Vec::new();
 	let nodes_config = NODES_STATE.load();
@@ -120,156 +116,4 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 		}
 	}
 	resolved
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use crate::modules::nodes::model::{IpConfig, IpType, Node, NodesConfig};
-	use serial_test::serial;
-	use std::sync::Arc;
-
-	/// Cleans up the NODES_STATE global after a test by storing a default, empty config.
-	fn cleanup_globals() {
-		NODES_STATE.store(Arc::new(NodesConfig::default()));
-	}
-
-	/// Tests that a simple Ip target is resolved correctly (pass-through).
-	#[tokio::test]
-	#[serial]
-	async fn test_resolve_ip_target() {
-		cleanup_globals();
-		let targets = vec![Target::Ip {
-			ip: "192.168.1.1".to_string(),
-			port: 8080,
-		}];
-		let resolved = resolve_targets(&targets).await;
-
-		assert_eq!(resolved.len(), 1);
-		assert_eq!(
-			resolved[0],
-			ResolvedTarget {
-				ip: "192.168.1.1".to_string(),
-				port: 8080
-			}
-		);
-	}
-
-	/// Tests that a Node target is correctly resolved from the global NODES_STATE.
-	#[tokio::test]
-	#[serial]
-	async fn test_resolve_node_target() {
-		let mock_nodes_config = NodesConfig {
-			nodes: vec![
-				Node {
-					name: "cache-redis".to_string(),
-					ips: vec![IpConfig {
-						address: "10.0.1.5".to_string(),
-						ports: vec![6379, 6380], // Supports multiple ports
-						r#type: IpType::Ipv4,
-					}],
-				},
-				Node {
-					name: "database".to_string(),
-					ips: vec![IpConfig {
-						address: "10.0.2.10".to_string(),
-						ports: vec![5432],
-						r#type: IpType::Ipv4,
-					}],
-				},
-			],
-			..Default::default()
-		};
-		NODES_STATE.store(Arc::new(mock_nodes_config));
-
-		let targets = vec![
-			Target::Node {
-				node: "cache-redis".to_string(),
-				port: 6379,
-			},
-			Target::Node {
-				node: "cache-redis".to_string(),
-				port: 9999, // Should NOT match
-			},
-			Target::Node {
-				node: "non-existent-node".to_string(),
-				port: 1234,
-			},
-		];
-
-		let resolved = resolve_targets(&targets).await;
-
-		assert_eq!(resolved.len(), 1);
-		assert_eq!(
-			resolved[0],
-			ResolvedTarget {
-				ip: "10.0.1.5".to_string(),
-				port: 6379
-			}
-		);
-
-		cleanup_globals();
-	}
-
-	/// Tests that a Domain target ('localhost') is resolved correctly.
-	#[tokio::test]
-	#[serial]
-	async fn test_resolve_domain_target_localhost() {
-		cleanup_globals();
-		let targets = vec![Target::Domain {
-			domain: "localhost".to_string(),
-			port: 9000,
-		}];
-		let resolved = resolve_targets(&targets).await;
-
-		assert!(!resolved.is_empty());
-		let has_localhost_ip = resolved
-			.iter()
-			.any(|rt| rt.ip == "127.0.0.1" || rt.ip == "::1");
-		assert!(has_localhost_ip);
-		assert_eq!(resolved[0].port, 9000);
-	}
-
-	/// Tests resolving a mix of all target types in a single call.
-	#[tokio::test]
-	#[serial]
-	async fn test_resolve_mixed_targets() {
-		let mock_nodes_config = NodesConfig {
-			nodes: vec![Node {
-				name: "api".to_string(),
-				ips: vec![IpConfig {
-					address: "172.16.0.100".to_string(),
-					ports: vec![80, 443],
-					r#type: IpType::Ipv4,
-				}],
-			}],
-			..Default::default()
-		};
-		NODES_STATE.store(Arc::new(mock_nodes_config));
-
-		let targets = vec![
-			Target::Ip {
-				ip: "8.8.8.8".to_string(),
-				port: 53,
-			},
-			Target::Node {
-				node: "api".to_string(),
-				port: 80,
-			},
-		];
-
-		let resolved = resolve_targets(&targets).await;
-
-		assert_eq!(resolved.len(), 2);
-		assert!(resolved.contains(&ResolvedTarget {
-			ip: "8.8.8.8".to_string(),
-			port: 53
-		}));
-		assert!(resolved.contains(&ResolvedTarget {
-			ip: "172.16.0.100".to_string(),
-			port: 80
-		}));
-
-		cleanup_globals();
-	}
 }

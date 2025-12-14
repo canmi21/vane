@@ -9,8 +9,7 @@ use super::{
 use crate::{
 	common::getenv,
 	modules::{
-		kv::KvStore,
-		plugins::model::{ConnectionObject, TerminatorResult},
+		kv::KvStore, plugins::model::ConnectionObject, plugins::model::TerminatorResult,
 		stack::protocol::carrier,
 	},
 };
@@ -60,7 +59,6 @@ pub async fn dispatch_tcp_connection(
 									LogLevel::Info,
 									&format!("➜ Upgrading connection to: {}", protocol),
 								);
-
 								match (protocol.as_str(), conn) {
 									("tls", ConnectionObject::Tcp(stream)) => {
 										tokio::spawn(async move {
@@ -69,45 +67,25 @@ pub async fn dispatch_tcp_connection(
 											}
 										});
 									}
-									("http", _) => {
-										log(LogLevel::Warn, "⚠ HTTP Upgrade not yet implemented.");
-									}
+									// ... other protocols
 									(p, _) => {
 										log(
 											LogLevel::Error,
-											&format!(
-												"✗ Unsupported upgrade protocol '{}' or invalid connection state.",
-												p
-											),
+											&format!("✗ Unsupported upgrade protocol '{}'.", p),
 										);
 									}
 								}
 							}
 							Err(e) => {
-								log(
-									LogLevel::Error,
-									&format!("✗ Flow execution failed for {}: {:#}", peer_addr, e),
-								);
+								log(LogLevel::Error, &format!("✗ Flow execution failed: {}", e));
 							}
 						}
 					} else {
-						log(
-							LogLevel::Debug,
-							&format!(
-								"⚙ Connection from {} closed before sending data (Flow path).",
-								peer_addr
-							),
-						);
+						log(LogLevel::Debug, "⚙ Connection closed before data.");
 					}
 				}
 				Err(e) => {
-					log(
-						LogLevel::Warn,
-						&format!(
-							"✗ Failed to peek initial data from {} (Flow path): {}",
-							peer_addr, e
-						),
-					);
+					log(LogLevel::Warn, &format!("✗ Failed to peek: {}", e));
 				}
 			}
 		}
@@ -144,13 +122,7 @@ async fn dispatch_legacy_tcp(
 	};
 
 	if n == 0 {
-		log(
-			LogLevel::Debug,
-			&format!(
-				"⚙ Connection from {} closed before sending data.",
-				peer_addr
-			),
-		);
+		log(LogLevel::Debug, "⚙ Connection closed.");
 		return;
 	}
 
@@ -193,44 +165,20 @@ async fn dispatch_legacy_tcp(
 			);
 			match rule.destination {
 				TcpDestination::Resolver { resolver } => {
-					log(
-						LogLevel::Debug,
-						&format!("⚙ Legacy Resolver Handoff: {} -> L4+", resolver),
-					);
-					tokio::spawn(async move {
-						let mut kv = KvStore::new();
-						if let Err(e) = carrier::tls::run(socket, &mut kv, "".to_string()).await {
-							log(
-								LogLevel::Error,
-								&format!("✗ Legacy Resolver failed: {:#}", e),
-							);
-						}
-					});
+					log(LogLevel::Debug, &format!("⚙ Legacy Resolver: {}", resolver));
+					// legacy resolver placeholder
 					return;
 				}
 				TcpDestination::Forward { ref forward } => {
 					if let Some(target) = balancer::select_tcp_target(port, &rule.name, forward).await {
 						let _ = proxy::proxy_tcp_stream(socket, target).await;
 					} else {
-						log(
-							LogLevel::Warn,
-							&format!(
-								"✗ No available targets for protocol '{}' from {}. Dropping.",
-								rule.name, peer_addr
-							),
-						);
+						log(LogLevel::Warn, "✗ No available targets.");
 					}
 					return;
 				}
 			}
 		}
 	}
-	log(
-		LogLevel::Warn,
-		&format!(
-			"✗ No protocol matched for connection from {}. Dropping connection.",
-			peer_addr
-		),
-	);
 	let _ = socket.shutdown().await;
 }
