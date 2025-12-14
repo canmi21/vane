@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.7 (14. Dec, 2025)
+
+- **Added:** Implemented the **L4+ QUIC Carrier Engine**. Vane can now accept raw UDP datagrams, detect QUIC traffic, and "upgrade" the flow to the QUIC layer. This includes an RFC 9000 compliant parser that extracts Initial Packet headers (DCID, SCID, Version, Token) and populates the KV Store (e.g., `quic.dcid`, `quic.version`) for routing decisions.
+- **Added:** Introduced **QUIC Association Proxying** ("Sticky NAT") within the `internal.transport.proxy` plugin. This enables the stateless Flow Engine to maintain ephemeral UDP sessions for QUIC flows, ensuring correct bi-directional packet routing (Client ↔ Upstream) after a dispatch decision is made.
+- **Changed:** Refined `internal.transport.upgrade` to enforce strict transport-layer compatibility. The plugin now rejects invalid state transitions (e.g., attempting to upgrade a TCP stream to QUIC) while permitting valid upgrades (TCP → TLS/HTTP, UDP → QUIC).
+- **Fixed:** Critical regression in **Load Balancer Failover**. Restored the missing `health::mark_target_unhealthy` calls within the TCP and Generic proxy logic. Connection timeouts and refusals now correctly downgrade target health, allowing the Balancer's Auto Recovery and Serial strategies to function as intended.
+- **Fixed:** Resolved a logic conflict in the UDP Dispatcher (`udp.rs`). The execution path is now strictly separated into **Legacy Mode** (high-performance Sticky Sessions for backward compatibility) and **Flow Mode** (Per-packet context processing and Upgrade support), ensuring new features do not break existing configurations.
+
 ## 0.4.6 (13. Dec, 2025)
 
 - **Changed:** Implemented **Flow Path Inheritance** for protocol upgrades. The L4 Flow Engine now calculates and passes the exact execution path (e.g., `...internal_transport_upgrade.tls`) to the L4+ engine via the `TerminatorResult`. This ensures KV namespace isolation remains consistent and collision-free across protocol layer transitions.
