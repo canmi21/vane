@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.9 (15. Dec, 2025)
+
+- **Added:** Implemented the **L7 Application Layer Infrastructure**. Introduced the `application` configuration subsystem (`src/modules/stack/protocol/application/`), enabling Vane to manage high-level application protocols (e.g., `httpx`) independently of the underlying transport carrier.
+- **Added:** Established the **Application Registry & Hotswap Engine**. The system now actively monitors the `config/application/` directory, supporting dynamic loading and "Keep-Last-Known-Good" updates for L7 protocol pipelines using JSON, YAML, or TOML formats.
+- **Added:** Integrated L7 config channels into the Core Bootstrap sequence. The `requirements` module now provisions the `application` directory and spawns dedicated file watchers, ensuring application-layer logic is initialized alongside L4 listeners and L4+ resolvers.
+- **Changed:** Updated the global `ConfigChangeReceivers` struct to include the new `applications` channel, extending the event-driven architecture to support three distinct configuration layers (Ports -> Resolvers -> Applications).
+
 ## 0.4.8 (14. Dec, 2025)
 
 - **Added:** Implemented a dedicated **Certificate Management Module** (`src/modules/certs`). This system provides hot-swappable, in-memory storage for TLS certificates (`Arc<CertifiedKey>`) using `rustls-pemfile` and `ring` crypto providers.
