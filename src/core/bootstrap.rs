@@ -17,11 +17,13 @@ use tokio::time::{Duration, sleep};
 use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
 use crate::modules::{
-	certs, // Added Certs Module
-	nodes,
+	certs, nodes,
 	plugins::loader as plugin_loader,
 	ports,
-	stack::protocol::carrier::{hotswap as resolver_hotswap, model as resolver_model},
+	stack::protocol::{
+		application::{hotswap as app_hotswap, model as app_model},
+		carrier::{hotswap as resolver_hotswap, model as resolver_model},
+	},
 };
 
 pub async fn start() {
@@ -36,8 +38,6 @@ pub async fn start() {
 	}
 
 	// 2. Load Certificates (Keep-Last-Good).
-	// Must be loaded before listeners in case they require immediate context,
-	// though usually used at handshake time.
 	certs::loader::initialize();
 
 	// 3. Load ports (L4 Listeners).
@@ -45,7 +45,6 @@ pub async fn start() {
 	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
 
 	// 4. Load Resolvers (L4+ Protocols).
-	// This allows Vane to know how to handle upgraded connections (e.g., TLS, HTTP).
 	let initial_resolvers = resolver_hotswap::scan_resolver_config();
 	resolver_model::RESOLVER_REGISTRY.store(Arc::new(initial_resolvers));
 	log(
@@ -56,10 +55,21 @@ pub async fn start() {
 		),
 	);
 
-	// 5. Initialize background tasks (File Watchers & Health Checks).
+	// 5. Load Applications (L7 Protocols).
+	let initial_apps = app_hotswap::scan_application_config();
+	app_model::APPLICATION_REGISTRY.store(Arc::new(initial_apps));
+	log(
+		LogLevel::Info,
+		&format!(
+			"✓ Loaded {} application protocols.",
+			app_model::APPLICATION_REGISTRY.load().len()
+		),
+	);
+
+	// 6. Initialize background tasks (File Watchers & Health Checks).
 	let config_change_receivers = requirements::initialize().await;
 
-	// 6. Initialize External Plugins.
+	// 7. Initialize External Plugins.
 	plugin_loader::initialize();
 
 	// Spawn hotswap listener for port changes.
@@ -80,6 +90,11 @@ pub async fn start() {
 	// Spawn hotswap listener for certificate changes.
 	tokio::spawn(certs::loader::listen_for_updates(
 		config_change_receivers.certs,
+	));
+
+	// Spawn hotswap listener for application changes.
+	tokio::spawn(app_hotswap::listen_for_updates(
+		config_change_receivers.applications,
 	));
 
 	let unix_socket_listener = match socket::bind_unix_socket().await {
