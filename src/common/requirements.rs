@@ -36,11 +36,12 @@ pub struct ConfigChangeReceivers {
 	pub nodes: mpsc::Receiver<()>,
 	pub resolvers: mpsc::Receiver<()>,
 	pub certs: mpsc::Receiver<()>,
+	pub applications: mpsc::Receiver<()>,
 }
 
 /// Ensures that all required directories and default files exist.
 fn ensure_config_files_exist() {
-	getconf::init_config_dirs(vec!["listener", "resolver", "certs"]);
+	getconf::init_config_dirs(vec!["listener", "resolver", "certs", "application"]);
 	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"]);
 }
 
@@ -50,21 +51,25 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 	let (nodes_debounced_tx, nodes_debounced_rx) = mpsc::channel(1);
 	let (resolvers_debounced_tx, resolvers_debounced_rx) = mpsc::channel(1);
 	let (certs_debounced_tx, certs_debounced_rx) = mpsc::channel(1);
+	let (apps_debounced_tx, apps_debounced_rx) = mpsc::channel(1);
 
 	// Create raw channels to send immediate, pre-debounced signals.
-	let (ports_raw_tx, mut ports_raw_rx) = mpsc::channel(32);
-	let (nodes_raw_tx, mut nodes_raw_rx) = mpsc::channel(32);
-	let (resolvers_raw_tx, mut resolvers_raw_rx) = mpsc::channel(32);
-	let (certs_raw_tx, mut certs_raw_rx) = mpsc::channel(32);
+	let (ports_raw_tx, ports_raw_rx) = mpsc::channel(32);
+	let (nodes_raw_tx, nodes_raw_rx) = mpsc::channel(32);
+	let (resolvers_raw_tx, resolvers_raw_rx) = mpsc::channel(32);
+	let (certs_raw_tx, certs_raw_rx) = mpsc::channel(32);
+	let (apps_raw_tx, apps_raw_rx) = mpsc::channel(32);
 
 	// Helper macro to spawn debouncers
+	// We explicitly re-bind `rx` as mutable inside the async block to satisfy `recv(&mut self)`
 	macro_rules! spawn_debouncer {
 		($raw_rx:expr, $debounced_tx:expr, $name:expr) => {
 			tokio::spawn(async move {
-				while $raw_rx.recv().await.is_some() {
+				let mut rx = $raw_rx;
+				while rx.recv().await.is_some() {
 					'debounce: loop {
 						tokio::select! {
-								Some(_) = $raw_rx.recv() => { continue 'debounce; }
+								Some(_) = rx.recv() => { continue 'debounce; }
 								_ = sleep(Duration::from_secs(2)) => {
 										if $debounced_tx.send(()).await.is_err() { return; }
 										break 'debounce;
@@ -80,6 +85,8 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 	spawn_debouncer!(nodes_raw_rx, nodes_debounced_tx, "nodes");
 	spawn_debouncer!(resolvers_raw_rx, resolvers_debounced_tx, "resolvers");
 	spawn_debouncer!(certs_raw_rx, certs_debounced_tx, "certs");
+	// FIXED: Passed apps_raw_rx (Receiver) instead of apps_raw_tx (Sender)
+	spawn_debouncer!(apps_raw_rx, apps_debounced_tx, "applications");
 
 	// Spawn the main, long-running watcher task.
 	tokio::spawn(async move {
@@ -122,6 +129,7 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 		let listener_dir = join_canon("listener");
 		let resolver_dir = join_canon("resolver");
 		let certs_dir = join_canon("certs");
+		let app_dir = join_canon("application");
 
 		while let Some(event) = event_rx.recv().await {
 			log(
@@ -141,6 +149,8 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 				let _ = resolvers_raw_tx.try_send(());
 			} else if event.paths.iter().any(|p| p.starts_with(&certs_dir)) {
 				let _ = certs_raw_tx.try_send(());
+			} else if event.paths.iter().any(|p| p.starts_with(&app_dir)) {
+				let _ = apps_raw_tx.try_send(());
 			}
 		}
 	});
@@ -150,6 +160,7 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 		nodes: nodes_debounced_rx,
 		resolvers: resolvers_debounced_rx,
 		certs: certs_debounced_rx,
+		applications: apps_debounced_rx,
 	}
 }
 
