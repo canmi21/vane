@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.4 (17. Dec, 2025)
+
+- **Added:** Introduced the **Privileged L7 Middleware Interface** (`L7Middleware`) in the plugin system. This trait utilizes `&mut dyn Any` context injection to break circular dependencies between the plugin model and the stack, granting specialized plugins direct mutable access to the L7 `Container` (Body & KV) for advanced operations like WAFs or Upstream Drivers.
+- **Changed:** Refactored the L7 `Container` to use a **Dual-Slot Payload Architecture**. Replaced the single `payload` field with distinct `request_body` and `response_body` slots, resolving state ambiguity during full-duplex streaming and ensuring clear separation between client input and upstream output.
+- **Changed:** Updated the **L7 Flow Engine** (`flow.rs`) to support the new payload structure. "Magic Words" are now strictly routed: `{{req.body}}` forces buffering on the Request slot, while `{{res.body}}` targets the Response slot.
+- **Changed:** Adapted **H3** and **HTTPX** adapters to the new container signature. Both engines now correctly populate the `request_body` upon initialization and, in the case of HTTPX, extract the final payload from `response_body` for transmission to the client.
+
 ## 0.5.3 (17. Dec, 2025)
 
 - **Added:** Implemented the **Unified L7 Body Wrapper** (`src/modules/stack/protocol/application/http/wrapper.rs`). Introduced `VaneBody` and `H3BodyAdapter` to bridge the impedance mismatch between Hyper (`Incoming`) and Quinn (`Bytes`), enabling a polymorphic, zero-copy payload transport across HTTP/1.1, HTTP/2, and HTTP/3.
