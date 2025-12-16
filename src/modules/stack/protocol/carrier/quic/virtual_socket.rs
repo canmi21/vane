@@ -2,88 +2,143 @@
 
 use std::io;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-/// A Virtual UDP Socket that bridges Vane's L4 Dispatcher and Quinn's Endpoint.
-///
-/// - **Reading:** Consumes packets from an internal MPSC channel (fed by Vane).
-/// - **Writing:** Sends packets directly via the shared physical UdpSocket (owned by Vane).
+use quinn::udp::{RecvMeta, Transmit};
+use quinn::{AsyncUdpSocket, UdpPoller};
+
+/// Packet metadata from Vane passed to Quinn
+/// Using Bytes for cheaper cloning if broadcast/multicast logic is added later
+#[derive(Debug)]
+pub struct VirtualPacket {
+	pub data: bytes::Bytes,
+	pub src_addr: SocketAddr,
+	pub dst_addr: SocketAddr,
+}
+
+/// Virtual UDP Socket that bridges Vane's L4 Dispatcher and Quinn's Endpoint
 #[derive(Debug)]
 pub struct VirtualUdpSocket {
-	/// Channel to receive packets from Vane's dispatcher (The "Feed")
-	rx: mpsc::Receiver<(Vec<u8>, SocketAddr)>,
+	/// Use std::sync::Mutex for poll-context safety.
+	/// The critical section is extremely short (non-blocking poll).
+	rx: Mutex<mpsc::Receiver<VirtualPacket>>,
 
-	/// Reference to the physical socket for sending responses
+	/// Physical socket for sending responses
 	physical_socket: Arc<UdpSocket>,
+
+	/// Fake local address
+	local_addr: SocketAddr,
 }
 
 impl VirtualUdpSocket {
-	pub fn new(rx: mpsc::Receiver<(Vec<u8>, SocketAddr)>, physical_socket: Arc<UdpSocket>) -> Self {
+	pub fn new(
+		rx: mpsc::Receiver<VirtualPacket>,
+		physical_socket: Arc<UdpSocket>,
+		local_addr: SocketAddr,
+	) -> Self {
 		Self {
-			rx,
+			rx: Mutex::new(rx),
 			physical_socket,
+			local_addr,
 		}
 	}
 }
 
-// Implement the Async IO traits required by Quinn (via Tokio Runtime compatibility).
-// Quinn typically expects a type that behaves like tokio::net::UdpSocket.
-// Since we cannot implement `tokio::net::UdpSocket` (it's a struct),
-// we rely on Quinn's ability to use any type implementing `quinn::AsyncUdpSocket`
-// IF we were using the generic runtime.
-//
-// However, fitting this into standard Quinn Endpoint usually requires the `quinn_udp` traits.
-// For the sake of this handover, we define the IO logic methods which the Muxer will use
-// to drive the connection.
-
-impl VirtualUdpSocket {
-	/// Simulates receiving a packet from the network (actually from Vane's channel).
-	pub fn poll_recv(
-		&mut self,
-		cx: &mut Context<'_>,
-		buf: &mut [u8],
-	) -> Poll<io::Result<(usize, SocketAddr)>> {
-		match self.rx.poll_recv(cx) {
-			Poll::Ready(Some((data, addr))) => {
-				let len = std::cmp::min(buf.len(), data.len());
-				buf[..len].copy_from_slice(&data[..len]);
-				Poll::Ready(Ok((len, addr)))
-			}
-			Poll::Ready(None) => Poll::Ready(Err(io::Error::new(
-				io::ErrorKind::BrokenPipe,
-				"Virtual socket channel closed",
-			))),
-			Poll::Pending => Poll::Pending,
-		}
+impl AsyncUdpSocket for VirtualUdpSocket {
+	fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
+		// Poller mainly handles sending readiness for the OS socket
+		Box::pin(VirtualPoller {
+			socket: self.physical_socket.clone(),
+		})
 	}
 
-	/// Simulates sending a packet to the network (actually uses the physical socket).
-	pub fn poll_send(
+	fn try_send(&self, transmit: &Transmit) -> io::Result<()> {
+		// Direct non-blocking send via physical socket
+		self
+			.physical_socket
+			.try_send_to(&transmit.contents, transmit.destination)?;
+		Ok(())
+	}
+
+	fn poll_recv(
 		&self,
-		cx: &mut Context<'_>,
-		buf: &[u8],
-		target: SocketAddr,
+		cx: &mut Context,
+		bufs: &mut [io::IoSliceMut<'_>],
+		meta: &mut [RecvMeta],
 	) -> Poll<io::Result<usize>> {
-		// We use the physical socket to send.
-		// Note: poll_send_to is basically async send_to.
-		// Since Arc<UdpSocket> handles concurrency, this is safe.
-		self.physical_socket.poll_send_to(cx, buf, target)
+		// Lock the receiver. In a single-threaded task poll, this is uncontended.
+		let mut rx = self.rx.lock().unwrap();
+
+		let mut count = 0;
+		let max_packets = bufs.len().min(meta.len());
+
+		// Batch processing loop
+		while count < max_packets {
+			match rx.poll_recv(cx) {
+				Poll::Ready(Some(packet)) => {
+					let buf = &mut bufs[count];
+
+					// Truncate if packet is larger than buffer (UDP semantic)
+					let len = packet.data.len().min(buf.len());
+					buf[..len].copy_from_slice(&packet.data[..len]);
+
+					meta[count] = RecvMeta {
+						addr: packet.src_addr,
+						len,
+						stride: len,
+						ecn: None,
+						dst_ip: Some(packet.dst_addr.ip()),
+					};
+
+					count += 1;
+				}
+				Poll::Ready(None) => {
+					// Channel closed. If we read some packets, return them.
+					// Otherwise, signal broken pipe.
+					if count > 0 {
+						break;
+					}
+					return Poll::Ready(Err(io::Error::new(
+						io::ErrorKind::BrokenPipe,
+						"Virtual socket channel closed",
+					)));
+				}
+				Poll::Pending => {
+					// No more packets available right now.
+					break;
+				}
+			}
+		}
+
+		if count > 0 {
+			Poll::Ready(Ok(count))
+		} else {
+			// We read 0 packets and the channel returned Pending.
+			// The channel has already registered the waker from cx.
+			Poll::Pending
+		}
+	}
+
+	fn local_addr(&self) -> io::Result<SocketAddr> {
+		Ok(self.local_addr)
+	}
+
+	fn may_fragment(&self) -> bool {
+		false
 	}
 }
 
-// Adapter for Quinn's Runtime (Conceptual).
-// Since wiring up a full custom Runtime for Quinn is verbose,
-// we will instantiate the Endpoint using a standard socket bound to localhost
-// for the internal state machine, but we override the IO loop in the Muxer.
-// OR, more cleanly:
-// We provide the Muxer that manages `quinn::Endpoint` via a hack:
-// We don't use this struct *inside* Quinn (since Quinn creates its own socket),
-// we use this struct to *proxy* traffic to a Quinn instance running on a loopback port.
-//
-// WAIT: The User requested "Internal create a virtual udp socket... held by quinn".
-// This implies we DO want to inject it.
-// The only way to inject a socket into `quinn` is via `Endpoint::new_with_abstract_socket`.
-// This requires `quinn` features `runtime-tokio` and specific trait bounds.
+#[derive(Debug)]
+struct VirtualPoller {
+	socket: Arc<UdpSocket>,
+}
+
+impl UdpPoller for VirtualPoller {
+	fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+		self.socket.poll_send_ready(cx)
+	}
+}
