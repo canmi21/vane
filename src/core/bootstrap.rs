@@ -17,10 +17,13 @@ use tokio::time::{Duration, sleep};
 use crate::common::{getenv, portool, requirements};
 use crate::core::{router, socket};
 use crate::modules::{
-	nodes,
+	certs, nodes,
 	plugins::loader as plugin_loader,
 	ports,
-	stack::protocol::carrier::{hotswap as resolver_hotswap, model as resolver_model},
+	stack::protocol::{
+		application::{hotswap as app_hotswap, model as app_model},
+		carrier::{hotswap as resolver_hotswap, model as resolver_model},
+	},
 };
 
 pub async fn start() {
@@ -34,12 +37,14 @@ pub async fn start() {
 		nodes::model::NODES_STATE.store(Arc::new(initial_nodes));
 	}
 
-	// 2. Load ports (L4 Listeners).
+	// 2. Load Certificates (Keep-Last-Good).
+	certs::loader::initialize();
+
+	// 3. Load ports (L4 Listeners).
 	let initial_ports = ports::hotswap::scan_ports_config();
 	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
 
-	// 3. Load Resolvers (L4+ Protocols).
-	// This allows Vane to know how to handle upgraded connections (e.g., TLS, HTTP).
+	// 4. Load Resolvers (L4+ Protocols).
 	let initial_resolvers = resolver_hotswap::scan_resolver_config();
 	resolver_model::RESOLVER_REGISTRY.store(Arc::new(initial_resolvers));
 	log(
@@ -50,10 +55,21 @@ pub async fn start() {
 		),
 	);
 
-	// 4. Initialize background tasks (File Watchers & Health Checks).
+	// 5. Load Applications (L7 Protocols).
+	let initial_apps = app_hotswap::scan_application_config();
+	app_model::APPLICATION_REGISTRY.store(Arc::new(initial_apps));
+	log(
+		LogLevel::Info,
+		&format!(
+			"✓ Loaded {} application protocols.",
+			app_model::APPLICATION_REGISTRY.load().len()
+		),
+	);
+
+	// 6. Initialize background tasks (File Watchers & Health Checks).
 	let config_change_receivers = requirements::initialize().await;
 
-	// 5. Initialize External Plugins.
+	// 7. Initialize External Plugins.
 	plugin_loader::initialize();
 
 	// Spawn hotswap listener for port changes.
@@ -69,6 +85,16 @@ pub async fn start() {
 	// Spawn hotswap listener for resolver changes.
 	tokio::spawn(resolver_hotswap::listen_for_updates(
 		config_change_receivers.resolvers,
+	));
+
+	// Spawn hotswap listener for certificate changes.
+	tokio::spawn(certs::loader::listen_for_updates(
+		config_change_receivers.certs,
+	));
+
+	// Spawn hotswap listener for application changes.
+	tokio::spawn(app_hotswap::listen_for_updates(
+		config_change_receivers.applications,
 	));
 
 	let unix_socket_listener = match socket::bind_unix_socket().await {
@@ -149,8 +175,8 @@ pub async fn start() {
 	tokio::spawn(async move {
 		let timeout = sleep(Duration::from_millis(2100));
 		tokio::select! {
-			_ = anynet_handle => { log(LogLevel::Debug, "⚙ Anynet completed before timeout."); }
-			_ = timeout => { log(LogLevel::Debug, "⚙ Anynet timeout reached."); }
+				_ = anynet_handle => { log(LogLevel::Debug, "⚙ Anynet completed before timeout."); }
+				_ = timeout => { log(LogLevel::Debug, "⚙ Anynet timeout reached."); }
 		}
 
 		log(
