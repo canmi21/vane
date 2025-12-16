@@ -12,7 +12,6 @@ use fancy_log::{LogLevel, log};
 use std::any::Any;
 use tokio::io::AsyncWriteExt;
 
-/// A built-in Terminator plugin to immediately close a connection.
 pub struct AbortConnectionPlugin;
 
 impl Plugin for AbortConnectionPlugin {
@@ -36,7 +35,6 @@ impl Plugin for AbortConnectionPlugin {
 #[async_trait]
 impl Terminator for AbortConnectionPlugin {
 	fn supported_layers(&self) -> Vec<Layer> {
-		// Abort is universally applicable
 		vec![Layer::L4, Layer::L4Plus, Layer::L7]
 	}
 
@@ -50,24 +48,16 @@ impl Terminator for AbortConnectionPlugin {
 
 		match conn {
 			ConnectionObject::Tcp(mut stream) => {
-				if let Err(e) = stream.shutdown().await {
-					log(
-						LogLevel::Debug,
-						&format!("⚙ TCP shutdown error (likely harmless): {}", e),
-					);
-				}
+				let _ = stream.shutdown().await;
 			}
 			ConnectionObject::Stream(mut stream) => {
-				// Encrypted/Generic stream shutdown
-				if let Err(e) = stream.shutdown().await {
-					log(
-						LogLevel::Debug,
-						&format!("⚙ Stream shutdown error (likely harmless): {}", e),
-					);
-				}
+				let _ = stream.shutdown().await;
 			}
 			ConnectionObject::Udp { .. } => {
 				log(LogLevel::Debug, "⚙ UDP flow dropped.");
+			}
+			ConnectionObject::Virtual(_) => {
+				log(LogLevel::Debug, "⚙ Virtual flow aborted.");
 			}
 		}
 
