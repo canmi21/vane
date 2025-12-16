@@ -1705,6 +1705,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "oneshot"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ce411919553d3f9fa53a0880544cda985a112117a0444d5ff1e870a893d6ea"
+
+[[package]]
 name = "openssl-probe"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3110,7 +3116,7 @@ dependencies = [
 
 [[package]]
 name = "vane"
-version = "0.5.2"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "anynet",
@@ -3130,6 +3136,7 @@ dependencies = [
  "hex",
  "hickory-resolver",
  "http 1.4.0",
+ "http-body 1.0.1",
  "http-body-util",
  "httparse",
  "hyper 1.8.1",
@@ -3139,6 +3146,7 @@ dependencies = [
  "nom 8.0.0",
  "notify",
  "once_cell",
+ "oneshot",
  "quinn",
  "quinn-proto",
  "rand 0.9.2",
