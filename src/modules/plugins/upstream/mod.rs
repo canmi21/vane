@@ -24,8 +24,13 @@ impl Plugin for FetchUpstreamPlugin {
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
 			ParamDef {
-				name: "url".into(),
+				name: "url_prefix".into(),
 				required: true,
+				param_type: ParamType::String,
+			},
+			ParamDef {
+				name: "path".into(), // Optional: overrides request path
+				required: false,
 				param_type: ParamType::String,
 			},
 			ParamDef {
@@ -71,10 +76,32 @@ impl L7Middleware for FetchUpstreamPlugin {
 			.downcast_mut::<Container>()
 			.ok_or_else(|| anyhow!("Context is not a Container"))?;
 
-		let url = inputs
-			.get("url")
+		// 1. Resolve URL Prefix
+		let url_prefix = inputs
+			.get("url_prefix")
 			.and_then(Value::as_str)
-			.ok_or_else(|| anyhow!("Input 'url' is required"))?;
+			.ok_or_else(|| anyhow!("Input 'url_prefix' is required"))?
+			.trim_end_matches('/'); // Normalize: remove trailing slash
+
+		// 2. Resolve Path
+		// Priority: Input 'path' > Container 'req.path' > Empty
+		let path_input = inputs.get("path").and_then(Value::as_str);
+
+		let raw_path = if let Some(p) = path_input {
+			p.to_string()
+		} else {
+			container
+				.kv
+				.get("req.path")
+				.cloned()
+				.unwrap_or_else(|| "/".to_string())
+		};
+
+		let path_normalized = raw_path.trim_start_matches('/'); // Normalize: remove leading slash
+
+		// 3. Construct Full URL
+		// Logic: {prefix}/{path}
+		let full_url = format!("{}/{}", url_prefix, path_normalized);
 
 		let method = inputs.get("method").and_then(Value::as_str);
 
@@ -88,18 +115,27 @@ impl L7Middleware for FetchUpstreamPlugin {
 			.and_then(Value::as_bool)
 			.unwrap_or(false);
 
+		log(LogLevel::Debug, &format!("➜ Upstream Target: {}", full_url));
+
 		let result = match version {
 			"auto" | "h1" | "h1.1" | "h2" => {
-				hyper_client::execute_hyper_request(container, url, method, Some(version), skip_verify)
-					.await
+				hyper_client::execute_hyper_request(
+					container,
+					&full_url,
+					method,
+					Some(version),
+					skip_verify,
+				)
+				.await
 			}
-			"h3" => quinn_client::execute_quinn_request(url, skip_verify).await,
+			"h3" => quinn_client::execute_quinn_request(&full_url, skip_verify).await,
 			_ => {
 				log(
 					LogLevel::Warn,
 					&format!("⚠ Unknown version '{}', falling back to auto.", version),
 				);
-				hyper_client::execute_hyper_request(container, url, method, Some("auto"), skip_verify).await
+				hyper_client::execute_hyper_request(container, &full_url, method, Some("auto"), skip_verify)
+					.await
 			}
 		};
 
