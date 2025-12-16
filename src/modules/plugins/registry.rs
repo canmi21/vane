@@ -14,6 +14,7 @@ use super::{
 		},
 		upgrader::upgrade::UpgradePlugin,
 	},
+	upstream::FetchUpstreamPlugin,
 };
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
@@ -29,7 +30,7 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		Arc::new(ProtocolDetectPlugin),
 		// Universal Matcher
 		Arc::new(CommonMatchPlugin),
-		// Terminators
+		// Terminators (L4/L4+)
 		Arc::new(AbortConnectionPlugin),
 		transparent_proxy.clone(),
 		Arc::new(ProxyNodePlugin),
@@ -38,6 +39,8 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		// Ratelimits
 		Arc::new(KeywordRateLimitSecPlugin),
 		Arc::new(KeywordRateLimitMinPlugin),
+		// Drivers (L7)
+		Arc::new(FetchUpstreamPlugin),
 	];
 
 	for plugin in plugins {
