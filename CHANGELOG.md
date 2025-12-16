@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.2 (16. Dec, 2025)
+
+- **Added:** Implemented **Zero-Copy Virtual UDP Socket** (`src/modules/stack/protocol/carrier/quic/virtual_socket.rs`). This high-performance IO adapter implements `quinn::AsyncUdpSocket`, allowing Vane to inject raw UDP packets directly from the L4 Dispatcher into the QUIC engine's memory space, bypassing additional kernel socket overhead and enabling true port sharing between stateless UDP and stateful QUIC flows.
+- **Added:** Introduced the **QUIC Muxer Manager** (`src/modules/stack/protocol/carrier/quic/muxer.rs`). This subsystem manages the lifecycle of internal Quinn Endpoints, bridging stateless L4 UDP datagrams to stateful L7 QUIC connections via high-speed asynchronous channels (`mpsc`).
+- **Added:** Integrated the **L7 HTTP/3 Engine** (`src/modules/stack/protocol/application/h3.rs`). Vane can now perform full QUIC termination and HTTP/3 processing, utilizing `h3` and `h3-quinn` to map QUIC bidirectional streams into the universal L7 Container for middleware pipeline execution.
+- **Changed:** Refined the **QUIC Carrier** (`quic.rs`) to utilize the new Muxer architecture. When an `h3` upgrade signal is detected, the carrier now seamlessly feeds the Initial packet into the Virtual Socket to establish the L7 session context.
+- **Fixed:** Resolved a critical lifetime variance issue in the **TCP Dispatcher** (`dispatcher.rs`). The protocol identifier string is now properly owned/cloned before being moved into asynchronous carrier tasks, preventing "borrowed value does not live long enough" compilation errors during plaintext protocol upgrades.
+- **Fixed:** Enforced exhaustive pattern matching for `ConnectionObject::Virtual` across all Terminator plugins (`proxy`, `abort`, `upgrade`). This ensures internal L7 virtual streams are handled gracefully rather than causing compilation failures.
+
 ## 0.5.1 (16. Dec, 2025)
 
 - **Added:** Implemented the **Plaintext L4+ Carrier** (`src/modules/stack/protocol/carrier/plain.rs`). This engine manages unencrypted TCP flows that have been identified as HTTP (or other plaintext protocols), bridging the gap between raw L4 TCP and the L7 Application layer.
