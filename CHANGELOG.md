@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.5 (17. Dec, 2025)
+
+- **Added:** Implemented the **Fetch Upstream Driver** (`src/modules/plugins/upstream/`). This core L7 middleware enables Vane to act as a reverse proxy by forwarding requests to backend servers. It features a **Dual-Engine Architecture**, shipping with a production-ready TCP Engine (Hyper-based) and a reserved interface for the future UDP/QUIC Engine.
+- **Added:** Integrated a **Global Connection Pool** (`pool.rs`) for the TCP Engine. Utilizes `hyper-util` and `hyper-rustls` to maintain persistent Keep-Alive connections, supporting automatic ALPN negotiation (H1/H2) and configurable SSL verification policies (secure by default, with an optional `skip_verify` flag).
+- **Added:** Implemented **Zero-Copy Request Forwarding**. The upstream driver leverages the `VaneBody` architecture to "steal" the payload from the Container's Request slot and pipe it directly to the upstream socket, utilizing Rust's ownership model to ensure memory efficiency.
+- **Changed:** Updated the **Plugin Registry** to include `internal.driver.upstream`. This plugin is now available for use in Application flow configurations with parameters for `url`, `method`, `version`, and `skip_verify`.
+
 ## 0.5.4 (17. Dec, 2025)
 
 - **Added:** Introduced the **Privileged L7 Middleware Interface** (`L7Middleware`) in the plugin system. This trait utilizes `&mut dyn Any` context injection to break circular dependencies between the plugin model and the stack, granting specialized plugins direct mutable access to the L7 `Container` (Body & KV) for advanced operations like WAFs or Upstream Drivers.
