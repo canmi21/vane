@@ -166,8 +166,6 @@ pub trait Plugin: Send + Sync + Any {
 		None
 	}
 
-	/// Returns a reference to the L7-aware middleware interface if implemented.
-	/// This allows privileged access to the L7 Container (Body/Context) via `Any`.
 	fn as_l7_middleware(&self) -> Option<&dyn L7Middleware> {
 		None
 	}
@@ -182,7 +180,7 @@ pub trait Middleware: Plugin {
 /// A privileged middleware trait that grants access to the full L7 Context.
 ///
 /// **Architecture Note:**
-/// The `context` argument is passed as `&mut dyn Any` to break the cyclic dependency
+/// The `context` argument is passed as `&mut (dyn Any + Send)` to break the cyclic dependency
 /// between the `plugins` module and the `stack` module (where `Container` lives).
 /// Implementations must downcast this to `&mut Container`.
 #[async_trait]
@@ -191,7 +189,7 @@ pub trait L7Middleware: Plugin {
 
 	async fn execute_l7(
 		&self,
-		context: &mut dyn Any,
+		context: &mut (dyn Any + Send), // Added "+ Send" to match implementation requirements
 		inputs: ResolvedInputs,
 	) -> Result<MiddlewareOutput>;
 }
@@ -202,7 +200,7 @@ pub trait Terminator: Plugin {
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
-		kv: &mut KvStore, // Fixed signature
+		kv: &mut KvStore,
 		conn: ConnectionObject,
 	) -> Result<TerminatorResult>;
 }
