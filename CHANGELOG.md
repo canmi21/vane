@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.6 (17. Dec, 2025)
+
+- **Added:** Implemented **Smart URL Normalization**. The upstream driver now automatically handles slash sanitization (trimming trailing slashes from the prefix and leading slashes from the path), ensuring valid URL construction (e.g., `http://api/` + `/v1` -> `http://api/v1`) regardless of input formatting.
+- **Added:** Integrated **Automatic Path Forwarding**. If the `path` parameter is omitted in the configuration, the driver defaults to the original request path (`req.path`), streamlining setup for transparent reverse proxy scenarios.
+- **Changed:** Refined the **Fetch Upstream Driver** (`src/modules/plugins/upstream/`). Replaced the single `url` parameter with a flexible `url_prefix` and `path` composition model, enabling dynamic backend routing while maintaining strict base URL control.
+
 ## 0.5.5 (17. Dec, 2025)
 
 - **Added:** Implemented the **Fetch Upstream Driver** (`src/modules/plugins/upstream/`). This core L7 middleware enables Vane to act as a reverse proxy by forwarding requests to backend servers. It features a **Dual-Engine Architecture**, shipping with a production-ready TCP Engine (Hyper-based) and a reserved interface for the future UDP/QUIC Engine.
