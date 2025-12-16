@@ -109,6 +109,8 @@ pub enum ConnectionObject {
 		client_addr: SocketAddr,
 	},
 	Stream(Box<dyn ByteStream>),
+	// Virtual connection for L7 internal flows or abstract contexts
+	Virtual(String),
 }
 
 impl fmt::Debug for ConnectionObject {
@@ -125,6 +127,10 @@ impl fmt::Debug for ConnectionObject {
 			ConnectionObject::Stream(_) => f
 				.debug_struct("ConnectionObject::Stream")
 				.field("type", &"Box<dyn ByteStream>")
+				.finish(),
+			ConnectionObject::Virtual(desc) => f
+				.debug_struct("ConnectionObject::Virtual")
+				.field("desc", desc)
 				.finish(),
 		}
 	}
@@ -173,7 +179,7 @@ pub trait Terminator: Plugin {
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
-		kv: &mut KvStore, // FIXED: Changed from &KvStore to &mut KvStore
+		kv: &mut KvStore, // Fixed signature
 		conn: ConnectionObject,
 	) -> Result<TerminatorResult>;
 }

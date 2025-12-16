@@ -67,11 +67,33 @@ pub async fn dispatch_tcp_connection(
 											}
 										});
 									}
-									// ... other protocols
+									("http", ConnectionObject::Tcp(stream)) => {
+										tokio::spawn(async move {
+											if let Err(e) =
+												carrier::plain::run(stream, &mut kv_store, parent_path, "http").await
+											{
+												log(LogLevel::Error, &format!("✗ HTTP Carrier failed: {:#}", e));
+											}
+										});
+									}
+									// FIXED: Create an owned String for the closure to capture
+									(proto_str, ConnectionObject::Tcp(stream)) => {
+										let proto_owned = proto_str.to_string();
+										tokio::spawn(async move {
+											if let Err(e) =
+												carrier::plain::run(stream, &mut kv_store, parent_path, &proto_owned).await
+											{
+												log(
+													LogLevel::Error,
+													&format!("✗ Plain Carrier ({}) failed: {:#}", proto_owned, e),
+												);
+											}
+										});
+									}
 									(p, _) => {
 										log(
 											LogLevel::Error,
-											&format!("✗ Unsupported upgrade protocol '{}'.", p),
+											&format!("✗ Unsupported upgrade protocol '{}' or object mismatch.", p),
 										);
 									}
 								}

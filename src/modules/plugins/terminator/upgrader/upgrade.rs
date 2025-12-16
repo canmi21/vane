@@ -62,14 +62,13 @@ impl Terminator for UpgradePlugin {
 			.ok_or_else(|| anyhow!("Resolved input 'protocol' is missing or not a string"))?;
 
 		// Handle optional Certificate SNI override ('cert')
-		// Logic: Only valid for L4+ -> L7 upgrades (ConnectionObject::Stream).
 		if let Some(cert_sni) = inputs.get("cert").and_then(Value::as_str) {
 			match conn {
 				ConnectionObject::Tcp(_) | ConnectionObject::Udp { .. } => {
 					log(
 						LogLevel::Warn,
 						&format!(
-							"⚠ Ignored 'cert' parameter for L4 -> L4+ upgrade to '{}'. Certificates are handled during L4+ termination.",
+							"⚠ Ignored 'cert' parameter for L4 -> L4+ upgrade to '{}'.",
 							protocol
 						),
 					);
@@ -84,39 +83,33 @@ impl Terminator for UpgradePlugin {
 					);
 					kv.insert("tls.termination.cert_sni".to_string(), cert_sni.to_string());
 				}
+				ConnectionObject::Virtual(_) => {
+					// Virtual connections in L7 might support this if re-encrypting
+				}
 			}
 		}
 
-		// Enforce strict transmission layer compatibility rules.
 		match (&conn, protocol) {
-			(ConnectionObject::Tcp(_), "tls") | (ConnectionObject::Tcp(_), "http") => {
-				// Valid: TCP -> Stream Protocols
-			}
-			(ConnectionObject::Udp { .. }, "quic") => {
-				// Valid: UDP -> QUIC
-			}
-			(ConnectionObject::Tcp(_), "quic") => {
-				return Err(anyhow!(
-					"Invalid Upgrade: Cannot upgrade TCP connection to QUIC."
-				));
-			}
+			(ConnectionObject::Tcp(_), "tls") | (ConnectionObject::Tcp(_), "http") => {}
+			(ConnectionObject::Udp { .. }, "quic") => {}
+			(ConnectionObject::Tcp(_), "quic") => return Err(anyhow!("Invalid Upgrade: TCP -> QUIC")),
 			(ConnectionObject::Udp { .. }, "tls") | (ConnectionObject::Udp { .. }, "http") => {
-				return Err(anyhow!(
-					"Invalid Upgrade: Cannot upgrade UDP connection to stream-based protocols (TLS/HTTP) directly."
-				));
+				return Err(anyhow!("Invalid Upgrade: UDP -> Stream"));
 			}
-			(ConnectionObject::Stream(_), _) => {
-				// Valid: Encrypted/Virtual Stream (L4+) -> Application Layer (L7)
-			}
-			_ => {
+			(ConnectionObject::Stream(_), _) => {}
+			(ConnectionObject::Virtual(_), _) => {
 				log(
 					LogLevel::Warn,
 					&format!(
-						"⚠ Allowing unchecked upgrade to '{}' for connection state.",
+						"⚠ Attempting upgrade on Virtual connection to '{}'.",
 						protocol
 					),
 				);
 			}
+			_ => log(
+				LogLevel::Warn,
+				&format!("⚠ Allowing unchecked upgrade to '{}'.", protocol),
+			),
 		}
 
 		log(

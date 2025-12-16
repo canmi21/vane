@@ -8,11 +8,9 @@ pub mod proxy;
 use crate::modules::{
 	kv::KvStore, plugins::model::ConnectionObject, stack::transport::model::ResolvedTarget,
 };
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
 
-/// Common execution logic for transport proxy plugins.
-/// Acts as a polymorphic dispatcher based on the ConnectionObject type.
 pub async fn execute_proxy(
 	target: ResolvedTarget,
 	kv: &KvStore,
@@ -24,61 +22,39 @@ pub async fn execute_proxy(
 		.unwrap_or("unknown");
 
 	match conn {
-		// Case 1: Raw TCP (L4)
 		ConnectionObject::Tcp(stream) => {
 			proxy::proxy_tcp_stream(stream, target).await?;
 		}
-
-		// Case 2: Generic/Encrypted Stream (L4+)
 		ConnectionObject::Stream(stream) => {
 			log(
 				LogLevel::Debug,
 				&format!(
-					"➜ Proxying L4+ Stream ({}) to upstream {}:{}",
+					"➜ Proxying L4+ Stream ({}) to {}:{}",
 					protocol, target.ip, target.port
 				),
 			);
 			proxy::proxy_generic_stream(stream, target).await?;
 		}
-
-		// Case 3: UDP Datagram
 		ConnectionObject::Udp {
 			socket,
 			datagram,
 			client_addr,
 		} => {
-			// Check if we are running inside a QUIC Carrier context (L4+).
-			// If so, we must use the session-aware association proxy to ensure
-			// replies can be routed back to the correct client.
 			let is_quic = kv
 				.get("conn.proto.carrier")
 				.map(|p| p == "quic")
 				.unwrap_or(false);
-
 			if is_quic {
-				log(
-					LogLevel::Debug,
-					&format!(
-						"➜ Proxying QUIC flow from {} to upstream {}:{}",
-						client_addr, target.ip, target.port
-					),
-				);
 				proxy::proxy_quic_association(socket, &datagram, client_addr, target).await?;
 			} else {
-				log(
-					LogLevel::Debug,
-					&format!(
-						"➜ Proxying UDP datagram from {} to {}:{}",
-						client_addr, target.ip, target.port
-					),
-				);
 				proxy::proxy_udp_direct(socket, &datagram, client_addr, target).await?;
 			}
-
-			log(
-				LogLevel::Debug,
-				&format!("✓ UDP proxy action initiated for {}.", client_addr),
-			);
+		}
+		ConnectionObject::Virtual(desc) => {
+			return Err(anyhow!(
+				"Cannot transport-proxy a Virtual connection: {}",
+				desc
+			));
 		}
 	}
 
