@@ -1073,7 +1073,9 @@ dependencies = [
  "http 1.4.0",
  "hyper 1.8.1",
  "hyper-util",
+ "log",
  "rustls 0.23.35",
+ "rustls-native-certs",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.4",
@@ -3116,7 +3118,7 @@ dependencies = [
 
 [[package]]
 name = "vane"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "anynet",
@@ -3140,6 +3142,7 @@ dependencies = [
  "http-body-util",
  "httparse",
  "hyper 1.8.1",
+ "hyper-rustls 0.27.7",
  "hyper-util",
  "lazy-motd",
  "lazy_static",
@@ -3153,6 +3156,7 @@ dependencies = [
  "rcgen",
  "regex",
  "reqwest 0.12.25",
+ "rustls 0.23.35",
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
