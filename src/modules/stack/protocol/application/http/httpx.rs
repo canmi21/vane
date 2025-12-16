@@ -61,11 +61,11 @@ async fn serve_request(
 
 	// WRAPPER INTEGRATION:
 	// Wrap Hyper Incoming body directly into VaneBody::Hyper
-	let payload = PayloadState::Http(VaneBody::Hyper(body));
+	// Assign to REQUEST slot
+	let request_payload = PayloadState::Http(VaneBody::Hyper(body));
+	// Initialize RESPONSE slot
+	let response_payload = PayloadState::Empty;
 
-	// SETUP RESPONSE CHANNEL
-	// The Flow Terminator will send the response (Headers/Status) to this channel.
-	// The Body will be left in the Container.
 	let (res_tx, res_rx) = oneshot::channel::<Response<()>>();
 
 	let mut kv = KvStore::new();
@@ -80,13 +80,12 @@ async fn serve_request(
 		}
 	}
 
-	// Pass response_tx to Container
-	let mut container = Container::new(kv, payload, Some(res_tx));
+	let mut container = Container::new(kv, request_payload, response_payload, Some(res_tx));
 
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();
 		match registry.get(&protocol_id) {
-			Some(c) => c.value().clone(), // Clone ARC
+			Some(c) => c.value().clone(),
 			None => {
 				log(
 					LogLevel::Error,
@@ -97,8 +96,6 @@ async fn serve_request(
 		}
 	};
 
-	// Execute Flow
-	// This will run Middlewares -> FetchUpstream (fills payload) -> Terminator (sends signal)
 	if let Err(e) = flow::execute_l7(&config.pipeline, &mut container, "".to_string()).await {
 		log(
 			LogLevel::Error,
@@ -113,16 +110,12 @@ async fn serve_request(
 			let (parts, _) = response_parts.into_parts();
 
 			// CRITICAL: Retrieve the Response Body from the Container!
-			// The container holds the payload which might be:
-			// 1. The original Upstream Response Stream (VaneBody::Hyper/H3)
-			// 2. A Buffered Response (if WAF ran)
-			// 3. Generated Content (if Terminator set it)
-			let final_body = extract_body_from_container(&mut container);
+			// We extract from response_body slot now.
+			let final_body = extract_response_body_from_container(&mut container);
 
 			Ok(Response::from_parts(parts, final_body))
 		}
 		Err(_) => {
-			// Terminator didn't run or failed to send response
 			log(
 				LogLevel::Warn,
 				"⚠ Flow finished but no response signal received.",
@@ -132,32 +125,22 @@ async fn serve_request(
 	}
 }
 
-/// Helper to extract and convert the Container's payload into a Hyper-compatible BoxBody.
-fn extract_body_from_container(container: &mut Container) -> BoxBody<Bytes, Error> {
-	// Steal the payload
-	let payload = std::mem::replace(&mut container.payload, PayloadState::Empty);
+/// Helper to extract and convert the Container's RESPONSE payload.
+fn extract_response_body_from_container(container: &mut Container) -> BoxBody<Bytes, Error> {
+	// Steal the RESPONSE payload
+	let payload = std::mem::replace(&mut container.response_body, PayloadState::Empty);
 
 	match payload {
-		PayloadState::Http(vane_body) => {
-			// VaneBody implements Body<Data=Bytes, Error=Error>
-			// We just need to box it to erase the specific VaneBody type
-			vane_body.boxed()
-		}
-		PayloadState::Buffered(bytes) => {
-			// Convert Bytes to a Body
-			Full::new(bytes).map_err(|e| match e {}).boxed()
-		}
-		PayloadState::Generic => {
-			// Treat generic stream as empty for HTTP
-			BoxBody::default()
-		}
+		PayloadState::Http(vane_body) => vane_body.boxed(),
+		PayloadState::Buffered(bytes) => Full::new(bytes).map_err(|e| match e {}).boxed(),
+		PayloadState::Generic => BoxBody::default(),
 		PayloadState::Empty => BoxBody::default(),
 	}
 }
 
 fn response_error(status: u16, msg: &str) -> Response<BoxBody<Bytes, Error>> {
 	let body = Full::new(Bytes::from(msg.to_string()))
-		.map_err(|e| match e {}) // Infallible -> Error
+		.map_err(|e| match e {})
 		.boxed();
 	Response::builder().status(status).body(body).unwrap()
 }
