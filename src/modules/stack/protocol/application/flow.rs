@@ -4,7 +4,7 @@ use super::container::Container;
 use crate::modules::{
 	kv::plugin_output,
 	plugins::{
-		model::{ConnectionObject, ProcessingStep, TerminatorResult},
+		model::{ConnectionObject, MiddlewareOutput, ProcessingStep, TerminatorResult},
 		registry,
 	},
 };
@@ -42,12 +42,30 @@ async fn execute_recursive_l7(
 
 	log(
 		LogLevel::Debug,
-		&format!("➜ [L7] Executing: {} ({})", plugin_name, flow_path),
+		&format!("➜ L7 Executing: {} ({})", plugin_name, flow_path),
 	);
 
-	// 2. Execute Middleware
-	if let Some(middleware) = plugin.as_middleware() {
-		let output = middleware.execute(resolved_inputs).await?;
+	// 2. Execute Middleware (Priority: L7 Privileged > Standard)
+	// We explicitly type the result to help type inference
+	let output_result: Option<anyhow::Result<MiddlewareOutput>> =
+		if let Some(l7_middleware) = plugin.as_l7_middleware() {
+			// Privileged execution with mutable access to Container (Body)
+			// Cast concrete Container to &mut dyn Any to satisfy trait signature
+			Some(
+				l7_middleware
+					.execute_l7(container, resolved_inputs.clone())
+					.await,
+			)
+		} else if let Some(middleware) = plugin.as_middleware() {
+			// Standard execution (Metadata only)
+			Some(middleware.execute(resolved_inputs.clone()).await)
+		} else {
+			None
+		};
+
+	// Process Middleware Output if applicable
+	if let Some(result) = output_result {
+		let output = result?;
 
 		// Merge plugin outputs
 		if let Some(updates) = output.store {
@@ -80,7 +98,7 @@ async fn execute_recursive_l7(
 	}
 
 	Err(anyhow!(
-		"Plugin '{}' type mismatch: Expected Middleware or Terminator",
+		"Plugin '{}' type mismatch: Expected Middleware (L7/Std) or Terminator",
 		plugin_name
 	))
 }
@@ -98,15 +116,17 @@ async fn resolve_inputs_l7(
 				let lookup_key = &s[2..s.len() - 2];
 
 				// --- Magic Word: Payload Access ---
-				// We support both req.* and res.* variants.
-				// The semantic meaning depends on which phase of the pipeline we are in,
-				// but physically they both map to the current `container.payload`.
+				// Updated for Dual-Slot Architecture (Request vs Response)
 				if matches!(
 					lookup_key,
 					"req.body" | "req.body_hex" | "res.body" | "res.body_hex"
 				) {
-					// TRIGGER: Lazy Buffer
-					let bytes = container.force_buffer().await?;
+					// Route to correct slot buffer
+					let bytes = if lookup_key.starts_with("req.") {
+						container.force_buffer_request().await?
+					} else {
+						container.force_buffer_response().await?
+					};
 
 					let is_hex = lookup_key.ends_with("_hex");
 					let val_str = if is_hex {
