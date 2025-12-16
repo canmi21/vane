@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.5.1"
+version = "0.5.2"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -53,7 +53,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 hickory-resolver = "0.25"
 tls-parser = "0.12"
 nom = "8"
-quinn = "0.11"
+quinn = { version = "0.11", features = ["runtime-tokio"] }
 quinn-proto = "0.11"
 tokio-rustls = "0.26"
 rustls-pemfile = "2"
