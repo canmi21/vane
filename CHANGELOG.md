@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.3 (17. Dec, 2025)
+
+- **Added:** Implemented the **Unified L7 Body Wrapper** (`src/modules/stack/protocol/application/http/wrapper.rs`). Introduced `VaneBody` and `H3BodyAdapter` to bridge the impedance mismatch between Hyper (`Incoming`) and Quinn (`Bytes`), enabling a polymorphic, zero-copy payload transport across HTTP/1.1, HTTP/2, and HTTP/3.
+- **Added:** Architected the **H3 Driver Actor Model** (`src/modules/stack/protocol/application/http/h3.rs`). The H3 engine now spawns a dedicated driver task that decouples the bidirectional `RequestStream` ownership. It pumps request body chunks into a channel for the Container and waits for asynchronous response signals from the Terminator, effectively solving critical lifetime and borrow checker conflicts in the async runtime.
+- **Changed:** Refactored the **L7 Container** (`container.rs`) to support **Response Signaling**. The container now carries an ephemeral `oneshot::Sender`, allowing the Flow Engine's Terminator to inject response metadata (Status/Headers) back into the protocol adapter without requiring direct access to the underlying physical socket.
+- **Changed:** Upgraded the **HTTPX Adapter** (`httpx.rs`) to the new Response Channel architecture. The adapter now suspends execution until a signal is received from the Terminator, allowing fully dynamic status codes (e.g., 201, 204, 404) and payload transformations via the middleware pipeline, replacing the previous hardcoded success response logic.
+
 ## 0.5.2 (16. Dec, 2025)
 
 - **Added:** Implemented **Zero-Copy Virtual UDP Socket** (`src/modules/stack/protocol/carrier/quic/virtual_socket.rs`). This high-performance IO adapter implements `quinn::AsyncUdpSocket`, allowing Vane to inject raw UDP packets directly from the L4 Dispatcher into the QUIC engine's memory space, bypassing additional kernel socket overhead and enabling true port sharing between stateless UDP and stateful QUIC flows.
