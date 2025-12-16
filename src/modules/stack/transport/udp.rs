@@ -322,7 +322,8 @@ pub async fn dispatch_udp_datagram(
 					match (protocol.as_str(), conn) {
 						("quic", conn_obj) => {
 							tokio::spawn(async move {
-								if let Err(e) = carrier::quic::run(conn_obj, &mut kv_store, parent_path).await {
+								if let Err(e) = carrier::quic::quic::run(conn_obj, &mut kv_store, parent_path).await
+								{
 									log(LogLevel::Error, &format!("✗ QUIC Carrier failed: {:#}", e));
 								}
 							});
