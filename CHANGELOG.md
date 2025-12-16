@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.1 (16. Dec, 2025)
+
+- **Added:** Implemented the **Plaintext L4+ Carrier** (`src/modules/stack/protocol/carrier/plain.rs`). This engine manages unencrypted TCP flows that have been identified as HTTP (or other plaintext protocols), bridging the gap between raw L4 TCP and the L7 Application layer.
+- **Added:** Integrated **Zero-Copy HTTP Header Peeking** for L4+ routing. The Plaintext Carrier now uses `httparse` to inspect the initial TCP buffer, extracting `http.host`, `http.method`, and `http.path` into the KV Store for routing decisions without consuming the socket or requiring full termination.
+- **Changed:** Expanded the **TCP Dispatcher** to support plaintext protocol upgrades. The dispatcher now correctly routes `http` signals from the L4 Flow Engine to the new Plaintext Carrier, enabling a complete "TCP -> L4+ HTTP -> L7 HTTPX" execution path.
+
 ## 0.5.0 (16. Dec, 2025)
 
 - **Breaking:** Refactored the `Terminator` trait signature. The `execute` method now accepts a mutable `&mut KvStore` instead of an immutable reference, enabling plugins to write back to the context during termination logic. All custom terminator plugins must be updated.
