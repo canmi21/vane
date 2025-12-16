@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.0 (16. Dec, 2025)
+
+- **Breaking:** Refactored the `Terminator` trait signature. The `execute` method now accepts a mutable `&mut KvStore` instead of an immutable reference, enabling plugins to write back to the context during termination logic. All custom terminator plugins must be updated.
+- **Breaking:** Expanded the `ConnectionObject` enum with a `Virtual(String)` variant. This represents internal L7 states or abstract contexts where a physical socket has been consumed by an adapter (e.g., Hyper). Match arms on `ConnectionObject` in existing code must now handle this variant.
+- **Added:** Implemented the **L7 Container Architecture**. Introduced a protocol-agnostic "Envelope" (`src/modules/stack/protocol/application/container.rs`) that holds metadata (KV) and a polymorphic `PayloadState`. This supports **Lazy Buffering**, allowing streams to remain 0-copy by default but automatically buffering into memory when "Magic Words" (e.g., `{{req.body}}`) are detected in plugin templates.
+- **Added:** Integrated the **L7 HTTPX Adapter**. Added `application/httpx.rs` powered by `hyper` (v1), enabling Vane to act as a high-performance HTTP/1.1 and HTTP/2 server. The adapter maps incoming requests to the L7 Container and executes the configured flow pipeline.
+- **Added:** Implemented the **TLS Decryptor Bridge**. Created `decryptor.rs` to handle the physical transition from L4+ (TLS Stream) to L7 (Cleartext). It performs server-side TLS termination, ALPN negotiation, and seamless handover to the L7 engine.
+- **Added:** Enhanced the Certificate Loader with **Auto-Generation**. Vane now automatically checks for a `default.crt/key` pair on startup. If missing or expiring within 7 days, a self-signed certificate (localhost/127.0.0.1) is automatically generated using `rcgen`, ensuring zero-config SSL readiness.
+- **Changed:** Upgraded the `internal.transport.upgrade` plugin to support a specific `cert` parameter. This allows flows to override the automatic SNI-based certificate lookup with a specific certificate ID during the L4+ to L7 transition.
+- **Changed:** Refactored internal Certificate Registry storage. The registry now holds `Arc<LoadedCert>` containing raw `PrivateKeyDer` bytes instead of pre-built `CertifiedKey` objects, resolving `rustls` 0.23 cloning limitations during custom TLS acceptor construction.
+
 ## 0.4.9 (15. Dec, 2025)
 
 - **Added:** Implemented the **L7 Application Layer Infrastructure**. Introduced the `application` configuration subsystem (`src/modules/stack/protocol/application/`), enabling Vane to manage high-level application protocols (e.g., `httpx`) independently of the underlying transport carrier.
