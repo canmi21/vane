@@ -5,7 +5,7 @@ use crate::common::getenv;
 use crate::modules::{
 	kv::KvStore,
 	plugins::model::{ConnectionObject, TerminatorResult},
-	stack::protocol::{application::httpx, carrier::model::RESOLVER_REGISTRY},
+	stack::protocol::{application::http::httpx, carrier::model::RESOLVER_REGISTRY},
 };
 use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
