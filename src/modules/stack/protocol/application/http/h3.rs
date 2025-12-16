@@ -76,21 +76,21 @@ where
 
 	// --- 1. Infrastructure Setup (Channels) ---
 
-	// Body Channel: Result<Bytes> alias already includes Error, so we just pass T
 	let (body_tx, body_rx) = mpsc::channel::<Result<Bytes>>(32);
-	// Wrap in Option to handle EOF drop without moving in loop
 	let mut body_tx = Some(body_tx);
 
-	// Response Channel
 	let (res_tx, res_rx) = oneshot::channel::<Response<()>>();
-	// Pin res_rx because we poll it in a loop
 	tokio::pin!(res_rx);
 
 	// --- 2. Container Construction ---
 
 	let adapter = H3BodyAdapter::new(body_rx);
 	let boxed_body = adapter.map_err(|e| e).boxed();
-	let payload = PayloadState::Http(VaneBody::H3(boxed_body));
+
+	// Assign H3 Body to REQUEST slot
+	let request_payload = PayloadState::Http(VaneBody::H3(boxed_body));
+	// Initialize RESPONSE slot as Empty
+	let response_payload = PayloadState::Empty;
 
 	let mut kv = KvStore::new();
 	kv.insert("req.proto".to_string(), "h3".to_string());
@@ -107,17 +107,16 @@ where
 		}
 	}
 
-	let mut container = Container::new(kv, payload, Some(res_tx));
+	let mut container = Container::new(kv, request_payload, response_payload, Some(res_tx));
 
 	// --- 3. Logic Execution (Spawned) ---
 
-	// FIX: Clone the config Arc so it outlives the registry guard
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();
 		registry
 			.get("h3")
 			.or_else(|| registry.get("httpx"))
-			.map(|entry| entry.value().clone()) // Clone the Arc<ApplicationConfig>
+			.map(|entry| entry.value().clone())
 			.ok_or_else(|| anyhow::anyhow!("No application config found for 'h3' or 'httpx'"))?
 	};
 
@@ -132,22 +131,18 @@ where
 	loop {
 		tokio::select! {
 			// Branch A: Pump Request Body (Stream -> Channel)
-			// Only enabled if we still have a sender (body_tx is Some)
 			recv_result = stream.recv_data(), if body_tx.is_some() => {
 				match recv_result {
 					Ok(Some(mut buf)) => {
 						let bytes = buf.copy_to_bytes(buf.remaining());
-						// We know body_tx is Some because of the guard
 						if let Some(tx) = body_tx.as_ref() {
 							if tx.send(Ok(bytes)).await.is_err() {
-								// Consumer closed, stop pumping
 								body_tx = None;
 							}
 						}
 					}
 					Ok(None) => {
-						// EOF
-						body_tx = None; // Drop sender signals EOF to consumer
+						body_tx = None;
 					}
 					Err(e) => {
 						if let Some(tx) = body_tx.as_ref() {
@@ -159,7 +154,6 @@ where
 			}
 
 			// Branch B: Wait for Response Signal
-			// Use &mut res_rx to poll the pinned future without moving it
 			res_signal = &mut res_rx => {
 				match res_signal {
 					Ok(response) => {
@@ -168,7 +162,7 @@ where
 							log(LogLevel::Error, &format!("✗ Failed to send H3 headers: {}", e));
 						}
 						let _ = stream.finish().await;
-						break; // Transaction done
+						break;
 					}
 					Err(_) => {
 						log(LogLevel::Warn, "⚠ L7 Flow finished without Response Signal.");
