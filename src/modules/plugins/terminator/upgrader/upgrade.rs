@@ -84,8 +84,7 @@ impl Terminator for UpgradePlugin {
 					kv.insert("tls.termination.cert_sni".to_string(), cert_sni.to_string());
 				}
 				ConnectionObject::Virtual(_) => {
-					// Virtual connections in L7 might support this if re-encrypting?
-					// For now, treat as no-op.
+					// Virtual connections in L7 might support this if re-encrypting
 				}
 			}
 		}
