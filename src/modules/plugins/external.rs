@@ -169,7 +169,7 @@ impl Terminator for ExternalPlugin {
 	async fn execute(
 		&self,
 		_inputs: ResolvedInputs,
-		_kv: &KvStore,
+		_kv: &mut KvStore,
 		_conn: ConnectionObject,
 	) -> Result<TerminatorResult> {
 		Err(anyhow!(

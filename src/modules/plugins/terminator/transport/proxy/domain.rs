@@ -56,7 +56,7 @@ impl Terminator for ProxyDomainPlugin {
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
-		kv: &KvStore,
+		kv: &mut KvStore,
 		conn: ConnectionObject,
 	) -> Result<TerminatorResult> {
 		let target_domain = inputs

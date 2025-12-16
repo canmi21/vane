@@ -173,7 +173,7 @@ pub trait Terminator: Plugin {
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
-		kv: &KvStore,
+		kv: &mut KvStore, // FIXED: Changed from &KvStore to &mut KvStore
 		conn: ConnectionObject,
 	) -> Result<TerminatorResult>;
 }
