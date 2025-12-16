@@ -1,12 +1,14 @@
 /* src/modules/certs/loader.rs */
 
-use crate::common::getconf;
+use crate::common::{getconf, requirements::Result};
 use crate::modules::certs::{arcswap, format};
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
+use x509_parser::prelude::{FromDer, parse_x509_pem};
 
 struct CertCandidate {
 	crt: Option<PathBuf>,
@@ -22,6 +24,120 @@ impl CertCandidate {
 			key: None,
 		}
 	}
+}
+
+/// Ensures that a valid 'default.crt' and 'default.key' exist in the certs directory.
+/// If missing or expiring within 7 days, it generates a new self-signed pair.
+fn ensure_default_certificate() {
+	let config_dir = getconf::get_config_dir().join("certs");
+	if !config_dir.exists() {
+		if let Err(e) = fs::create_dir_all(&config_dir) {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to create certs dir: {}", e),
+			);
+			return;
+		}
+	}
+
+	let cert_path = config_dir.join("default.crt");
+	let key_path = config_dir.join("default.key");
+
+	let mut should_generate = false;
+	let mut reason = "Missing files";
+
+	// 1. Check existence
+	if !cert_path.exists() || !key_path.exists() {
+		should_generate = true;
+	} else {
+		// 2. Check expiration
+		match check_cert_expiration(&cert_path) {
+			Ok(is_expiring) => {
+				if is_expiring {
+					should_generate = true;
+					reason = "Expiring within 7 days";
+				}
+			}
+			Err(e) => {
+				log(
+					LogLevel::Warn,
+					&format!("⚠ Failed to parse default cert, force regenerating: {}", e),
+				);
+				should_generate = true;
+				reason = "Invalid format";
+			}
+		}
+	}
+
+	// 3. Generate if needed
+	if should_generate {
+		log(
+			LogLevel::Info,
+			&format!(
+				"⚙ Generating self-signed 'default' certificate ({})",
+				reason
+			),
+		);
+		if let Err(e) = generate_self_signed(&cert_path, &key_path) {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to generate default certificate: {}", e),
+			);
+		} else {
+			log(
+				LogLevel::Info,
+				"✓ Default certificate generated/renewed successfully.",
+			);
+		}
+	}
+}
+
+/// Checks if the certificate at the given path is expiring within 7 days.
+fn check_cert_expiration(cert_path: &Path) -> Result<bool> {
+	let content =
+		fs::read(cert_path).map_err(|e| crate::common::requirements::Error::Io(e.to_string()))?;
+
+	// Parse PEM
+	let (_, pem) = parse_x509_pem(&content)
+		.map_err(|e| crate::common::requirements::Error::Tls(format!("PEM parse error: {}", e)))?;
+
+	// Parse X509
+	let (_, x509) = x509_parser::certificate::X509Certificate::from_der(&pem.contents)
+		.map_err(|e| crate::common::requirements::Error::Tls(format!("X509 parse error: {}", e)))?;
+
+	let not_after = x509.validity.not_after.timestamp();
+	let now = SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.unwrap()
+		.as_secs() as i64;
+
+	// 7 days in seconds
+	let buffer_seconds = 7 * 24 * 60 * 60;
+
+	if not_after - now < buffer_seconds {
+		Ok(true)
+	} else {
+		Ok(false)
+	}
+}
+
+/// Generates a self-signed certificate (localhost, 127.0.0.1) using rcgen.
+fn generate_self_signed(cert_path: &Path, key_path: &Path) -> Result<()> {
+	let subject_alt_names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
+
+	let certified_key = rcgen::generate_simple_self_signed(subject_alt_names)
+		.map_err(|e| crate::common::requirements::Error::Tls(format!("rcgen error: {}", e)))?;
+
+	let pem_cert = certified_key.cert.pem();
+	// FIXED: Use `signing_key` field instead of `key_pair`
+	let pem_key = certified_key.signing_key.serialize_pem();
+
+	fs::write(cert_path, pem_cert)
+		.map_err(|e| crate::common::requirements::Error::Io(e.to_string()))?;
+	fs::write(key_path, pem_key)
+		.map_err(|e| crate::common::requirements::Error::Io(e.to_string()))?;
+
+	Ok(())
 }
 
 /// Scans the certs directory and applies the Keep-Last-Good strategy.
@@ -177,5 +293,6 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 
 /// Initial loader called by bootstrap.
 pub fn initialize() {
+	ensure_default_certificate();
 	scan_and_load_certs();
 }
