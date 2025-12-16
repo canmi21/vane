@@ -39,45 +39,17 @@ impl fmt::Debug for PayloadState {
 	}
 }
 
-/// The Universal L7 Container (The Envelope).
-pub struct Container {
-	/// Metadata Store (Headers, Attributes, Routing info)
-	pub kv: KvStore,
-
-	/// The primary payload (Request Body or Upstream Message)
-	pub payload: PayloadState,
-
-	/// A signaling channel to send the Final Response Headers back to the Protocol Adapter.
-	/// The Adapter (h3) consumes this when the Flow finishes.
-	/// We use `Option` so the Terminator can take ownership of the sender.
-	pub response_tx: Option<oneshot::Sender<Response<()>>>,
-}
-
-impl Container {
-	pub fn new(
-		kv: KvStore,
-		payload: PayloadState,
-		response_tx: Option<oneshot::Sender<Response<()>>>,
-	) -> Self {
-		Self {
-			kv,
-			payload,
-			response_tx,
-		}
-	}
-
-	/// Triggers the "Lazy Buffer" mechanism.
-	/// Consumes the current stream and replaces it with a Buffered state.
-	pub async fn force_buffer(&mut self) -> Result<&Bytes> {
+impl PayloadState {
+	/// Internal helper to buffer the current state into memory.
+	async fn force_buffer(&mut self) -> Result<&Bytes> {
 		let max_len_str = getenv::get_env("L7_MAX_BUFFER_SIZE", "10485760".to_string()); // Default 10MB
 		let max_len = max_len_str.parse::<usize>().unwrap_or(10485760);
 
-		// Temporarily take ownership of the payload
-		let current_state = std::mem::replace(&mut self.payload, PayloadState::Empty);
+		// Temporarily take ownership of self to perform transition
+		let current_state = std::mem::replace(self, PayloadState::Empty);
 
 		match current_state {
 			PayloadState::Http(body) => {
-				// Collect the VaneBody (H1, H2, or H3 wrapper)
 				let collected = body
 					.collect()
 					.await
@@ -92,24 +64,65 @@ impl Container {
 					)));
 				}
 
-				self.payload = PayloadState::Buffered(bytes);
+				*self = PayloadState::Buffered(bytes);
 			}
 			PayloadState::Buffered(bytes) => {
-				// Already buffered, put it back
-				self.payload = PayloadState::Buffered(bytes);
+				*self = PayloadState::Buffered(bytes);
 			}
 			PayloadState::Generic => {
-				// For now, generic implies empty buffer for HTTP context
-				self.payload = PayloadState::Buffered(Bytes::new());
+				*self = PayloadState::Buffered(Bytes::new());
 			}
 			PayloadState::Empty => {
-				self.payload = PayloadState::Buffered(Bytes::new());
+				*self = PayloadState::Buffered(Bytes::new());
 			}
 		}
 
-		match &self.payload {
+		match self {
 			PayloadState::Buffered(b) => Ok(b),
-			_ => unreachable!("Payload must be buffered after force_buffer"),
+			_ => unreachable!("Payload must be buffered after force_buffer logic"),
 		}
+	}
+}
+
+/// The Universal L7 Container (The Envelope).
+pub struct Container {
+	/// Metadata Store (Headers, Attributes, Routing info)
+	pub kv: KvStore,
+
+	/// The Request Body (From Client).
+	/// Populated at start. Consumed by FetchUpstream.
+	pub request_body: PayloadState,
+
+	/// The Response Body (From Upstream or Generator).
+	/// Populated by FetchUpstream or Terminator. Sent to Client.
+	pub response_body: PayloadState,
+
+	/// A signaling channel to send the Final Response Headers back to the Protocol Adapter.
+	pub response_tx: Option<oneshot::Sender<Response<()>>>,
+}
+
+impl Container {
+	pub fn new(
+		kv: KvStore,
+		request_body: PayloadState,
+		response_body: PayloadState,
+		response_tx: Option<oneshot::Sender<Response<()>>>,
+	) -> Self {
+		Self {
+			kv,
+			request_body,
+			response_body,
+			response_tx,
+		}
+	}
+
+	/// Triggers Lazy Buffering for the REQUEST Body.
+	pub async fn force_buffer_request(&mut self) -> Result<&Bytes> {
+		self.request_body.force_buffer().await
+	}
+
+	/// Triggers Lazy Buffering for the RESPONSE Body.
+	pub async fn force_buffer_response(&mut self) -> Result<&Bytes> {
+		self.response_body.force_buffer().await
 	}
 }
