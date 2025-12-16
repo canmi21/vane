@@ -43,7 +43,7 @@ impl Terminator for AbortConnectionPlugin {
 	async fn execute(
 		&self,
 		_inputs: ResolvedInputs,
-		_kv: &KvStore,
+		_kv: &mut KvStore,
 		conn: ConnectionObject,
 	) -> Result<TerminatorResult> {
 		log(LogLevel::Debug, "➜ Aborting connection intentionally...");

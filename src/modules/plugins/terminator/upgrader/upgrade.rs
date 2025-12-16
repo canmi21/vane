@@ -21,11 +21,18 @@ impl Plugin for UpgradePlugin {
 	}
 
 	fn params(&self) -> Vec<ParamDef> {
-		vec![ParamDef {
-			name: "protocol".into(),
-			required: true,
-			param_type: ParamType::String,
-		}]
+		vec![
+			ParamDef {
+				name: "protocol".into(),
+				required: true,
+				param_type: ParamType::String,
+			},
+			ParamDef {
+				name: "cert".into(),
+				required: false,
+				param_type: ParamType::String,
+			},
+		]
 	}
 
 	fn as_any(&self) -> &dyn Any {
@@ -46,7 +53,7 @@ impl Terminator for UpgradePlugin {
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
-		_kv: &KvStore,
+		kv: &mut KvStore,
 		conn: ConnectionObject,
 	) -> Result<TerminatorResult> {
 		let protocol = inputs
@@ -54,8 +61,33 @@ impl Terminator for UpgradePlugin {
 			.and_then(Value::as_str)
 			.ok_or_else(|| anyhow!("Resolved input 'protocol' is missing or not a string"))?;
 
+		// Handle optional Certificate SNI override ('cert')
+		// Logic: Only valid for L4+ -> L7 upgrades (ConnectionObject::Stream).
+		if let Some(cert_sni) = inputs.get("cert").and_then(Value::as_str) {
+			match conn {
+				ConnectionObject::Tcp(_) | ConnectionObject::Udp { .. } => {
+					log(
+						LogLevel::Warn,
+						&format!(
+							"⚠ Ignored 'cert' parameter for L4 -> L4+ upgrade to '{}'. Certificates are handled during L4+ termination.",
+							protocol
+						),
+					);
+				}
+				ConnectionObject::Stream(_) => {
+					log(
+						LogLevel::Debug,
+						&format!(
+							"⚙ Upgrade requested with explicit cert override: {}",
+							cert_sni
+						),
+					);
+					kv.insert("tls.termination.cert_sni".to_string(), cert_sni.to_string());
+				}
+			}
+		}
+
 		// Enforce strict transmission layer compatibility rules.
-		// A TCP stream cannot become a QUIC stream, and UDP cannot become TLS (directly).
 		match (&conn, protocol) {
 			(ConnectionObject::Tcp(_), "tls") | (ConnectionObject::Tcp(_), "http") => {
 				// Valid: TCP -> Stream Protocols
@@ -73,8 +105,10 @@ impl Terminator for UpgradePlugin {
 					"Invalid Upgrade: Cannot upgrade UDP connection to stream-based protocols (TLS/HTTP) directly."
 				));
 			}
+			(ConnectionObject::Stream(_), _) => {
+				// Valid: Encrypted/Virtual Stream (L4+) -> Application Layer (L7)
+			}
 			_ => {
-				// Fallback for unknown protocols or abstract streams, allow with warning
 				log(
 					LogLevel::Warn,
 					&format!(
@@ -93,7 +127,7 @@ impl Terminator for UpgradePlugin {
 		Ok(TerminatorResult::Upgrade {
 			protocol: protocol.to_string(),
 			conn,
-			parent_path: String::new(), // Engine will overwrite this with correct path
+			parent_path: String::new(),
 		})
 	}
 }

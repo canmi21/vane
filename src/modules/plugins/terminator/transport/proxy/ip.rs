@@ -55,7 +55,7 @@ impl Terminator for TransparentProxyPlugin {
 	async fn execute(
 		&self,
 		inputs: ResolvedInputs,
-		kv: &KvStore,
+		kv: &mut KvStore,
 		conn: ConnectionObject,
 	) -> Result<TerminatorResult> {
 		let target_ip = inputs
