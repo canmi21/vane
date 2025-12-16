@@ -3,3 +3,5 @@
 pub mod muxer;
 pub mod quic;
 pub mod virtual_socket;
+
+pub use quic::run;
