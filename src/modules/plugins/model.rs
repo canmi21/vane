@@ -165,12 +165,35 @@ pub trait Plugin: Send + Sync + Any {
 	fn as_terminator(&self) -> Option<&dyn Terminator> {
 		None
 	}
+
+	/// Returns a reference to the L7-aware middleware interface if implemented.
+	/// This allows privileged access to the L7 Container (Body/Context) via `Any`.
+	fn as_l7_middleware(&self) -> Option<&dyn L7Middleware> {
+		None
+	}
 }
 
 #[async_trait]
 pub trait Middleware: Plugin {
 	fn output(&self) -> Vec<Cow<'static, str>>;
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
+}
+
+/// A privileged middleware trait that grants access to the full L7 Context.
+///
+/// **Architecture Note:**
+/// The `context` argument is passed as `&mut dyn Any` to break the cyclic dependency
+/// between the `plugins` module and the `stack` module (where `Container` lives).
+/// Implementations must downcast this to `&mut Container`.
+#[async_trait]
+pub trait L7Middleware: Plugin {
+	fn output(&self) -> Vec<Cow<'static, str>>;
+
+	async fn execute_l7(
+		&self,
+		context: &mut dyn Any,
+		inputs: ResolvedInputs,
+	) -> Result<MiddlewareOutput>;
 }
 
 #[async_trait]

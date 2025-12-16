@@ -3,7 +3,7 @@
 use super::virtual_socket::{VirtualPacket, VirtualUdpSocket};
 use crate::common::getenv;
 use crate::common::requirements::{Error, Result};
-use crate::modules::{certs, stack::protocol::application::h3};
+use crate::modules::{certs, stack::protocol::application::http::h3};
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
