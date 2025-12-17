@@ -13,10 +13,10 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use bytes::Bytes;
 use fancy_log::{LogLevel, log};
-use http::{HeaderMap, HeaderName, HeaderValue, Response, StatusCode};
+use http::{HeaderValue, Response, StatusCode};
 use http_body_util::Full;
 use serde_json::Value;
-use std::{any::Any, str::FromStr};
+use std::any::Any;
 
 pub struct SendResponsePlugin;
 
@@ -78,20 +78,10 @@ impl L7Terminator for SendResponsePlugin {
 			StatusCode::OK
 		};
 
-		// 2. Prepare Headers from KV (res.header.*)
-		let mut headers = HeaderMap::new();
-
-		// KvStore is HashMap, iter() returns (&k, &v) tuple.
-		for (key, value) in container.kv.iter() {
-			if key.starts_with("res.header.") {
-				let header_name_str = &key[11..]; // len("res.header.")
-				if let Ok(name) = HeaderName::from_str(header_name_str) {
-					if let Ok(val) = HeaderValue::from_str(value) {
-						headers.insert(name, val);
-					}
-				}
-			}
-		}
+		// 2. Prepare Headers (Native HeaderMap)
+		// We use the container's native headers as the base.
+		// No need to rebuild from KV.
+		let headers = &mut container.response_headers;
 
 		// 3. Handle Body & Content-Type Logic
 		if let Some(static_body) = inputs.get("body").and_then(Value::as_str) {
@@ -138,7 +128,8 @@ impl L7Terminator for SendResponsePlugin {
 		// 4. Construct Response (Headers Only)
 		let mut response = Response::builder().status(status_code).body(()).unwrap();
 
-		*response.headers_mut() = headers;
+		// Zero-Copy swap: Move the prepared headers into the Response object
+		*response.headers_mut() = std::mem::take(headers);
 
 		// 5. Signal Adapter
 		if let Some(tx) = container.response_tx.take() {
