@@ -21,7 +21,6 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 	log(LogLevel::Debug, "➜ Starting L7 H3 Engine...");
 
 	let h3_quinn_conn = h3_quinn::Connection::new(quic_conn);
-
 	let mut h3_conn: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
 		match h3::server::Connection::new(h3_quinn_conn).await {
 			Ok(driver) => driver,
@@ -74,16 +73,14 @@ where
 {
 	let (parts, _) = req.into_parts();
 
-	// --- 1. Infrastructure Setup (Channels) ---
-
+	// Infrastructure Setup Channels
 	let (body_tx, body_rx) = mpsc::channel::<Result<Bytes>>(32);
 	let mut body_tx = Some(body_tx);
 
 	let (res_tx, res_rx) = oneshot::channel::<Response<()>>();
 	tokio::pin!(res_rx);
 
-	// --- 2. Container Construction ---
-
+	// Container Construction
 	let adapter = H3BodyAdapter::new(body_rx);
 	let boxed_body = adapter.map_err(|e| e).boxed();
 
@@ -109,7 +106,7 @@ where
 
 	let mut container = Container::new(kv, request_payload, response_payload, Some(res_tx));
 
-	// --- 3. Logic Execution (Spawned) ---
+	// Logic Execution Spawned
 
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();
@@ -126,7 +123,7 @@ where
 		}
 	});
 
-	// --- 4. The Driver Loop (The Actor) ---
+	// The Driver Loop (The Actor)
 
 	loop {
 		tokio::select! {
