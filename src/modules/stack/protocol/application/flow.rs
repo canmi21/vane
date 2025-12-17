@@ -13,7 +13,6 @@ use fancy_log::{LogLevel, log};
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Executes the L7 Middleware Pipeline using the Container.
 pub async fn execute_l7(
 	step: &ProcessingStep,
 	container: &mut Container,
@@ -32,7 +31,6 @@ async fn execute_recursive_l7(
 		.next()
 		.ok_or_else(|| anyhow!("Empty processing step encountered"))?;
 
-	// 1. Resolve Inputs (Async & Container Aware)
 	let resolved_inputs = resolve_inputs_l7(&instance.input, container)
 		.await
 		.with_context(|| format!("Input resolution failed for '{}'", plugin_name))?;
@@ -45,37 +43,28 @@ async fn execute_recursive_l7(
 		&format!("➜ L7 Executing: {} ({})", plugin_name, flow_path),
 	);
 
-	// 2. Execute Middleware (Priority: L7 Privileged > Standard)
-	// We explicitly type the result to help type inference
+	// 2. Execute Middleware
 	let output_result: Option<anyhow::Result<MiddlewareOutput>> =
 		if let Some(l7_middleware) = plugin.as_l7_middleware() {
-			// Privileged execution with mutable access to Container (Body)
-			// Cast concrete Container to &mut dyn Any to satisfy trait signature
 			Some(
 				l7_middleware
 					.execute_l7(container, resolved_inputs.clone())
 					.await,
 			)
 		} else if let Some(middleware) = plugin.as_middleware() {
-			// Standard execution (Metadata only)
 			Some(middleware.execute(resolved_inputs.clone()).await)
 		} else {
 			None
 		};
 
-	// Process Middleware Output if applicable
 	if let Some(result) = output_result {
 		let output = result?;
-
-		// Merge plugin outputs
 		if let Some(updates) = output.store {
 			for (k, v) in updates {
 				let scoped_key = plugin_output::format_scoped_key(&flow_path, plugin_name, &k);
 				container.kv.insert(scoped_key, v);
 			}
 		}
-
-		// Branching
 		if let Some(next_step) = instance.output.get(output.branch.as_ref()) {
 			let next_path = plugin_output::next_path(&flow_path, plugin_name, output.branch.as_ref());
 			return Box::pin(execute_recursive_l7(next_step, container, next_path)).await;
@@ -88,9 +77,12 @@ async fn execute_recursive_l7(
 		}
 	}
 
-	// 3. Execute Terminator
+	// 3. Execute Terminator (L7 Priority > Standard)
+	if let Some(l7_terminator) = plugin.as_l7_terminator() {
+		return l7_terminator.execute_l7(container, resolved_inputs).await;
+	}
+
 	if let Some(terminator) = plugin.as_terminator() {
-		// Use Virtual Connection for L7 internal termination
 		let conn_placeholder = ConnectionObject::Virtual("L7_Managed_Context".into());
 		return terminator
 			.execute(resolved_inputs, &mut container.kv, conn_placeholder)
@@ -98,7 +90,7 @@ async fn execute_recursive_l7(
 	}
 
 	Err(anyhow!(
-		"Plugin '{}' type mismatch: Expected Middleware (L7/Std) or Terminator",
+		"Plugin '{}' type mismatch: Expected Middleware (L7/Std) or Terminator (L7/Std)",
 		plugin_name
 	))
 }
@@ -115,13 +107,10 @@ async fn resolve_inputs_l7(
 			if s.starts_with("{{") && s.ends_with("}}") {
 				let lookup_key = &s[2..s.len() - 2];
 
-				// --- Magic Word: Payload Access ---
-				// Updated for Dual-Slot Architecture (Request vs Response)
 				if matches!(
 					lookup_key,
 					"req.body" | "req.body_hex" | "res.body" | "res.body_hex"
 				) {
-					// Route to correct slot buffer
 					let bytes = if lookup_key.starts_with("req.") {
 						container.force_buffer_request().await?
 					} else {
@@ -139,7 +128,6 @@ async fn resolve_inputs_l7(
 					continue;
 				}
 
-				// --- Standard Metadata Lookup ---
 				if let Some(kv_val) = container.kv.get(lookup_key) {
 					resolved.insert(key.clone(), Value::String(kv_val.clone()));
 				} else {
