@@ -8,6 +8,7 @@ use super::{
 	model::Plugin,
 	protocol::detect::ProtocolDetectPlugin,
 	terminator::{
+		response::SendResponsePlugin,
 		transport::{
 			abort::AbortConnectionPlugin,
 			proxy::{domain::ProxyDomainPlugin, ip::TransparentProxyPlugin, node::ProxyNodePlugin},
@@ -41,6 +42,8 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		Arc::new(KeywordRateLimitMinPlugin),
 		// Drivers (L7)
 		Arc::new(FetchUpstreamPlugin),
+		// Terminators (L7)
+		Arc::new(SendResponsePlugin),
 	];
 
 	for plugin in plugins {
