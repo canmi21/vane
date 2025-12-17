@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.7 (17. Dec, 2025)
+
+- **Added:** Introduced the **L7 Terminator Interface** (`L7Terminator`) within the plugin system. This privileged trait allows termination logic to directly access the `Container` and its response signaling channel, enabling decoupled communication between the Flow Engine and Protocol Adapters.
+- **Added:** Implemented the **Send Response Terminator** (`src/modules/plugins/terminator/response/`). This core plugin finalizes the L7 lifecycle by constructing HTTP responses from KV metadata (`res.status`, `res.header.*`) or static configuration, and signaling the waiting Adapter to flush data to the client.
+- **Added:** Integrated **Content-Type Sniffing**. The response terminator now automatically detects MIME types (JSON, HTML, Text) for static or buffered bodies using magic byte analysis (`infer`) and structural validation, ensuring correct `Content-Type` headers when explicit configuration is absent.
+- **Changed:** Updated the **L7 Flow Engine** (`flow.rs`) to prioritize `L7Terminator` execution. The engine now correctly casts and passes the `Container` (as `Any + Send`) to the terminator, completing the "Actor Model" loop for request-response processing.
+
 ## 0.5.6 (17. Dec, 2025)
 
 - **Added:** Implemented **Smart URL Normalization**. The upstream driver now automatically handles slash sanitization (trimming trailing slashes from the prefix and leading slashes from the path), ensuring valid URL construction (e.g., `http://api/` + `/v1` -> `http://api/v1`) regardless of input formatting.
