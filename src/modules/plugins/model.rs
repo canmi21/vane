@@ -9,8 +9,6 @@ use std::{any::Any, borrow::Cow, collections::HashMap, fmt, net::SocketAddr, syn
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpStream, UdpSocket};
 
-// --- Configuration Data Structures ---
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PluginInstance {
 	#[serde(default)]
@@ -109,7 +107,6 @@ pub enum ConnectionObject {
 		client_addr: SocketAddr,
 	},
 	Stream(Box<dyn ByteStream>),
-	// Virtual connection for L7 internal flows or abstract contexts
 	Virtual(String),
 }
 
@@ -149,7 +146,7 @@ pub enum TerminatorResult {
 	Upgrade {
 		protocol: String,
 		conn: ConnectionObject,
-		parent_path: String, // Added field to track path continuity
+		parent_path: String,
 	},
 }
 
@@ -169,6 +166,10 @@ pub trait Plugin: Send + Sync + Any {
 	fn as_l7_middleware(&self) -> Option<&dyn L7Middleware> {
 		None
 	}
+
+	fn as_l7_terminator(&self) -> Option<&dyn L7Terminator> {
+		None
+	}
 }
 
 #[async_trait]
@@ -177,19 +178,12 @@ pub trait Middleware: Plugin {
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
 }
 
-/// A privileged middleware trait that grants access to the full L7 Context.
-///
-/// **Architecture Note:**
-/// The `context` argument is passed as `&mut (dyn Any + Send)` to break the cyclic dependency
-/// between the `plugins` module and the `stack` module (where `Container` lives).
-/// Implementations must downcast this to `&mut Container`.
 #[async_trait]
 pub trait L7Middleware: Plugin {
 	fn output(&self) -> Vec<Cow<'static, str>>;
-
 	async fn execute_l7(
 		&self,
-		context: &mut (dyn Any + Send), // Added "+ Send" to match implementation requirements
+		context: &mut (dyn Any + Send),
 		inputs: ResolvedInputs,
 	) -> Result<MiddlewareOutput>;
 }
@@ -202,5 +196,16 @@ pub trait Terminator: Plugin {
 		inputs: ResolvedInputs,
 		kv: &mut KvStore,
 		conn: ConnectionObject,
+	) -> Result<TerminatorResult>;
+}
+
+/// A privileged terminator trait that grants access to the full L7 Context.
+/// Used for plugins that need to signal responses (SendResponse) or inspect Body during termination.
+#[async_trait]
+pub trait L7Terminator: Plugin {
+	async fn execute_l7(
+		&self,
+		context: &mut (dyn Any + Send),
+		inputs: ResolvedInputs,
 	) -> Result<TerminatorResult>;
 }
