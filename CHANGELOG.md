@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.8 (18. Dec, 2025)
+
+- **Added:** Implemented the **HTTP/3 Upstream Engine** (`quinn_client.rs`) backed by a **Global QUIC Connection Pool** (`quic_pool.rs`). The system now supports high-performance, multiplexed HTTP/3 tunneling with connection reuse, automatic ALPN negotiation, and concurrent body streaming, completing the "Dual-Engine" promise.
+- **Added:** Integrated **Unified Network Infrastructure** for Upstream Drivers. Both Hyper (H1/H2) and Quinn (H3) clients now bridge to Vane's internal **Async DNS Resolver** (`hickory-resolver`), honoring custom `NAMESERVER` environment variables. Additionally, integrated `rustls-native-certs` to load system root certificates, enabling trusted HTTPS connections for both TCP and UDP transports.
+- **Changed:** Refactored the **L7 Container Architecture** to implement **Native Header Passthrough**. Replaced the legacy KV-based header storage with zero-copy `http::HeaderMap` slots (`request_headers` / `response_headers`). This guarantees correct handling of multi-value headers (e.g., `Set-Cookie`) and case-sensitivity while eliminating serialization overhead during standard forwarding.
+- **Changed:** Upgraded the **L7 Flow Engine** (`flow.rs`) with **Template Hijacking**. The engine now prioritizes "Magic Words" (`{{req.header.*}}`, `{{req.body}}`) via an **On-Demand Access** strategy. It directly queries the Container's native storage or triggers lazy buffering only when requested, treating the KV store as a fallback rather than the primary data source.
+- **Changed:** Optimized the **Hyper TCP Engine** (`hyper_client.rs`). Removed redundant Response-Header-to-KV synchronization loops (relying on the new Smart Hijacking instead) and implemented automatic **Host Header Rewriting** to prevent upstream 404 errors caused by mismatching SNI/Host values.
+
 ## 0.5.7 (17. Dec, 2025)
 
 - **Added:** Introduced the **L7 Terminator Interface** (`L7Terminator`) within the plugin system. This privileged trait allows termination logic to directly access the `Container` and its response signaling channel, enabling decoupled communication between the Flow Engine and Protocol Adapters.
