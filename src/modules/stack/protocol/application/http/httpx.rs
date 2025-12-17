@@ -12,7 +12,7 @@ use crate::modules::stack::protocol::application::{
 use fancy_log::{LogLevel, log};
 
 use bytes::Bytes;
-use http::{Request, Response};
+use http::{HeaderMap, Request, Response};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::Incoming;
 use hyper::service::service_fn;
@@ -57,10 +57,9 @@ async fn serve_request(
 	req: Request<Incoming>,
 	protocol_id: String,
 ) -> std::result::Result<Response<BoxBody<Bytes, Error>>, Error> {
-	let (parts, body) = req.into_parts();
-
-	// WRAPPER INTEGRATION:
 	// Wrap Hyper Incoming body directly into VaneBody::Hyper
+	let (mut parts, body) = req.into_parts();
+
 	// Assign to REQUEST slot
 	let request_payload = PayloadState::Http(VaneBody::Hyper(body));
 	// Initialize RESPONSE slot
@@ -68,6 +67,7 @@ async fn serve_request(
 
 	let (res_tx, res_rx) = oneshot::channel::<Response<()>>();
 
+	// http metadata
 	let mut kv = KvStore::new();
 	kv.insert("req.proto".to_string(), protocol_id.clone());
 	kv.insert("req.method".to_string(), parts.method.to_string());
@@ -80,7 +80,19 @@ async fn serve_request(
 		}
 	}
 
-	let mut container = Container::new(kv, request_payload, response_payload, Some(res_tx));
+	// Pass full HeaderMap to Container Zero-Copy Move
+	// We take ownership of parts.headers.
+	let request_headers = std::mem::take(&mut parts.headers);
+	let response_headers = HeaderMap::new();
+
+	let mut container = Container::new(
+		kv,
+		request_headers,
+		request_payload,
+		response_headers,
+		response_payload,
+		Some(res_tx),
+	);
 
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();
