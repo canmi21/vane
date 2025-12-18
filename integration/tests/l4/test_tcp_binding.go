@@ -13,47 +13,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type TestFunc func(ctx context.Context, s *env.Sandbox) error
-
-type TestCase struct {
-	Name string
-	Desc string
-	Run  TestFunc
-}
-
-func GetTests() []TestCase {
-	return []TestCase{
-		{
-			Name: "test_tcp_binding",
-			Desc: "Verifies Vane can bind to a random TCP port from config",
-			Run:  TestBasicBinding,
-		},
-	}
-}
-
-func TestBasicBinding(ctx context.Context, s *env.Sandbox) error {
+func TestTcpBinding(ctx context.Context, s *env.Sandbox) error {
 	debug, _ := ctx.Value(env.DebugKey).(bool)
 
-	// 1. Get 1 free port for TCP
 	ports, err := env.GetFreePorts(1)
 	if err != nil {
 		return err
 	}
-	tcpPort := ports[0]
+	vanePort := ports[0]
 
-	// --- Config Generation ---
-
-	// Dummy target to satisfy validation (must have at least one target)
-	dummyTarget := basic.Target{
-		Ip:   "127.0.0.1",
-		Port: 9999,
-	}
-
-	// TCP Config
+	// Config
 	tcpConf := basic.LegacyTcpConfig{
 		Protocols: []basic.TcpProtocolRule{
 			{
-				Name:     "testtcp",
+				// FIXED: Name must be strictly [a-z0-9]+ (no underscores)
+				Name:     "bindingtest",
 				Priority: 1,
 				Detect: basic.Detect{
 					Method:  basic.DetectFallback,
@@ -62,72 +36,55 @@ func TestBasicBinding(ctx context.Context, s *env.Sandbox) error {
 				Destination: basic.TcpDestination{
 					Type: "forward",
 					Forward: &basic.Forward{
-						Strategy:  basic.StrategyRandom,
-						Targets:   []basic.Target{dummyTarget},
-						Fallbacks: []basic.Target{},
+						Strategy: basic.StrategyRandom,
+						Targets: []basic.Target{
+							{Ip: "127.0.0.1", Port: 9999}, // Dummy
+						},
 					},
 				},
 			},
 		},
 	}
 
-	// Serialize to YAML
-	tcpBytes, err := yaml.Marshal(tcpConf)
+	bytes, err := yaml.Marshal(tcpConf)
 	if err != nil {
-		return fmt.Errorf("failed to marshal tcp config: %w", err)
-	}
-
-	// Write Configs
-	if err := s.WriteConfig(fmt.Sprintf("listener/[%d]/tcp.yaml", tcpPort), tcpBytes); err != nil {
 		return err
 	}
 
-	// Required files for startup
-	if err := s.WriteConfig("nodes.yaml", []byte("nodes: []")); err != nil {
-		return err
-	}
-	if err := s.WriteConfig("plugins.json", []byte("{}")); err != nil {
+	if err := s.WriteConfig(fmt.Sprintf("listener/[%d]/tcp.yaml", vanePort), bytes); err != nil {
 		return err
 	}
 
-	// --- Start Vane ---
+	// Start
 	proc, err := s.StartVane(ctx, debug)
 	if err != nil {
 		return err
 	}
 	defer proc.Stop()
 
-	// --- Verify TCP Binding (With Retry) ---
-	target := fmt.Sprintf("127.0.0.1:%d", tcpPort)
-	var conn net.Conn
+	// Verify
+	target := fmt.Sprintf("127.0.0.1:%d", vanePort)
 	var dialErr error
-
-	for i := 0; i < 20; i++ { // Retry 20 times (2s total)
-		conn, dialErr = net.DialTimeout("tcp", target, 200*time.Millisecond)
-		if dialErr == nil {
+	for i := 0; i < 20; i++ {
+		conn, err := net.DialTimeout("tcp", target, 200*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			dialErr = nil
 			break
 		}
+		dialErr = err
 		time.Sleep(100 * time.Millisecond)
 	}
 
 	if dialErr != nil {
 		root := term.NewNode("")
-		scenario := root.Add("Test Scenario")
-		scenario.Add(fmt.Sprintf("Action: Dial TCP %s", target))
-		scenario.Add("Retries: 20x 100ms")
-
-		result := root.Add("Result")
-		result.Add(fmt.Sprintf("Error: %v", dialErr))
-		result.Add("Status: Process running")
-
+		root.Add("Details: Failed to connect to TCP port")
+		root.Add(fmt.Sprintf("Error: %v", dialErr))
 		if !debug {
-			logs := root.Add("Logs (Snippet)")
-			logs.Add(proc.DumpLogs())
+			root.Add("Logs").Add(proc.DumpLogs())
 		}
-
-		return term.FormatFailure("Failed to connect to TCP port", root)
+		return term.FormatFailure("Binding check failed", root)
 	}
-	conn.Close()
 
 	return nil
 }
