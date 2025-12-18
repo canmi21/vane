@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -41,12 +43,14 @@ func (s *Sandbox) StartVane(ctx context.Context, debugMode bool) (*Process, erro
 		"DEV_PROJECT_DIR=/tmp/void",
 	)
 
-	var logBuf *bytes.Buffer
+	// FIXED: Always initialize buffer to allow WaitForLog to work
+	logBuf := &bytes.Buffer{}
+
 	if debugMode {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		// In debug mode, write to BOTH stdout/stderr AND the buffer
+		cmd.Stdout = io.MultiWriter(os.Stdout, logBuf)
+		cmd.Stderr = io.MultiWriter(os.Stderr, logBuf)
 	} else {
-		logBuf = &bytes.Buffer{}
 		cmd.Stdout = logBuf
 		cmd.Stderr = logBuf
 	}
@@ -64,8 +68,7 @@ func (s *Sandbox) StartVane(ctx context.Context, debugMode bool) (*Process, erro
 
 	if err := proc.WaitForReady(5 * time.Second); err != nil {
 		proc.Stop()
-		if !debugMode && logBuf != nil {
-			// Compact error format
+		if !debugMode {
 			return nil, fmt.Errorf("vane startup failed: %w\nLogs:\n%s", err, logBuf.String())
 		}
 		return nil, fmt.Errorf("vane startup failed: %w", err)
@@ -98,6 +101,28 @@ func (p *Process) WaitForReady(timeout time.Duration) error {
 	}
 }
 
+// WaitForLog polls the log buffer until a substring appears or timeout occurs.
+func (p *Process) WaitForLog(snippet string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			logs := p.LogBuffer.String()
+			if strings.Contains(logs, snippet) {
+				return nil
+			}
+			if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
+				return fmt.Errorf("process exited while waiting for log: %s", snippet)
+			}
+		case <-time.After(time.Until(deadline)):
+			return fmt.Errorf("timeout waiting for log snippet: '%s'", snippet)
+		}
+	}
+}
+
 func (p *Process) Stop() error {
 	if p.cmd.Process == nil {
 		return nil
@@ -112,5 +137,5 @@ func (p *Process) DumpLogs() string {
 	if p.LogBuffer != nil {
 		return p.LogBuffer.String()
 	}
-	return "(Logs streamed)"
+	return "(No logs captured)"
 }
