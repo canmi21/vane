@@ -51,7 +51,8 @@ func RunTests(tests []TestCase, opts RunOptions) {
 			sb, err := env.NewSandbox()
 			if err != nil {
 				results[idx] = TestResult{Case: testCase, Success: false, Error: fmt.Errorf("sandbox init failed: %w", err)}
-				fmt.Printf("test %s ... %sFAILED%s (sandbox error)\n", testCase.Name, term.Red, term.Reset)
+				// Error output format: test #ID name ... FAILED
+				fmt.Printf("test #%d %s ... %sFAILED%s (sandbox error)\n", testCase.ID, testCase.Name, term.Red, term.Reset)
 				return
 			}
 			defer sb.Cleanup()
@@ -72,10 +73,11 @@ func RunTests(tests []TestCase, opts RunOptions) {
 			}
 			results[idx] = res
 
+			// Output format: test #ID name ... ok/FAILED
 			if res.Success {
-				fmt.Printf("test %s ... %sok%s\n", testCase.Name, term.Green, term.Reset)
+				fmt.Printf("test #%d %s ... %sok%s\n", testCase.ID, testCase.Name, term.Green, term.Reset)
 			} else {
-				fmt.Printf("test %s ... %sFAILED%s\n", testCase.Name, term.Red, term.Reset)
+				fmt.Printf("test #%d %s ... %sFAILED%s\n", testCase.ID, testCase.Name, term.Red, term.Reset)
 			}
 
 		}(i, tc)
