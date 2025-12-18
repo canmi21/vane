@@ -1,15 +1,22 @@
 /* integration/pkg/config/basic/legacy.go */
 package basic
 
-// --- Common Types (model.rs) ---
-
+// Target represents a backend destination.
 type Target struct {
-	Ip     string `yaml:"ip,omitempty"`
-	Domain string `yaml:"domain,omitempty"`
-	Node   string `yaml:"node,omitempty"`
-	Port   uint16 `yaml:"port"`
+	Ip   string `yaml:"ip"`
+	Port int    `yaml:"port"`
 }
 
+// Strategy defines how targets are selected (random, serial, fastest).
+type Strategy string
+
+const (
+	StrategyRandom  Strategy = "random"
+	StrategySerial  Strategy = "serial"
+	StrategyFastest Strategy = "fastest"
+)
+
+// DetectMethod defines how Vane identifies the protocol.
 type DetectMethod string
 
 const (
@@ -19,69 +26,53 @@ const (
 	DetectFallback DetectMethod = "fallback"
 )
 
+// Detect holds protocol detection rules.
 type Detect struct {
 	Method  DetectMethod `yaml:"method"`
 	Pattern string       `yaml:"pattern"`
 }
 
-type Strategy string
-
-const (
-	StrategyRandom  Strategy = "random"
-	StrategySerial  Strategy = "serial"
-	StrategyFastest Strategy = "fastest"
-)
-
+// Forward defines load balancing rules.
 type Forward struct {
 	Strategy  Strategy `yaml:"strategy"`
 	Targets   []Target `yaml:"targets"`
-	Fallbacks []Target `yaml:"fallbacks"`
+	Fallbacks []Target `yaml:"fallbacks,omitempty"`
 }
 
-// --- TCP Config (tcp.rs) ---
-
-type TcpSession struct {
-	Keepalive bool   `yaml:"keepalive"`
-	Timeout   uint64 `yaml:"timeout"`
-}
-
-// TcpDestination uses a custom structure because Rust uses a tagged enum:
-// #[serde(tag = "type", rename_all = "snake_case")]
-// enum TcpDestination { Resolver { resolver: String }, Forward { forward: Forward } }
+// TcpDestination defines where TCP traffic goes.
 type TcpDestination struct {
-	Type     string   `yaml:"type"`
-	Resolver string   `yaml:"resolver,omitempty"`
-	Forward  *Forward `yaml:"forward,omitempty"`
+	Type    string   `yaml:"type"` // "forward" or "resolver"
+	Forward *Forward `yaml:"forward,omitempty"`
 }
 
+// TcpProtocolRule corresponds to a single rule in protocols[].
 type TcpProtocolRule struct {
 	Name        string         `yaml:"name"`
-	Priority    uint32         `yaml:"priority"`
+	Priority    int            `yaml:"priority"`
 	Detect      Detect         `yaml:"detect"`
-	Session     *TcpSession    `yaml:"session,omitempty"`
 	Destination TcpDestination `yaml:"destination"`
 }
 
+// LegacyTcpConfig matches the [protocols] structure for TCP.
 type LegacyTcpConfig struct {
 	Protocols []TcpProtocolRule `yaml:"protocols"`
 }
 
-// --- UDP Config (udp.rs) ---
-
-// UdpDestination is similar to TcpDestination
+// UdpDestination defines where UDP traffic goes.
 type UdpDestination struct {
-	Type     string   `yaml:"type"`
-	Resolver string   `yaml:"resolver,omitempty"`
-	Forward  *Forward `yaml:"forward,omitempty"`
+	Type    string   `yaml:"type"`
+	Forward *Forward `yaml:"forward,omitempty"`
 }
 
+// UdpProtocolRule corresponds to a single rule in protocols[].
 type UdpProtocolRule struct {
 	Name        string         `yaml:"name"`
-	Priority    uint32         `yaml:"priority"`
+	Priority    int            `yaml:"priority"`
 	Detect      Detect         `yaml:"detect"`
 	Destination UdpDestination `yaml:"destination"`
 }
 
+// LegacyUdpConfig matches the [protocols] structure for UDP.
 type LegacyUdpConfig struct {
 	Protocols []UdpProtocolRule `yaml:"protocols"`
 }
