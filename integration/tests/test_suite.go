@@ -1,4 +1,4 @@
-/* integration/tests/test_suite.go (Revised) */
+/* integration/tests/test_suite.go */
 package tests
 
 import (
@@ -29,6 +29,8 @@ func Initialize() {
 }
 
 func register(name, desc string, fn TestFunc) {
+	// ID is assigned sequentially based on registration order.
+	// This ID is permanent for the session, regardless of filtering.
 	id := len(Registry) + 1
 	Registry = append(Registry, TestCase{
 		ID:          id,
