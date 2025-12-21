@@ -28,5 +28,6 @@ func GetTests() []TestCase {
 		{Name: "l4_test_tcp_flow_detect_tls", Desc: "Verifies L4 TLS Detection", Run: TestTcpFlowDetectTls},
 		{Name: "l4_test_udp_flow_detect_dns", Desc: "Verifies L4 DNS Detection", Run: TestUdpFlowDetectDns},
 		{Name: "l4_test_udp_flow_detect_quic", Desc: "Verifies L4 QUIC Detection", Run: TestUdpFlowDetectQuic},
+		{Name: "l4_test_tcp_flow_ratelimit", Desc: "Verifies L4 Rate Limiting", Run: TestTcpFlowRateLimit},
 	}
 }
