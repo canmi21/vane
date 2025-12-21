@@ -43,5 +43,15 @@ func GetTests() []TestCase {
 			Desc: "Verifies UDP listener reloads config without process restart",
 			Run:  TestUdpHotReload,
 		},
+		{
+			Name: "l4_test_tcp_flow",
+			Desc: "Verifies TCP Flow Engine with JSON config",
+			Run:  TestTcpFlowProxy,
+		},
+		{
+			Name: "l4_test_udp_flow",
+			Desc: "Verifies UDP Flow Engine with JSON config",
+			Run:  TestUdpFlowProxy,
+		},
 	}
 }
