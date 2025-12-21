@@ -7,14 +7,22 @@ package advanced
 // Params: target.ip (string), target.port (int)
 func NewTransparentProxy(ip string, port int) ProcessingStep {
 	return ProcessingStep{
-		// FIXED: Plugin name matches the Rust implementation
 		"internal.transport.proxy": PluginInstance{
 			Input: map[string]interface{}{
-				// FIXED: Split target into ip and port as per ParamDef
 				"target.ip":   ip,
 				"target.port": port,
 			},
-			// Terminators usually have no output
+			Output: nil,
+		},
+	}
+}
+
+// NewAbortConnection creates a ProcessingStep that immediately closes the connection.
+// Plugin: internal.transport.abort
+func NewAbortConnection() ProcessingStep {
+	return ProcessingStep{
+		"internal.transport.abort": PluginInstance{
+			Input:  map[string]interface{}{},
 			Output: nil,
 		},
 	}
