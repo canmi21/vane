@@ -16,24 +16,26 @@ type H3Upstream struct {
 }
 
 func NewH3Upstream() (*H3Upstream, error) {
-	// 1. Generate TLS Config
+	return NewH3UpstreamWithHandler(nil)
+}
+
+func NewH3UpstreamWithHandler(customHandler http.HandlerFunc) (*H3Upstream, error) {
 	tlsConf, err := GenerateTLSConfig([]string{"h3"})
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Setup Handler
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Upstream-Proto", "HTTP/3.0")
-		body, _ := io.ReadAll(r.Body)
-		w.Write(body)
-	})
+	if customHandler != nil {
+		mux.HandleFunc("/", customHandler)
+	} else {
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Upstream-Proto", "HTTP/3.0")
+			body, _ := io.ReadAll(r.Body)
+			w.Write(body)
+		})
+	}
 
-	// 3. Listen on UDP port
-	// http3.Server doesn't have a simple "ListenAddr" that returns the port easily before blocking.
-	// We manually create a UDP conn to get a port, then close it, then let Server listen.
-	// NOTE: Small race condition window, but acceptable for tests.
 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -57,9 +59,7 @@ func NewH3Upstream() (*H3Upstream, error) {
 	}
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			// Expected error on Close()
-		}
+		srv.ListenAndServe()
 	}()
 
 	return h3, nil
