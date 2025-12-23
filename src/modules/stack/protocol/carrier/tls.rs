@@ -2,16 +2,22 @@
 
 use super::{context, flow};
 use crate::common::getenv;
+use crate::common::requirements::{Error, Result};
 use crate::modules::{
 	kv::KvStore,
-	plugins::{model::ConnectionObject, protocol::tls::clienthello},
+	plugins::{
+		model::{ConnectionObject, TerminatorResult},
+		protocol::tls::clienthello,
+		terminator::upgrader::decryptor,
+	},
 	stack::protocol::carrier::model::RESOLVER_REGISTRY,
 };
-use anyhow::{Result, anyhow};
+use anyhow::anyhow;
 use fancy_log::{LogLevel, log};
 use tokio::net::TcpStream;
 
 /// Entry point for TLS L4+ flows.
+/// Handles ClientHello parsing, L4+ routing, and L7 Handover.
 pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Result<()> {
 	log(LogLevel::Debug, "➜ Entering TLS L4+ Resolver...");
 
@@ -20,6 +26,7 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 
 	let mut buf = vec![0u8; buffer_size];
 
+	// 1. Peek ClientHello
 	match stream.peek(&mut buf).await {
 		Ok(n) => {
 			log(
@@ -36,7 +43,6 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 						context::inject_tls_data(kv, data);
 					}
 					Err(e) => {
-						// Use {:#} to show full error chain if parsing fails
 						log(
 							LogLevel::Warn,
 							&format!("⚠ Failed to parse ClientHello (len={}): {:#}", n, e),
@@ -55,6 +61,7 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 		}
 	}
 
+	// 2. Prepare Connection & Context
 	let conn = ConnectionObject::Stream(Box::new(stream));
 	context::inject_common(kv, "tls");
 
@@ -63,14 +70,54 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 		.get("tls")
 		.ok_or_else(|| anyhow!("No resolver config found for 'tls'"))?;
 
-	if let Err(e) = flow::execute(&config.connection, kv, conn, parent_path).await {
-		// FIXED: Use {:#} to print the full error chain (Context + Root Cause)
-		log(
-			LogLevel::Error,
-			&format!("✗ TLS Flow execution failed: {:#}", e),
-		);
-		return Err(e);
-	}
+	// 3. Execute L4+ Flow
+	// We MUST capture the result to handle Upgrades (Handover).
+	let result = flow::execute(&config.connection, kv, conn, parent_path)
+		.await
+		.map_err(|e| {
+			log(
+				LogLevel::Error,
+				&format!("✗ TLS Flow execution failed: {:#}", e),
+			);
+			e
+		})?;
 
-	Ok(())
+	// 4. Handle Flow Result
+	match result {
+		TerminatorResult::Finished => {
+			log(
+				LogLevel::Debug,
+				"✓ TLS L4+ Flow finished (Connection Closed).",
+			);
+			Ok(())
+		}
+		TerminatorResult::Upgrade {
+			protocol,
+			conn,
+			parent_path: _,
+		} => {
+			// Connects L4+ to L7.
+			match protocol.as_str() {
+				"httpx" => {
+					log(
+						LogLevel::Info,
+						&format!("➜ Handing over to Decryptor for L7 protocol: {}", protocol),
+					);
+					decryptor::terminate_and_handover(conn, kv, protocol)
+						.await
+						.map_err(|e| Error::System(format!("TLS Termination Error: {:#}", e)))
+				}
+				_ => {
+					log(
+						LogLevel::Error,
+						&format!("✗ Unsupported L4+ Upgrade Target: {}", protocol),
+					);
+					Err(Error::Configuration(format!(
+						"Unknown/Unsupported protocol upgrade: {}",
+						protocol
+					)))
+				}
+			}
+		}
+	}
 }
