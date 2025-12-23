@@ -3,6 +3,8 @@
 use super::model::{CONFIG_STATE, ListenerState, Protocol, TASK_REGISTRY};
 use crate::modules::{
 	kv,
+	plugins::protocol::quic::parser,
+	stack::protocol::carrier::quic::{muxer::QuicMuxer, session},
 	stack::transport::{dispatcher, udp},
 };
 use fancy_log::{LogLevel, log};
@@ -31,8 +33,8 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 
 					// Create the KV store as soon as the connection is accepted.
 					let kv_store = kv::new(&addr, "tcp");
-
 					log(LogLevel::Debug, &format!("⚙ Accepted TCP connection from {} on port {}", addr, port));
+
 					let config_guard = CONFIG_STATE.load();
 					let port_status = config_guard.iter().find(|s| s.port == port);
 					if let Some(status) = port_status {
@@ -74,16 +76,74 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 				loop {
 					tokio::select! {
 						Ok((len, client_addr)) = socket_arc.recv_from(&mut buf) => {
-							log(LogLevel::Debug, &format!("⚙ Received {} bytes via UDP from {} on port {}", len, client_addr, port));
-							let datagram = buf[..len].to_vec();
+							// L4+ Fast Path (QUIC Session/Sticky Lookup)
+							let packet = &buf[..len];
+
+							// 1. Speculative QUIC Check (Fixed Bit must be 1)
+							if len > 0 && (packet[0] & 0x40) != 0 {
+								// Helper to hold the lookup result
+								let mut hit_session: Option<(Vec<u8>, session::SessionAction)> = None;
+
+								// 2A. Try CID Lookup
+								if (packet[0] & 0x80) != 0 {
+									// Long Header
+									if let Some(dcid) = parser::peek_long_header_dcid(packet) {
+										if let Some(action) = session::get_session(&dcid) {
+											hit_session = Some((dcid, action));
+										}
+									}
+								} else {
+									// Short Header - Speculative Try
+									for &cid_len in &[8, 12, 16] {
+										if let Some(dcid) = parser::peek_short_header_dcid(packet, cid_len) {
+											if let Some(action) = session::get_session(&dcid) {
+												hit_session = Some((dcid, action));
+												break;
+											}
+										}
+									}
+								};
+
+								// 3. Dispatch based on Hit
+								if let Some((cid, action)) = hit_session {
+									// QUIC CID HIT
+									match action {
+										session::SessionAction::Terminate { muxer_port, .. } => {
+											session::touch_session(&cid);
+											let muxer = QuicMuxer::get_or_create(muxer_port, "default", socket_arc.clone());
+											let dst_addr = socket_arc.local_addr().unwrap_or(client_addr);
+											let _ = muxer.feed_packet(packet.to_vec(), client_addr, dst_addr);
+											continue;
+										}
+										session::SessionAction::Forward { target_addr, upstream_socket, .. } => {
+											session::touch_session(&cid);
+											// Notice, This use the NAT upstream socket to send, NOT the listener
+											if let Err(e) = upstream_socket.send_to(packet, target_addr).await {
+												log(LogLevel::Debug, &format!("⚠ Fast Path Forward Error: {}", e));
+											}
+											continue;
+										}
+									}
+								} else {
+									// CID MISS -> Check Sticky IP (Fallback)
+									// Only for Transparent Proxy scenarios where we don't know the Server's CID
+									if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
+										// Hit Sticky! Blind forward using valid source socket.
+										if let Err(e) = upstream_socket.send_to(packet, target).await {
+											log(LogLevel::Debug, &format!("⚠ Sticky Forward Error: {}", e));
+										}
+										continue;
+									}
+								}
+							}
+
+							// MISS ALL: Slow Path to Flow Engine
+							let datagram = packet.to_vec();
 							let socket_clone = socket_arc.clone();
 							let config_clone = udp_config.clone();
-
-							// Create the KV store as soon as the datagram is received.
 							let kv_store = kv::new(&client_addr, "udp");
 
 							tokio::spawn(async move {
-								// FIXED: Route to the 'udp' module dispatcher which handles Flow Upgrade
 								udp::dispatch_udp_datagram(socket_clone, port, config_clone, datagram, client_addr, kv_store).await;
 							});
 						}
