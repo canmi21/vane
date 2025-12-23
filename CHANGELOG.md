@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.3 (24. Dec, 2025)
+
+- **Changed:** Architected a **Full-Duplex H3 Upstream Driver** (`quinn_client.rs`) by decoupling the Request and Response data paths into independent asynchronous tasks using `stream.split()`. This eliminates head-of-line blocking and deadlocks during large payload transfers (e.g., 1GB bidirectional streams), ensuring high-throughput streaming performance.
+- **Changed:** Refined the **L7 HTTP/3 Server Engine** (`h3.rs`) to utilize a concurrent `tokio::select!` loop that manages Request Body pumping and Response Body streaming simultaneously. This ensures the upstream response is fully flushed to the client even if the request body upload is still in progress or finishing.
+
 ## 0.6.2 (23. Dec, 2025)
 
 - **Changed:** Hardened the **QUIC Muxer Lifecycle** (`muxer.rs`) by transitioning `MUXER_REGISTRY` from Weak to Strong (`Arc`) references with an activity-based Garbage Collector. This prevents `QuicEndpoint` flapping during high-frequency packet ingress, ensuring cryptographic context persistence and eliminating "authentication failed" handshake errors.
