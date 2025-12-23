@@ -3083,7 +3083,7 @@ dependencies = [
 
 [[package]]
 name = "vane"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "anynet",
@@ -3123,6 +3123,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.26",
  "rustls 0.23.35",
+ "rustls-native-certs",
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
@@ -3137,6 +3138,7 @@ dependencies = [
  "tokio-rustls 0.26.4",
  "toml",
  "tower",
+ "tower-service",
  "uuid",
  "validator",
  "x509-parser",
