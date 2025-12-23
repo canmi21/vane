@@ -1,11 +1,22 @@
-![vane logo](https://raw.githubusercontent.com/canmi21/vane/refs/heads/latest/assets/vane.svg)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/canmi21/vane/refs/heads/latest/assets/vane.svg" alt="vane logo" width="300">
+</p>
 
-**Flow-based. Event-driven. Rust-native.**
-Like a dandelion carried by the wind, it follows direction yet defines its own.
+<p align="center">
+  <b>Flow-based. Event-driven. Rust-native.<br/>Like a dandelion carried by the wind, it follows direction yet defines its own.</b>
+</p>
 
----
+<p align="center">
+  <a href="https://crates.io/crates/vane"><img align="center" src="https://img.shields.io/crates/v/vane?style=flat&color=F09E64&labelColor=2D333B&logo=rust" alt="Crates.io version"/></a>
+  <a href="https://github.com/canmi21/vane/blob/main/LICENSE"><img align="center" src="https://img.shields.io/github/license/canmi21/vane?style=flat&color=FF6B6B&labelColor=2D333B&logo=github" alt="License"/></a>
+	<a href="https://deepwiki.com/canmi21/vane"><img align="center" src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"/></a>
+  <a href="https://github.com/canmi21/vane/graphs/contributors"><img align="center" src="https://img.shields.io/github/contributors/canmi21/vane?style=flat&color=6FCF97&labelColor=2D333B&logo=github" alt="Contributors"/></a>
+  <a href="https://github.com/canmi21/vane/actions"><img align="center" src="https://img.shields.io/github/actions/workflow/status/canmi21/vane/ci.yml?style=flat&color=3399FF&labelColor=2D333B&logo=githubactions" alt="Build Status"/></a>
+  <a href="https://crates.io/crates/vane"><img align="center" src="https://img.shields.io/crates/d/vane?style=flat&color=9B5DE5&labelColor=2D333B&logo=rust" alt="Downloads"/></a>
+  <a href="https://github.com/canmi21/vane/stargazers"><img align="center" src="https://img.shields.io/github/stars/canmi21/vane?style=flat&color=FFD43B&labelColor=2D333B&logo=github" alt="GitHub stars"/></a>
+</p>
 
-[![Crates.io version](https://img.shields.io/crates/v/vane?style=flat&color=F09E64&labelColor=2D333B&logo=rust)](https://crates.io/crates/vane) [![License](https://img.shields.io/github/license/canmi21/vane?style=flat&color=FF6B6B&labelColor=2D333B&logo=github)](https://github.com/canmi21/vane/blob/main/LICENSE) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/canmi21/vane) [![Contributors](https://img.shields.io/github/contributors/canmi21/vane?style=flat&color=6FCF97&labelColor=2D333B&logo=github)](https://github.com/canmi21/vane/graphs/contributors) [![Build Status](https://img.shields.io/github/actions/workflow/status/canmi21/vane/ci.yml?style=flat&color=3399FF&labelColor=2D333B&logo=githubactions)](https://github.com/canmi21/vane/actions) [![Downloads](https://img.shields.io/crates/d/vane?style=flat&color=9B5DE5&labelColor=2D333B&logo=rust)](https://crates.io/crates/vane) [![GitHub stars](https://img.shields.io/github/stars/canmi21/vane?style=flat&color=FFD43B&labelColor=2D333B&logo=github)](https://github.com/canmi21/vane/stargazers)
+## What is Vane
 
 Vane is a high-performance, flow-based reverse proxy and network protocol engine written in Rust. It is designed to bridge the architectural gap between raw transport layer (L4) forwarding and complex application layer (L7) processing. Unlike traditional reverse proxies that rely on static hierarchical configurations, Vane utilizes a dynamic, composable pipeline architecture that treats network connections as programmable flows.
 
@@ -59,3 +70,6 @@ Unlike proxies that treat UDP as a second-class citizen, Vane features a dedicat
 
 **✦** **`Polygon`** / **`Ethereum`**: `0x35D143d9DC624feC921a3925Fa84dea9d1DfDCAe`
 If you found this project helpful, consider supporting domain & server maintenance.
+
+---
+> GitHub · [Canmi](https://github.com/canmi21/) © 2025
