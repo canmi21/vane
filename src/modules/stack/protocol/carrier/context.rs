@@ -81,8 +81,8 @@ pub fn inject_quic_data(kv: &mut KvStore, data: QuicInitialData) {
 	log(
 		LogLevel::Debug,
 		&format!(
-			"⚙ Parsed QUIC Initial -> DCID: {}, SCID: {}, Ver: {}",
-			data.dcid, data.scid, data.version
+			"⚙ Parsed QUIC Initial -> DCID: {}, SCID: {}, Ver: {}, SNI: {:?}",
+			data.dcid, data.scid, data.version, data.sni_hint
 		),
 	);
 
@@ -96,8 +96,5 @@ pub fn inject_quic_data(kv: &mut KvStore, data: QuicInitialData) {
 
 	if let Some(sni) = data.sni_hint {
 		kv.insert("quic.sni".to_string(), sni);
-	}
-	if let Some(alpn) = data.alpn_hint {
-		kv.insert("quic.alpn".to_string(), alpn);
 	}
 }

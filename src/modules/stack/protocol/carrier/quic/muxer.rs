@@ -1,13 +1,17 @@
 /* src/modules/stack/protocol/carrier/quic/muxer.rs */
 
+use super::session::{self, SessionAction};
 use super::virtual_socket::{VirtualPacket, VirtualUdpSocket};
 use crate::common::getenv;
 use crate::common::requirements::{Error, Result};
 use crate::modules::{certs, stack::protocol::application::http::h3};
 use fancy_log::{LogLevel, log};
+use quinn::{ConnectionId, ConnectionIdGenerator};
+use rand::Rng;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio_rustls::rustls;
@@ -21,6 +25,43 @@ pub struct QuicMuxer {
 // Registry stores Weak references to allow auto-cleanup when Muxer is dropped
 static MUXER_REGISTRY: std::sync::OnceLock<Mutex<HashMap<u16, Weak<QuicMuxer>>>> =
 	std::sync::OnceLock::new();
+
+/// Custom CID Generator to ensure L4 Compatibility.
+/// Enforces 8-byte CIDs and registers them to the Session Layer.
+#[derive(Debug)]
+struct VaneCidGenerator {
+	port: u16,
+}
+
+impl ConnectionIdGenerator for VaneCidGenerator {
+	fn generate_cid(&mut self) -> ConnectionId {
+		// Enforce 8-byte CID for L4 fast-path speculative matching.
+		// 99.9% of traffic will hit the 8-byte check.
+		let mut bytes = [0u8; 8];
+		rand::rng().fill(&mut bytes);
+		let cid = ConnectionId::new(&bytes);
+
+		// Hook: Register new CID immediately (Support CID Rotation/Migration)
+		session::register_session(
+			bytes.to_vec(),
+			SessionAction::Terminate {
+				muxer_port: self.port,
+				last_seen: Instant::now(),
+			},
+		);
+
+		cid
+	}
+
+	fn cid_len(&self) -> usize {
+		8
+	}
+
+	fn cid_lifetime(&self) -> Option<Duration> {
+		// Infinite lifetime or reasonable default. None means infinite.
+		None
+	}
+}
 
 impl QuicMuxer {
 	/// Get or create a muxer for given port
@@ -68,6 +109,11 @@ impl QuicMuxer {
 		let cert_id = cert_sni.to_string();
 
 		tokio::spawn(async move {
+			// Cation that quinn 0.11 change CID Generator to EndpointConfig, not ServerConfig.
+			// Create the endpoint config and attach the generator here.
+			let mut endpoint_config = quinn::EndpointConfig::default();
+			endpoint_config.cid_generator(move || Box::new(VaneCidGenerator { port }));
+
 			let server_config = match Self::build_server_config(&cert_id) {
 				Ok(c) => c,
 				Err(e) => {
@@ -81,7 +127,6 @@ impl QuicMuxer {
 
 			let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
 			let virtual_socket = Arc::new(VirtualUdpSocket::new(rx, physical_socket, local_addr));
-			let endpoint_config = quinn::EndpointConfig::default();
 
 			// Note: Ensure `quinn` feature `runtime-tokio` is enabled
 			let endpoint = match quinn::Endpoint::new_with_abstract_socket(

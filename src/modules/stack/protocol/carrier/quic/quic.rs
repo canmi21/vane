@@ -1,6 +1,7 @@
 /* src/modules/stack/protocol/carrier/quic/quic.rs */
 
 use super::muxer::QuicMuxer;
+use super::session::{self, PendingState, SessionAction};
 use crate::common::getenv;
 use crate::modules::stack::protocol::carrier::{context, flow};
 use crate::modules::{
@@ -13,6 +14,8 @@ use crate::modules::{
 };
 use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
+use std::collections::BTreeMap;
+use std::time::Instant;
 
 pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) -> Result<()> {
 	// Extract UDP socket info
@@ -22,7 +25,6 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 			client_addr,
 			datagram,
 		} => {
-			// Get destination address from socket's local_addr
 			let dst_addr = socket.local_addr()?;
 			(socket.clone(), *client_addr, dst_addr, datagram.clone())
 		}
@@ -31,51 +33,165 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 
 	context::inject_common(kv, "quic");
 
-	// Parse QUIC Initial packet
-	if let Some(hex_data) = kv.get("req.peek_buffer_hex") {
-		let limit_str = getenv::get_env("QUIC_LONG_HEADER_BUFFER_SIZE", "4096".to_string());
-		let max_len = limit_str.parse::<usize>().unwrap_or(4096);
+	// Initial Lightweight Parse to get DCID and Crypto Frames
+	let limit_str = getenv::get_env("QUIC_LONG_HEADER_BUFFER_SIZE", "4096".to_string());
+	let max_len = limit_str.parse::<usize>().unwrap_or(4096);
+	let parse_len = std::cmp::min(datagram.len(), max_len);
 
-		if let Ok(data) = hex::decode(hex_data) {
-			let parse_len = std::cmp::min(data.len(), max_len);
-			match parser::parse_initial_packet(&data[..parse_len]) {
-				Ok(parsed_data) => context::inject_quic_data(kv, parsed_data),
-				Err(_) => {}
+	let parsed_packet = match parser::parse_initial_packet(&datagram[..parse_len]) {
+		Ok(p) => p,
+		Err(_) => {
+			// If parsing fails (Short Header/Handshake), check IP:PORT sticky map.
+			// Change here, Pls use the upstream socket from sticky map to avoid EINVAL/NAT breakage
+			if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
+				// Blind forward to sticky target using correct source port
+				log(
+					LogLevel::Debug,
+					&format!("➜ Sticky Forward: {} -> {}", client_addr, target),
+				);
+				let _ = upstream_socket.send_to(&datagram, target).await;
+			}
+			return Ok(());
+		}
+	};
+
+	let dcid_bytes = hex::decode(&parsed_packet.dcid).unwrap_or_default();
+	if dcid_bytes.is_empty() {
+		return Ok(());
+	}
+
+	// Buffer Management & Stream Reassembly
+	let mut sni_found = parsed_packet.sni_hint.clone();
+
+	// Critical: Lock the pending map to update state
+	{
+		let mut entry = session::PENDING_INITIALS
+			.entry(dcid_bytes.clone())
+			.or_insert(PendingState {
+				crypto_stream: BTreeMap::new(),
+				queued_packets: Vec::new(),
+				last_seen: Instant::now(),
+			});
+
+		entry
+			.queued_packets
+			.push((datagram.clone(), client_addr, dst_addr));
+		entry.last_seen = Instant::now();
+
+		for (offset, data) in parsed_packet.crypto_frames {
+			entry.crypto_stream.insert(offset, data);
+		}
+
+		if sni_found.is_none() && !entry.crypto_stream.is_empty() {
+			let mut full_stream = Vec::new();
+			let mut expected_offset = 0;
+
+			for (offset, data) in &entry.crypto_stream {
+				if *offset == expected_offset {
+					full_stream.extend_from_slice(data);
+					expected_offset += data.len();
+				}
+			}
+
+			if let Ok(reassembled_sni) = parser::parse_tls_client_hello_sni(&full_stream) {
+				log(
+					LogLevel::Debug,
+					&format!(
+						"✓ Reassembled SNI from {} fragments: {}",
+						entry.crypto_stream.len(),
+						reassembled_sni
+					),
+				);
+				sni_found = Some(reassembled_sni);
+			} else {
+				log(
+					LogLevel::Debug,
+					&format!(
+						"⚙ Buffered QUIC packet (stream len={}). Waiting for SNI...",
+						full_stream.len()
+					),
+				);
 			}
 		}
 	}
 
-	// Load resolver config
+	// Check Decision
+	if sni_found.is_none() {
+		return Ok(());
+	}
+
+	let sni = sni_found.unwrap();
+
+	context::inject_quic_data(
+		kv,
+		parser::QuicInitialData {
+			sni_hint: Some(sni.clone()),
+			dcid: parsed_packet.dcid.clone(),
+			scid: parsed_packet.scid.clone(),
+			version: parsed_packet.version.clone(),
+			token: parsed_packet.token.clone(),
+			crypto_frames: vec![], // Not needed for context
+		},
+	);
+
 	let registry = RESOLVER_REGISTRY.load();
 	let config = registry
 		.get("quic")
 		.ok_or_else(|| anyhow!("No resolver config found for 'quic'"))?;
 
-	// Execute flow
 	let execution_result = flow::execute(&config.connection, kv, conn, parent_path).await;
 
+	// Apply Decision & Flush Buffer
 	match execution_result {
-		Ok(TerminatorResult::Finished) => Ok(()),
+		Ok(TerminatorResult::Finished) => {
+			if let Some((_, _state)) = session::PENDING_INITIALS.remove(&dcid_bytes) {
+				log(
+					LogLevel::Debug,
+					"⚙ Forwarding flow finished. (Pending queue flushed/dropped)",
+				);
+			}
+			Ok(())
+		}
 		Ok(TerminatorResult::Upgrade { protocol, .. }) => {
 			if protocol == "h3" {
-				// Get certificate SNI for muxer
 				let cert_sni = kv
 					.get("tls.termination.cert_sni")
 					.map(|s| s.as_str())
 					.unwrap_or("default");
 
 				let local_port = socket_arc.local_addr()?.port();
-
-				// Get or create muxer with physical socket
-				let muxer = QuicMuxer::get_or_create(local_port, cert_sni, socket_arc);
-
-				// Feed packet to virtual socket
-				muxer.feed_packet(datagram, client_addr, dst_addr)?;
+				let muxer = QuicMuxer::get_or_create(local_port, cert_sni, socket_arc.clone());
 
 				log(
 					LogLevel::Debug,
-					"✓ QUIC packet fed to H3 Muxer via Virtual Socket",
+					&format!(
+						"⚙ Registering QUIC Session (Terminator) for DCID len={}",
+						dcid_bytes.len()
+					),
 				);
+				session::register_session(
+					dcid_bytes.clone(),
+					SessionAction::Terminate {
+						muxer_port: local_port,
+						last_seen: Instant::now(),
+					},
+				);
+
+				if let Some((_, state)) = session::PENDING_INITIALS.remove(&dcid_bytes) {
+					log(
+						LogLevel::Debug,
+						&format!(
+							"➜ Flushing {} buffered packets to H3 Muxer",
+							state.queued_packets.len()
+						),
+					);
+					for (data, c_addr, d_addr) in state.queued_packets {
+						muxer.feed_packet(data, c_addr, d_addr)?;
+					}
+				} else {
+					muxer.feed_packet(datagram, client_addr, dst_addr)?;
+				}
+
 				Ok(())
 			} else {
 				Err(anyhow!("Unsupported QUIC upgrade target: {}", protocol))
