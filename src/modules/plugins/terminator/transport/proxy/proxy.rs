@@ -2,10 +2,14 @@
 
 use crate::{
 	common::{getenv, ip},
-	modules::stack::transport::{
-		health,
-		model::ResolvedTarget,
-		session::{REVERSE_SESSIONS, SESSIONS, Session},
+	modules::{
+		plugins::protocol::quic::parser,
+		stack::protocol::carrier::quic::session::{self, SessionAction},
+		stack::transport::{
+			health,
+			model::ResolvedTarget,
+			session::{REVERSE_SESSIONS, SESSIONS, Session},
+		},
 	},
 };
 use anyhow::{Context, Result};
@@ -15,14 +19,14 @@ use std::sync::Arc;
 use tokio::{
 	io,
 	net::{TcpStream, UdpSocket},
-	time::{Duration, Instant, timeout},
+	// Here we use Std::Instant, so do not import tokio one to avoid ambiguity
+	time::{Duration, timeout},
 };
 
 // Constants
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-// --- TCP Logic ---
-
+// TCP Logic
 pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarget) -> Result<()> {
 	let peer_addr = client_stream
 		.peer_addr()
@@ -37,7 +41,6 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 		),
 	);
 
-	// RESTORED: Explicit match to handle health marking on failure (Legacy Behavior)
 	match timeout(
 		CONNECT_TIMEOUT,
 		TcpStream::connect((target.ip.as_str(), target.port)),
@@ -124,8 +127,7 @@ pub async fn proxy_generic_stream(
 	}
 }
 
-// --- UDP Logic ---
-
+// UDP Logic
 async fn bind_upstream_socket(target_ip: &IpAddr) -> Result<UdpSocket, std::io::Error> {
 	let bind_addr: SocketAddr = if target_ip.is_ipv6() {
 		([0; 16], 0).into()
@@ -166,7 +168,6 @@ fn spawn_reply_handler(
 	});
 }
 
-// Standard Stateless Forwarding (Used by Legacy & Flow Non-QUIC)
 pub async fn proxy_udp_direct(
 	main_socket: Arc<UdpSocket>,
 	datagram: &[u8],
@@ -181,7 +182,8 @@ pub async fn proxy_udp_direct(
 			let updated_session = Arc::new(Session {
 				target: session.target.clone(),
 				upstream_socket: session.upstream_socket.clone(),
-				last_seen: Instant::now(),
+				// FIX: Use tokio::time::Instant explicitly
+				last_seen: tokio::time::Instant::now(),
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
@@ -223,7 +225,8 @@ pub async fn proxy_udp_direct(
 		let new_session = Arc::new(Session {
 			target: target.clone(),
 			upstream_socket: upstream_arc.clone(),
-			last_seen: Instant::now(),
+			// FIX: Use tokio::time::Instant explicitly
+			last_seen: tokio::time::Instant::now(),
 		});
 
 		SESSIONS.insert(session_key, new_session.clone());
@@ -300,12 +303,15 @@ pub async fn proxy_quic_association(
 	let nat_key = format!("quic:{}:{}", target.ip, target.port);
 	let session_key = (client_addr, nat_key.clone());
 
+	// 1. Existing NAT Session Logic (Refresh)
 	if let Some((_, session)) = SESSIONS.remove(&session_key) {
 		if health::is_udp_target_healthy(&session.target) {
+			// Update UDP Session
 			let updated_session = Arc::new(Session {
 				target: session.target.clone(),
 				upstream_socket: session.upstream_socket.clone(),
-				last_seen: Instant::now(),
+				// FIX: Use tokio::time::Instant
+				last_seen: tokio::time::Instant::now(),
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
@@ -314,10 +320,21 @@ pub async fn proxy_quic_association(
 				updated_session.target.ip, updated_session.target.port
 			);
 
+			// Forward current packet
 			let send_result = updated_session
 				.upstream_socket
 				.send_to(datagram, &target_addr)
 				.await;
+
+			// --- FIX: Refresh Sticky Session (Keepalive) ---
+			// Ensure L4 fallback keeps working using the correct upstream socket
+			if let Ok(target_socket_addr) = target_addr.parse::<SocketAddr>() {
+				session::register_sticky(
+					client_addr,
+					target_socket_addr,
+					updated_session.upstream_socket.clone(),
+				);
+			}
 
 			if let Err(e) = send_result {
 				health::mark_udp_target_unhealthy(&updated_session.target);
@@ -337,6 +354,7 @@ pub async fn proxy_quic_association(
 		}
 	}
 
+	// 2. New Session Logic
 	let bind_addr: SocketAddr = if target.ip.contains(':') {
 		([0; 16], 0).into()
 	} else {
@@ -349,10 +367,12 @@ pub async fn proxy_quic_association(
 	let upstream_arc = Arc::new(upstream_socket);
 
 	if let Ok(local_addr) = upstream_arc.local_addr() {
+		// Register UDP Session
 		let new_session = Arc::new(Session {
 			target: target.clone(),
 			upstream_socket: upstream_arc.clone(),
-			last_seen: Instant::now(),
+			// FIX: Use tokio::time::Instant
+			last_seen: tokio::time::Instant::now(),
 		});
 
 		SESSIONS.insert(session_key, new_session.clone());
@@ -373,15 +393,67 @@ pub async fn proxy_quic_association(
 		};
 		let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(10000);
 
+		// Start background reply handler
 		spawn_quic_reply_handler(
 			upstream_arc.clone(),
 			listener_socket,
 			Duration::from_millis(timeout_ms),
 		);
 
-		let send_result = upstream_arc
-			.send_to(datagram, format!("{}:{}", target.ip, target.port))
-			.await;
+		let target_addr_str = format!("{}:{}", target.ip, target.port);
+		let target_socket_addr = target_addr_str
+			.parse::<SocketAddr>()
+			.context("Invalid Target Addr")?;
+
+		// --- INTEGRATION: Register L4+ Session (Fast Path + Sticky) ---
+		if let Some(dcid) = parser::peek_long_header_dcid(datagram) {
+			// 1. Register CID (Std Instant)
+			session::register_session(
+				dcid.clone(),
+				SessionAction::Forward {
+					target_addr: target_socket_addr,
+					// FIX: Pass the upstream socket for consistency/validity
+					upstream_socket: upstream_arc.clone(),
+					last_seen: std::time::Instant::now(),
+				},
+			);
+
+			// 2. Register Sticky (Std Instant via internal session.rs call)
+			session::register_sticky(client_addr, target_socket_addr, upstream_arc.clone());
+
+			log(
+				LogLevel::Debug,
+				&format!(
+					"⚙ Registered QUIC Forward Session for DCID len={}",
+					dcid.len()
+				),
+			);
+
+			// 3. Flush Queue
+			if let Some((_, state)) = session::PENDING_INITIALS.remove(&dcid) {
+				log(
+					LogLevel::Debug,
+					&format!(
+						"➜ Flushing {} buffered packets to Upstream Proxy",
+						state.queued_packets.len()
+					),
+				);
+
+				for (pkt, _, _) in state.queued_packets {
+					if pkt == datagram {
+						continue;
+					}
+					// FIX: Use upstream socket
+					let _ = upstream_arc.send_to(&pkt, &target_addr_str).await;
+				}
+			}
+		} else {
+			// Fallback: If no Long Header, just register Sticky
+			session::register_sticky(client_addr, target_socket_addr, upstream_arc.clone());
+		}
+
+		// 5. Send the current packet
+		let send_result = upstream_arc.send_to(datagram, &target_addr_str).await;
 
 		send_result.context("Failed to forward initial QUIC packet")?;
 
