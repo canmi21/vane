@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.2 (23. Dec, 2025)
+
+- **Changed:** Hardened the **QUIC Muxer Lifecycle** (`muxer.rs`) by transitioning `MUXER_REGISTRY` from Weak to Strong (`Arc`) references with an activity-based Garbage Collector. This prevents `QuicEndpoint` flapping during high-frequency packet ingress, ensuring cryptographic context persistence and eliminating "authentication failed" handshake errors.
+- **Changed:** Updated the **L4+ Carrier Logic** (`tls.rs`, `quic.rs`) to actively process `TerminatorResult::Upgrade`. This completes the architectural link between the Transport Layer and the Application Layer, enabling seamless handover from raw TCP/UDP flows to the `httpx` and `h3` engines.
+- **Fixed:** Resolved a critical **Runtime Panic** in the Upstream Connection Pool (`pool.rs`). Explicitly injected `TokioTimer` into the `hyper_util` Client builder to satisfy requirements for connection pooling and keep-alive features which were previously crashing the worker threads.
+
 ## 0.6.1 (23. Dec, 2025)
 
 - **Added:** Introduced a **Feature-Gated TLS Crypto Backend Selection** mechanism. Vane now defaults to **aws-lc-rs** as the global `rustls` CryptoProvider, while allowing users to explicitly switch to **ring** at compile time by disabling default features. This enables controlled experimentation and comparison of crypto backends without altering application code.
