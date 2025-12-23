@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.0 (23. Dec, 2025)
+
+- **Added:** Implemented the **Stateful L4+ Session Layer** (`session.rs`) to resolve the architectural conflict between SNI-based routing and encrypted QUIC packets. The system now maintains a **Global State** using `CID_REGISTRY` for exact Destination Connection ID matching and `IP_STICKY_MAP` for fuzzy IP:Port matching, allowing Vane to cache Flow Engine decisions and support complex handshake lifecycles (controlled by `QUIC_STICKY_SESSION_TTL`).
+- **Added:** Integrated **QUIC Stream Reassembly** logic within the protocol parsers. Vane now utilizes a `PendingState` buffer to temporarily hold Raw UDP Packets and Decrypted CRYPTO Frames. This allows the engine to reconstruct TLS ClientHellos split across multiple datagrams (e.g., by `quic-go` clients), ensuring reliable SNI extraction before releasing the buffered sequence to the upstream.
+- **Changed:** Overhauled the **UDP Ingress Architecture** (`tasks.rs`) to implement a **Fast Path / Slow Path** model. Incoming packets now undergo a "Speculative Check" for Long/Short Header DCIDs; session hits are **Directly Forwarded** (bypassing the Flow Engine entirely), while only unknown Initial packets fall through to the Slow Path for L4 decision-making.
+- **Changed:** Refactored the monolithic parsing logic into a modular **Protocol Parsing Suite**. Split `parser.rs` into `packet.rs` (Wire Format), `crypto.rs` (Decryption), and `frame.rs` (Frame Parsing). This decoupling facilitates the distinct handling of unencrypted header inspection and encrypted payload buffering required for the new stateful design.
+- **Fixed:** Resolved **Transparent Proxy Instability** (`proxy.rs`) involving NAT consistency and packet loss. Implemented **Lossless Queue Flushing** to drain buffered fragments from `PendingState` to the target immediately after a forwarding decision. Additionally, fixed `os error 22` by ensuring `SessionAction::Forward` utilizes dedicated ephemeral upstream sockets rather than the shared listener socket, maintaining stable Source Ports for NAT traversal.
+- **Fixed:** Addressed **QUIC Connection Migration** and Server Hello CID changes. The Fast Path now implements an **IP Stickiness Fallback**; when direct CID matching fails (e.g., during Server Hello generation), Vane falls back to `IP_STICKY_MAP` to blindly forward packets associated with an active session, preserving connectivity without needing full decryption.
+
 ## 0.5.8 (18. Dec, 2025)
 
 - **Added:** Implemented the **HTTP/3 Upstream Engine** (`quinn_client.rs`) backed by a **Global QUIC Connection Pool** (`quic_pool.rs`). The system now supports high-performance, multiplexed HTTP/3 tunneling with connection reuse, automatic ALPN negotiation, and concurrent body streaming, completing the "Dual-Engine" promise.
