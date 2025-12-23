@@ -42,6 +42,7 @@ pub async fn execute_hyper_request(
 		);
 	}
 
+	// Extract Request Body (Memory Move -> Zero-Copy)
 	let req_payload = std::mem::replace(&mut container.request_body, PayloadState::Empty);
 
 	let body: BoxBody<Bytes, Error> = match req_payload {
@@ -50,10 +51,21 @@ pub async fn execute_hyper_request(
 		PayloadState::Empty | PayloadState::Generic => BoxBody::default(),
 	};
 
-	let req_builder = Request::builder()
-		.method(method)
-		.uri(uri)
-		.header("User-Agent", concat!("Vane/", env!("CARGO_PKG_VERSION")));
+	let mut req_builder = Request::builder().method(method).uri(uri);
+
+	// Propagate Request Headers (Client -(Clone)-> Upstream)
+	// Clone the headers to preserve the original request context for logging/debugging.
+	if let Some(headers) = req_builder.headers_mut() {
+		*headers = container.request_headers.clone();
+
+		// Here MUST remove the client's original 'Host' header.
+		// Hyper will automatically set the correct 'Host' header based on the Upstream URI.
+		// Keeping the old Host usually causes 404s or SNI errors at the upstream.
+		headers.remove(http::header::HOST);
+	}
+
+	// Trace Header (Optional, for debugging topology)
+	req_builder = req_builder.header("X-Vane-Proxy", env!("CARGO_PKG_VERSION"));
 
 	let req = req_builder
 		.body(body)
@@ -67,32 +79,27 @@ pub async fn execute_hyper_request(
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ Fetching Upstream (Hyper): {} {}",
-			req.method(),
-			req.uri()
-		),
+		&format!("➜ Fetching Upstream Hyper: {} {}", req.method(), req.uri()),
 	);
 
 	match client.request(req).await {
-		Ok(res) => {
+		Ok(mut res) => {
 			let status = res.status();
 			log(
 				LogLevel::Debug,
 				&format!("✓ Upstream Responded: {}", status),
 			);
 
+			// Update KV for Status
 			container
 				.kv
 				.insert("res.status".to_string(), status.as_u16().to_string());
 
-			for (k, v) in res.headers() {
-				if let Ok(val) = v.to_str() {
-					container
-						.kv
-						.insert(format!("res.header.{}", k), val.to_string());
-				}
-			}
+			// Propagate Response Headers (Upstream -> Client)
+			// We take ownership of the upstream headers and place them into the Container.
+			// Please Do NOT populate KV loop here.
+			// Access is handled on-demand via flow::resolve_inputs_l7 (Smart Hijacking).
+			container.response_headers = std::mem::take(res.headers_mut());
 
 			let incoming = res.into_body();
 			container.response_body = PayloadState::Http(VaneBody::Hyper(incoming));

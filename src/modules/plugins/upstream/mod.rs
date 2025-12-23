@@ -2,7 +2,9 @@
 
 pub mod hyper_client;
 pub mod pool;
+pub mod quic_pool;
 pub mod quinn_client;
+pub mod tls_verifier;
 
 use crate::modules::{
 	plugins::model::{L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs},
@@ -128,7 +130,8 @@ impl L7Middleware for FetchUpstreamPlugin {
 				)
 				.await
 			}
-			"h3" => quinn_client::execute_quinn_request(&full_url, skip_verify).await,
+			// FIXED: Passed all 4 required arguments to match quinn_client signature
+			"h3" => quinn_client::execute_quinn_request(container, &full_url, method, skip_verify).await,
 			_ => {
 				log(
 					LogLevel::Warn,
