@@ -7,6 +7,7 @@ import (
 	"canmi.net/vane-mock-tests/pkg/env"
 	"canmi.net/vane-mock-tests/tests/l4"
 	"canmi.net/vane-mock-tests/tests/l4p"
+	"canmi.net/vane-mock-tests/tests/l7"
 )
 
 // Re-define here to match runner
@@ -30,7 +31,10 @@ func Initialize() {
 	for _, t := range l4p.GetTests() {
 		register(t.Name, t.Desc, TestFunc(t.Run))
 	}
-	// Future: l7.GetTests()...
+	// Import L7 tests
+	for _, t := range l7.GetTests() {
+		register(t.Name, t.Desc, TestFunc(t.Run))
+	}
 }
 
 func register(name, desc string, fn TestFunc) {
