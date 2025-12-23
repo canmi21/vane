@@ -10,7 +10,7 @@ use quinn::{ConnectionId, ConnectionIdGenerator};
 use rand::Rng;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
@@ -20,14 +20,15 @@ use tokio_rustls::rustls;
 pub struct QuicMuxer {
 	// Bounded sender for backpressure
 	tx: mpsc::Sender<VirtualPacket>,
+	// Track last activity for GC
+	last_active: Mutex<Instant>,
 }
 
-// Registry stores Weak references to allow auto-cleanup when Muxer is dropped
-static MUXER_REGISTRY: std::sync::OnceLock<Mutex<HashMap<u16, Weak<QuicMuxer>>>> =
+// Use Arc (Strong Reference) to persist Muxer state across packets
+static MUXER_REGISTRY: std::sync::OnceLock<Mutex<HashMap<u16, Arc<QuicMuxer>>>> =
 	std::sync::OnceLock::new();
 
 /// Custom CID Generator to ensure L4 Compatibility.
-/// Enforces 8-byte CIDs and registers them to the Session Layer.
 #[derive(Debug)]
 struct VaneCidGenerator {
 	port: u16,
@@ -35,13 +36,10 @@ struct VaneCidGenerator {
 
 impl ConnectionIdGenerator for VaneCidGenerator {
 	fn generate_cid(&mut self) -> ConnectionId {
-		// Enforce 8-byte CID for L4 fast-path speculative matching.
-		// 99.9% of traffic will hit the 8-byte check.
 		let mut bytes = [0u8; 8];
 		rand::rng().fill(&mut bytes);
 		let cid = ConnectionId::new(&bytes);
 
-		// Hook: Register new CID immediately (Support CID Rotation/Migration)
 		session::register_session(
 			bytes.to_vec(),
 			SessionAction::Terminate {
@@ -58,7 +56,6 @@ impl ConnectionIdGenerator for VaneCidGenerator {
 	}
 
 	fn cid_lifetime(&self) -> Option<Duration> {
-		// Infinite lifetime or reasonable default. None means infinite.
 		None
 	}
 }
@@ -69,24 +66,28 @@ impl QuicMuxer {
 		let registry = MUXER_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()));
 		let mut map = registry.lock().unwrap();
 
-		// Optimization: Lazy Garbage Collection
-		// Only iterate the map if it grows beyond a threshold configured via env
-		let gc_threshold_str = getenv::get_env("QUIC_MUXER_GC_THRESHOLD", "64".to_string());
-		let gc_threshold = gc_threshold_str.parse::<usize>().unwrap_or(64);
-
-		if map.len() > gc_threshold {
-			map.retain(|_, weak| weak.strong_count() > 0);
-		}
-
-		if let Some(weak) = map.get(&port) {
-			if let Some(muxer) = weak.upgrade() {
-				return muxer;
+		if let Some(muxer) = map.get(&port) {
+			// Update activity timestamp
+			if let Ok(mut t) = muxer.last_active.lock() {
+				*t = Instant::now();
 			}
+			return muxer.clone();
 		}
+
+		// Garbage Collection: Remove old muxers (> 5 min idle)
+		// This prevents memory leaks in long-running processes
+		let now = Instant::now();
+		map.retain(|_, muxer| {
+			if let Ok(t) = muxer.last_active.lock() {
+				now.duration_since(*t).as_secs() < 300
+			} else {
+				true
+			}
+		});
 
 		// Create new Muxer
 		let muxer = Arc::new(Self::new(port, cert_sni, physical_socket));
-		map.insert(port, Arc::downgrade(&muxer));
+		map.insert(port, muxer.clone());
 
 		muxer
 	}
@@ -100,8 +101,6 @@ impl QuicMuxer {
 			),
 		);
 
-		// Use BOUNDED channel for backpressure.
-		// Capacity configured via env (Default: 1024 packets).
 		let channel_cap_str = getenv::get_env("QUIC_VIRTUAL_CHANNEL_CAPACITY", "1024".to_string());
 		let channel_cap = channel_cap_str.parse::<usize>().unwrap_or(1024);
 
@@ -109,8 +108,6 @@ impl QuicMuxer {
 		let cert_id = cert_sni.to_string();
 
 		tokio::spawn(async move {
-			// Cation that quinn 0.11 change CID Generator to EndpointConfig, not ServerConfig.
-			// Create the endpoint config and attach the generator here.
 			let mut endpoint_config = quinn::EndpointConfig::default();
 			endpoint_config.cid_generator(move || Box::new(VaneCidGenerator { port }));
 
@@ -128,7 +125,6 @@ impl QuicMuxer {
 			let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
 			let virtual_socket = Arc::new(VirtualUdpSocket::new(rx, physical_socket, local_addr));
 
-			// Note: Ensure `quinn` feature `runtime-tokio` is enabled
 			let endpoint = match quinn::Endpoint::new_with_abstract_socket(
 				endpoint_config,
 				Some(server_config),
@@ -164,7 +160,10 @@ impl QuicMuxer {
 			}
 		});
 
-		Self { tx }
+		Self {
+			tx,
+			last_active: Mutex::new(Instant::now()),
+		}
 	}
 
 	fn build_server_config(cert_id: &str) -> Result<quinn::ServerConfig> {
@@ -183,7 +182,6 @@ impl QuicMuxer {
 				.map_err(|e| Error::Tls(e.to_string()))?,
 		));
 
-		// Important: Keep alive settings match Virtual Socket constraints
 		let mut transport = quinn::TransportConfig::default();
 		transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
 		transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
@@ -192,9 +190,6 @@ impl QuicMuxer {
 		Ok(server_config)
 	}
 
-	/// Feed a packet. Now async-aware or lossy.
-	/// Since we are in the hot path of the Dispatcher, we should try_send.
-	/// If full, we DROP the packet (UDP behavior).
 	pub fn feed_packet(
 		&self,
 		data: Vec<u8>,
@@ -202,20 +197,14 @@ impl QuicMuxer {
 		dst_addr: SocketAddr,
 	) -> Result<()> {
 		let packet = VirtualPacket {
-			data: bytes::Bytes::from(data), // Convert to Bytes
+			data: bytes::Bytes::from(data),
 			src_addr,
 			dst_addr,
 		};
 
-		// try_send returns error if full.
-		// We ignore Full error (packet drop) but log/return System error for closed channel.
 		match self.tx.try_send(packet) {
 			Ok(_) => Ok(()),
-			Err(mpsc::error::TrySendError::Full(_)) => {
-				// Backpressure active: Queue full, dropping packet.
-				// Optionally log metric here (don't log to file per packet!)
-				Ok(())
-			}
+			Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
 			Err(mpsc::error::TrySendError::Closed(_)) => {
 				Err(Error::System("QUIC Muxer channel closed".to_string()))
 			}
