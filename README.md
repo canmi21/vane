@@ -68,8 +68,9 @@ Unlike proxies that treat UDP as a second-class citizen, Vane features a dedicat
 - **Full-Duplex Streaming:** The upstream drivers are architected to handle large-scale data transfer (e.g., multi-gigabyte streams) asynchronously. Request and response paths are decoupled, preventing head-of-line blocking and deadlocks common in synchronous proxy implementations.
 - **Hot-Swappable Configuration:** All layers of the stack—from L4 listeners and TLS certificates to L7 application pipelines—support runtime reconfiguration. The system employs a "Keep-Last-Known-Good" strategy to ensure stability during updates.
 
+## License
+
+MIT License © 2025 [Canmi](https://github.com/canmi21)
+
 **✦** **`Polygon`** / **`Ethereum`**: `0x35D143d9DC624feC921a3925Fa84dea9d1DfDCAe`
 If you found this project helpful, consider supporting domain & server maintenance.
-
----
-> Canmi © 2025 [GitHub](https://github.com/canmi21) · [MIT](https://github.com/canmi21/vane?tab=MIT-1-ov-file#readme)
