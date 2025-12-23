@@ -6,7 +6,7 @@ use crate::common::{
 };
 use crate::modules::{kv::KvStore, stack::protocol::application::http::wrapper::VaneBody};
 use bytes::Bytes;
-use http::Response;
+use http::{HeaderMap, Response};
 use http_body_util::BodyExt;
 use std::fmt;
 use tokio::sync::oneshot;
@@ -85,15 +85,28 @@ impl PayloadState {
 }
 
 /// The Universal L7 Container (The Envelope).
+///
+/// # Architecture Note (Hybrid Storage)
+/// - **KV (Control Plane):** Stores high-freq metadata (IP, Method, Path) for routing.
+/// - **Headers/Body (Data Plane):** Stores the full protocol payload.
+///   Accessed via "Magic Words" in the Template System (On-Demand Copy).
 pub struct Container {
-	/// Metadata Store (Headers, Attributes, Routing info)
+	/// Metadata Store (Control Plane)
 	pub kv: KvStore,
 
-	/// The Request Body (From Client).
-	/// Populated at start. Consumed by FetchUpstream.
+	/// The Request Headers (Data Plane).
+	/// Populated by Adapter. Hijacked by Template System. Consumed by Upstream.
+	pub request_headers: HeaderMap,
+
+	/// The Request Body (Data Plane).
+	/// Populated at start. Hijacked by Template System (Lazy Buffer). Consumed by FetchUpstream.
 	pub request_body: PayloadState,
 
-	/// The Response Body (From Upstream or Generator).
+	/// The Response Headers (Data Plane).
+	/// Populated by Upstream/Terminator. Sent to Client.
+	pub response_headers: HeaderMap,
+
+	/// The Response Body (Data Plane).
 	/// Populated by FetchUpstream or Terminator. Sent to Client.
 	pub response_body: PayloadState,
 
@@ -104,13 +117,17 @@ pub struct Container {
 impl Container {
 	pub fn new(
 		kv: KvStore,
+		request_headers: HeaderMap,
 		request_body: PayloadState,
+		response_headers: HeaderMap,
 		response_body: PayloadState,
 		response_tx: Option<oneshot::Sender<Response<()>>>,
 	) -> Self {
 		Self {
 			kv,
+			request_headers,
 			request_body,
+			response_headers,
 			response_body,
 			response_tx,
 		}

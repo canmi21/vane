@@ -13,7 +13,7 @@ use fancy_log::{LogLevel, log};
 use bytes::{Buf, Bytes};
 use h3::server::RequestStream;
 use h3_quinn::quinn::Connection;
-use http::{Request, Response};
+use http::{HeaderMap, Request, Response};
 use http_body_util::BodyExt;
 use tokio::sync::{mpsc, oneshot};
 
@@ -71,7 +71,7 @@ where
 	T: h3::quic::BidiStream<B> + Send + Unpin + 'static,
 	B: Buf + Send + 'static,
 {
-	let (parts, _) = req.into_parts();
+	let (mut parts, _) = req.into_parts();
 
 	// Infrastructure Setup Channels
 	let (body_tx, body_rx) = mpsc::channel::<Result<Bytes>>(32);
@@ -104,7 +104,18 @@ where
 		}
 	}
 
-	let mut container = Container::new(kv, request_payload, response_payload, Some(res_tx));
+	// Pass full HeaderMap to Container
+	let request_headers = std::mem::take(&mut parts.headers);
+	let response_headers = HeaderMap::new();
+
+	let mut container = Container::new(
+		kv,
+		request_headers,
+		request_payload,
+		response_headers,
+		response_payload,
+		Some(res_tx),
+	);
 
 	// Logic Execution Spawned
 
