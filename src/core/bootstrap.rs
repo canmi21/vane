@@ -27,6 +27,22 @@ use crate::modules::{
 };
 
 pub async fn start() {
+	#[cfg(feature = "aws-lc-rs")]
+	{
+		use rustls::crypto::aws_lc_rs;
+		aws_lc_rs::default_provider()
+			.install_default()
+			.expect("failed to install aws-lc-rs crypto provider");
+	}
+
+	#[cfg(feature = "ring")]
+	{
+		use rustls::crypto::ring;
+		ring::default_provider()
+			.install_default()
+			.expect("failed to install ring crypto provider");
+	}
+
 	dotenv().ok();
 	setup_logging();
 	print_motd();
