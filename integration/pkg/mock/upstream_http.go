@@ -12,33 +12,38 @@ type HttpUpstream struct {
 	Listener net.Listener
 	Server   *http.Server
 	Port     int
-	Protocol string // "h1" or "h2" (negotiated)
+	Protocol string
 }
 
-// NewHttpUpstream creates a server supporting HTTPS (H1 and H2).
+// NewHttpUpstream creates a default echo server.
 func NewHttpUpstream() (*HttpUpstream, error) {
-	// 1. Generate TLS Config with H2 support
+	return NewHttpUpstreamWithHandler(nil)
+}
+
+// NewHttpUpstreamWithHandler allows custom handler logic.
+func NewHttpUpstreamWithHandler(customHandler http.HandlerFunc) (*HttpUpstream, error) {
 	tlsConf, err := GenerateTLSConfig([]string{"h2", "http/1.1"})
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Setup Listener
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
 	tlsListener := tls.NewListener(l, tlsConf)
 
-	// 3. Setup Handler
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Upstream-Proto", r.Proto)
-		w.Header().Set("X-Upstream-Method", r.Method)
-
-		body, _ := io.ReadAll(r.Body)
-		w.Write(body)
-	})
+	if customHandler != nil {
+		mux.HandleFunc("/", customHandler)
+	} else {
+		// Default Echo Handler
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Upstream-Proto", r.Proto)
+			body, _ := io.ReadAll(r.Body)
+			w.Write(body)
+		})
+	}
 
 	srv := &http.Server{Handler: mux}
 
