@@ -15,22 +15,26 @@ type TestEntry struct {
 
 func GetTests() []TestEntry {
 	return []TestEntry{
-		// Basic
+		// Basic & Matrix
 		{Name: "l7_test_https_proxy_basic", Desc: "Basic HTTPS Proxy (H1->H1)", Run: TestHttpsProxy},
-
-		// Matrix: Client H1
 		{Name: "l7_test_h1_to_h1", Desc: "Matrix: H1 Client -> H1 Upstream", Run: TestH1toH1},
 		{Name: "l7_test_h1_to_h2", Desc: "Matrix: H1 Client -> H2 Upstream", Run: TestH1toH2},
 		{Name: "l7_test_h1_to_h3", Desc: "Matrix: H1 Client -> H3 Upstream", Run: TestH1toH3},
-
-		// Matrix: Client H2
 		{Name: "l7_test_h2_to_h1", Desc: "Matrix: H2 Client -> H1 Upstream", Run: TestH2toH1},
 		{Name: "l7_test_h2_to_h2", Desc: "Matrix: H2 Client -> H2 Upstream", Run: TestH2toH2},
 		{Name: "l7_test_h2_to_h3", Desc: "Matrix: H2 Client -> H3 Upstream", Run: TestH2toH3},
-
-		// Matrix: Client H3
 		{Name: "l7_test_h3_to_h1", Desc: "Matrix: H3 Client -> H1 Upstream", Run: TestH3toH1},
 		{Name: "l7_test_h3_to_h2", Desc: "Matrix: H3 Client -> H2 Upstream", Run: TestH3toH2},
 		{Name: "l7_test_h3_to_h3", Desc: "Matrix: H3 Client -> H3 Upstream", Run: TestH3toH3},
+
+		// Advanced Content Tests
+		{Name: "l7_adv_status_h2", Desc: "Advanced: Status Codes over H2/TLS", Run: TestStatusH2},
+		{Name: "l7_adv_status_h3", Desc: "Advanced: Status Codes over H3/QUIC", Run: TestStatusH3},
+		{Name: "l7_adv_body_h2", Desc: "Advanced: Body Types over H2/TLS", Run: TestBodyH2},
+		{Name: "l7_adv_body_h3", Desc: "Advanced: Body Types over H3/QUIC", Run: TestBodyH3},
+
+		// Heavy Streaming Tests
+		{Name: "l7_stream_h2_to_h3_1gb", Desc: "Streaming: 1GB H2 Client -> H3 Upstream", Run: TestStreamH2toH3},
+		{Name: "l7_stream_h3_to_h2_1gb", Desc: "Streaming: 1GB H3 Client -> H2 Upstream", Run: TestStreamH3toH2},
 	}
 }
