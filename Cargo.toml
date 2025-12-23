@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.5.8"
+version = "0.6.0"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -75,6 +75,8 @@ hyper-rustls = { version = "0.27", features = ["http2"] }
 infer = "0.19"
 rustls-native-certs = "0.8"
 tower-service = "0.3"
+ring = "0.17"
+aes = "0.8"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
