@@ -27,3 +27,17 @@ func NewAbortConnection() ProcessingStep {
 		},
 	}
 }
+
+// NewUpgrade creates a ProcessingStep that upgrades the connection to L4+ or L7.
+// Plugin: internal.transport.upgrade
+// protocol: "tls", "http", "quic"
+func NewUpgrade(protocol string) ProcessingStep {
+	return ProcessingStep{
+		"internal.transport.upgrade": PluginInstance{
+			Input: map[string]interface{}{
+				"protocol": protocol,
+			},
+			Output: nil,
+		},
+	}
+}

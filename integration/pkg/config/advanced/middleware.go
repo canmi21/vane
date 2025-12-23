@@ -2,7 +2,6 @@
 package advanced
 
 // NewMiddlewareStep creates a generic middleware step.
-// outputBranches maps branch names ("true", "false", etc.) to the next step.
 func NewMiddlewareStep(
 	pluginName string,
 	inputs map[string]interface{},
@@ -38,6 +37,27 @@ func NewRateLimitSec(key string, limit int, onTrue ProcessingStep, onFalse Proce
 		map[string]interface{}{
 			"key":   key,
 			"limit": limit,
+		},
+		map[string]ProcessingStep{
+			"true":  onTrue,
+			"false": onFalse,
+		},
+	)
+}
+
+// NewMatch creates a binary matching step (If Left == Right).
+// Plugin: internal.common.match
+// left: Value A (e.g. "{{tls.sni}}")
+// right: Value B (e.g. "example.com")
+// onTrue: Executed if match succeeds.
+// onFalse: Executed if match fails.
+func NewMatch(left string, right string, onTrue ProcessingStep, onFalse ProcessingStep) ProcessingStep {
+	return NewMiddlewareStep(
+		"internal.common.match",
+		map[string]interface{}{
+			"left":     left,
+			"right":    right,
+			"operator": "==",
 		},
 		map[string]ProcessingStep{
 			"true":  onTrue,
