@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.4 (24. Dec, 2025)
+
+- **Added:** Operators can now tune `UPSTREAM_H2_STREAM_WINDOW` and `UPSTREAM_H2_CONN_WINDOW (default 2MB) via environment variables, enabling optimization of throughput and window management for high-bandwidth upstream links.
+
 ## 0.6.3 (24. Dec, 2025)
 
 - **Changed:** Architected a **Full-Duplex H3 Upstream Driver** (`quinn_client.rs`) by decoupling the Request and Response data paths into independent asynchronous tasks using `stream.split()`. This eliminates head-of-line blocking and deadlocks during large payload transfers (e.g., 1GB bidirectional streams), ensuring high-throughput streaming performance.
