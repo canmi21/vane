@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.1 (23. Dec, 2025)
+
+- **Added:** Introduced a **Feature-Gated TLS Crypto Backend Selection** mechanism. Vane now defaults to **aws-lc-rs** as the global `rustls` CryptoProvider, while allowing users to explicitly switch to **ring** at compile time by disabling default features. This enables controlled experimentation and comparison of crypto backends without altering application code.
+- **Changed:** Clarified the architectural boundary between **TLS/QUIC cryptography** and **internal cryptographic utilities**. The `ring` crate may now coexist as an internal dependency without interfering with the global TLS provider, preserving modularity and future extensibility.
+- **Fixed:** Eliminated potential provider ambiguity errors in multi-crate builds by enforcing a strict one-provider policy aligned with `rustls` 0.23 requirements.
+
 ## 0.6.0 (23. Dec, 2025)
 
 - **Added:** Implemented the **Stateful L4+ Session Layer** (`session.rs`) to resolve the architectural conflict between SNI-based routing and encrypted QUIC packets. The system now maintains a **Global State** using `CID_REGISTRY` for exact Destination Connection ID matching and `IP_STICKY_MAP` for fuzzy IP:Port matching, allowing Vane to cache Flow Engine decisions and support complex handshake lifecycles (controlled by `QUIC_STICKY_SESSION_TTL`).
