@@ -8,7 +8,7 @@ use tokio_rustls::rustls::pki_types::{
 	CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
 };
 
-// REMOVED: Clone derive (PrivateKeyDer is not implicitly Clone)
+// Clone derive (PrivateKeyDer is not implicitly Clone)
 #[derive(Debug)]
 pub struct LoadedCert {
 	pub certs: Vec<CertificateDer<'static>>,
