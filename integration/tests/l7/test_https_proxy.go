@@ -58,8 +58,9 @@ func TestHttpsProxy(ctx context.Context, s *env.Sandbox) error {
 		Pipeline: advanced.NewFetchUpstream(
 			fmt.Sprintf("http://127.0.0.1:%d", srv.Port),
 			"h1",
-			advanced.NewSendResponse(),    // Success Branch
-			advanced.NewAbortConnection(), // Failure Branch
+			true, // FIXED: Skip verify (although standard mock uses HTTP so it doesn't matter much, but good practice)
+			advanced.NewSendResponse(),
+			advanced.NewAbortConnection(),
 		),
 	}
 	l7Bytes, _ := json.Marshal(l7Config)
@@ -76,8 +77,8 @@ func TestHttpsProxy(ctx context.Context, s *env.Sandbox) error {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
-			ServerName:         "localhost",                // Forces SNI
-			NextProtos:         []string{"h2", "http/1.1"}, // Forces ALPN
+			ServerName:         "localhost",
+			NextProtos:         []string{"h2", "http/1.1"},
 		},
 	}
 	client := &http.Client{Transport: tr, Timeout: 2 * time.Second}
@@ -88,8 +89,7 @@ func TestHttpsProxy(ctx context.Context, s *env.Sandbox) error {
 	var resp *http.Response
 	var reqErr error
 
-	// Retry loop: Try for up to 5 seconds
-	// This helps distinguish between "Vane crashed/failed immediately" and "Vane config not ready yet"
+	// Retry loop
 	retryDeadline := time.Now().Add(5 * time.Second)
 	attempt := 0
 
@@ -98,12 +98,11 @@ func TestHttpsProxy(ctx context.Context, s *env.Sandbox) error {
 		resp, reqErr = client.Post(targetUrl, "text/plain", strings.NewReader(reqBody))
 
 		if reqErr == nil {
-			break // Success
+			break
 		}
-
-		// If the error is Connection Refused, Vane might be dead.
-		// If Connection Reset, Vane might be rejecting/crashing.
-		// We sleep a bit.
+		if debug {
+			term.Warn(fmt.Sprintf("Attempt #%d failed: %v. Retrying...", attempt, reqErr))
+		}
 		time.Sleep(500 * time.Millisecond)
 	}
 
