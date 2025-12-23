@@ -16,3 +16,9 @@ type PluginInstance struct {
 type L4FlowConfig struct {
 	Connection ProcessingStep `json:"connection"`
 }
+
+// ApplicationConfig corresponds to Rust's ApplicationConfig struct.
+// Location: application/httpx.json (or other protocol names).
+type ApplicationConfig struct {
+	Pipeline ProcessingStep `json:"pipeline"`
+}
