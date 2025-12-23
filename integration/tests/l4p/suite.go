@@ -7,19 +7,34 @@ import (
 	"canmi.net/vane-mock-tests/pkg/env"
 )
 
-type TestFunc func(ctx context.Context, s *env.Sandbox) error
-
-type TestCase struct {
+type TestEntry struct {
 	Name string
 	Desc string
-	Run  TestFunc
+	Run  func(context.Context, *env.Sandbox) error
 }
 
-func GetTests() []TestCase {
-	return []TestCase{
-		{Name: "l4p_test_tls_sni_proxy", Desc: "L4+ TLS SNI Routing", Run: TestTlsSniProxy},
-		{Name: "l4p_test_tls_alpn_proxy", Desc: "L4+ TLS ALPN Routing", Run: TestTlsAlpnProxy},
-		{Name: "l4p_test_http_host_proxy", Desc: "L4+ HTTP Host Routing", Run: TestHttpHostProxy},
-		{Name: "l4p_test_quic_sni_proxy", Desc: "L4+ QUIC SNI Routing", Run: TestQuicSniProxy},
+// L4+ involves protocol-aware logic like SNI/ALPN routing.
+func GetTests() []TestEntry {
+	return []TestEntry{
+		{
+			Name: "l4p_test_tls_alpn_routing",
+			Desc: "Route TCP traffic based on TLS ALPN negotiation",
+			Run:  TestTlsAlpnProxy,
+		},
+		{
+			Name: "l4p_test_quic_sni_routing",
+			Desc: "Route UDP traffic based on QUIC ClientHello SNI (Simple)",
+			Run:  TestQuicSniProxy,
+		},
+		{
+			Name: "l4p_test_tls_sni_stream",
+			Desc: "Long-lived TCP passthrough proxy based on SNI",
+			Run:  TestTlsSniStream,
+		},
+		{
+			Name: "l4p_test_quic_sni_stream",
+			Desc: "Long-lived UDP/QUIC passthrough proxy based on SNI",
+			Run:  TestQuicSniStream,
+		},
 	}
 }
