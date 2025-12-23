@@ -8,7 +8,7 @@ use http_body_util::combinators::BoxBody;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::{HttpConnector, dns::Name};
-use hyper_util::rt::TokioExecutor;
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use once_cell::sync::Lazy;
 use rustls::ClientConfig;
 use std::future::Future;
@@ -104,7 +104,9 @@ fn build_client(skip_verify: bool) -> HttpClient {
 	};
 
 	// 3. Build Client
+	// Explicitly supply TokioTimer for pool management
 	Client::builder(TokioExecutor::new())
+		.timer(TokioTimer::new())
 		.pool_idle_timeout(Duration::from_secs(idle_timeout_s))
 		.pool_max_idle_per_host(max_idle)
 		.http2_keep_alive_interval(Some(Duration::from_secs(keepalive_s)))
