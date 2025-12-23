@@ -63,30 +63,27 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 	Ok(())
 }
 
-async fn serve_h3_request<T, B>(
+// Removed generic B, hardcoded to bytes::Bytes.
+async fn serve_h3_request<T>(
 	req: Request<()>,
-	mut stream: RequestStream<T, B>,
+	mut stream: RequestStream<T, bytes::Bytes>,
 ) -> anyhow::Result<()>
 where
-	T: h3::quic::BidiStream<B> + Send + Unpin + 'static,
-	B: Buf + Send + 'static,
+	T: h3::quic::BidiStream<bytes::Bytes> + Send + Unpin + 'static,
 {
 	let (mut parts, _) = req.into_parts();
 
-	// Infrastructure Setup Channels
+	// 1. Request Body Pump Channel (Client -> Container)
 	let (body_tx, body_rx) = mpsc::channel::<Result<Bytes>>(32);
 	let mut body_tx = Some(body_tx);
 
+	// 2. Response Signal Channel (Container -> Driver)
 	let (res_tx, res_rx) = oneshot::channel::<Response<()>>();
-	tokio::pin!(res_rx);
 
 	// Container Construction
 	let adapter = H3BodyAdapter::new(body_rx);
 	let boxed_body = adapter.map_err(|e| e).boxed();
-
-	// Assign H3 Body to REQUEST slot
 	let request_payload = PayloadState::Http(VaneBody::H3(boxed_body));
-	// Initialize RESPONSE slot as Empty
 	let response_payload = PayloadState::Empty;
 
 	let mut kv = KvStore::new();
@@ -104,7 +101,6 @@ where
 		}
 	}
 
-	// Pass full HeaderMap to Container
 	let request_headers = std::mem::take(&mut parts.headers);
 	let response_headers = HeaderMap::new();
 
@@ -117,8 +113,6 @@ where
 		Some(res_tx),
 	);
 
-	// Logic Execution Spawned
-
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();
 		registry
@@ -128,53 +122,122 @@ where
 			.ok_or_else(|| anyhow::anyhow!("No application config found for 'h3' or 'httpx'"))?
 	};
 
-	tokio::spawn(async move {
+	// Spawn Flow Execution (Consumer of Request Body, Producer of Response)
+	// We need to retrieve the response BODY stream from the container.
+	let flow_handle = tokio::spawn(async move {
 		if let Err(e) = flow::execute_l7(&config.pipeline, &mut container, String::new()).await {
 			log(LogLevel::Error, &format!("✗ L7 Flow Logic Failed: {:#}", e));
+			return None;
 		}
+		// Extract Response Body BEFORE container drops
+		// Note: ensure httpx::extract_response_body_from_container is pub(super)
+		let body = super::httpx::extract_response_body_from_container(&mut container);
+		Some(body)
 	});
 
-	// The Driver Loop (The Actor)
+	// --- The Driver Loop (Bidirectional) ---
+	let mut res_rx = res_rx; // Wait for headers
+
+	// Wrap handle in Option to allow taking ownership inside loop
+	let mut flow_task = Some(flow_handle);
+
+	let mut response_body_stream: Option<http_body_util::combinators::BoxBody<Bytes, Error>> = None;
+
+	let mut request_finished = false;
+	let mut response_finished = false;
 
 	loop {
+		if request_finished && response_finished {
+			break;
+		}
+
 		tokio::select! {
 			// Branch A: Pump Request Body (Stream -> Channel)
-			recv_result = stream.recv_data(), if body_tx.is_some() => {
+			recv_result = stream.recv_data(), if !request_finished => {
 				match recv_result {
 					Ok(Some(mut buf)) => {
 						let bytes = buf.copy_to_bytes(buf.remaining());
 						if let Some(tx) = body_tx.as_ref() {
 							if tx.send(Ok(bytes)).await.is_err() {
+								request_finished = true;
 								body_tx = None;
 							}
 						}
 					}
 					Ok(None) => {
+						// EOF
+						request_finished = true;
 						body_tx = None;
 					}
 					Err(e) => {
 						if let Some(tx) = body_tx.as_ref() {
 							let _ = tx.send(Err(Error::System(e.to_string()))).await;
 						}
+						request_finished = true;
 						body_tx = None;
 					}
 				}
 			}
 
-			// Branch B: Wait for Response Signal
-			res_signal = &mut res_rx => {
+			// Branch B: Wait for Response Headers
+			res_signal = &mut res_rx, if response_body_stream.is_none() && !response_finished => {
 				match res_signal {
 					Ok(response) => {
-						log(LogLevel::Debug, "➜ H3 Driver received response signal.");
 						if let Err(e) = stream.send_response(response).await {
 							log(LogLevel::Error, &format!("✗ Failed to send H3 headers: {}", e));
+							response_finished = true;
 						}
-						let _ = stream.finish().await;
-						break;
+
+						// Take ownership of the task handle
+						if let Some(task) = flow_task.take() {
+							if let Ok(Some(body)) = task.await {
+								response_body_stream = Some(body);
+							} else {
+								response_finished = true;
+								let _ = stream.finish().await;
+							}
+						} else {
+							// Should not happen if logic flows correctly
+							response_finished = true;
+							let _ = stream.finish().await;
+						}
 					}
 					Err(_) => {
-						log(LogLevel::Warn, "⚠ L7 Flow finished without Response Signal.");
-						break;
+						// Flow failed or dropped sender
+						response_finished = true;
+						let _ = stream.finish().await;
+					}
+				}
+			}
+
+			// Branch C: Pump Response Body (Stream -> H3)
+			frame_future = async {
+				if let Some(b) = response_body_stream.as_mut() {
+					b.frame().await
+				} else {
+					std::future::pending().await
+				}
+			}, if response_body_stream.is_some() && !response_finished => {
+				match frame_future {
+					Some(Ok(frame)) => {
+						if let Ok(data) = frame.into_data() {
+							if !data.is_empty() {
+								if let Err(e) = stream.send_data(data).await {
+									log(LogLevel::Warn, &format!("Failed to send H3 data: {}", e));
+									response_finished = true;
+								}
+							}
+						}
+					}
+					Some(Err(e)) => {
+						log(LogLevel::Error, &format!("Response Body Error: {}", e));
+						response_finished = true;
+						let _ = stream.finish().await;
+					}
+					None => {
+						// End of Response Stream
+						response_finished = true;
+						let _ = stream.finish().await;
 					}
 				}
 			}
