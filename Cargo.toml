@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.6.0"
+version = "0.6.1"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -19,8 +19,20 @@ name = "vane"
 path = "src/main.rs"
 
 [features]
-default = ["full"]
+default = ["aws-lc-rs", "full"]
 full = []
+aws-lc-rs = [
+  "rustls/aws-lc-rs",
+  "tokio-rustls/aws-lc-rs",
+  "hyper-rustls/aws-lc-rs",
+  "quinn/aws-lc-rs",
+]
+ring = [
+  "rustls/ring",
+  "tokio-rustls/ring",
+  "hyper-rustls/ring",
+  "quinn/ring",
+]
 
 [dependencies]
 tokio = { version = "1", features = ["full", "signal"] }
@@ -53,9 +65,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 hickory-resolver = "0.25"
 tls-parser = "0.12"
 nom = "8"
-quinn = { version = "0.11", features = ["runtime-tokio"] }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
 quinn-proto = "0.11"
-tokio-rustls = "0.26"
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"] }
 rustls-pemfile = "2"
 thiserror = "2"
 hyper = { version = "1", features = ["full"] }
@@ -70,8 +82,8 @@ h3 = "0.0.8"
 h3-quinn = "0.0.10"
 http-body = "1"
 oneshot = "0.1"
-rustls = "0.23"
-hyper-rustls = { version = "0.27", features = ["http2"] }
+rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http2", "native-tokio", "logging"] }
 infer = "0.19"
 rustls-native-certs = "0.8"
 tower-service = "0.3"
