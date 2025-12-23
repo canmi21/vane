@@ -35,10 +35,7 @@ pub async fn execute_hyper_request(
 	if let Some(v) = version_hint {
 		log(
 			LogLevel::Debug,
-			&format!(
-				"⚙ Upstream Version Hint: {} (Hyper manages this automatically)",
-				v
-			),
+			&format!("⚙ Upstream Version Hint: {} (Hyper Auto Selected)", v),
 		);
 	}
 
