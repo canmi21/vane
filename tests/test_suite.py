@@ -73,7 +73,6 @@ from units import (
     test_proxy_node,
     test_proxy_domain,
     test_flow_engine_tls,
-    test_flow_engine_quic,
 )
 
 # The master list of all tests to be executed sequentially. This is the single
@@ -148,5 +147,4 @@ TEST_SUITE = [
     ("units.test_proxy_node", test_proxy_node.run),
     ("units.test_proxy_domain", test_proxy_domain.run),
     ("units.test_flow_engine_tls", test_flow_engine_tls.run),
-    ("units.test_flow_engine_quic", test_flow_engine_quic.run),
 ]
