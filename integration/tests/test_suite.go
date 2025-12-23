@@ -6,6 +6,7 @@ import (
 
 	"canmi.net/vane-mock-tests/pkg/env"
 	"canmi.net/vane-mock-tests/tests/l4"
+	"canmi.net/vane-mock-tests/tests/l4p"
 )
 
 // Re-define here to match runner
@@ -23,6 +24,10 @@ var Registry []TestCase
 func Initialize() {
 	// Import L4 tests
 	for _, t := range l4.GetTests() {
+		register(t.Name, t.Desc, TestFunc(t.Run))
+	}
+	// Import L4+ tests
+	for _, t := range l4p.GetTests() {
 		register(t.Name, t.Desc, TestFunc(t.Run))
 	}
 	// Future: l7.GetTests()...
