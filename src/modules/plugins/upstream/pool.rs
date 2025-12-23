@@ -74,6 +74,16 @@ fn build_client(skip_verify: bool) -> HttpClient {
 		.parse::<u64>()
 		.unwrap_or(30);
 
+	// Default 2MB (2 * 1024 * 1024)
+	let h2_stream_window = getenv::get_env("UPSTREAM_H2_STREAM_WINDOW", "2097152".to_string())
+		.parse::<u32>()
+		.unwrap_or(2_097_152);
+
+	// Default 2MB (2 * 1024 * 1024)
+	let h2_conn_window = getenv::get_env("UPSTREAM_H2_CONN_WINDOW", "2097152".to_string())
+		.parse::<u32>()
+		.unwrap_or(2_097_152);
+
 	// 1. Build Base HttpConnector with Custom DNS
 	let mut http_connector = HttpConnector::new_with_resolver(VaneResolver);
 	http_connector.enforce_http(false); // Allow HTTPS wrapping
@@ -110,5 +120,8 @@ fn build_client(skip_verify: bool) -> HttpClient {
 		.pool_idle_timeout(Duration::from_secs(idle_timeout_s))
 		.pool_max_idle_per_host(max_idle)
 		.http2_keep_alive_interval(Some(Duration::from_secs(keepalive_s)))
+		// Tuning HTTP/2 Window Sizes for High Throughput
+		.http2_initial_stream_window_size(Some(h2_stream_window))
+		.http2_initial_connection_window_size(Some(h2_conn_window))
 		.build(https_connector)
 }
