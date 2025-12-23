@@ -153,7 +153,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 			Ok(())
 		}
 		Ok(TerminatorResult::Upgrade { protocol, .. }) => {
-			if protocol == "h3" {
+			if protocol == "httpx" {
 				let cert_sni = kv
 					.get("tls.termination.cert_sni")
 					.map(|s| s.as_str())
