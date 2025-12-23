@@ -72,4 +72,4 @@ Unlike proxies that treat UDP as a second-class citizen, Vane features a dedicat
 If you found this project helpful, consider supporting domain & server maintenance.
 
 ---
-> GitHub · [Canmi](https://github.com/canmi21/) © 2025
+> Canmi © 2025 [GitHub](https://github.com/canmi21) · [MIT](https://github.com/canmi21/vane?tab=MIT-1-ov-file#readme)
