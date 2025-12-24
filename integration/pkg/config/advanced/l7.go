@@ -6,15 +6,17 @@ package advanced
 // Inputs:
 // - url_prefix: "http://127.0.0.1:8080"
 // - version: "auto", "h1", "h2", "h3"
+// - skip_verify: true/false (for self-signed upstreams)
 // Branches:
 // - onSuccess: Executed when upstream returns a response (usually NewSendResponse).
 // - onFailure: Executed when upstream fails (usually NewAbortConnection).
-func NewFetchUpstream(urlPrefix string, version string, onSuccess ProcessingStep, onFailure ProcessingStep) ProcessingStep {
+func NewFetchUpstream(urlPrefix string, version string, skipVerify bool, onSuccess ProcessingStep, onFailure ProcessingStep) ProcessingStep {
 	return ProcessingStep{
 		"internal.driver.upstream": PluginInstance{
 			Input: map[string]interface{}{
-				"url_prefix": urlPrefix,
-				"version":    version,
+				"url_prefix":  urlPrefix,
+				"version":     version,
+				"skip_verify": skipVerify,
 			},
 			Output: map[string]ProcessingStep{
 				"success": onSuccess,
