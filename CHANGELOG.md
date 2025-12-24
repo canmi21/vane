@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.5 (25. Dec, 2025)
+
+- **Added:** Implemented the **Common Gateway Interface (CGI) Driver** (`internal.driver.cgi`). This privileged L7 middleware enables Vane to execute external applications (e.g., `lua-cgi`, `php-cgi`, C binaries) per request, adhering to RFC 3875 standards. It features a streaming stdout parser that separates headers from the body on-the-fly and pipes the payload directly to the client using the new `VaneBody::Generic` wrapper.
+- **Added:** Extended the `VaneBody` enum (`wrapper.rs`) with a `Generic` variant. This architectural primitive allows the L7 Container to transport arbitrary, type-erased `BoxBody<Bytes, Error>` streams (such as those originating from child process pipes) through the middleware pipeline, enabling non-HTTP sources to act as response providers.
+- **Changed:** Enhanced the **L7 Protocol Adapters** (`httpx.rs`, `h3.rs`) to automatically extract and inject the URI Query String into the KVStore as `req.query`. This ensures that downstream drivers have access to raw query parameters, distinct from the normalized request path.
+- **Changed:** Upgraded the **Fetch Upstream Driver** (`upstream/mod.rs`) to support intelligent **Query String Propagation**. The plugin now accepts an explicit `query` input parameter or automatically falls back to the original `req.query` when operating in transparent proxy mode (where `path` is unspecified), preventing data loss during URL reconstruction.
+
 ## 0.6.4 (24. Dec, 2025)
 
 - **Added:** Operators can now tune `UPSTREAM_H2_STREAM_WINDOW` and `UPSTREAM_H2_CONN_WINDOW (default 2MB) via environment variables, enabling optimization of throughput and window management for high-bandwidth upstream links.
