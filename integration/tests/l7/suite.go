@@ -36,5 +36,8 @@ func GetTests() []TestEntry {
 		// Heavy Streaming Tests
 		{Name: "l7_stream_h2_to_h3_1gb", Desc: "Streaming: 1GB H2 Client -> H3 Upstream", Run: TestStreamH2toH3},
 		{Name: "l7_stream_h3_to_h2_1gb", Desc: "Streaming: 1GB H3 Client -> H2 Upstream", Run: TestStreamH3toH2},
+
+		// CGI Tests
+		{Name: "l7_cgi_basic", Desc: "CGI: Basic Execution (C Binary)", Run: TestCgiBasic},
 	}
 }
