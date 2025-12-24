@@ -36,6 +36,11 @@ impl Plugin for FetchUpstreamPlugin {
 				param_type: ParamType::String,
 			},
 			ParamDef {
+				name: "query".into(), // Optional: overrides or appends query string
+				required: false,
+				param_type: ParamType::String,
+			},
+			ParamDef {
 				name: "method".into(),
 				required: false,
 				param_type: ParamType::String,
@@ -85,9 +90,15 @@ impl L7Middleware for FetchUpstreamPlugin {
 			.ok_or_else(|| anyhow!("Input 'url_prefix' is required"))?
 			.trim_end_matches('/'); // Normalize: remove trailing slash
 
-		// 2. Resolve Path
-		// Priority: Input 'path' > Container 'req.path' > Empty
+		// 2. Resolve Path & Query
+		// Logic:
+		// - If 'query' input is present: Use it, and strip any '?' from the path.
+		// - If 'query' input is missing:
+		//    - Check if 'path' input has '?' embedded.
+		//    - If 'path' input is missing (default mode), use 'req.path' AND 'req.query'.
+
 		let path_input = inputs.get("path").and_then(Value::as_str);
+		let query_input = inputs.get("query").and_then(Value::as_str);
 
 		let raw_path = if let Some(p) = path_input {
 			p.to_string()
@@ -99,11 +110,41 @@ impl L7Middleware for FetchUpstreamPlugin {
 				.unwrap_or_else(|| "/".to_string())
 		};
 
-		let path_normalized = raw_path.trim_start_matches('/'); // Normalize: remove leading slash
+		let (clean_path, final_query) = if let Some(q) = query_input {
+			// Case A: Explicit Query provided.
+			// Strip '?' from path to avoid duplication/confusion.
+			let p = raw_path
+				.split_once('?')
+				.map(|(pre, _)| pre)
+				.unwrap_or(&raw_path);
+			(p.to_string(), q.to_string())
+		} else {
+			// Case B: No Explicit Query provided.
+			if let Some((p, q)) = raw_path.split_once('?') {
+				// Sub-case B1: Query embedded in 'path' input (e.g. "/foo?bar=baz")
+				(p.to_string(), q.to_string())
+			} else {
+				// Sub-case B2: No query in path.
+				// If we are in "Default Mode" (path_input is None), we should try to carry over the original query.
+				if path_input.is_none() {
+					let q = container.kv.get("req.query").cloned().unwrap_or_default();
+					(raw_path, q)
+				} else {
+					// User specified a path without query, and no explicit query input. Assume no query.
+					(raw_path, String::new())
+				}
+			}
+		};
+
+		let path_normalized = clean_path.trim_start_matches('/'); // Normalize: remove leading slash
 
 		// 3. Construct Full URL
-		// Logic: {prefix}/{path}
-		let full_url = format!("{}/{}", url_prefix, path_normalized);
+		// Logic: {prefix}/{path}?{query}
+		let full_url = if final_query.is_empty() {
+			format!("{}/{}", url_prefix, path_normalized)
+		} else {
+			format!("{}/{}?{}", url_prefix, path_normalized, final_query)
+		};
 
 		let method = inputs.get("method").and_then(Value::as_str);
 
@@ -130,7 +171,7 @@ impl L7Middleware for FetchUpstreamPlugin {
 				)
 				.await
 			}
-			// FIXED: Passed all 4 required arguments to match quinn_client signature
+			// Passed all 4 required arguments to match quinn_client signature
 			"h3" => quinn_client::execute_quinn_request(container, &full_url, method, skip_verify).await,
 			_ => {
 				log(
