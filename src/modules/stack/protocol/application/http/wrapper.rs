@@ -16,8 +16,11 @@ pub enum VaneBody {
 	/// Native Hyper Body (HTTP/1.1, HTTP/2)
 	Hyper(Incoming),
 
-	/// H3 Stream Wrapper (Boxed to erase generics)
+	/// H3 Stream Wrapper
 	H3(BoxBody<Bytes, Error>),
+
+	/// Generic Stream Wrapper (Boxed, for plugins like CGI/FastCGI)
+	Generic(BoxBody<Bytes, Error>),
 
 	/// Buffered Memory (Lazy Buffer or Generated Content)
 	Buffered(Full<Bytes>),
@@ -54,6 +57,7 @@ impl Body for VaneBody {
 				Poll::Pending => Poll::Pending,
 			},
 			Self::H3(body) => Pin::new(body).poll_frame(cx),
+			Self::Generic(body) => Pin::new(body).poll_frame(cx),
 			Self::Buffered(body) => match Pin::new(body).poll_frame(cx) {
 				Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
 				Poll::Ready(Some(Err(e))) => match e {}, // Full<Bytes> never errors
@@ -68,6 +72,7 @@ impl Body for VaneBody {
 		match self {
 			Self::Hyper(b) => b.is_end_stream(),
 			Self::H3(b) => b.is_end_stream(),
+			Self::Generic(b) => b.is_end_stream(),
 			Self::Buffered(b) => b.is_end_stream(),
 			Self::Empty => true,
 		}
@@ -77,6 +82,7 @@ impl Body for VaneBody {
 		match self {
 			Self::Hyper(b) => b.size_hint(),
 			Self::H3(b) => b.size_hint(),
+			Self::Generic(b) => b.size_hint(),
 			Self::Buffered(b) => b.size_hint(),
 			Self::Empty => SizeHint::with_exact(0),
 		}
