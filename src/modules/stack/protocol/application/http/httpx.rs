@@ -121,7 +121,7 @@ async fn serve_request(
 		Ok(response_parts) => {
 			let (parts, _) = response_parts.into_parts();
 
-			// CRITICAL: Retrieve the Response Body from the Container!
+			// Retrieve the Response Body from the Container!
 			// We extract from response_body slot now.
 			let final_body = extract_response_body_from_container(&mut container);
 
@@ -138,7 +138,10 @@ async fn serve_request(
 }
 
 /// Helper to extract and convert the Container's RESPONSE payload.
-fn extract_response_body_from_container(container: &mut Container) -> BoxBody<Bytes, Error> {
+// Changed visibility to pub(super) so h3.rs can access it
+pub(super) fn extract_response_body_from_container(
+	container: &mut Container,
+) -> BoxBody<Bytes, Error> {
 	// Steal the RESPONSE payload
 	let payload = std::mem::replace(&mut container.response_body, PayloadState::Empty);
 

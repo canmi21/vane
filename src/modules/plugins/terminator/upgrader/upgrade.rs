@@ -91,7 +91,10 @@ impl Terminator for UpgradePlugin {
 
 		match (&conn, protocol) {
 			(ConnectionObject::Tcp(_), "tls") | (ConnectionObject::Tcp(_), "http") => {}
-			(ConnectionObject::Udp { .. }, "quic") => {}
+			(ConnectionObject::Udp { .. }, "quic")
+			| (ConnectionObject::Udp { .. }, "h3")
+			| (ConnectionObject::Udp { .. }, "httpx") => {}
+
 			(ConnectionObject::Tcp(_), "quic") => return Err(anyhow!("Invalid Upgrade: TCP -> QUIC")),
 			(ConnectionObject::Udp { .. }, "tls") | (ConnectionObject::Udp { .. }, "http") => {
 				return Err(anyhow!("Invalid Upgrade: UDP -> Stream"));
