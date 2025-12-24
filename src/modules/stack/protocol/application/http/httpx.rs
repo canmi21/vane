@@ -74,6 +74,11 @@ async fn serve_request(
 	kv.insert("req.path".to_string(), parts.uri.path().to_string());
 	kv.insert("req.version".to_string(), format!("{:?}", parts.version));
 
+	// Inject Query String
+	if let Some(q) = parts.uri.query() {
+		kv.insert("req.query".to_string(), q.to_string());
+	}
+
 	if let Some(host) = parts.headers.get("host") {
 		if let Ok(h) = host.to_str() {
 			kv.insert("req.host".to_string(), h.to_string());
