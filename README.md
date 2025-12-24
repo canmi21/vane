@@ -37,12 +37,13 @@ Vane manages network traffic across three strictly defined architectural layers,
 - **L4+ (Carrier):** A specialized state where Vane inspects encrypted or complex protocols (TLS, QUIC) without terminating the secure session. It can extract SNI, ALPN, and Connection IDs to make routing decisions before determining whether to forward the encrypted stream or terminate it.
 - **L7 (Application):** The fully terminated layer where Vane acts as a server (HTTP/1.1, HTTP/2, HTTP/3). Here, the system utilizes a unified "Container" model to manipulate headers, bodies, and payloads using a full-duplex streaming engine.
 
-### Two-Phase Dispatch (Fast/Slow Path)
+### Two-Phase Dispatch (Layer-Specific Semantics)
 
-To optimize performance for connection-oriented UDP protocols like QUIC, Vane implements a Two-Phase Dispatch system.
+“Two-Phase” in Vane is **layer-dependent**, not a single global mechanism.
 
-- **Slow Path:** Initial packets undergo deep packet inspection, flow evaluation, and cryptographic context assembly to determine the correct route.
-- **Fast Path:** Once a session is established, Vane utilizes a global Connection ID (CID) Registry and IP Stickiness Map to perform O(1) forwarding for subsequent packets, bypassing the heavy flow engine entirely while maintaining NAT consistency.
+- **L4 (Transport):** No Two-Phase model. Traffic is handled with single-pass, stateless forwarding and flow decisions.
+- **L4+ (Carrier):** Two-Phase refers to **UDP/QUIC fast–slow path separation**. Initial packets go through deep inspection and routing (slow path). Once a session is established, subsequent packets are forwarded in O(1) via CID and IP stickiness (fast path).
+- **L7 (Application):** Two-Phase represents a **split request lifecycle**. Upstream fetching is modeled as a middleware (`FetchUpstream`), allowing modification both **before** the request is sent upstream and **after** the response returns. This decouples upstream and downstream protocols and enables full-duplex HTTP any-to-any bridging (H1/H2/H3).
 
 ## Distinctions
 
@@ -52,10 +53,10 @@ Traditional proxies are configured; Vane is programmed. Through its plugin syste
 
 ### Hybrid Plugin Ecosystem
 
-Vane offers a dual-layer extensibility model:
+Vane provides a **selectively extensible plugin model** aligned with its Flow Engine architecture.
 
-1. **Internal Plugins:** Compiled directly into the binary for critical, zero-latency operations (traffic shaping, protocol detection).
-2. **External Plugins:** Supports execution of logic via HTTP webhooks, Unix Domain Sockets, or external binaries/scripts (Lua, Python, Bash, etc.). This allows integration with external authentication providers or logging systems without recompiling the core.
+- **Middleware (Extensible):** Middleware is fully programmable and user-definable. It can be implemented internally for zero-latency execution or externally via HTTP webhooks, Unix Domain Sockets, or external binaries/scripts (Lua, Python, Bash, etc.). This enables custom logic such as authentication, policy decisions, logging, and dynamic flow control without recompiling the core.
+- **Terminators (Built-in Only):** Terminators are tightly bound to physical network operations (proxying, protocol upgrades, connection termination). Due to their direct interaction with the data plane, they are currently provided only as built-in implementations and cannot be externalized.
 
 ### Native QUIC & HTTP/3 Intelligence
 
