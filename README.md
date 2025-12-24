@@ -37,7 +37,7 @@ Vane manages network traffic across three strictly defined architectural layers,
 - **L4+ (Carrier):** A specialized state where Vane inspects encrypted or complex protocols (TLS, QUIC) without terminating the secure session. It can extract SNI, ALPN, and Connection IDs to make routing decisions before determining whether to forward the encrypted stream or terminate it.
 - **L7 (Application):** The fully terminated layer where Vane acts as a server (HTTP/1.1, HTTP/2, HTTP/3). Here, the system utilizes a unified "Container" model to manipulate headers, bodies, and payloads using a full-duplex streaming engine.
 
-### Two-Phase Dispatch (Layer-Specific Semantics)
+### Two-Phase Dispatch
 
 “Two-Phase” in Vane is **layer-dependent**, not a single global mechanism.
 
@@ -65,8 +65,9 @@ Unlike proxies that treat UDP as a second-class citizen, Vane features a dedicat
 ## Technical Advantages
 
 - **Zero-Copy Architecture:** The internal data plane heavily utilizes Rust's ownership model and `Bytes` abstractions to pass data between network layers without unnecessary memory allocation. Features like "Lazy Buffering" ensure that payloads are only loaded into memory when explicitly requested by a plugin.
-- **Stateful L4+ Routing:** Vane can route TLS and QUIC traffic based on SNI and ALPN without possessing the SSL certificates. It parses the ClientHello during the handshake (even across fragmented QUIC packets) to make routing decisions, enabling true zero-trust routing.
 - **Full-Duplex Streaming:** The upstream drivers are architected to handle large-scale data transfer (e.g., multi-gigabyte streams) asynchronously. Request and response paths are decoupled, preventing head-of-line blocking and deadlocks common in synchronous proxy implementations.
+- **Cross-Layer Context Continuity:** Vane maintains a unified key–value context that persists across **L4, L4+, and L7**. Connection metadata such as source IP/port, transport details, and handshake-derived attributes are propagated upward and remain accessible at higher layers. This allows L7 template rendering (`{{ ... }}`) and middleware logic to reference low-level connection and protocol state without re-parsing or breaking layer boundaries.
+- **Stateful L4+ Routing:** Vane can route encrypted traffic without terminating the secure session. At the L4+ layer, it routes **TLS connections based on SNI and ALPN**, and **QUIC connections based on SNI** by parsing handshake metadata (including fragmented ClientHello data), enabling certificate-less, zero-trust routing decisions.
 - **Hot-Swappable Configuration:** All layers of the stack—from L4 listeners and TLS certificates to L7 application pipelines—support runtime reconfiguration. The system employs a "Keep-Last-Known-Good" strategy to ensure stability during updates.
 
 ## License
