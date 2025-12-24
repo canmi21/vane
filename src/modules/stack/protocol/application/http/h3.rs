@@ -91,6 +91,11 @@ where
 	kv.insert("req.method".to_string(), parts.method.to_string());
 	kv.insert("req.path".to_string(), parts.uri.path().to_string());
 
+	// Inject Query String
+	if let Some(q) = parts.uri.query() {
+		kv.insert("req.query".to_string(), q.to_string());
+	}
+
 	if let Some(host) = parts
 		.headers
 		.get("host")
