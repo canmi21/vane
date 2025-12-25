@@ -3050,7 +3050,7 @@ dependencies = [
 
 [[package]]
 name = "vane"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "aes",
  "anyhow",
@@ -3058,6 +3058,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "dashmap",
