@@ -3,7 +3,7 @@
 use crate::common::getconf;
 use crate::modules::stack::transport::{health, session};
 use fancy_log::{LogLevel, log};
-use notify::{Event, RecursiveMode, Watcher};
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::{ffi::OsStr, fs, time::Duration};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -85,7 +85,6 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 	spawn_debouncer!(nodes_raw_rx, nodes_debounced_tx, "nodes");
 	spawn_debouncer!(resolvers_raw_rx, resolvers_debounced_tx, "resolvers");
 	spawn_debouncer!(certs_raw_rx, certs_debounced_tx, "certs");
-	// FIXED: Passed apps_raw_rx (Receiver) instead of apps_raw_tx (Sender)
 	spawn_debouncer!(apps_raw_rx, apps_debounced_tx, "applications");
 
 	// Spawn the main, long-running watcher task.
@@ -132,6 +131,12 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 		let app_dir = join_canon("application");
 
 		while let Some(event) = event_rx.recv().await {
+			// Filter out Access events (read operations) which shouldn't trigger reloads
+			match event.kind {
+				EventKind::Access(_) | EventKind::Other => continue,
+				_ => {}
+			}
+
 			log(
 				LogLevel::Debug,
 				&format!("⇆ FS Event detected: {:?}", event.kind),
