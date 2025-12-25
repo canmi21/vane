@@ -20,7 +20,6 @@ pub struct PluginInstance {
 pub type ProcessingStep = HashMap<String, PluginInstance>;
 
 // --- External Plugin Models ---
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum ExternalPluginDriver {
@@ -78,6 +77,9 @@ pub enum ParamType {
 	Integer,
 	Boolean,
 	Bytes,
+	Map,   // JSON Object
+	Array, // JSON Array
+	Any,   // Polymorphic (String | Map)
 }
 
 pub struct ParamDef {
@@ -95,7 +97,6 @@ pub struct MiddlewareOutput {
 }
 
 // --- Connection Object Abstraction ---
-
 pub trait ByteStream: AsyncRead + AsyncWrite + Unpin + Send + Sync {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send + Sync> ByteStream for T {}
 
