@@ -9,5 +9,6 @@ pub mod loader;
 pub mod model;
 pub mod protocol;
 pub mod registry;
+pub mod resource;
 pub mod terminator;
 pub mod upstream;
