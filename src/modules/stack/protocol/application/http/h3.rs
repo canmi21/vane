@@ -63,7 +63,6 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 	Ok(())
 }
 
-// Removed generic B, hardcoded to bytes::Bytes.
 async fn serve_h3_request<T>(
 	req: Request<()>,
 	mut stream: RequestStream<T, bytes::Bytes>,
@@ -127,25 +126,22 @@ where
 			.ok_or_else(|| anyhow::anyhow!("No application config found for 'h3' or 'httpx'"))?
 	};
 
-	// Spawn Flow Execution (Consumer of Request Body, Producer of Response)
-	// We need to retrieve the response BODY stream from the container.
+	// Spawn Flow Execution
 	let flow_handle = tokio::spawn(async move {
 		if let Err(e) = flow::execute_l7(&config.pipeline, &mut container, String::new()).await {
 			log(LogLevel::Error, &format!("✗ L7 Flow Logic Failed: {:#}", e));
 			return None;
 		}
-		// Extract Response Body BEFORE container drops
-		// Note: ensure httpx::extract_response_body_from_container is pub(super)
-		let body = super::httpx::extract_response_body_from_container(&mut container);
+		// Use new helper name and manually extract payload
+		let payload = std::mem::replace(&mut container.response_body, PayloadState::Empty);
+		let body = super::httpx::convert_payload_to_body(payload);
 		Some(body)
 	});
 
 	// --- The Driver Loop (Bidirectional) ---
 	let mut res_rx = res_rx; // Wait for headers
 
-	// Wrap handle in Option to allow taking ownership inside loop
 	let mut flow_task = Some(flow_handle);
-
 	let mut response_body_stream: Option<http_body_util::combinators::BoxBody<Bytes, Error>> = None;
 
 	let mut request_finished = false;
@@ -202,13 +198,11 @@ where
 								let _ = stream.finish().await;
 							}
 						} else {
-							// Should not happen if logic flows correctly
 							response_finished = true;
 							let _ = stream.finish().await;
 						}
 					}
 					Err(_) => {
-						// Flow failed or dropped sender
 						response_finished = true;
 						let _ = stream.finish().await;
 					}

@@ -133,6 +133,7 @@ func RunStreamingTest(ctx context.Context, s *env.Sandbox, cType ClientType, uTy
 			upstreamUrl,
 			vaneUpstreamVer,
 			true,
+			false, // WebSocket disabled
 			advanced.NewSendResponse(),
 			advanced.NewAbortConnection(),
 		),

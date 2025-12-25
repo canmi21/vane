@@ -40,5 +40,10 @@ func GetTests() []TestEntry {
 		// CGI Tests
 		{Name: "l7_cgi_binary_c", Desc: "CGI: Binary Execution (C Compiled)", Run: TestCgiBasic},
 		{Name: "l7_cgi_script_lua", Desc: "CGI: Script Execution (Lua Interpreter)", Run: TestCgiLua},
+
+		// WebSocket Tunneling Tests
+		{Name: "l7_ws_deny_default", Desc: "WebSocket: Should reject if disabled", Run: TestWSDeny},
+		{Name: "l7_ws_allow_echo", Desc: "WebSocket: Basic Echo Tunneling", Run: TestWSAllow},
+		{Name: "l7_ws_stream_1gb", Desc: "WebSocket: 1GB Bidirectional Streaming", Run: TestWSStreamLarge},
 	}
 }
