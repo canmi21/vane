@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.6 (25. Dec, 2025)
+
+- **Added:** Implemented **Recursive Template Resolution** (`template.rs`) for the L7 Flow Engine. The system now performs deep traversal of nested JSON Objects and Arrays within plugin inputs, allowing dynamic variable substitution (e.g., `{{req.header.x-id}}`) to function correctly inside structured configurations like header maps or body definitions.
+- **Added:** Expanded the Plugin Type System (`model.rs`) with `Map`, `Array`, and `Any` parameter types. This enables plugins to officially declare and validate complex input structures, moving beyond simple scalar key-value pairs.
+- **Changed:** Upgraded the **Response Terminator** (`internal.terminator.response`) with a "Takeover vs. Inherit" architecture.
+  - **Headers:** Now accepts a structured `headers` map. If present, it clears any upstream headers and applies the user-defined set to takeover final headers. If absent, upstream headers are preserved.
+  - **Body:** Now accepts a polymorphic `body` field. Users can provide a simple string or a structured object `{ content: "...", encoding: "base64/hex/text" }`. If present, it replaces the upstream body stream with the decoded static buffer. If absent, the upstream stream is preserved.
+- **Changed:** Refactored the File Watcher (`requirements.rs`) to intelligently filter filesystem events. It now explicitly ignores `Access` (read) and `Other` (metadata) events, preventing spurious configuration reloads caused by non-destructive file operations.
+
 ## 0.6.5 (25. Dec, 2025)
 
 - **Added:** Implemented the **Common Gateway Interface (CGI) Driver** (`internal.driver.cgi`). This privileged L7 middleware enables Vane to execute external applications (e.g., `lua-cgi`, `php-cgi`, C binaries) per request, adhering to RFC 3875 standards. It features a streaming stdout parser that separates headers from the body on-the-fly and pipes the payload directly to the client using the new `VaneBody::Generic` wrapper.
