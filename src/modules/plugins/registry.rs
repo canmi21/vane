@@ -8,6 +8,7 @@ use super::{
 	},
 	model::Plugin,
 	protocol::detect::ProtocolDetectPlugin,
+	resource::r#static::StaticPlugin,
 	terminator::{
 		response::SendResponsePlugin,
 		transport::{
@@ -44,6 +45,7 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		// Drivers (L7)
 		Arc::new(FetchUpstreamPlugin),
 		Arc::new(CgiPlugin),
+		Arc::new(StaticPlugin),
 		// Terminators (L7)
 		Arc::new(SendResponsePlugin),
 	];
