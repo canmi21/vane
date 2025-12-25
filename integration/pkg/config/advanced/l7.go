@@ -26,6 +26,34 @@ func NewFetchUpstream(urlPrefix string, version string, skipVerify bool, onSucce
 	}
 }
 
+// NewCgiExecution creates a ProcessingStep for internal.driver.cgi.
+// command: absolute path to the executable.
+// script: optional script path (e.g. for php-cgi).
+func NewCgiExecution(command string, script string, onSuccess ProcessingStep, onFailure ProcessingStep) ProcessingStep {
+	inputs := map[string]interface{}{
+		"command": command,
+		"timeout": 5,
+		// Standard CGI Mapping
+		"method": "{{req.method}}",
+		"uri":    "{{req.path}}",
+		// Explicitly map query from KV
+		"query": "{{req.query}}",
+	}
+	if script != "" {
+		inputs["script"] = script
+	}
+
+	return ProcessingStep{
+		"internal.driver.cgi": PluginInstance{
+			Input: inputs,
+			Output: map[string]ProcessingStep{
+				"success": onSuccess,
+				"failure": onFailure,
+			},
+		},
+	}
+}
+
 // NewSendResponse creates a terminator that flushes the current Container response to the client.
 // Plugin: internal.terminator.response
 // Use this after FetchUpstream to actually send the data back.
