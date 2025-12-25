@@ -1,6 +1,7 @@
 /* src/modules/plugins/registry.rs */
 
 use super::{
+	cgi::plugin::CgiPlugin,
 	common::{
 		matcher::CommonMatchPlugin,
 		ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin},
@@ -42,6 +43,7 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		Arc::new(KeywordRateLimitMinPlugin),
 		// Drivers (L7)
 		Arc::new(FetchUpstreamPlugin),
+		Arc::new(CgiPlugin),
 		// Terminators (L7)
 		Arc::new(SendResponsePlugin),
 	];

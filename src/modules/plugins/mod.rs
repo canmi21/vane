@@ -1,5 +1,6 @@
 /* src/modules/plugins/mod.rs */
 
+pub mod cgi;
 pub mod common;
 pub mod drivers;
 pub mod external;
