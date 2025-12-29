@@ -13,11 +13,6 @@ use super::tcp::TcpProtocolRule;
 use super::udp::UdpProtocolRule;
 
 /// Recursively validates a flow-based configuration tree.
-///
-/// # Arguments
-/// * `step` - The current processing step to validate.
-/// * `layer` - The architectural layer this config belongs to (e.g., L4, L4Plus, L7).
-///             This is used to ensure Terminators are allowed to run in this context.
 pub fn validate_flow_config(step: &ProcessingStep, layer: Layer) -> Result<(), ValidationErrors> {
 	if step.len() != 1 {
 		let mut err = ValidationError::new("processing_step_size");
@@ -62,7 +57,6 @@ pub fn validate_flow_config(step: &ProcessingStep, layer: Layer) -> Result<(), V
 	}
 
 	// 3. Validate Middleware Outputs and Recursion
-	// Use helper method instead of downcast_ref to check if it's middleware
 	if !instance.output.is_empty() {
 		if let Some(middleware) = plugin.as_middleware() {
 			if let Err(e) =
@@ -70,9 +64,6 @@ pub fn validate_flow_config(step: &ProcessingStep, layer: Layer) -> Result<(), V
 			{
 				errors.merge_self("output", Err(e));
 			}
-		} else {
-			// It has outputs defined in config, but the plugin identifies itself as NOT a middleware (e.g. Terminator)
-			// While unexpected, we proceed to validate children to catch nested errors.
 		}
 
 		for (_branch, next_step) in &instance.output {
@@ -117,17 +108,22 @@ fn validate_plugin_inputs(
 		match inputs.get(def.name.as_ref()) {
 			Some(value) => {
 				// Skip type validation for template strings {{...}}
-				if value
-					.as_str()
-					.map_or(false, |s| s.starts_with("{{") && s.ends_with("}}"))
-				{
-					continue;
+				// Note: For Map/Array/Any, templates might be nested inside.
+				// A deep validation of templates is complex, so we skip basic string templates at top level.
+				if let Some(s) = value.as_str() {
+					if s.starts_with("{{") && s.ends_with("}}") {
+						continue;
+					}
 				}
+
 				let is_valid_type = match def.param_type {
 					ParamType::String => value.is_string(),
 					ParamType::Integer => value.is_i64() || value.is_u64(),
 					ParamType::Boolean => value.is_boolean(),
 					ParamType::Bytes => value.is_string(),
+					ParamType::Map => value.is_object(),
+					ParamType::Array => value.is_array(),
+					ParamType::Any => true, // Accepts anything
 				};
 				if !is_valid_type {
 					let mut err = ValidationError::new("invalid_parameter_type");

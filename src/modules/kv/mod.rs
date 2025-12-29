@@ -28,7 +28,7 @@ pub type KvStore = HashMap<String, String>;
 pub fn new(peer_addr: &SocketAddr, protocol: &str) -> KvStore {
 	let mut kv = KvStore::new();
 
-	// CORRECTED: Use `now_v7` to automatically generate a UUID from the current time.
+	// UUIDv7 as time-related connection id
 	let uuid = Uuid::now_v7().to_string().replace('-', "");
 
 	kv.insert("conn.uuid".to_string(), uuid);

@@ -151,6 +151,15 @@ impl L7Middleware for CgiPlugin {
 			}
 		};
 
+		// 3. Path Info Auto Calculation
+		// RFC 3875: PATH_INFO = SCRIPT_NAME prefix stripped from URI
+		let mut path_info = get_str("path_info");
+		let script_name = get_str("script_name");
+
+		if path_info.is_empty() && !script_name.is_empty() && final_uri.starts_with(&script_name) {
+			path_info = final_uri[script_name.len()..].to_string();
+		}
+
 		let config = CgiConfig {
 			command,
 			script: get_str("script"),
@@ -171,8 +180,8 @@ impl L7Middleware for CgiPlugin {
 
 			// Script Context
 			doc_root: get_str("doc_root"),
-			path_info: get_str("path_info"),
-			script_name: get_str("script_name"),
+			path_info, // Use the calculated path_info
+			script_name,
 		};
 
 		executor::execute(container, config).await
