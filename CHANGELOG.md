@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.8 (29. Dec, 2025)
+
+- **Added:** Implemented **WebSocket Tunneling** support within the Upstream Driver. The `internal.driver.upstream` plugin can now handle HTTP/1.1 Upgrade requests (`101 Switching Protocols`), establishing a bidirectional `tokio::io::copy_bidirectional` tunnel between the client and the backend. This feature is opt-in via the `websocket: true` parameter.
+- **Added:** Enhanced the **L7 Container** to carry protocol upgrade handles. Introduced `client_upgrade` and `upstream_upgrade` slots (`OnUpgrade` futures), allowing middleware to capture and defer the raw socket handover until the response phase.
+- **Changed:** Upgraded the **HTTPX Protocol Adapter** (`httpx.rs`) to utilize `serve_connection_with_upgrades`. This replaces standard connection handling with `hyper-util`'s upgrade-aware API, resolving previous `!Sync` trait object issues and ensuring correct `101` handshake processing at the transport level.
+- **Changed:** Refactored the **Response Terminator** (`internal.terminator.response`) to act as the WebSocket Bridge. It now detects pending upgrade handles in the container, spawns the background tunnel task, and immediately flushes the `101` response to the client, completing the handshake lifecycle.
+- **Fixed:** Enforced strict **WebSocket Policy Control**. The upstream driver now validates the `websocket` configuration flag; if a client requests an upgrade but the feature is disabled, Vane intercepts the request and returns a `405 Method Not Allowed`, preventing unauthorized protocol transitions.
+
+## 0.6.7 (25. Dec, 2025)
+
+- **Added:** Implemented the **Static Resource Driver** (`internal.driver.static`). This L7 middleware transforms Vane into a secure, high-performance static file server. It supports path sanitization (traversal protection), MIME type sniffing (`mime_guess`/`infer`), ETag generation, and conditional requests (`If-Modified-Since`), allowing Vane to directly serve web assets without external dependencies.
+- **Added:** Integrated **HTTP Range Request** support (`range.rs`) within the static driver. The system can now parse `Range: bytes=x-y` headers and serve `206 Partial Content` using efficient file seeking and bounded streams (`ReaderStream::new(file.take(len))`), enabling media streaming and resumable downloads.
+- **Added:** Implemented **SPA (Single Page Application) Mode**. The static driver can be configured with `spa: true` to automatically fallback 404s to `index.html`, supporting modern frontend routing architectures.
+- **Added:** Added **Precompression Support**. When `precompress: true` is set, the driver automatically detects and serves `.gz` sidecar files if the client sends `Accept-Encoding: gzip`, reducing bandwidth usage without on-the-fly compression overhead.
+- **Added:** Implemented **Directory Browsing**. When enabled via `browse: true`, the driver generates a lightweight HTML index for directories that lack an `index.html` file, useful for file repositories.
+- **Changed:** Enhanced the **CGI Driver** (`cgi/plugin.rs`) with intelligent **PATH_INFO**. If `path_info` is not explicitly provided, the plugin now attempts to derive it by stripping the `script_name` prefix from the `request_uri`, ensuring compatibility with frameworks (like OpenWrt LuCI) that rely on correct path splitting.
+
 ## 0.6.6 (25. Dec, 2025)
 
 - **Added:** Implemented **Recursive Template Resolution** (`template.rs`) for the L7 Flow Engine. The system now performs deep traversal of nested JSON Objects and Arrays within plugin inputs, allowing dynamic variable substitution (e.g., `{{req.header.x-id}}`) to function correctly inside structured configurations like header maps or body definitions.
