@@ -40,10 +40,7 @@ pub async fn resolve_template(
 	if depth > max_depth {
 		fancy_log::log(
 			fancy_log::LogLevel::Error,
-			&format!(
-				"✗ SEC-3: Template recursion depth limit ({}) exceeded",
-				max_depth
-			),
+			&format!("✗ Template recursion depth limit ({}) exceeded", max_depth),
 		);
 		return template.to_string();
 	}
@@ -87,10 +84,7 @@ fn resolve_value_recursive<'a>(
 		if depth > max_depth {
 			fancy_log::log(
 				fancy_log::LogLevel::Error,
-				&format!(
-					"✗ SEC-3: JSON recursion depth limit ({}) exceeded",
-					max_depth
-				),
+				&format!("✗ JSON recursion depth limit ({}) exceeded", max_depth),
 			);
 			return value.clone();
 		}

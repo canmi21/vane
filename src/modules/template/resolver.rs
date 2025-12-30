@@ -24,14 +24,11 @@ fn resolve_ast_with_depth<'a>(
 	max_size: usize,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'a>> {
 	Box::pin(async move {
-		// Prevent infinite recursion (SEC-3)
+		// Prevent infinite recursion
 		if depth > max_depth {
 			fancy_log::log(
 				fancy_log::LogLevel::Error,
-				&format!(
-					"✗ SEC-3: Template recursion depth limit ({}) exceeded",
-					max_depth
-				),
+				&format!("✗ Template recursion depth limit ({}) exceeded", max_depth),
 			);
 			return String::new();
 		}
@@ -44,10 +41,7 @@ fn resolve_ast_with_depth<'a>(
 					if result.len() + s.len() > max_size {
 						fancy_log::log(
 							fancy_log::LogLevel::Error,
-							&format!(
-								"✗ SEC-4: Template result size limit ({}) exceeded",
-								max_size
-							),
+							&format!("✗ Template result size limit ({}) exceeded", max_size),
 						);
 						return result;
 					}
@@ -63,10 +57,7 @@ fn resolve_ast_with_depth<'a>(
 					if result.len() + value.len() > max_size {
 						fancy_log::log(
 							fancy_log::LogLevel::Error,
-							&format!(
-								"✗ SEC-4: Template result size limit ({}) exceeded",
-								max_size
-							),
+							&format!("✗ Template result size limit ({}) exceeded", max_size),
 						);
 						return result;
 					}
