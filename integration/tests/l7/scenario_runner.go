@@ -70,12 +70,13 @@ func RunScenarios(ctx context.Context, s *env.Sandbox, cType ClientType, uType U
 		vaneUpstreamVer = "h1.1"
 	}
 
-	// L7 Config
+	// L7 Config (WebSocket disabled for generic tests)
 	l7Config := advanced.ApplicationConfig{
 		Pipeline: advanced.NewFetchUpstream(
 			upstreamUrl,
 			vaneUpstreamVer,
 			true,
+			false, // WebSocket disabled
 			advanced.NewSendResponse(),
 			advanced.NewAbortConnection(),
 		),

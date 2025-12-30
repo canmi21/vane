@@ -98,6 +98,7 @@ func RunMatrixTest(ctx context.Context, s *env.Sandbox, cType ClientType, uType 
 			upstreamUrl,
 			vaneUpstreamVer,
 			true, // skip_verify
+			false,
 			advanced.NewSendResponse(),
 			advanced.NewAbortConnection(),
 		),

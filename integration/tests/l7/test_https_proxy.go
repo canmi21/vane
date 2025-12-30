@@ -59,6 +59,7 @@ func TestHttpsProxy(ctx context.Context, s *env.Sandbox) error {
 			fmt.Sprintf("http://127.0.0.1:%d", srv.Port),
 			"h1",
 			true, // FIXED: Skip verify (although standard mock uses HTTP so it doesn't matter much, but good practice)
+			false,
 			advanced.NewSendResponse(),
 			advanced.NewAbortConnection(),
 		),
