@@ -111,6 +111,15 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
       - Enforced strict depth checks at every recursion point, returning original values on violation.
     - **Result**: Protects Vane from resource exhaustion via malicious nested configurations.
 
+14. ✅ **Task 2.4: Template Result Size Protection (SEC-4)**
+    - **Problem**: No limit on the size of resolved template strings, vulnerable to OOM attacks.
+    - **Solution**: Implemented real-time size monitoring during template resolution.
+    - **Changes**:
+      - Added `MAX_TEMPLATE_RESULT_SIZE` environment variable (default: 64KB).
+      - Added length checks before every string concatenation in the resolver.
+      - Gracefully terminates resolution and logs a security error upon violation.
+    - **Result**: Prevents memory exhaustion attacks from oversized configuration templates.
+
 ---
 
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
@@ -131,7 +140,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 - [`.report/performance.md`](.report/performance.md) - 8 performance bottlenecks
 - [`.report/maintainability-surface.md`](.report/maintainability-surface.md) - 24 面子 issues (Phase III)
 
-**Next Task**: Task 2.4 - Add template size limits (SEC-4)
+**Next Task**: Task 2.5 - Fix config reload race condition (TOCTOU) (SEC-5)
 
 ---
 
@@ -203,10 +212,10 @@ ONLY after user approval:
 4. ✅ ~~**Task 2.11** - Flow Path String Optimization (PERF-2)~~ **COMPLETE**
 5. ✅ ~~**Task 2.2** - Command Injection Fix (SEC-2)~~ **COMPLETE**
 6. ✅ ~~**Task 2.3** - Template DoS Protection (SEC-3)~~ **COMPLETE**
-7. **Task 2.4** - Template Size Limits (SEC-4) ← **NEXT**
+7. ✅ ~~**Task 2.4** - Template Size Limits (SEC-4)~~ **COMPLETE**
+8. **Task 2.5** - Config Reload Race Fix (SEC-5) ← **NEXT**
 
 ### Next Week (Critical Vulnerabilities)
-8. **Task 2.5** - Config Reload Race Fix (SEC-5)
 9. **Task 2.6** - Path Canonicalization (SEC-6)
 
 ### Following Weeks (Reliability & Performance)
@@ -218,9 +227,9 @@ ONLY after user approval:
 
 ## 📝 Version Information
 
-**Current Version**: 0.7.5
+**Current Version**: 0.7.6
 **Target Version**: 0.8.0 (After remaining CRITICAL fixes complete)
 **Expected Versions**:
-- 0.7.6: Task 2.4 (Template size limits)
+- 0.7.7: Task 2.5 (Config reload race)
 - 0.8.0: All CRITICAL + HIGH fixes complete
 
