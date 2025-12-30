@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.13 (30. Dec, 2025)
+
+- **Added:** Implemented a global execution timeout for the Flow Engine (default: 10s, configurable via `FLOW_EXECUTION_TIMEOUT_SECS`). This prevents worker thread starvation and resource exhaustion caused by hanging external plugins or network requests.
+- **Fixed:** Hardened external drivers (Command, Unix, HTTP) with explicit timeout enforcement and child process cleanup (auto-kill on timeout) to ensure zero resource leakage during execution failures.
+
 ## 0.7.12 (30. Dec, 2025)
 
 - **Fixed:** Implemented comprehensive protection against template injection. Vane now strictly validates resolved key names and prohibits the use of template syntax (`{` or `}`) within KV store keys. Any attempt to resolve a key containing these characters will be intercepted and logged as a security violation, returning the original text instead of performing a lookup.
