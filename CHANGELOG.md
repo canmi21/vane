@@ -7,17 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.7 (30. Dec, 2025)
+
+- **Changed:** Refactored the configuration loading logic to eliminate TOCTOU (Time-of-Check to Time-of-Use) race conditions. Vane now performs atomic file reads and handles errors via a new `LoadResult` enum.
+- **Changed:** Enhanced the Keep-Last-Known-Good (KLKG) strategy across all modules (Ports, Resolvers, Applications, Nodes). The system now explicitly distinguishes between intentional configuration removal (triggering an unload) and corrupted configuration updates (preserving the previous valid state), ensuring high availability during maintenance.
+
 ## 0.7.6 (30. Dec, 2025)
 
-- **Fixed:** Implemented template result size protection (SEC-4). The resolution engine now enforces a maximum string length (default: 64KB, configurable via `MAX_TEMPLATE_RESULT_SIZE`) to prevent potential Out-of-Memory (OOM) attacks from malicious or oversized template configurations.
+- **Fixed:** Implemented template result size protection. The resolution engine now enforces a maximum string length (default: 64KB, configurable via `MAX_TEMPLATE_RESULT_SIZE`) to prevent potential Out-of-Memory (OOM) attacks from malicious or oversized template configurations.
 
 ## 0.7.5 (30. Dec, 2025)
 
-- **Fixed:** Implemented template and JSON recursion depth protection (SEC-3). The resolution engine now enforces a strict depth limit (default: 5, configurable via `MAX_TEMPLATE_DEPTH`) to prevent Denial-of-Service attacks via malicious nested configurations or infinite loops.
+- **Fixed:** Implemented template and JSON recursion depth protection. The resolution engine now enforces a strict depth limit (default: 5, configurable via `MAX_TEMPLATE_DEPTH`) to prevent Denial-of-Service attacks via malicious nested configurations or infinite loops.
 
 ## 0.7.4 (30. Dec, 2025)
 
-- **Fixed:** Resolved a critical command injection vulnerability (SEC-2) in the external command driver. Vane now enforces a "Trusted Bin Root" policy, restricting external plugin execution to programs located within the `$CONFIG_DIR/bin/` directory. All paths are strictly validated and canonicalized during registration and execution to prevent unauthorized system access.
+- **Fixed:** Resolved a critical command injection vulnerability in the external command driver. Vane now enforces a "Trusted Bin Root" policy, restricting external plugin execution to programs located within the `$CONFIG_DIR/bin/` directory. All paths are strictly validated and canonicalized during registration and execution to prevent unauthorized system access.
 
 ## 0.7.3 (30. Dec, 2025)
 
