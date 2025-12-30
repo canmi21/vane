@@ -58,7 +58,7 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                 bin_name = vane.copy_to_bin(str(source_bin), target_name="test_fragile_bin_binary")
                 target_bin_path = vane.bin_dir / bin_name
             except Exception as e:
-                return (False, f"  └─ Details: SEC-2 Prep failed: {e}")
+                return (False, f"  └─ Details: Prep failed: {e}")
 
             if not wait_for_log(vane, f"✓ Management console listening on unix:", 10):
                 return (False, f"  └─ Details: Vane API failed to start.")

@@ -71,11 +71,11 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
             # Inject Authorization
             session.headers.update({"Authorization": f"Bearer {vane.access_token}"})
 
-            # --- SEC-2: Prepare python3 in trusted bin ---
+            # --- Prepare python3 in trusted bin ---
             try:
                 vane.copy_to_bin("python3")
             except Exception as e:
-                return (False, f"  └─ Details: SEC-2 Prep failed for python3: {e}")
+                return (False, f"  └─ Details: Prep failed for python3: {e}")
 
             # --- Step 1: Register the External Plugin ---
             plugin_name = "test_py_auth"

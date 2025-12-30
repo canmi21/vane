@@ -31,7 +31,7 @@ def lifecycle_test(
     if token:
         session.headers.update({"Authorization": f"Bearer {token}"})
 
-    # --- SEC-2: Ensure program is in trusted bin ---
+    # --- Ensure program is in trusted bin ---
     if driver_config.get("type") == "command":
         program = driver_config.get("program")
         if program:
@@ -40,7 +40,7 @@ def lifecycle_test(
                 new_name = vane_instance.copy_to_bin(program)
                 driver_config["program"] = new_name
             except Exception as e:
-                return (False, f"  └─ Details: SEC-2 Prep failed for '{program}': {e}")
+                return (False, f"  └─ Details: Prep failed for '{program}': {e}")
 
     # --- 1. Register Plugin ---
     register_payload = {
