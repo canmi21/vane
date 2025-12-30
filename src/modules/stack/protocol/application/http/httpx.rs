@@ -131,7 +131,8 @@ async fn serve_request(
 	let request_headers = std::mem::take(&mut parts.headers);
 	let response_headers = HeaderMap::new();
 
-	let mut container = Container::new(
+	// Create container with HTTP protocol data (for WebSocket support)
+	let mut container = Container::new_with_http(
 		kv,
 		request_headers,
 		request_payload,
@@ -141,7 +142,11 @@ async fn serve_request(
 	);
 
 	// Inject client upgrade handle if present
-	container.client_upgrade = client_upgrade;
+	if let Some(upgrade) = client_upgrade {
+		if let Some(http_data) = container.http_data_mut() {
+			http_data.client_upgrade = Some(upgrade);
+		}
+	}
 
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();

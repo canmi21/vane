@@ -1,16 +1,24 @@
 /* src/modules/stack/protocol/application/container.rs */
 
-use crate::common::{
-	getenv,
-	requirements::{Error, Result},
-};
-use crate::modules::{kv::KvStore, stack::protocol::application::http::wrapper::VaneBody};
+use std::fmt;
+
 use bytes::Bytes;
 use http::{HeaderMap, Response};
 use http_body_util::BodyExt;
 use hyper::upgrade::OnUpgrade;
-use std::fmt;
 use tokio::sync::oneshot;
+
+use crate::common::{
+	getenv,
+	requirements::{Error, Result},
+};
+use crate::modules::{
+	kv::KvStore,
+	stack::protocol::application::{
+		http::{protocol_data::HttpProtocolData, wrapper::VaneBody},
+		protocol_data::ProtocolData,
+	},
+};
 
 /// Represents the payload of an L7 envelope.
 /// It abstracts over HTTP bodies (H1/H2/H3) or buffered data using VaneBody.
@@ -90,6 +98,9 @@ impl PayloadState {
 /// - **KV (Control Plane):** Stores high-freq metadata (IP, Method, Path) for routing.
 /// - **Headers/Body (Data Plane):** Stores the full protocol payload.
 ///   Accessed via "Magic Words" in the Template System (On-Demand Copy).
+/// - **Protocol Data (Extension Plane):** Protocol-specific extension fields.
+///   HTTP uses this for WebSocket upgrade handles. Future protocols (DNS, gRPC)
+///   can inject their own data without polluting the core structure.
 pub struct Container {
 	/// Metadata Store (Control Plane)
 	pub kv: KvStore,
@@ -113,18 +124,13 @@ pub struct Container {
 	/// A signaling channel to send the Final Response Headers back to the Protocol Adapter.
 	pub response_tx: Option<oneshot::Sender<Response<()>>>,
 
-	/// Client-side WebSocket Upgrade Handle (HTTP/1.1 only).
-	/// Populated by httpx when detecting Upgrade request.
-	/// Consumed by Response Terminator to establish bidirectional tunnel.
-	pub client_upgrade: Option<OnUpgrade>,
-
-	/// Upstream-side WebSocket Upgrade Handle (HTTP/1.1 only).
-	/// Populated by FetchUpstream when backend responds with 101.
-	/// Consumed by Response Terminator to establish bidirectional tunnel.
-	pub upstream_upgrade: Option<OnUpgrade>,
+	/// Protocol-specific extension data (HTTP, DNS, gRPC, etc.).
+	/// Use `http_data()` / `http_data_mut()` helpers to access HTTP-specific fields.
+	pub protocol_data: Option<Box<dyn ProtocolData>>,
 }
 
 impl Container {
+	/// Creates a new Container with no protocol-specific data.
 	pub fn new(
 		kv: KvStore,
 		request_headers: HeaderMap,
@@ -140,8 +146,98 @@ impl Container {
 			response_headers,
 			response_body,
 			response_tx,
-			client_upgrade: None,
-			upstream_upgrade: None,
+			protocol_data: None,
+		}
+	}
+
+	/// Creates a new Container with HTTP protocol data (for WebSocket support).
+	pub fn new_with_http(
+		kv: KvStore,
+		request_headers: HeaderMap,
+		request_body: PayloadState,
+		response_headers: HeaderMap,
+		response_body: PayloadState,
+		response_tx: Option<oneshot::Sender<Response<()>>>,
+	) -> Self {
+		let mut container = Self::new(
+			kv,
+			request_headers,
+			request_body,
+			response_headers,
+			response_body,
+			response_tx,
+		);
+		container.protocol_data = Some(Box::new(HttpProtocolData::new()));
+		container
+	}
+
+	/// Gets a reference to HTTP protocol data (if present).
+	///
+	/// Returns None if Container was not created with HTTP protocol support.
+	pub fn http_data(&self) -> Option<&HttpProtocolData> {
+		self
+			.protocol_data
+			.as_ref()?
+			.as_any()
+			.downcast_ref::<HttpProtocolData>()
+	}
+
+	/// Gets a mutable reference to HTTP protocol data (if present).
+	///
+	/// Returns None if Container was not created with HTTP protocol support.
+	pub fn http_data_mut(&mut self) -> Option<&mut HttpProtocolData> {
+		self
+			.protocol_data
+			.as_mut()?
+			.as_any_mut()
+			.downcast_mut::<HttpProtocolData>()
+	}
+
+	/// Deprecated: Access via `container.http_data()?.client_upgrade` instead.
+	///
+	/// Gets the client-side WebSocket upgrade handle.
+	#[deprecated(
+		since = "0.6.9",
+		note = "Use container.http_data()?.client_upgrade to access this field"
+	)]
+	pub fn get_client_upgrade(&self) -> Option<&OnUpgrade> {
+		self.http_data()?.client_upgrade.as_ref()
+	}
+
+	/// Deprecated: Access via `container.http_data_mut()?.client_upgrade = Some(...)` instead.
+	///
+	/// Sets the client-side WebSocket upgrade handle.
+	#[deprecated(
+		since = "0.6.9",
+		note = "Use container.http_data_mut()?.client_upgrade = Some(...) to set this field"
+	)]
+	pub fn set_client_upgrade(&mut self, upgrade: OnUpgrade) {
+		if let Some(data) = self.http_data_mut() {
+			data.client_upgrade = Some(upgrade);
+		}
+	}
+
+	/// Deprecated: Access via `container.http_data()?.upstream_upgrade` instead.
+	///
+	/// Gets the upstream-side WebSocket upgrade handle.
+	#[deprecated(
+		since = "0.6.9",
+		note = "Use container.http_data()?.upstream_upgrade to access this field"
+	)]
+	pub fn get_upstream_upgrade(&self) -> Option<&OnUpgrade> {
+		self.http_data()?.upstream_upgrade.as_ref()
+	}
+
+	/// Deprecated: Access via `container.http_data_mut()?.upstream_upgrade = Some(...)` instead.
+	///
+	/// Sets the upstream-side WebSocket upgrade handle.
+	#[deprecated(
+		since = "0.6.9",
+		note = "Use container.http_data_mut()?.upstream_upgrade = Some(...) to set this field"
+	)]
+	pub fn set_upstream_upgrade(&mut self, upgrade: OnUpgrade) {
+		if let Some(data) = self.http_data_mut() {
+			data.upstream_upgrade = Some(upgrade);
 		}
 	}
 

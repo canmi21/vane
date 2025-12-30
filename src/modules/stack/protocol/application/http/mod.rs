@@ -2,4 +2,5 @@
 
 pub mod h3;
 pub mod httpx;
+pub mod protocol_data;
 pub mod wrapper;
