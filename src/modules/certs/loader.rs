@@ -1,6 +1,6 @@
 /* src/modules/certs/loader.rs */
 
-use crate::common::{getconf, requirements::Result};
+use crate::common::{getconf, hotswap::watch_loop, requirements::Result};
 use crate::modules::certs::{arcswap, format};
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
@@ -281,14 +281,11 @@ pub fn scan_and_load_certs() {
 }
 
 /// Long-running task to listen for filesystem changes and trigger reloads.
-pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
-	while rx.recv().await.is_some() {
-		log(
-			LogLevel::Info,
-			"↻ Certs configuration changed. Reloading...",
-		);
+pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
+	watch_loop(rx, "Certificates", || async {
 		scan_and_load_certs();
-	}
+	})
+	.await;
 }
 
 /// Initial loader called by bootstrap.

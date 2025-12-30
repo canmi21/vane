@@ -5,7 +5,7 @@ use super::{
 	listener,
 	model::{CONFIG_STATE, PortStatus, Protocol},
 };
-use crate::common::{getconf, getenv};
+use crate::common::{getconf, getenv, hotswap::watch_loop};
 use fancy_log::{LogLevel, log};
 use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::mpsc;
@@ -28,8 +28,8 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 				if name.starts_with('[') && name.ends_with(']') {
 					if let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
 						let port_path = entry.path();
-						let tcp_config = loader::load_config::<TcpConfig>(port, "tcp", &port_path.join("tcp"));
-						let udp_config = loader::load_config::<UdpConfig>(port, "udp", &port_path.join("udp"));
+						let tcp_config = loader::load_config::<TcpConfig>("tcp", &port_path.join("tcp"));
+						let udp_config = loader::load_config::<UdpConfig>("udp", &port_path.join("udp"));
 
 						statuses.push(PortStatus {
 							port,
@@ -46,7 +46,7 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 }
 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
-pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
+pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 	let ip_version_str =
 		if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
 			"IPv4 + IPv6"
@@ -54,11 +54,8 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 			"IPv4"
 		};
 
-	while rx.recv().await.is_some() {
-		log(
-			LogLevel::Info,
-			"➜ Config change signal received, diffing listeners...",
-		);
+	watch_loop(rx, "Listeners", || async {
+		log(LogLevel::Debug, "⚙ Diffing listeners...");
 		let old_statuses = CONFIG_STATE.load();
 		let new_statuses = scan_ports_config();
 
@@ -199,7 +196,8 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 		if !has_changes {
 			log(LogLevel::Debug, "⚙ No effective listener changes detected.");
 		}
-	}
+	})
+	.await;
 }
 
 #[cfg(test)]

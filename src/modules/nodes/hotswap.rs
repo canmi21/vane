@@ -1,103 +1,35 @@
 /* src/modules/nodes/hotswap.rs */
 
 use super::model::{NODES_STATE, NodesConfig};
-use crate::common::getconf;
-use crate::modules::stack::transport::loader::PreProcess;
+use crate::common::{getconf, hotswap::watch_loop, loader};
 use fancy_log::{LogLevel, log};
-use std::{fs, path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::mpsc;
-use validator::Validate;
 
-/// Scans and loads the nodes configuration, handling conflicts and validation.
+// Implement PreProcess for NodesConfig (no-op)
+// Removed: Already implemented in model.rs
+
+/// Scans and loads the nodes configuration.
 pub fn scan_nodes_config() -> Option<NodesConfig> {
 	let config_dir = getconf::get_config_dir();
-	// FIX: Add "yml" to the list of supported extensions for YAML files.
-	let supported_extensions = ["yml", "yaml", "json", "toml"];
-	let mut found_files: Vec<PathBuf> = Vec::new();
+	let config: Option<NodesConfig> = loader::load_config("nodes", &config_dir.join("nodes"));
 
-	for ext in supported_extensions {
-		let file_path = config_dir.join("nodes").with_extension(ext);
-		if file_path.exists() {
-			found_files.push(file_path);
-		}
+	if let Some(config) = &config {
+		log(LogLevel::Debug, "⚙ Loaded nodes configuration.");
+		return Some(config.clone());
 	}
 
-	if found_files.len() > 1 {
-		log(
-			LogLevel::Error,
-			&format!(
-				"✗ Conflicting configuration files found: {:?}. Only one 'nodes' file is allowed.",
-				found_files
-			),
-		);
-		return None;
-	}
-
-	if found_files.is_empty() {
+	// If no config found, return default
+	if config.is_none() {
 		return Some(NodesConfig::default());
 	}
 
-	let config_path = &found_files[0];
-	let content = match fs::read_to_string(config_path) {
-		Ok(c) => c,
-		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!(
-					"✗ Failed to read nodes config file {}: {}",
-					config_path.display(),
-					e
-				),
-			);
-			return None;
-		}
-	};
-
-	let extension = config_path
-		.extension()
-		.and_then(|s| s.to_str())
-		.unwrap_or("");
-	let parse_result: Result<NodesConfig, String> = match extension {
-		"yml" | "yaml" => serde_yaml::from_str(&content).map_err(|e| e.to_string()),
-		"json" => serde_json::from_str(&content).map_err(|e| e.to_string()),
-		"toml" => toml::from_str(&content).map_err(|e| e.to_string()),
-		_ => unreachable!(),
-	};
-
-	match parse_result {
-		Ok(mut config) => {
-			if let Err(e) = config.validate() {
-				log(
-					LogLevel::Error,
-					&format!("✗ Nodes configuration validation failed: {}", e),
-				);
-				return None;
-			}
-			config.pre_process();
-			Some(config)
-		}
-		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!(
-					"✗ Failed to parse nodes config file {}: {}",
-					config_path.display(),
-					e
-				),
-			);
-			None
-		}
-	}
+	None
 }
 
 /// Listens for update signals and reloads the nodes configuration.
-pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
-	while rx.recv().await.is_some() {
-		log(
-			LogLevel::Info,
-			"➜ Config change signal received, reloading nodes...",
-		);
-
+pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
+	watch_loop(rx, "Nodes", || async {
 		if let Some(new_config) = scan_nodes_config() {
 			let old_config = NODES_STATE.load();
 			if old_config.nodes != new_config.nodes {
@@ -115,5 +47,6 @@ pub async fn listen_for_updates(mut rx: mpsc::Receiver<()>) {
 				"✗ Failed to reload nodes configuration, keeping the old version.",
 			);
 		}
-	}
+	})
+	.await;
 }
