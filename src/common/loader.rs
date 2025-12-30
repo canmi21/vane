@@ -4,8 +4,17 @@ use fancy_log::{LogLevel, log};
 use serde::de::DeserializeOwned;
 use std::{fs, path::Path};
 use validator::Validate;
-
 const EXTENSIONS: [&str; 4] = ["toml", "yaml", "yml", "json"];
+
+/// The result of a configuration load attempt.
+pub enum LoadResult<T> {
+	/// Configuration was successfully loaded and validated.
+	Ok(T),
+	/// No configuration file was found at the expected location.
+	NotFound,
+	/// A configuration file exists but failed to parse or validate.
+	Invalid,
+}
 
 /// A trait to abstract the pre-processing of loaded configs before validation.
 pub trait PreProcess {
@@ -70,30 +79,38 @@ where
 /// Loads, parses, and validates a config file for a given base path.
 /// Looks for files with supported extensions in the base path.
 /// e.g. base_path=".../tcp" looks for "tcp.toml", "tcp.json", etc.
-pub fn load_config<T>(base_name: &str, base_path: &Path) -> Option<T>
+pub fn load_config<T>(base_name: &str, base_path: &Path) -> LoadResult<T>
 where
 	T: DeserializeOwned + Validate + PreProcess,
 {
-	let mut found_files = Vec::new();
+	let mut found_content = None;
+	let mut matched_path = None;
+
 	for ext in EXTENSIONS {
 		let path = base_path.with_extension(ext);
-		if path.exists() {
-			found_files.push(path);
+		// Directly attempt to read to avoid TOCTOU race between exists() and read()
+		if let Ok(content) = fs::read_to_string(&path) {
+			if found_content.is_some() {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"✗ Found multiple config files for {}. Already loaded one. Ignoring: {}",
+						base_name.to_uppercase(),
+						path.display()
+					),
+				);
+				continue;
+			}
+			found_content = Some(content);
+			matched_path = Some(path);
 		}
 	}
 
-	if found_files.len() > 1 {
-		log(
-			LogLevel::Warn,
-			&format!(
-				"✗ Found multiple config files for {}: {:?}. Deactivating.",
-				base_name.to_uppercase(),
-				found_files
-			),
-		);
-		return None;
+	match matched_path {
+		Some(path) => match load_file(&path, Some(base_name)) {
+			Some(config) => LoadResult::Ok(config),
+			None => LoadResult::Invalid,
+		},
+		None => LoadResult::NotFound,
 	}
-
-	let config_path = found_files.first()?;
-	load_file(config_path, Some(base_name))
 }

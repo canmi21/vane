@@ -12,19 +12,26 @@ use tokio::sync::mpsc;
 /// Scans and loads the nodes configuration.
 pub fn scan_nodes_config() -> Option<NodesConfig> {
 	let config_dir = getconf::get_config_dir();
-	let config: Option<NodesConfig> = loader::load_config("nodes", &config_dir.join("nodes"));
+	let res: loader::LoadResult<NodesConfig> =
+		loader::load_config("nodes", &config_dir.join("nodes"));
 
-	if let Some(config) = &config {
-		log(LogLevel::Debug, "⚙ Loaded nodes configuration.");
-		return Some(config.clone());
+	match res {
+		loader::LoadResult::Ok(config) => {
+			log(LogLevel::Debug, "⚙ Loaded nodes configuration.");
+			Some(config)
+		}
+		loader::LoadResult::NotFound => {
+			log(
+				LogLevel::Debug,
+				"⚙ Nodes configuration file not found. Using default.",
+			);
+			Some(NodesConfig::default())
+		}
+		loader::LoadResult::Invalid => {
+			// Returns None to signal the caller (listen_for_updates) to keep the old state
+			None
+		}
 	}
-
-	// If no config found, return default
-	if config.is_none() {
-		return Some(NodesConfig::default());
-	}
-
-	None
 }
 
 /// Listens for update signals and reloads the nodes configuration.

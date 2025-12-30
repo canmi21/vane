@@ -17,13 +17,13 @@ pub async fn execute(
 	env: &HashMap<String, String>,
 	inputs: ResolvedInputs,
 ) -> Result<MiddlewareOutput> {
-	// SEC-2: Enforce trusted bin root validation at runtime.
+	// Enforce trusted bin root validation at runtime.
 	let resolved_program = match external::validate_command_path(program) {
 		Ok(p) => p,
 		Err(e) => {
 			log(
 				LogLevel::Error,
-				&format!("✗ SEC-2: Security violation during plugin execution: {}", e),
+				&format!("✗ Security violation during plugin execution: {}", e),
 			);
 			return Ok(MiddlewareOutput {
 				branch: "failure".into(),

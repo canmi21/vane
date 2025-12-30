@@ -124,7 +124,8 @@ pub fn stop_listener(port: u16, protocol: Protocol) {
 
 /// Checks the config state to see if a listener is still required.
 async fn is_listener_still_required(port: u16, protocol: &Protocol) -> bool {
-	let state = crate::modules::ports::hotswap::scan_ports_config();
+	let current_state = super::model::CONFIG_STATE.load();
+	let state = crate::modules::ports::hotswap::scan_ports_config(&current_state);
 	state.iter().any(|s| {
 		if s.port != port {
 			return false;

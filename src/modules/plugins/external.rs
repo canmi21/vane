@@ -41,19 +41,14 @@ pub fn validate_command_path(program: &str) -> Result<PathBuf> {
 	// Scenario 1: Relative path or filename -> join with bin_root
 	let absolute_path = if program_path.is_absolute() {
 		// Scenario 2: Absolute path -> must be canonicalized and checked for prefix
-		fs::canonicalize(program_path).map_err(|e| {
-			anyhow!(
-				"SEC-2: Failed to resolve absolute path '{}': {}",
-				program,
-				e
-			)
-		})?
+		fs::canonicalize(program_path)
+			.map_err(|e| anyhow!("Failed to resolve absolute path '{}': {}", program, e))?
 	} else {
 		// Join and then canonicalize to resolve any ".."
 		let joined = bin_root.join(program_path);
 		fs::canonicalize(&joined).map_err(|e| {
 			anyhow!(
-				"SEC-2: Program '{}' not found in trusted bin directory: {}",
+				"Program '{}' not found in trusted bin directory: {}",
 				program,
 				e
 			)
@@ -63,13 +58,13 @@ pub fn validate_command_path(program: &str) -> Result<PathBuf> {
 	// Strict prefix check
 	if !absolute_path.starts_with(&bin_root) {
 		return Err(anyhow!(
-			"SEC-2: Security Violation - Program '{}' is outside the trusted bin directory.",
+			"Security Violation - Program '{}' is outside the trusted bin directory.",
 			program
 		));
 	}
 
 	if !absolute_path.is_file() {
-		return Err(anyhow!("SEC-2: Path '{}' is not a file.", program));
+		return Err(anyhow!("Path '{}' is not a file.", program));
 	}
 
 	Ok(absolute_path)
@@ -127,7 +122,7 @@ impl ExternalPlugin {
 				Ok(())
 			}
 			ExternalPluginDriver::Command { program, .. } => {
-				// Command validation cannot be fully skipped as it is a core security feature (SEC-2)
+				// Command validation cannot be fully skipped as it is a core security feature
 				validate_command_path(program)?;
 				Ok(())
 			}

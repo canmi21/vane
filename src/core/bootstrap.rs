@@ -62,11 +62,12 @@ pub async fn start() {
 	certs::loader::initialize();
 
 	// 4. Load ports (L4 Listeners).
-	let initial_ports = ports::hotswap::scan_ports_config();
+	let initial_ports = ports::hotswap::scan_ports_config(&[]);
 	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
 
 	// 5. Load Resolvers (L4+ Protocols).
-	let initial_resolvers = resolver_hotswap::scan_resolver_config();
+	let initial_resolvers =
+		resolver_hotswap::scan_resolver_config(&resolver_model::RESOLVER_REGISTRY.load());
 	resolver_model::RESOLVER_REGISTRY.store(Arc::new(initial_resolvers));
 	log(
 		LogLevel::Info,
@@ -77,7 +78,7 @@ pub async fn start() {
 	);
 
 	// 6. Load Applications (L7 Protocols).
-	let initial_apps = app_hotswap::scan_application_config();
+	let initial_apps = app_hotswap::scan_application_config(&app_model::APPLICATION_REGISTRY.load());
 	app_model::APPLICATION_REGISTRY.store(Arc::new(initial_apps));
 	log(
 		LogLevel::Info,

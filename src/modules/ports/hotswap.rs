@@ -5,15 +5,20 @@ use super::{
 	listener,
 	model::{CONFIG_STATE, PortStatus, Protocol},
 };
+use crate::common::loader::LoadResult;
 use crate::common::{getconf, getenv, hotswap::watch_loop};
 use fancy_log::{LogLevel, log};
 use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::mpsc;
 
 /// Scans the 'listener' config subdirectory for port configurations.
-pub fn scan_ports_config() -> Vec<PortStatus> {
+/// Implements Keep-Last-Known-Good (KLKG) strategy by referencing `current_state`.
+pub fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> {
 	let listener_dir = getconf::get_config_dir().join("listener");
 	let mut statuses = Vec::new();
+
+	// Create a lookup map for the current state to facilitate KLKG
+	let current_map: HashMap<u16, &PortStatus> = current_state.iter().map(|s| (s.port, s)).collect();
 
 	if !listener_dir.exists() || !listener_dir.is_dir() {
 		return statuses;
@@ -28,14 +33,62 @@ pub fn scan_ports_config() -> Vec<PortStatus> {
 				if name.starts_with('[') && name.ends_with(']') {
 					if let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
 						let port_path = entry.path();
-						let tcp_config = loader::load_config::<TcpConfig>("tcp", &port_path.join("tcp"));
-						let udp_config = loader::load_config::<UdpConfig>("udp", &port_path.join("udp"));
+
+						// Try loading new configs
+						let new_tcp = loader::load_config::<TcpConfig>("tcp", &port_path.join("tcp"));
+						let new_udp = loader::load_config::<UdpConfig>("udp", &port_path.join("udp"));
+
+						// KLKG vs Unload Logic:
+						let old_status = current_map.get(&port);
+
+						let tcp_config = match new_tcp {
+							LoadResult::Ok(cfg) => Some(Arc::new(cfg)),
+							LoadResult::NotFound => None, // File is gone, user wants to unload
+							LoadResult::Invalid => {
+								// File exists but is broken, try to recover from old state
+								if let Some(old) = old_status {
+									if old.tcp_config.is_some() {
+										log(
+											LogLevel::Warn,
+											&format!(
+												"⚠ New TCP config for port {} is invalid. Keeping last known good version.",
+												port
+											),
+										);
+									}
+									old.tcp_config.clone()
+								} else {
+									None
+								}
+							}
+						};
+
+						let udp_config = match new_udp {
+							LoadResult::Ok(cfg) => Some(Arc::new(cfg)),
+							LoadResult::NotFound => None,
+							LoadResult::Invalid => {
+								if let Some(old) = old_status {
+									if old.udp_config.is_some() {
+										log(
+											LogLevel::Warn,
+											&format!(
+												"⚠ New UDP config for port {} is invalid. Keeping last known good version.",
+												port
+											),
+										);
+									}
+									old.udp_config.clone()
+								} else {
+									None
+								}
+							}
+						};
 
 						statuses.push(PortStatus {
 							port,
 							active: tcp_config.is_some() || udp_config.is_some(),
-							tcp_config: tcp_config.map(Arc::new),
-							udp_config: udp_config.map(Arc::new),
+							tcp_config,
+							udp_config,
 						});
 					}
 				}
@@ -57,7 +110,7 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 	watch_loop(rx, "Listeners", || async {
 		log(LogLevel::Debug, "⚙ Diffing listeners...");
 		let old_statuses = CONFIG_STATE.load();
-		let new_statuses = scan_ports_config();
+		let new_statuses = scan_ports_config(&old_statuses);
 
 		// We update the global state *before* restarting listeners so that new tasks
 		// pick up the new config immediately.
@@ -235,7 +288,7 @@ destination = { type = "forward", forward = { strategy = "random", targets = [{ 
 
 		temp_env::with_var("CONFIG_DIR", Some(config_path.to_str().unwrap()), || {
 			// 1. No port directories exist, should return empty.
-			let statuses = scan_ports_config();
+			let statuses = scan_ports_config(&[]);
 			assert!(statuses.is_empty());
 
 			// 2. Create a full setup:
@@ -251,7 +304,7 @@ destination = { type = "forward", forward = { strategy = "random", targets = [{ 
 			fs::write(listener_path.join("readme.txt"), "ignore me").unwrap();
 
 			// 3. Scan again and verify the results.
-			let mut statuses = scan_ports_config();
+			let mut statuses = scan_ports_config(&[]);
 			statuses.sort_by_key(|s| s.port);
 
 			assert_eq!(statuses.len(), 3);
