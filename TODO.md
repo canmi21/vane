@@ -148,8 +148,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
 | 2.12 | Add template parser complexity protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.13 | Implement template injection protection | 🟠 HIGH | 📌 **Next** | [Security Report](.report/security.md) |
-| 2.14 | Add flow execution timeout | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
+| 2.13 | Implement template injection protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
+| 2.14 | Add flow execution timeout | 🟠 HIGH | 📌 **Next** | [Reliability Report](.report/reliability.md) |
 | 2.15 | Replace unwrap() in production code | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
 | 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
 | 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
@@ -219,7 +219,7 @@ Lower priority tasks deferred until Phase I-III complete.
 - ✅ **Startup Optimization**: Eliminated 4.4s bootstrap delay.
 - ✅ **Management API Authentication**: Added mandatory token auth.
 - ✅ **External Command Security**: Implemented Trusted Bin Root policy.
-- ✅ **Template Security**: Added recursion depth, result size limits, and AST complexity protection.
+- ✅ **Template Security**: Added recursion depth, result size limits, AST complexity protection, and injection protection.
 - ✅ **Config Reliability**: Fixed reload race conditions and implemented Keep-Last-Known-Good strategy.
 - ✅ **Path Security**: Implemented mandatory path canonicalization in configuration loader.
 - ✅ **QUIC Reliability**: Fixed buffer race conditions and enforced packet limits.
@@ -227,8 +227,8 @@ Lower priority tasks deferred until Phase I-III complete.
 
 **Next Steps - Fixes:**
 
-1. Task 2.13: Implement template injection protection ← **NEXT**
-2. Task 2.14: Add flow execution timeout
+1. Task 2.14: Add flow execution timeout ← **NEXT**
+2. Task 2.15: Replace unwrap() in production code
 
 **See AGENT.md for detailed fix workflow requirements**
 
@@ -250,5 +250,6 @@ Lower priority tasks deferred until Phase I-III complete.
 ✅ Task 2.8: QUIC Buffer Race Fix
 ✅ Task 2.9: External Plugin Status Fix
 ✅ Task 2.12: Template Complexity Protection
-→ Task 2.13: Template Injection Protection (Next)
+✅ Task 2.13: Template Injection Protection
+→ Task 2.14: Flow Execution Timeout (Next)
 ```

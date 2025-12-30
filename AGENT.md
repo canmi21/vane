@@ -66,6 +66,15 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
       - Implemented key name validation in `engine.rs` to prevent plugins from storing dirty keys.
     - **Result**: Ensures that dynamic data is always treated as text and never re-interpreted as template instructions.
 
+21. ✅ **Task 2.14: Flow Execution Timeout**
+    - **Problem**: Lack of overall timeout for flow execution led to potential worker thread starvation from hanging plugins.
+    - **Solution**: Implemented engine-level and driver-level execution timeouts.
+    - **Changes**:
+      - Added `FLOW_EXECUTION_TIMEOUT_SECS` (default: 10s) globally.
+      - Hardened `exec` driver to explicitly kill timed-out child processes.
+      - Added timeout protection to `unix` and `httpx` drivers.
+    - **Result**: Guarantees bounded execution time for all connection flows, preventing cascading failures and resource exhaustion.
+
 ---
 
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
@@ -74,7 +83,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 
 **Detailed Reports:** See `.report/` directory.
 
-**Next Task**: Task 2.14 - Add flow execution timeout
+**Next Task**: Task 2.15 - Replace unwrap() in production code
 
 ---
 
@@ -94,14 +103,15 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 11. ✅ ~~**Task 2.9** - Plugin Status Race Fix~~ **COMPLETE**
 12. ✅ ~~**Task 2.12** - Template Complexity Protection~~ **COMPLETE**
 13. ✅ ~~**Task 2.13** - Template Injection Protection~~ **COMPLETE**
-14. **Task 2.14** - Flow Execution Timeout ← **NEXT**
+14. ✅ ~~**Task 2.14** - Flow Execution Timeout~~ **COMPLETE**
+15. **Task 2.15** - Replace unwrap() in production code ← **NEXT**
 
 ### Next Week (Reliability & Performance)
 ...
 ## 📝 Version Information
 
-**Current Version**: 0.7.12
+**Current Version**: 0.7.13
 **Target Version**: 0.8.0
 **Expected Versions**:
-- 0.7.13: Task 2.14 (Execution timeout)
+- 0.7.14: Task 2.15 (Replace unwrap)
 - 0.8.0: All CRITICAL + HIGH fixes complete
