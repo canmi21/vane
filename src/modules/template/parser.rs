@@ -1,6 +1,7 @@
 /* src/modules/template/parser.rs */
 
-use anyhow::{Context, Result};
+use crate::common::getenv;
+use anyhow::{Context, Result, anyhow};
 
 /// Template AST node
 #[derive(Debug, Clone, PartialEq)]
@@ -17,6 +18,31 @@ pub enum TemplateNode {
 
 /// Parse template string into AST
 pub fn parse_template(input: &str) -> Result<Vec<TemplateNode>> {
+	let max_depth = getenv::get_env("MAX_TEMPLATE_PARSE_DEPTH", "5".to_string())
+		.parse()
+		.unwrap_or(5);
+	let max_nodes = getenv::get_env("MAX_TEMPLATE_PARSE_NODES", "50".to_string())
+		.parse()
+		.unwrap_or(50);
+
+	let mut node_count = 0;
+	parse_recursive(input, 0, max_depth, &mut node_count, max_nodes)
+}
+
+fn parse_recursive(
+	input: &str,
+	depth: usize,
+	max_depth: usize,
+	node_count: &mut usize,
+	max_nodes: usize,
+) -> Result<Vec<TemplateNode>> {
+	if depth > max_depth {
+		return Err(anyhow!(
+			"Template parsing depth limit ({}) exceeded",
+			max_depth
+		));
+	}
+
 	let mut nodes = Vec::new();
 	let mut chars = input.chars().peekable();
 	let mut current_text = String::new();
@@ -29,6 +55,13 @@ pub fn parse_template(input: &str) -> Result<Vec<TemplateNode>> {
 
 				// Save any accumulated text
 				if !current_text.is_empty() {
+					*node_count += 1;
+					if *node_count > max_nodes {
+						return Err(anyhow!(
+							"Template parsing node limit ({}) exceeded",
+							max_nodes
+						));
+					}
 					nodes.push(TemplateNode::Text(current_text.clone()));
 					current_text.clear();
 				}
@@ -38,8 +71,15 @@ pub fn parse_template(input: &str) -> Result<Vec<TemplateNode>> {
 					parse_variable_content(&mut chars).context("Failed to parse variable content")?;
 
 				// Recursively parse the variable content
-				let parts = parse_template(&var_content)?;
+				let parts = parse_recursive(&var_content, depth + 1, max_depth, node_count, max_nodes)?;
 
+				*node_count += 1;
+				if *node_count > max_nodes {
+					return Err(anyhow!(
+						"Template parsing node limit ({}) exceeded",
+						max_nodes
+					));
+				}
 				nodes.push(TemplateNode::Variable { parts });
 			} else {
 				current_text.push(ch);
@@ -51,6 +91,13 @@ pub fn parse_template(input: &str) -> Result<Vec<TemplateNode>> {
 
 	// Add remaining text
 	if !current_text.is_empty() {
+		*node_count += 1;
+		if *node_count > max_nodes {
+			return Err(anyhow!(
+				"Template parsing node limit ({}) exceeded",
+				max_nodes
+			));
+		}
 		nodes.push(TemplateNode::Text(current_text));
 	}
 
@@ -175,5 +222,28 @@ mod tests {
 			result,
 			vec![TemplateNode::Text("single { brace".to_string())]
 		);
+	}
+
+	/// Tests recursion limit for parsing.
+	#[test]
+	fn test_parse_recursion_limit() {
+		// 6 levels deep (default limit 5)
+		let deep = "{{{{{{{{{{{{key}}}}}}}}}}}}";
+		let result = parse_template(deep);
+		assert!(result.is_err());
+		assert!(result.unwrap_err().to_string().contains("depth limit"));
+	}
+
+	/// Tests node count limit for parsing.
+	#[test]
+	fn test_parse_node_limit() {
+		// 26 variables -> 26 Variable nodes + 26 Text nodes = 52 nodes (default limit 50)
+		let mut long = String::new();
+		for i in 0..26 {
+			long.push_str(&format!("{{{{v{}}}}}", i));
+		}
+		let result = parse_template(&long);
+		assert!(result.is_err());
+		assert!(result.unwrap_err().to_string().contains("node limit"));
 	}
 }

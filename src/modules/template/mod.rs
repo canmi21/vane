@@ -161,15 +161,24 @@ mod tests {
 	}
 
 	/// Tests recursion limit for templates.
-	#[tokio::test]
-	async fn test_resolve_template_recursion_limit() {
+	#[test]
+	#[serial_test::serial]
+	fn test_resolve_template_recursion_limit() {
 		let kv = KvStore::new();
 		let mut context = SimpleContext { kv: &kv };
 		// Nested depth 6 (exceeds default 5)
 		let deep_template = "{{a.{{b.{{c.{{d.{{e.{{f}}}}}}}}}}}}";
-		let result = resolve_template(deep_template, &mut context, 0).await;
-		// Should stop at limit and return empty or partial
-		assert!(result.len() < deep_template.len());
+
+		// We need to increase the PARSE depth limit so the parser allows this string,
+		// but the RESOLVER depth limit (default 5) will still trigger.
+		temp_env::with_var("MAX_TEMPLATE_PARSE_DEPTH", Some("10"), || {
+			let rt = tokio::runtime::Runtime::new().unwrap();
+			rt.block_on(async {
+				let result = resolve_template(deep_template, &mut context, 0).await;
+				// Should stop at limit and return truncated result
+				assert!(result.len() < deep_template.len());
+			});
+		});
 	}
 
 	/// Tests resolve_inputs with HashMap.
