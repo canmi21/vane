@@ -88,6 +88,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.6 | Add path canonicalization to loader | 2025-12-30 | [Security Report](.report/security.md) |
 | 2.8 | Fix QUIC buffer management race condition | 2025-12-30 | [Reliability Report](.report/reliability.md) |
 | 2.9 | Fix external plugin status race | 2025-12-30 | [Reliability Report](.report/reliability.md) |
+| 2.12 | Add template parser complexity protection | 2025-12-30 | [Security Report](.report/security.md) |
 
 ---
 
@@ -146,8 +147,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
-| 2.12 | Add template parser complexity protection | 🟠 HIGH | 📌 **Next** | [Security Report](.report/security.md) |
-| 2.13 | Implement template injection protection | 🟠 HIGH | Pending | [Security Report](.report/security.md) |
+| 2.12 | Add template parser complexity protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
+| 2.13 | Implement template injection protection | 🟠 HIGH | 📌 **Next** | [Security Report](.report/security.md) |
 | 2.14 | Add flow execution timeout | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
 | 2.15 | Replace unwrap() in production code | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
 | 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
@@ -218,16 +219,16 @@ Lower priority tasks deferred until Phase I-III complete.
 - ✅ **Startup Optimization**: Eliminated 4.4s bootstrap delay.
 - ✅ **Management API Authentication**: Added mandatory token auth.
 - ✅ **External Command Security**: Implemented Trusted Bin Root policy.
-- ✅ **Template Security**: Added recursion depth and result size limits.
+- ✅ **Template Security**: Added recursion depth, result size limits, and AST complexity protection.
 - ✅ **Config Reliability**: Fixed reload race conditions and implemented Keep-Last-Known-Good strategy.
 - ✅ **Path Security**: Implemented mandatory path canonicalization in configuration loader.
 - ✅ **QUIC Reliability**: Fixed buffer race conditions and enforced packet limits.
 - ✅ **Plugin Reliability**: Implemented a passive circuit breaker for external middleware.
 
-**Next Steps - CRITICAL Fixes:**
+**Next Steps - Fixes:**
 
-1. Task 2.12: Add template parser complexity protection ← **NEXT**
-2. Task 2.13: Implement template injection protection
+1. Task 2.13: Implement template injection protection ← **NEXT**
+2. Task 2.14: Add flow execution timeout
 
 **See AGENT.md for detailed fix workflow requirements**
 
@@ -248,5 +249,6 @@ Lower priority tasks deferred until Phase I-III complete.
 ✅ Task 2.6: Path Canonicalization
 ✅ Task 2.8: QUIC Buffer Race Fix
 ✅ Task 2.9: External Plugin Status Fix
-→ Task 2.12: Template Complexity protection (Next)
+✅ Task 2.12: Template Complexity Protection
+→ Task 2.13: Template Injection Protection (Next)
 ```

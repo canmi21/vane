@@ -51,7 +51,20 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 18. ✅ **Task 2.9: Passive Circuit Breaker for External Plugins**
     - Implemented fault isolation and a 3s quiet period for failed external middleware.
 19. ✅ **Task 2.12: Template Parser Complexity Protection**
-    - Added depth and node count budgets during template parsing.
+    - **Problem**: Template parser used unbounded recursion and could generate oversized ASTs, leading to DoS risks.
+    - **Solution**: Implemented depth and node count budgets during parsing.
+    - **Changes**:
+      - Added `MAX_TEMPLATE_PARSE_DEPTH` (default: 5) and `MAX_TEMPLATE_PARSE_NODES` (default: 50) limits.
+      - Refactored `parse_template` to track budgets across recursive calls.
+    - **Result**: Protects the configuration loader from resource exhaustion due to malicious or complex template strings.
+
+20. ✅ **Task 2.13: Template Injection Protection**
+    - **Problem**: Dynamic content could be maliciously crafted to look like template syntax, leading to unauthorized variable access or recursion.
+    - **Solution**: Implemented strict key name validation and non-recursive resolution policies.
+    - **Changes**:
+      - Added check in `resolver.rs` to refuse lookups for keys containing forbidden characters (`{` or `}`).
+      - Implemented key name validation in `engine.rs` to prevent plugins from storing dirty keys.
+    - **Result**: Ensures that dynamic data is always treated as text and never re-interpreted as template instructions.
 
 ---
 
@@ -61,18 +74,12 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 
 **Detailed Reports:** See `.report/` directory.
 
-**Next Task**: Task 2.13 - Implement template injection protection
+**Next Task**: Task 2.14 - Add flow execution timeout
 
 ---
 
 ## 🔧 Fix Workflow Requirements (User Mandated)
-
-**CRITICAL**: For EVERY issue fix, follow the discussion-design-approval-implementation workflow.
-
----
-
-## 📋 Current Task Queue (Priority Order)
-
+...
 ### This Week (Critical Security Fixes)
 1. ✅ ~~**Task 2.1** - Management API Authentication~~ **COMPLETE**
 2. ✅ ~~**Task 2.7** - QUIC Session Cleanup~~ **COMPLETE**
@@ -86,14 +93,15 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 10. ✅ ~~**Task 2.8** - QUIC Buffer Race Fix~~ **COMPLETE**
 11. ✅ ~~**Task 2.9** - Plugin Status Race Fix~~ **COMPLETE**
 12. ✅ ~~**Task 2.12** - Template Complexity Protection~~ **COMPLETE**
-13. **Task 2.13** - Template Injection Protection ← **NEXT**
+13. ✅ ~~**Task 2.13** - Template Injection Protection~~ **COMPLETE**
+14. **Task 2.14** - Flow Execution Timeout ← **NEXT**
 
 ### Next Week (Reliability & Performance)
 ...
 ## 📝 Version Information
 
-**Current Version**: 0.7.11
+**Current Version**: 0.7.12
 **Target Version**: 0.8.0
 **Expected Versions**:
-- 0.7.12: Task 2.13 (Template injection protection)
+- 0.7.13: Task 2.14 (Execution timeout)
 - 0.8.0: All CRITICAL + HIGH fixes complete
