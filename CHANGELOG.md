@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.10 (30. Dec, 2025)
+
+- **Added:** Implemented a "Passive Circuit Breaker" for external plugins. Vane now automatically detects runtime IO failures and enforces a quiet period (default: 3s, configurable via `EXTERNAL_PLUGIN_QUIET_PERIOD_SECS`) to skip further attempts and instantly trigger failure branches, significantly improving reliability and responsiveness during external middleware outages.
+
+## 0.7.9 (30. Dec, 2025)
+
+- **Fixed:** Resolved a critical race condition in the QUIC carrier engine during SNI reassembly. Introduced an atomic processing flag and extended lock scopes to prevent redundant flow executions for concurrent fragments.
+- **Fixed:** Implemented self-cleanup protection for fragmented QUIC packets. Vane now limits the number of pending packets per session (default: 5, configurable via `QUIC_MAX_PENDING_PACKETS`) to prevent memory exhaustion from incomplete handshakes.
+
+## 0.7.8 (30. Dec, 2025)
+
+- **Fixed:** Enhanced configuration loader security by implementing mandatory path canonicalization and prefix validation. Vane now ensures all configuration files reside within the trusted configuration directory, effectively preventing path traversal and symlink-based attacks.
+
 ## 0.7.7 (30. Dec, 2025)
 
 - **Changed:** Refactored the configuration loading logic to eliminate TOCTOU (Time-of-Check to Time-of-Use) race conditions. Vane now performs atomic file reads and handles errors via a new `LoadResult` enum.
