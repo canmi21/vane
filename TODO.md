@@ -83,6 +83,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.11 | Optimize flow path string allocations | 2025-12-30 | [`.report/performance.md#perf-2`](.report/performance.md#perf-2) |
 | 2.2 | Fix external command injection vulnerability | 2025-12-30 | [`.report/security.md#sec-2`](.report/security.md#sec-2) |
 | 2.3 | Implement template recursion DoS protection | 2025-12-30 | [`.report/security.md#sec-3`](.report/security.md#sec-3) |
+| 2.4 | Add template size limits | 2025-12-30 | [`.report/security.md#sec-4`](.report/security.md#sec-4) |
 
 ---
 
@@ -118,8 +119,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.1 | Add authentication to management API | 🔴 CRITICAL | ✅ **Done** | [SEC-1](.report/security.md#sec-1) |
 | 2.2 | Fix external command injection vulnerability | 🔴 CRITICAL | ✅ **Done** | [SEC-2](.report/security.md#sec-2) |
 | 2.3 | Implement template recursion DoS protection | 🔴 CRITICAL | ✅ **Done** | [SEC-3](.report/security.md#sec-3) |
-| 2.4 | Add template size limits | 🔴 CRITICAL | 📌 **Next** | [SEC-4](.report/security.md#sec-4) |
-| 2.5 | Fix config reload race condition (TOCTOU) | 🔴 CRITICAL | Pending | [SEC-5](.report/security.md#sec-5) |
+| 2.4 | Add template size limits | 🔴 CRITICAL | ✅ **Done** | [SEC-4](.report/security.md#sec-4) |
+| 2.5 | Fix config reload race condition (TOCTOU) | 🔴 CRITICAL | 📌 **Next** | [SEC-5](.report/security.md#sec-5) |
 | 2.6 | Add path canonicalization to loader | 🔴 CRITICAL | Pending | [SEC-6](.report/security.md#sec-6) |
 
 **Reliability Issues:**

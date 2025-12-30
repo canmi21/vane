@@ -1,8 +1,8 @@
 # Agent Session Progress
 
 **Last Updated**: 2025-12-30
-**Current Task**: Phase II - Security & Quality Fixes (Task 2.11 - Flow Path String Optimization)
-**Status**: Task 2.10 Complete, Ready for PERF-2
+**Current Task**: Phase II - Security & Quality Fixes (Task 2.6 - Path Canonicalization)
+**Status**: Task 2.5 Complete, Ready for SEC-6
 
 ---
 
@@ -29,7 +29,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
    - Generated 6 detailed reports in `.report/` directory
    - Identified 11 CRITICAL, 14 HIGH, 16 MEDIUM, 22 LOW issues
    - Classified issues: 39 里子 (core) issues vs 24 面子 (surface) issues
-5. ✅ **Task 2.1: Management API Authentication (SEC-1)**
+5. ✅ **Task 2.1: Management API Authentication**
    - Added `ACCESS_TOKEN` environment variable for management console
    - Empty token = console disabled (zero attack surface)
    - Invalid length (< 16 or > 128 chars) = refuse to start
@@ -93,7 +93,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
       - Introduced `push_sanitized` to eliminate intermediate sanitized plugin name allocations.
     - **Result**: Reduced allocation count from 2+ per step to exactly 1, and eliminated `format!` parsing overhead.
 
-12. ✅ **Task 2.2: Fix External Command Injection (SEC-2)**
+12. ✅ **Task 2.2: Fix External Command Injection**
     - **Problem**: External command driver allowed execution of arbitrary binaries anywhere on the system.
     - **Solution**: Implemented a "Trusted Bin Root" security policy.
     - **Changes**:
@@ -102,7 +102,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
       - Automatically creates `bin/` directory during startup initialization.
     - **Result**: Prohibits unauthorized system command execution, ensuring secure external plugin integration in cloud-native environments.
 
-13. ✅ **Task 2.3: Template Recursion DoS Protection (SEC-3)**
+13. ✅ **Task 2.3: Template Recursion DoS Protection**
     - **Problem**: Template engine and JSON resolution lacked depth limits, vulnerable to infinite recursion or stack overflow.
     - **Solution**: Implemented a unified recursion depth counter across the resolution engine.
     - **Changes**:
@@ -111,7 +111,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
       - Enforced strict depth checks at every recursion point, returning original values on violation.
     - **Result**: Protects Vane from resource exhaustion via malicious nested configurations.
 
-14. ✅ **Task 2.4: Template Result Size Protection (SEC-4)**
+14. ✅ **Task 2.4: Template Result Size Protection**
     - **Problem**: No limit on the size of resolved template strings, vulnerable to OOM attacks.
     - **Solution**: Implemented real-time size monitoring during template resolution.
     - **Changes**:
@@ -119,6 +119,15 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
       - Added length checks before every string concatenation in the resolver.
       - Gracefully terminates resolution and logs a security error upon violation.
     - **Result**: Prevents memory exhaustion attacks from oversized configuration templates.
+
+15. ✅ **Task 2.5: Fix Config Reload Race (TOCTOU)**
+    - **Problem**: Configuration loading had Time-of-Check to Time-of-Use vulnerabilities and lacked proper "Keep-Last-Known-Good" (KLKG) behavior for partial updates.
+    - **Solution**: Implemented atomic file reading and a multi-stage KLKG strategy.
+    - **Changes**:
+      - `loader::load_config`: Replaced `exists()` + `read()` with direct atomic `read_to_string()`.
+      - Introduced `LoadResult` enum to explicitly handle `Ok`, `NotFound` (intentional unload), and `Invalid` (corrupted update).
+      - Updated all hotswap modules (Ports, Resolvers, Apps, Nodes) to perform double-buffered atomic swaps, preserving old state on `Invalid` results.
+    - **Result**: Reliable, race-free configuration hot-reloading with guaranteed service continuity during accidental misconfiguration.
 
 ---
 
@@ -140,7 +149,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 - [`.report/performance.md`](.report/performance.md) - 8 performance bottlenecks
 - [`.report/maintainability-surface.md`](.report/maintainability-surface.md) - 24 面子 issues (Phase III)
 
-**Next Task**: Task 2.5 - Fix config reload race condition (TOCTOU) (SEC-5)
+**Next Task**: Task 2.5 - Fix config reload race condition (TOCTOU)
 
 ---
 
@@ -205,31 +214,29 @@ ONLY after user approval:
 ## 📋 Current Task Queue (Priority Order)
 
 ### This Week (Critical Security Fixes)
-1. ✅ ~~**Task 2.1** - Management API Authentication (SEC-1)~~ **COMPLETE**
+1. ✅ ~~**Task 2.1** - Management API Authentication~~ **COMPLETE**
    - ✅ Test Framework Optimization (improved speed & reliability)
-2. ✅ ~~**Task 2.7** - QUIC Session Cleanup (REL-1)~~ **COMPLETE**
-3. ✅ ~~**Task 2.10** - Flow Engine Cloning Fix (PERF-1)~~ **COMPLETE**
-4. ✅ ~~**Task 2.11** - Flow Path String Optimization (PERF-2)~~ **COMPLETE**
-5. ✅ ~~**Task 2.2** - Command Injection Fix (SEC-2)~~ **COMPLETE**
-6. ✅ ~~**Task 2.3** - Template DoS Protection (SEC-3)~~ **COMPLETE**
-7. ✅ ~~**Task 2.4** - Template Size Limits (SEC-4)~~ **COMPLETE**
-8. **Task 2.5** - Config Reload Race Fix (SEC-5) ← **NEXT**
+2. ✅ ~~**Task 2.7** - QUIC Session Cleanup~~ **COMPLETE**
+3. ✅ ~~**Task 2.10** - Flow Engine Cloning Fix~~ **COMPLETE**
+4. ✅ ~~**Task 2.11** - Flow Path String Optimization~~ **COMPLETE**
+5. ✅ ~~**Task 2.2** - Command Injection Fix~~ **COMPLETE**
+6. ✅ ~~**Task 2.3** - Template DoS Protection~~ **COMPLETE**
+7. ✅ ~~**Task 2.4** - Template Size Limits~~ **COMPLETE**
+8. ✅ ~~**Task 2.5** - Config Reload Race Fix~~ **COMPLETE**
+9. **Task 2.6** - Path Canonicalization ← **NEXT**
 
 ### Next Week (Critical Vulnerabilities)
-9. **Task 2.6** - Path Canonicalization (SEC-6)
-
-### Following Weeks (Reliability & Performance)
-10. **Task 2.8** - QUIC Buffer Race Fix (REL-2)
-11. **Task 2.9** - Plugin Status Race Fix (REL-3)
+10. **Task 2.8** - QUIC Buffer Race Fix
+11. **Task 2.9** - Plugin Status Race Fix
 12-22. **Tasks 2.12-2.22** - HIGH and MEDIUM priority fixes
 
 ---
 
 ## 📝 Version Information
 
-**Current Version**: 0.7.6
+**Current Version**: 0.7.7
 **Target Version**: 0.8.0 (After remaining CRITICAL fixes complete)
 **Expected Versions**:
-- 0.7.7: Task 2.5 (Config reload race)
+- 0.7.8: Task 2.6 (Path canonicalization)
 - 0.8.0: All CRITICAL + HIGH fixes complete
 
