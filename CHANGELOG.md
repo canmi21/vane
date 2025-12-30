@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.9 (30. Dec, 2025)
+
+- **Added:** Implemented **Unified Template System** across all three layers (L4/L4+/L7). Introduced an AST-based parser with support for string concatenation (`{{conn.ip}}:{{conn.port}}`) and nested template resolution (`{{kv.{{conn.protocol}}_backend}}`), enabling dynamic runtime composition of configuration values.
+- **Added:** Implemented **Template Hijacking Mechanism** for L7 layer. Introduced a `Hijacker` trait with protocol-specific implementations (HTTP initially), allowing templates to trigger lazy buffering when accessing special keywords (`req.body`, `req.header.*`, `res.body`). The hijacking logic is organized in a separate `hijack/` directory by layer and protocol.
+- **Changed:** Unified template resolution logic into `src/modules/template/`. Eliminated approximately 60 lines of duplicated code between L4 Transport and L4+ Carrier layers by replacing inline `resolve_inputs` functions with a shared implementation using the `TemplateContext` trait.
+- **Changed:** Refactored template error handling to use graceful degradation. Missing keys now return the original template string (`{{key}}`) with a warning log instead of failing execution, ensuring robustness in production environments.
+
 ## 0.6.8 (29. Dec, 2025)
 
 - **Added:** Implemented **WebSocket Tunneling** support within the Upstream Driver. The `internal.driver.upstream` plugin can now handle HTTP/1.1 Upgrade requests (`101 Switching Protocols`), establishing a bidirectional `tokio::io::copy_bidirectional` tunnel between the client and the backend. This feature is opt-in via the `websocket: true` parameter.
