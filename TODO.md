@@ -44,6 +44,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 0.2.1 | Container protocol extension (ProtocolData trait) | 2025-12-30 | (inline implementation) |
 | 1.5 | Template system upgrade (nested + concatenation) | 2025-12-30 | [`.todo/improve-template.md`](.todo/improve-template.md) |
 | 1.2 | Extract unified flow execution engine | 2025-12-30 | [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) |
+| 1.3 | Extract hot-reload framework | 2025-12-30 | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
 
 ---
 
@@ -55,8 +56,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Status | File |
 |----|------|--------|------|
-| 1.3 | Extract hot-reload framework | 📌 **Next** | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
-| 0.2.2 | Plugin system refactoring (generic vs protocol-specific) | Pending (after 1.3) | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
+| 0.2.2 | Plugin system refactoring (generic vs protocol-specific) | 📌 **Next** | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
 
 ---
 
