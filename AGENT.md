@@ -85,6 +85,16 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 
 ---
 
+11. ✅ **Task 2.11: Flow Path String Optimization (PERF-2)**
+    - **Problem**: Key scoping and path generation used `format!` and intermediate `String` objects, causing high allocation frequency.
+    - **Solution**: Re-implemented `format_scoped_key` and `next_path` using manual buffer management with pre-calculated capacities.
+    - **Changes**:
+      - Replaced `format!` with `String::with_capacity` and manual `push_str`/`push`.
+      - Introduced `push_sanitized` to eliminate intermediate sanitized plugin name allocations.
+    - **Result**: Reduced allocation count from 2+ per step to exactly 1, and eliminated `format!` parsing overhead.
+
+---
+
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
 
 **Scan Summary:**
@@ -103,7 +113,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 - [`.report/performance.md`](.report/performance.md) - 8 performance bottlenecks
 - [`.report/maintainability-surface.md`](.report/maintainability-surface.md) - 24 面子 issues (Phase III)
 
-**Next Task**: Task 2.11 - Flow Path String Optimization (PERF-2)
+**Next Task**: Task 2.2 - Fix external command injection vulnerability (SEC-2)
 
 ---
 
@@ -172,10 +182,10 @@ ONLY after user approval:
    - ✅ Test Framework Optimization (improved speed & reliability)
 2. ✅ ~~**Task 2.7** - QUIC Session Cleanup (REL-1)~~ **COMPLETE**
 3. ✅ ~~**Task 2.10** - Flow Engine Cloning Fix (PERF-1)~~ **COMPLETE**
-4. **Task 2.11** - Flow Path String Optimization (PERF-2) ← **NEXT**
+4. ✅ ~~**Task 2.11** - Flow Path String Optimization (PERF-2)~~ **COMPLETE**
+5. **Task 2.2** - Command Injection Fix (SEC-2) ← **NEXT**
 
 ### Next Week (Critical Vulnerabilities)
-5. **Task 2.2** - Command Injection Fix (SEC-2)
 6. **Task 2.3** - Template DoS Protection (SEC-3)
 7. **Task 2.4** - Template Size Limits (SEC-4)
 8. **Task 2.5** - Config Reload Race Fix (SEC-5)
@@ -190,11 +200,10 @@ ONLY after user approval:
 
 ## 📝 Version Information
 
-**Current Version**: 0.7.2
+**Current Version**: 0.7.3
 **Target Version**: 0.8.0 (After remaining CRITICAL fixes complete)
 **Expected Versions**:
-- 0.7.3: Task 2.11 (Flow path optimization)
-- 0.7.4: Tasks 2.2-2.4 (Template/Command security)
+- 0.7.4: Tasks 2.2-2.4 (Security fixes)
 - 0.8.0: All CRITICAL + HIGH fixes complete
 
 ---

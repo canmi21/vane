@@ -79,6 +79,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.1 | Management API authentication (SEC-1) | 2025-12-30 | [`.report/security.md#sec-1`](.report/security.md#sec-1) |
 | 2.1+ | Integration test optimization (post-auth) | 2025-12-30 | (test framework improvements) |
 | 2.7 | Call QUIC session cleanup (memory leak fix) | 2025-12-30 | [`.report/reliability.md#rel-1`](.report/reliability.md#rel-1) |
+| 2.10 | Fix flow engine ResolvedInputs cloning | 2025-12-30 | [`.report/performance.md#perf-1`](.report/performance.md#perf-1) |
 
 ---
 
@@ -130,8 +131,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
-| 2.10 | Fix flow engine ResolvedInputs cloning | 🔴 CRITICAL | 📌 **Next** | [PERF-1](.report/performance.md#perf-1) |
-| 2.11 | Optimize flow path string allocations | 🔴 CRITICAL | Pending | [PERF-2](.report/performance.md#perf-2) |
+| 2.10 | Fix flow engine ResolvedInputs cloning | 🔴 CRITICAL | ✅ **Done** | [PERF-1](.report/performance.md#perf-1) |
+| 2.11 | Optimize flow path string allocations | 🔴 CRITICAL | 📌 **Next** | [PERF-2](.report/performance.md#perf-2) |
 
 ### 🟠 HIGH Priority (Fix in Next Release)
 
