@@ -19,6 +19,14 @@ fn get_max_depth() -> usize {
 		.unwrap_or(5)
 }
 
+/// Returns the maximum allowed size (in bytes) for a resolved template string.
+/// Configurable via `MAX_TEMPLATE_RESULT_SIZE` environment variable.
+fn get_max_size() -> usize {
+	getenv::get_env("MAX_TEMPLATE_RESULT_SIZE", "65536".to_string())
+		.parse()
+		.unwrap_or(65536)
+}
+
 /// High-level API: Parse and resolve template string
 /// Returns original string on parse error (with log)
 pub async fn resolve_template(
@@ -27,6 +35,8 @@ pub async fn resolve_template(
 	depth: usize,
 ) -> String {
 	let max_depth = get_max_depth();
+	let max_size = get_max_size();
+
 	if depth > max_depth {
 		fancy_log::log(
 			fancy_log::LogLevel::Error,
@@ -39,7 +49,7 @@ pub async fn resolve_template(
 	}
 
 	match parser::parse_template(template) {
-		Ok(ast) => resolver::resolve_ast(&ast, context, depth, max_depth).await,
+		Ok(ast) => resolver::resolve_ast(&ast, context, depth, max_depth, max_size).await,
 		Err(e) => {
 			fancy_log::log(
 				fancy_log::LogLevel::Warn,
@@ -239,6 +249,23 @@ mod tests {
 		// The resolved value should be the same as input because it hit the limit and returned early
 		// (Or it might be partially resolved, but it won't crash)
 		assert!(resolved_val.is_object());
+	}
+
+	/// Tests template size limit.
+	#[test]
+	#[serial_test::serial]
+	fn test_resolve_template_size_limit() {
+		let kv = KvStore::new();
+		let mut context = SimpleContext { kv: &kv };
+
+		temp_env::with_var("MAX_TEMPLATE_RESULT_SIZE", Some("10"), || {
+			let rt = tokio::runtime::Runtime::new().unwrap();
+			rt.block_on(async {
+				let result = resolve_template("long string that exceeds 10 bytes", &mut context, 0).await;
+				// Should be truncated or empty depending on where it hit
+				assert!(result.len() <= 10);
+			});
+		});
 	}
 
 	/// Tests that parse errors return original string.
