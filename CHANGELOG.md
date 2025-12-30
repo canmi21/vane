@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.10 (30. Dec, 2025)
+
+- **Added:** Implemented `ProtocolData` trait for protocol extension abstraction. This trait-based system allows different L7 protocols (HTTP, DNS, gRPC) to extend the Container with protocol-specific fields without polluting the core structure, providing a foundation for multi-protocol support.
+- **Added:** Introduced `HttpProtocolData` structure to encapsulate HTTP-specific extension fields. WebSocket upgrade handles (`client_upgrade`, `upstream_upgrade`) are now stored in `HttpProtocolData` instead of directly in Container, isolating HTTP-specific logic and enabling future protocol additions.
+- **Changed:** Refactored Container structure to include `protocol_data` field. The Container now uses `Option<Box<dyn ProtocolData>>` for protocol-specific extensions, replacing hard-coded HTTP fields and enabling protocol-agnostic Container design.
+- **Changed:** Updated HTTP adapters and plugins to access upgrade handles via `Container::http_data_mut()`. The `httpx` adapter, `FetchUpstream` plugin, and `Response` terminator now use the new accessor methods to manipulate HTTP protocol data, maintaining full WebSocket tunneling functionality while improving code organization.
+
 ## 0.6.9 (30. Dec, 2025)
 
 - **Added:** Implemented **Unified Template System** across all three layers (L4/L4+/L7). Introduced an AST-based parser with support for string concatenation (`{{conn.ip}}:{{conn.port}}`) and nested template resolution (`{{kv.{{conn.protocol}}_backend}}`), enabling dynamic runtime composition of configuration values.
