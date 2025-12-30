@@ -18,7 +18,7 @@
 - ✅ Template system: Unified AST-based parser with nested/concatenation support
 - ✅ Container protocol extension: HTTP-specific fields migrated to `HttpProtocolData`
 
-**Next Step:** Task 1.2 - Extract Flow Execution Engine (foundation for plugin refactoring)
+**Next Step:** Task 1.3 - Extract Hot-Reload Framework (foundation for plugin hot-reload)
 
 **Detailed Plans:** See `.todo/` directory for full task descriptions
 
@@ -43,6 +43,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 0.2 | L7 Container design (Generic Container) | 2025-12-29 | [`.todo/container-generalization.md`](.todo/container-generalization.md) |
 | 0.2.1 | Container protocol extension (ProtocolData trait) | 2025-12-30 | (inline implementation) |
 | 1.5 | Template system upgrade (nested + concatenation) | 2025-12-30 | [`.todo/improve-template.md`](.todo/improve-template.md) |
+| 1.2 | Extract unified flow execution engine | 2025-12-30 | [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) |
 
 ---
 
@@ -54,9 +55,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Status | File |
 |----|------|--------|------|
-| 1.2 | Extract flow execution engine | 📌 **Next** | [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) |
-| 1.3 | Extract hot-reload framework | Pending | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
-| 0.2.2 | Plugin system refactoring (generic vs protocol-specific) | Pending (after 1.2, 1.3) | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
+| 1.3 | Extract hot-reload framework | 📌 **Next** | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
+| 0.2.2 | Plugin system refactoring (generic vs protocol-specific) | Pending (after 1.3) | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
 
 ---
 
@@ -69,7 +69,6 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | ID | Task | Status | File |
 |----|------|--------|------|
 | 0.3 | Architecture vulnerability scan | Pending | [`.todo/architecture-scan.md`](.todo/architecture-scan.md) |
-| 0.4 | L4 traditional configuration strategy | Pending | [`.todo/l4-traditional-config.md`](.todo/l4-traditional-config.md) |
 | 1.1 | Rust feature flags support | Pending | [`.todo/rust-feature-flags.md`](.todo/rust-feature-flags.md) |
 | 1.4 | Flow validation framework | Pending | [`.todo/flow-validation.md`](.todo/flow-validation.md) |
 
@@ -83,6 +82,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Status | File |
 |----|------|--------|------|
+| 0.4 | L4 legacy config file extraction | Pending (after 1.2) | [`.todo/l4-traditional-config.md`](.todo/l4-traditional-config.md) |
 | 3.x | Plugin directory reorganization | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
 | 3.x | Flatten stack module hierarchy | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
 | 3.x | Standardize plugin file structure | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
@@ -129,39 +129,21 @@ Lower priority tasks deferred until Phase I-III complete.
 
 ## 🎯 Recommended Next Action
 
-**Continue Phase I with Task 1.2: Extract Flow Execution Engine**
+**Continue Phase I with Task 1.3: Extract Hot-Reload Framework**
 
-**Recently Completed (Task 0.2.1):**
-- ✅ Implemented `ProtocolData` trait for protocol abstraction
-- ✅ Added `protocol_data` field to Container structure
-- ✅ Migrated HTTP-specific fields (`client_upgrade`, `upstream_upgrade`) to `HttpProtocolData`
-- ✅ Updated HTTP adapters and plugins to use new protocol extension system
-- ✅ Maintained backward compatibility with deprecated helper methods
-- ✅ Created comprehensive plugin refactoring plan in `.todo/plugin-system-refactor.md`
-
-**Why Task 1.2 is next (instead of Task 0.2.2):**
-
-1. **Dependency Chain**:
-   - Task 0.2.2 (Plugin refactoring) requires modifying flow engine dispatch logic
-   - Current flow engine is in `application/flow.rs` (~200+ lines, tightly coupled)
-   - Better to extract it first, then modify the clean interface
-
-2. **Avoid Duplicate Work**:
-   - If we do 0.2.2 now: modify flow engine in `application/flow.rs`
-   - Then do 1.2: extract flow engine, need to refactor again
-   - If we do 1.2 first: extract once, then modify clean interface in 0.2.2
-
-3. **Foundation for Future Work**:
-   - Extracted flow engine benefits all future refactoring
-   - Independent testing and optimization becomes possible
-   - Clear separation of concerns (flow logic vs protocol handling)
+**Recently Completed (Task 1.2):**
+- ✅ Created unified flow execution engine in `src/modules/flow/`
+- ✅ Eliminated ~600 lines of duplicated code across L4, L4+, and L7
+- ✅ Implemented `ExecutionContext` abstraction for layer-specific data
+- ✅ Centralized KV scoping logic and logging
+- ✅ Maintained all functionality including WebSocket and template hijacking
 
 **Recommended Order**:
 ```
 ✅ Task 0.2.1: Container protocol extension (completed)
-→ Task 1.2: Extract flow execution engine (next)
-→ Task 1.3: Extract hot-reload framework
+✅ Task 1.2: Extract unified flow engine (completed)
+→ Task 1.3: Extract hot-reload framework (next)
 → Task 0.2.2: Plugin system refactoring (generic vs protocol-specific)
 ```
 
-See [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) for Task 1.2 details.
+See [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) for Task 1.3 details.
