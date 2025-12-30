@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.5 (30. Dec, 2025)
+
+- **Fixed:** Implemented template and JSON recursion depth protection (SEC-3). The resolution engine now enforces a strict depth limit (default: 5, configurable via `MAX_TEMPLATE_DEPTH`) to prevent Denial-of-Service attacks via malicious nested configurations or infinite loops.
+
+## 0.7.4 (30. Dec, 2025)
+
+- **Fixed:** Resolved a critical command injection vulnerability (SEC-2) in the external command driver. Vane now enforces a "Trusted Bin Root" policy, restricting external plugin execution to programs located within the `$CONFIG_DIR/bin/` directory. All paths are strictly validated and canonicalized during registration and execution to prevent unauthorized system access.
+
 ## 0.7.3 (30. Dec, 2025)
 
 - **Changed:** Optimized flow path and scoped key generation by implementing manual string buffer management with pre-calculated capacities. This eliminates redundant heap allocations and avoids `format!` macro overhead in high-frequency execution paths.
