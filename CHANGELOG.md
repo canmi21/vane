@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.0 (30. Dec, 2025)
+
+- **Breaking:** Implemented mandatory authentication for the management API and console. Vane now requires the `ACCESS_TOKEN` environment variable to be set (16-128 chars). All API requests must include the `Authorization: Bearer <token>` header. If the token is not set, the management interface is disabled for security.
+- **Added:** Introduced a new authentication middleware to protect all management endpoints.
+- **Changed:** Optimized the core bootstrap sequence to eliminate a 2.2-second artificial delay. Business listeners now initialize immediately after configuration loading.
+- **Changed:** Refactored the `requirements` module to clearly separate synchronous filesystem initialization from asynchronous watcher and background tasks.
+- **Fixed:** Corrected a misleading log message in the bootstrap process that displayed an incorrect hardcoded Unix socket path.
+
 ## 0.6.13 (30. Dec, 2025)
 
 - **Added:** Implemented protocol-aware configuration validation. Vane now enforces strict compatibility checks between plugins and protocols (e.g., HTTP-specific plugins in HTTP flows) at load time, adhering to the "Keep-Last-Known-Good" strategy.
