@@ -43,7 +43,23 @@ pub async fn handle_connection(conn: ConnectionObject, protocol_id: String) -> R
 
 	let builder = AutoBuilder::new(hyper_util::rt::TokioExecutor::new());
 
-	if let Err(e) = builder.serve_connection(io, service).await {
+	// Please Use serve_connection_with_upgrades for WebSocket support
+	//
+	// This is the correct solution for handling HTTP/1.1 WebSocket upgrades.
+	// Earlier implementations attempted various workarounds including:
+	// - Manual upgrade handling with oneshot channels
+	// - Spawning tunnel tasks with type coercion hacks
+	// - Trying to work around !Sync types (hyper::upgrade::Upgraded)
+	//
+	// All of these approaches either failed with "upgrade expected but low level API in use"
+	// or triggered rustc ICE due to broken MIR Unsize coercion when attempting to coerce
+	// !Sync async blocks into Sync trait objects.
+	//
+	// The proper solution is simply to use hyper-util's serve_connection_with_upgrades API,
+	// which handles the upgrade protocol correctly at the connection level.
+	//
+	// Related rustc ICE issue: https://github.com/rust-lang/rust/issues/150378
+	if let Err(e) = builder.serve_connection_with_upgrades(io, service).await {
 		log(
 			LogLevel::Error,
 			&format!("✗ Httpx Connection Error: {:?}", e),
@@ -54,10 +70,35 @@ pub async fn handle_connection(conn: ConnectionObject, protocol_id: String) -> R
 }
 
 async fn serve_request(
-	req: Request<Incoming>,
+	mut req: Request<Incoming>,
 	protocol_id: String,
 ) -> std::result::Result<Response<BoxBody<Bytes, Error>>, Error> {
-	// Wrap Hyper Incoming body directly into VaneBody::Hyper
+	// Detect HTTP/1.1 WebSocket Upgrade request before destructuring
+	// Only H1.1 supports 101 Switching Protocols (H2/H3 use different mechanisms)
+	let version = req.version();
+	let is_h1_websocket_upgrade = (version == http::Version::HTTP_11
+		|| version == http::Version::HTTP_10)
+		&& req
+			.headers()
+			.get("upgrade")
+			.and_then(|v| v.to_str().ok())
+			.map(|v| v.eq_ignore_ascii_case("websocket"))
+			.unwrap_or(false)
+		&& req
+			.headers()
+			.get("connection")
+			.and_then(|v| v.to_str().ok())
+			.map(|v| v.to_lowercase().contains("upgrade"))
+			.unwrap_or(false);
+
+	// Capture client upgrade handle before destructuring request
+	let client_upgrade = if is_h1_websocket_upgrade {
+		Some(hyper::upgrade::on(&mut req))
+	} else {
+		None
+	};
+
+	// Now safe to destructure request
 	let (mut parts, body) = req.into_parts();
 
 	// Assign to REQUEST slot
@@ -98,6 +139,9 @@ async fn serve_request(
 		response_payload,
 		Some(res_tx),
 	);
+
+	// Inject client upgrade handle if present
+	container.client_upgrade = client_upgrade;
 
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();

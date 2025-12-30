@@ -38,7 +38,7 @@ impl Plugin for SendResponsePlugin {
 				param_type: ParamType::Map,
 			},
 			ParamDef {
-				name: "body".into(), // Supports String or Map {content, encoding}
+				name: "body".into(),
 				required: false,
 				param_type: ParamType::Any,
 			},
@@ -64,6 +64,87 @@ impl L7Terminator for SendResponsePlugin {
 		let container = context
 			.downcast_mut::<Container>()
 			.ok_or_else(|| anyhow!("Context is not a Container"))?;
+
+		// Check if this is a WebSocket upgrade (both handles present)
+		if let (Some(client_upgrade), Some(upstream_upgrade)) = (
+			container.client_upgrade.take(),
+			container.upstream_upgrade.take(),
+		) {
+			log(
+				LogLevel::Debug,
+				"➜ Establishing WebSocket bidirectional tunnel...",
+			);
+
+			// Construct 101 Switching Protocols response
+			let mut response = Response::builder()
+				.status(StatusCode::SWITCHING_PROTOCOLS)
+				.body(())
+				.unwrap();
+
+			// Use backend's response headers (contains Upgrade handshake headers)
+			*response.headers_mut() = std::mem::take(&mut container.response_headers);
+
+			// Send 101 response to client (signals httpx to send response)
+			if let Some(tx) = container.response_tx.take() {
+				if tx.send(response).is_err() {
+					return Err(anyhow!("Failed to send WebSocket upgrade response"));
+				}
+			} else {
+				return Err(anyhow!("Response channel missing for WebSocket upgrade"));
+			}
+
+			// Spawn tunnel in background to avoid deadlock
+			// This allows httpx to complete serving the 101 response first,
+			// which triggers the client_upgrade future to resolve
+			tokio::spawn(async move {
+				log(LogLevel::Debug, "⚙ Waiting for upgrade to complete...");
+
+				// Wait for both upgrades (client has now received 101)
+				let tunnel_result = tokio::try_join!(client_upgrade, upstream_upgrade);
+
+				match tunnel_result {
+					Ok((client_io, upstream_io)) => {
+						// Wrap in TokioIo for AsyncRead + AsyncWrite
+						let mut client_io = hyper_util::rt::TokioIo::new(client_io);
+						let mut upstream_io = hyper_util::rt::TokioIo::new(upstream_io);
+
+						log(
+							LogLevel::Debug,
+							"✓ WebSocket tunnel established, starting bidirectional copy",
+						);
+
+						match tokio::io::copy_bidirectional(&mut client_io, &mut upstream_io).await {
+							Ok((client_to_upstream, upstream_to_client)) => {
+								log(
+									LogLevel::Debug,
+									&format!(
+										"✓ WebSocket tunnel closed gracefully. Client→Upstream: {} bytes, Upstream→Client: {} bytes",
+										client_to_upstream, upstream_to_client
+									),
+								);
+							}
+							Err(e) => {
+								log(
+									LogLevel::Warn,
+									&format!("⚠ WebSocket tunnel I/O error: {}", e),
+								);
+							}
+						}
+					}
+					Err(e) => {
+						log(
+							LogLevel::Error,
+							&format!("✗ WebSocket upgrade failed: {}", e),
+						);
+					}
+				}
+			});
+
+			// Return immediately (tunnel is running in background)
+			return Ok(TerminatorResult::Finished);
+		}
+
+		// Normal HTTP response handling below
 
 		// 1. Determine Status Code (Priority: Input > KV > 200)
 		let status_code = if let Some(s) = inputs.get("status").and_then(Value::as_u64) {
@@ -111,9 +192,9 @@ impl L7Terminator for SendResponsePlugin {
 			}
 		}
 
-		// 3. Handle Body (Takeover vs Inherit)
+		// 3. Handle Body (Takeover vs Inherit vs KV)
 		if let Some(body_input) = inputs.get("body") {
-			// Takeover Mode: Overwrite body
+			// Takeover Mode: Overwrite body from config input
 			let body_bytes = parse_body_input(body_input)?;
 
 			// Auto-Guess Content-Type for static body if missing
@@ -127,7 +208,21 @@ impl L7Terminator for SendResponsePlugin {
 
 			let full_body = Full::new(body_bytes);
 			container.response_body = PayloadState::Http(VaneBody::Buffered(full_body));
+		} else if let Some(body_str) = container.kv.get("res.body") {
+			// Inherit from KV (for responses set by middleware like FetchUpstream)
+			let body_bytes = Bytes::copy_from_slice(body_str.as_bytes());
+
+			if !headers.contains_key(http::header::CONTENT_TYPE) {
+				headers.insert(
+					http::header::CONTENT_TYPE,
+					HeaderValue::from_static("text/plain; charset=utf-8"),
+				);
+			}
+
+			let full_body = Full::new(body_bytes);
+			container.response_body = PayloadState::Http(VaneBody::Buffered(full_body));
 		}
+		// Keep existing response_body (from FetchUpstream)
 
 		// 4. Construct Final Response
 		let mut response = Response::builder().status(status_code).body(()).unwrap();

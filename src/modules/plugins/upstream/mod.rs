@@ -8,11 +8,12 @@ pub mod tls_verifier;
 
 use crate::modules::{
 	plugins::model::{L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs},
-	stack::protocol::application::container::Container,
+	stack::protocol::application::container::{Container, PayloadState},
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use fancy_log::{LogLevel, log};
+use http::HeaderValue;
 use serde_json::Value;
 use std::{any::Any, borrow::Cow};
 
@@ -31,12 +32,12 @@ impl Plugin for FetchUpstreamPlugin {
 				param_type: ParamType::String,
 			},
 			ParamDef {
-				name: "path".into(), // Optional: overrides request path
+				name: "path".into(),
 				required: false,
 				param_type: ParamType::String,
 			},
 			ParamDef {
-				name: "query".into(), // Optional: overrides or appends query string
+				name: "query".into(),
 				required: false,
 				param_type: ParamType::String,
 			},
@@ -52,6 +53,11 @@ impl Plugin for FetchUpstreamPlugin {
 			},
 			ParamDef {
 				name: "skip_verify".into(),
+				required: false,
+				param_type: ParamType::Boolean,
+			},
+			ParamDef {
+				name: "websocket".into(),
 				required: false,
 				param_type: ParamType::Boolean,
 			},
@@ -78,25 +84,70 @@ impl L7Middleware for FetchUpstreamPlugin {
 		context: &mut (dyn Any + Send),
 		inputs: ResolvedInputs,
 	) -> Result<MiddlewareOutput> {
-		// Downcast Context to Container
 		let container = context
 			.downcast_mut::<Container>()
 			.ok_or_else(|| anyhow!("Context is not a Container"))?;
+
+		let is_client_ws_upgrade = container.client_upgrade.is_some();
+		let websocket_enabled = inputs
+			.get("websocket")
+			.and_then(Value::as_bool)
+			.unwrap_or(false);
+
+		// Handle WebSocket Upgrade requests
+		if is_client_ws_upgrade {
+			if !websocket_enabled {
+				// Client wants WebSocket but config disallows it
+				// Generate 405 response internally and return success
+				log(
+					LogLevel::Warn,
+					"⚠ WebSocket upgrade requested but not allowed by config.",
+				);
+
+				container
+					.kv
+					.insert("res.status".to_string(), "405".to_string());
+				container.kv.insert(
+					"res.body".to_string(),
+					"Method Not Allowed: WebSocket upgrade is disabled".to_string(),
+				);
+
+				// Set response headers
+				container
+					.response_headers
+					.insert(http::header::CONNECTION, HeaderValue::from_static("close"));
+				container.response_headers.insert(
+					http::header::CONTENT_TYPE,
+					HeaderValue::from_static("text/plain; charset=utf-8"),
+				);
+
+				// Body will be populated by SendResponse from KV
+				container.response_body = PayloadState::Empty;
+
+				return Ok(MiddlewareOutput {
+					branch: "success".into(),
+					store: Some(std::collections::HashMap::from([(
+						"error".to_string(),
+						"WebSocket not allowed".to_string(),
+					)])),
+				});
+			}
+
+			// WebSocket upgrade allowed, proceed with H1.1 request
+			log(
+				LogLevel::Debug,
+				"⚙ WebSocket upgrade detected, forcing HTTP/1.1",
+			);
+		}
 
 		// 1. Resolve URL Prefix
 		let url_prefix = inputs
 			.get("url_prefix")
 			.and_then(Value::as_str)
 			.ok_or_else(|| anyhow!("Input 'url_prefix' is required"))?
-			.trim_end_matches('/'); // Normalize: remove trailing slash
+			.trim_end_matches('/');
 
 		// 2. Resolve Path & Query
-		// Logic:
-		// - If 'query' input is present: Use it, and strip any '?' from the path.
-		// - If 'query' input is missing:
-		//    - Check if 'path' input has '?' embedded.
-		//    - If 'path' input is missing (default mode), use 'req.path' AND 'req.query'.
-
 		let path_input = inputs.get("path").and_then(Value::as_str);
 		let query_input = inputs.get("query").and_then(Value::as_str);
 
@@ -111,35 +162,27 @@ impl L7Middleware for FetchUpstreamPlugin {
 		};
 
 		let (clean_path, final_query) = if let Some(q) = query_input {
-			// Case A: Explicit Query provided.
-			// Strip '?' from path to avoid duplication/confusion.
 			let p = raw_path
 				.split_once('?')
 				.map(|(pre, _)| pre)
 				.unwrap_or(&raw_path);
 			(p.to_string(), q.to_string())
 		} else {
-			// Case B: No Explicit Query provided.
 			if let Some((p, q)) = raw_path.split_once('?') {
-				// Sub-case B1: Query embedded in 'path' input (e.g. "/foo?bar=baz")
 				(p.to_string(), q.to_string())
 			} else {
-				// Sub-case B2: No query in path.
-				// If we are in "Default Mode" (path_input is None), we should try to carry over the original query.
 				if path_input.is_none() {
 					let q = container.kv.get("req.query").cloned().unwrap_or_default();
 					(raw_path, q)
 				} else {
-					// User specified a path without query, and no explicit query input. Assume no query.
 					(raw_path, String::new())
 				}
 			}
 		};
 
-		let path_normalized = clean_path.trim_start_matches('/'); // Normalize: remove leading slash
+		let path_normalized = clean_path.trim_start_matches('/');
 
 		// 3. Construct Full URL
-		// Logic: {prefix}/{path}?{query}
 		let full_url = if final_query.is_empty() {
 			format!("{}/{}", url_prefix, path_normalized)
 		} else {
@@ -160,26 +203,39 @@ impl L7Middleware for FetchUpstreamPlugin {
 
 		log(LogLevel::Debug, &format!("➜ Upstream Target: {}", full_url));
 
-		let result = match version {
-			"auto" | "h1" | "h1.1" | "h2" => {
-				hyper_client::execute_hyper_request(
-					container,
-					&full_url,
-					method,
-					Some(version),
-					skip_verify,
-				)
-				.await
-			}
-			// Passed all 4 required arguments to match quinn_client signature
-			"h3" => quinn_client::execute_quinn_request(container, &full_url, method, skip_verify).await,
-			_ => {
-				log(
-					LogLevel::Warn,
-					&format!("⚠ Unknown version '{}', falling back to auto.", version),
-				);
-				hyper_client::execute_hyper_request(container, &full_url, method, Some("auto"), skip_verify)
+		// For WebSocket upgrade requests, always use H1.1 regardless of version config
+		let result = if is_client_ws_upgrade && websocket_enabled {
+			hyper_client::execute_h1_websocket_request(container, &full_url, method, skip_verify).await
+		} else {
+			// Normal HTTP request, respect version config
+			match version {
+				"auto" | "h1" | "h1.1" | "h2" => {
+					hyper_client::execute_hyper_request(
+						container,
+						&full_url,
+						method,
+						Some(version),
+						skip_verify,
+					)
 					.await
+				}
+				"h3" => {
+					quinn_client::execute_quinn_request(container, &full_url, method, skip_verify).await
+				}
+				_ => {
+					log(
+						LogLevel::Warn,
+						&format!("⚠ Unknown version '{}', falling back to auto.", version),
+					);
+					hyper_client::execute_hyper_request(
+						container,
+						&full_url,
+						method,
+						Some("auto"),
+						skip_verify,
+					)
+					.await
+				}
 			}
 		};
 

@@ -8,6 +8,7 @@ use crate::modules::{kv::KvStore, stack::protocol::application::http::wrapper::V
 use bytes::Bytes;
 use http::{HeaderMap, Response};
 use http_body_util::BodyExt;
+use hyper::upgrade::OnUpgrade;
 use std::fmt;
 use tokio::sync::oneshot;
 
@@ -18,7 +19,6 @@ pub enum PayloadState {
 	Http(VaneBody),
 
 	/// A generic L7 stream (e.g., for future Redis/MySQL support).
-	#[allow(dead_code)]
 	Generic,
 
 	/// The payload has been fully buffered into memory.
@@ -112,6 +112,16 @@ pub struct Container {
 
 	/// A signaling channel to send the Final Response Headers back to the Protocol Adapter.
 	pub response_tx: Option<oneshot::Sender<Response<()>>>,
+
+	/// Client-side WebSocket Upgrade Handle (HTTP/1.1 only).
+	/// Populated by httpx when detecting Upgrade request.
+	/// Consumed by Response Terminator to establish bidirectional tunnel.
+	pub client_upgrade: Option<OnUpgrade>,
+
+	/// Upstream-side WebSocket Upgrade Handle (HTTP/1.1 only).
+	/// Populated by FetchUpstream when backend responds with 101.
+	/// Consumed by Response Terminator to establish bidirectional tunnel.
+	pub upstream_upgrade: Option<OnUpgrade>,
 }
 
 impl Container {
@@ -130,6 +140,8 @@ impl Container {
 			response_headers,
 			response_body,
 			response_tx,
+			client_upgrade: None,
+			upstream_upgrade: None,
 		}
 	}
 
