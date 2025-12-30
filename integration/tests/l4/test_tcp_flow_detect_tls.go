@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"canmi.net/vane-mock-tests/pkg/config/advanced"
 	"canmi.net/vane-mock-tests/pkg/env"
@@ -38,6 +39,11 @@ func TestTcpFlowDetectTls(ctx context.Context, s *env.Sandbox) error {
 		return err
 	}
 	defer proc.Stop()
+
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
 
 	// 4. Positive Test: Send TLS ClientHello Header (0x16 0x03 ...)
 	// FIXED: Append 0x0A (\n) because the Mock TCP Server uses bufio.Scanner

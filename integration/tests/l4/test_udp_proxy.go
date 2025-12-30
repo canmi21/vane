@@ -76,7 +76,7 @@ func TestUdpProxy(ctx context.Context, s *env.Sandbox) error {
 
 	// FIXED: Wait for Listener UP *BEFORE* sending packets.
 	// UDP is connectionless; if we send before Vane is ready, the packet is lost.
-	if err := proc.WaitForLog("UDP UP", 3*time.Second); err != nil {
+	if err := proc.WaitForUdpPort(vanePort, 5*time.Second); err != nil {
 		return term.FormatFailure("UDP Listener failed to start", term.NewNode(err.Error()))
 	}
 

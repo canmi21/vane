@@ -55,7 +55,7 @@ func TestUdpFlowProxy(ctx context.Context, s *env.Sandbox) error {
 	defer proc.Stop()
 
 	// Wait for UP
-	if err := proc.WaitForLog("UDP UP", 3*time.Second); err != nil {
+	if err := proc.WaitForUdpPort(vanePort, 5*time.Second); err != nil {
 		return term.FormatFailure("UDP Listener failed to start", term.NewNode(err.Error()))
 	}
 

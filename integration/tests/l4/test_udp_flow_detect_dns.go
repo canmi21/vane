@@ -41,7 +41,10 @@ func TestUdpFlowDetectDns(ctx context.Context, s *env.Sandbox) error {
 		return err
 	}
 	defer proc.Stop()
-	proc.WaitForLog("UDP UP", 2*time.Second)
+
+	if err := proc.WaitForUdpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("UDP Listener failed to start", term.NewNode(err.Error()))
+	}
 
 	// 4. Positive Test: Valid DNS Query
 	dnsPacket := []byte{

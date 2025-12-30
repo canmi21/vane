@@ -76,7 +76,7 @@ func TestTcpHotReload(ctx context.Context, s *env.Sandbox) error {
 	defer proc.Stop()
 
 	// Wait for Port A UP
-	if err := proc.WaitForLog(fmt.Sprintf("PORT %d TCP UP", portA), 3*time.Second); err != nil {
+	if err := proc.WaitForTcpPort(portA, 5*time.Second); err != nil {
 		return term.FormatFailure("Port A failed to start", term.NewNode(err.Error()))
 	}
 
@@ -113,7 +113,7 @@ func TestTcpHotReload(ctx context.Context, s *env.Sandbox) error {
 	}
 
 	// Wait for Port B Up
-	if err := proc.WaitForLog(fmt.Sprintf("PORT %d TCP UP", portB), 2*time.Second); err != nil {
+	if err := proc.WaitForTcpPort(portB, 5*time.Second); err != nil {
 		return term.FormatFailure("Vane did not start Port B", term.NewNode(err.Error()))
 	}
 

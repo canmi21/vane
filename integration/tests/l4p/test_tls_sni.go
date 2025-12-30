@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"canmi.net/vane-mock-tests/pkg/config/advanced"
 	"canmi.net/vane-mock-tests/pkg/env"
@@ -51,6 +52,11 @@ func TestTlsSniProxy(ctx context.Context, s *env.Sandbox) error {
 		return err
 	}
 	defer proc.Stop()
+
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
 
 	// 3. Positive Test
 	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", vanePort), &tls.Config{

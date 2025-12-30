@@ -1,0 +1,22 @@
+/* integration/tests/common/suite.go */
+package common
+
+import (
+	"context"
+
+	"canmi.net/vane-mock-tests/pkg/env"
+)
+
+type TestFunc func(ctx context.Context, s *env.Sandbox) error
+
+type TestCase struct {
+	Name string
+	Desc string
+	Run  TestFunc
+}
+
+func GetTests() []TestCase {
+	return []TestCase{
+		{Name: "common_test_no_console", Desc: "Verifies no-console mode without ACCESS_TOKEN", Run: TestNoConsole},
+	}
+}

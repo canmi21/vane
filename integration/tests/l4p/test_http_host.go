@@ -48,6 +48,11 @@ func TestHttpHostProxy(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
+
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", vanePort), 1*time.Second)
 	if err != nil {
 		return err

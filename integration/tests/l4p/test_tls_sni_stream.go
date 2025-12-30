@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"canmi.net/vane-mock-tests/pkg/config/advanced"
 	"canmi.net/vane-mock-tests/pkg/env"
@@ -56,6 +57,11 @@ func TestTlsSniStream(ctx context.Context, s *env.Sandbox) error {
 		return err
 	}
 	defer proc.Stop()
+
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
 
 	// 4. Positive Test: Long-lived Connection with Correct SNI
 	tlsConf := &tls.Config{

@@ -168,6 +168,17 @@ func RunStreamingTest(ctx context.Context, s *env.Sandbox, cType ClientType, uTy
 	}
 	defer proc.Stop()
 
+	// Wait for port to be ready (H3 uses UDP, H2 uses TCP)
+	if cType == ClientH3 {
+		if err := proc.WaitForUdpPort(vanePort, 5*time.Second); err != nil {
+			return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+		}
+	} else {
+		if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+			return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+		}
+	}
+
 	// --- 4. Prepare Client ---
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true,

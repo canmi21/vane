@@ -62,7 +62,7 @@ func TestUdpHotReload(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
-	if err := proc.WaitForLog("UDP UP", 2*time.Second); err != nil {
+	if err := proc.WaitForUdpPort(vanePort, 5*time.Second); err != nil {
 		return err
 	}
 

@@ -48,6 +48,11 @@ func TestTcpFlowDetectHttp(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
+
 	// 4. Positive Test: Send HTTP Request
 	// Expectation: Receive Echo Response
 	if err := verifyTcpConnection(vanePort, "GET / HTTP/1.1\r\n\r\n", true); err != nil {

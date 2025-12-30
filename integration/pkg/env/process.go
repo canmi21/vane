@@ -4,6 +4,8 @@ package env
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -25,7 +27,26 @@ type Process struct {
 	DebugMode bool
 }
 
+// generateAccessToken creates a random 32-character hex token for testing
+func generateAccessToken() string {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to a static token if random generation fails
+		return "test-token-fallback-1234567890abcdef"
+	}
+	return hex.EncodeToString(bytes)
+}
+
 func (s *Sandbox) StartVane(ctx context.Context, debugMode bool) (*Process, error) {
+	return s.startVaneInternal(ctx, debugMode, true)
+}
+
+// StartVaneWithoutToken starts Vane without ACCESS_TOKEN (for testing no-console mode)
+func (s *Sandbox) StartVaneWithoutToken(ctx context.Context, debugMode bool) (*Process, error) {
+	return s.startVaneInternal(ctx, debugMode, false)
+}
+
+func (s *Sandbox) startVaneInternal(ctx context.Context, debugMode bool, withToken bool) (*Process, error) {
 	cmd := exec.CommandContext(ctx, "vane")
 
 	logLevel := "info"
@@ -33,7 +54,7 @@ func (s *Sandbox) StartVane(ctx context.Context, debugMode bool) (*Process, erro
 		logLevel = "debug"
 	}
 
-	cmd.Env = append(os.Environ(),
+	envVars := []string{
 		fmt.Sprintf("CONFIG_DIR=%s", s.ConfigDir),
 		fmt.Sprintf("SOCKET_DIR=%s", s.SocketDir),
 		fmt.Sprintf("PORT=%d", s.ConsolePort),
@@ -41,7 +62,15 @@ func (s *Sandbox) StartVane(ctx context.Context, debugMode bool) (*Process, erro
 		"DETECT_PUBLIC_NETWORK=false",
 		"CONSOLE_LISTEN_IPV6=false",
 		"DEV_PROJECT_DIR=/tmp/void",
-	)
+	}
+
+	// Add ACCESS_TOKEN for default tests (enables management console)
+	if withToken {
+		token := generateAccessToken()
+		envVars = append(envVars, fmt.Sprintf("ACCESS_TOKEN=%s", token))
+	}
+
+	cmd.Env = append(os.Environ(), envVars...)
 
 	// FIXED: Always initialize buffer to allow WaitForLog to work
 	logBuf := &bytes.Buffer{}
@@ -66,12 +95,28 @@ func (s *Sandbox) StartVane(ctx context.Context, debugMode bool) (*Process, erro
 		DebugMode: debugMode,
 	}
 
-	if err := proc.WaitForReady(5 * time.Second); err != nil {
-		proc.Stop()
-		if !debugMode {
-			return nil, fmt.Errorf("vane startup failed: %w\nLogs:\n%s", err, logBuf.String())
+	// Wait strategy depends on whether ACCESS_TOKEN is set
+	if withToken {
+		// With token: wait for console port to be ready
+		if err := proc.WaitForReady(5 * time.Second); err != nil {
+			proc.Stop()
+			if !debugMode {
+				return nil, fmt.Errorf("vane startup failed: %w\nLogs:\n%s", err, logBuf.String())
+			}
+			return nil, fmt.Errorf("vane startup failed: %w", err)
 		}
-		return nil, fmt.Errorf("vane startup failed: %w", err)
+		// Console is ready. Business ports will be initialized in background.
+		// Tests should wait for specific port logs like "PORT XX TCP UP" if needed.
+	} else {
+		// Without token: console port won't start, just wait for startup logs
+		if err := proc.WaitForLog("ACCESS_TOKEN not set", 3*time.Second); err != nil {
+			proc.Stop()
+			if !debugMode {
+				return nil, fmt.Errorf("vane startup failed: %w\nLogs:\n%s", err, logBuf.String())
+			}
+			return nil, fmt.Errorf("vane startup failed: %w", err)
+		}
+		// Tests should wait for specific port logs like "PORT XX TCP UP" if needed.
 	}
 
 	return proc, nil
@@ -101,6 +146,33 @@ func (p *Process) WaitForReady(timeout time.Duration) error {
 	}
 }
 
+// WaitForNoConsole verifies that the console port is NOT listening (for no-token mode)
+func (p *Process) WaitForNoConsole(timeout time.Duration) error {
+	target := fmt.Sprintf("127.0.0.1:%d", p.sandbox.ConsolePort)
+
+	// Wait for the log message to ensure Vane has started
+	if err := p.WaitForLog("ACCESS_TOKEN not set", timeout); err != nil {
+		return fmt.Errorf("expected 'ACCESS_TOKEN not set' log message: %w", err)
+	}
+
+	// Verify console port is NOT listening
+	for i := 0; i < 5; i++ {
+		conn, err := net.DialTimeout("tcp", target, 50*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return fmt.Errorf("console port %d should NOT be listening (no ACCESS_TOKEN)", p.sandbox.ConsolePort)
+		}
+
+		if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
+			return fmt.Errorf("process exited unexpectedly")
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	return nil
+}
+
 // WaitForLog polls the log buffer until a substring appears or timeout occurs.
 func (p *Process) WaitForLog(snippet string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
@@ -121,6 +193,16 @@ func (p *Process) WaitForLog(snippet string, timeout time.Duration) error {
 			return fmt.Errorf("timeout waiting for log snippet: '%s'", snippet)
 		}
 	}
+}
+
+// WaitForTcpPort waits for a TCP port to be ready (looks for "PORT {port} TCP UP" in logs)
+func (p *Process) WaitForTcpPort(port int, timeout time.Duration) error {
+	return p.WaitForLog(fmt.Sprintf("PORT %d TCP UP", port), timeout)
+}
+
+// WaitForUdpPort waits for a UDP port to be ready (looks for "PORT {port} UDP UP" in logs)
+func (p *Process) WaitForUdpPort(port int, timeout time.Duration) error {
+	return p.WaitForLog(fmt.Sprintf("PORT %d UDP UP", port), timeout)
 }
 
 func (p *Process) Stop() error {

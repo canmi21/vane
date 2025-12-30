@@ -61,6 +61,11 @@ func TestCgiBasic(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
+
 	// 4. Client Request
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},

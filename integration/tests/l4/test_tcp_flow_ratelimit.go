@@ -50,6 +50,11 @@ func TestTcpFlowRateLimit(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
+
 	// --- Phase 1: Burst Test ---
 	// Send 100 requests concurrently.
 	// Expected passed: [20, 40]

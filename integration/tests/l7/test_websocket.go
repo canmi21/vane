@@ -158,8 +158,10 @@ func TestWSDeny(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
-	// Give Vane time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
 
 	// 3. Connect and expect 405 rejection
 	target := fmt.Sprintf("127.0.0.1:%d", vanePort)
@@ -215,8 +217,10 @@ func TestWSAllow(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
-	// Give Vane time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
 
 	target := fmt.Sprintf("127.0.0.1:%d", vanePort)
 	conn, err := performUpgradeHandshake(target, true)
@@ -276,8 +280,10 @@ func TestWSStreamLarge(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
-	// Give Vane time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
+	}
 
 	target := fmt.Sprintf("127.0.0.1:%d", vanePort)
 	conn, err := performUpgradeHandshake(target, true)

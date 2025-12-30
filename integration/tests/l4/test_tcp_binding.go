@@ -62,29 +62,24 @@ func TestTcpBinding(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
-	// Verify
-	target := fmt.Sprintf("127.0.0.1:%d", vanePort)
-	var dialErr error
-	for i := 0; i < 20; i++ {
-		conn, err := net.DialTimeout("tcp", target, 200*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			dialErr = nil
-			break
-		}
-		dialErr = err
-		time.Sleep(100 * time.Millisecond)
+	// Wait for port to be ready
+	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
+		return term.FormatFailure("Port failed to start", term.NewNode(err.Error()))
 	}
 
-	if dialErr != nil {
+	// Verify connection
+	target := fmt.Sprintf("127.0.0.1:%d", vanePort)
+	conn, err := net.DialTimeout("tcp", target, 1*time.Second)
+	if err != nil {
 		root := term.NewNode("")
 		root.Add("Details: Failed to connect to TCP port")
-		root.Add(fmt.Sprintf("Error: %v", dialErr))
+		root.Add(fmt.Sprintf("Error: %v", err))
 		if !debug {
 			root.Add("Logs").Add(proc.DumpLogs())
 		}
 		return term.FormatFailure("Binding check failed", root)
 	}
+	conn.Close()
 
 	return nil
 }
