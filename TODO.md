@@ -2,7 +2,7 @@
 
 **Managed by:** Claude Code (100% AI-managed)
 
-**Last Updated:** 2025-12-29
+**Last Updated:** 2025-12-30
 
 ---
 
@@ -11,12 +11,14 @@
 **Codebase:** ✅ Good to go (no compiler errors, ready for refactoring)
 
 **Recent Decisions:**
-- ✅ L7 Container design: Generic `Container<P: ProtocolData>`
+- ✅ L7 Container design: Protocol extension via `ProtocolData` trait
 - ✅ Middleware architecture: 通用 (KV-based) vs 细分 (protocol-specific)
 - ✅ Template hijacking: Layer-specific keywords, no KV pollution
 - ✅ Roadmap defined: 4 phases (里子 → 查漏 → 面子 → 文档)
+- ✅ Template system: Unified AST-based parser with nested/concatenation support
+- ✅ Container protocol extension: HTTP-specific fields migrated to `HttpProtocolData`
 
-**Next Step:** Start Phase I with Task 1.5 (Template system upgrade)
+**Next Step:** Task 1.2 - Extract Flow Execution Engine (foundation for plugin refactoring)
 
 **Detailed Plans:** See `.todo/` directory for full task descriptions
 
@@ -39,6 +41,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 |----|------|-----------|------|
 | 0.1 | Correct Vane positioning in documentation | 2025-12-29 | [`.todo/correct-positioning.md`](.todo/correct-positioning.md) |
 | 0.2 | L7 Container design (Generic Container) | 2025-12-29 | [`.todo/container-generalization.md`](.todo/container-generalization.md) |
+| 0.2.1 | Container protocol extension (ProtocolData trait) | 2025-12-30 | (inline implementation) |
+| 1.5 | Template system upgrade (nested + concatenation) | 2025-12-30 | [`.todo/improve-template.md`](.todo/improve-template.md) |
 
 ---
 
@@ -48,12 +52,11 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 **Milestone:** Core architecture is generic, extensible, and supports multiple protocols
 
-| ID | Task | Status | Estimate | File |
-|----|------|--------|----------|------|
-| 1.5 | Template system upgrade (nested + concatenation) | 📌 **Next** | 3-5 days | [`.todo/improve-template.md`](.todo/improve-template.md) |
-| 0.2 | L7 Container implementation (5 phases) | Pending | 10-15 days | [`.todo/container-generalization.md`](.todo/container-generalization.md) |
-| 1.2 | Extract flow execution engine | Pending | 3-4 days | [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) |
-| 1.3 | Extract hot-reload framework | Pending | 2-3 days | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
+| ID | Task | Status | File |
+|----|------|--------|------|
+| 1.2 | Extract flow execution engine | 📌 **Next** | [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) |
+| 1.3 | Extract hot-reload framework | Pending | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
+| 0.2.2 | Plugin system refactoring (generic vs protocol-specific) | Pending (after 1.2, 1.3) | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
 
 ---
 
@@ -126,17 +129,39 @@ Lower priority tasks deferred until Phase I-III complete.
 
 ## 🎯 Recommended Next Action
 
-**Start Phase I with Task 1.5: Template System Upgrade**
+**Continue Phase I with Task 1.2: Extract Flow Execution Engine**
 
-**Why this task first:**
-- Foundation for template hijacking mechanism (needed for Task 0.2)
-- Relatively independent, doesn't affect other modules
-- Can be tested immediately after completion
+**Recently Completed (Task 0.2.1):**
+- ✅ Implemented `ProtocolData` trait for protocol abstraction
+- ✅ Added `protocol_data` field to Container structure
+- ✅ Migrated HTTP-specific fields (`client_upgrade`, `upstream_upgrade`) to `HttpProtocolData`
+- ✅ Updated HTTP adapters and plugins to use new protocol extension system
+- ✅ Maintained backward compatibility with deprecated helper methods
+- ✅ Created comprehensive plugin refactoring plan in `.todo/plugin-system-refactor.md`
 
-**Next steps:**
-1. Analyze current template system code
-2. Design AST structure for nested parsing
-3. Implement: Lexer → Parser → Resolver → Tests
-4. Test and validate before moving to Task 0.2
+**Why Task 1.2 is next (instead of Task 0.2.2):**
 
-See [`.todo/improve-template.md`](.todo/improve-template.md) for full details.
+1. **Dependency Chain**:
+   - Task 0.2.2 (Plugin refactoring) requires modifying flow engine dispatch logic
+   - Current flow engine is in `application/flow.rs` (~200+ lines, tightly coupled)
+   - Better to extract it first, then modify the clean interface
+
+2. **Avoid Duplicate Work**:
+   - If we do 0.2.2 now: modify flow engine in `application/flow.rs`
+   - Then do 1.2: extract flow engine, need to refactor again
+   - If we do 1.2 first: extract once, then modify clean interface in 0.2.2
+
+3. **Foundation for Future Work**:
+   - Extracted flow engine benefits all future refactoring
+   - Independent testing and optimization becomes possible
+   - Clear separation of concerns (flow logic vs protocol handling)
+
+**Recommended Order**:
+```
+✅ Task 0.2.1: Container protocol extension (completed)
+→ Task 1.2: Extract flow execution engine (next)
+→ Task 1.3: Extract hot-reload framework
+→ Task 0.2.2: Plugin system refactoring (generic vs protocol-specific)
+```
+
+See [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) for Task 1.2 details.
