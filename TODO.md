@@ -76,14 +76,14 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 1.3 | Extract hot-reload framework | 2025-12-30 | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
 | 0.2.2 | Plugin system refactoring (Generic vs Specific) | 2025-12-30 | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
 | 0.3 | Architecture vulnerability scan | 2025-12-30 | [`.todo/architecture-scan.md`](.todo/architecture-scan.md) → [`.report/`](.report/) |
-| 2.1 | Management API authentication (SEC-1) | 2025-12-30 | [`.report/security.md#sec-1`](.report/security.md#sec-1) |
+| 2.1 | Management API authentication | 2025-12-30 | [Security Report](.report/security.md) |
 | 2.1+ | Integration test optimization (post-auth) | 2025-12-30 | (test framework improvements) |
-| 2.7 | Call QUIC session cleanup (memory leak fix) | 2025-12-30 | [`.report/reliability.md#rel-1`](.report/reliability.md#rel-1) |
-| 2.10 | Fix flow engine ResolvedInputs cloning | 2025-12-30 | [`.report/performance.md#perf-1`](.report/performance.md#perf-1) |
-| 2.11 | Optimize flow path string allocations | 2025-12-30 | [`.report/performance.md#perf-2`](.report/performance.md#perf-2) |
-| 2.2 | Fix external command injection vulnerability | 2025-12-30 | [`.report/security.md#sec-2`](.report/security.md#sec-2) |
-| 2.3 | Implement template recursion DoS protection | 2025-12-30 | [`.report/security.md#sec-3`](.report/security.md#sec-3) |
-| 2.4 | Add template size limits | 2025-12-30 | [`.report/security.md#sec-4`](.report/security.md#sec-4) |
+| 2.7 | Call QUIC session cleanup (memory leak fix) | 2025-12-30 | [Reliability Report](.report/reliability.md) |
+| 2.10 | Fix flow engine ResolvedInputs cloning | 2025-12-30 | [Performance Report](.report/performance.md) |
+| 2.11 | Optimize flow path string allocations | 2025-12-30 | [Performance Report](.report/performance.md) |
+| 2.2 | Fix external command injection vulnerability | 2025-12-30 | [Security Report](.report/security.md) |
+| 2.3 | Implement template recursion DoS protection | 2025-12-30 | [Security Report](.report/security.md) |
+| 2.4 | Add template size limits | 2025-12-30 | [Security Report](.report/security.md) |
 
 ---
 
@@ -114,42 +114,42 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 **Security Issues:**
 
-| ID | Task | Severity | Status | Report Reference |
-|----|------|----------|--------|------------------|
-| 2.1 | Add authentication to management API | 🔴 CRITICAL | ✅ **Done** | [SEC-1](.report/security.md#sec-1) |
-| 2.2 | Fix external command injection vulnerability | 🔴 CRITICAL | ✅ **Done** | [SEC-2](.report/security.md#sec-2) |
-| 2.3 | Implement template recursion DoS protection | 🔴 CRITICAL | ✅ **Done** | [SEC-3](.report/security.md#sec-3) |
-| 2.4 | Add template size limits | 🔴 CRITICAL | ✅ **Done** | [SEC-4](.report/security.md#sec-4) |
-| 2.5 | Fix config reload race condition (TOCTOU) | 🔴 CRITICAL | 📌 **Next** | [SEC-5](.report/security.md#sec-5) |
-| 2.6 | Add path canonicalization to loader | 🔴 CRITICAL | Pending | [SEC-6](.report/security.md#sec-6) |
+| ID | Task | Status | File |
+|----|------|--------|------|
+| 2.1 | Add authentication to management API | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
+| 2.2 | Fix external command injection vulnerability | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
+| 2.3 | Implement template recursion DoS protection | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
+| 2.4 | Add template size limits | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
+| 2.5 | Fix config reload race condition (TOCTOU) | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
+| 2.6 | Add path canonicalization to loader | 🔴 CRITICAL | 📌 **Next** | [Security Report](.report/security.md) |
 
 **Reliability Issues:**
 
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
-| 2.7 | Call QUIC session cleanup (memory leak fix) | 🔴 CRITICAL | ✅ **Done** | [REL-1](.report/reliability.md#rel-1) |
-| 2.8 | Fix QUIC buffer management race condition | 🔴 CRITICAL | Pending | [REL-2](.report/reliability.md#rel-2) |
-| 2.9 | Fix external plugin status race | 🔴 CRITICAL | Pending | [REL-3](.report/reliability.md#rel-3) |
+| 2.7 | Call QUIC session cleanup (memory leak fix) | 🔴 CRITICAL | ✅ **Done** | [Reliability Report](.report/reliability.md) |
+| 2.8 | Fix QUIC buffer management race condition | 🔴 CRITICAL | Pending | [Reliability Report](.report/reliability.md) |
+| 2.9 | Fix external plugin status race | 🔴 CRITICAL | Pending | [Reliability Report](.report/reliability.md) |
 
 **Performance Issues:**
 
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
-| 2.10 | Fix flow engine ResolvedInputs cloning | 🔴 CRITICAL | ✅ **Done** | [PERF-1](.report/performance.md#perf-1) |
-| 2.11 | Optimize flow path string allocations | 🔴 CRITICAL | ✅ **Done** | [PERF-2](.report/performance.md#perf-2) |
+| 2.10 | Fix flow engine ResolvedInputs cloning | 🔴 CRITICAL | ✅ **Done** | [Performance Report](.report/performance.md) |
+| 2.11 | Optimize flow path string allocations | 🔴 CRITICAL | ✅ **Done** | [Performance Report](.report/performance.md) |
 
 ### 🟠 HIGH Priority (Fix in Next Release)
 
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
-| 2.12 | Add template parser complexity protection | 🟠 HIGH | Pending | [SEC-7](.report/security.md#sec-7) |
-| 2.13 | Implement template injection protection | 🟠 HIGH | Pending | [SEC-8](.report/security.md#sec-8) |
-| 2.14 | Add flow execution timeout | 🟠 HIGH | Pending | [REL-4](.report/reliability.md#rel-4) |
-| 2.15 | Replace unwrap() in production code | 🟠 HIGH | Pending | [REL-5](.report/reliability.md#rel-5) |
-| 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | Pending | [REL-6](.report/reliability.md#rel-6) |
-| 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | Pending | [PERF-3](.report/performance.md#perf-3) |
-| 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | Pending | [PERF-4](.report/performance.md#perf-4) |
-| 2.19 | Replace blocking I/O with async | 🟠 HIGH | Pending | [PERF-5](.report/performance.md#perf-5) |
+| 2.12 | Add template parser complexity protection | 🟠 HIGH | Pending | [Security Report](.report/security.md) |
+| 2.13 | Implement template injection protection | 🟠 HIGH | Pending | [Security Report](.report/security.md) |
+| 2.14 | Add flow execution timeout | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
+| 2.15 | Replace unwrap() in production code | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
+| 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
+| 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
+| 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
+| 2.19 | Replace blocking I/O with async | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
 
 ### 🟡 MEDIUM Priority (Address Soon)
 
@@ -219,31 +219,17 @@ Lower priority tasks deferred until Phase I-III complete.
 **Begin Phase II: Security & Quality Fixes**
 
 **Recently Completed:**
-- ✅ **Task 0.3**: Architecture Vulnerability Scan (2025-12-30)
-  - Generated 6 detailed reports in `.report/` directory
-  - Identified 63 issues (11 CRITICAL, 14 HIGH, 16 MEDIUM, 22 LOW)
-  - Classified issues into 里子 (39 core) vs 面子 (24 surface)
-- ✅ **Task 2.1**: Management API Authentication (2025-12-30)
-  - Added `ACCESS_TOKEN` environment variable
-  - Implemented auth middleware in `src/middleware/auth.rs`
-  - Console disabled by default (zero attack surface)
-- ✅ **Test Optimization**: Integration test framework improvements (2025-12-30)
-  - Replaced fixed waits with log-based port detection
-  - Added `WaitForTcpPort()` and `WaitForUdpPort()` helpers
-  - Updated 30+ test files, fixed H3/UDP compatibility
-  - Test speed: ~21s → ~18s (15% faster)
+- ✅ **Startup Optimization**: Eliminated 4.4s bootstrap delay.
+- ✅ **Management API Authentication**: Added mandatory token auth.
+- ✅ **External Command Security**: Implemented Trusted Bin Root policy.
+- ✅ **Template Security**: Added recursion depth and result size limits.
+- ✅ **Config Reliability**: Fixed reload race conditions and implemented Keep-Last-Known-Good strategy.
 
-**Next Steps - CRITICAL Fixes (Task 2.7 - 2.11):**
+**Next Steps - CRITICAL Fixes:**
 
-**This Week (Before Production):**
-1. ✅ ~~Task 2.1: Add authentication to management API~~ **DONE**
-2. Task 2.7: Call QUIC session cleanup (fix memory leak) ← **NEXT**
-3. Task 2.10: Fix flow engine cloning overhead
-
-**Next Week:**
-4. Task 2.2: Fix command injection vulnerability
-5. Task 2.3: Template DoS protection
-6. Task 2.4: Template size limits
+1. Task 2.6: Add path canonicalization to loader ← **NEXT**
+2. Task 2.8: Fix QUIC buffer management race condition
+3. Task 2.9: Fix external plugin status race
 
 **See AGENT.md for detailed fix workflow requirements**
 
@@ -254,5 +240,12 @@ Lower priority tasks deferred until Phase I-III complete.
 ✅ Task 0.2.2: Plugin System Refactoring
 ✅ Task 0.3: Architecture Vulnerability Scan
 ✅ Task 2.1: Management API Authentication
-→ Task 2.7: QUIC Session Cleanup (Next)
+✅ Task 2.7: QUIC Session Cleanup
+✅ Task 2.10: Flow Engine Cloning Fix
+✅ Task 2.11: Flow Path Optimization
+✅ Task 2.2: Command Injection Fix
+✅ Task 2.3: Template DoS Protection
+✅ Task 2.4: Template Size Limits
+✅ Task 2.5: Config Reload Race Fix
+→ Task 2.6: Path Canonicalization (Next)
 ```
