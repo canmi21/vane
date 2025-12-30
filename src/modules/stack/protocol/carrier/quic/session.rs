@@ -95,3 +95,22 @@ pub fn cleanup_sessions(timeout_secs: u64) {
 
 	IP_STICKY_MAP.retain(|_, (_, _, last)| now.duration_since(*last).as_secs() < sticky_timeout);
 }
+
+/// Spawns a background task to clean up expired QUIC sessions.
+pub fn start_cleanup_task() {
+	use fancy_log::{LogLevel, log};
+	use tokio::time::{Duration, sleep};
+
+	log(LogLevel::Debug, "⚙ Starting QUIC session cleanup task...");
+
+	tokio::spawn(async move {
+		let ttl_str = getenv::get_env("QUIC_SESSION_TTL_SECS", "300".to_string());
+		let ttl = ttl_str.parse::<u64>().unwrap_or(300);
+		let check_interval = Duration::from_secs(ttl / 2);
+
+		loop {
+			sleep(check_interval).await;
+			cleanup_sessions(ttl);
+		}
+	});
+}

@@ -1,6 +1,7 @@
 /* src/common/requirements.rs */
 
 use crate::common::getconf;
+use crate::modules::stack::protocol::carrier::quic::session as quic_session;
 use crate::modules::stack::transport::{health, session};
 use fancy_log::{LogLevel, log};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
@@ -174,4 +175,5 @@ pub async fn start_background_tasks() {
 	health::initial_health_check().await;
 	health::start_periodic_health_checkers();
 	session::start_session_cleanup_task();
+	quic_session::start_cleanup_task();
 }
