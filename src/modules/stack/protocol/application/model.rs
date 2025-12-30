@@ -20,19 +20,25 @@ pub struct ApplicationConfig {
 	// The middleware pipeline for this protocol.
 	// In Vane's L7 model, "Fetch Upstream" is just another middleware in this chain.
 	pub pipeline: ProcessingStep,
+	#[serde(skip)]
+	pub protocol: String,
 }
 
 impl Validate for ApplicationConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		use crate::modules::stack::transport::validator;
 		// Validate with L7 context to enable HTTP-specific plugin checks
-		validator::validate_flow_config(&self.pipeline, Layer::L7)
+		validator::validate_flow_config(&self.pipeline, Layer::L7, &self.protocol)
 	}
 }
 
 impl PreProcess for ApplicationConfig {
 	fn pre_process(&mut self) {
 		// Future proofing: Lowercase keys or normalize inputs if needed.
+	}
+
+	fn set_context(&mut self, context: &str) {
+		self.protocol = context.to_string();
 	}
 }
 

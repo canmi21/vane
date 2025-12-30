@@ -19,6 +19,8 @@ use validator::{Validate, ValidationErrors};
 pub struct ResolverConfig {
 	// The main flow logic for this protocol
 	pub connection: ProcessingStep,
+	#[serde(skip)]
+	pub protocol: String,
 }
 
 impl Validate for ResolverConfig {
@@ -27,7 +29,7 @@ impl Validate for ResolverConfig {
 		// We validate as L4Plus to allow Upgraders but restrict L7-only components if any.
 		// Terminators check this layer context.
 		use crate::modules::stack::transport::validator;
-		validator::validate_flow_config(&self.connection, Layer::L4Plus)
+		validator::validate_flow_config(&self.connection, Layer::L4Plus, &self.protocol)
 	}
 }
 
@@ -36,6 +38,10 @@ impl Validate for ResolverConfig {
 impl PreProcess for ResolverConfig {
 	fn pre_process(&mut self) {
 		// No-op
+	}
+
+	fn set_context(&mut self, context: &str) {
+		self.protocol = context.to_string();
 	}
 }
 

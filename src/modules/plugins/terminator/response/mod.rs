@@ -17,6 +17,7 @@ use http::{HeaderName, HeaderValue, Response, StatusCode};
 use http_body_util::Full;
 use serde_json::Value;
 use std::any::Any;
+use std::borrow::Cow;
 
 pub struct SendResponsePlugin;
 
@@ -43,6 +44,10 @@ impl Plugin for SendResponsePlugin {
 				param_type: ParamType::Any,
 			},
 		]
+	}
+
+	fn supported_protocols(&self) -> Vec<Cow<'static, str>> {
+		vec!["httpx".into()]
 	}
 
 	fn as_any(&self) -> &dyn Any {

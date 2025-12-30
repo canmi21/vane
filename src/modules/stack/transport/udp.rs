@@ -70,7 +70,7 @@ pub struct FlowConfig {
 
 impl Validate for FlowConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
-		super::validator::validate_flow_config(&self.connection, Layer::L4)
+		super::validator::validate_flow_config(&self.connection, Layer::L4, "udp")
 	}
 }
 

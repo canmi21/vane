@@ -13,16 +13,25 @@ pub async fn execute(path: &str, name: &str, inputs: ResolvedInputs) -> Result<M
 	);
 
 	// 1. Connect to Unix Socket
-	let mut stream = UnixStream::connect(path)
-		.await
-		.map_err(|e| anyhow!("Failed to connect to unix socket {}: {}", path, e))?;
+	let mut stream = match UnixStream::connect(path).await {
+		Ok(s) => s,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to connect to unix socket {}: {}", path, e),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// 2. Serialize Payload
 	let body_bytes = serde_json::to_vec(&inputs)?;
 	let body_len = body_bytes.len();
 
 	// 3. Construct Raw HTTP/1.1 Request
-	// Note: Host header is required by HTTP/1.1 but ignored by UDS usually.
 	let request_header = format!(
 		"POST / HTTP/1.1\r\n\
         Host: localhost\r\n\
@@ -34,47 +43,108 @@ pub async fn execute(path: &str, name: &str, inputs: ResolvedInputs) -> Result<M
 	);
 
 	// 4. Write Request
-	stream.write_all(request_header.as_bytes()).await?;
-	stream.write_all(&body_bytes).await?;
-	stream.flush().await?;
+	if let Err(e) = stream.write_all(request_header.as_bytes()).await {
+		log(
+			LogLevel::Error,
+			&format!("✗ Failed to write header to unix socket: {}", e),
+		);
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	}
+	if let Err(e) = stream.write_all(&body_bytes).await {
+		log(
+			LogLevel::Error,
+			&format!("✗ Failed to write body to unix socket: {}", e),
+		);
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	}
+	let _ = stream.flush().await;
 
 	// 5. Read Response
-	// For simplicity in this lightweight driver, we read until EOF (Connection: close).
 	let mut response_bytes = Vec::new();
-	stream.read_to_end(&mut response_bytes).await?;
+	if let Err(e) = stream.read_to_end(&mut response_bytes).await {
+		log(
+			LogLevel::Error,
+			&format!("✗ Failed to read from unix socket: {}", e),
+		);
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	}
 
 	if response_bytes.is_empty() {
-		return Err(anyhow!("External Unix plugin returned empty response."));
+		log(
+			LogLevel::Error,
+			"✗ External Unix plugin returned empty response.",
+		);
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
 	}
 
 	// 6. Parse HTTP Response (Simplified)
-	// We need to find the double CRLF to separate headers from body.
 	let response_str = String::from_utf8_lossy(&response_bytes);
 	let mut parts = response_str.splitn(2, "\r\n\r\n");
 
-	let _headers_part = parts
-		.next()
-		.ok_or_else(|| anyhow!("Invalid HTTP response format"))?;
-	let body_part = parts
-		.next()
-		.ok_or_else(|| anyhow!("HTTP response body missing"))?;
-
-	// Optional: Check HTTP status line (e.g., "HTTP/1.1 200 OK")
-	// For now, we assume if we got a JSON body, we parse the logical status inside.
+	let _headers_part = parts.next();
+	let body_part = match parts.next() {
+		Some(b) => b,
+		None => {
+			log(
+				LogLevel::Error,
+				"✗ HTTP response body missing from unix socket.",
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// 7. Parse Body as ExternalApiResponse
-	let api_response: ExternalApiResponse<MiddlewareOutput> = serde_json::from_str(body_part)
-		.map_err(|e| anyhow!("Failed to parse external API response JSON: {}", e))?;
+	let api_response: ExternalApiResponse<MiddlewareOutput> = match serde_json::from_str(body_part) {
+		Ok(r) => r,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to parse API response JSON: {}", e),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// 8. Check Logic Status
 	if api_response.status == "success" {
-		api_response
-			.data
-			.ok_or_else(|| anyhow!("External API returned success but 'data' is missing."))
+		api_response.data.ok_or_else(|| {
+			anyhow!(
+				"External API for '{}' returned success but 'data' is missing.",
+				name
+			)
+		})
 	} else {
 		let msg = api_response
 			.message
 			.unwrap_or_else(|| "Unknown error".to_string());
-		Err(anyhow!("External API returned error: {}", msg))
+		log(
+			LogLevel::Warn,
+			&format!(
+				"⚠ External API for '{}' returned error status: {}",
+				name, msg
+			),
+		);
+		Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		})
 	}
 }

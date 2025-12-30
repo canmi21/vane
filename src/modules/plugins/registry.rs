@@ -65,6 +65,12 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 static EXTERNAL_PLUGIN_REGISTRY: Lazy<ArcSwap<DashMap<String, Arc<dyn Plugin>>>> =
 	Lazy::new(|| ArcSwap::new(Arc::new(DashMap::new())));
 
+/// Stores the health status of external plugins.
+/// Key: Plugin Name
+/// Value: Result<(), ErrorMessage>
+pub static EXTERNAL_PLUGIN_STATUS: Lazy<DashMap<String, Result<(), String>>> =
+	Lazy::new(DashMap::new);
+
 pub fn get_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
 	get_internal_plugin(name).or_else(|| get_external_plugin(name))
 }

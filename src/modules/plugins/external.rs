@@ -144,8 +144,27 @@ impl Plugin for ExternalPlugin {
 		}
 	}
 
+	fn as_generic_middleware(&self) -> Option<&dyn super::model::GenericMiddleware> {
+		if self.config.role == PluginRole::Middleware {
+			Some(self)
+		} else {
+			None
+		}
+	}
+
 	fn as_terminator(&self) -> Option<&dyn Terminator> {
 		None
+	}
+}
+
+#[async_trait]
+impl super::model::GenericMiddleware for ExternalPlugin {
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		vec!["success".into(), "failure".into()]
+	}
+
+	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
+		drivers::execute_driver(&self.config.driver, self.name(), inputs).await
 	}
 }
 

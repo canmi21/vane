@@ -38,36 +38,76 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 		.map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
 
 	// 3. Send POST Request
-	let response = client
-		.post(url)
-		.json(&inputs)
-		.send()
-		.await
-		.map_err(|e| anyhow!("External HTTP request failed: {}", e))?;
+	let response = match client.post(url).json(&inputs).send().await {
+		Ok(r) => r,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ External HTTP request failed for '{}': {}", name, e),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// 4. Validate HTTP Status
 	if !response.status().is_success() {
-		return Err(anyhow!(
-			"External plugin returned HTTP error: {}",
-			response.status()
-		));
+		log(
+			LogLevel::Error,
+			&format!(
+				"✗ External plugin '{}' returned HTTP error: {}",
+				name,
+				response.status()
+			),
+		);
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
 	}
 
 	// 5. Parse Response Wrapper (ExternalApiResponse)
-	let api_response: ExternalApiResponse<MiddlewareOutput> = response
-		.json()
-		.await
-		.map_err(|e| anyhow!("Failed to parse external API response JSON: {}", e))?;
+	let api_response: ExternalApiResponse<MiddlewareOutput> = match response.json().await {
+		Ok(r) => r,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!(
+					"✗ Failed to parse external API response JSON for '{}': {}",
+					name, e
+				),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// 6. Check Logic Status
 	if api_response.status == "success" {
-		api_response
-			.data
-			.ok_or_else(|| anyhow!("External API returned success but 'data' is missing."))
+		api_response.data.ok_or_else(|| {
+			anyhow!(
+				"External API for '{}' returned success but 'data' is missing.",
+				name
+			)
+		})
 	} else {
 		let msg = api_response
 			.message
 			.unwrap_or_else(|| "Unknown error".to_string());
-		Err(anyhow!("External API returned error: {}", msg))
+		log(
+			LogLevel::Warn,
+			&format!(
+				"⚠ External API for '{}' returned error status: {}",
+				name, msg
+			),
+		);
+		Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		})
 	}
 }

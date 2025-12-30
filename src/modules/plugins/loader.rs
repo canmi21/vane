@@ -5,13 +5,14 @@ use super::{
 	model::{ExternalPluginConfig, Plugin},
 	registry,
 };
-use crate::common::getconf;
+use crate::common::{getconf, getenv};
 use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
+use std::time::Duration;
 
 const PLUGINS_CONFIG_FILE: &str = "plugins.json";
 
@@ -91,9 +92,47 @@ pub fn initialize() -> usize {
 			LogLevel::Info,
 			&format!("✓ Loaded {} external plugins.", count),
 		);
+		start_background_health_check();
 	}
 
 	count
+}
+
+/// Spans a background task to periodically check the connectivity of external plugins.
+fn start_background_health_check() {
+	tokio::spawn(async move {
+		let interval_str = getenv::get_env("EXTERNAL_PLUGIN_CHECK_INTERVAL_MINS", "15".to_string());
+		let interval_mins = interval_str.parse::<u64>().unwrap_or(15);
+		let mut interval = tokio::time::interval(Duration::from_secs(interval_mins * 60));
+
+		loop {
+			interval.tick().await;
+			log(
+				LogLevel::Debug,
+				"⚙ Running background health check for external plugins...",
+			);
+
+			let plugins = registry::list_external_plugins();
+			for plugin in plugins {
+				let name = plugin.name().to_string();
+				// Downcast to ExternalPlugin to access validate_connectivity
+				if let Some(ext_plugin) = plugin.as_any().downcast_ref::<ExternalPlugin>() {
+					match ext_plugin.validate_connectivity().await {
+						Ok(_) => {
+							registry::EXTERNAL_PLUGIN_STATUS.insert(name, Ok(()));
+						}
+						Err(e) => {
+							log(
+								LogLevel::Warn,
+								&format!("⚠ External plugin '{}' is unreachable: {}", name, e),
+							);
+							registry::EXTERNAL_PLUGIN_STATUS.insert(name, Err(e.to_string()));
+						}
+					}
+				}
+			}
+		}
+	});
 }
 
 /// Saves the given config map to disk.

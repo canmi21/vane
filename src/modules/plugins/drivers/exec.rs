@@ -1,7 +1,7 @@
 /* src/modules/plugins/drivers/exec.rs */
 
 use crate::modules::plugins::model::{MiddlewareOutput, ResolvedInputs};
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -28,31 +28,53 @@ pub async fn execute(
 	// This allows us to wrap plugin logs with Vane's logging system.
 	cmd.stderr(Stdio::piped());
 
-	let mut child = cmd
-		.spawn()
-		.map_err(|e| anyhow!("Failed to spawn plugin process: {}", e))?;
+	let mut child = match cmd.spawn() {
+		Ok(c) => c,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to spawn plugin process '{}': {}", program, e),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// Write inputs to Stdin
 	let mut input_payload = serde_json::to_vec(&inputs)?;
-	// Fix: Append a newline to ensure line-based readers (like 'read' in shell)
-	// detect the input correctly. JSON ignores this whitespace.
 	input_payload.push(b'\n');
 
 	if let Some(mut stdin) = child.stdin.take() {
-		stdin
-			.write_all(&input_payload)
-			.await
-			.map_err(|e| anyhow!("Failed to write to plugin stdin: {}", e))?;
+		if let Err(e) = stdin.write_all(&input_payload).await {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to write to plugin stdin: {}", e),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
 	}
 
 	// Wait for output (captures stdout and stderr)
-	let output = child
-		.wait_with_output()
-		.await
-		.map_err(|e| anyhow!("Plugin process failed during execution: {}", e))?;
+	let output = match child.wait_with_output().await {
+		Ok(o) => o,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Plugin process '{}' failed: {}", program, e),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// Refactor: Process captured stderr and log as Debug level.
-	// This hides plugin internal logs during normal operation unless LOG_LEVEL=debug.
 	if !output.stderr.is_empty() {
 		let stderr_output = String::from_utf8_lossy(&output.stderr);
 		for line in stderr_output.lines() {
@@ -63,15 +85,36 @@ pub async fn execute(
 	}
 
 	if !output.status.success() {
-		return Err(anyhow!(
-			"Plugin process exited with error status: {}",
-			output.status
-		));
+		log(
+			LogLevel::Error,
+			&format!(
+				"✗ Plugin process '{}' exited with error status: {}",
+				program, output.status
+			),
+		);
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
 	}
 
 	// Parse Stdout as MiddlewareOutput
-	let result: MiddlewareOutput = serde_json::from_slice(&output.stdout)
-		.map_err(|e| anyhow!("Failed to parse plugin output JSON: {}", e))?;
+	let result: MiddlewareOutput = match serde_json::from_slice(&output.stdout) {
+		Ok(r) => r,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!(
+					"✗ Failed to parse output JSON from plugin '{}': {}",
+					program, e
+				),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	Ok(result)
 }

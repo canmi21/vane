@@ -13,7 +13,11 @@ use super::tcp::TcpProtocolRule;
 use super::udp::UdpProtocolRule;
 
 /// Recursively validates a flow-based configuration tree.
-pub fn validate_flow_config(step: &ProcessingStep, layer: Layer) -> Result<(), ValidationErrors> {
+pub fn validate_flow_config(
+	step: &ProcessingStep,
+	layer: Layer,
+	protocol: &str,
+) -> Result<(), ValidationErrors> {
 	if step.len() != 1 {
 		let mut err = ValidationError::new("processing_step_size");
 		err.message = Some("Each processing step must contain exactly one plugin key.".into());
@@ -56,18 +60,54 @@ pub fn validate_flow_config(step: &ProcessingStep, layer: Layer) -> Result<(), V
 		}
 	}
 
-	// 3. Validate Middleware Outputs and Recursion
+	// 3. Validate Protocol Compatibility (Specific vs Generic)
+	let supported_protocols = plugin.supported_protocols();
+	let is_generic = plugin.as_generic_middleware().is_some() || plugin.as_middleware().is_some();
+	let is_http_specific =
+		plugin.as_http_middleware().is_some() || plugin.as_l7_middleware().is_some();
+
+	if !is_generic && is_http_specific {
+		// Protocol-Specific plugin found, check compatibility
+		let current_proto = protocol.to_lowercase();
+		let supports_current = supported_protocols
+			.iter()
+			.any(|p| p.to_lowercase() == current_proto);
+
+		if !supports_current {
+			let mut err = ValidationError::new("protocol_mismatch");
+			err.message = Some(
+				format!(
+					"Plugin '{}' is protocol-specific and does not support protocol '{}'. Supported: {:?}",
+					plugin_name, protocol, supported_protocols
+				)
+				.into(),
+			);
+			errors.add(Box::leak(plugin_name.clone().into_boxed_str()), err);
+		}
+	}
+
+	// 4. Validate Middleware Outputs and Recursion
 	if !instance.output.is_empty() {
-		if let Some(middleware) = plugin.as_middleware() {
-			if let Err(e) =
-				validate_middleware_outputs(plugin_name, middleware.output(), &instance.output)
-			{
+		let expected_branches = if let Some(m) = plugin.as_generic_middleware() {
+			Some(m.output())
+		} else if let Some(m) = plugin.as_http_middleware() {
+			Some(m.output())
+		} else if let Some(m) = plugin.as_middleware() {
+			Some(m.output())
+		} else if let Some(m) = plugin.as_l7_middleware() {
+			Some(m.output())
+		} else {
+			None
+		};
+
+		if let Some(branches) = expected_branches {
+			if let Err(e) = validate_middleware_outputs(plugin_name, branches, &instance.output) {
 				errors.merge_self("output", Err(e));
 			}
 		}
 
 		for (_branch, next_step) in &instance.output {
-			if let Err(e) = validate_flow_config(next_step, layer) {
+			if let Err(e) = validate_flow_config(next_step, layer, protocol) {
 				errors.merge_self("output", Err(e));
 			}
 		}

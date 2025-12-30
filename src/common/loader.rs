@@ -10,11 +10,13 @@ const EXTENSIONS: [&str; 4] = ["toml", "yaml", "yml", "json"];
 /// A trait to abstract the pre-processing of loaded configs before validation.
 pub trait PreProcess {
 	fn pre_process(&mut self) {}
+	/// Allows the loader to inject context (like protocol name) before validation.
+	fn set_context(&mut self, _context: &str) {}
 }
 
 /// Loads, parses, and validates a config file from a specific path.
 /// This is the low-level function used by both Port and Resolver loaders.
-pub fn load_file<T>(path: &Path) -> Option<T>
+pub fn load_file<T>(path: &Path, context: Option<&str>) -> Option<T>
 where
 	T: DeserializeOwned + Validate + PreProcess,
 {
@@ -40,6 +42,9 @@ where
 
 	match config_result {
 		Ok(mut config) => {
+			if let Some(ctx) = context {
+				config.set_context(ctx);
+			}
 			config.pre_process(); // Apply pre-processing
 			match config.validate() {
 				Ok(_) => Some(config),
@@ -90,5 +95,5 @@ where
 	}
 
 	let config_path = found_files.first()?;
-	load_file(config_path)
+	load_file(config_path, Some(base_name))
 }

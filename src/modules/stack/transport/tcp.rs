@@ -65,7 +65,7 @@ pub struct FlowConfig {
 impl Validate for FlowConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		// Fix: Explicitly pass Layer::L4 context for validation
-		super::validator::validate_flow_config(&self.connection, Layer::L4)
+		super::validator::validate_flow_config(&self.connection, Layer::L4, "tcp")
 	}
 }
 

@@ -154,9 +154,23 @@ pub enum TerminatorResult {
 pub trait Plugin: Send + Sync + Any {
 	fn name(&self) -> &str;
 	fn params(&self) -> Vec<ParamDef>;
+	/// Returns the supported protocols for this plugin.
+	/// Generic plugins should return an empty list or `vec!["any"]`.
+	/// Protocol-specific plugins should return explicit protocols e.g., `vec!["http", "https"]`.
+	fn supported_protocols(&self) -> Vec<Cow<'static, str>> {
+		vec![]
+	}
 	fn as_any(&self) -> &dyn Any;
 
 	fn as_middleware(&self) -> Option<&dyn Middleware> {
+		None
+	}
+
+	fn as_generic_middleware(&self) -> Option<&dyn GenericMiddleware> {
+		None
+	}
+
+	fn as_http_middleware(&self) -> Option<&dyn HttpMiddleware> {
 		None
 	}
 
@@ -173,10 +187,43 @@ pub trait Plugin: Send + Sync + Any {
 	}
 }
 
+/// Legacy Middleware trait (deprecated, transitioning to GenericMiddleware).
 #[async_trait]
 pub trait Middleware: Plugin {
 	fn output(&self) -> Vec<Cow<'static, str>>;
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
+}
+
+/// Generic Middleware trait for cross-layer plugins (L4, L4+, L7).
+///
+/// Features:
+/// - Restricted Input: Only receives `ResolvedInputs` (via templates).
+/// - Restricted Output: Returns `MiddlewareOutput` (branch + KV updates).
+/// - No Context Access: Cannot access Container or Socket directly.
+/// - Execution: Flow Engine handles writing KV updates based on `flow_path`.
+/// - Can be External: Supports external drivers (HTTP/Unix/Cmd).
+#[async_trait]
+pub trait GenericMiddleware: Plugin {
+	fn output(&self) -> Vec<Cow<'static, str>>;
+	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
+}
+
+/// HTTP Protocol-Specific Middleware trait.
+///
+/// Features:
+/// - Full Access: Receives `&mut Container` (via `Any` downcast) + `ResolvedInputs`.
+/// - Stream Capable: Can manipulate Body streams, Upgrades, Headers.
+/// - Internal Only: Must be implemented in Rust.
+/// - Protocol Bound: Only valid in flows with HTTP context.
+#[async_trait]
+pub trait HttpMiddleware: Plugin {
+	fn output(&self) -> Vec<Cow<'static, str>>;
+	/// Context is expected to be `&mut Container`
+	async fn execute(
+		&self,
+		context: &mut (dyn Any + Send),
+		inputs: ResolvedInputs,
+	) -> Result<MiddlewareOutput>;
 }
 
 #[async_trait]

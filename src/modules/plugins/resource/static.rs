@@ -3,7 +3,7 @@
 use super::{browse, inspect, range, router};
 use crate::common::requirements::Error;
 use crate::modules::plugins::model::{
-	L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
+	HttpMiddleware, L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 };
 use crate::modules::stack::protocol::application::{
 	container::{Container, PayloadState},
@@ -68,8 +68,16 @@ impl Plugin for StaticPlugin {
 		]
 	}
 
+	fn supported_protocols(&self) -> Vec<Cow<'static, str>> {
+		vec!["httpx".into()]
+	}
+
 	fn as_any(&self) -> &dyn Any {
 		self
+	}
+
+	fn as_http_middleware(&self) -> Option<&dyn HttpMiddleware> {
+		Some(self)
 	}
 
 	fn as_l7_middleware(&self) -> Option<&dyn L7Middleware> {
@@ -78,7 +86,7 @@ impl Plugin for StaticPlugin {
 }
 
 #[async_trait]
-impl L7Middleware for StaticPlugin {
+impl HttpMiddleware for StaticPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec![
 			Cow::Borrowed("success"),
@@ -87,7 +95,7 @@ impl L7Middleware for StaticPlugin {
 		]
 	}
 
-	async fn execute_l7(
+	async fn execute(
 		&self,
 		context: &mut (dyn Any + Send),
 		inputs: ResolvedInputs,
@@ -339,5 +347,20 @@ impl L7Middleware for StaticPlugin {
 			branch: Cow::Borrowed("success"),
 			store: None,
 		})
+	}
+}
+
+#[async_trait]
+impl L7Middleware for StaticPlugin {
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		<Self as HttpMiddleware>::output(self)
+	}
+
+	async fn execute_l7(
+		&self,
+		context: &mut (dyn Any + Send),
+		inputs: ResolvedInputs,
+	) -> Result<MiddlewareOutput> {
+		<Self as HttpMiddleware>::execute(self, context, inputs).await
 	}
 }

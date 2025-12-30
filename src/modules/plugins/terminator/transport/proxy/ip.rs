@@ -13,6 +13,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::any::Any;
+use std::borrow::Cow;
 
 /// A built-in Terminator plugin to proxy a connection transparently using explicit IP and Port.
 pub struct TransparentProxyPlugin;
@@ -35,6 +36,10 @@ impl Plugin for TransparentProxyPlugin {
 				param_type: ParamType::Integer,
 			},
 		]
+	}
+
+	fn supported_protocols(&self) -> Vec<Cow<'static, str>> {
+		vec!["tcp".into(), "udp".into()]
 	}
 
 	fn as_any(&self) -> &dyn Any {

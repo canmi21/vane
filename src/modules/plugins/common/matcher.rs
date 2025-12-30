@@ -1,7 +1,7 @@
 /* src/modules/plugins/common/matcher.rs */
 
 use crate::modules::plugins::model::{
-	Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
+	GenericMiddleware, Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -49,10 +49,14 @@ impl Plugin for CommonMatchPlugin {
 	fn as_middleware(&self) -> Option<&dyn Middleware> {
 		Some(self)
 	}
+
+	fn as_generic_middleware(&self) -> Option<&dyn GenericMiddleware> {
+		Some(self)
+	}
 }
 
 #[async_trait]
-impl Middleware for CommonMatchPlugin {
+impl GenericMiddleware for CommonMatchPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec!["true".into(), "false".into()]
 	}
@@ -104,5 +108,18 @@ impl Middleware for CommonMatchPlugin {
 			},
 			store: None,
 		})
+	}
+}
+
+#[async_trait]
+impl Middleware for CommonMatchPlugin {
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		// Delegate to Generic implementation
+		<Self as GenericMiddleware>::output(self)
+	}
+
+	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
+		// Delegate to Generic implementation
+		<Self as GenericMiddleware>::execute(self, inputs).await
 	}
 }

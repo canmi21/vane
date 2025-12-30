@@ -1,7 +1,7 @@
 /* src/modules/plugins/protocol/detect.rs */
 
 use crate::modules::plugins::model::{
-	Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
+	GenericMiddleware, Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -108,10 +108,14 @@ impl Plugin for ProtocolDetectPlugin {
 	fn as_middleware(&self) -> Option<&dyn Middleware> {
 		Some(self)
 	}
+
+	fn as_generic_middleware(&self) -> Option<&dyn GenericMiddleware> {
+		Some(self)
+	}
 }
 
 #[async_trait]
-impl Middleware for ProtocolDetectPlugin {
+impl GenericMiddleware for ProtocolDetectPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec!["true".into(), "false".into()]
 	}
@@ -135,5 +139,16 @@ impl Middleware for ProtocolDetectPlugin {
 			branch: branch.into(),
 			store: None,
 		})
+	}
+}
+
+#[async_trait]
+impl Middleware for ProtocolDetectPlugin {
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		<Self as GenericMiddleware>::output(self)
+	}
+
+	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
+		<Self as GenericMiddleware>::execute(self, inputs).await
 	}
 }

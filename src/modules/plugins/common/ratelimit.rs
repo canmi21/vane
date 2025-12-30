@@ -3,7 +3,7 @@
 use crate::{
 	common::getenv,
 	modules::plugins::model::{
-		Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
+		GenericMiddleware, Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 	},
 };
 use anyhow::{Result, anyhow};
@@ -122,10 +122,14 @@ impl Plugin for KeywordRateLimitSecPlugin {
 	fn as_middleware(&self) -> Option<&dyn Middleware> {
 		Some(self)
 	}
+
+	fn as_generic_middleware(&self) -> Option<&dyn GenericMiddleware> {
+		Some(self)
+	}
 }
 
 #[async_trait]
-impl Middleware for KeywordRateLimitSecPlugin {
+impl GenericMiddleware for KeywordRateLimitSecPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec!["true".into(), "false".into()]
 	}
@@ -176,6 +180,17 @@ impl Middleware for KeywordRateLimitSecPlugin {
 	}
 }
 
+#[async_trait]
+impl Middleware for KeywordRateLimitSecPlugin {
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		<Self as GenericMiddleware>::output(self)
+	}
+
+	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
+		<Self as GenericMiddleware>::execute(self, inputs).await
+	}
+}
+
 // --- Plugin: Per Minute ---
 
 pub struct KeywordRateLimitMinPlugin;
@@ -207,10 +222,14 @@ impl Plugin for KeywordRateLimitMinPlugin {
 	fn as_middleware(&self) -> Option<&dyn Middleware> {
 		Some(self)
 	}
+
+	fn as_generic_middleware(&self) -> Option<&dyn GenericMiddleware> {
+		Some(self)
+	}
 }
 
 #[async_trait]
-impl Middleware for KeywordRateLimitMinPlugin {
+impl GenericMiddleware for KeywordRateLimitMinPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec!["true".into(), "false".into()]
 	}
@@ -257,5 +276,16 @@ impl Middleware for KeywordRateLimitMinPlugin {
 			branch: branch.into(),
 			store: None,
 		})
+	}
+}
+
+#[async_trait]
+impl Middleware for KeywordRateLimitMinPlugin {
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		<Self as GenericMiddleware>::output(self)
+	}
+
+	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
+		<Self as GenericMiddleware>::execute(self, inputs).await
 	}
 }

@@ -2,7 +2,7 @@
 
 use super::executor::{self, CgiConfig};
 use crate::modules::plugins::model::{
-	L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
+	HttpMiddleware, L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 };
 use crate::modules::stack::protocol::application::container::Container;
 use anyhow::Result;
@@ -90,8 +90,16 @@ impl Plugin for CgiPlugin {
 		]
 	}
 
+	fn supported_protocols(&self) -> Vec<Cow<'static, str>> {
+		vec!["httpx".into()]
+	}
+
 	fn as_any(&self) -> &dyn Any {
 		self
+	}
+
+	fn as_http_middleware(&self) -> Option<&dyn HttpMiddleware> {
+		Some(self)
 	}
 
 	fn as_l7_middleware(&self) -> Option<&dyn L7Middleware> {
@@ -100,12 +108,12 @@ impl Plugin for CgiPlugin {
 }
 
 #[async_trait]
-impl L7Middleware for CgiPlugin {
+impl HttpMiddleware for CgiPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec![Cow::Borrowed("success"), Cow::Borrowed("failure")]
 	}
 
-	async fn execute_l7(
+	async fn execute(
 		&self,
 		context: &mut (dyn Any + Send),
 		inputs: ResolvedInputs,
@@ -185,5 +193,20 @@ impl L7Middleware for CgiPlugin {
 		};
 
 		executor::execute(container, config).await
+	}
+}
+
+#[async_trait]
+impl L7Middleware for CgiPlugin {
+	fn output(&self) -> Vec<Cow<'static, str>> {
+		<Self as HttpMiddleware>::output(self)
+	}
+
+	async fn execute_l7(
+		&self,
+		context: &mut (dyn Any + Send),
+		inputs: ResolvedInputs,
+	) -> Result<MiddlewareOutput> {
+		<Self as HttpMiddleware>::execute(self, context, inputs).await
 	}
 }

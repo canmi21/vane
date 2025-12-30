@@ -78,9 +78,26 @@ async fn execute_recursive<C: ExecutionContext>(
 		),
 	);
 
-	// 4. Try middleware dispatch (L7 Priority > Standard)
+	// 4. Try middleware dispatch (Priority: Http > Generic > Legacy)
 	let output_result: Option<Result<MiddlewareOutput>> =
-		if let Some(l7_middleware) = plugin.as_l7_middleware() {
+		if let Some(http_middleware) = plugin.as_http_middleware() {
+			// 4.1 Protocol-Specific HTTP (Internal only)
+			Some(
+				http_middleware
+					.execute(context.as_any_mut(), resolved_inputs.clone())
+					.await
+					.with_context(|| format!("Error executing HTTP middleware '{}'", plugin_name)),
+			)
+		} else if let Some(generic_middleware) = plugin.as_generic_middleware() {
+			// 4.2 Generic Middleware (Internal or External)
+			Some(
+				generic_middleware
+					.execute(resolved_inputs.clone())
+					.await
+					.with_context(|| format!("Error executing generic middleware '{}'", plugin_name)),
+			)
+		} else if let Some(l7_middleware) = plugin.as_l7_middleware() {
+			// 4.3 Legacy L7 Fallback
 			Some(
 				l7_middleware
 					.execute_l7(context.as_any_mut(), resolved_inputs.clone())
@@ -88,6 +105,7 @@ async fn execute_recursive<C: ExecutionContext>(
 					.with_context(|| format!("Error executing L7 middleware '{}'", plugin_name)),
 			)
 		} else if let Some(middleware) = plugin.as_middleware() {
+			// 4.4 Legacy generic Fallback
 			Some(
 				middleware
 					.execute(resolved_inputs.clone())
