@@ -3066,7 +3066,7 @@ dependencies = [
 
 [[package]]
 name = "vane"
-version = "0.7.2"
+version = "0.7.4"
 dependencies = [
  "aes",
  "anyhow",
