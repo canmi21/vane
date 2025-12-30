@@ -48,8 +48,27 @@ fn resolve_ast_with_depth<'a>(
 					result.push_str(s);
 				}
 				TemplateNode::Variable { parts } => {
-					// Recursively resolve nested parts
+					// Recursively resolve nested parts to get the key name
 					let key = resolve_ast_with_depth(parts, context, depth + 1, max_depth, max_size).await;
+
+					// Template Injection Protection:
+					// Key names must not contain '{' or '}'. If they do, it means dynamic data
+					// contains template syntax. We refuse to resolve such keys to prevent
+					// unauthorized access to other KV variables.
+					if key.contains('{') || key.contains('}') {
+						fancy_log::log(
+							fancy_log::LogLevel::Error,
+							&format!(
+								"✗ Security: Template injection attempt detected in key name: '{}'. Refusing lookup.",
+								key
+							),
+						);
+						// Return the original template format to signify it wasn't resolved
+						result.push_str("{{");
+						result.push_str(&key);
+						result.push_str("}}");
+						continue;
+					}
 
 					// Lookup in context (never fails, returns original on error)
 					let value = context.get(&key).await;
@@ -162,5 +181,26 @@ mod tests {
 		let result = resolve_ast(&ast, &mut context, 0, 5, 65536).await;
 
 		assert_eq!(result, "plain text");
+	}
+
+	/// Tests protection against template injection in key names.
+	#[tokio::test]
+	async fn test_resolve_injection_attempt() {
+		let mut kv = KvStore::new();
+		// Injected value that looks like a template
+		kv.insert("user_input".to_string(), "{{system.token}}".to_string());
+		// A safe token we don't want to leak
+		kv.insert("system.token".to_string(), "SECRET".to_string());
+
+		let mut context = SimpleContext { kv: &kv };
+
+		// Template tries to use user_input as part of a key
+		// AST for: {{prefix.{{user_input}}}}
+		let ast = parse_template("{{prefix.{{user_input}}}}").unwrap();
+		let result = resolve_ast(&ast, &mut context, 0, 5, 65536).await;
+
+		// The resolved key name would be "prefix.{{system.token}}"
+		// Because it contains '{', the resolver should refuse to lookup and return it as text.
+		assert_eq!(result, "{{prefix.{{system.token}}}}");
 	}
 }

@@ -218,6 +218,18 @@ async fn handle_middleware_output<C: ExecutionContext>(
 	if let Some(updates) = output.store {
 		let kv = context.kv_mut();
 		for (raw_key, value) in updates.into_iter() {
+			// Security: Validate key name to prevent template injection risks
+			if raw_key.contains('{') || raw_key.contains('}') {
+				log(
+					LogLevel::Error,
+					&format!(
+						"✗ Security: Plugin '{}' attempted to store an invalid key name containing '{{' or '}}'. Ignoring: '{}'",
+						plugin_name, raw_key
+					),
+				);
+				continue;
+			}
+
 			let scoped_key = key_scoping::format_scoped_key(flow_path, plugin_name, &raw_key);
 			log(
 				LogLevel::Debug,
