@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.3 (30. Dec, 2025)
+
+- **Changed:** Optimized flow path and scoped key generation by implementing manual string buffer management with pre-calculated capacities. This eliminates redundant heap allocations and avoids `format!` macro overhead in high-frequency execution paths.
+
 ## 0.7.2 (30. Dec, 2025)
 
 - **Fixed:** Optimized the Flow Engine executor to eliminate redundant `HashMap` clones during plugin dispatch. By implementing move-aware recursive execution, Vane now significantly reduces heap allocations and CPU overhead in complex traffic pipelines.
