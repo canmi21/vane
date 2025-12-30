@@ -1,8 +1,8 @@
 # Agent Session Progress
 
 **Last Updated**: 2025-12-30
-**Current Task**: Phase II - Security & Quality Fixes (Task 2.7 - QUIC Session Cleanup)
-**Status**: Task 2.1 Complete + Test Optimization Complete, Ready for Next Fix
+**Current Task**: Phase II - Security & Quality Fixes (Task 2.10 - Flow Engine Cloning)
+**Status**: Task 2.7 Complete, Ready for Performance Optimization
 
 ---
 
@@ -66,6 +66,15 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
      - `tests/units/test_socket_dir.py`: Update log matching strings and parsing logic.
    - **Result**: Legacy Python tests now compatible with v0.6.13+ security features.
 
+9. ✅ **Task 2.7: QUIC Session Cleanup (REL-1)**
+   - **Problem**: Global registries (`CID_REGISTRY`, `PENDING_INITIALS`, `IP_STICKY_MAP`) were never cleaned up, causing memory leaks.
+   - **Solution**: Implemented a background task to periodically invoke `cleanup_sessions`.
+   - **Changes**:
+     - Added `start_cleanup_task()` in `src/modules/stack/protocol/carrier/quic/session.rs`.
+     - Integrated the task into `requirements::start_background_tasks`.
+     - Configuration via `QUIC_SESSION_TTL_SECS` (default 300s).
+   - **Result**: Automatic memory reclamation for stale QUIC sessions.
+
 ---
 
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
@@ -86,7 +95,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 - [`.report/performance.md`](.report/performance.md) - 8 performance bottlenecks
 - [`.report/maintainability-surface.md`](.report/maintainability-surface.md) - 24 面子 issues (Phase III)
 
-**Next Task:** Task 2.7 - QUIC Session Cleanup (REL-1)
+**Next Task**: Task 2.10 - Flow Engine ResolvedInputs Cloning (PERF-1)
 
 ---
 
@@ -153,8 +162,8 @@ ONLY after user approval:
 ### This Week (Critical Security Fixes)
 1. ✅ ~~**Task 2.1** - Management API Authentication (SEC-1)~~ **COMPLETE**
    - ✅ Test Framework Optimization (improved speed & reliability)
-2. **Task 2.7** - QUIC Session Cleanup (REL-1) ← **NEXT**
-3. **Task 2.10** - Flow Engine Cloning Fix (PERF-1)
+2. ✅ ~~**Task 2.7** - QUIC Session Cleanup (REL-1)~~ **COMPLETE**
+3. **Task 2.10** - Flow Engine Cloning Fix (PERF-1) ← **NEXT**
 
 ### Next Week (Critical Vulnerabilities)
 4. **Task 2.2** - Command Injection Fix (SEC-2)
@@ -173,11 +182,11 @@ ONLY after user approval:
 
 ## 📝 Version Information
 
-**Current Version**: 0.7.0
+**Current Version**: 0.7.1
 **Target Version**: 0.8.0 (After remaining CRITICAL fixes complete)
 **Expected Versions**:
-- 0.7.1: Tasks 2.7, 2.10 (QUIC cleanup, flow cloning)
-- 0.7.2: Tasks 2.2-2.4 (Template/Command security)
+- 0.7.2: Task 2.10 (Flow cloning)
+- 0.7.3: Tasks 2.2-2.4 (Template/Command security)
 - 0.8.0: All CRITICAL + HIGH fixes complete
 
 ---
