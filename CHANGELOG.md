@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.12 (30. Dec, 2025)
+
+- **Changed:** Extracted generic hot-reload framework to `src/common/hotswap` and `src/common/loader`, unifying configuration loading and file watching across all modules.
+
 ## 0.6.11 (30. Dec, 2025)
 
 - **Changed:** Extracted unified flow execution engine to `src/modules/flow`, eliminating code duplication across L4, L4+, and L7 layers.
