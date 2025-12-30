@@ -24,7 +24,7 @@ Key concepts:
 ✅ Refactor existing code for better architecture
 ✅ Add new plugins (internal or external middleware drivers)
 ✅ Fix bugs and optimize performance
-✅ Write unit tests (`cargo test`) for code snippets
+✅ Write unit tests when user explicitly requests them
 ✅ Modify configuration schemas (JSON/YAML/TOML)
 ✅ Update architecture documentation in `docs/`
 ✅ Manage TODO.md task tracking (100% LLM-managed)
@@ -261,10 +261,63 @@ Choose the appropriate layer:
 
 ---
 
-### 6. Testing Conventions
+### 6. Rust Code Development Workflow
 
-#### Rust Unit Tests
-Use `cargo test` for testing code snippets:
+#### After Modifying Rust Code
+
+**MANDATORY WORKFLOW:**
+
+1. **Run `cargo check`** immediately after any code modification
+2. **Fix compilation errors** if any are reported
+3. **Notify user** once `cargo check` passes (do NOT run tests automatically)
+4. **Wait for user instruction** before proceeding with testing
+
+**Critical Rules:**
+- ❌ **NEVER run tests automatically** (user must explicitly request testing)
+- ❌ **NEVER run `cargo test` without user approval**
+- ❌ **NEVER run `cargo build` unless user requests it**
+- ✅ **ALWAYS run `cargo check` after code changes**
+- ✅ **ALWAYS wait for user to decide when to test**
+
+**Example Flow:**
+```
+[LLM modifies code]
+→ Run: cargo check
+→ If errors: Fix them and run cargo check again
+→ If no errors: "✓ Code compiles successfully. Ready for testing when you are."
+→ Wait for user to say "run tests" or similar
+```
+
+---
+
+### 7. Testing Conventions
+
+#### Rust Unit Tests (Code-Block Level Only)
+
+**Scope:** LLM may write unit tests ONLY for code-block level testing (individual functions, structs, small modules).
+
+**When to Write Tests:**
+- ✅ When user explicitly requests tests for specific code
+- ✅ When adding new utility functions or data structures
+- ✅ When fixing bugs (add regression test)
+
+**When NOT to Write Tests:**
+- ❌ Without user approval
+- ❌ For integration-level behavior (use Go tests instead)
+- ❌ For end-to-end flows (use Go tests instead)
+
+**Available Test Dependencies:**
+```toml
+[dev-dependencies]
+serial_test = "3"       # Sequential test execution
+tempfile = "3"          # Temporary file/directory creation
+temp-env = "0.3"        # Temporary environment variables
+dirs = "6"              # Platform-specific directories
+tower = "0.5"           # Service trait for testing
+axum = "0.8"            # Web framework (for handler testing)
+```
+
+**Pattern:**
 
 ```rust
 #[cfg(test)]
@@ -332,6 +385,36 @@ When documenting configuration:
 - DO NOT reference `/examples` directory (legacy, poor quality)
 - Show complete working examples
 
+#### CHANGELOG.md Management
+When updating CHANGELOG.md for a new version release, follow these strict rules:
+
+**Format Structure:**
+- Use version format: `## X.Y.Z (DD. Mon, YYYY)` (e.g., `## 0.6.9 (30. Dec, 2025)`)
+- Insert new version entry between `## Unreleased` and the previous version
+- Each change must start with `- **Category:** Description`
+
+**Category Order (MANDATORY):**
+1. **Breaking** - Breaking changes that require user action
+2. **Added** - New features and capabilities
+3. **Changed** - Changes to existing functionality
+4. **Fixed** - Bug fixes
+
+**Rules:**
+- Only use these four categories (Breaking, Added, Changed, Fixed)
+- Categories must appear in the order listed above
+- If a category has no changes, omit it entirely
+- Each bullet point should be a single line describing one change
+- Use objective, technical language describing what changed and why
+
+**Example:**
+```markdown
+## 0.6.9 (30. Dec, 2025)
+
+- **Added:** Implemented new feature X with capability Y.
+- **Changed:** Refactored module Z to improve performance.
+- **Fixed:** Resolved issue with component A causing error B.
+```
+
 ---
 
 ## What NOT to Do
@@ -368,6 +451,12 @@ When documenting configuration:
 - It is 100% managed by LLM agents
 - Project owner does not edit it directly
 
+❌ **Do NOT run tests automatically**
+- Never run `cargo test` without user approval
+- Never run `cargo build` unless user requests it
+- Always run `cargo check` after code changes
+- Wait for user instruction before testing
+
 ---
 
 ## Workflow Guidelines
@@ -382,16 +471,17 @@ When documenting configuration:
 ### While Making Changes
 
 1. **Follow code style** - File headers, naming, imports, comments
-2. **Test incrementally** - Run `cargo build` and `cargo test` after each change
+2. **Run `cargo check`** - After each code modification (see Section 6: Rust Code Development Workflow)
 3. **Update documentation** - Keep `docs/` in sync with code changes
-4. **Write tests** - Add unit tests for new functionality
+4. **Write tests** - Only when user explicitly requests them
 
 ### After Making Changes
 
-1. **Verify compilation** - Ensure `cargo build` succeeds
-2. **Run tests** - Verify `cargo test` passes
-3. **Update TODO.md** - Mark tasks as complete
-4. **Document changes** - Update relevant documentation files
+1. **Verify compilation** - Run `cargo check` (NEVER run tests automatically)
+2. **Notify user** - Inform when code compiles successfully
+3. **Wait for user** - Let user decide when to run tests
+4. **Update TODO.md** - Mark tasks as complete when user confirms
+5. **Document changes** - Update relevant documentation files
 
 ---
 

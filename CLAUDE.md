@@ -273,11 +273,63 @@ Choose the appropriate layer for new features:
 - **L4+ (Carrier):** Use for encrypted protocol inspection without termination. Examples: SNI/ALPN-based routing, QUIC connection ID routing, TLS passthrough.
 - **L7 (Application):** Use for full protocol termination. Examples: HTTP header manipulation, request body inspection, response generation, WebSocket upgrade.
 
+## Rust Code Development Workflow
+
+### After Modifying Rust Code
+
+**MANDATORY WORKFLOW:**
+
+1. **Run `cargo check`** immediately after any code modification
+2. **Fix compilation errors** if any are reported
+3. **Notify user** once `cargo check` passes (do NOT run tests automatically)
+4. **Wait for user instruction** before proceeding with testing
+
+**Critical Rules:**
+- ❌ **NEVER run tests automatically** (user must explicitly request testing)
+- ❌ **NEVER run `cargo test` without user approval**
+- ❌ **NEVER run `cargo build` unless user requests it**
+- ✅ **ALWAYS run `cargo check` after code changes**
+- ✅ **ALWAYS wait for user to decide when to test**
+
+**Example Flow:**
+```
+[LLM modifies code]
+→ Run: cargo check
+→ If errors: Fix them and run cargo check again
+→ If no errors: "✓ Code compiles successfully. Ready for testing when you are."
+→ Wait for user to say "run tests" or similar
+```
+
+---
+
 ## Testing Conventions
 
-### Rust Unit Tests
+### Rust Unit Tests (Code-Block Level Only)
 
-Use `cargo test` for testing individual code snippets and functions. Pattern:
+**Scope:** LLM may write unit tests ONLY for code-block level testing (individual functions, structs, small modules).
+
+**When to Write Tests:**
+- ✅ When user explicitly requests tests for specific code
+- ✅ When adding new utility functions or data structures
+- ✅ When fixing bugs (add regression test)
+
+**When NOT to Write Tests:**
+- ❌ Without user approval
+- ❌ For integration-level behavior (use Go tests instead)
+- ❌ For end-to-end flows (use Go tests instead)
+
+**Available Test Dependencies:**
+```toml
+[dev-dependencies]
+serial_test = "3"       # Sequential test execution
+tempfile = "3"          # Temporary file/directory creation
+temp-env = "0.3"        # Temporary environment variables
+dirs = "6"              # Platform-specific directories
+tower = "0.5"           # Service trait for testing
+axum = "0.8"            # Web framework (for handler testing)
+```
+
+**Pattern:**
 
 ```rust
 #[cfg(test)]
@@ -340,6 +392,37 @@ Architecture documentation resides in `docs/` and is intended for developers and
 ### Configuration Examples
 
 When documenting configuration, provide independent examples. Do not reference `/examples` directory, as it contains legacy examples that are considered poor quality.
+
+### CHANGELOG.md Management
+
+When updating CHANGELOG.md for a new version release, follow these strict rules:
+
+**Format Structure:**
+- Use version format: `## X.Y.Z (DD. Mon, YYYY)` (e.g., `## 0.6.9 (30. Dec, 2025)`)
+- Insert new version entry between `## Unreleased` and the previous version
+- Each change must start with `- **Category:** Description`
+
+**Category Order (MANDATORY):**
+1. **Breaking** - Breaking changes that require user action
+2. **Added** - New features and capabilities
+3. **Changed** - Changes to existing functionality
+4. **Fixed** - Bug fixes
+
+**Rules:**
+- Only use these four categories (Breaking, Added, Changed, Fixed)
+- Categories must appear in the order listed above
+- If a category has no changes, omit it entirely
+- Each bullet point should be a single line describing one change
+- Use objective, technical language describing what changed and why
+
+**Example:**
+```markdown
+## 0.6.9 (30. Dec, 2025)
+
+- **Added:** Implemented new feature X with capability Y.
+- **Changed:** Refactored module Z to improve performance.
+- **Fixed:** Resolved issue with component A causing error B.
+```
 
 ## What NOT to Do
 
