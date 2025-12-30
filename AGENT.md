@@ -1,8 +1,8 @@
 # Agent Session Progress
 
 **Last Updated**: 2025-12-30
-**Current Task**: Phase II - Security & Quality Fixes (Task 2.10 - Flow Engine Cloning)
-**Status**: Task 2.7 Complete, Ready for Performance Optimization
+**Current Task**: Phase II - Security & Quality Fixes (Task 2.11 - Flow Path String Optimization)
+**Status**: Task 2.10 Complete, Ready for PERF-2
 
 ---
 
@@ -75,6 +75,14 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
      - Configuration via `QUIC_SESSION_TTL_SECS` (default 300s).
    - **Result**: Automatic memory reclamation for stale QUIC sessions.
 
+10. ✅ **Task 2.10: Flow Engine ResolvedInputs Cloning (PERF-1)**
+    - **Problem**: Flow Engine was cloning `HashMap` multiple times during plugin dispatch.
+    - **Solution**: Restructured `execute_recursive` using move semantics and mutual recursion patterns.
+    - **Changes**:
+      - Reordered dispatch logic to prioritize high-performance move operations.
+      - Eliminated all 4 redundant clones per plugin execution step.
+    - **Result**: Significant reduction in heap allocations and CPU usage in decision-tree execution.
+
 ---
 
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
@@ -95,7 +103,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 - [`.report/performance.md`](.report/performance.md) - 8 performance bottlenecks
 - [`.report/maintainability-surface.md`](.report/maintainability-surface.md) - 24 面子 issues (Phase III)
 
-**Next Task**: Task 2.10 - Flow Engine ResolvedInputs Cloning (PERF-1)
+**Next Task**: Task 2.11 - Flow Path String Optimization (PERF-2)
 
 ---
 
@@ -163,30 +171,30 @@ ONLY after user approval:
 1. ✅ ~~**Task 2.1** - Management API Authentication (SEC-1)~~ **COMPLETE**
    - ✅ Test Framework Optimization (improved speed & reliability)
 2. ✅ ~~**Task 2.7** - QUIC Session Cleanup (REL-1)~~ **COMPLETE**
-3. **Task 2.10** - Flow Engine Cloning Fix (PERF-1) ← **NEXT**
+3. ✅ ~~**Task 2.10** - Flow Engine Cloning Fix (PERF-1)~~ **COMPLETE**
+4. **Task 2.11** - Flow Path String Optimization (PERF-2) ← **NEXT**
 
 ### Next Week (Critical Vulnerabilities)
-4. **Task 2.2** - Command Injection Fix (SEC-2)
-5. **Task 2.3** - Template DoS Protection (SEC-3)
-6. **Task 2.4** - Template Size Limits (SEC-4)
-7. **Task 2.5** - Config Reload Race Fix (SEC-5)
-8. **Task 2.6** - Path Canonicalization (SEC-6)
+5. **Task 2.2** - Command Injection Fix (SEC-2)
+6. **Task 2.3** - Template DoS Protection (SEC-3)
+7. **Task 2.4** - Template Size Limits (SEC-4)
+8. **Task 2.5** - Config Reload Race Fix (SEC-5)
+9. **Task 2.6** - Path Canonicalization (SEC-6)
 
 ### Following Weeks (Reliability & Performance)
-9. **Task 2.8** - QUIC Buffer Race Fix (REL-2)
-10. **Task 2.9** - Plugin Status Race Fix (REL-3)
-11. **Task 2.11** - Flow Path String Optimization (PERF-2)
+10. **Task 2.8** - QUIC Buffer Race Fix (REL-2)
+11. **Task 2.9** - Plugin Status Race Fix (REL-3)
 12-22. **Tasks 2.12-2.22** - HIGH and MEDIUM priority fixes
 
 ---
 
 ## 📝 Version Information
 
-**Current Version**: 0.7.1
+**Current Version**: 0.7.2
 **Target Version**: 0.8.0 (After remaining CRITICAL fixes complete)
 **Expected Versions**:
-- 0.7.2: Task 2.10 (Flow cloning)
-- 0.7.3: Tasks 2.2-2.4 (Template/Command security)
+- 0.7.3: Task 2.11 (Flow path optimization)
+- 0.7.4: Tasks 2.2-2.4 (Template/Command security)
 - 0.8.0: All CRITICAL + HIGH fixes complete
 
 ---
