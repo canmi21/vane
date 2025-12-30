@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.12 (30. Dec, 2025)
+
+- **Fixed:** Implemented comprehensive protection against template injection. Vane now strictly validates resolved key names and prohibits the use of template syntax (`{` or `}`) within KV store keys. Any attempt to resolve a key containing these characters will be intercepted and logged as a security violation, returning the original text instead of performing a lookup.
+
 ## 0.7.11 (30. Dec, 2025)
 
 - **Fixed:** Implemented complexity protection in the template parser. Vane now enforces maximum recursion depth (default: 5) and total AST node limits (default: 50) during template parsing to prevent Denial-of-Service attacks via maliciously crafted configuration strings.
