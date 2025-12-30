@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.11 (30. Dec, 2025)
+
+- **Fixed:** Implemented complexity protection in the template parser. Vane now enforces maximum recursion depth (default: 5) and total AST node limits (default: 50) during template parsing to prevent Denial-of-Service attacks via maliciously crafted configuration strings.
+
 ## 0.7.10 (30. Dec, 2025)
 
 - **Added:** Implemented a "Passive Circuit Breaker" for external plugins. Vane now automatically detects runtime IO failures and enforces a quiet period (default: 3s, configurable via `EXTERNAL_PLUGIN_QUIET_PERIOD_SECS`) to skip further attempts and instantly trigger failure branches, significantly improving reliability and responsiveness during external middleware outages.
