@@ -1,15 +1,15 @@
 /* src/modules/stack/protocol/application/flow.rs */
 
 use super::container::Container;
-use super::template;
 use crate::modules::{
 	kv::plugin_output,
 	plugins::{
 		model::{ConnectionObject, MiddlewareOutput, ProcessingStep, TerminatorResult},
 		registry,
 	},
+	template::{context::L7Context, resolve_inputs},
 };
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use fancy_log::{LogLevel, log};
 
 pub async fn execute_l7(
@@ -30,10 +30,11 @@ async fn execute_recursive_l7(
 		.next()
 		.ok_or_else(|| anyhow!("Empty processing step encountered"))?;
 
-	// 1. Resolve Inputs (Using new Recursive Template System)
-	let resolved_inputs = template::resolve_inputs(&instance.input, container)
-		.await
-		.with_context(|| format!("Input resolution failed for '{}'", plugin_name))?;
+	// 1. Resolve Inputs (Using new unified template system)
+	let resolved_inputs = {
+		let mut context = L7Context { container };
+		resolve_inputs(&instance.input, &mut context).await
+	};
 
 	let plugin = registry::get_plugin(plugin_name)
 		.ok_or_else(|| anyhow!("Plugin '{}' not found", plugin_name))?;

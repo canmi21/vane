@@ -6,10 +6,10 @@ use crate::modules::{
 		model::{ConnectionObject, ProcessingStep, TerminatorResult},
 		registry,
 	},
+	template::{context::SimpleContext, resolve_inputs},
 };
 use anyhow::{Context, Result, anyhow};
 use fancy_log::{LogLevel, log};
-use serde_json::Value;
 
 /// Public entry point for executing a flow.
 pub async fn execute(
@@ -32,7 +32,8 @@ async fn execute_recursive(
 		.next()
 		.ok_or_else(|| anyhow!("Empty processing step encountered"))?;
 
-	let resolved_inputs = resolve_inputs(&instance.input, kv);
+	let mut context = SimpleContext { kv };
+	let resolved_inputs = resolve_inputs(&instance.input, &mut context).await;
 
 	let plugin = registry::get_plugin(plugin_name)
 		.ok_or_else(|| anyhow!("Plugin '{}' not found in registry", plugin_name))?;
@@ -121,30 +122,4 @@ async fn execute_recursive(
 			plugin_name
 		))
 	}
-}
-
-fn resolve_inputs(
-	inputs: &std::collections::HashMap<String, Value>,
-	kv: &KvStore,
-) -> std::collections::HashMap<String, Value> {
-	let mut resolved = inputs.clone();
-	for (key, value) in inputs {
-		if let Some(s) = value.as_str() {
-			if s.starts_with("{{") && s.ends_with("}}") {
-				let lookup_key = &s[2..s.len() - 2];
-				if let Some(kv_value) = kv.get(lookup_key) {
-					resolved.insert(key.clone(), Value::String(kv_value.clone()));
-				} else {
-					log(
-						LogLevel::Warn,
-						&format!(
-							"⚙ Template resolution failed: Key '{}' not found in KvStore.",
-							lookup_key
-						),
-					);
-				}
-			}
-		}
-	}
-	resolved
 }
