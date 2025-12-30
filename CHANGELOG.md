@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.1 (30. Dec, 2025)
+
+- **Fixed:** Resolved a critical memory leak in the QUIC carrier engine by implementing a background cleanup task for Connection ID, Initial packet buffer, and IP stickiness registries (configurable via `QUIC_SESSION_TTL_SECS`).
+
 ## 0.7.0 (30. Dec, 2025)
 
 - **Breaking:** Implemented mandatory authentication for the management API and console. Vane now requires the `ACCESS_TOKEN` environment variable to be set (16-128 chars). All API requests must include the `Authorization: Bearer <token>` header. If the token is not set, the management interface is disabled for security.
