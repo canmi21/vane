@@ -1,6 +1,9 @@
 /* src/modules/plugins/drivers/exec.rs */
 
-use crate::modules::plugins::model::{MiddlewareOutput, ResolvedInputs};
+use crate::modules::plugins::{
+	external,
+	model::{MiddlewareOutput, ResolvedInputs},
+};
 use anyhow::Result;
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
@@ -14,12 +17,31 @@ pub async fn execute(
 	env: &HashMap<String, String>,
 	inputs: ResolvedInputs,
 ) -> Result<MiddlewareOutput> {
+	// SEC-2: Enforce trusted bin root validation at runtime.
+	let resolved_program = match external::validate_command_path(program) {
+		Ok(p) => p,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ SEC-2: Security violation during plugin execution: {}", e),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
+
 	log(
 		LogLevel::Debug,
-		&format!("➜ Spawning external command: {} {:?}", program, args),
+		&format!(
+			"➜ Spawning external command: {} {:?}",
+			resolved_program.display(),
+			args
+		),
 	);
 
-	let mut cmd = Command::new(program);
+	let mut cmd = Command::new(resolved_program);
 	cmd.args(args);
 	cmd.envs(env);
 	cmd.stdin(Stdio::piped());

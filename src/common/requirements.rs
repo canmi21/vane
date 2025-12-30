@@ -42,7 +42,7 @@ pub struct ConfigChangeReceivers {
 
 /// Ensures that all required directories and default files exist.
 pub fn ensure_config_files_exist_sync() {
-	getconf::init_config_dirs(vec!["listener", "resolver", "certs", "application"]);
+	getconf::init_config_dirs(vec!["listener", "resolver", "certs", "application", "bin"]);
 	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"]);
 }
 

@@ -12,10 +12,9 @@ use crate::modules::kv::KvStore;
 use crate::modules::plugins::model::ConnectionObject;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use fancy_log::{LogLevel, log};
 use std::any::Any;
 use std::borrow::Cow;
-use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -25,29 +24,60 @@ pub struct ExternalPlugin {
 	config: ExternalPluginConfig,
 }
 
+/// Resolves the trusted plugin bin directory from the configuration.
+pub fn get_trusted_bin_root() -> PathBuf {
+	let root = crate::common::getconf::get_config_dir().join("bin");
+	// Use canonicalize to resolve symlinks and ensure we have an absolute path.
+	// If it doesn't exist yet, fallback to the joined path.
+	fs::canonicalize(&root).unwrap_or(root)
+}
+
+/// Validates that a program path is safe and located within the trusted bin directory.
+/// Returns the absolute path to the program if valid.
+pub fn validate_command_path(program: &str) -> Result<PathBuf> {
+	let bin_root = get_trusted_bin_root();
+	let program_path = Path::new(program);
+
+	// Scenario 1: Relative path or filename -> join with bin_root
+	let absolute_path = if program_path.is_absolute() {
+		// Scenario 2: Absolute path -> must be canonicalized and checked for prefix
+		fs::canonicalize(program_path).map_err(|e| {
+			anyhow!(
+				"SEC-2: Failed to resolve absolute path '{}': {}",
+				program,
+				e
+			)
+		})?
+	} else {
+		// Join and then canonicalize to resolve any ".."
+		let joined = bin_root.join(program_path);
+		fs::canonicalize(&joined).map_err(|e| {
+			anyhow!(
+				"SEC-2: Program '{}' not found in trusted bin directory: {}",
+				program,
+				e
+			)
+		})?
+	};
+
+	// Strict prefix check
+	if !absolute_path.starts_with(&bin_root) {
+		return Err(anyhow!(
+			"SEC-2: Security Violation - Program '{}' is outside the trusted bin directory.",
+			program
+		));
+	}
+
+	if !absolute_path.is_file() {
+		return Err(anyhow!("SEC-2: Path '{}' is not a file.", program));
+	}
+
+	Ok(absolute_path)
+}
+
 impl ExternalPlugin {
 	pub fn new(config: ExternalPluginConfig) -> Self {
 		Self { config }
-	}
-
-	/// Checks if a program exists in the system PATH or at a specific path.
-	fn find_program(program: &str) -> Option<PathBuf> {
-		let path = Path::new(program);
-		if path.components().count() > 1 {
-			if path.exists() {
-				return Some(path.to_path_buf());
-			}
-			return None;
-		}
-		if let Ok(path_var) = env::var("PATH") {
-			for path_entry in env::split_paths(&path_var) {
-				let p = path_entry.join(program);
-				if p.exists() {
-					return Some(p);
-				}
-			}
-		}
-		None
 	}
 
 	pub async fn validate_connectivity(&self) -> Result<()> {
@@ -62,19 +92,11 @@ impl ExternalPlugin {
 			"false".to_string(),
 		)) == "true";
 
-		if skip_validation {
-			log(
-				LogLevel::Debug,
-				&format!(
-					"⚠ Skipping connectivity validation for plugin '{}'.",
-					self.name()
-				),
-			);
-			return Ok(());
-		}
-
 		match &self.config.driver {
 			ExternalPluginDriver::Http { url } => {
+				if skip_validation {
+					return Ok(());
+				}
 				if !url.starts_with("http://") && !url.starts_with("https://") {
 					return Err(anyhow!("URL must start with http:// or https://"));
 				}
@@ -96,18 +118,17 @@ impl ExternalPlugin {
 				Ok(())
 			}
 			ExternalPluginDriver::Unix { path } => {
+				if skip_validation {
+					return Ok(());
+				}
 				if !Path::new(path).exists() {
 					return Err(anyhow!("Unix socket path does not exist: {}", path));
 				}
 				Ok(())
 			}
 			ExternalPluginDriver::Command { program, .. } => {
-				if Self::find_program(program).is_none() {
-					return Err(anyhow!(
-						"Program '{}' not found in PATH or at specified location.",
-						program
-					));
-				}
+				// Command validation cannot be fully skipped as it is a core security feature (SEC-2)
+				validate_command_path(program)?;
 				Ok(())
 			}
 		}
