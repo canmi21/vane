@@ -71,6 +71,12 @@ static EXTERNAL_PLUGIN_REGISTRY: Lazy<ArcSwap<DashMap<String, Arc<dyn Plugin>>>>
 pub static EXTERNAL_PLUGIN_STATUS: Lazy<DashMap<String, Result<(), String>>> =
 	Lazy::new(DashMap::new);
 
+/// Tracks the last runtime failure (IO error) of external plugins.
+/// Key: Plugin Name
+/// Value: Instant of last failure
+pub static EXTERNAL_PLUGIN_FAILURES: Lazy<DashMap<String, std::time::Instant>> =
+	Lazy::new(DashMap::new);
+
 pub fn get_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
 	get_internal_plugin(name).or_else(|| get_external_plugin(name))
 }

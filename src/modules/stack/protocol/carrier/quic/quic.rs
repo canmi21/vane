@@ -62,6 +62,11 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 
 	// Buffer Management & Stream Reassembly
 	let mut sni_found = parsed_packet.sni_hint.clone();
+	let mut should_proceed = false;
+
+	let max_pending_packets = getenv::get_env("QUIC_MAX_PENDING_PACKETS", "5".to_string())
+		.parse::<usize>()
+		.unwrap_or(5);
 
 	// Critical: Lock the pending map to update state
 	{
@@ -71,7 +76,16 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 				crypto_stream: BTreeMap::new(),
 				queued_packets: Vec::new(),
 				last_seen: Instant::now(),
+				processing: false,
 			});
+
+		// 1. If already being processed by another task, just buffer and return
+		if entry.processing {
+			entry
+				.queued_packets
+				.push((datagram.clone(), client_addr, dst_addr));
+			return Ok(());
+		}
 
 		entry
 			.queued_packets
@@ -82,6 +96,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 			entry.crypto_stream.insert(offset, data);
 		}
 
+		// 2. Attempt SNI reassembly if not yet found
 		if sni_found.is_none() && !entry.crypto_stream.is_empty() {
 			let mut full_stream = Vec::new();
 			let mut expected_offset = 0;
@@ -103,20 +118,42 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 					),
 				);
 				sni_found = Some(reassembled_sni);
+			}
+		}
+
+		// 3. Decide whether to proceed to flow or keep buffering
+		if let Some(sni) = &sni_found {
+			// SNI is ready! Mark as processing to prevent other fragments from entering flow
+			entry.processing = true;
+			should_proceed = true;
+			// We need a clone here because we will use it outside the lock
+			sni_found = Some(sni.clone());
+		} else {
+			// Still waiting for SNI. Check for buffer overflow or timeout.
+			if entry.queued_packets.len() >= max_pending_packets {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"⚠ QUIC buffer limit reached ({} pkts) for DCID {} without SNI. Dropping.",
+						max_pending_packets, parsed_packet.dcid
+					),
+				);
+				drop(entry); // Release reference before removal
+				session::PENDING_INITIALS.remove(&dcid_bytes);
 			} else {
 				log(
 					LogLevel::Debug,
 					&format!(
-						"⚙ Buffered QUIC packet (stream len={}). Waiting for SNI...",
-						full_stream.len()
+						"⚙ Buffered QUIC packet (pkts={}). Waiting for SNI...",
+						entry.queued_packets.len()
 					),
 				);
 			}
 		}
 	}
 
-	// Check Decision
-	if sni_found.is_none() {
+	// 4. Return if we don't have enough data yet or if another task took over
+	if !should_proceed {
 		return Ok(());
 	}
 

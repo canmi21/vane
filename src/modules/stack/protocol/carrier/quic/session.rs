@@ -30,6 +30,8 @@ pub struct PendingState {
 	// Buffered packets (Data, ClientAddr, DstAddr)
 	pub queued_packets: Vec<(Vec<u8>, SocketAddr, SocketAddr)>,
 	pub last_seen: Instant,
+	/// Flag to ensure only one task proceeds to flow execution
+	pub processing: bool,
 }
 
 /// Global registry mapping Connection IDs (DCID) to Actions.

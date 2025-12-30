@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use fancy_log::{LogLevel, log};
 
 use crate::modules::{
-	plugins::model::{ConnectionObject, ProcessingStep, TerminatorResult},
+	plugins::model::{ConnectionObject, MiddlewareOutput, ProcessingStep, TerminatorResult},
 	plugins::registry,
 	stack::protocol::application::container::Container,
 };
@@ -78,31 +78,63 @@ async fn execute_recursive<C: ExecutionContext>(
 		),
 	);
 
+	// --- Passive Circuit Breaker (for External Plugins) ---
+	let is_external = registry::get_external_plugin(plugin_name).is_some();
+	if is_external {
+		if let Some(last_failure) = registry::EXTERNAL_PLUGIN_FAILURES.get(plugin_name) {
+			let quiet_period_secs =
+				crate::common::getenv::get_env("EXTERNAL_PLUGIN_QUIET_PERIOD_SECS", "3".to_string())
+					.parse::<u64>()
+					.unwrap_or(3);
+
+			if last_failure.elapsed().as_secs() < quiet_period_secs {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"➜ Circuit Breaker: Plugin '{}' is in quiet period (last failure < {}s ago). Skipping IO and returning failure branch.",
+						plugin_name, quiet_period_secs
+					),
+				);
+				// Fast-fail: return failure branch with metadata
+				let output = MiddlewareOutput {
+					branch: "failure".into(),
+					store: Some(std::collections::HashMap::from([(
+						"error".to_string(),
+						"circuit_breaker_active".to_string(),
+					)])),
+				};
+				// We proceed to handle this as a standard middleware output
+				return handle_middleware_output(output, plugin_name, &flow_path, instance, context, conn)
+					.await;
+			}
+		}
+	}
+
 	// 4. Try dispatch (Priority: Middleware > Terminator)
-	let output = if let Some(http_middleware) = plugin.as_http_middleware() {
+	let output_res = if let Some(http_middleware) = plugin.as_http_middleware() {
 		// 4.1 Protocol-Specific HTTP (Internal only)
 		http_middleware
 			.execute(context.as_any_mut(), resolved_inputs)
 			.await
-			.with_context(|| format!("Error executing HTTP middleware '{}'", plugin_name))?
+			.with_context(|| format!("Error executing HTTP middleware '{}'", plugin_name))
 	} else if let Some(generic_middleware) = plugin.as_generic_middleware() {
 		// 4.2 Generic Middleware (Internal or External)
 		generic_middleware
 			.execute(resolved_inputs)
 			.await
-			.with_context(|| format!("Error executing generic middleware '{}'", plugin_name))?
+			.with_context(|| format!("Error executing generic middleware '{}'", plugin_name))
 	} else if let Some(l7_middleware) = plugin.as_l7_middleware() {
 		// 4.3 Legacy L7 Fallback
 		l7_middleware
 			.execute_l7(context.as_any_mut(), resolved_inputs)
 			.await
-			.with_context(|| format!("Error executing L7 middleware '{}'", plugin_name))?
+			.with_context(|| format!("Error executing L7 middleware '{}'", plugin_name))
 	} else if let Some(middleware) = plugin.as_middleware() {
 		// 4.4 Legacy generic Fallback
 		middleware
 			.execute(resolved_inputs)
 			.await
-			.with_context(|| format!("Error executing middleware '{}'", plugin_name))?
+			.with_context(|| format!("Error executing middleware '{}'", plugin_name))
 	} else {
 		// 5. Try terminator dispatch (L7 Priority > Standard)
 		let terminator_result = if let Some(l7_terminator) = plugin.as_l7_terminator() {
@@ -143,7 +175,37 @@ async fn execute_recursive<C: ExecutionContext>(
 		return Ok(terminator_result);
 	};
 
-	// 6. Handle Middleware Output (If we reached here, it was a middleware)
+	// 6. Check for runtime errors and update circuit breaker
+	let output = match output_res {
+		Ok(out) => out,
+		Err(e) => {
+			if is_external {
+				log(
+					LogLevel::Error,
+					&format!(
+						"✗ Runtime error in external plugin '{}': {}. Activating quiet period.",
+						plugin_name, e
+					),
+				);
+				registry::EXTERNAL_PLUGIN_FAILURES
+					.insert(plugin_name.to_string(), std::time::Instant::now());
+			}
+			return Err(e);
+		}
+	};
+
+	handle_middleware_output(output, plugin_name, &flow_path, instance, context, conn).await
+}
+
+/// Extracted helper to handle middleware success/failure branches
+async fn handle_middleware_output<C: ExecutionContext>(
+	output: MiddlewareOutput,
+	plugin_name: &str,
+	flow_path: &str,
+	instance: &crate::modules::plugins::model::PluginInstance,
+	context: &mut C,
+	conn: ConnectionObject,
+) -> Result<TerminatorResult> {
 	log(
 		LogLevel::Debug,
 		&format!(
@@ -155,8 +217,8 @@ async fn execute_recursive<C: ExecutionContext>(
 	// Store KV updates with scoped keys
 	if let Some(updates) = output.store {
 		let kv = context.kv_mut();
-		for (raw_key, value) in updates {
-			let scoped_key = key_scoping::format_scoped_key(&flow_path, plugin_name, &raw_key);
+		for (raw_key, value) in updates.into_iter() {
+			let scoped_key = key_scoping::format_scoped_key(flow_path, plugin_name, &raw_key);
 			log(
 				LogLevel::Debug,
 				&format!("⚙ KV Update: {} = {}", scoped_key, value),
@@ -167,7 +229,7 @@ async fn execute_recursive<C: ExecutionContext>(
 
 	// Branch to next step based on output
 	if let Some(next_step) = instance.output.get(output.branch.as_ref()) {
-		let next_path = key_scoping::next_path(&flow_path, plugin_name, output.branch.as_ref());
+		let next_path = key_scoping::next_path(flow_path, plugin_name, output.branch.as_ref());
 		Box::pin(execute_recursive(next_step, context, conn, next_path)).await
 	} else {
 		Err(anyhow!(
