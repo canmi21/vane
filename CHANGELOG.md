@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.2 (30. Dec, 2025)
+
+- **Fixed:** Optimized the Flow Engine executor to eliminate redundant `HashMap` clones during plugin dispatch. By implementing move-aware recursive execution, Vane now significantly reduces heap allocations and CPU overhead in complex traffic pipelines.
+
 ## 0.7.1 (30. Dec, 2025)
 
 - **Fixed:** Resolved a critical memory leak in the QUIC carrier engine by implementing a background cleanup task for Connection ID, Initial packet buffer, and IP stickiness registries (configurable via `QUIC_SESSION_TTL_SECS`).
