@@ -21,7 +21,7 @@ coverage
 .env
 .venv
 *.tsbuildinfo
-TODO.md
+docs
 
 # rust
 target

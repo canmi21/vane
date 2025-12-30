@@ -7,9 +7,10 @@
 </p>
 
 <p align="center">
+  <a href="https://lib.rs/crates/vane"><img align="center" src="https://img.shields.io/badge/lib.rs-vane-F09E64?style=flat&labelColor=2D333B&logo=rust" alt="Lib.rs"/></a>
   <a href="https://crates.io/crates/vane"><img align="center" src="https://img.shields.io/crates/v/vane?style=flat&color=F09E64&labelColor=2D333B&logo=rust" alt="Crates.io version"/></a>
   <a href="https://github.com/canmi21/vane/blob/main/LICENSE"><img align="center" src="https://img.shields.io/github/license/canmi21/vane?style=flat&color=FF6B6B&labelColor=2D333B&logo=github" alt="License"/></a>
-	<a href="https://deepwiki.com/canmi21/vane"><img align="center" src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"/></a>
+  <a href="https://deepwiki.com/canmi21/vane"><img align="center" src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"/></a>
   <a href="https://github.com/canmi21/vane/graphs/contributors"><img align="center" src="https://img.shields.io/github/contributors/canmi21/vane?style=flat&color=6FCF97&labelColor=2D333B&logo=github" alt="Contributors"/></a>
   <a href="https://github.com/canmi21/vane/actions"><img align="center" src="https://img.shields.io/github/actions/workflow/status/canmi21/vane/ci.yml?style=flat&color=3399FF&labelColor=2D333B&logo=githubactions" alt="Build Status"/></a>
   <a href="https://crates.io/crates/vane"><img align="center" src="https://img.shields.io/crates/d/vane?style=flat&color=9B5DE5&labelColor=2D333B&logo=rust" alt="Downloads"/></a>
@@ -18,7 +19,9 @@
 
 ## What is Vane
 
-Vane is a high-performance, flow-based reverse proxy and network protocol engine written in Rust. It is designed to bridge the architectural gap between raw transport layer (L4) forwarding and complex application layer (L7) processing. Unlike traditional reverse proxies that rely on static hierarchical configurations, Vane utilizes a dynamic, composable pipeline architecture that treats network connections as programmable flows.
+Vane is a high-performance, flow-based network protocol engine written in Rust. It is designed to bridge the architectural gap between raw transport layer (L4) forwarding and complex application layer (L7) processing. Unlike traditional proxies that rely on static hierarchical configurations, Vane utilizes a dynamic, composable pipeline architecture that treats network connections as programmable flows.
+
+Vane operates as a protocol funnel—connections enter at L4 (TCP/UDP), optionally pass through L4+ (TLS/QUIC inspection), and can terminate at any layer based on runtime flow decisions. HTTP is one of many protocols supported; the architecture is designed for extensibility to DNS, gRPC, and other application protocols.
 
 ## Core Concepts
 
@@ -69,6 +72,16 @@ Unlike proxies that treat UDP as a second-class citizen, Vane features a dedicat
 - **Cross-Layer Context Continuity:** Vane maintains a unified key–value context that persists across **L4, L4+, and L7**. Connection metadata such as source IP/port, transport details, and handshake-derived attributes are propagated upward and remain accessible at higher layers. This allows L7 template rendering (`{{ ... }}`) and middleware logic to reference low-level connection and protocol state without re-parsing or breaking layer boundaries.
 - **Stateful L4+ Routing:** Vane can route encrypted traffic without terminating the secure session. At the L4+ layer, it routes **TLS connections based on SNI and ALPN**, and **QUIC connections based on SNI** by parsing handshake metadata (including fragmented ClientHello data), enabling certificate-less, zero-trust routing decisions.
 - **Hot-Swappable Configuration:** All layers of the stack—from L4 listeners and TLS certificates to L7 application pipelines—support runtime reconfiguration. The system employs a "Keep-Last-Known-Good" strategy to ensure stability during updates.
+
+## Star History
+
+<a href="https://www.star-history.com/#canmi21/vane&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=canmi21/vane&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=canmi21/vane&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=canmi21/vane&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ## License
 

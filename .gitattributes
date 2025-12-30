@@ -1,15 +1,9 @@
 * text=auto eol=lf
 *.c linguist-language=C
 *.rs linguist-language=Rust
-*.zig linguist-language=Zig
-*.cpp linguist-language=CPP
 *.go linguist-language=Go
-*.js linguist-language=JavaScript
 *.sh linguist-language=Shell
 *.py linguist-language=Python
 *.lua linguist-language=Lua
-*.java linguist-language=Java
-*.class linguist-language=Java
-*.rb linguist-language=Ruby
-*.astro linguist-language=Astro
+*.md linguist-detectable=false
 *.html linguist-detectable=false
