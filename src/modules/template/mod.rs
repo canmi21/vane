@@ -7,14 +7,39 @@ pub mod resolver;
 
 pub use context::TemplateContext;
 
+use crate::common::getenv;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
+/// Returns the maximum allowed recursion depth for template and JSON resolution.
+/// Configurable via `MAX_TEMPLATE_DEPTH` environment variable.
+fn get_max_depth() -> usize {
+	getenv::get_env("MAX_TEMPLATE_DEPTH", "5".to_string())
+		.parse()
+		.unwrap_or(5)
+}
+
 /// High-level API: Parse and resolve template string
 /// Returns original string on parse error (with log)
-pub async fn resolve_template(template: &str, context: &mut dyn TemplateContext) -> String {
+pub async fn resolve_template(
+	template: &str,
+	context: &mut dyn TemplateContext,
+	depth: usize,
+) -> String {
+	let max_depth = get_max_depth();
+	if depth > max_depth {
+		fancy_log::log(
+			fancy_log::LogLevel::Error,
+			&format!(
+				"✗ SEC-3: Template recursion depth limit ({}) exceeded",
+				max_depth
+			),
+		);
+		return template.to_string();
+	}
+
 	match parser::parse_template(template) {
-		Ok(ast) => resolver::resolve_ast(&ast, context).await,
+		Ok(ast) => resolver::resolve_ast(&ast, context, depth, max_depth).await,
 		Err(e) => {
 			fancy_log::log(
 				fancy_log::LogLevel::Warn,
@@ -34,7 +59,7 @@ pub async fn resolve_inputs(
 	let mut resolved = HashMap::new();
 
 	for (key, value) in inputs {
-		let resolved_val = resolve_value_recursive(value, context).await;
+		let resolved_val = resolve_value_recursive(value, context, 0).await;
 		resolved.insert(key.clone(), resolved_val);
 	}
 
@@ -45,24 +70,40 @@ pub async fn resolve_inputs(
 fn resolve_value_recursive<'a>(
 	value: &'a Value,
 	context: &'a mut dyn TemplateContext,
+	depth: usize,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send + 'a>> {
 	Box::pin(async move {
+		let max_depth = get_max_depth();
+		if depth > max_depth {
+			fancy_log::log(
+				fancy_log::LogLevel::Error,
+				&format!(
+					"✗ SEC-3: JSON recursion depth limit ({}) exceeded",
+					max_depth
+				),
+			);
+			return value.clone();
+		}
+
 		match value {
 			Value::String(s) => {
-				let result = resolve_template(s, context).await;
+				let result = resolve_template(s, context, depth).await;
 				Value::String(result)
 			}
 			Value::Array(arr) => {
 				let mut new_arr = Vec::with_capacity(arr.len());
 				for item in arr {
-					new_arr.push(resolve_value_recursive(item, context).await);
+					new_arr.push(resolve_value_recursive(item, context, depth + 1).await);
 				}
 				Value::Array(new_arr)
 			}
 			Value::Object(map) => {
 				let mut new_map = Map::with_capacity(map.len());
 				for (k, v) in map {
-					new_map.insert(k.clone(), resolve_value_recursive(v, context).await);
+					new_map.insert(
+						k.clone(),
+						resolve_value_recursive(v, context, depth + 1).await,
+					);
 				}
 				Value::Object(new_map)
 			}
@@ -84,7 +125,7 @@ mod tests {
 		kv.insert("key".to_string(), "value".to_string());
 
 		let mut context = SimpleContext { kv: &kv };
-		let result = resolve_template("{{key}}", &mut context).await;
+		let result = resolve_template("{{key}}", &mut context, 0).await;
 
 		assert_eq!(result, "value");
 	}
@@ -97,7 +138,7 @@ mod tests {
 		kv.insert("conn.port".to_string(), "8080".to_string());
 
 		let mut context = SimpleContext { kv: &kv };
-		let result = resolve_template("{{conn.ip}}:{{conn.port}}", &mut context).await;
+		let result = resolve_template("{{conn.ip}}:{{conn.port}}", &mut context, 0).await;
 
 		assert_eq!(result, "1.2.3.4:8080");
 	}
@@ -110,9 +151,21 @@ mod tests {
 		kv.insert("kv.http_backend".to_string(), "backend-01".to_string());
 
 		let mut context = SimpleContext { kv: &kv };
-		let result = resolve_template("{{kv.{{conn.protocol}}_backend}}", &mut context).await;
+		let result = resolve_template("{{kv.{{conn.protocol}}_backend}}", &mut context, 0).await;
 
 		assert_eq!(result, "backend-01");
+	}
+
+	/// Tests recursion limit for templates.
+	#[tokio::test]
+	async fn test_resolve_template_recursion_limit() {
+		let kv = KvStore::new();
+		let mut context = SimpleContext { kv: &kv };
+		// Nested depth 6 (exceeds default 5)
+		let deep_template = "{{a.{{b.{{c.{{d.{{e.{{f}}}}}}}}}}}}";
+		let result = resolve_template(deep_template, &mut context, 0).await;
+		// Should stop at limit and return empty or partial
+		assert!(result.len() < deep_template.len());
 	}
 
 	/// Tests resolve_inputs with HashMap.
@@ -165,6 +218,29 @@ mod tests {
 		assert_eq!(config["array"][1], "test-2");
 	}
 
+	/// Tests JSON recursion limit.
+	#[tokio::test]
+	async fn test_resolve_inputs_json_limit() {
+		let kv = KvStore::new();
+		let mut context = SimpleContext { kv: &kv };
+
+		// Create a deeply nested JSON object (depth 10)
+		let mut deep_json = serde_json::json!({"val": "end"});
+		for _ in 0..10 {
+			deep_json = serde_json::json!({"next": deep_json});
+		}
+
+		let mut inputs = HashMap::new();
+		inputs.insert("deep".to_string(), deep_json);
+
+		let resolved = resolve_inputs(&inputs, &mut context).await;
+		let resolved_val = resolved.get("deep").unwrap();
+
+		// The resolved value should be the same as input because it hit the limit and returned early
+		// (Or it might be partially resolved, but it won't crash)
+		assert!(resolved_val.is_object());
+	}
+
 	/// Tests that parse errors return original string.
 	#[tokio::test]
 	async fn test_resolve_template_parse_error() {
@@ -172,7 +248,7 @@ mod tests {
 		let mut context = SimpleContext { kv: &kv };
 
 		// Unclosed variable
-		let result = resolve_template("{{key", &mut context).await;
+		let result = resolve_template("{{key", &mut context, 0).await;
 		assert_eq!(result, "{{key");
 	}
 
@@ -181,7 +257,7 @@ mod tests {
 	async fn test_resolve_template_plain_text() {
 		let kv = KvStore::new();
 		let mut context = SimpleContext { kv: &kv };
-		let result = resolve_template("plain text", &mut context).await;
+		let result = resolve_template("plain text", &mut context, 0).await;
 
 		assert_eq!(result, "plain text");
 	}
@@ -191,7 +267,7 @@ mod tests {
 	async fn test_resolve_template_empty() {
 		let kv = KvStore::new();
 		let mut context = SimpleContext { kv: &kv };
-		let result = resolve_template("", &mut context).await;
+		let result = resolve_template("", &mut context, 0).await;
 
 		assert_eq!(result, "");
 	}

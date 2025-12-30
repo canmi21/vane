@@ -3,13 +3,15 @@
 use super::context::TemplateContext;
 use super::parser::TemplateNode;
 
-/// Maximum recursion depth to prevent infinite loops
-const MAX_DEPTH: usize = 10;
-
 /// Resolve AST to final string
 /// Never fails - returns original template string if key not found
-pub async fn resolve_ast(nodes: &[TemplateNode], context: &mut dyn TemplateContext) -> String {
-	resolve_ast_with_depth(nodes, context, 0).await
+pub async fn resolve_ast(
+	nodes: &[TemplateNode],
+	context: &mut dyn TemplateContext,
+	depth: usize,
+	max_depth: usize,
+) -> String {
+	resolve_ast_with_depth(nodes, context, depth, max_depth).await
 }
 
 /// Internal resolver with depth tracking
@@ -17,15 +19,16 @@ fn resolve_ast_with_depth<'a>(
 	nodes: &'a [TemplateNode],
 	context: &'a mut dyn TemplateContext,
 	depth: usize,
+	max_depth: usize,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + 'a>> {
 	Box::pin(async move {
-		// Prevent infinite recursion
-		if depth > MAX_DEPTH {
+		// Prevent infinite recursion (SEC-3)
+		if depth > max_depth {
 			fancy_log::log(
-				fancy_log::LogLevel::Warn,
+				fancy_log::LogLevel::Error,
 				&format!(
-					"⚠ Template recursion depth limit ({}) exceeded, stopping resolution",
-					MAX_DEPTH
+					"✗ SEC-3: Template recursion depth limit ({}) exceeded",
+					max_depth
 				),
 			);
 			return String::new();
@@ -40,7 +43,7 @@ fn resolve_ast_with_depth<'a>(
 				}
 				TemplateNode::Variable { parts } => {
 					// Recursively resolve nested parts
-					let key = resolve_ast_with_depth(parts, context, depth + 1).await;
+					let key = resolve_ast_with_depth(parts, context, depth + 1, max_depth).await;
 
 					// Lookup in context (never fails, returns original on error)
 					let value = context.get(&key).await;
@@ -69,7 +72,7 @@ mod tests {
 
 		let mut context = SimpleContext { kv: &kv };
 		let ast = parse_template("{{key}}").unwrap();
-		let result = resolve_ast(&ast, &mut context).await;
+		let result = resolve_ast(&ast, &mut context, 0, 5).await;
 
 		assert_eq!(result, "value");
 	}
@@ -83,7 +86,7 @@ mod tests {
 
 		let mut context = SimpleContext { kv: &kv };
 		let ast = parse_template("{{conn.ip}}:{{conn.port}}").unwrap();
-		let result = resolve_ast(&ast, &mut context).await;
+		let result = resolve_ast(&ast, &mut context, 0, 5).await;
 
 		assert_eq!(result, "1.2.3.4:8080");
 	}
@@ -97,7 +100,7 @@ mod tests {
 
 		let mut context = SimpleContext { kv: &kv };
 		let ast = parse_template("{{kv.{{conn.protocol}}_backend}}").unwrap();
-		let result = resolve_ast(&ast, &mut context).await;
+		let result = resolve_ast(&ast, &mut context, 0, 5).await;
 
 		assert_eq!(result, "backend-01");
 	}
@@ -111,7 +114,7 @@ mod tests {
 
 		let mut context = SimpleContext { kv: &kv };
 		let ast = parse_template("https://{{kv.{{geo.country}}_domain}}/api").unwrap();
-		let result = resolve_ast(&ast, &mut context).await;
+		let result = resolve_ast(&ast, &mut context, 0, 5).await;
 
 		assert_eq!(result, "https://api.example.com/api");
 	}
@@ -122,7 +125,7 @@ mod tests {
 		let kv = KvStore::new();
 		let mut context = SimpleContext { kv: &kv };
 		let ast = parse_template("{{missing}}").unwrap();
-		let result = resolve_ast(&ast, &mut context).await;
+		let result = resolve_ast(&ast, &mut context, 0, 5).await;
 
 		assert_eq!(result, "{{missing}}");
 	}
@@ -132,7 +135,7 @@ mod tests {
 	async fn test_resolve_empty() {
 		let kv = KvStore::new();
 		let mut context = SimpleContext { kv: &kv };
-		let result = resolve_ast(&[], &mut context).await;
+		let result = resolve_ast(&[], &mut context, 0, 5).await;
 
 		assert_eq!(result, "");
 	}
@@ -143,7 +146,7 @@ mod tests {
 		let kv = KvStore::new();
 		let mut context = SimpleContext { kv: &kv };
 		let ast = parse_template("plain text").unwrap();
-		let result = resolve_ast(&ast, &mut context).await;
+		let result = resolve_ast(&ast, &mut context, 0, 5).await;
 
 		assert_eq!(result, "plain text");
 	}
