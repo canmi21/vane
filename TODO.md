@@ -80,6 +80,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.1+ | Integration test optimization (post-auth) | 2025-12-30 | (test framework improvements) |
 | 2.7 | Call QUIC session cleanup (memory leak fix) | 2025-12-30 | [`.report/reliability.md#rel-1`](.report/reliability.md#rel-1) |
 | 2.10 | Fix flow engine ResolvedInputs cloning | 2025-12-30 | [`.report/performance.md#perf-1`](.report/performance.md#perf-1) |
+| 2.11 | Optimize flow path string allocations | 2025-12-30 | [`.report/performance.md#perf-2`](.report/performance.md#perf-2) |
+| 2.2 | Fix external command injection vulnerability | 2025-12-30 | [`.report/security.md#sec-2`](.report/security.md#sec-2) |
 
 ---
 
@@ -113,8 +115,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
 | 2.1 | Add authentication to management API | 🔴 CRITICAL | ✅ **Done** | [SEC-1](.report/security.md#sec-1) |
-| 2.2 | Fix external command injection vulnerability | 🔴 CRITICAL | Pending | [SEC-2](.report/security.md#sec-2) |
-| 2.3 | Implement template recursion DoS protection | 🔴 CRITICAL | Pending | [SEC-3](.report/security.md#sec-3) |
+| 2.2 | Fix external command injection vulnerability | 🔴 CRITICAL | ✅ **Done** | [SEC-2](.report/security.md#sec-2) |
+| 2.3 | Implement template recursion DoS protection | 🔴 CRITICAL | 📌 **Next** | [SEC-3](.report/security.md#sec-3) |
 | 2.4 | Add template size limits | 🔴 CRITICAL | Pending | [SEC-4](.report/security.md#sec-4) |
 | 2.5 | Fix config reload race condition (TOCTOU) | 🔴 CRITICAL | Pending | [SEC-5](.report/security.md#sec-5) |
 | 2.6 | Add path canonicalization to loader | 🔴 CRITICAL | Pending | [SEC-6](.report/security.md#sec-6) |
@@ -132,7 +134,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
 | 2.10 | Fix flow engine ResolvedInputs cloning | 🔴 CRITICAL | ✅ **Done** | [PERF-1](.report/performance.md#perf-1) |
-| 2.11 | Optimize flow path string allocations | 🔴 CRITICAL | 📌 **Next** | [PERF-2](.report/performance.md#perf-2) |
+| 2.11 | Optimize flow path string allocations | 🔴 CRITICAL | ✅ **Done** | [PERF-2](.report/performance.md#perf-2) |
 
 ### 🟠 HIGH Priority (Fix in Next Release)
 

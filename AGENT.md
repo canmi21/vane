@@ -93,6 +93,24 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
       - Introduced `push_sanitized` to eliminate intermediate sanitized plugin name allocations.
     - **Result**: Reduced allocation count from 2+ per step to exactly 1, and eliminated `format!` parsing overhead.
 
+12. ✅ **Task 2.2: Fix External Command Injection (SEC-2)**
+    - **Problem**: External command driver allowed execution of arbitrary binaries anywhere on the system.
+    - **Solution**: Implemented a "Trusted Bin Root" security policy.
+    - **Changes**:
+      - Restricted command execution to `$CONFIG_DIR/bin/` directory.
+      - Added strict path validation and canonicalization during both registration and runtime execution.
+      - Automatically creates `bin/` directory during startup initialization.
+    - **Result**: Prohibits unauthorized system command execution, ensuring secure external plugin integration in cloud-native environments.
+
+13. ✅ **Task 2.3: Template Recursion DoS Protection (SEC-3)**
+    - **Problem**: Template engine and JSON resolution lacked depth limits, vulnerable to infinite recursion or stack overflow.
+    - **Solution**: Implemented a unified recursion depth counter across the resolution engine.
+    - **Changes**:
+      - Added `MAX_TEMPLATE_DEPTH` environment variable (default: 5).
+      - Propagated `depth` counter through `resolve_template`, `resolve_inputs`, and `resolve_value_recursive`.
+      - Enforced strict depth checks at every recursion point, returning original values on violation.
+    - **Result**: Protects Vane from resource exhaustion via malicious nested configurations.
+
 ---
 
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
@@ -113,7 +131,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 - [`.report/performance.md`](.report/performance.md) - 8 performance bottlenecks
 - [`.report/maintainability-surface.md`](.report/maintainability-surface.md) - 24 面子 issues (Phase III)
 
-**Next Task**: Task 2.2 - Fix external command injection vulnerability (SEC-2)
+**Next Task**: Task 2.4 - Add template size limits (SEC-4)
 
 ---
 
@@ -183,11 +201,11 @@ ONLY after user approval:
 2. ✅ ~~**Task 2.7** - QUIC Session Cleanup (REL-1)~~ **COMPLETE**
 3. ✅ ~~**Task 2.10** - Flow Engine Cloning Fix (PERF-1)~~ **COMPLETE**
 4. ✅ ~~**Task 2.11** - Flow Path String Optimization (PERF-2)~~ **COMPLETE**
-5. **Task 2.2** - Command Injection Fix (SEC-2) ← **NEXT**
+5. ✅ ~~**Task 2.2** - Command Injection Fix (SEC-2)~~ **COMPLETE**
+6. ✅ ~~**Task 2.3** - Template DoS Protection (SEC-3)~~ **COMPLETE**
+7. **Task 2.4** - Template Size Limits (SEC-4) ← **NEXT**
 
 ### Next Week (Critical Vulnerabilities)
-6. **Task 2.3** - Template DoS Protection (SEC-3)
-7. **Task 2.4** - Template Size Limits (SEC-4)
 8. **Task 2.5** - Config Reload Race Fix (SEC-5)
 9. **Task 2.6** - Path Canonicalization (SEC-6)
 
@@ -200,34 +218,9 @@ ONLY after user approval:
 
 ## 📝 Version Information
 
-**Current Version**: 0.7.3
+**Current Version**: 0.7.5
 **Target Version**: 0.8.0 (After remaining CRITICAL fixes complete)
 **Expected Versions**:
-- 0.7.4: Tasks 2.2-2.4 (Security fixes)
+- 0.7.6: Task 2.4 (Template size limits)
 - 0.8.0: All CRITICAL + HIGH fixes complete
 
----
-
-## 🚨 Production Readiness Status
-
-**Current Status**: ⚠️ **NOT PRODUCTION READY**
-
-**Blocking Issues:**
-- No authentication on management API (privilege escalation risk)
-- QUIC memory leak (unbounded growth)
-- External command injection vulnerability
-- Template DoS vectors
-
-**Minimum Required for Production:**
-- Complete Tasks 2.1-2.6 (6 critical security fixes)
-- Complete Task 2.7 (QUIC memory leak)
-- Complete Tasks 2.10-2.11 (performance fixes)
-
-**Recommended for Production:**
-- Complete all 11 CRITICAL tasks
-- Complete at least 10/14 HIGH tasks
-- Implement monitoring for remaining issues
-
----
-
-**END OF SESSION MARKER**
