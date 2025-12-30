@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.13 (30. Dec, 2025)
+
+- **Added:** Implemented protocol-aware configuration validation. Vane now enforces strict compatibility checks between plugins and protocols (e.g., HTTP-specific plugins in HTTP flows) at load time, adhering to the "Keep-Last-Known-Good" strategy.
+- **Added:** Introduced a background health check task for external plugins (default 15m interval, configurable via `EXTERNAL_PLUGIN_CHECK_INTERVAL_MINS`) to monitor connectivity without impacting traffic processing.
+- **Changed:** Refactored the plugin system to introduce `GenericMiddleware` and `HttpMiddleware` traits, establishing a clear boundary between universal cross-layer logic and protocol-specific internal components.
+- **Changed:** Enhanced the `Plugin` trait with `supported_protocols` metadata and type-safe downcasting support for the new middleware hierarchy.
+- **Changed:** Migrated core internal plugins (`CommonMatch`, `RateLimit`, `ProtocolDetect`, `FetchUpstream`, `CGI`, `Static`) to implement the new tiered middleware traits.
+- **Fixed:** Overhauled external middleware drivers (`HTTP`, `Unix`, `Command`) to return a standardized `failure` branch upon network or execution errors, enabling resilient "Try-Catch" flow logic for user-defined pipelines.
+
 ## 0.6.12 (30. Dec, 2025)
 
 - **Changed:** Extracted generic hot-reload framework to `src/common/hotswap` and `src/common/loader`, unifying configuration loading and file watching across all modules.
