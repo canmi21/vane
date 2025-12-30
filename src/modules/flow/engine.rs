@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use fancy_log::{LogLevel, log};
 
 use crate::modules::{
-	plugins::model::{ConnectionObject, MiddlewareOutput, ProcessingStep, TerminatorResult},
+	plugins::model::{ConnectionObject, ProcessingStep, TerminatorResult},
 	plugins::registry,
 	stack::protocol::application::container::Container,
 };
@@ -78,116 +78,102 @@ async fn execute_recursive<C: ExecutionContext>(
 		),
 	);
 
-	// 4. Try middleware dispatch (Priority: Http > Generic > Legacy)
-	let output_result: Option<Result<MiddlewareOutput>> =
-		if let Some(http_middleware) = plugin.as_http_middleware() {
-			// 4.1 Protocol-Specific HTTP (Internal only)
-			Some(
-				http_middleware
-					.execute(context.as_any_mut(), resolved_inputs.clone())
-					.await
-					.with_context(|| format!("Error executing HTTP middleware '{}'", plugin_name)),
-			)
-		} else if let Some(generic_middleware) = plugin.as_generic_middleware() {
-			// 4.2 Generic Middleware (Internal or External)
-			Some(
-				generic_middleware
-					.execute(resolved_inputs.clone())
-					.await
-					.with_context(|| format!("Error executing generic middleware '{}'", plugin_name)),
-			)
-		} else if let Some(l7_middleware) = plugin.as_l7_middleware() {
-			// 4.3 Legacy L7 Fallback
-			Some(
-				l7_middleware
-					.execute_l7(context.as_any_mut(), resolved_inputs.clone())
-					.await
-					.with_context(|| format!("Error executing L7 middleware '{}'", plugin_name)),
-			)
-		} else if let Some(middleware) = plugin.as_middleware() {
-			// 4.4 Legacy generic Fallback
-			Some(
-				middleware
-					.execute(resolved_inputs.clone())
-					.await
-					.with_context(|| format!("Error executing middleware '{}'", plugin_name)),
-			)
+	// 4. Try dispatch (Priority: Middleware > Terminator)
+	let output = if let Some(http_middleware) = plugin.as_http_middleware() {
+		// 4.1 Protocol-Specific HTTP (Internal only)
+		http_middleware
+			.execute(context.as_any_mut(), resolved_inputs)
+			.await
+			.with_context(|| format!("Error executing HTTP middleware '{}'", plugin_name))?
+	} else if let Some(generic_middleware) = plugin.as_generic_middleware() {
+		// 4.2 Generic Middleware (Internal or External)
+		generic_middleware
+			.execute(resolved_inputs)
+			.await
+			.with_context(|| format!("Error executing generic middleware '{}'", plugin_name))?
+	} else if let Some(l7_middleware) = plugin.as_l7_middleware() {
+		// 4.3 Legacy L7 Fallback
+		l7_middleware
+			.execute_l7(context.as_any_mut(), resolved_inputs)
+			.await
+			.with_context(|| format!("Error executing L7 middleware '{}'", plugin_name))?
+	} else if let Some(middleware) = plugin.as_middleware() {
+		// 4.4 Legacy generic Fallback
+		middleware
+			.execute(resolved_inputs)
+			.await
+			.with_context(|| format!("Error executing middleware '{}'", plugin_name))?
+	} else {
+		// 5. Try terminator dispatch (L7 Priority > Standard)
+		let terminator_result = if let Some(l7_terminator) = plugin.as_l7_terminator() {
+			l7_terminator
+				.execute_l7(context.as_any_mut(), resolved_inputs)
+				.await
+				.with_context(|| format!("Error executing L7 terminator '{}'", plugin_name))?
+		} else if let Some(terminator) = plugin.as_terminator() {
+			terminator
+				.execute(resolved_inputs, context.kv_mut(), conn)
+				.await
+				.with_context(|| format!("Error executing terminator '{}'", plugin_name))?
 		} else {
-			None
+			return Err(anyhow!(
+				"Plugin '{}' is neither Middleware nor Terminator",
+				plugin_name
+			));
 		};
 
-	if let Some(result) = output_result {
-		let output = result?;
-
-		log(
-			LogLevel::Debug,
-			&format!(
-				"✓ Middleware '{}' returned branch: '{}'",
-				plugin_name, output.branch
-			),
-		);
-
-		// Store KV updates with scoped keys
-		if let Some(updates) = output.store {
-			let kv = context.kv_mut();
-			for (raw_key, value) in updates {
-				let scoped_key = key_scoping::format_scoped_key(&flow_path, plugin_name, &raw_key);
+		match &terminator_result {
+			TerminatorResult::Finished => {
 				log(
 					LogLevel::Debug,
-					&format!("⚙ KV Update: {} = {}", scoped_key, value),
+					&format!("✓ Flow terminated successfully by '{}'", plugin_name),
 				);
-				kv.insert(scoped_key, value);
+			}
+			TerminatorResult::Upgrade { protocol, .. } => {
+				log(
+					LogLevel::Info,
+					&format!(
+						"➜ Flow upgrade requested by '{}' -> Protocol: {}",
+						plugin_name, protocol
+					),
+				);
 			}
 		}
 
-		// Branch to next step based on output
-		if let Some(next_step) = instance.output.get(output.branch.as_ref()) {
-			let next_path = key_scoping::next_path(&flow_path, plugin_name, output.branch.as_ref());
-			return Box::pin(execute_recursive(next_step, context, conn, next_path)).await;
-		} else {
-			return Err(anyhow!(
-				"Flow stalled at '{}': branch '{}' not configured in output",
-				plugin_name,
-				output.branch
-			));
-		}
-	}
-
-	// 5. Try terminator dispatch (L7 Priority > Standard)
-	let terminator_result = if let Some(l7_terminator) = plugin.as_l7_terminator() {
-		l7_terminator
-			.execute_l7(context.as_any_mut(), resolved_inputs)
-			.await
-			.with_context(|| format!("Error executing L7 terminator '{}'", plugin_name))?
-	} else if let Some(terminator) = plugin.as_terminator() {
-		terminator
-			.execute(resolved_inputs, context.kv_mut(), conn)
-			.await
-			.with_context(|| format!("Error executing terminator '{}'", plugin_name))?
-	} else {
-		return Err(anyhow!(
-			"Plugin '{}' is neither Middleware nor Terminator",
-			plugin_name
-		));
+		return Ok(terminator_result);
 	};
 
-	match &terminator_result {
-		TerminatorResult::Finished => {
+	// 6. Handle Middleware Output (If we reached here, it was a middleware)
+	log(
+		LogLevel::Debug,
+		&format!(
+			"✓ Middleware '{}' returned branch: '{}'",
+			plugin_name, output.branch
+		),
+	);
+
+	// Store KV updates with scoped keys
+	if let Some(updates) = output.store {
+		let kv = context.kv_mut();
+		for (raw_key, value) in updates {
+			let scoped_key = key_scoping::format_scoped_key(&flow_path, plugin_name, &raw_key);
 			log(
 				LogLevel::Debug,
-				&format!("✓ Flow terminated successfully by '{}'", plugin_name),
+				&format!("⚙ KV Update: {} = {}", scoped_key, value),
 			);
-		}
-		TerminatorResult::Upgrade { protocol, .. } => {
-			log(
-				LogLevel::Info,
-				&format!(
-					"➜ Flow upgrade requested by '{}' -> Protocol: {}",
-					plugin_name, protocol
-				),
-			);
+			kv.insert(scoped_key, value);
 		}
 	}
 
-	Ok(terminator_result)
+	// Branch to next step based on output
+	if let Some(next_step) = instance.output.get(output.branch.as_ref()) {
+		let next_path = key_scoping::next_path(&flow_path, plugin_name, output.branch.as_ref());
+		Box::pin(execute_recursive(next_step, context, conn, next_path)).await
+	} else {
+		Err(anyhow!(
+			"Flow stalled at '{}': branch '{}' not configured in output",
+			plugin_name,
+			output.branch
+		))
+	}
 }
