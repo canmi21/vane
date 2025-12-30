@@ -2,7 +2,7 @@
 
 use crate::{
 	core::{response, root::root_handler},
-	middleware::logger,
+	middleware::{auth, logger},
 	modules::{
 		plugins::handler as plugins_handler,
 		ports::{handler as ports_handler, model::PortState},
@@ -39,6 +39,9 @@ pub fn create_router() -> Router<PortState> {
 				.put(plugins_handler::update_plugin_handler)
 				.delete(plugins_handler::delete_plugin_handler),
 		)
+		// Global authentication middleware - ALL endpoints require ACCESS_TOKEN
+		.layer(middleware::from_fn(auth::require_access_token))
+		// Logging middleware (after auth, so only authenticated requests are logged)
 		.layer(middleware::from_fn(logger::log_requests))
 		.fallback(not_found_handler)
 }

@@ -40,13 +40,13 @@ pub struct ConfigChangeReceivers {
 }
 
 /// Ensures that all required directories and default files exist.
-fn ensure_config_files_exist() {
+pub fn ensure_config_files_exist_sync() {
 	getconf::init_config_dirs(vec!["listener", "resolver", "certs", "application"]);
 	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"]);
 }
 
 /// Spawns background tasks to watch the config directory and notify modules of changes.
-fn start_config_watchers() -> ConfigChangeReceivers {
+pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 	let (ports_debounced_tx, ports_debounced_rx) = mpsc::channel(1);
 	let (nodes_debounced_tx, nodes_debounced_rx) = mpsc::channel(1);
 	let (resolvers_debounced_tx, resolvers_debounced_rx) = mpsc::channel(1);
@@ -169,12 +169,9 @@ fn start_config_watchers() -> ConfigChangeReceivers {
 	}
 }
 
-/// Runs all pre-flight checks and starts background tasks required by the application.
-pub async fn initialize() -> ConfigChangeReceivers {
-	ensure_config_files_exist();
-	let config_change_receivers = start_config_watchers();
+/// Starts background tasks (health checks, session cleanup).
+pub async fn start_background_tasks() {
 	health::initial_health_check().await;
 	health::start_periodic_health_checkers();
 	session::start_session_cleanup_task();
-	config_change_receivers
 }
