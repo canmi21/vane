@@ -13,17 +13,10 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
     """
     Tests the behavior when an external plugin's executable is deleted
     after registration but before execution (runtime failure).
-
-    Scenario:
-    1. Register a plugin using a temporary copy of a binary.
-    2. Verify traffic flows correctly.
-    3. Delete the binary from the disk.
-    4. Verify that subsequent requests fail (Connection Reset/Abort)
     """
     http_server = None
-    temp_bin_dir = None
     try:
-        # --- 1. Setup Paths & Temp Binary ---
+        # --- 1. Setup Paths ---
         project_root = pathlib.Path(__file__).parent.parent.parent.resolve()
         source_bin = project_root / "examples/plugins/exec/test_c_template"
 
@@ -32,13 +25,6 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                 True,
                 f"  ⚠ SKIPPED: Source binary not found (needs compilation): {source_bin.name}",
             )
-
-        # Create a temp dir and copy binary there
-        temp_bin_dir = pathlib.Path(tempfile.mkdtemp(prefix="vane_exec_fail_test_"))
-        target_bin = temp_bin_dir / "test_c_template_copy"
-
-        shutil.copy(source_bin, target_bin)
-        os.chmod(target_bin, 0o755)  # Ensure executable
 
         # --- 2. Infra Setup ---
         api_port = net_utils.find_available_tcp_port()
@@ -66,17 +52,25 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
         session.trust_env = False
 
         with vane:
-            if not wait_for_log(vane, f"Listening on http://localhost:{api_port}", 10):
+            # --- 4. Prepare Program in Trusted Bin ---
+            try:
+                # Copy binary to Vane's trusted bin root
+                bin_name = vane.copy_to_bin(str(source_bin), target_name="test_fragile_bin_binary")
+                target_bin_path = vane.bin_dir / bin_name
+            except Exception as e:
+                return (False, f"  └─ Details: SEC-2 Prep failed: {e}")
+
+            if not wait_for_log(vane, f"✓ Management console listening on unix:", 10):
                 return (False, f"  └─ Details: Vane API failed to start.")
 
             # Inject Authorization
             session.headers.update({"Authorization": f"Bearer {vane.access_token}"})
 
-            # --- 4. Register Plugin (Pointing to Temp Binary) ---
+            # --- 5. Register Plugin ---
             plugin_name = "test_fragile_bin"
             driver_config = {
                 "type": "command",
-                "program": str(target_bin),
+                "program": bin_name, # Use filename only
                 "args": [],
                 "env": {},
             }
@@ -99,10 +93,10 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
 
             if debug_mode:
                 print(
-                    f"    ➜ Registered plugin '{plugin_name}' pointing to {target_bin}"
+                    f"    ➜ Registered plugin '{plugin_name}' pointing to {target_bin_path}"
                 )
 
-            # --- 5. Configure Listener ---
+            # --- 6. Configure Listener ---
             config = f"""
 connection:
   {plugin_name}:
@@ -125,7 +119,7 @@ connection:
             if not wait_for_log(vane, f"PORT {proxy_port} TCP UP", 5):
                 return (False, f"  └─ Details: Listener failed to start.")
 
-            # --- 6. Phase 1: Verify Normal Operation ---
+            # --- 7. Phase 1: Verify Normal Operation ---
             try:
                 resp = session.get(
                     f"http://127.0.0.1:{proxy_port}/phase1_ok", timeout=2.0
@@ -144,12 +138,12 @@ connection:
                     f"  └─ Details: Phase 1: Backend did not receive request.",
                 )
 
-            # --- 7. Phase 2: Sabotage - Delete the binary ---
+            # --- 8. Phase 2: Sabotage - Delete the binary ---
             if debug_mode:
-                print(f"    ➜ Deleting binary: {target_bin}")
-            os.remove(target_bin)
+                print(f"    ➜ Deleting binary: {target_bin_path}")
+            os.remove(target_bin_path)
 
-            # --- 8. Phase 3: Verify Runtime Failure ---
+            # --- 9. Phase 3: Verify Runtime Failure ---
             # Expectation: Vane tries to spawn -> Fails -> Flow Error -> Connection Closed
             failed_correctly = False
             fail_msg = ""
@@ -171,7 +165,7 @@ connection:
                     f"Runtime missing binary test failed.\n"
                     f"      \n"
                     f"      ├─ Scenario\n"
-                    f"      │  ├─ Action: Deleted binary '{target_bin}' while listener was active.\n"
+                    f"      │  ├─ Action: Deleted binary '{target_bin_path}' while listener was active.\n"
                     f"      │  └─ Request: Sent traffic to listener.\n"
                     f"      └─ Result\n"
                     f"         ├─ Expected: Connection Abort (due to spawn failure)\n"
@@ -191,7 +185,5 @@ connection:
     finally:
         if http_server:
             http_server.stop()
-        if temp_bin_dir and temp_bin_dir.exists():
-            shutil.rmtree(temp_bin_dir)
 
     return (True, "")

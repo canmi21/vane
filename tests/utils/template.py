@@ -6,6 +6,8 @@ import pathlib
 import threading
 import sys
 import secrets
+import shutil
+import os
 from typing import List, Dict
 
 
@@ -53,9 +55,53 @@ class VaneInstance:
         self.found_event = threading.Event()
         self._temp_dir_manager = tempfile.TemporaryDirectory()
         self.tmpdir = pathlib.Path(self._temp_dir_manager.name)
+        self.bin_dir = self.tmpdir / "bin"
+
+    def copy_to_bin(self, source_path: str, target_name: str = None) -> str:
+        """
+        Copies a file to the trusted bin directory and returns the new name.
+        On macOS, if copying a system binary fails due to permissions, creates a mock script.
+        """
+        source = pathlib.Path(source_path)
+        if not source.exists():
+            # Try finding it via which if it's just a name
+            found = shutil.which(source_path)
+            if found:
+                source = pathlib.Path(found)
+            else:
+                raise FileNotFoundError(f"Source path {source_path} not found.")
+
+        target_name = target_name or source.name
+        target_path = self.bin_dir / target_name
+        
+        # Create bin dir if not exists
+        self.bin_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            shutil.copy(source, target_path)
+            os.chmod(target_path, 0o755)
+        except OSError as e:
+            # Fallback for macOS system binaries (Operation not permitted)
+            if e.errno == 1:
+                # Create a mock shell script that satisfies Vane's plugin protocol.
+                # It reads from stdin (to drain it) and returns a success branch.
+                mock_content = (
+                    "#!/bin/sh\n"
+                    "cat > /dev/null\n" # Consume stdin
+                    'echo \'{"branch":"success","store":{}}\'\n'
+                )
+                target_path.write_text(mock_content)
+                os.chmod(target_path, 0o755)
+            else:
+                raise e
+
+        return target_name
 
     def __enter__(self):
         """Sets up the environment and starts the Vane process."""
+        # Ensure bin directory exists
+        self.bin_dir.mkdir(parents=True, exist_ok=True)
+
         # Start with sane defaults for isolated testing
         final_env_vars = {
             "CONFIG_DIR": str(self.tmpdir),

@@ -20,9 +20,15 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
         api_port = net_utils.find_available_tcp_port()
         access_token = secrets.token_hex(16)
 
-        # Use a simple existing command like "ls" or "echo" if script not found,
-        # just to satisfy the registration (since we skip validation).
-        plugin_script = "dummy_script.py"
+        # Prepare trusted bin
+        bin_dir = os.path.join(test_config_dir, "bin")
+        os.makedirs(bin_dir, exist_ok=True)
+        echo_path = shutil.which("echo")
+        if not echo_path:
+             return (False, "echo not found on system")
+        target_echo = os.path.join(bin_dir, "echo")
+        shutil.copy(echo_path, target_echo)
+        os.chmod(target_echo, 0o755)
 
         env_vars = {
             "LOG_LEVEL": "debug" if debug_mode else "info",
@@ -35,7 +41,6 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
         }
 
         # Ensure we run the 'vane' binary from the project target/debug or release
-        # Assuming 'cargo run' or binary is in PATH. If using 'vane', make sure it's compiled.
         vane_bin = "vane"
 
         session = requests.Session()
@@ -61,8 +66,8 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                 "role": "middleware",
                 "driver": {
                     "type": "command",
-                    "program": "python3",
-                    "args": [plugin_script],
+                    "program": "echo",
+                    "args": ["hello"],
                     "env": {},
                 },
                 "params": [],

@@ -25,6 +25,12 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
         session.trust_env = False
 
         with vane:
+            # Prepare program in trusted bin
+            try:
+                vane.copy_to_bin("echo")
+            except Exception as e:
+                return (False, f"  └─ Details: Failed to copy 'echo' to bin: {e}")
+
             # Wait for Management API
             if not wait_for_log(vane, f"Listening on http://localhost:{api_port}", 10):
                 return (
@@ -42,7 +48,7 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                 "role": "middleware",
                 "driver": {
                     "type": "command",
-                    "program": "echo",  # Use a safe dummy command
+                    "program": "echo", # Use the file name now inside bin/
                     "args": ["hello"],
                     "env": {},
                 },
