@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.11 (30. Dec, 2025)
+
+- **Changed:** Extracted unified flow execution engine to `src/modules/flow`, eliminating code duplication across L4, L4+, and L7 layers.
+- **Changed:** Implemented `ExecutionContext` trait to abstract layer-specific data (KV Store vs Container).
+
 ## 0.6.10 (30. Dec, 2025)
 
 - **Added:** Implemented `ProtocolData` trait for protocol extension abstraction. This trait-based system allows different L7 protocols (HTTP, DNS, gRPC) to extend the Container with protocol-specific fields without polluting the core structure, providing a foundation for multi-protocol support.
