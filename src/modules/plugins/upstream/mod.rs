@@ -88,7 +88,10 @@ impl L7Middleware for FetchUpstreamPlugin {
 			.downcast_mut::<Container>()
 			.ok_or_else(|| anyhow!("Context is not a Container"))?;
 
-		let is_client_ws_upgrade = container.client_upgrade.is_some();
+		let is_client_ws_upgrade = container
+			.http_data()
+			.and_then(|d| d.client_upgrade.as_ref())
+			.is_some();
 		let websocket_enabled = inputs
 			.get("websocket")
 			.and_then(Value::as_bool)

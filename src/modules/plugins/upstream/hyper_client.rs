@@ -180,7 +180,9 @@ pub async fn execute_h1_websocket_request(
 				log(LogLevel::Debug, "✓ Backend accepted WebSocket upgrade");
 
 				let upstream_upgrade = hyper::upgrade::on(res);
-				container.upstream_upgrade = Some(upstream_upgrade);
+				if let Some(http_data) = container.http_data_mut() {
+					http_data.upstream_upgrade = Some(upstream_upgrade);
+				}
 
 				// 101 response has no body
 				container.response_body = PayloadState::Empty;

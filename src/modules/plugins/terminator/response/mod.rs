@@ -67,8 +67,12 @@ impl L7Terminator for SendResponsePlugin {
 
 		// Check if this is a WebSocket upgrade (both handles present)
 		if let (Some(client_upgrade), Some(upstream_upgrade)) = (
-			container.client_upgrade.take(),
-			container.upstream_upgrade.take(),
+			container
+				.http_data_mut()
+				.and_then(|d| d.client_upgrade.take()),
+			container
+				.http_data_mut()
+				.and_then(|d| d.upstream_upgrade.take()),
 		) {
 			log(
 				LogLevel::Debug,
