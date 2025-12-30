@@ -84,6 +84,10 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.2 | Fix external command injection vulnerability | 2025-12-30 | [Security Report](.report/security.md) |
 | 2.3 | Implement template recursion DoS protection | 2025-12-30 | [Security Report](.report/security.md) |
 | 2.4 | Add template size limits | 2025-12-30 | [Security Report](.report/security.md) |
+| 2.5 | Fix config reload race condition (TOCTOU) | 2025-12-30 | [Security Report](.report/security.md) |
+| 2.6 | Add path canonicalization to loader | 2025-12-30 | [Security Report](.report/security.md) |
+| 2.8 | Fix QUIC buffer management race condition | 2025-12-30 | [Reliability Report](.report/reliability.md) |
+| 2.9 | Fix external plugin status race | 2025-12-30 | [Reliability Report](.report/reliability.md) |
 
 ---
 
@@ -116,20 +120,20 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Status | File |
 |----|------|--------|------|
-| 2.1 | Add authentication to management API | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.2 | Fix external command injection vulnerability | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.3 | Implement template recursion DoS protection | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.4 | Add template size limits | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.5 | Fix config reload race condition (TOCTOU) | 🔴 CRITICAL | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.6 | Add path canonicalization to loader | 🔴 CRITICAL | 📌 **Next** | [Security Report](.report/security.md) |
+| 2.1 | Add authentication to management API | 🔴 CRITICAL | ✅ **Done** |
+| 2.2 | Fix external command injection vulnerability | 🔴 CRITICAL | ✅ **Done** |
+| 2.3 | Implement template recursion DoS protection | 🔴 CRITICAL | ✅ **Done** |
+| 2.4 | Add template size limits | 🔴 CRITICAL | ✅ **Done** |
+| 2.5 | Fix config reload race condition (TOCTOU) | 🔴 CRITICAL | ✅ **Done** |
+| 2.6 | Add path canonicalization to loader | 🔴 CRITICAL | ✅ **Done** |
 
 **Reliability Issues:**
 
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
 | 2.7 | Call QUIC session cleanup (memory leak fix) | 🔴 CRITICAL | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-| 2.8 | Fix QUIC buffer management race condition | 🔴 CRITICAL | Pending | [Reliability Report](.report/reliability.md) |
-| 2.9 | Fix external plugin status race | 🔴 CRITICAL | Pending | [Reliability Report](.report/reliability.md) |
+| 2.8 | Fix QUIC buffer management race condition | 🔴 CRITICAL | ✅ **Done** | [Reliability Report](.report/reliability.md) |
+| 2.9 | Fix external plugin status race | 🔴 CRITICAL | ✅ **Done** | [Reliability Report](.report/reliability.md) |
 
 **Performance Issues:**
 
@@ -142,7 +146,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Severity | Status | Report Reference |
 |----|------|----------|--------|------------------|
-| 2.12 | Add template parser complexity protection | 🟠 HIGH | Pending | [Security Report](.report/security.md) |
+| 2.12 | Add template parser complexity protection | 🟠 HIGH | 📌 **Next** | [Security Report](.report/security.md) |
 | 2.13 | Implement template injection protection | 🟠 HIGH | Pending | [Security Report](.report/security.md) |
 | 2.14 | Add flow execution timeout | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
 | 2.15 | Replace unwrap() in production code | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
@@ -150,14 +154,6 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
 | 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
 | 2.19 | Replace blocking I/O with async | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
-
-### 🟡 MEDIUM Priority (Address Soon)
-
-| ID | Task | Severity | Status | Report Reference |
-|----|------|----------|--------|------------------|
-| 2.20 | Add logging for QUIC muxer packet drops | 🟡 MEDIUM | Pending | [REL-7](.report/reliability.md#rel-7) |
-| 2.21 | Fix Clippy warnings (auto-fixable) | 🟡 MEDIUM | Pending | [.report/maintainability-surface.md](.report/maintainability-surface.md) |
-| 2.22 | Resolve nom dependency conflict | 🟡 MEDIUM | Pending | [.report/maintainability-surface.md](.report/maintainability-surface.md) |
 
 **Note:** See detailed reports in `.report/` for complete issue list and remediation steps
 
@@ -224,12 +220,14 @@ Lower priority tasks deferred until Phase I-III complete.
 - ✅ **External Command Security**: Implemented Trusted Bin Root policy.
 - ✅ **Template Security**: Added recursion depth and result size limits.
 - ✅ **Config Reliability**: Fixed reload race conditions and implemented Keep-Last-Known-Good strategy.
+- ✅ **Path Security**: Implemented mandatory path canonicalization in configuration loader.
+- ✅ **QUIC Reliability**: Fixed buffer race conditions and enforced packet limits.
+- ✅ **Plugin Reliability**: Implemented a passive circuit breaker for external middleware.
 
 **Next Steps - CRITICAL Fixes:**
 
-1. Task 2.6: Add path canonicalization to loader ← **NEXT**
-2. Task 2.8: Fix QUIC buffer management race condition
-3. Task 2.9: Fix external plugin status race
+1. Task 2.12: Add template parser complexity protection ← **NEXT**
+2. Task 2.13: Implement template injection protection
 
 **See AGENT.md for detailed fix workflow requirements**
 
@@ -247,5 +245,8 @@ Lower priority tasks deferred until Phase I-III complete.
 ✅ Task 2.3: Template DoS Protection
 ✅ Task 2.4: Template Size Limits
 ✅ Task 2.5: Config Reload Race Fix
-→ Task 2.6: Path Canonicalization (Next)
+✅ Task 2.6: Path Canonicalization
+✅ Task 2.8: QUIC Buffer Race Fix
+✅ Task 2.9: External Plugin Status Fix
+→ Task 2.12: Template Complexity protection (Next)
 ```
