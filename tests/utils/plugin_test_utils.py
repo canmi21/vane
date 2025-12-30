@@ -26,6 +26,11 @@ def lifecycle_test(
     session = requests.Session()
     session.trust_env = False
 
+    # Inject Authorization header
+    token = getattr(vane_instance, "access_token", None)
+    if token:
+        session.headers.update({"Authorization": f"Bearer {token}"})
+
     # --- 1. Register Plugin ---
     register_payload = {
         "name": plugin_name,

@@ -68,6 +68,9 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                     f"  └─ Details: Vane Management API failed to start on port {api_port}.",
                 )
 
+            # Inject Authorization
+            session.headers.update({"Authorization": f"Bearer {vane.access_token}"})
+
             # --- Step 1: Register the External Plugin ---
             plugin_name = "test_py_auth"
             register_payload = {

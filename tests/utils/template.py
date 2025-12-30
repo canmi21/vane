@@ -5,6 +5,7 @@ import tempfile
 import pathlib
 import threading
 import sys
+import secrets
 from typing import List, Dict
 
 
@@ -44,6 +45,7 @@ class VaneInstance:
         self.env_vars = env_vars
         self.string_to_find = string_to_find
         self.debug_mode = debug_mode
+        self.access_token = secrets.token_hex(16)  # Generate 32-char hex token
 
         self.process = None
         self.reader_thread = None
@@ -59,6 +61,7 @@ class VaneInstance:
             "CONFIG_DIR": str(self.tmpdir),
             "SOCKET_DIR": str(self.tmpdir),
             "DETECT_PUBLIC_NETWORK": "false",
+            "ACCESS_TOKEN": self.access_token,  # Default token
         }
         # Allow user-provided env_vars to override the defaults
         final_env_vars.update(self.env_vars)

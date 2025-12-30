@@ -14,7 +14,7 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
     """
     try:
         # --- Scenario 1: Test via HTTP endpoint ---
-        http_ready_string = "Listening on http://localhost:3333"
+        http_ready_string = "✓ TCP console bound to"
         with VaneInstance({}, http_ready_string, debug_mode) as vane:
             event_was_set = vane.found_event.wait(timeout=10)
             if not event_was_set:
@@ -26,7 +26,11 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                 )
 
             try:
-                response = requests.get("http://localhost:3333/", timeout=5)
+                # Add Authorization header
+                headers = {"Authorization": f"Bearer {vane.access_token}"}
+                response = requests.get(
+                    "http://localhost:3333/", headers=headers, timeout=5
+                )
                 response.raise_for_status()
                 data = response.json()
                 if data.get("status") != "success":
@@ -41,7 +45,7 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                 return (False, f"  └─ Details: HTTP request failed: {e}")
 
         # --- Scenario 2: Test via Unix Domain Socket ---
-        uds_ready_string = "Management console listening on unix:"
+        uds_ready_string = "✓ Management console listening on unix:"
         with VaneInstance({}, uds_ready_string, debug_mode) as vane:
             event_was_set = vane.found_event.wait(timeout=10)
             if not event_was_set:
@@ -69,10 +73,15 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 sock.connect(uds_path)
 
-                request = (
-                    b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                # Construct raw HTTP request with Authorization header
+                request_str = (
+                    f"GET / HTTP/1.1\r\n"
+                    f"Host: localhost\r\n"
+                    f"Connection: close\r\n"
+                    f"Authorization: Bearer {vane.access_token}\r\n"
+                    f"\r\n"
                 )
-                sock.sendall(request)
+                sock.sendall(request_str.encode("utf-8"))
 
                 chunks = []
                 while True:

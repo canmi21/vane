@@ -69,6 +69,9 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
             if not wait_for_log(vane, f"Listening on http://localhost:{api_port}", 10):
                 return (False, f"  └─ Details: Vane API failed to start.")
 
+            # Inject Authorization
+            session.headers.update({"Authorization": f"Bearer {vane.access_token}"})
+
             # --- 4. Register Plugin (Pointing to Temp Binary) ---
             plugin_name = "test_fragile_bin"
             driver_config = {

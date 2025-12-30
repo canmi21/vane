@@ -3,124 +3,58 @@
 import os
 import time
 import requests
+import subprocess
+import tempfile
+import shutil
+import secrets
 from typing import Tuple
-from utils.template import VaneInstance
 from utils import net_utils
-from .config_utils import wait_for_log
 
 
 def run(debug_mode: bool) -> Tuple[bool, str]:
     """
     Tests that external plugins persist across Vane restarts.
     """
+    test_config_dir = tempfile.mkdtemp(prefix="vane_persist_test_")
     try:
         api_port = net_utils.find_available_tcp_port()
-        project_dir = os.environ.get("DEV_PROJECT_DIR")
-        if not project_dir:
-            return (False, "DEV_PROJECT_DIR not set.")
-        project_dir = os.path.expanduser(project_dir)
-        plugin_script = os.path.join(
-            project_dir, "examples/plugins/exec/test_python_template.py"
-        )
+        access_token = secrets.token_hex(16)
 
-        log_level = "debug" if debug_mode else "info"
+        # Use a simple existing command like "ls" or "echo" if script not found,
+        # just to satisfy the registration (since we skip validation).
+        plugin_script = "dummy_script.py"
+
         env_vars = {
-            "LOG_LEVEL": log_level,
+            "LOG_LEVEL": "debug" if debug_mode else "info",
             "PORT": str(api_port),
+            "CONFIG_DIR": test_config_dir,
+            "SOCKET_DIR": test_config_dir,  # Ensure socket goes here too
+            "SKIP_VALIDATE_CONNECTIVITY": "true",  # Important!
+            "ACCESS_TOKEN": access_token,
+            "DETECT_PUBLIC_NETWORK": "false",
         }
 
-        # We reuse the same config dir (via VaneInstance temp dir logic? No, VaneInstance creates a new tmp dir each time)
-        # To test persistence, we need to control the config directory.
-        # VaneInstance manages its own temp dir. We need to manually manage it to reuse it.
+        # Ensure we run the 'vane' binary from the project target/debug or release
+        # Assuming 'cargo run' or binary is in PATH. If using 'vane', make sure it's compiled.
+        vane_bin = "vane"
 
-        import tempfile
-        import shutil
+        session = requests.Session()
+        session.trust_env = False
+        session.headers.update({"Authorization": f"Bearer {access_token}"})
 
-        # Create a persistent temp dir for this test
-        test_config_dir = tempfile.mkdtemp(prefix="vane_persist_test_")
-
-        # Override VaneInstance behavior by passing CONFIG_DIR in env_vars
-        # But VaneInstance __enter__ overwrites CONFIG_DIR.
-        # We need to manually run Vane here or modify VaneInstance to accept an external temp dir.
-        # For simplicity, let's just hack VaneInstance to use our dir if provided.
-        # Wait, VaneInstance creates a tempdir in __init__.
-        # We can't easily reuse it across two 'with' blocks because __exit__ cleans it up.
-
-        # Strategy: Run Vane, register, stop Vane (manually kill process but keep dir), start Vane again.
-        # But VaneInstance context manager handles process lifecycle tightly.
-
-        # Let's modify VaneInstance usage. We will start it, do stuff, then KILL it inside the block,
-        # then START a new process using the SAME directory manually.
-
-        vane = VaneInstance(env_vars, "", debug_mode)
-
-        # 1. Start Vane (Phase 1)
-        with vane:
-            # wait for start
-            if not wait_for_log(vane, f"Listening on", 10):
-                return (False, "Phase 1: Vane did not start.")
-
-            # Register plugin
-            plugin_name = "persist_test_plugin"
-            payload = {
-                "name": plugin_name,
-                "role": "middleware",
-                "driver": {
-                    "type": "command",
-                    "program": "python3",
-                    "args": [plugin_script],
-                    "env": {},
-                },
-                "params": [],
-            }
-            requests.post(
-                f"http://127.0.0.1:{api_port}/plugins/{plugin_name}", json=payload
-            )
-
-            # Verify it's there
-            resp = requests.get(f"http://127.0.0.1:{api_port}/plugins").json()
-            if plugin_name not in resp["data"]["plugins"]:
-                return (False, "Phase 1: Plugin registration failed.")
-
-            # Verify plugins.json was created/updated on disk
-            plugins_json_path = list(vane.tmpdir.glob("**/plugins.json"))
-            # It might be in the root of config dir
-            if not (vane.tmpdir / "plugins.json").exists():
-                return (False, "Phase 1: plugins.json not found on disk.")
-
-        # Context manager exits -> Process killed, but dir is cleaned up!
-        # CAUTION: VaneInstance cleans up tmpdir on exit.
-        # We cannot use VaneInstance for persistence testing across contexts unless we modify it.
-
-        # Alternative: Test persistence by checking if the file is written.
-        # If the file is written correctly, we trust the loader (tested via unit tests? no unit tests for loader yet).
-        # We really should test the reload.
-
-        # WORKAROUND: We will implement the restart logic INSIDE the single VaneInstance block.
-        # But VaneInstance doesn't support restarting the process.
-
-        # Let's Skip full restart test for now and rely on file existence check,
-        # OR write a custom test runner for this specific case without VaneInstance.
-
-        # Let's go with Custom Runner for Persistence.
-
-        import subprocess
-
-        # 1. Setup Dir
-        env_vars["CONFIG_DIR"] = test_config_dir
-        env_vars["SOCKET_DIR"] = test_config_dir
-
-        # 2. Start Vane 1
+        # --- Phase 1: Start, Register, Stop ---
         proc1 = subprocess.Popen(
-            ["vane"],
+            [vane_bin],
             env={**os.environ, **env_vars},
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        time.sleep(2)  # Give it time to start
 
         try:
-            # Register
+            # Wait for port to be open
+            if not net_utils.wait_for_port(api_port, timeout=10):
+                return (False, "Phase 1: Vane failed to start (port not open).")
+
             plugin_name = "persist_plugin"
             payload = {
                 "name": plugin_name,
@@ -133,34 +67,47 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
                 },
                 "params": [],
             }
-            requests.post(
+
+            res = session.post(
                 f"http://127.0.0.1:{api_port}/plugins/{plugin_name}", json=payload
             )
+            if res.status_code != 200:
+                return (False, f"Phase 1: Registration failed: {res.text}")
+
         finally:
             proc1.terminate()
             proc1.wait()
 
-        # 3. Start Vane 2 (Same Config Dir)
+        # --- Phase 2: Start again, Check ---
         proc2 = subprocess.Popen(
-            ["vane"],
+            [vane_bin],
             env={**os.environ, **env_vars},
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        time.sleep(2)
 
         try:
-            # Check
-            resp = requests.get(f"http://127.0.0.1:{api_port}/plugins").json()
-            if plugin_name not in resp["data"]["plugins"]:
-                shutil.rmtree(test_config_dir)
-                return (False, "Phase 2: Plugin did not persist after restart.")
+            if not net_utils.wait_for_port(api_port, timeout=10):
+                return (False, "Phase 2: Vane failed to restart.")
+
+            res = session.get(f"http://127.0.0.1:{api_port}/plugins")
+            if res.status_code != 200:
+                return (False, f"Phase 2: List API failed: {res.text}")
+
+            data = res.json().get("data", {})
+            plugins = data.get("plugins", [])
+
+            if plugin_name not in plugins:
+                return (False, "Phase 2: Plugin did not persist.")
+
         finally:
             proc2.terminate()
             proc2.wait()
-            shutil.rmtree(test_config_dir)
 
     except Exception as e:
         return (False, f"Exception: {e}")
+    finally:
+        if os.path.exists(test_config_dir):
+            shutil.rmtree(test_config_dir)
 
     return (True, "")

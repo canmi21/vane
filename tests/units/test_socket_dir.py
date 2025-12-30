@@ -8,7 +8,7 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
     """
     Tests if the SOCKET_DIR environment variable is respected.
     """
-    string_to_find = "Management console listening on unix:"
+    string_to_find = "✓ Management console listening on unix:"
 
     try:
         # We don't need to pass any specific env_vars here, as the template

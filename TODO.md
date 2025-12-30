@@ -8,17 +8,16 @@
 
 ## 🎯 Current Status
 
-**Codebase:** ✅ Good to go (no compiler errors, ready for refactoring)
+**Codebase:** ✅ Good to go (no compiler errors, architecture refined)
 
 **Recent Decisions:**
 - ✅ L7 Container design: Protocol extension via `ProtocolData` trait
-- ✅ Middleware architecture: 通用 (KV-based) vs 细分 (protocol-specific)
-- ✅ Template hijacking: Layer-specific keywords, no KV pollution
+- ✅ Middleware architecture: Generic (Universal) vs Protocol-Specific (Layered)
+- ✅ Template hijacking: Unified engine with layer-specific keywords
 - ✅ Roadmap defined: 4 phases (里子 → 查漏 → 面子 → 文档)
-- ✅ Template system: Unified AST-based parser with nested/concatenation support
-- ✅ Container protocol extension: HTTP-specific fields migrated to `HttpProtocolData`
+- ✅ Plugin error handling: Standardized `failure` branch for external resilience
 
-**Next Step:** Task 1.3 - Extract Hot-Reload Framework (foundation for plugin hot-reload)
+**Next Step:** Task 0.3 - Architecture Vulnerability Scan
 
 **Detailed Plans:** See `.todo/` directory for full task descriptions
 
@@ -45,6 +44,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 1.5 | Template system upgrade (nested + concatenation) | 2025-12-30 | [`.todo/improve-template.md`](.todo/improve-template.md) |
 | 1.2 | Extract unified flow execution engine | 2025-12-30 | [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) |
 | 1.3 | Extract hot-reload framework | 2025-12-30 | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
+| 0.2.2 | Plugin system refactoring (Generic vs Specific) | 2025-12-30 | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
 
 ---
 
@@ -56,7 +56,9 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Status | File |
 |----|------|--------|------|
-| 0.2.2 | Plugin system refactoring (generic vs protocol-specific) | 📌 **Next** | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
+| 0.3 | Architecture vulnerability scan | 📌 **Next** | [`.todo/architecture-scan.md`](.todo/architecture-scan.md) |
+| 1.1 | Rust feature flags support | Pending | [`.todo/rust-feature-flags.md`](.todo/rust-feature-flags.md) |
+| 1.4 | Flow validation framework | Pending | [`.todo/flow-validation.md`](.todo/flow-validation.md) |
 
 ---
 
@@ -68,9 +70,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Status | File |
 |----|------|--------|------|
-| 0.3 | Architecture vulnerability scan | Pending | [`.todo/architecture-scan.md`](.todo/architecture-scan.md) |
-| 1.1 | Rust feature flags support | Pending | [`.todo/rust-feature-flags.md`](.todo/rust-feature-flags.md) |
-| 1.4 | Flow validation framework | Pending | [`.todo/flow-validation.md`](.todo/flow-validation.md) |
+| 3.x | Flatten stack module hierarchy | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
+| 3.x | Standardize plugin file structure | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
 
 ---
 
@@ -82,10 +83,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Status | File |
 |----|------|--------|------|
-| 0.4 | L4 legacy config file extraction | Pending (after 1.2) | [`.todo/l4-traditional-config.md`](.todo/l4-traditional-config.md) |
+| 0.4 | L4 legacy config file extraction | Pending | [`.todo/l4-traditional-config.md`](.todo/l4-traditional-config.md) |
 | 3.x | Plugin directory reorganization | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
-| 3.x | Flatten stack module hierarchy | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
-| 3.x | Standardize plugin file structure | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
 
 ---
 
@@ -129,21 +128,18 @@ Lower priority tasks deferred until Phase I-III complete.
 
 ## 🎯 Recommended Next Action
 
-**Continue Phase I with Task 1.3: Extract Hot-Reload Framework**
+**Begin Task 0.3: Architecture Vulnerability Scan**
 
-**Recently Completed (Task 1.2):**
-- ✅ Created unified flow execution engine in `src/modules/flow/`
-- ✅ Eliminated ~600 lines of duplicated code across L4, L4+, and L7
-- ✅ Implemented `ExecutionContext` abstraction for layer-specific data
-- ✅ Centralized KV scoping logic and logging
-- ✅ Maintained all functionality including WebSocket and template hijacking
+**Recently Completed (Task 0.2.2):**
+- ✅ Refactored plugin system into Generic vs Protocol-Specific tiers.
+- ✅ Implemented strict protocol-aware validation (e.g., `httpx` family enforcement).
+- ✅ Standardized `failure` branch for all external drivers (HTTP/Unix/Command).
+- ✅ Added background connectivity monitor for external middleware.
 
 **Recommended Order**:
 ```
-✅ Task 0.2.1: Container protocol extension (completed)
-✅ Task 1.2: Extract unified flow engine (completed)
-→ Task 1.3: Extract hot-reload framework (next)
-→ Task 0.2.2: Plugin system refactoring (generic vs protocol-specific)
+✅ Task 1.2: Unified Flow Engine
+✅ Task 1.3: Hot-Reload Framework
+✅ Task 0.2.2: Plugin System Refactoring
+→ Task 0.3: Architecture Vulnerability Scan (Next)
 ```
-
-See [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) for Task 1.3 details.

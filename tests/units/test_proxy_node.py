@@ -5,6 +5,7 @@ from utils.template import VaneInstance
 from utils import net_utils, http_utils
 from .config_utils import wait_for_log
 from .flow_configs import node_proxy
+import secrets
 
 
 def run(debug_mode: bool) -> Tuple[bool, str]:
@@ -21,6 +22,7 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
         # --- Port and Server Setup ---
         vane_port = net_utils.find_available_tcp_port()
         backend_port = net_utils.find_available_tcp_port()
+        access_token = secrets.token_hex(16)
 
         # --- Start Backend Server ---
         http_server = http_utils.StoppableHTTPServer(
@@ -34,7 +36,7 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
             )
 
         # --- Vane Configuration ---
-        # 1. Generate the Nodes configuration (nodes.yaml)
+        # 1. Generate the Nodes configuration (nodes.yml)
         nodes_yaml = f"""
 nodes:
   - name: "{NODE_NAME}"
@@ -48,11 +50,14 @@ nodes:
 
         # --- Configure and Start Vane ---
         log_level = "debug" if debug_mode else "info"
-        env_vars = {"LOG_LEVEL": log_level}
+        env_vars = {
+            "LOG_LEVEL": log_level,
+            "ACCESS_TOKEN": access_token,
+        }
         vane = VaneInstance(env_vars, "", debug_mode)
 
-        # Write nodes.yaml to the root config directory (vane.tmpdir)
-        (vane.tmpdir / "nodes.yaml").write_text(nodes_yaml)
+        # Write nodes.yml to the root config directory (vane.tmpdir)
+        (vane.tmpdir / "nodes.yml").write_text(nodes_yaml)
 
         # Write the listener config
         (vane.tmpdir / "listener" / f"[{vane_port}]").mkdir(parents=True, exist_ok=True)
