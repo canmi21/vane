@@ -12,9 +12,13 @@ use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
 use serde_json::Value;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{any::Any, borrow::Cow, sync::Arc, time::Duration};
 
 // --- Global State ---
+
+/// Fixed memory overhead per entry: DashMap node (~64) + String struct (24) + u32 value (4)
+const ENTRY_OVERHEAD: usize = 92;
 
 /// Storage for per-second rate limiting.
 static SEC_POOL: Lazy<Arc<DashMap<String, u32>>> = Lazy::new(|| {
@@ -26,11 +30,14 @@ static SEC_POOL: Lazy<Arc<DashMap<String, u32>>> = Lazy::new(|| {
 			interval.tick().await;
 			if !map_clone.is_empty() {
 				map_clone.clear();
+				SEC_POOL_USAGE.store(0, Ordering::Relaxed);
 			}
 		}
 	});
 	map
 });
+
+static SEC_POOL_USAGE: AtomicUsize = AtomicUsize::new(0);
 
 /// Storage for per-minute rate limiting.
 static MIN_POOL: Lazy<Arc<DashMap<String, u32>>> = Lazy::new(|| {
@@ -42,36 +49,35 @@ static MIN_POOL: Lazy<Arc<DashMap<String, u32>>> = Lazy::new(|| {
 			interval.tick().await;
 			if !map_clone.is_empty() {
 				map_clone.clear();
+				MIN_POOL_USAGE.store(0, Ordering::Relaxed);
 			}
 		}
 	});
 	map
 });
 
+static MIN_POOL_USAGE: AtomicUsize = AtomicUsize::new(0);
+
 // --- Helper Functions ---
 
 /// Checks memory usage and prunes entries if the limit is exceeded.
 /// Instead of rejecting new keys, it removes a portion of existing keys to make room.
-fn ensure_space(map: &DashMap<String, u32>) {
+fn ensure_space(map: &DashMap<String, u32>, usage_counter: &AtomicUsize) {
 	let max_mem_str = getenv::get_env("MAX_LIMITER_MEMORY", "4194304".to_string()); // Default 4MB
 	let max_mem = max_mem_str.parse::<usize>().unwrap_or(4_194_304);
 
-	// Estimate memory usage: len * ~100 bytes overhead per entry
-	let estimated_size = map.len() * 100;
+	let current_usage = usage_counter.load(Ordering::Relaxed);
 
-	if estimated_size > max_mem {
+	if current_usage > max_mem {
 		log(
 			LogLevel::Warn,
 			&format!(
 				"Rate limiter memory limit exceeded ({} > {} bytes). Pruning 10% of keys to self-preserve.",
-				estimated_size, max_mem
+				current_usage, max_mem
 			),
 		);
 
 		// Prune ~10% of the keys to prevent OOM while keeping the service alive.
-		// Since DashMap doesn't track insertion order efficiently, we evict the first
-		// batch of keys found in the iterator. In a rate limit scenario, this is an
-		// acceptable trade-off for performance.
 		let items_to_remove = (map.len() as f64 * 0.1).ceil() as usize;
 		let keys_to_remove: Vec<String> = map
 			.iter()
@@ -80,7 +86,11 @@ fn ensure_space(map: &DashMap<String, u32>) {
 			.collect();
 
 		for k in keys_to_remove {
-			map.remove(&k);
+			if map.remove(&k).is_some() {
+				// Reduce counter by the size of the removed entry
+				let entry_size = ENTRY_OVERHEAD + k.len();
+				usage_counter.fetch_sub(entry_size, Ordering::Relaxed);
+			}
 		}
 	}
 }
@@ -161,7 +171,9 @@ impl GenericMiddleware for KeywordRateLimitSecPlugin {
 			}
 			None => {
 				// Ensure space exists (evicting if necessary) before inserting
-				ensure_space(pool);
+				ensure_space(pool, &SEC_POOL_USAGE);
+				let entry_size = ENTRY_OVERHEAD + key.len();
+				SEC_POOL_USAGE.fetch_add(entry_size, Ordering::Relaxed);
 				pool.insert(key.to_string(), 1);
 				1
 			}
@@ -260,7 +272,9 @@ impl GenericMiddleware for KeywordRateLimitMinPlugin {
 				*entry
 			}
 			None => {
-				ensure_space(pool);
+				ensure_space(pool, &MIN_POOL_USAGE);
+				let entry_size = ENTRY_OVERHEAD + key.len();
+				MIN_POOL_USAGE.fetch_add(entry_size, Ordering::Relaxed);
 				pool.insert(key.to_string(), 1);
 				1
 			}
