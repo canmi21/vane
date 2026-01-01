@@ -31,8 +31,12 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 	}
 
 	// 2. Build Client
+	let timeout_secs = getenv::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
+		.parse::<u64>()
+		.unwrap_or(10);
+
 	let client = reqwest::Client::builder()
-		.timeout(Duration::from_secs(10)) // Runtime timeout
+		.timeout(Duration::from_secs(timeout_secs)) // Runtime timeout
 		.danger_accept_invalid_certs(skip_tls)
 		.build()
 		.map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;

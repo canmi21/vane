@@ -29,7 +29,26 @@ pub async fn execute<C: ExecutionContext>(
 	conn: ConnectionObject,
 	flow_path: String,
 ) -> Result<TerminatorResult> {
-	execute_recursive(step, context, conn, flow_path).await
+	let timeout_secs =
+		crate::common::getenv::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
+			.parse::<u64>()
+			.unwrap_or(10);
+
+	match tokio::time::timeout(
+		std::time::Duration::from_secs(timeout_secs),
+		execute_recursive(step, context, conn, flow_path),
+	)
+	.await
+	{
+		Ok(result) => result,
+		Err(_) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Flow execution timed out after {}s", timeout_secs),
+			);
+			Err(anyhow!("Flow execution timeout"))
+		}
+	}
 }
 
 /// Convenience wrapper for L7 flow execution.

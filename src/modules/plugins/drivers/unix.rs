@@ -1,24 +1,50 @@
 /* src/modules/plugins/drivers/unix.rs */
 
+use crate::common::getenv;
 use crate::modules::plugins::model::{ExternalApiResponse, MiddlewareOutput, ResolvedInputs};
 use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tokio::time::timeout;
 
 pub async fn execute(path: &str, name: &str, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
+	let timeout_secs = getenv::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
+		.parse::<u64>()
+		.unwrap_or(10);
+	let duration = Duration::from_secs(timeout_secs);
+
 	log(
 		LogLevel::Debug,
-		&format!("➜ Executing external Unix middleware: {}", name),
+		&format!(
+			"➜ Executing external Unix middleware (timeout {}s): {}",
+			timeout_secs, name
+		),
 	);
 
 	// 1. Connect to Unix Socket
-	let mut stream = match UnixStream::connect(path).await {
-		Ok(s) => s,
-		Err(e) => {
+	let mut stream = match timeout(duration, UnixStream::connect(path)).await {
+		Ok(res) => match res {
+			Ok(s) => s,
+			Err(e) => {
+				log(
+					LogLevel::Error,
+					&format!("✗ Failed to connect to unix socket {}: {}", path, e),
+				);
+				return Ok(MiddlewareOutput {
+					branch: "failure".into(),
+					store: None,
+				});
+			}
+		},
+		Err(_) => {
 			log(
 				LogLevel::Error,
-				&format!("✗ Failed to connect to unix socket {}: {}", path, e),
+				&format!(
+					"✗ Unix connection to {} timed out after {}s",
+					path, timeout_secs
+				),
 			);
 			return Ok(MiddlewareOutput {
 				branch: "failure".into(),
@@ -67,10 +93,10 @@ pub async fn execute(path: &str, name: &str, inputs: ResolvedInputs) -> Result<M
 
 	// 5. Read Response
 	let mut response_bytes = Vec::new();
-	if let Err(e) = stream.read_to_end(&mut response_bytes).await {
+	if let Err(e) = timeout(duration, stream.read_to_end(&mut response_bytes)).await {
 		log(
 			LogLevel::Error,
-			&format!("✗ Failed to read from unix socket: {}", e),
+			&format!("✗ Unix read from {} timed out or failed: {}", path, e),
 		);
 		return Ok(MiddlewareOutput {
 			branch: "failure".into(),
