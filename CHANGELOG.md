@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.16 (30. Dec, 2025)
+
+- **Changed:** Optimized the Rate Limiter's memory management by introducing precise, incremental atomic counters for heap usage tracking. This replaces the previous rough estimations with O(1) complexity monitoring, ensuring reliable memory bounds and better protection against resource exhaustion attacks.
+
 ## 0.7.15 (30. Dec, 2025)
 
 - **Fixed:** Eliminated usage of `unreachable!()` and `panic!()` in the data plane and certificate management modules. Vane now utilizes explicit error results to handle internal state inconsistencies and unsupported key formats, ensuring that logic errors result in controlled connection drops rather than thread-level crashes.
