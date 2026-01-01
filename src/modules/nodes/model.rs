@@ -4,8 +4,9 @@ use crate::modules::stack::transport::loader::PreProcess;
 use arc_swap::ArcSwap;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashSet;
-use validator::{Validate, ValidationError, ValidationErrors};
+use validator::{Validate, ValidationError, ValidationErrors, ValidationErrorsKind};
 
 lazy_static! {
 	pub static ref NODES_STATE: ArcSwap<NodesConfig> = ArcSwap::default();
@@ -70,21 +71,32 @@ fn validate_unique_node_names(nodes: &[Node]) -> Result<(), ValidationError> {
 
 impl Validate for NodesConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
-		let mut result = Ok(());
+		let mut validation_errors = ValidationErrors::new();
+
 		for (i, node) in self.nodes.iter().enumerate() {
-			let field_name = Box::leak(format!("nodes[{}]", i).into_boxed_str());
-			result = ValidationErrors::merge(result, field_name, node.validate());
-		}
-		if let Err(e) = validate_unique_node_names(&self.nodes) {
-			if let Err(ref mut errors) = result {
-				errors.add("nodes", e);
-			} else {
-				let mut errors = ValidationErrors::new();
-				errors.add("nodes", e);
-				result = Err(errors);
+			if let Err(node_errors) = node.validate() {
+				for (field, kind) in node_errors.errors() {
+					if let ValidationErrorsKind::Field(field_errors) = kind {
+						for error in field_errors {
+							let mut err = error.clone();
+							let old_msg = err.message.clone().unwrap_or_else(|| Cow::from("invalid"));
+							err.message = Some(format!("[node {}] {}: {}", i, field, old_msg).into());
+							validation_errors.add("nodes", err);
+						}
+					}
+				}
 			}
 		}
-		result
+
+		if let Err(e) = validate_unique_node_names(&self.nodes) {
+			validation_errors.add("nodes", e);
+		}
+
+		if validation_errors.is_empty() {
+			Ok(())
+		} else {
+			Err(validation_errors)
+		}
 	}
 }
 

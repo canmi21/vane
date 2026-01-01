@@ -1,8 +1,9 @@
 /* src/modules/stack/transport/model.rs */
 
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::net::IpAddr;
-use validator::{Validate, ValidationError, ValidationErrors};
+use validator::{Validate, ValidationError, ValidationErrors, ValidationErrorsKind};
 
 /// The final, resolved representation of a target: a concrete IP and port.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -89,13 +90,33 @@ impl Validate for Forward {
 		}
 
 		for (i, target) in self.targets.iter().enumerate() {
-			let field_name = Box::leak(format!("targets[{}]", i).into_boxed_str());
-			errors.merge_self(field_name, target.validate());
+			if let Err(target_errors) = target.validate() {
+				for (field, kind) in target_errors.errors() {
+					if let ValidationErrorsKind::Field(field_errors) = kind {
+						for error in field_errors {
+							let mut err = error.clone();
+							let old_msg = err.message.clone().unwrap_or_else(|| Cow::from("invalid"));
+							err.message = Some(format!("[index {}] {}: {}", i, field, old_msg).into());
+							errors.add("targets", err);
+						}
+					}
+				}
+			}
 		}
 
 		for (i, target) in self.fallbacks.iter().enumerate() {
-			let field_name = Box::leak(format!("fallbacks[{}]", i).into_boxed_str());
-			errors.merge_self(field_name, target.validate());
+			if let Err(target_errors) = target.validate() {
+				for (field, kind) in target_errors.errors() {
+					if let ValidationErrorsKind::Field(field_errors) = kind {
+						for error in field_errors {
+							let mut err = error.clone();
+							let old_msg = err.message.clone().unwrap_or_else(|| Cow::from("invalid"));
+							err.message = Some(format!("[index {}] {}: {}", i, field, old_msg).into());
+							errors.add("fallbacks", err);
+						}
+					}
+				}
+			}
 		}
 
 		if errors.is_empty() {
