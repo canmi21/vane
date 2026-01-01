@@ -5,6 +5,8 @@ use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
 use ring::{aead, hkdf};
 
+use std::collections::BTreeMap;
+
 /// Decrypts payload and extracts SNI and raw Crypto Frames.
 pub fn extract_decrypted_content(
 	full_packet: &[u8],
@@ -13,7 +15,7 @@ pub fn extract_decrypted_content(
 	remaining_len: usize,
 	dcid: &[u8],
 	version: u32,
-) -> Result<(Option<String>, Vec<(usize, Vec<u8>)>)> {
+) -> Result<(Option<String>, BTreeMap<usize, Vec<u8>>)> {
 	if version != 0x00000001 {
 		return Err(anyhow!("Unsupported QUIC version"));
 	}

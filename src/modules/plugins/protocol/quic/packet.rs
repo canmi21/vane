@@ -2,6 +2,8 @@
 
 use anyhow::{Result, anyhow};
 
+use std::collections::BTreeMap;
+
 #[derive(Debug, Default, Clone)]
 pub struct QuicInitialData {
 	pub version: String,
@@ -10,7 +12,7 @@ pub struct QuicInitialData {
 	pub token: Option<String>,
 	pub sni_hint: Option<String>,
 	/// Raw CRYPTO frames extracted from this packet (Offset -> Data)
-	pub crypto_frames: Vec<(usize, Vec<u8>)>,
+	pub crypto_frames: BTreeMap<usize, Vec<u8>>,
 }
 
 /// Parses a QUIC Long Header Initial Packet.
@@ -117,7 +119,7 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 		dcid_bytes,
 		version_val,
 	)
-	.unwrap_or((None, Vec::new()));
+	.unwrap_or((None, BTreeMap::new()));
 
 	Ok(QuicInitialData {
 		version,

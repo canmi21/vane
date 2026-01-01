@@ -92,9 +92,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 			.push((datagram.clone(), client_addr, dst_addr));
 		entry.last_seen = Instant::now();
 
-		for (offset, data) in parsed_packet.crypto_frames {
-			entry.crypto_stream.insert(offset, data);
-		}
+		entry.crypto_stream.extend(parsed_packet.crypto_frames);
 
 		// 2. Attempt SNI reassembly if not yet found
 		if sni_found.is_none() && !entry.crypto_stream.is_empty() {
@@ -168,7 +166,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 			scid: parsed_packet.scid.clone(),
 			version: parsed_packet.version.clone(),
 			token: parsed_packet.token.clone(),
-			crypto_frames: vec![], // Not needed for context
+			crypto_frames: BTreeMap::new(), // Not needed for context
 		},
 	);
 

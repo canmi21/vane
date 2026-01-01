@@ -8,9 +8,8 @@ use std::collections::BTreeMap;
 /// Parses decrypted payload, extracts ALL crypto frames and attempts SNI extraction.
 pub fn parse_crypto_frames_for_sni(
 	payload: &[u8],
-) -> Result<(Option<String>, Vec<(usize, Vec<u8>)>)> {
+) -> Result<(Option<String>, BTreeMap<usize, Vec<u8>>)> {
 	let mut cursor = 0;
-	let mut fragments = Vec::new();
 	let mut crypto_map: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
 
 	while cursor < payload.len() {
@@ -34,7 +33,6 @@ pub fn parse_crypto_frames_for_sni(
 					LogLevel::Debug,
 					&format!("⚙ Found CRYPTO frame: off={}, len={}", offset, length),
 				);
-				fragments.push((offset, data.clone()));
 				crypto_map.insert(offset, data);
 
 				cursor += length;
@@ -68,7 +66,7 @@ pub fn parse_crypto_frames_for_sni(
 		None
 	};
 
-	Ok((sni, fragments))
+	Ok((sni, crypto_map))
 }
 
 pub fn parse_tls_client_hello_sni(data: &[u8]) -> Result<String> {
