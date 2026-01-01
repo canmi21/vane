@@ -10,7 +10,7 @@ def run(debug_mode: bool) -> Tuple[bool, str]:
     Tests if Vane correctly detects and warns about multiple configuration
     files for the same port and protocol.
     """
-    success_string = "Found multiple config files"
+    success_string = "Multiple config files for"
 
     try:
         port = net_utils.find_available_tcp_port()

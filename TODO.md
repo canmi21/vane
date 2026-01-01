@@ -94,6 +94,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.16 | Replace unreachable!() with error handling | 2025-12-30 | [Reliability Report](.report/reliability.md) |
 | 2.17 | Fix rate limiter memory estimation | 2025-12-30 | [Performance Report](.report/performance.md) |
 | 2.18 | Remove unnecessary QUIC frame clones | 2025-12-30 | [Performance Report](.report/performance.md) |
+| 2.19 | Replace blocking I/O with async | 2025-12-30 | [Performance Report](.report/performance.md) |
 
 ---
 
@@ -155,11 +156,12 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.12 | Add template parser complexity protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
 | 2.13 | Implement template injection protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
 | 2.14 | Add flow execution timeout | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-| 2.15 | Replace unwrap() in production code | 🟠 HIGH | 📌 **In Progress** | [Panic Safety List](.todo/replace-unwrap.md) |
+| 2.15 | Replace unwrap() in production code | 🟠 HIGH | ✅ **Done** | [Panic Safety List](.todo/replace-unwrap.md) |
 | 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
 | 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
 | 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
-| 2.19 | Replace blocking I/O with async | 🟠 HIGH | 📌 **Next** | [Performance Report](.report/performance.md) |
+| 2.19 | Replace blocking I/O with async | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
+| 2.20 | Implement L4/L4+ connection rate limits | 🟠 HIGH | Pending | [Security Report](.report/security.md) |
 
 **Note:** See detailed reports in `.report/` for complete issue list and remediation steps
 
@@ -229,12 +231,12 @@ Lower priority tasks deferred until Phase I-III complete.
 - ✅ **Path Security**: Implemented mandatory path canonicalization in configuration loader.
 - ✅ **QUIC Reliability**: Fixed buffer race conditions and enforced packet limits.
 - ✅ **Resource Management**: Implemented precise memory tracking for rate limiters.
-- ✅ **QUIC Performance**: Eliminated redundant clones during frame reassembly.
+- ✅ **Performance Optimization**: Eliminated redundant clones and completed full Async I/O migration.
 
 **Next Steps - Fixes:**
 
-1. Task 2.19: Replace blocking I/O with async ← **NEXT**
-2. Task 2.15: Continue replacing unwrap() in production code
+1. Task 2.15: Continue replacing unwrap() in production code ← **NEXT**
+2. Task 2.20: Implement L4/L4+ connection rate limits
 
 **See AGENT.md for detailed fix workflow requirements**
 
@@ -261,5 +263,6 @@ Lower priority tasks deferred until Phase I-III complete.
 ✅ Task 2.16: Elimination of Panics
 ✅ Task 2.17: Precise Rate Limit Tracking
 ✅ Task 2.18: QUIC Frame Optimization
-→ Task 2.19: Async I/O Replacement (Next)
+✅ Task 2.19: Full Async I/O Migration
+→ Task 2.15: Continue Panic Safety (Next)
 ```

@@ -15,6 +15,7 @@ This document tracks the audit and replacement of unsafe panicking calls in the 
 - [x] `src/modules/plugins/terminator/response/mod.rs:214`: `HeaderValue::from_str(mime).unwrap()`
 - [x] `src/modules/plugins/terminator/response/mod.rs:237`: `Response::builder()...unwrap()`
 - [x] `src/modules/plugins/upstream/quic_pool.rs:43`: `parse().unwrap()` and `.expect(...)`
+- [x] `src/modules/plugins/terminator/response/mod.rs`: WebSocket `Response::builder()...unwrap()`
 
 ---
 
@@ -31,13 +32,15 @@ This document tracks the audit and replacement of unsafe panicking calls in the 
   - *Result:* Replaced with `.unwrap_or_default()`.
 - [x] `src/modules/stack/protocol/carrier/quic/muxer.rs:186`: `try_into().unwrap()`
   - *Result:* Handled conversion result safely.
+- [x] `src/common/requirements.rs`: `notify::recommended_watcher(...).unwrap()`
 
 ---
 
 ## 🟡 Level 3: Low Risk (Invariants / Statics)
 *Acceptable use cases, but can be improved for clarity.*
 
-- [ ] `src/modules/nodes/model.rs:12`: `Regex::new(...).unwrap()`
+- [x] `src/modules/nodes/model.rs:12`: `Regex::new(...).unwrap()` -> `.expect(...)`
+- [x] `src/modules/stack/transport/model.rs`: `Regex::new(...).unwrap()` -> `.expect(...)`
 - [ ] `src/modules/stack/protocol/carrier/quic/virtual_socket.rs:74`: `lock().unwrap()`
 
 ---
@@ -52,4 +55,4 @@ This document tracks the audit and replacement of unsafe panicking calls in the 
 ## Progress Summary
 - Total items: ~90
 - Production risk items: 12
-- Completed: 11
+- Completed: 12 (All critical/high risk)
