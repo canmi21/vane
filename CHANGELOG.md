@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.14 (30. Dec, 2025)
+
+- **Fixed:** Systematically enhanced panic safety across the data plane and bootstrap process by replacing unsafe `unwrap()` and `expect()` calls with robust error handling.
+- **Fixed:** Improved reliability of the QUIC carrier, HTTPX adapter, and Command/CGI drivers by ensuring graceful error propagation and proactive resource cleanup during runtime failures.
+- **Fixed:** Hardened the Static resource plugin and Certificate loader against malformed inputs and system clock inconsistencies.
+- **Fixed:** Refactored the global QUIC upstream endpoint to use async initialization, eliminating potential panics during startup if network resources are unavailable.
+
 ## 0.7.13 (30. Dec, 2025)
 
 - **Added:** Implemented a global execution timeout for the Flow Engine (default: 10s, configurable via `FLOW_EXECUTION_TIMEOUT_SECS`). This prevents worker thread starvation and resource exhaustion caused by hanging external plugins or network requests.
