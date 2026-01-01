@@ -89,6 +89,9 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.8 | Fix QUIC buffer management race condition | 2025-12-30 | [Reliability Report](.report/reliability.md) |
 | 2.9 | Fix external plugin status race | 2025-12-30 | [Reliability Report](.report/reliability.md) |
 | 2.12 | Add template parser complexity protection | 2025-12-30 | [Security Report](.report/security.md) |
+| 2.13 | Implement template injection protection | 2025-12-30 | [Security Report](.report/security.md) |
+| 2.14 | Add flow execution timeout | 2025-12-30 | [Reliability Report](.report/reliability.md) |
+| 2.16 | Replace unreachable!() with error handling | 2025-12-30 | [Reliability Report](.report/reliability.md) |
 
 ---
 
@@ -151,7 +154,10 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.13 | Implement template injection protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
 | 2.14 | Add flow execution timeout | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
 | 2.15 | Replace unwrap() in production code | 🟠 HIGH | 📌 **In Progress** | [Panic Safety List](.todo/replace-unwrap.md) |
-| 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
+| 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
+| 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | 📌 **Next** | [Performance Report](.report/performance.md) |
+| 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
+| 2.19 | Replace blocking I/O with async | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
 
 **Note:** See detailed reports in `.report/` for complete issue list and remediation steps
 
@@ -220,12 +226,13 @@ Lower priority tasks deferred until Phase I-III complete.
 - ✅ **Config Reliability**: Fixed reload race conditions and implemented Keep-Last-Known-Good strategy.
 - ✅ **Path Security**: Implemented mandatory path canonicalization in configuration loader.
 - ✅ **QUIC Reliability**: Fixed buffer race conditions and enforced packet limits.
-- ✅ **Plugin Reliability**: Implemented a passive circuit breaker for external middleware.
+- ✅ **Plugin Reliability**: Implemented a passive circuit breaker and global execution timeouts for external middleware.
+- ✅ **Panic Safety**: Systematically removing `unwrap()`, `expect()`, and `unreachable!()` from the data plane.
 
 **Next Steps - Fixes:**
 
-1. Task 2.14: Add flow execution timeout ← **NEXT**
-2. Task 2.15: Replace unwrap() in production code
+1. Task 2.17: Fix rate limiter memory estimation ← **NEXT**
+2. Task 2.18: Remove unnecessary QUIC frame clones
 
 **See AGENT.md for detailed fix workflow requirements**
 
@@ -248,5 +255,7 @@ Lower priority tasks deferred until Phase I-III complete.
 ✅ Task 2.9: External Plugin Status Fix
 ✅ Task 2.12: Template Complexity Protection
 ✅ Task 2.13: Template Injection Protection
-→ Task 2.14: Flow Execution Timeout (Next)
+✅ Task 2.14: Flow Execution Timeout
+✅ Task 2.16: Elimination of Panics
+→ Task 2.17: Rate Limiter memory fix (Next)
 ```
