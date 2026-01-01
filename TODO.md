@@ -150,7 +150,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.12 | Add template parser complexity protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
 | 2.13 | Implement template injection protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
 | 2.14 | Add flow execution timeout | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-| 2.15 | Replace unwrap() in production code | 🟠 HIGH | 📌 **Next** | [Reliability Report](.report/reliability.md) |
+| 2.15 | Replace unwrap() in production code | 🟠 HIGH | 📌 **In Progress** | [Panic Safety List](.todo/replace-unwrap.md) |
+| 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
 
 **Note:** See detailed reports in `.report/` for complete issue list and remediation steps
 
