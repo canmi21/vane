@@ -184,6 +184,7 @@ pub async fn proxy_udp_direct(
 				upstream_socket: session.upstream_socket.clone(),
 				// FIX: Use tokio::time::Instant explicitly
 				last_seen: tokio::time::Instant::now(),
+				_guard: session._guard.clone(),
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
@@ -222,11 +223,27 @@ pub async fn proxy_udp_direct(
 	let upstream_arc = Arc::new(upstream_socket);
 
 	if let Ok(local_addr) = upstream_arc.local_addr() {
+		// Apply Connection Rate Limits
+		let guard = match crate::modules::ports::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) {
+			Some(g) => g,
+			None => {
+				log(
+					LogLevel::Debug,
+					&format!(
+						"⚙ Rate limited UDP Flow session from {} to {}:{}",
+						client_addr, target.ip, target.port
+					),
+				);
+				return Err(anyhow::anyhow!("Rate limited"));
+			}
+		};
+
 		let new_session = Arc::new(Session {
 			target: target.clone(),
 			upstream_socket: upstream_arc.clone(),
 			// FIX: Use tokio::time::Instant explicitly
 			last_seen: tokio::time::Instant::now(),
+			_guard: guard,
 		});
 
 		SESSIONS.insert(session_key, new_session.clone());
@@ -312,6 +329,7 @@ pub async fn proxy_quic_association(
 				upstream_socket: session.upstream_socket.clone(),
 				// FIX: Use tokio::time::Instant
 				last_seen: tokio::time::Instant::now(),
+				_guard: session._guard.clone(),
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
@@ -333,6 +351,7 @@ pub async fn proxy_quic_association(
 					client_addr,
 					target_socket_addr,
 					updated_session.upstream_socket.clone(),
+					updated_session._guard.clone(),
 				);
 			}
 
@@ -367,12 +386,28 @@ pub async fn proxy_quic_association(
 	let upstream_arc = Arc::new(upstream_socket);
 
 	if let Ok(local_addr) = upstream_arc.local_addr() {
+		// Apply Connection Rate Limits
+		let guard = match crate::modules::ports::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) {
+			Some(g) => g,
+			None => {
+				log(
+					LogLevel::Debug,
+					&format!(
+						"⚙ Rate limited QUIC Flow session from {} to {}:{}",
+						client_addr, target.ip, target.port
+					),
+				);
+				return Err(anyhow::anyhow!("Rate limited"));
+			}
+		};
+
 		// Register UDP Session
 		let new_session = Arc::new(Session {
 			target: target.clone(),
 			upstream_socket: upstream_arc.clone(),
 			// FIX: Use tokio::time::Instant
 			last_seen: tokio::time::Instant::now(),
+			_guard: guard,
 		});
 
 		SESSIONS.insert(session_key, new_session.clone());
@@ -415,11 +450,17 @@ pub async fn proxy_quic_association(
 					// FIX: Pass the upstream socket for consistency/validity
 					upstream_socket: upstream_arc.clone(),
 					last_seen: std::time::Instant::now(),
+					_guard: new_session._guard.clone(),
 				},
 			);
 
 			// 2. Register Sticky (Std Instant via internal session.rs call)
-			session::register_sticky(client_addr, target_socket_addr, upstream_arc.clone());
+			session::register_sticky(
+				client_addr,
+				target_socket_addr,
+				upstream_arc.clone(),
+				new_session._guard.clone(),
+			);
 
 			log(
 				LogLevel::Debug,
@@ -449,7 +490,12 @@ pub async fn proxy_quic_association(
 			}
 		} else {
 			// Fallback: If no Long Header, just register Sticky
-			session::register_sticky(client_addr, target_socket_addr, upstream_arc.clone());
+			session::register_sticky(
+				client_addr,
+				target_socket_addr,
+				upstream_arc.clone(),
+				new_session._guard.clone(),
+			);
 		}
 
 		// 5. Send the current packet

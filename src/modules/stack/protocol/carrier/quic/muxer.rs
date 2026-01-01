@@ -45,6 +45,7 @@ impl ConnectionIdGenerator for VaneCidGenerator {
 			SessionAction::Terminate {
 				muxer_port: self.port,
 				last_seen: Instant::now(),
+				_guard: None,
 			},
 		);
 

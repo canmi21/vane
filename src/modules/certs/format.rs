@@ -2,18 +2,18 @@
 
 use super::arcswap::LoadedCert;
 use crate::common::requirements::{Error, Result};
-use std::fs;
-use std::io::BufReader;
+use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
-pub fn load_and_validate_pair(cert_path: &Path, key_path: &Path) -> Result<Arc<LoadedCert>> {
-	let cert_file = fs::File::open(cert_path)
-		.map_err(|e| Error::Io(format!("Failed to open cert file {:?}: {}", cert_path, e)))?;
-	let mut cert_reader = BufReader::new(cert_file);
+pub async fn load_and_validate_pair(cert_path: &Path, key_path: &Path) -> Result<Arc<LoadedCert>> {
+	let cert_data = tokio::fs::read(cert_path)
+		.await
+		.map_err(|e| Error::Io(format!("Failed to read cert file {:?}: {}", cert_path, e)))?;
+	let mut cert_cursor = Cursor::new(cert_data);
 
-	let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_reader)
+	let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_cursor)
 		.collect::<std::result::Result<Vec<_>, _>>()
 		.map_err(|e| Error::Tls(format!("Invalid PEM in {:?}: {}", cert_path, e)))?;
 
@@ -24,11 +24,12 @@ pub fn load_and_validate_pair(cert_path: &Path, key_path: &Path) -> Result<Arc<L
 		)));
 	}
 
-	let key_file = fs::File::open(key_path)
-		.map_err(|e| Error::Io(format!("Failed to open key file {:?}: {}", key_path, e)))?;
-	let mut key_reader = BufReader::new(key_file);
+	let key_data = tokio::fs::read(key_path)
+		.await
+		.map_err(|e| Error::Io(format!("Failed to read key file {:?}: {}", key_path, e)))?;
+	let mut key_cursor = Cursor::new(key_data);
 
-	let key_option = rustls_pemfile::private_key(&mut key_reader)
+	let key_option = rustls_pemfile::private_key(&mut key_cursor)
 		.map_err(|e| Error::Tls(format!("Invalid Key PEM in {:?}: {}", key_path, e)))?;
 
 	let key: PrivateKeyDer<'static> =

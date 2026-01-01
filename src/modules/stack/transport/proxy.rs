@@ -196,6 +196,7 @@ pub async fn proxy_udp_direct(
 				target: session.target.clone(),
 				upstream_socket: session.upstream_socket.clone(),
 				last_seen: Instant::now(),
+				_guard: session._guard.clone(),
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
@@ -232,10 +233,26 @@ pub async fn proxy_udp_direct(
 			let upstream_arc = Arc::new(upstream_socket);
 
 			if let Ok(local_addr) = upstream_arc.local_addr() {
+				// Apply Connection Rate Limits
+				let guard = match crate::modules::ports::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) {
+					Some(g) => g,
+					None => {
+						log(
+							LogLevel::Debug,
+							&format!(
+								"⚙ Rate limited UDP Flow session from {} to {}:{}",
+								client_addr, target.ip, target.port
+							),
+						);
+						return Err(io::Error::new(io::ErrorKind::Other, "Rate limited"));
+					}
+				};
+
 				let new_session = Arc::new(Session {
 					target: target.clone(),
 					upstream_socket: upstream_arc.clone(),
 					last_seen: Instant::now(),
+					_guard: guard,
 				});
 
 				SESSIONS.insert(session_key.clone(), new_session.clone());

@@ -3,6 +3,7 @@
 use super::muxer::QuicMuxer;
 use super::session::{self, PendingState, SessionAction};
 use crate::common::getenv;
+use crate::modules::ports::tasks::GLOBAL_TRACKER;
 use crate::modules::stack::protocol::carrier::{context, flow};
 use crate::modules::{
 	kv::KvStore,
@@ -42,7 +43,6 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		Ok(p) => p,
 		Err(_) => {
 			// If parsing fails (Short Header/Handshake), check IP:PORT sticky map.
-			// Change here, Pls use the upstream socket from sticky map to avoid EINVAL/NAT breakage
 			if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
 				// Blind forward to sticky target using correct source port
 				log(
@@ -69,15 +69,36 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		.unwrap_or(5);
 
 	// Critical: Lock the pending map to update state
+	// Scope the entry to ensure the shard lock is released before any .await
 	{
-		let mut entry = session::PENDING_INITIALS
-			.entry(dcid_bytes.clone())
-			.or_insert(PendingState {
-				crypto_stream: BTreeMap::new(),
-				queued_packets: Vec::new(),
-				last_seen: Instant::now(),
-				processing: false,
-			});
+		let mut entry = if let Some(e) = session::PENDING_INITIALS.get_mut(&dcid_bytes) {
+			e
+		} else {
+			// Apply Connection Rate Limits
+			let guard = match GLOBAL_TRACKER.acquire(client_addr.ip()) {
+				Some(g) => g,
+				None => {
+					log(
+						LogLevel::Debug,
+						&format!(
+							"⚙ Rate limited QUIC session from {} (DCID {})",
+							client_addr, parsed_packet.dcid
+						),
+					);
+					return Ok(());
+				}
+			};
+
+			session::PENDING_INITIALS
+				.entry(dcid_bytes.clone())
+				.or_insert(PendingState {
+					crypto_stream: BTreeMap::new(),
+					queued_packets: Vec::new(),
+					last_seen: Instant::now(),
+					processing: false,
+					_guard: guard,
+				})
+		};
 
 		// 1. If already being processed by another task, just buffer and return
 		if entry.processing {
@@ -205,14 +226,29 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 						dcid_bytes.len()
 					),
 				);
+
+				// 1. Retrieve guard from Pending state (Clone it to keep pending entry valid for now)
+				let guard = if let Some(entry) = session::PENDING_INITIALS.get(&dcid_bytes) {
+					entry._guard.clone()
+				} else {
+					// Fallback: Acquire new guard if state is missing (rare race)
+					match GLOBAL_TRACKER.acquire(client_addr.ip()) {
+						Some(g) => g,
+						None => return Ok(()),
+					}
+				};
+
+				// 2. Register Session (Action becomes active immediately)
 				session::register_session(
 					dcid_bytes.clone(),
 					SessionAction::Terminate {
 						muxer_port: local_port,
 						last_seen: Instant::now(),
+						_guard: Some(guard),
 					},
 				);
 
+				// 3. Remove and Flush Pending State
 				if let Some((_, state)) = session::PENDING_INITIALS.remove(&dcid_bytes) {
 					log(
 						LogLevel::Debug,
@@ -225,6 +261,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 						muxer.feed_packet(data, c_addr, d_addr)?;
 					}
 				} else {
+					// If no pending state (e.g. this was the very first packet and processed immediately)
 					muxer.feed_packet(datagram, client_addr, dst_addr)?;
 				}
 

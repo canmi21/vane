@@ -1,20 +1,13 @@
 /* src/modules/ports/listener.rs */
 
-use super::{
-	model::{ListenerState, Protocol, RunningListener, TASK_REGISTRY},
-	tasks,
-};
+use super::model::{CONFIG_STATE, ListenerState, Protocol, RunningListener, TASK_REGISTRY};
 use crate::common::getenv;
+use crate::modules::ports::hotswap::scan_ports_config;
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
-use tokio::{
-	net::{TcpListener, UdpSocket},
-	time::{Duration, Instant, sleep},
-};
+use tokio::net::{TcpListener, UdpSocket};
+use tokio::sync::Mutex;
 
-const RETRY_DELAYS: &[u64] = &[1, 3, 5, 10, 15, 30, 60];
-
-/// Starts a listener for a given port and protocol.
 pub fn start_listener(port: u16, protocol: Protocol) {
 	let key = (port, protocol.clone());
 	if TASK_REGISTRY.contains_key(&key) {
@@ -23,109 +16,70 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 
 	tokio::spawn(async move {
 		let listen_ipv6 = getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true";
-		let mut delay_index = 0;
-		loop {
-			if !is_listener_still_required(port, &protocol).await {
-				let proto_str = format!("{:?}", protocol).to_uppercase();
-				log(
-					LogLevel::Debug,
-					&format!(
-						"⚙ Aborting bind retry for {} on port {}: no longer required.",
-						proto_str, port
-					),
-				);
-				return;
-			}
+		let addr: std::net::SocketAddr = if listen_ipv6 {
+			([0; 8], port).into()
+		} else {
+			([0; 4], port).into()
+		};
 
-			let bind_and_spawn_result = match protocol {
-				Protocol::Tcp => {
-					let bind_result = if listen_ipv6 {
-						TcpListener::bind(("::", port)).await
-					} else {
-						TcpListener::bind(("0.0.0.0", port)).await
-					};
-					match bind_result {
-						Ok(listener) => {
-							let shutdown_tx = tasks::spawn_tcp_listener_task(port, listener);
-							let task = RunningListener {
-								state: Arc::new(tokio::sync::Mutex::new(ListenerState::Active)),
-								shutdown_tx,
-							};
-							TASK_REGISTRY.insert((port, Protocol::Tcp), task);
-							Ok(())
-						}
-						Err(e) => Err(e),
-					}
-				}
-				Protocol::Udp => {
-					let bind_result = if listen_ipv6 {
-						UdpSocket::bind(("::", port)).await
-					} else {
-						UdpSocket::bind(("0.0.0.0", port)).await
-					};
-					match bind_result {
-						Ok(socket) => {
-							let shutdown_tx = tasks::spawn_udp_listener_task(port, socket);
-							let task = RunningListener {
-								state: Arc::new(tokio::sync::Mutex::new(ListenerState::Active)),
-								shutdown_tx,
-							};
-							TASK_REGISTRY.insert((port, Protocol::Udp), task);
-							Ok(())
-						}
-						Err(e) => Err(e),
-					}
-				}
-			};
+		log(
+			LogLevel::Info,
+			&format!("⚙ Binding {:?} listener on {}...", protocol, addr),
+		);
 
-			if let Err(e) = bind_and_spawn_result {
-				let delay = RETRY_DELAYS[delay_index.min(RETRY_DELAYS.len() - 1)];
-				let proto_str = format!("{:?}", protocol).to_uppercase();
-				log(
-					LogLevel::Warn,
-					&format!(
-						"✗ Failed to bind {} on port {}: {}. Retrying in {}s...",
-						proto_str, port, e, delay
-					),
-				);
-				sleep(Duration::from_secs(delay)).await;
-				if delay_index < RETRY_DELAYS.len() - 1 {
-					delay_index += 1;
+		let shutdown_tx = match protocol {
+			Protocol::Tcp => match TcpListener::bind(addr).await {
+				Ok(l) => Some(super::tasks::spawn_tcp_listener_task(port, l)),
+				Err(e) => {
+					log(
+						LogLevel::Error,
+						&format!("✗ TCP bind failed on {}: {}", addr, e),
+					);
+					None
 				}
-			} else {
-				return;
-			}
+			},
+			Protocol::Udp => match UdpSocket::bind(addr).await {
+				Ok(s) => Some(super::tasks::spawn_udp_listener_task(port, s)),
+				Err(e) => {
+					log(
+						LogLevel::Error,
+						&format!("✗ UDP bind failed on {}: {}", addr, e),
+					);
+					None
+				}
+			},
+		};
+
+		if let Some(tx) = shutdown_tx {
+			TASK_REGISTRY.insert(
+				key,
+				RunningListener {
+					state: Arc::new(Mutex::new(ListenerState::Active)),
+					shutdown_tx: tx,
+				},
+			);
+			log(
+				LogLevel::Info,
+				&format!("✓ {:?} listener on port {} is UP", protocol, port),
+			);
 		}
 	});
 }
 
-/// Stops a listener for a given port and protocol with a graceful shutdown period.
 pub fn stop_listener(port: u16, protocol: Protocol) {
-	let key = (port, protocol);
-	if let Some((_, task)) = TASK_REGISTRY.remove(&key) {
-		tokio::spawn(async move {
-			let port = key.0;
-			let protocol = key.1;
-			{
-				let mut state = task.state.lock().await;
-				*state = ListenerState::Draining {
-					since: Instant::now(),
-				};
-			}
-			let proto_str = format!("{:?}", protocol).to_uppercase();
-			log(
-				LogLevel::Debug,
-				&format!("⚙ Draining {} listener on port {}...", proto_str, port),
-			);
-			let _ = task.shutdown_tx.send(());
-		});
+	if let Some((_, task)) = TASK_REGISTRY.remove(&(port, protocol)) {
+		let _ = task.shutdown_tx.send(());
 	}
 }
 
-/// Checks the config state to see if a listener is still required.
+pub async fn is_port_active(port: u16) -> bool {
+	let state = scan_ports_config(&[]).await;
+	state.iter().any(|s| s.port == port && s.active)
+}
+
 async fn is_listener_still_required(port: u16, protocol: &Protocol) -> bool {
-	let current_state = super::model::CONFIG_STATE.load();
-	let state = crate::modules::ports::hotswap::scan_ports_config(&current_state);
+	let current_state = CONFIG_STATE.load();
+	let state = scan_ports_config(&current_state).await;
 	state.iter().any(|s| {
 		if s.port != port {
 			return false;
@@ -135,4 +89,25 @@ async fn is_listener_still_required(port: u16, protocol: &Protocol) -> bool {
 			Protocol::Udp => s.udp_config.is_some(),
 		}
 	})
+}
+
+pub async fn handle_listener_error(port: u16, protocol: Protocol, error: std::io::Error) {
+	log(
+		LogLevel::Warn,
+		&format!(
+			"⚠ Listener error on port {} {:?}: {}",
+			port, protocol, error
+		),
+	);
+	if is_listener_still_required(port, &protocol).await {
+		log(
+			LogLevel::Info,
+			&format!(
+				"↻ Retrying {:?} listener on port {} in 5s...",
+				protocol, port
+			),
+		);
+		tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+		start_listener(port, protocol);
+	}
 }

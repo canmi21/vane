@@ -50,24 +50,24 @@ pub async fn start() {
 
 	// CORRECTED STARTUP ORDER:
 
-	// 1. Ensure Config Files Exist (Sync)
-	requirements::ensure_config_files_exist_sync();
+	// 1. Ensure Config Files Exist
+	requirements::ensure_config_files_exist().await;
 
 	// 2. Load nodes first.
-	if let Some(initial_nodes) = nodes::hotswap::scan_nodes_config() {
+	if let Some(initial_nodes) = nodes::hotswap::scan_nodes_config().await {
 		nodes::model::NODES_STATE.store(Arc::new(initial_nodes));
 	}
 
 	// 3. Load Certificates (Keep-Last-Good).
-	certs::loader::initialize();
+	certs::loader::initialize().await;
 
 	// 4. Load ports (L4 Listeners).
-	let initial_ports = ports::hotswap::scan_ports_config(&[]);
+	let initial_ports = ports::hotswap::scan_ports_config(&[]).await;
 	ports::model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
 
 	// 5. Load Resolvers (L4+ Protocols).
 	let initial_resolvers =
-		resolver_hotswap::scan_resolver_config(&resolver_model::RESOLVER_REGISTRY.load());
+		resolver_hotswap::scan_resolver_config(&resolver_model::RESOLVER_REGISTRY.load()).await;
 	resolver_model::RESOLVER_REGISTRY.store(Arc::new(initial_resolvers));
 	log(
 		LogLevel::Info,
@@ -78,7 +78,8 @@ pub async fn start() {
 	);
 
 	// 6. Load Applications (L7 Protocols).
-	let initial_apps = app_hotswap::scan_application_config(&app_model::APPLICATION_REGISTRY.load());
+	let initial_apps =
+		app_hotswap::scan_application_config(&app_model::APPLICATION_REGISTRY.load()).await;
 	app_model::APPLICATION_REGISTRY.store(Arc::new(initial_apps));
 	log(
 		LogLevel::Info,
@@ -92,7 +93,7 @@ pub async fn start() {
 	requirements::start_background_tasks().await;
 
 	// 8. Initialize External Plugins.
-	plugin_loader::initialize();
+	plugin_loader::initialize().await;
 
 	// 9. Start Listeners IMMEDIATELY
 	log(
@@ -311,7 +312,7 @@ pub async fn start() {
 
 	// Conditionally shutdown console if it was started
 	if let Some((tcp_handle, unix_handle, shutdown_notifier)) = console_handles {
-		socket::cleanup_unix_socket();
+		socket::cleanup_unix_socket().await;
 		shutdown_notifier.notify_waiters();
 
 		if let Some(handle) = unix_handle {

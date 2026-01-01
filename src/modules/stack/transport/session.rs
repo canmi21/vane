@@ -2,6 +2,7 @@
 
 use super::model::ResolvedTarget;
 use crate::common::getenv;
+use crate::modules::ports::tasks::ConnectionGuard;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
@@ -15,6 +16,7 @@ pub struct Session {
 	pub target: ResolvedTarget,
 	pub upstream_socket: Arc<UdpSocket>,
 	pub last_seen: Instant,
+	pub _guard: ConnectionGuard,
 }
 
 /// A globally shared, thread-safe map for UDP sessions.

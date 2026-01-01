@@ -10,10 +10,10 @@ use tokio::sync::mpsc;
 // Removed: Already implemented in model.rs
 
 /// Scans and loads the nodes configuration.
-pub fn scan_nodes_config() -> Option<NodesConfig> {
+pub async fn scan_nodes_config() -> Option<NodesConfig> {
 	let config_dir = getconf::get_config_dir();
 	let res: loader::LoadResult<NodesConfig> =
-		loader::load_config("nodes", &config_dir.join("nodes"));
+		loader::load_config("nodes", &config_dir.join("nodes")).await;
 
 	match res {
 		loader::LoadResult::Ok(config) => {
@@ -37,7 +37,7 @@ pub fn scan_nodes_config() -> Option<NodesConfig> {
 /// Listens for update signals and reloads the nodes configuration.
 pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 	watch_loop(rx, "Nodes", || async {
-		if let Some(new_config) = scan_nodes_config() {
+		if let Some(new_config) = scan_nodes_config().await {
 			let old_config = NODES_STATE.load();
 			if old_config.nodes != new_config.nodes {
 				NODES_STATE.store(Arc::new(new_config));

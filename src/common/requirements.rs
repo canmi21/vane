@@ -5,11 +5,10 @@ use crate::modules::stack::protocol::carrier::quic::session as quic_session;
 use crate::modules::stack::transport::{health, session};
 use fancy_log::{LogLevel, log};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
-use std::{ffi::OsStr, fs, time::Duration};
+use std::{ffi::OsStr, time::Duration};
+use tokio::fs;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-
-// --- Error Handling Definitions ---
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -26,12 +25,8 @@ pub enum Error {
 	#[error("Anyhow: {0}")]
 	Anyhow(#[from] anyhow::Error),
 }
-
 pub type Result<T> = std::result::Result<T, Error>;
 
-// --- Config Watcher Logic ---
-
-/// A container for the different configuration change receivers.
 pub struct ConfigChangeReceivers {
 	pub ports: mpsc::Receiver<()>,
 	pub nodes: mpsc::Receiver<()>,
@@ -40,137 +35,107 @@ pub struct ConfigChangeReceivers {
 	pub applications: mpsc::Receiver<()>,
 }
 
-/// Ensures that all required directories and default files exist.
-pub fn ensure_config_files_exist_sync() {
-	getconf::init_config_dirs(vec!["listener", "resolver", "certs", "application", "bin"]);
-	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"]);
+pub async fn ensure_config_files_exist() {
+	getconf::init_config_dirs(vec!["listener", "resolver", "certs", "application", "bin"]).await;
+	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"]).await;
 }
 
-/// Spawns background tasks to watch the config directory and notify modules of changes.
 pub fn start_config_watchers_only() -> ConfigChangeReceivers {
-	let (ports_debounced_tx, ports_debounced_rx) = mpsc::channel(1);
-	let (nodes_debounced_tx, nodes_debounced_rx) = mpsc::channel(1);
-	let (resolvers_debounced_tx, resolvers_debounced_rx) = mpsc::channel(1);
-	let (certs_debounced_tx, certs_debounced_rx) = mpsc::channel(1);
-	let (apps_debounced_tx, apps_debounced_rx) = mpsc::channel(1);
+	let (p_tx, p_rx) = mpsc::channel(1);
+	let (n_tx, n_rx) = mpsc::channel(1);
+	let (r_tx, r_rx) = mpsc::channel(1);
+	let (c_tx, c_rx) = mpsc::channel(1);
+	let (a_tx, a_rx) = mpsc::channel(1);
+	let (pr_tx, mut pr_rx) = mpsc::channel(32);
+	let (nr_tx, mut nr_rx) = mpsc::channel(32);
+	let (rr_tx, mut rr_rx) = mpsc::channel(32);
+	let (cr_tx, mut cr_rx) = mpsc::channel(32);
+	let (ar_tx, mut ar_rx) = mpsc::channel(32);
 
-	// Create raw channels to send immediate, pre-debounced signals.
-	let (ports_raw_tx, ports_raw_rx) = mpsc::channel(32);
-	let (nodes_raw_tx, nodes_raw_rx) = mpsc::channel(32);
-	let (resolvers_raw_tx, resolvers_raw_rx) = mpsc::channel(32);
-	let (certs_raw_tx, certs_raw_rx) = mpsc::channel(32);
-	let (apps_raw_tx, apps_raw_rx) = mpsc::channel(32);
-
-	// Helper macro to spawn debouncers
-	// We explicitly re-bind `rx` as mutable inside the async block to satisfy `recv(&mut self)`
 	macro_rules! spawn_debouncer {
-		($raw_rx:expr, $debounced_tx:expr, $name:expr) => {
+		($rx:ident, $tx:expr) => {
 			tokio::spawn(async move {
-				let mut rx = $raw_rx;
-				while rx.recv().await.is_some() {
-					'debounce: loop {
+				while $rx.recv().await.is_some() {
+					loop {
 						tokio::select! {
-								Some(_) = rx.recv() => { continue 'debounce; }
-								_ = sleep(Duration::from_secs(2)) => {
-										if $debounced_tx.send(()).await.is_err() { return; }
-										break 'debounce;
-								}
+							Some(_) = $rx.recv() => continue,
+							_ = sleep(Duration::from_secs(2)) => { let _ = $tx.send(()).await; break; }
 						}
 					}
 				}
 			});
 		};
 	}
+	spawn_debouncer!(pr_rx, p_tx);
+	spawn_debouncer!(nr_rx, n_tx);
+	spawn_debouncer!(rr_rx, r_tx);
+	spawn_debouncer!(cr_rx, c_tx);
+	spawn_debouncer!(ar_rx, a_tx);
 
-	spawn_debouncer!(ports_raw_rx, ports_debounced_tx, "ports");
-	spawn_debouncer!(nodes_raw_rx, nodes_debounced_tx, "nodes");
-	spawn_debouncer!(resolvers_raw_rx, resolvers_debounced_tx, "resolvers");
-	spawn_debouncer!(certs_raw_rx, certs_debounced_tx, "certs");
-	spawn_debouncer!(apps_raw_rx, apps_debounced_tx, "applications");
-
-	// Spawn the main, long-running watcher task.
 	tokio::spawn(async move {
-		log(LogLevel::Debug, "➜ Starting config file watcher...");
 		let (event_tx, mut event_rx) = mpsc::channel::<Event>(32);
-
-		let mut watcher =
-			match notify::recommended_watcher(move |res: std::result::Result<Event, notify::Error>| {
-				if let Ok(event) = res {
-					let _ = event_tx.try_send(event);
-				}
-			}) {
-				Ok(w) => w,
-				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ Failed to create file watcher: {}", e),
-					);
-					return;
-				}
-			};
-
-		let config_dir = getconf::get_config_dir();
-		if let Err(e) = watcher.watch(&config_dir, RecursiveMode::Recursive) {
-			log(
-				LogLevel::Error,
-				&format!(
-					"✗ Failed to watch config dir {}: {}",
-					config_dir.display(),
-					e
-				),
-			);
-			return;
-		}
-
-		let join_canon = |sub: &str| -> std::path::PathBuf {
-			fs::canonicalize(config_dir.join(sub)).unwrap_or_else(|_| config_dir.join(sub))
+		let mut watcher = match notify::recommended_watcher(move |res| {
+			if let Ok(e) = res {
+				let _ = event_tx.try_send(e);
+			}
+		}) {
+			Ok(w) => w,
+			Err(e) => {
+				log(
+					LogLevel::Error,
+					&format!("✗ Failed to initialize config watcher: {}", e),
+				);
+				return;
+			}
 		};
+		let config_dir = getconf::get_config_dir();
+		let _ = watcher.watch(&config_dir, RecursiveMode::Recursive);
 
-		let listener_dir = join_canon("listener");
-		let resolver_dir = join_canon("resolver");
-		let certs_dir = join_canon("certs");
-		let app_dir = join_canon("application");
+		let l_dir = fs::canonicalize(config_dir.join("listener"))
+			.await
+			.unwrap_or(config_dir.join("listener"));
+		let r_dir = fs::canonicalize(config_dir.join("resolver"))
+			.await
+			.unwrap_or(config_dir.join("resolver"));
+		let c_dir = fs::canonicalize(config_dir.join("certs"))
+			.await
+			.unwrap_or(config_dir.join("certs"));
+		let a_dir = fs::canonicalize(config_dir.join("application"))
+			.await
+			.unwrap_or(config_dir.join("application"));
 
 		while let Some(event) = event_rx.recv().await {
-			// Filter out Access events (read operations) which shouldn't trigger reloads
 			match event.kind {
 				EventKind::Access(_) | EventKind::Other => continue,
 				_ => {}
 			}
-
-			log(
-				LogLevel::Debug,
-				&format!("⇆ FS Event detected: {:?}", event.kind),
-			);
-
-			if event.paths.iter().any(|p| p.starts_with(&listener_dir)) {
-				let _ = ports_raw_tx.try_send(());
+			if event.paths.iter().any(|p| p.starts_with(&l_dir)) {
+				let _ = pr_tx.try_send(());
 			} else if event
 				.paths
 				.iter()
 				.any(|p| p.file_stem() == Some(OsStr::new("nodes")))
 			{
-				let _ = nodes_raw_tx.try_send(());
-			} else if event.paths.iter().any(|p| p.starts_with(&resolver_dir)) {
-				let _ = resolvers_raw_tx.try_send(());
-			} else if event.paths.iter().any(|p| p.starts_with(&certs_dir)) {
-				let _ = certs_raw_tx.try_send(());
-			} else if event.paths.iter().any(|p| p.starts_with(&app_dir)) {
-				let _ = apps_raw_tx.try_send(());
+				let _ = nr_tx.try_send(());
+			} else if event.paths.iter().any(|p| p.starts_with(&r_dir)) {
+				let _ = rr_tx.try_send(());
+			} else if event.paths.iter().any(|p| p.starts_with(&c_dir)) {
+				let _ = cr_tx.try_send(());
+			} else if event.paths.iter().any(|p| p.starts_with(&a_dir)) {
+				let _ = ar_tx.try_send(());
 			}
 		}
 	});
 
 	ConfigChangeReceivers {
-		ports: ports_debounced_rx,
-		nodes: nodes_debounced_rx,
-		resolvers: resolvers_debounced_rx,
-		certs: certs_debounced_rx,
-		applications: apps_debounced_rx,
+		ports: p_rx,
+		nodes: n_rx,
+		resolvers: r_rx,
+		certs: c_rx,
+		applications: a_rx,
 	}
 }
 
-/// Starts background tasks (health checks, session cleanup).
 pub async fn start_background_tasks() {
 	health::initial_health_check().await;
 	health::start_periodic_health_checkers();

@@ -85,7 +85,7 @@ pub async fn delete_plugin_handler(Path(name): Path<String>) -> impl IntoRespons
 		.into_response();
 	}
 
-	match loader::delete_plugin(&name) {
+	match loader::delete_plugin(&name).await {
 		Ok(_) => response::success(json!({ "status": "deleted", "name": name })).into_response(),
 		Err(e) => response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,

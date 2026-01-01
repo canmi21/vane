@@ -1,6 +1,7 @@
 /* src/modules/stack/protocol/carrier/quic/session.rs */
 
 use crate::common::getenv;
+use crate::modules::ports::tasks::ConnectionGuard;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
@@ -16,10 +17,12 @@ pub enum SessionAction {
 		target_addr: SocketAddr,
 		upstream_socket: Arc<UdpSocket>,
 		last_seen: Instant,
+		_guard: ConnectionGuard,
 	},
 	Terminate {
 		muxer_port: u16,
 		last_seen: Instant,
+		_guard: Option<ConnectionGuard>,
 	},
 }
 
@@ -32,6 +35,7 @@ pub struct PendingState {
 	pub last_seen: Instant,
 	/// Flag to ensure only one task proceeds to flow execution
 	pub processing: bool,
+	pub _guard: ConnectionGuard,
 }
 
 /// Global registry mapping Connection IDs (DCID) to Actions.
@@ -40,18 +44,24 @@ pub static CID_REGISTRY: Lazy<DashMap<Vec<u8>, SessionAction>> = Lazy::new(|| Da
 /// Registry for pending Initials waiting for SNI.
 pub static PENDING_INITIALS: Lazy<DashMap<Vec<u8>, PendingState>> = Lazy::new(|| DashMap::new());
 
-/// IP Stickiness Map: ClientAddr -> (TargetAddr, UpstreamSocket, LastSeen)
+/// IP Stickiness Map: ClientAddr -> (TargetAddr, UpstreamSocket, LastSeen, Guard)
 /// Used when CID lookup fails (e.g. server-initiated CID migration in Transparent Proxy).
-pub static IP_STICKY_MAP: Lazy<DashMap<SocketAddr, (SocketAddr, Arc<UdpSocket>, Instant)>> =
-	Lazy::new(|| DashMap::new());
+pub static IP_STICKY_MAP: Lazy<
+	DashMap<SocketAddr, (SocketAddr, Arc<UdpSocket>, Instant, ConnectionGuard)>,
+> = Lazy::new(|| DashMap::new());
 
 pub fn register_session(cid: Vec<u8>, action: SessionAction) {
 	PENDING_INITIALS.remove(&cid);
 	CID_REGISTRY.insert(cid, action);
 }
 
-pub fn register_sticky(client: SocketAddr, target: SocketAddr, socket: Arc<UdpSocket>) {
-	IP_STICKY_MAP.insert(client, (target, socket, Instant::now()));
+pub fn register_sticky(
+	client: SocketAddr,
+	target: SocketAddr,
+	socket: Arc<UdpSocket>,
+	guard: ConnectionGuard,
+) {
+	IP_STICKY_MAP.insert(client, (target, socket, Instant::now(), guard));
 }
 
 pub fn get_sticky(client: &SocketAddr) -> Option<(SocketAddr, Arc<UdpSocket>)> {
@@ -95,7 +105,7 @@ pub fn cleanup_sessions(timeout_secs: u64) {
 	let sticky_timeout_str = getenv::get_env("QUIC_STICKY_SESSION_TTL", "60".to_string());
 	let sticky_timeout = sticky_timeout_str.parse::<u64>().unwrap_or(60);
 
-	IP_STICKY_MAP.retain(|_, (_, _, last)| now.duration_since(*last).as_secs() < sticky_timeout);
+	IP_STICKY_MAP.retain(|_, (_, _, last, _)| now.duration_since(*last).as_secs() < sticky_timeout);
 }
 
 /// Spawns a background task to clean up expired QUIC sessions.

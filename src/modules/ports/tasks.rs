@@ -1,18 +1,110 @@
 /* src/modules/ports/tasks.rs */
 
 use super::model::{CONFIG_STATE, ListenerState, Protocol, TASK_REGISTRY};
+use crate::common::getenv;
 use crate::modules::{
 	kv,
 	plugins::protocol::quic::parser,
 	stack::protocol::carrier::quic::{muxer::QuicMuxer, session},
 	stack::transport::{dispatcher, udp},
 };
+use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
+use once_cell::sync::Lazy;
+use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::{
 	net::{TcpListener, UdpSocket},
 	sync::oneshot,
 };
+
+// --- Connection Tracking ---
+
+#[derive(Debug)]
+struct InternalGuard {
+	tracker: Arc<ConnectionTracker>,
+	ip: IpAddr,
+}
+
+impl Drop for InternalGuard {
+	fn drop(&mut self) {
+		self.tracker.release(self.ip);
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct ConnectionGuard(#[allow(dead_code)] Arc<InternalGuard>);
+
+#[derive(Debug)]
+pub struct ConnectionTracker {
+	global_count: AtomicUsize,
+	ip_counts: DashMap<IpAddr, AtomicUsize>,
+	max_connections: usize,
+	max_connections_per_ip: usize,
+}
+
+impl ConnectionTracker {
+	fn new() -> Self {
+		let max_conn = getenv::get_env("MAX_CONNECTIONS", "10000".to_string())
+			.parse::<usize>()
+			.unwrap_or(10000);
+		let max_per_ip = getenv::get_env("MAX_CONNECTIONS_PER_IP", "50".to_string())
+			.parse::<usize>()
+			.unwrap_or(50);
+
+		Self {
+			global_count: AtomicUsize::new(0),
+			ip_counts: DashMap::new(),
+			max_connections: max_conn,
+			max_connections_per_ip: max_per_ip,
+		}
+	}
+
+	pub fn acquire(self: &Arc<Self>, ip: IpAddr) -> Option<ConnectionGuard> {
+		// 1. Check global limit
+		let current_global = self.global_count.load(Ordering::Relaxed);
+		if current_global >= self.max_connections {
+			return None;
+		}
+
+		// 2. Check IP limit
+		let ip_entry = self
+			.ip_counts
+			.entry(ip)
+			.or_insert_with(|| AtomicUsize::new(0));
+		let current_ip = ip_entry.load(Ordering::Relaxed);
+		if current_ip >= self.max_connections_per_ip {
+			return None;
+		}
+
+		// 3. Increment counters
+		self.global_count.fetch_add(1, Ordering::Relaxed);
+		ip_entry.fetch_add(1, Ordering::Relaxed);
+
+		Some(ConnectionGuard(Arc::new(InternalGuard {
+			tracker: self.clone(),
+			ip,
+		})))
+	}
+
+	fn release(&self, ip: IpAddr) {
+		self.global_count.fetch_sub(1, Ordering::Relaxed);
+		if let Some(ip_count) = self.ip_counts.get(&ip) {
+			let prev = ip_count.fetch_sub(1, Ordering::Relaxed);
+			if prev == 1 {
+				// Count dropped to 0, clean up the entry to save memory
+				drop(ip_count);
+				self
+					.ip_counts
+					.remove_if(&ip, |_, count| count.load(Ordering::Relaxed) == 0);
+			}
+		}
+	}
+}
+
+pub static GLOBAL_TRACKER: Lazy<Arc<ConnectionTracker>> =
+	Lazy::new(|| Arc::new(ConnectionTracker::new()));
 
 /// Spawns a dedicated Tokio task to listen for TCP connections on a given port.
 pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sender<()> {
@@ -22,6 +114,17 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 		loop {
 			tokio::select! {
 				Ok((socket, addr)) = listener.accept() => {
+					let client_ip = addr.ip();
+
+					// Apply Connection Rate Limits
+					let _guard = match GLOBAL_TRACKER.acquire(client_ip) {
+						Some(g) => g,
+						None => {
+							log(LogLevel::Debug, &format!("⚙ Rate limited TCP connection from {} on port {}", addr, port));
+							continue;
+						}
+					};
+
 					if let Some(task) = TASK_REGISTRY.get(&key) {
 						let mut state = task.state.lock().await;
 						if let ListenerState::Draining {..} = *state {
@@ -39,7 +142,11 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 					let port_status = config_guard.iter().find(|s| s.port == port);
 					if let Some(status) = port_status {
 						if let Some(tcp_config) = status.tcp_config.clone() {
-							tokio::spawn(async move { dispatcher::dispatch_tcp_connection(socket, port, tcp_config, kv_store).await; });
+							tokio::spawn(async move {
+								// Move guard into the task so it lives as long as the connection
+								let _conn_guard = _guard;
+								dispatcher::dispatch_tcp_connection(socket, port, tcp_config, kv_store).await;
+							});
 						} else {
 							log(LogLevel::Warn, &format!("✗ TCP listener is active on port {}, but no config found. Dropping connection from {}.", port, addr));
 						}

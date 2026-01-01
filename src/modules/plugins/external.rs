@@ -14,39 +14,31 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::any::Any;
 use std::borrow::Cow;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::fs;
 
-/// A wrapper struct that implements the Plugin trait for external definitions.
 #[derive(Debug, Clone)]
 pub struct ExternalPlugin {
 	config: ExternalPluginConfig,
 }
 
-/// Resolves the trusted plugin bin directory from the configuration.
-pub fn get_trusted_bin_root() -> PathBuf {
+pub async fn get_trusted_bin_root() -> PathBuf {
 	let root = crate::common::getconf::get_config_dir().join("bin");
-	// Use canonicalize to resolve symlinks and ensure we have an absolute path.
-	// If it doesn't exist yet, fallback to the joined path.
-	fs::canonicalize(&root).unwrap_or(root)
+	fs::canonicalize(&root).await.unwrap_or(root)
 }
 
-/// Validates that a program path is safe and located within the trusted bin directory.
-/// Returns the absolute path to the program if valid.
-pub fn validate_command_path(program: &str) -> Result<PathBuf> {
-	let bin_root = get_trusted_bin_root();
+pub async fn validate_command_path(program: &str) -> Result<PathBuf> {
+	let bin_root = get_trusted_bin_root().await;
 	let program_path = Path::new(program);
 
-	// Scenario 1: Relative path or filename -> join with bin_root
 	let absolute_path = if program_path.is_absolute() {
-		// Scenario 2: Absolute path -> must be canonicalized and checked for prefix
 		fs::canonicalize(program_path)
+			.await
 			.map_err(|e| anyhow!("Failed to resolve absolute path '{}': {}", program, e))?
 	} else {
-		// Join and then canonicalize to resolve any ".."
 		let joined = bin_root.join(program_path);
-		fs::canonicalize(&joined).map_err(|e| {
+		fs::canonicalize(&joined).await.map_err(|e| {
 			anyhow!(
 				"Program '{}' not found in trusted bin directory: {}",
 				program,
@@ -55,7 +47,6 @@ pub fn validate_command_path(program: &str) -> Result<PathBuf> {
 		})?
 	};
 
-	// Strict prefix check
 	if !absolute_path.starts_with(&bin_root) {
 		return Err(anyhow!(
 			"Security Violation - Program '{}' is outside the trusted bin directory.",
@@ -63,7 +54,11 @@ pub fn validate_command_path(program: &str) -> Result<PathBuf> {
 		));
 	}
 
-	if !absolute_path.is_file() {
+	if !fs::metadata(&absolute_path)
+		.await
+		.map(|m| m.is_file())
+		.unwrap_or(false)
+	{
 		return Err(anyhow!("Path '{}' is not a file.", program));
 	}
 
@@ -77,9 +72,7 @@ impl ExternalPlugin {
 
 	pub async fn validate_connectivity(&self) -> Result<()> {
 		if self.config.role == PluginRole::Terminator {
-			return Err(anyhow!(
-				"External plugins cannot be Terminators. Only built-in plugins can terminate connections."
-			));
+			return Err(anyhow!("External plugins cannot be Terminators."));
 		}
 
 		let skip_validation = getenv::to_lowercase(&getenv::get_env(
@@ -92,23 +85,12 @@ impl ExternalPlugin {
 				if skip_validation {
 					return Ok(());
 				}
-				if !url.starts_with("http://") && !url.starts_with("https://") {
-					return Err(anyhow!("URL must start with http:// or https://"));
-				}
 				let client = reqwest::Client::builder()
 					.timeout(Duration::from_secs(3))
-					.build()
-					.map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
-				let response = client
-					.request(reqwest::Method::OPTIONS, url)
-					.send()
-					.await
-					.map_err(|e| anyhow!("Failed to connect to endpoint: {}", e))?;
+					.build()?;
+				let response = client.request(reqwest::Method::OPTIONS, url).send().await?;
 				if !response.status().is_success() {
-					return Err(anyhow!(
-						"Endpoint returned error status: {}.",
-						response.status()
-					));
+					return Err(anyhow!("Endpoint returned error: {}.", response.status()));
 				}
 				Ok(())
 			}
@@ -116,14 +98,13 @@ impl ExternalPlugin {
 				if skip_validation {
 					return Ok(());
 				}
-				if !Path::new(path).exists() {
+				if fs::metadata(path).await.is_err() {
 					return Err(anyhow!("Unix socket path does not exist: {}", path));
 				}
 				Ok(())
 			}
 			ExternalPluginDriver::Command { program, .. } => {
-				// Command validation cannot be fully skipped as it is a core security feature
-				validate_command_path(program)?;
+				validate_command_path(program).await?;
 				Ok(())
 			}
 		}
@@ -134,7 +115,6 @@ impl Plugin for ExternalPlugin {
 	fn name(&self) -> &str {
 		&self.config.name
 	}
-
 	fn params(&self) -> Vec<ParamDef> {
 		self
 			.config
@@ -147,11 +127,9 @@ impl Plugin for ExternalPlugin {
 			})
 			.collect()
 	}
-
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
-
 	fn as_middleware(&self) -> Option<&dyn Middleware> {
 		if self.config.role == PluginRole::Middleware {
 			Some(self)
@@ -159,7 +137,6 @@ impl Plugin for ExternalPlugin {
 			None
 		}
 	}
-
 	fn as_generic_middleware(&self) -> Option<&dyn super::model::GenericMiddleware> {
 		if self.config.role == PluginRole::Middleware {
 			Some(self)
@@ -167,7 +144,6 @@ impl Plugin for ExternalPlugin {
 			None
 		}
 	}
-
 	fn as_terminator(&self) -> Option<&dyn Terminator> {
 		None
 	}
@@ -178,7 +154,6 @@ impl super::model::GenericMiddleware for ExternalPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec!["success".into(), "failure".into()]
 	}
-
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
 		drivers::execute_driver(&self.config.driver, self.name(), inputs).await
 	}
@@ -189,7 +164,6 @@ impl Middleware for ExternalPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec!["success".into(), "failure".into()]
 	}
-
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
 		drivers::execute_driver(&self.config.driver, self.name(), inputs).await
 	}
@@ -198,17 +172,14 @@ impl Middleware for ExternalPlugin {
 #[async_trait]
 impl Terminator for ExternalPlugin {
 	fn supported_layers(&self) -> Vec<Layer> {
-		vec![] // Not supported
+		vec![]
 	}
-
 	async fn execute(
 		&self,
-		_inputs: ResolvedInputs,
+		_i: ResolvedInputs,
 		_kv: &mut KvStore,
-		_conn: ConnectionObject,
+		_c: ConnectionObject,
 	) -> Result<TerminatorResult> {
-		Err(anyhow!(
-			"Execution Error: External plugins cannot be executed as Terminators."
-		))
+		Err(anyhow!("External plugins cannot be Terminators."))
 	}
 }

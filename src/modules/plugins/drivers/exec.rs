@@ -21,7 +21,7 @@ pub async fn execute(
 	inputs: ResolvedInputs,
 ) -> Result<MiddlewareOutput> {
 	// SEC-2: Enforce trusted bin root validation at runtime.
-	let resolved_program = match external::validate_command_path(program) {
+	let resolved_program = match external::validate_command_path(program).await {
 		Ok(p) => p,
 		Err(e) => {
 			log(

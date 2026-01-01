@@ -88,7 +88,7 @@ impl L7Terminator for SendResponsePlugin {
 			let mut response = Response::builder()
 				.status(StatusCode::SWITCHING_PROTOCOLS)
 				.body(())
-				.unwrap();
+				.map_err(|e| anyhow!("Failed to build WebSocket 101 response: {}", e))?;
 
 			// Use backend's response headers (contains Upgrade handshake headers)
 			*response.headers_mut() = std::mem::take(&mut container.response_headers);

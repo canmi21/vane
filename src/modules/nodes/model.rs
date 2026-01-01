@@ -9,7 +9,8 @@ use validator::{Validate, ValidationError, ValidationErrors};
 
 lazy_static! {
 	pub static ref NODES_STATE: ArcSwap<NodesConfig> = ArcSwap::default();
-	static ref NAME_REGEX: regex::Regex = regex::Regex::new(r"^[a-z0-9-]+$").unwrap();
+	static ref NAME_REGEX: regex::Regex =
+		regex::Regex::new(r"^[a-z0-9-]+$").expect("Failed to compile NAME_REGEX");
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

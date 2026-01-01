@@ -10,6 +10,7 @@ use crate::{
 	modules::{
 		kv::KvStore,
 		plugins::model::{ConnectionObject, Layer, ProcessingStep, TerminatorResult},
+		ports::tasks::GLOBAL_TRACKER,
 		stack::protocol::carrier,
 	},
 };
@@ -207,6 +208,7 @@ pub async fn dispatch_udp_datagram(
 								target: session.target.clone(),
 								upstream_socket: session.upstream_socket.clone(),
 								last_seen: Instant::now(),
+								_guard: session._guard.clone(),
 							});
 							SESSIONS.insert(session_key.clone(), updated_session.clone());
 							current_session = Some(updated_session);
@@ -227,10 +229,26 @@ pub async fn dispatch_udp_datagram(
 										if let Ok(upstream_socket) = bind_upstream_socket(&target_ip).await {
 											let upstream_arc = Arc::new(upstream_socket);
 											if let Ok(local_addr) = upstream_arc.local_addr() {
+												// Apply Connection Rate Limits
+												let guard = match GLOBAL_TRACKER.acquire(client_addr.ip()) {
+													Some(g) => g,
+													None => {
+														log(
+															LogLevel::Debug,
+															&format!(
+																"⚙ Rate limited UDP session from {} for rule {}",
+																client_addr, rule.name
+															),
+														);
+														continue;
+													}
+												};
+
 												let new_session = Arc::new(Session {
 													target: target.clone(),
 													upstream_socket: upstream_arc.clone(),
 													last_seen: Instant::now(),
+													_guard: guard,
 												});
 												SESSIONS.insert(session_key.clone(), new_session.clone());
 												REVERSE_SESSIONS.insert(local_addr, client_addr);
