@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.7.17 (30. Dec, 2025)
+
+- **Changed:** Optimized QUIC packet parsing by eliminating redundant heap allocations and data clones during CRYPTO frame reassembly. Refactored the internal data structures to use `BTreeMap` for zero-copy fragment merging, significantly improving performance in high-latency or high-jitter handshake scenarios.
+- **Fixed:** Cleaned up deprecated QUIC parser legacy code to streamline the codebase.
+
 ## 0.7.16 (30. Dec, 2025)
 
 - **Changed:** Optimized the Rate Limiter's memory management by introducing precise, incremental atomic counters for heap usage tracking. This replaces the previous rough estimations with O(1) complexity monitoring, ensuring reliable memory bounds and better protection against resource exhaustion attacks.
