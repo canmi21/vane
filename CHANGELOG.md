@@ -7,16 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## 0.7.17 (30. Dec, 2025)
+## 0.7.18 (1. Jan, 2026)
+
+- **Changed:** Completed full migration to Asynchronous I/O across the entire codebase. Replaced all remaining `std::fs` calls with `tokio::fs` in core loading engines, certificate management, management API, and plugin persistence.
+- **Changed:** Eliminated potential worker thread blocking during configuration hot-reloads and environment initialization, ensuring consistent low latency under disk I/O pressure.
+- **Fixed:** Refactored the internal port listener lifecycle to support asynchronous binding and graceful task handovers.
+
+## 0.7.17 (1. Jan, 2026)
 
 - **Changed:** Optimized QUIC packet parsing by eliminating redundant heap allocations and data clones during CRYPTO frame reassembly. Refactored the internal data structures to use `BTreeMap` for zero-copy fragment merging, significantly improving performance in high-latency or high-jitter handshake scenarios.
 - **Fixed:** Cleaned up deprecated QUIC parser legacy code to streamline the codebase.
 
-## 0.7.16 (30. Dec, 2025)
+## 0.7.16 (1. Jan, 2026)
 
 - **Changed:** Optimized the Rate Limiter's memory management by introducing precise, incremental atomic counters for heap usage tracking. This replaces the previous rough estimations with O(1) complexity monitoring, ensuring reliable memory bounds and better protection against resource exhaustion attacks.
 
-## 0.7.15 (30. Dec, 2025)
+## 0.7.15 (1. Jan, 2026)
 
 - **Fixed:** Eliminated usage of `unreachable!()` and `panic!()` in the data plane and certificate management modules. Vane now utilizes explicit error results to handle internal state inconsistencies and unsupported key formats, ensuring that logic errors result in controlled connection drops rather than thread-level crashes.
 
