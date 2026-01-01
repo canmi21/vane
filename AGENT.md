@@ -75,6 +75,13 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
       - Added timeout protection to `unix` and `httpx` drivers.
     - **Result**: Guarantees bounded execution time for all connection flows, preventing cascading failures and resource exhaustion.
 
+22. 🔄 **Task 2.15: Panic Safety Improvements (Phase I)**
+    - **Problem**: Usage of `unwrap()` in the data plane posed a risk of unexpected process crashes or connection drops.
+    - **Solution**: Started a systematic replacement of unsafe `unwrap()`/`expect()` calls with robust `Result` handling.
+    - **Changes**:
+      - Replaced `sni_found.unwrap()` in `quic.rs` with `.ok_or_else(...)?`.
+    - **Status**: Progressing through the risk-graded checklist in `.todo/replace-unwrap.md`.
+
 ---
 
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
@@ -83,7 +90,7 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 
 **Detailed Reports:** See `.report/` directory.
 
-**Next Task**: Task 2.15 - Replace unwrap() in production code
+**Next Task**: Continue Task 2.15 - Replace unwrap() in production code (Level 1 items)
 
 ---
 
@@ -104,14 +111,15 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3). T
 12. ✅ ~~**Task 2.12** - Template Complexity Protection~~ **COMPLETE**
 13. ✅ ~~**Task 2.13** - Template Injection Protection~~ **COMPLETE**
 14. ✅ ~~**Task 2.14** - Flow Execution Timeout~~ **COMPLETE**
-15. **Task 2.15** - Replace unwrap() in production code ← **NEXT**
+15. 🔄 **Task 2.15** - Replace unwrap() in production code **IN PROGRESS**
+16. **Task 2.16** - Replace unreachable!() with error handling ← **NEXT**
 
 ### Next Week (Reliability & Performance)
 ...
 ## 📝 Version Information
 
-**Current Version**: 0.7.13
+**Current Version**: 0.7.14
 **Target Version**: 0.8.0
 **Expected Versions**:
-- 0.7.14: Task 2.15 (Replace unwrap)
+- 0.7.15: Task 2.15 completion (Panic safety)
 - 0.8.0: All CRITICAL + HIGH fixes complete

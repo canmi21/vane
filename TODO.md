@@ -149,12 +149,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 |----|------|----------|--------|------------------|
 | 2.12 | Add template parser complexity protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
 | 2.13 | Implement template injection protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.14 | Add flow execution timeout | 🟠 HIGH | 📌 **Next** | [Reliability Report](.report/reliability.md) |
-| 2.15 | Replace unwrap() in production code | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
-| 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | Pending | [Reliability Report](.report/reliability.md) |
-| 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
-| 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
-| 2.19 | Replace blocking I/O with async | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
+| 2.14 | Add flow execution timeout | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
+| 2.15 | Replace unwrap() in production code | 🟠 HIGH | 📌 **Next** | [Reliability Report](.report/reliability.md) |
 
 **Note:** See detailed reports in `.report/` for complete issue list and remediation steps
 
