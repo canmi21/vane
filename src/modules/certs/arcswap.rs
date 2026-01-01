@@ -8,6 +8,8 @@ use tokio_rustls::rustls::pki_types::{
 	CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
 };
 
+use crate::common::requirements::{Error, Result};
+
 // Clone derive (PrivateKeyDer is not implicitly Clone)
 #[derive(Debug)]
 pub struct LoadedCert {
@@ -19,18 +21,18 @@ impl LoadedCert {
 	/// Manually clones the PrivateKeyDer.
 	/// PrivateKeyDer doesn't implement Clone to prevent accidental copying of secrets,
 	/// so we extract the raw bytes and construct a new instance.
-	pub fn key_clone(&self) -> PrivateKeyDer<'static> {
+	pub fn key_clone(&self) -> Result<PrivateKeyDer<'static>> {
 		match &self.key {
-			PrivateKeyDer::Pkcs8(k) => {
-				PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(k.secret_pkcs8_der().to_vec()))
-			}
-			PrivateKeyDer::Pkcs1(k) => {
-				PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(k.secret_pkcs1_der().to_vec()))
-			}
-			PrivateKeyDer::Sec1(k) => {
-				PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(k.secret_sec1_der().to_vec()))
-			}
-			_ => panic!("Unsupported key format in registry"),
+			PrivateKeyDer::Pkcs8(k) => Ok(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+				k.secret_pkcs8_der().to_vec(),
+			))),
+			PrivateKeyDer::Pkcs1(k) => Ok(PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(
+				k.secret_pkcs1_der().to_vec(),
+			))),
+			PrivateKeyDer::Sec1(k) => Ok(PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(
+				k.secret_sec1_der().to_vec(),
+			))),
+			_ => Err(Error::Tls("Unsupported key format in registry".into())),
 		}
 	}
 }

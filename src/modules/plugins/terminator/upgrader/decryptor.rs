@@ -67,7 +67,7 @@ pub async fn terminate_and_handover(
 	let mut server_config = rustls::ServerConfig::builder()
 		.with_no_client_auth()
 		// FIXED: Use key_clone() helper
-		.with_single_cert(cert.certs.clone(), cert.key_clone())
+		.with_single_cert(cert.certs.clone(), cert.key_clone()?)
 		.map_err(|e| anyhow!("Invalid TLS configuration: {}", e))?;
 
 	// Httpx supports both H2 and H1 via ALPN negotiation

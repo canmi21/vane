@@ -87,7 +87,9 @@ impl PayloadState {
 
 		match self {
 			PayloadState::Buffered(b) => Ok(b),
-			_ => unreachable!("Payload must be buffered after force_buffer logic"),
+			_ => Err(Error::System(
+				"Internal state inconsistency: payload not buffered after force_buffer".to_string(),
+			)),
 		}
 	}
 }

@@ -172,7 +172,7 @@ impl QuicMuxer {
 
 		let mut crypto = rustls::ServerConfig::builder()
 			.with_no_client_auth()
-			.with_single_cert(cert.certs.clone(), cert.key_clone())
+			.with_single_cert(cert.certs.clone(), cert.key_clone()?)
 			.map_err(|e| Error::Tls(e.to_string()))?;
 
 		crypto.alpn_protocols = vec![b"h3".to_vec()];
