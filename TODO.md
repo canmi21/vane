@@ -92,6 +92,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.13 | Implement template injection protection | 2025-12-30 | [Security Report](.report/security.md) |
 | 2.14 | Add flow execution timeout | 2025-12-30 | [Reliability Report](.report/reliability.md) |
 | 2.16 | Replace unreachable!() with error handling | 2025-12-30 | [Reliability Report](.report/reliability.md) |
+| 2.17 | Fix rate limiter memory estimation | 2025-12-30 | [Performance Report](.report/performance.md) |
 
 ---
 
@@ -155,8 +156,8 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.14 | Add flow execution timeout | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
 | 2.15 | Replace unwrap() in production code | 🟠 HIGH | 📌 **In Progress** | [Panic Safety List](.todo/replace-unwrap.md) |
 | 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-| 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | 📌 **Next** | [Performance Report](.report/performance.md) |
-| 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
+| 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
+| 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | 📌 **Next** | [Performance Report](.report/performance.md) |
 | 2.19 | Replace blocking I/O with async | 🟠 HIGH | Pending | [Performance Report](.report/performance.md) |
 
 **Note:** See detailed reports in `.report/` for complete issue list and remediation steps
@@ -228,11 +229,12 @@ Lower priority tasks deferred until Phase I-III complete.
 - ✅ **QUIC Reliability**: Fixed buffer race conditions and enforced packet limits.
 - ✅ **Plugin Reliability**: Implemented a passive circuit breaker and global execution timeouts for external middleware.
 - ✅ **Panic Safety**: Systematically removing `unwrap()`, `expect()`, and `unreachable!()` from the data plane.
+- ✅ **Resource Management**: Implemented precise memory tracking for rate limiters.
 
 **Next Steps - Fixes:**
 
-1. Task 2.17: Fix rate limiter memory estimation ← **NEXT**
-2. Task 2.18: Remove unnecessary QUIC frame clones
+1. Task 2.18: Remove unnecessary QUIC frame clones ← **NEXT**
+2. Task 2.19: Replace blocking I/O with async
 
 **See AGENT.md for detailed fix workflow requirements**
 
@@ -257,5 +259,6 @@ Lower priority tasks deferred until Phase I-III complete.
 ✅ Task 2.13: Template Injection Protection
 ✅ Task 2.14: Flow Execution Timeout
 ✅ Task 2.16: Elimination of Panics
-→ Task 2.17: Rate Limiter memory fix (Next)
+✅ Task 2.17: Precise Rate Limit Tracking
+→ Task 2.18: QUIC Frame Optimization (Next)
 ```
