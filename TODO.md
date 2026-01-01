@@ -94,6 +94,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.16 | Replace unreachable!() with error handling | 2025-12-30 | [Reliability Report](.report/reliability.md) |
 | 2.17 | Fix rate limiter memory estimation | 2025-12-30 | [Performance Report](.report/performance.md) |
 | 2.18 | Remove unnecessary QUIC frame clones | 2025-12-30 | [Performance Report](.report/performance.md) |
+| 1.4 | Flow validation framework (Custom Engine) | 2026-01-02 | [`.todo/flow-validation.md`](.todo/flow-validation.md) |
 | 2.19 | Replace blocking I/O with async | 2025-12-30 | [Performance Report](.report/performance.md) |
 
 ---
@@ -109,7 +110,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | ID | Task | Status | File |
 |----|------|--------|------|
 | 1.1 | Rust feature flags support | Deferred | [`.todo/rust-feature-flags.md`](.todo/rust-feature-flags.md) |
-| 1.4 | Flow validation framework | Deferred | [`.todo/flow-validation.md`](.todo/flow-validation.md) |
+
 
 ---
 
@@ -161,7 +162,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
 | 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
 | 2.19 | Replace blocking I/O with async | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
-| 2.20 | Implement L4/L4+ connection rate limits | 🟠 HIGH | Pending | [Security Report](.report/security.md) |
+| 2.20 | Implement L4/L4+ connection rate limits | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
 
 **Note:** See detailed reports in `.report/` for complete issue list and remediation steps
 

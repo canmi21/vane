@@ -2,34 +2,32 @@
 
 **Last Updated**: 2026-01-02
 **Current Task**: Phase II - Security & Quality Fixes (Task 1.1 - Feature Flags)
-**Status**: Task 1.4 Complete, Memory Leaks Eliminated
+**Status**: Task 1.1 First Wave Complete, Version 0.8.0 Released
 
 ---
 
 ## 📍 Current Position
 
-We have successfully completed the Architecture Vulnerability Scan (Task 0.3) and implemented all CRITICAL and HIGH priority fixes. The Flow Validation Framework (Task 1.4) has been refactored to be 100% memory safe.
-
-**Phase I (里子工程) is COMPLETE.** 
-**Phase II (查漏补缺) is nearing completion.**
+We have reached a major milestone with **Version 0.8.0**, implementing the first wave of modular feature flags and a memory-safe validation engine.
 
 ### Recently Completed
 
-1. ✅ **Task 2.20: Global Connection Rate Limits** (v0.7.19)
-   - Implemented `MAX_CONNECTIONS` and `MAX_CONNECTIONS_PER_IP` environment variables.
-   - Integrated RAII guards into TCP, UDP, and QUIC layers.
-2. ✅ **Task 1.4: Custom Flow Validation Engine** (v0.7.20)
-   - Eliminated all `Box::leak` occurrences in the validator and model files.
-   - Implemented Cycle Detection for plugin flows to prevent infinite recursion.
-   - Enhanced error reporting with precise structural path tracing.
+1. ✅ **Task 1.1: Rust Feature Flags (Wave 1 & 2)** (v0.8.0)
+   - Introduced 10 modular features: `tcp`, `udp`, `tls`, `quic`, `httpx`, `h2upstream`, `h3upstream`, `cgi`, `static`, `ratelimit`.
+   - Default build remains "full" (all features enabled).
+   - Added descriptive validator errors for disabled features.
+   - Added feature list display to `vane -v` output.
+2. ✅ **Task 1.4: Custom Flow Validation Engine**
+   - Eliminated all `Box::leak` occurrences.
+   - Implemented Cycle Detection and path-based error tracing.
 
 ---
 
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
 
-**Scan Summary:** 11 CRITICAL issues identified and FIXED.
+**Scan Summary:** 11 CRITICAL issues fixed. 0.8.0 baseline established.
 
-**Next Task**: Task 1.1 - Implement Rust Feature Flags Support
+**Next Task**: Task 1.1 - Continue expanding Feature Flags (External Drivers)
 
 ---
 
@@ -42,20 +40,14 @@ We have successfully completed the Architecture Vulnerability Scan (Task 0.3) an
 ## 📋 Current Task Queue (Priority Order)
 
 ### This Week (Quality & Reliability)
-1. ✅ ~~**Task 2.20** - Connection Rate Limits~~ **COMPLETE**
-2. ✅ ~~**Task 1.4** - Flow Validation (Zero Leak)~~ **COMPLETE**
-3. 🔄 **Task 1.1** - Rust feature flags support **NEXT**
-4. **Task 2.21** - Resolve CGI PATH_INFO edge cases
-5. **Task 2.22** - Unify dependency versions (nom)
+1. ✅ ~~**Task 1.1** - Feature Flags support (Wave 1)~~ **COMPLETE**
+2. 🔄 **Task 1.1** - Feature Flags (Wave 2: External Drivers) **NEXT**
+3. **Task 2.21** - Resolve CGI PATH_INFO edge cases
+4. **Task 2.22** - Unify dependency versions (nom)
 
 ### Next Week (Phase III - Organization)
-1. **Task 0.4** - L4 legacy config file extraction
-2. **Task 3.1** - Reorganize plugin directory structure
-3. **Task 3.2** - Flatten stack module hierarchy
-
----
-
+...
 ## 📝 Version Information
 
-**Current Version**: 0.7.20
-**Target Version**: 0.8.0
+**Current Version**: 0.8.0
+**Target Version**: 0.9.0

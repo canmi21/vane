@@ -1,90 +1,72 @@
-# Task 1.1: Rust Feature Flags Support
+# Task 1.1: Rust Feature Flags Support - Deep Investigation
 
-**Status:** Planned (Phase II)
+**Goal:** Implement a fine-grained feature flag system to allow custom, lightweight builds of Vane while keeping the default build "full-featured".
 
-**User Input:** 支持这么多协议会导致 binary 过大，需要 feature 来按需编译
+## Status: Investigation Phase Complete
 
-**Blocker:** Awaiting discussion on feature granularity
+### 1. Dependency Analysis & Impacts
 
-## Proposed Feature Flags
+| Category | Key Dependencies | Complexity | Impact on Binary Size |
+|----------|------------------|------------|-----------------------|
+| **QUIC/H3** | `quinn`, `h3`, `h3-quinn` | High | Very High |
+| **TLS** | `rustls`, `tokio-rustls`, `rcgen` | High | High |
+| **L7 HTTP** | `hyper`, `hyper-util`, `axum` | Medium | High |
+| **DNS** | `hickory-resolver` | Low | Medium |
+| **Ext HTTP** | `reqwest` | Low | Medium |
 
-### Transport Layer (L4)
+---
 
+### 2. Feature Architecture Design
+
+#### Master Flags
 ```toml
 [features]
-default = ["tcp", "udp"]
-tcp = []
-udp = []
+default = ["full"]
+full = [
+    "tls", "quic", "http", "http3", "dns", 
+    "plugins-full", "external-full"
+]
 ```
 
-### Carrier Layer (L4+)
+#### Detailed Flags
+- **Protocols:** `tls`, `quic`, `http`, `http3` (requires `quic`), `dns`.
+- **Built-in Plugins:** `plugin-cgi`, `plugin-static`, `plugin-upstream`, `plugin-ratelimit`.
+- **External Drivers:** `external-http` (gates `reqwest`), `external-unix`, `external-exec`.
 
-```toml
-tls = ["dep:rustls", "dep:tokio-rustls"]
-quic = ["dep:quinn", "dep:h3"]
-dtls = ["tls"]  # Future
-```
+---
 
-### Application Layer (L7)
+### 3. Gradual Roll-out Roadmap
 
-```toml
-http = ["http1", "http2"]
-http1 = ["dep:hyper"]
-http2 = ["dep:hyper"]
-http3 = ["quic", "dep:h3"]
-dns = []  # Future
-```
+We will add flags one by one to ensure stability.
 
-### Plugin Categories
+#### Step 1: Built-in Plugin Gating (Phase 2 in Roadmap)
+- [ ] Add `plugin-cgi` flag. Gate `CgiPlugin` registration and its module.
+- [ ] Add `plugin-static` flag. Gate `StaticPlugin` registration and its module.
+- [ ] Add `plugin-ratelimit` flag. Gate `KeywordRateLimit*` registration.
 
-```toml
-# Middleware
-middleware-protocol-detect = []
-middleware-ratelimit = []
-middleware-matcher = []
+#### Step 2: External Driver Gating (Phase 3 in Roadmap)
+- [ ] Add `external-http` flag. Gate `reqwest` and `drivers::httpx`.
+- [ ] Add `external-exec` flag. Gate `drivers::exec`.
+- [ ] Add `external-unix` flag. Gate `drivers::unix`.
 
-# Terminators
-terminator-proxy = []
-terminator-upgrade = []
+#### Step 3: Core Protocol Gating (Phase 4 in Roadmap)
+- [ ] Add `dns` flag. Gate `hickory-resolver` and `proxy::domain`.
+- [ ] Add `quic` flag. Gate `quinn` and `carrier::quic`. Update `udp.rs` dispatcher.
+- [ ] Add `tls` flag. Gate `rustls` and `carrier::tls`. Update `tcp.rs` dispatcher.
+- [ ] Add `http` flag. Gate `hyper` and `application::http::httpx`.
+- [ ] Add `http3` flag. Gate `h3` and `application::http::h3`.
 
-# L7 Drivers
-driver-fetch-upstream = ["http"]
-driver-cgi = []
-driver-static = []
-```
+---
 
-### External Plugin System
+### 4. Implementation Guidelines
 
-```toml
-external-plugins = []
-external-http-driver = ["external-plugins"]
-external-unix-driver = ["external-plugins"]
-external-command-driver = ["external-plugins"]
-```
+1. **Imports:** Always gate imports corresponding to the feature.
+2. **Registry:** Use `#[cfg(feature = "...")]` inside `Lazy` blocks.
+3. **Dispatcher:** If a feature is disabled, the corresponding protocol upgrade arm should return a `LogLevel::Error` log or be blocked by the `validator`.
+4. **Validator:** The `validate_flow_config` should be updated to check if the plugin/protocol is actually compiled in.
 
-## Discussion Points
+---
 
-1. 粒度如何控制？每个插件一个 feature？还是按类别（middleware, terminator, driver）？
-2. 默认启用哪些 features？是否提供预设组合（minimal, standard, full）？
-3. 是否需要 feature 互斥检查（例如 http1 和 http2 不能同时禁用）？
-4. 如何测试所有 feature 组合？（组合爆炸问题）
-
-## Implementation Plan
-
-- [ ] Design feature flag hierarchy
-- [ ] Add feature flags to Cargo.toml
-- [ ] Add #[cfg(feature = "...")] to relevant code
-- [ ] Update build.rs if needed (conditional compilation)
-- [ ] Test: Binary size reduction for minimal feature set
-- [ ] Document: README with feature flag usage examples
-- [ ] CI: Test multiple feature combinations
-
-## Benefits
-
-- Smaller binary size for single-protocol deployments
-- Faster compilation (fewer dependencies)
-- Clearer module boundaries (dependencies explicit)
-
-## Complexity
-
-Medium (requires careful dependency management)
+## Next Steps
+1. Present this design to the user for approval.
+2. Start with **Step 1: Built-in Plugin Gating (plugin-cgi)**.
