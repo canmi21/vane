@@ -183,7 +183,13 @@ impl QuicMuxer {
 		));
 
 		let mut transport = quinn::TransportConfig::default();
-		transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
+		transport.max_idle_timeout(
+			std::time::Duration::from_secs(30)
+				.try_into()
+				.ok()
+				.map(Some)
+				.unwrap_or(None),
+		);
 		transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
 		server_config.transport_config(Arc::new(transport));
 

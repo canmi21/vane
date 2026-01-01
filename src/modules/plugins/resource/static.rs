@@ -9,7 +9,7 @@ use crate::modules::stack::protocol::application::{
 	container::{Container, PayloadState},
 	http::wrapper::VaneBody,
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use http::HeaderValue;
@@ -253,11 +253,13 @@ impl HttpMiddleware for StaticPlugin {
 		}
 
 		// 8. Headers Population
+
 		let headers = &mut container.response_headers;
-		headers.insert(
-			http::header::CONTENT_TYPE,
-			HeaderValue::from_str(&content_type).unwrap(),
-		);
+
+		let ct_val = HeaderValue::from_str(&content_type)
+			.map_err(|e| anyhow!("Invalid content-type generated: {}", e))?;
+
+		headers.insert(http::header::CONTENT_TYPE, ct_val);
 
 		if let Some(enc) = content_encoding {
 			headers.insert(
@@ -270,54 +272,70 @@ impl HttpMiddleware for StaticPlugin {
 			metadata.modified().unwrap_or(std::time::SystemTime::now()),
 			metadata.len(),
 		);
+
 		if let Ok(val) = HeaderValue::from_str(&last_modified) {
 			headers.insert(http::header::ETAG, val);
 		}
 
 		// 9. Streaming Body Setup
+
 		let mut length = metadata.len();
 
 		if let Some(r) = range {
 			// Range Response
+
 			if let Err(_) = file.seek(SeekFrom::Start(r.start)).await {
 				container
 					.kv
 					.insert("res.status".to_string(), "500".to_string());
+
 				return Ok(MiddlewareOutput {
 					branch: Cow::Borrowed("failure"),
+
 					store: None,
 				});
 			}
+
 			length = r.length;
 
 			// 206 Partial Content
+
 			container
 				.kv
 				.insert("res.status".to_string(), "206".to_string());
+
 			let range_val = format!(
 				"bytes {}-{}/{}",
 				r.start,
 				r.start + r.length - 1,
 				metadata.len()
 			);
-			headers.insert(
-				http::header::CONTENT_RANGE,
-				HeaderValue::from_str(&range_val).unwrap(),
-			);
+
+			let cr_val = HeaderValue::from_str(&range_val)
+				.map_err(|e| anyhow!("Invalid content-range generated: {}", e))?;
+
+			headers.insert(http::header::CONTENT_RANGE, cr_val);
 		} else if range_header.is_some() && range.is_none() {
 			// 416 Range Not Satisfiable
+
 			container
 				.kv
 				.insert("res.status".to_string(), "416".to_string());
+
 			let range_val = format!("bytes */{}", metadata.len());
-			headers.insert(
-				http::header::CONTENT_RANGE,
-				HeaderValue::from_str(&range_val).unwrap(),
-			);
+
+			let cr_val = HeaderValue::from_str(&range_val)
+				.map_err(|e| anyhow!("Invalid content-range generated: {}", e))?;
+
+			headers.insert(http::header::CONTENT_RANGE, cr_val);
+
 			// Return empty body
+
 			container.response_body = PayloadState::Empty;
+
 			return Ok(MiddlewareOutput {
 				branch: Cow::Borrowed("success"),
+
 				store: None,
 			});
 		} else {

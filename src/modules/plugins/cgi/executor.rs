@@ -101,9 +101,18 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 		.context("Failed to spawn CGI process")
 		.map_err(|e| Error::System(e.to_string()))?;
 
-	let mut stdin = child.stdin.take().expect("Failed to open stdin");
-	let mut stdout = child.stdout.take().expect("Failed to open stdout");
-	let stderr = child.stderr.take().expect("Failed to open stderr");
+	let mut stdin = child.stdin.take().ok_or_else(|| {
+		let _ = child.start_kill();
+		Error::System("Failed to open CGI stdin".into())
+	})?;
+	let mut stdout = child.stdout.take().ok_or_else(|| {
+		let _ = child.start_kill();
+		Error::System("Failed to open CGI stdout".into())
+	})?;
+	let stderr = child.stderr.take().ok_or_else(|| {
+		let _ = child.start_kill();
+		Error::System("Failed to open CGI stderr".into())
+	})?;
 
 	tokio::spawn(async move {
 		let mut reader = BufReader::new(stderr).lines();

@@ -92,8 +92,34 @@ pub async fn execute(
 
 	// Wait for output (captures stdout and stderr) with timeout
 	// We handle this manually because wait_with_output consumes the child object.
-	let stdout = child.stdout.take().expect("Failed to open stdout");
-	let stderr = child.stderr.take().expect("Failed to open stderr");
+	let stdout = match child.stdout.take() {
+		Some(s) => s,
+		None => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to take stdout from plugin process '{}'", program),
+			);
+			let _ = child.kill().await;
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
+	let stderr = match child.stderr.take() {
+		Some(s) => s,
+		None => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to take stderr from plugin process '{}'", program),
+			);
+			let _ = child.kill().await;
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	let mut stdout_res = Vec::new();
 	let mut stderr_res = Vec::new();

@@ -12,46 +12,59 @@ use h3_quinn::{
 };
 use once_cell::sync::Lazy;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use tokio::sync::{OnceCell, RwLock};
 
 pub type QuicSender = SendRequest<OpenStreams, bytes::Bytes>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct PoolKey(String, u16, bool);
 
-static GLOBAL_ENDPOINT: Lazy<Endpoint> = Lazy::new(|| {
-	let crypto = rustls::ClientConfig::builder()
-		.with_root_certificates(rustls::RootCertStore::empty())
-		.with_no_client_auth();
+static GLOBAL_ENDPOINT: OnceCell<Endpoint> = OnceCell::const_new();
 
-	let quic_config = quinn::crypto::rustls::QuicClientConfig::try_from(crypto).unwrap();
-	let mut client_config = ClientConfig::new(Arc::new(quic_config));
+async fn get_global_endpoint() -> Result<&'static Endpoint> {
+	GLOBAL_ENDPOINT
+		.get_or_try_init(|| async {
+			let crypto = rustls::ClientConfig::builder()
+				.with_root_certificates(rustls::RootCertStore::empty())
+				.with_no_client_auth();
 
-	// Get idle timeout from env, default 90s
-	let idle_timeout_s = getenv::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_string())
-		.parse::<u64>()
-		.unwrap_or(90);
+			let quic_config = quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
+				.map_err(|e| Error::System(format!("QUIC Crypto Config Error: {}", e)))?;
+			let mut client_config = ClientConfig::new(Arc::new(quic_config));
 
-	let mut transport = TransportConfig::default();
-	transport.max_idle_timeout(Some(
-		Duration::from_secs(idle_timeout_s).try_into().unwrap(),
-	));
-	transport.keep_alive_interval(Some(Duration::from_secs(10)));
-	client_config.transport_config(Arc::new(transport));
+			// Get idle timeout from env, default 90s
+			let idle_timeout_s = getenv::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_string())
+				.parse::<u64>()
+				.unwrap_or(90);
 
-	let mut endpoint =
-		Endpoint::client("0.0.0.0:0".parse().unwrap()).expect("Failed to bind QUIC Endpoint");
-	endpoint.set_default_client_config(client_config);
+			let mut transport = TransportConfig::default();
+			transport.max_idle_timeout(Some(
+				Duration::from_secs(idle_timeout_s)
+					.try_into()
+					.map_err(|e| Error::System(format!("Invalid idle timeout duration: {}", e)))?,
+			));
+			transport.keep_alive_interval(Some(Duration::from_secs(10)));
+			client_config.transport_config(Arc::new(transport));
 
-	log(
-		LogLevel::Debug,
-		&format!(
-			"➜ QUIC Global Endpoint Initialized (0.0.0.0:0) | IdleTimeout: {}s",
-			idle_timeout_s
-		),
-	);
-	endpoint
-});
+			let addr = "0.0.0.0:0"
+				.parse()
+				.map_err(|e| Error::System(format!("Failed to parse bind address for QUIC: {}", e)))?;
+
+			let mut endpoint = Endpoint::client(addr)
+				.map_err(|e| Error::System(format!("Failed to bind QUIC Endpoint: {}", e)))?;
+			endpoint.set_default_client_config(client_config);
+
+			log(
+				LogLevel::Debug,
+				&format!(
+					"➜ QUIC Global Endpoint Initialized (0.0.0.0:0) | IdleTimeout: {}s",
+					idle_timeout_s
+				),
+			);
+			Ok(endpoint)
+		})
+		.await
+}
 
 static CONNECTION_POOL: Lazy<RwLock<HashMap<PoolKey, QuicSender>>> =
 	Lazy::new(|| RwLock::new(HashMap::new()));
@@ -102,7 +115,9 @@ async fn connect_internal(host: &str, port: u16, skip_verify: bool) -> Result<Qu
 
 	let client_config = ClientConfig::new(Arc::new(quic_crypto));
 
-	let connection = GLOBAL_ENDPOINT
+	let endpoint = get_global_endpoint().await?;
+
+	let connection = endpoint
 		.connect_with(client_config, addr, host)
 		.map_err(|e| Error::System(format!("QUIC Connect Failed: {}", e)))?
 		.await

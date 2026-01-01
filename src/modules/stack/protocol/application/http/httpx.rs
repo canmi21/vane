@@ -9,9 +9,8 @@ use crate::modules::stack::protocol::application::{
 	flow,
 	model::APPLICATION_REGISTRY,
 };
-use fancy_log::{LogLevel, log};
-
 use bytes::Bytes;
+use fancy_log::{LogLevel, log};
 use http::{HeaderMap, Request, Response};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::Incoming;
@@ -157,7 +156,7 @@ async fn serve_request(
 					LogLevel::Error,
 					&format!("✗ No config for app protocol: {}", protocol_id),
 				);
-				return Ok(response_error(500, "Configuration Error"));
+				return Ok(response_error(500, "Configuration Error")?);
 			}
 		}
 	};
@@ -167,7 +166,7 @@ async fn serve_request(
 			LogLevel::Error,
 			&format!("✗ L7 Flow Execution Failed: {:#}", e),
 		);
-		return Ok(response_error(502, "Bad Gateway (Flow Error)"));
+		return Ok(response_error(502, "Bad Gateway (Flow Error)")?);
 	}
 
 	// Wait for the Terminator to signal the response headers
@@ -186,7 +185,7 @@ async fn serve_request(
 				LogLevel::Warn,
 				"⚠ Flow finished but no response signal received.",
 			);
-			Ok(response_error(502, "Bad Gateway (No Response Signal)"))
+			Ok(response_error(502, "Bad Gateway (No Response Signal)")?)
 		}
 	}
 }
@@ -207,9 +206,12 @@ pub(super) fn extract_response_body_from_container(
 	}
 }
 
-fn response_error(status: u16, msg: &str) -> Response<BoxBody<Bytes, Error>> {
+fn response_error(status: u16, msg: &str) -> Result<Response<BoxBody<Bytes, Error>>> {
 	let body = Full::new(Bytes::from(msg.to_string()))
 		.map_err(|e| match e {})
 		.boxed();
-	Response::builder().status(status).body(body).unwrap()
+	Response::builder()
+		.status(status)
+		.body(body)
+		.map_err(|e| Error::System(format!("Failed to build error response: {}", e)))
 }

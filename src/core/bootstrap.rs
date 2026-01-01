@@ -208,7 +208,16 @@ pub async fn start() {
 			let shutdown_notifier = Arc::new(Notify::new());
 
 			let tcp_notifier = shutdown_notifier.clone();
-			let tcp_listener = TcpListener::bind(addr).await.unwrap();
+			let tcp_listener = match TcpListener::bind(addr).await {
+				Ok(l) => l,
+				Err(e) => {
+					log(
+						LogLevel::Error,
+						&format!("✗ Failed to bind TCP console to {}: {}", addr, e),
+					);
+					return;
+				}
+			};
 			log(LogLevel::Info, &format!("✓ TCP console bound to {}", addr));
 
 			let tcp_server = serve(

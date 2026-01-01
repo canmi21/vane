@@ -211,7 +211,7 @@ impl L7Terminator for SendResponsePlugin {
 				let mime = content_type::guess_mime(&body_bytes);
 				headers.insert(
 					http::header::CONTENT_TYPE,
-					HeaderValue::from_str(mime).unwrap(),
+					HeaderValue::from_str(mime).map_err(|e| anyhow!("Invalid mime type: {}", e))?,
 				);
 			}
 
@@ -234,7 +234,10 @@ impl L7Terminator for SendResponsePlugin {
 		// Keep existing response_body (from FetchUpstream)
 
 		// 4. Construct Final Response
-		let mut response = Response::builder().status(status_code).body(()).unwrap();
+		let mut response = Response::builder()
+			.status(status_code)
+			.body(())
+			.map_err(|e| anyhow!("Failed to build response: {}", e))?;
 		*response.headers_mut() = std::mem::take(headers);
 
 		// 5. Signal Adapter

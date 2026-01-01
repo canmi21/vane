@@ -157,7 +157,8 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		return Ok(());
 	}
 
-	let sni = sni_found.unwrap();
+	let sni = sni_found
+		.ok_or_else(|| anyhow!("QUIC logic error: should_proceed is true but SNI is missing"))?;
 
 	context::inject_quic_data(
 		kv,

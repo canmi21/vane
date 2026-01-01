@@ -108,7 +108,7 @@ fn check_cert_expiration(cert_path: &Path) -> Result<bool> {
 	let not_after = x509.validity.not_after.timestamp();
 	let now = SystemTime::now()
 		.duration_since(UNIX_EPOCH)
-		.unwrap()
+		.unwrap_or_default()
 		.as_secs() as i64;
 
 	// 7 days in seconds
