@@ -1,33 +1,41 @@
 # Agent Session Progress
 
 **Last Updated**: 2026-01-02
-**Current Task**: Task 6.3 - Stream Idle Timeouts (Security Hardening)
+**Current Task**: Task 6.4 - Global L7 Buffer Cap (Security Hardening)
 **Status**: Implementation
-**Strategy**: High-performance Watchdog Wrapper Stream for zero-copy idle detection.
+**Strategy**: Adaptive memory limit based on OS free memory + Vane's current buffer usage.
 
 ---
 
 ## 📍 Current Position
 
-Implementing idle timeouts for TCP and generic proxies to prevent resource exhaustion from stalled connections.
+Implementing an intelligent, adaptive memory quota system for L7 buffering.
 
-## 📋 Task Breakdown (Task 6.3)
+## 📋 Task Breakdown (Task 6.4)
 
-### 1. Update `proxy.rs`
-- [ ] Define `IdleWatchdog<S>` wrapper for `AsyncRead` and `AsyncWrite`.
-- [ ] Implement timestamp updates on `poll_read` and `poll_write`.
-- [ ] Read `STREAM_IDLE_TIMEOUT_SECS` (default 10s) via `getenv`.
-- [ ] Wrap streams in `proxy_tcp_stream` and `proxy_generic_stream`.
-- [ ] Add watchdog branch to `tokio::select!`.
+### 1. Update `container.rs`
+- [x] Add `GLOBAL_L7_BUFFERED_BYTES: AtomicUsize`.
+- [x] Add `CURRENT_MEMORY_LIMIT: AtomicUsize`.
+- [x] Implement `Drop` for `PayloadState` to release bytes.
+- [x] Update `force_buffer` to check quota.
 
-### 2. Version Bump
-- [ ] Update `Cargo.toml` to `0.8.7`.
-- [ ] Update `CHANGELOG.md` with 0.8.7 security entry.
+### 2. Implement Memory Monitor
+- [ ] Create `src/common/ip.rs` (or appropriate place) helper to get free memory.
+- [ ] Since I cannot add crates easily, I will use:
+    - Linux: `/proc/meminfo`
+    - macOS/FreeBSD: `sysctl` command.
+- [ ] Spawn background task in `bootstrap.rs` to update `CURRENT_MEMORY_LIMIT` every 1s.
 
-### 3. Verify
-- [ ] `cargo check`.
+### 3. Configuration
+- [x] `L7_GLOBAL_BUFFER_LIMIT` (Fixed fallback).
+- [x] `L7_ADAPTIVE_MEMORY_LIMIT` (Toggle).
+- [x] `L7_ADAPTIVE_MEMORY_RATIO` (Percentage).
+
+### 4. Version Bump
+- [ ] Update `Cargo.toml` to `0.8.8`.
+- [ ] Update `CHANGELOG.md`.
 
 ## 📝 Version Information
 
-**Current Version**: 0.8.6
-**Target Version**: 0.8.7
+**Current Version**: 0.8.7
+**Target Version**: 0.8.8
