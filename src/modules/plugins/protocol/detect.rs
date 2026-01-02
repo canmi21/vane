@@ -1,6 +1,6 @@
 /* src/modules/plugins/protocol/detect.rs */
 
-use crate::modules::plugins::model::{
+use crate::modules::plugins::core::model::{
 	GenericMiddleware, Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 };
 use anyhow::{Result, anyhow};
