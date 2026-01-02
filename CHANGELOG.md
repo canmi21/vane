@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.8 (2. Jan, 2026)
+
+- **Added:** New environment variables: `L7_ADAPTIVE_MEMORY_LIMIT` (default: `true`), `L7_ADAPTIVE_MEMORY_RATIO` (default: `85`), and `L7_GLOBAL_BUFFER_LIMIT` (default: 512MB).
+- **Changed:** Vane now performs real-time monitoring of system free memory (on Linux, macOS, and FreeBSD) to dynamically adjust the maximum allowed memory for L7 buffering (`force_buffer`).
+- **Changed:** Implemented a "Fail-Fast" allocation policy: when the memory quota is exceeded, new buffering requests (e.g., triggered by `{{req.body}}` templates) are denied to protect process stability.
+- **Changed:** Enhanced `PayloadState` with RAII resource tracking to ensure precise global memory accounting across connection lifecycles.
+
 ## 0.8.7 (2. Jan, 2026)
 
 - **Added:** Introduced `STREAM_IDLE_TIMEOUT_SECS` environment variable (default: 10s) to control the maximum allowed inactivity period for proxied streams.
@@ -25,7 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.8.4 (2. Jan, 2026)
 
-- **Added:** Implemented robust **QUIC Anti-Amplification** and resource exhaustion protection for the L4+ carrier.
 - **Added:** Introduced `GLOBAL_PENDING_BYTES` accounting with a configurable limit (`QUIC_GLOBAL_PENDING_BYTES_LIMIT`, default 64MB) to prevent memory exhaustion attacks via flooded Initial packets.
 - **Added:** Enforced per-session buffering limits (`QUIC_SESSION_BUFFER_LIMIT`, default 64KB) to restrict the memory footprint of individual pending handshakes waiting for SNI reassembly.
 - **Changed:** Refactored `PendingState` to implement `Drop` (RAII), ensuring that global byte quotas are automatically released whenever a session state is processed, timed out, or discarded.
