@@ -1,35 +1,36 @@
 # Agent Session Progress
 
 **Last Updated**: 2026-01-02
-**Current Task**: Task 6.5 - External Env Sanitization (Security Hardening)
-**Status**: Task 6.2 Complete
-**Strategy**: Filter sensitive environment variables in `exec.rs` driver.
+**Current Task**: Task 6.3 - Stream Idle Timeouts (Security Hardening)
+**Status**: Task 6.5 Complete
+**Strategy**: Wrap `io::copy` with `tokio::time::timeout` in `proxy.rs`.
 
 ---
 
 ## 📍 Current Position
 
-Task 6.2 (TLS Fail-Closed) is complete. Version is now **0.8.5**.
+Task 6.5 (External Env Sanitization) is complete. Version is now **0.8.6**.
 
 ### Recently Completed
 
-1. ✅ **Task 6.2: TLS Fail-Closed**
-   - Added `TLS_ALLOW_PARSE_FAILURE` toggle (default: `false`).
-   - Implemented active termination for failed TLS inspection (Strict mode).
-   - Added `unknown` SNI fallback for permissive mode.
+1. ✅ **Task 6.5: External Env Sanitization**
+   - Implemented granular environment variable filtering in `exec.rs`.
+   - Added 4 security switches: `ALLOW_EXTERNAL_LINKER_ENV`, `ALLOW_EXTERNAL_RUNTIME_ENV`, `ALLOW_EXTERNAL_SHELL_ENV`, `ALLOW_EXTERNAL_PATH_ENV_APPEND`.
+   - Default policy is now "Secure by Default" (Drop dangerous vars).
+   - Implemented safe `PATH` appending logic.
    - Updated `CHANGELOG.md` and `Cargo.toml`.
 
-## 📋 Next Task: Task 6.5 - External Env Sanitization
+## 📋 Next Task: Task 6.3 - Stream Idle Timeouts
 
-**Goal:** Prevent privilege escalation or code injection via environment variables passed to external command plugins.
+**Goal:** Prevent resource exhaustion from stalled or intentionally slow connections (Slowloris attacks).
 
 **Audit Plan:**
-1.  Read `src/modules/plugins/drivers/exec.rs`.
-2.  Identify where the `env` map is used to spawn processes.
-3.  Implement a blacklist of forbidden variables (e.g., `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, `PYTHONPATH`).
-4.  Log and ignore these variables if provided in the plugin configuration.
+1.  Read `src/modules/stack/transport/proxy.rs`.
+2.  Locate all `tokio::io::copy` or `copy_bidirectional` calls.
+3.  Implement an idle timeout using `tokio::time::timeout`.
+4.  Configure timeout via environment variable (e.g., `STREAM_IDLE_TIMEOUT_SECS`, default 60s).
 
 ## 📝 Version Information
 
-**Current Version**: 0.8.5
-**Target Version**: 0.8.6
+**Current Version**: 0.8.6
+**Target Version**: 0.8.7
