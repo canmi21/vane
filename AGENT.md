@@ -1,35 +1,27 @@
 # Agent Session Progress
 
 **Last Updated**: 2026-01-02
-**Current Task**: Phase IV - Documentation (Architecture & Code)
-**Status**: Task 3.3 Complete
+**Current Task**: Task 6.2 - TLS Fail-Closed (Security Hardening)
+**Status**: Ready to start
+**Strategy**: Audit `tls.rs` for error handling during peek/parse.
 
 ---
 
 ## 📍 Current Position
 
-We have successfully reorganized the entire codebase structure (Phase III).
-- `src/modules/plugins/` is modularized (core, middleware, terminators, l7).
-- `src/modules/stack/` is flattened (removed `protocol`).
-- Plugin file structure is standardized (main logic in `mod.rs`).
+Version bumped to **0.8.4**. `CHANGELOG.md` updated.
+Task 6.1 (QUIC Security) complete.
 
-### Recently Completed
+## 📋 Next Task: Task 6.2 - TLS Fail-Closed
 
-1. ✅ **Task 3.3: Standardize Plugin File Structure**
-   - Merged `cgi/plugin.rs` -> `cgi/mod.rs`
-   - Merged `resource/static.rs` -> `resource/mod.rs`
-   - Updated imports and verified with `cargo check`.
+**Goal:** Ensure that if Vane fails to peek or parse the TLS ClientHello, it doesn't bypass inspection (which might happen if the flow continues or falls back to an unsafe default).
 
-## 📋 Next Task: Phase IV - Documentation
-
-**Goal:** Ensure documentation reflects the final codebase structure.
-
-**Tasks:**
-1. Update `ARCHITECTURE.md` (Already partially done, needs full review)
-2. Update `CODE.md` (Needs major updates to reflect new paths)
-3. Create `docs/development.md` (or update existing)
+**Audit Plan:**
+1.  Read `src/modules/stack/carrier/tls.rs` (again, focusing on error paths).
+2.  Identify where `peek` errors or `parse_client_hello` errors are logged but execution continues.
+3.  Change logic to return `Err` (drop connection) on failure, OR ensure fallback is explicitly "deny".
 
 ## 📝 Version Information
 
-**Current Version**: 0.8.2
+**Current Version**: 0.8.4
 **Target Version**: 0.9.0

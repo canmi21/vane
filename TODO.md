@@ -1,235 +1,40 @@
-# Vane TODO List
+# Vane Project Roadmap (Analysis Phase)
 
-**Managed by:** Claude Code (100% AI-managed)
+**Status:** 🚧 Deep Codebase Analysis & Re-Documentation in Progress
 
-**Last Updated:** 2025-12-30
-
----
-
-## 🎯 Current Status
-
-**Codebase:** ⚠️ **CRITICAL ISSUES FOUND** - 11 critical vulnerabilities discovered in architecture scan
-
-**Recent Decisions:**
-- ✅ L7 Container design: Protocol extension via `ProtocolData` trait
-- ✅ Middleware architecture: Generic (Universal) vs Protocol-Specific (Layered)
-- ✅ Template hijacking: Unified engine with layer-specific keywords
-- ✅ Roadmap defined: 4 phases (里子 → 查漏 → 面子 → 文档)
-- ✅ Plugin error handling: Standardized `failure` branch for external resilience
-- ✅ **Architecture Vulnerability Scan Complete** (2025-12-30): 63 issues identified
-
-**Scan Results:**
-- 🔴 CRITICAL: 11 issues (security + reliability + performance)
-- 🟠 HIGH: 14 issues
-- 🟡 MEDIUM: 16 issues
-- 🔵 LOW: 22 issues (mostly 面子 - defer to Phase III)
-
-**Scan Reports:** See `.report/` directory for detailed analysis
-
-**Next Step:** Continue Phase III - Code Organization (Task 3.2)
-
-**Detailed Plans:** See `.todo/` directory for full task descriptions
+This phase involves a complete scan of the codebase to generate comprehensive documentation, identify architectural improvements, and plan the next generation of features and fixes.
 
 ---
 
-## 📋 Overall Roadmap
+## 🔍 Phase IV: Deep Analysis & Documentation
 
-See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
-
-### Terminology: 里子 (Core) vs 面子 (Surface)
-
-**里子工程 (Core Work)**: Implementation-level changes that affect code logic, design, and architecture
-- Plugin system refactoring, flow engine extraction, protocol abstractions
-- Bug fixes, security patches, performance optimizations
-- Error handling improvements, validation enhancements
-- These changes are about **what the code does** and **how it works internally**
-
-**面子工程 (Surface Work)**: Organization-level changes that affect file structure and naming
-- Moving files between directories, renaming modules, flattening hierarchies
-- Import path updates, file header corrections
-- Code formatting and style consistency
-- These changes are about **where the code lives** and **how it looks externally**
-
-**Critical Rule**: Always complete 里子工程 before 面子工程
-- Reason 1: Moving files during active refactoring causes merge conflicts and lost work
-- Reason 2: After file reorganization, existing documentation (in `docs/`) may become outdated
-- Reason 3: Code location changes should be the **last** step before final documentation
-
-### Roadmap Phases
-
-- **Phase I (里子工程)**: Core architecture implementation
-- **Phase II (查漏补缺)**: Code quality & optimization on NEW architecture
-- **Phase III (面子工程)**: Source folder restructuring
-- **Phase IV (文档完善)**: Documentation based on FINAL codebase
+| ID | Task | Status | Output |
+|----|------|--------|--------|
+| 4.1 | **Scan Core Infrastructure**<br>(Bootstrap, Router, Socket, Common Utils) | ⏳ Pending | `docs/reference/01-core-infra.md` |
+| 4.2 | **Scan L4 Transport Stack**<br>(TCP/UDP Listeners, Proxies, Dispatchers) | ⏳ Pending | `docs/reference/02-l4-transport.md` |
+| 4.3 | **Scan L4+ Carrier Stack**<br>(TLS, QUIC, Session Management) | ⏳ Pending | `docs/reference/03-l4p-carrier.md` |
+| 4.4 | **Scan L7 Application Stack**<br>(HTTPX, H3, Container, Flow Engine) | ⏳ Pending | `docs/reference/04-l7-application.md` |
+| 4.5 | **Scan Plugin System**<br>(Core, Middleware, Terminators, L7 Drivers) | ⏳ Pending | `docs/reference/05-plugin-system.md` |
+| 4.6 | **Regenerate Architecture Guide**<br>(High-level system design) | ⏳ Pending | `ARCHITECTURE.md` |
+| 4.7 | **Rewrite Developer Guide**<br>(Code navigation, patterns) | ⏳ Pending | `CODE.md` |
 
 ---
 
-## ✅ Completed Tasks
+## 🛠 Phase V: Architecture & Quality Improvements (Planning)
 
-| ID | Task | Completed | File |
-|----|------|-----------|------|
-| 0.1 | Correct Vane positioning in documentation | 2025-12-29 | [`.todo/correct-positioning.md`](.todo/correct-positioning.md) |
-| 0.2 | L7 Container design (Generic Container) | 2025-12-29 | [`.todo/container-generalization.md`](.todo/container-generalization.md) |
-| 0.2.1 | Container protocol extension (ProtocolData trait) | 2025-12-30 | (inline implementation) |
-| 1.5 | Template system upgrade (nested + concatenation) | 2025-12-30 | [`.todo/improve-template.md`](.todo/improve-template.md) |
-| 1.2 | Extract unified flow execution engine | 2025-12-30 | [`.todo/extract-flow-engine.md`](.todo/extract-flow-engine.md) |
-| 1.3 | Extract hot-reload framework | 2025-12-30 | [`.todo/extract-hotreload.md`](.todo/extract-hotreload.md) |
-| 0.2.2 | Plugin system refactoring (Generic vs Specific) | 2025-12-30 | [`.todo/plugin-system-refactor.md`](.todo/plugin-system-refactor.md) |
-| 0.3 | Architecture vulnerability scan | 2025-12-30 | [`.todo/architecture-scan.md`](.todo/architecture-scan.md) → [`.report/`](.report/) |
-| 2.1 | Management API authentication | 2025-12-30 | [Security Report](.report/security.md) |
-| 2.1+ | Integration test optimization (post-auth) | 2025-12-30 | (test framework improvements) |
-| 2.7 | Call QUIC session cleanup (memory leak fix) | 2025-12-30 | [Reliability Report](.report/reliability.md) |
-| 2.10 | Fix flow engine ResolvedInputs cloning | 2025-12-30 | [Performance Report](.report/performance.md) |
-| 2.11 | Optimize flow path string allocations | 2025-12-30 | [Performance Report](.report/performance.md) |
-| 2.2 | Fix external command injection vulnerability | 2025-12-30 | [Security Report](.report/security.md) |
-| 2.3 | Implement template recursion DoS protection | 2025-12-30 | [Security Report](.report/security.md) |
-| 2.4 | Add template size limits | 2025-12-30 | [Security Report](.report/security.md) |
-| 2.5 | Fix config reload race condition (TOCTOU) | 2025-12-30 | [Security Report](.report/security.md) |
-| 2.6 | Add path canonicalization to loader | 2025-12-30 | [Security Report](.report/security.md) |
-| 2.8 | Fix QUIC buffer management race condition | 2025-12-30 | [Reliability Report](.report/reliability.md) |
-| 2.9 | Fix external plugin status race | 2025-12-30 | [Reliability Report](.report/reliability.md) |
-| 2.12 | Add template parser complexity protection | 2025-12-30 | [Security Report](.report/security.md) |
-| 2.13 | Implement template injection protection | 2025-12-30 | [Security Report](.report/security.md) |
-| 2.14 | Add flow execution timeout | 2025-12-30 | [Reliability Report](.report/reliability.md) |
-| 2.16 | Replace unreachable!() with error handling | 2025-12-30 | [Reliability Report](.report/reliability.md) |
-| 2.17 | Fix rate limiter memory estimation | 2025-12-30 | [Performance Report](.report/performance.md) |
-| 2.18 | Remove unnecessary QUIC frame clones | 2025-12-30 | [Performance Report](.report/performance.md) |
-| 1.1 | Rust feature flags support (Comprehensive) | 2026-01-02 | [`.todo/rust-feature-flags.md`](.todo/rust-feature-flags.md) |
-| 1.4 | Flow validation framework (Custom Engine) | 2026-01-02 | [`.todo/flow-validation.md`](.todo/flow-validation.md) |
-| 0.4 | L4 legacy config file extraction | 2026-01-02 | [`.todo/l4-traditional-config.md`](.todo/l4-traditional-config.md) |
-| 2.19 | Replace blocking I/O with async | 2025-12-30 | [Performance Report](.report/performance.md) |
+*Specific tasks will be populated in `.todo/` based on Phase IV findings.*
 
----
+### 📂 Code Organization Proposals
+- [ ] Folder structure refinement
+- [ ] File naming standardization (Rust keyword avoidance)
+- [ ] Dependency injection improvements
 
-## 🚀 Phase I: Core Architecture Implementation (里子工程)
+### 🛡 Vulnerability & Security
+- [ ] Logic gap analysis
+- [ ] Resource exhaustion risks
+- [ ] Panic safety audit (continuation)
 
-**Goal:** Implement foundational architecture changes
-
-**Milestone:** Core architecture is generic, extensible, and supports multiple protocols
-
-**Status:** ✅ Phase I Complete - Moving to Phase II (Security & Quality Fixes)
-
-| ID | Task | Status | File |
-|----|------|--------|------|
-| 1.1 | Rust feature flags support | Deferred | [`.todo/rust-feature-flags.md`](.todo/rust-feature-flags.md) |
-
-
----
-
-## 🔍 Phase II: Security & Quality Fixes (查漏补缺)
-
-**Goal:** Fix critical vulnerabilities and reliability issues discovered in architecture scan
-
-**Milestone:** Codebase is production-ready (secure, reliable, performant)
-
-**Scan Report:** See [`.report/summary.md`](.report/summary.md)
-
-### 🔴 CRITICAL Priority (Must Fix Before Production)
-
-**Security Issues:**
-
-| ID | Task | Status | File |
-|----|------|--------|------|
-| 2.1 | Add authentication to management API | 🔴 CRITICAL | ✅ **Done** |
-| 2.2 | Fix external command injection vulnerability | 🔴 CRITICAL | ✅ **Done** |
-| 2.3 | Implement template recursion DoS protection | 🔴 CRITICAL | ✅ **Done** |
-| 2.4 | Add template size limits | 🔴 CRITICAL | ✅ **Done** |
-| 2.5 | Fix config reload race condition (TOCTOU) | 🔴 CRITICAL | ✅ **Done** |
-| 2.6 | Add path canonicalization to loader | 🔴 CRITICAL | ✅ **Done** |
-
-**Reliability Issues:**
-
-| ID | Task | Severity | Status | Report Reference |
-|----|------|----------|--------|------------------|
-| 2.7 | Call QUIC session cleanup (memory leak fix) | 🔴 CRITICAL | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-| 2.8 | Fix QUIC buffer management race condition | 🔴 CRITICAL | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-| 2.9 | Fix external plugin status race | 🔴 CRITICAL | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-
-**Performance Issues:**
-
-| ID | Task | Severity | Status | Report Reference |
-|----|------|----------|--------|------------------|
-| 2.10 | Fix flow engine ResolvedInputs cloning | 🔴 CRITICAL | ✅ **Done** | [Performance Report](.report/performance.md) |
-| 2.11 | Optimize flow path string allocations | 🔴 CRITICAL | ✅ **Done** | [Performance Report](.report/performance.md) |
-
-### 🟠 HIGH Priority (Fix in Next Release)
-
-| ID | Task | Severity | Status | Report Reference |
-|----|------|----------|--------|------------------|
-| 2.12 | Add template parser complexity protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.13 | Implement template injection protection | 🟠 HIGH | ✅ **Done** | [Security Report](.report/security.md) |
-| 2.14 | Add flow execution timeout | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-| 2.15 | Replace unwrap() in production code | 🟠 HIGH | ✅ **Done** | [Panic Safety List](.todo/replace-unwrap.md) |
-| 2.16 | Replace unreachable!() with error handling | 🟠 HIGH | ✅ **Done** | [Reliability Report](.report/reliability.md) |
-| 2.17 | Fix rate limiter memory estimation | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
-| 2.18 | Remove unnecessary QUIC frame clones | 🟠 HIGH | ✅ **Done** | [Performance Report](.report/performance.md) |
-| 2.19 | Replace blocking I/O with async | 2025-12-30 | [Performance Report](.report/performance.md) |
-| 2.21 | Resolve CGI PATH_INFO edge cases | 2026-01-02 | [`.todo/cgi-path-info.md`](.todo/cgi-path-info.md) |
-| 2.20 | Implement L4/L4+ connection rate limits | 2026-01-01 | [Security Report](.report/security.md) |
-
-**Note:** See detailed reports in `.report/` for complete issue list and remediation steps
-
----
-
-## 🎨 Phase III: Code Organization (面子工程)
-
-**Goal:** Restructure source folder hierarchy
-
-**Milestone:** Source code organization is clear and logical
-
-| ID | Task | Status | File |
-|----|------|--------|------|
-| 3.1 | Plugin directory reorganization | 2026-01-02 | [`.todo/code-organization.md`](.todo/code-organization.md) |
-
----
-
-## 📚 Phase IV: Documentation (文档完善)
-
-**Goal:** Create comprehensive documentation based on FINAL codebase
-
-**Milestone:** Complete, accurate documentation for users and contributors
-
-- [ ] Update ARCHITECTURE.md with implemented changes
-- [ ] Update CODE.md with new folder structure
-- [ ] Rewrite docs/overview.md index
-- [ ] Create web-based user documentation
-- [ ] Create developer documentation
-- [ ] Create protocol extension guide
-
----
-
-## 🔮 Future Work (Priority 2+)
-
-Lower priority tasks deferred until Phase I-III complete.
-
-| Category | File |
-|----------|------|
-| Performance & Usability | [`.todo/performance-tasks.md`](.todo/performance-tasks.md) |
-
----
-
-## 📖 Implementation Workflow
-
-**For Each Task:**
-
-1. **Discussion Phase:** Read task file, clarify requirements, agree on approach
-2. **Breakdown Phase:** Break into small chunks, define acceptance criteria
-3. **Implementation Phase:** Implement one chunk at a time, test after EACH change
-4. **Validation Phase:** User reviews, run integration tests, mark complete
-
-**Critical Rule:** Never proceed to implementation before user confirms design.
-
----
-
-**Recommended Next Action**
-
-**Begin Phase III: Code Organization**
-
-**Recently Completed:**
-- ✅ **Task 3.1**: Reorganized plugin directory structure (core, middleware, terminators, l7).
-- ✅ **Task 0.4**: Extracted legacy config logic.
-- ✅ **Dependency Unification**: Removed legacy crates.
-
-**Next Steps:**
-1. Task 3.2: Flatten stack module hierarchy
-
+### ⚡ Performance & Reliability
+- [ ] Async runtime optimization
+- [ ] Memory usage analysis
+- [ ] Error propagation refinement
