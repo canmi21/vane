@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.6 (2. Jan, 2026)
+
+- **Added:** Introduced four new opt-in security switches: `ALLOW_EXTERNAL_LINKER_ENV`, `ALLOW_EXTERNAL_RUNTIME_ENV`, `ALLOW_EXTERNAL_SHELL_ENV`, and `ALLOW_EXTERNAL_PATH_ENV_APPEND` (all default to `false`).
+- **Changed:** External command plugins now have dangerous environment variables (e.g., `LD_PRELOAD`, `PYTHONPATH`, `IFS`) filtered out by default unless explicitly permitted via the new switches.
+- **Changed:** When `ALLOW_EXTERNAL_PATH_ENV_APPEND` is enabled, user-provided `PATH` values are safely appended to the system `PATH` instead of replacing it entirely.
+
 ## 0.8.5 (2. Jan, 2026)
 
 - **Changed:** Vane now actively terminates TLS connections if the `ClientHello` cannot be peeked or parsed, ensuring that SNI-based routing/filtering cannot be bypassed.
