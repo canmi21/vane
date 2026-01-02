@@ -121,9 +121,8 @@ src/
 └── modules/                   # Core functional modules
     ├── stack/                 # Three-layer network stack
     │   ├── transport/         # L4: TCP/UDP handling
-    │   └── protocol/          # L4+ carrier, L7 application
-    │       ├── carrier/       # TLS, QUIC
-    │       └── application/   # HTTP, Container, template
+    │   ├── carrier/           # L4+ carrier (TLS, QUIC)
+    │   └── application/       # L7 application (HTTP, Container, template)
     ├── plugins/               # Plugin system
     │   ├── model.rs           # Trait definitions
     │   ├── registry.rs        # Plugin registry
@@ -207,7 +206,7 @@ pub enum ConnectionObject {
 
 ### L4+: Carrier Layer
 
-**Location:** `src/modules/stack/protocol/carrier/`
+**Location:** `src/modules/stack/carrier/`
 
 **Purpose:** Extract routing metadata from encrypted protocols without terminating the session.
 
@@ -220,7 +219,7 @@ Many production scenarios need routing based on SNI/ALPN but should NOT decrypt 
 
 **TLS Handling:**
 
-**Location:** `src/modules/stack/protocol/carrier/tls/`
+**Location:** `src/modules/stack/carrier/tls/`
 
 ```
 TLS ClientHello arrives
@@ -247,7 +246,7 @@ Terminator Decision
 
 **QUIC Handling:**
 
-**Location:** `src/modules/stack/protocol/carrier/quic/`
+**Location:** `src/modules/stack/carrier/quic/`
 
 **Design Challenge:** QUIC uses Connection IDs that persist across client IP changes (connection migration). How to route subsequent packets efficiently?
 
@@ -300,7 +299,7 @@ Lookup in CID_MAP
 
 ### L7: Application Layer
 
-**Location:** `src/modules/stack/protocol/application/`
+**Location:** `src/modules/stack/application/`
 
 **Purpose:** Full protocol termination with complete request/response manipulation.
 
@@ -314,7 +313,7 @@ Lookup in CID_MAP
 **HTTPX Adapter:**
 
 ```rust
-// src/modules/stack/protocol/application/http/httpx/
+// src/modules/stack/application/http/httpx/
 use hyper::server::conn::http2;
 
 pub async fn serve_httpx(stream: TcpStream, config: ApplicationConfig) -> Result<()> {
@@ -333,7 +332,7 @@ pub async fn serve_httpx(stream: TcpStream, config: ApplicationConfig) -> Result
 **H3 Adapter:**
 
 ```rust
-// src/modules/stack/protocol/application/http/h3/
+// src/modules/stack/application/http/h3/
 use h3::server::Connection;
 
 pub async fn serve_h3(quic_conn: quinn::Connection, config: ApplicationConfig) -> Result<()> {
@@ -351,7 +350,7 @@ pub async fn serve_h3(quic_conn: quinn::Connection, config: ApplicationConfig) -
 
 **Container Model:**
 
-**Location:** `src/modules/stack/protocol/application/container.rs`
+**Location:** `src/modules/stack/application/container.rs`
 
 The Container is L7's central data structure:
 
@@ -421,7 +420,7 @@ When `{{req.body}}` is accessed:
 
 **VaneBody Abstraction:**
 
-**Location:** `src/modules/stack/protocol/application/http/wrapper.rs`
+**Location:** `src/modules/stack/application/http/wrapper.rs`
 
 ```rust
 pub enum VaneBody {
@@ -503,9 +502,7 @@ internal.common.match:
 
 **Flow is a decision tree constructed at runtime.** Each plugin returns a branch name, and the flow engine traverses to the next step.
 
-### Flow Data Structure
-
-**Location:** `src/modules/plugins/model.rs`
+**Location:** `src/modules/plugins/core/model.rs`
 
 ```rust
 pub type ProcessingStep = HashMap<String, PluginInstance>;
@@ -627,7 +624,7 @@ kv["auth.success.ratelimit.allowed.tokens_remaining"] = "99"
 
 ### Template Resolution
 
-**Location:** `src/modules/stack/protocol/application/template.rs`
+**Location:** `src/modules/stack/application/template.rs`
 
 **Syntax:** Double-brace `{{key}}`
 
@@ -837,7 +834,7 @@ impl Middleware for MyPlugin {
 
 ### Internal Plugin Registry
 
-**Location:** `src/modules/plugins/registry.rs`
+**Location:** `src/modules/plugins/core/registry.rs`
 
 ```rust
 static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::new(|| {
@@ -887,7 +884,7 @@ pub fn get_internal_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
 
 ### External Plugin System
 
-**Location:** `src/modules/plugins/loader.rs`, `src/modules/plugins/external.rs`
+**Location:** `src/modules/plugins/core/loader.rs`, `src/modules/plugins/core/external.rs`
 
 **Why External Plugins?**
 
@@ -984,7 +981,7 @@ impl Middleware for ExternalPlugin {
 **Why External Terminators Not Supported:**
 
 ```rust
-// src/modules/plugins/external.rs
+// src/modules/plugins/core/external.rs
 if self.config.role == PluginRole::Terminator {
     return Err(anyhow!(
         "External plugins cannot be Terminators. Only built-in plugins can terminate connections."
@@ -1201,7 +1198,7 @@ Container (normalized):
 
 ### WebSocket Upgrade
 
-**Location:** `src/modules/stack/protocol/application/http/httpx/`
+**Location:** `src/modules/stack/application/http/httpx/`
 
 **Process:**
 
@@ -1258,7 +1255,7 @@ Server:
 **Vane Implementation:**
 
 ```rust
-// src/modules/stack/protocol/carrier/quic/session.rs
+// src/modules/stack/carrier/quic/session.rs
 static CID_MAP: Lazy<DashMap<ConnectionId, SessionData>> = Lazy::new(|| DashMap::new());
 static IP_MAP: Lazy<DashMap<SocketAddr, SessionData>> = Lazy::new(|| DashMap::new());
 

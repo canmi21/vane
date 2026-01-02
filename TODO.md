@@ -26,7 +26,7 @@
 
 **Scan Reports:** See `.report/` directory for detailed analysis
 
-**Next Step:** Begin Phase II fixes (Task 2.1 - Task 2.11)
+**Next Step:** Continue Phase III - Code Organization (Task 3.2)
 
 **Detailed Plans:** See `.todo/` directory for full task descriptions
 
@@ -96,6 +96,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 | 2.18 | Remove unnecessary QUIC frame clones | 2025-12-30 | [Performance Report](.report/performance.md) |
 | 1.1 | Rust feature flags support (Comprehensive) | 2026-01-02 | [`.todo/rust-feature-flags.md`](.todo/rust-feature-flags.md) |
 | 1.4 | Flow validation framework (Custom Engine) | 2026-01-02 | [`.todo/flow-validation.md`](.todo/flow-validation.md) |
+| 0.4 | L4 legacy config file extraction | 2026-01-02 | [`.todo/l4-traditional-config.md`](.todo/l4-traditional-config.md) |
 | 2.19 | Replace blocking I/O with async | 2025-12-30 | [Performance Report](.report/performance.md) |
 
 ---
@@ -178,8 +179,7 @@ See [`.todo/roadmap.md`](.todo/roadmap.md) for full details.
 
 | ID | Task | Status | File |
 |----|------|--------|------|
-| 0.4 | L4 legacy config file extraction | Pending | [`.todo/l4-traditional-config.md`](.todo/l4-traditional-config.md) |
-| 3.x | Plugin directory reorganization | Pending | [`.todo/code-organization.md`](.todo/code-organization.md) |
+| 3.1 | Plugin directory reorganization | 2026-01-02 | [`.todo/code-organization.md`](.todo/code-organization.md) |
 
 ---
 
@@ -221,51 +221,15 @@ Lower priority tasks deferred until Phase I-III complete.
 
 ---
 
-## 🎯 Recommended Next Action
+**Recommended Next Action**
 
-**Begin Phase II: Security & Quality Fixes**
+**Begin Phase III: Code Organization**
 
 **Recently Completed:**
-- ✅ **Startup Optimization**: Eliminated 4.4s bootstrap delay.
-- ✅ **Management API Authentication**: Added mandatory token auth.
-- ✅ **External Command Security**: Implemented Trusted Bin Root policy.
-- ✅ **Template Security**: Added recursion depth, result size limits, AST complexity protection, and injection protection.
-- ✅ **Config Reliability**: Fixed reload race conditions and implemented Keep-Last-Known-Good strategy.
-- ✅ **Path Security**: Implemented mandatory path canonicalization in configuration loader.
-- ✅ **QUIC Reliability**: Fixed buffer race conditions and enforced packet limits.
-- ✅ **Resource Management**: Implemented precise memory tracking for rate limiters.
-- ✅ **Performance Optimization**: Eliminated redundant clones and completed full Async I/O migration.
+- ✅ **Task 3.1**: Reorganized plugin directory structure (core, middleware, terminators, l7).
+- ✅ **Task 0.4**: Extracted legacy config logic.
+- ✅ **Dependency Unification**: Removed legacy crates.
 
-**Next Steps - Fixes:**
+**Next Steps:**
+1. Task 3.2: Flatten stack module hierarchy
 
-1. Task 2.15: Continue replacing unwrap() in production code ← **NEXT**
-2. Task 2.20: Implement L4/L4+ connection rate limits
-
-**See AGENT.md for detailed fix workflow requirements**
-
-**Recommended Order**:
-```
-✅ Task 1.2: Unified Flow Engine
-✅ Task 1.3: Hot-Reload Framework
-✅ Task 0.2.2: Plugin System Refactoring
-✅ Task 0.3: Architecture Vulnerability Scan
-✅ Task 2.1: Management API Authentication
-✅ Task 2.7: QUIC Session Cleanup
-✅ Task 2.10: Flow Engine Cloning Fix
-✅ Task 2.11: Flow Path Optimization
-✅ Task 2.2: Command Injection Fix
-✅ Task 2.3: Template DoS Protection
-✅ Task 2.4: Template Size Limits
-✅ Task 2.5: Config Reload Race Fix
-✅ Task 2.6: Path Canonicalization
-✅ Task 2.8: QUIC Buffer Race Fix
-✅ Task 2.9: External Plugin Status Fix
-✅ Task 2.12: Template Complexity Protection
-✅ Task 2.13: Template Injection Protection
-✅ Task 2.14: Flow Execution Timeout
-✅ Task 2.16: Elimination of Panics
-✅ Task 2.17: Precise Rate Limit Tracking
-✅ Task 2.18: QUIC Frame Optimization
-✅ Task 2.19: Full Async I/O Migration
-→ Task 2.15: Continue Panic Safety (Next)
-```

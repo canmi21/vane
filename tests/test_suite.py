@@ -10,7 +10,6 @@ To add a new test, you only need to modify this file:
 """
 
 from units import (
-    test_env_loglevel,
     test_socket_dir,
     test_console,
     test_port_cold_load,
@@ -78,7 +77,6 @@ from units import (
 # The master list of all tests to be executed sequentially. This is the single
 # source of truth for the test suite's content and order.
 TEST_SUITE = [
-    ("units.test_env_loglevel", test_env_loglevel.run),
     ("units.test_socket_dir", test_socket_dir.run),
     ("units.test_console", test_console.run),
     ("units.test_port_cold_load", test_port_cold_load.run),

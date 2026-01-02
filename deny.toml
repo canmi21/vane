@@ -8,48 +8,48 @@ ignore = []
 [licenses]
 confidence-threshold = 0.8
 allow = [
-		"CC0-1.0",
-		"ISC",
-		"MIT",
-    "Apache-2.0",
-    "BSD-3-Clause",
-		"MPL-2.0",
-    "Unicode-3.0",
-		"CDLA-Permissive-2.0",
-		# Pull by rustls ecosystem aws-lc-sys
-		"OpenSSL",
+	"CC0-1.0",
+	"ISC",
+	"MIT",
+	"Apache-2.0",
+	"BSD-3-Clause",
+	"MPL-2.0",
+	"Unicode-3.0",
+	"CDLA-Permissive-2.0",
+	# Pull by rustls ecosystem aws-lc-sys
+	# Vane is full rustls stack and has nothing to do with OpenSSL
+	"OpenSSL",
 ]
 
 [bans]
 multiple-versions = "deny"
 highlight = "all"
 skip-tree = [
-    # currently duplicated through header, reqwest, tower-http and cookie
-    { name = "base64" },
-    # parking_lot pulls in old versions of windows-sys
-    { name = "windows-sys" },
-		{ name = "winapi" },
-		{ name = "windows-core" },
-		{ name = "windows-result" },
-		{ name = "windows-strings" },
-    # pulled in by quickcheck and cookie
-    { name = "rand" },
-		{ name = "bitflags" },
-		{ name = "hashbrown" },
-		{ name = "http" },
-		{ name = "http-body" },
-		{ name = "hyper" },
-		{ name = "hyper-rustls" },
-		{ name = "idna" },
-		{ name = "reqwest" },
-		{ name = "rustls" },
-		{ name = "rustls-webpki" },
-		{ name = "socket2" },
-		{ name = "sync_wrapper" },
-		{ name = "thiserror" },
-		{ name = "thiserror-impl" },
-		{ name = "tokio-rustls" },
-		{ name = "webpki-roots" },
+	# syn 1.0/2.0 is common during macro transitions
+	{ name = "syn" },
+	# Version duplications confirmed during audit (mostly transitive)
+	{ name = "bitflags" },
+	{ name = "core-foundation" },
+	{ name = "getrandom" },
+	{ name = "hashbrown" },
+	{ name = "rand" },
+	{ name = "rand_core" },
+	{ name = "socket2" },
+	# Windows-specific crates (transitively pulled, UNIX-gated in source)
+	{ name = "windows-core" },
+	{ name = "windows-link" },
+	{ name = "windows-result" },
+	{ name = "windows-strings" },
+	{ name = "windows-sys" },
+	{ name = "windows-targets" },
+	{ name = "windows_aarch64_gnullvm" },
+	{ name = "windows_aarch64_msvc" },
+	{ name = "windows_i686_gnu" },
+	{ name = "windows_i686_gnullvm" },
+	{ name = "windows_i686_msvc" },
+	{ name = "windows_x86_64_gnu" },
+	{ name = "windows_x86_64_gnullvm" },
+	{ name = "windows_x86_64_msvc" },
 ]
 
 [sources]
