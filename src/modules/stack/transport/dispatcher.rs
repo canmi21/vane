@@ -60,12 +60,17 @@ pub async fn dispatch_tcp_connection(
 									&format!("➜ Upgrading connection to: {}", protocol),
 								);
 								match (protocol.as_str(), conn) {
+									#[cfg(feature = "tls")]
 									("tls", ConnectionObject::Tcp(stream)) => {
 										tokio::spawn(async move {
 											if let Err(e) = carrier::tls::run(stream, &mut kv_store, parent_path).await {
 												log(LogLevel::Error, &format!("✗ TLS Carrier failed: {:#}", e));
 											}
 										});
+									}
+									#[cfg(not(feature = "tls"))]
+									("tls", _) => {
+										log(LogLevel::Error, "✗ TLS support is disabled in this build.");
 									}
 									("http", ConnectionObject::Tcp(stream)) => {
 										tokio::spawn(async move {

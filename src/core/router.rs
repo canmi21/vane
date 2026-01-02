@@ -18,6 +18,7 @@ use axum::{
 
 // The function signature now honestly declares that it returns a router
 // whose handlers require a state of type `PortState`.
+#[cfg(any(feature = "http-console", feature = "unix-console"))]
 pub fn create_router() -> Router<PortState> {
 	Router::new()
 		.route("/", get(root_handler))

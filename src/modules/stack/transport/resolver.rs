@@ -4,6 +4,7 @@ use super::model::{ResolvedTarget, Target};
 use crate::common::getenv;
 use crate::modules::nodes::model::NODES_STATE;
 use fancy_log::{LogLevel, log};
+#[cfg(feature = "domain-target")]
 use hickory_resolver::{
 	TokioResolver,
 	config::{NameServerConfig, ResolverConfig, ResolverOpts},
@@ -14,6 +15,7 @@ use once_cell::sync::Lazy;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
+#[cfg(feature = "domain-target")]
 static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 	let ns1_str = getenv::get_env("NAMESERVER1", "1.1.1.1".to_string());
 	let ns1_port_str = getenv::get_env("NAMESERVER1_PORT", "53".to_string());
@@ -47,6 +49,7 @@ static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 		.build()
 });
 
+#[cfg(feature = "domain-target")]
 pub async fn resolve_domain_to_ips(domain: &str) -> Vec<IpAddr> {
 	log(LogLevel::Debug, &format!("⚙ Resolving domain: {}", domain));
 	match DNS_RESOLVER.lookup_ip(domain).await {
@@ -73,6 +76,7 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 					port: *port,
 				});
 			}
+			#[cfg(feature = "domain-target")]
 			Target::Domain { domain, port } => {
 				let ips = resolve_domain_to_ips(domain).await;
 				for ip in ips {
@@ -81,6 +85,16 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 						port: *port,
 					});
 				}
+			}
+			#[cfg(not(feature = "domain-target"))]
+			Target::Domain { domain, .. } => {
+				log(
+					LogLevel::Error,
+					&format!(
+						"✗ Domain target '{}' ignored because 'domain-target' feature is disabled.",
+						domain
+					),
+				);
 			}
 			Target::Node { node, port } => {
 				let mut found = false;

@@ -90,6 +90,14 @@ impl Validate for Forward {
 		}
 
 		for (i, target) in self.targets.iter().enumerate() {
+			let path = format!("targets[{}]", i);
+			let target_errors_list = super::validator::validate_target(target, &path);
+			for flow_err in target_errors_list {
+				let mut err = ValidationError::new("feature_disabled");
+				err.message = Some(flow_err.message.into());
+				errors.add("targets", err);
+			}
+
 			if let Err(target_errors) = target.validate() {
 				for (field, kind) in target_errors.errors() {
 					if let ValidationErrorsKind::Field(field_errors) = kind {
@@ -105,6 +113,14 @@ impl Validate for Forward {
 		}
 
 		for (i, target) in self.fallbacks.iter().enumerate() {
+			let path = format!("fallbacks[{}]", i);
+			let target_errors_list = super::validator::validate_target(target, &path);
+			for flow_err in target_errors_list {
+				let mut err = ValidationError::new("feature_disabled");
+				err.message = Some(flow_err.message.into());
+				errors.add("fallbacks", err);
+			}
+
 			if let Err(target_errors) = target.validate() {
 				for (field, kind) in target_errors.errors() {
 					if let ValidationErrorsKind::Field(field_errors) = kind {

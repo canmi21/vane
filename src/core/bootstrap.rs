@@ -173,15 +173,22 @@ pub async fn start() {
 				"✓ ACCESS_TOKEN configured (management console enabled)",
 			);
 
-			let unix_socket_listener = match socket::bind_unix_socket().await {
-				Ok(listener) => Some(listener),
-				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ Failed to bind unix socket: {}", e),
-					);
-					None
+			let unix_socket_listener = {
+				#[cfg(feature = "unix-console")]
+				{
+					match socket::bind_unix_socket().await {
+						Ok(listener) => Some(listener),
+						Err(e) => {
+							log(
+								LogLevel::Error,
+								&format!("✗ Failed to bind unix socket: {}", e),
+							);
+							None
+						}
+					}
 				}
+				#[cfg(not(feature = "unix-console"))]
+				None
 			};
 
 			let requested_port = getenv::get_env("PORT", "3333".to_string())
@@ -205,36 +212,44 @@ pub async fn start() {
 				([0; 4], port).into()
 			};
 
-			let app = router::create_router();
 			let shutdown_notifier = Arc::new(Notify::new());
 
-			let tcp_notifier = shutdown_notifier.clone();
-			let tcp_listener = match TcpListener::bind(addr).await {
-				Ok(l) => l,
-				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ Failed to bind TCP console to {}: {}", addr, e),
-					);
-					return;
-				}
+			#[cfg(any(feature = "http-console", feature = "unix-console"))]
+			let app = router::create_router();
+
+			#[cfg(feature = "http-console")]
+			let tcp_handle = {
+				let tcp_notifier = shutdown_notifier.clone();
+				let tcp_listener = match TcpListener::bind(addr).await {
+					Ok(l) => l,
+					Err(e) => {
+						log(
+							LogLevel::Error,
+							&format!("✗ Failed to bind TCP console to {}: {}", addr, e),
+						);
+						return;
+					}
+				};
+				log(LogLevel::Info, &format!("✓ TCP console bound to {}", addr));
+
+				let tcp_server = serve(
+					tcp_listener,
+					app.clone().with_state(ports::model::CONFIG_STATE.clone()),
+				)
+				.with_graceful_shutdown(async move {
+					tcp_notifier.notified().await;
+				});
+
+				tokio::spawn(async move {
+					if let Err(e) = tcp_server.await {
+						log(LogLevel::Error, &format!("✗ TCP console error: {}", e));
+					}
+				})
 			};
-			log(LogLevel::Info, &format!("✓ TCP console bound to {}", addr));
+			#[cfg(not(feature = "http-console"))]
+			let tcp_handle = tokio::spawn(async {});
 
-			let tcp_server = serve(
-				tcp_listener,
-				app.clone().with_state(ports::model::CONFIG_STATE.clone()),
-			)
-			.with_graceful_shutdown(async move {
-				tcp_notifier.notified().await;
-			});
-
-			let tcp_handle = tokio::spawn(async move {
-				if let Err(e) = tcp_server.await {
-					log(LogLevel::Error, &format!("✗ TCP console error: {}", e));
-				}
-			});
-
+			#[cfg(feature = "unix-console")]
 			let unix_handle = if let Some(listener) = unix_socket_listener {
 				let unix_notifier = shutdown_notifier.clone();
 				let unix_server = serve(listener, app.with_state(ports::model::CONFIG_STATE.clone()))
@@ -252,6 +267,8 @@ pub async fn start() {
 			} else {
 				None
 			};
+			#[cfg(not(feature = "unix-console"))]
+			let unix_handle = None;
 
 			// Return console handles and shutdown notifier
 			Some((tcp_handle, unix_handle, shutdown_notifier))

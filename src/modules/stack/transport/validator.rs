@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use validator::{ValidationError, ValidationErrors};
 
+use super::model::Target;
 use super::tcp::TcpProtocolRule;
 use super::udp::UdpProtocolRule;
 
@@ -17,6 +18,25 @@ use super::udp::UdpProtocolRule;
 pub struct FlowValidationError {
 	pub path: String,
 	pub message: String,
+}
+
+pub fn validate_target(target: &Target, path: &str) -> Vec<FlowValidationError> {
+	let mut errors = Vec::new();
+	match target {
+		Target::Domain { domain, .. } => {
+			if !cfg!(feature = "domain-target") {
+				errors.push(FlowValidationError {
+					path: path.to_string(),
+					message: format!(
+						"Domain target '{}' is disabled in this build. Please recompile with 'domain-target' feature enabled.",
+						domain
+					),
+				});
+			}
+		}
+		_ => {}
+	}
+	errors
 }
 
 /// Recursively validates a flow-based configuration tree.
@@ -44,6 +64,30 @@ pub fn validate_flow_recursive(
 	} else {
 		format!("{} -> {}", path, plugin_name)
 	};
+
+	// 0. Check Feature Constraints for Built-in Plugins
+	if plugin_name.starts_with("internal.") {
+		let is_disabled = match plugin_name.as_str() {
+			"internal.driver.cgi" => !cfg!(feature = "cgi"),
+			"internal.driver.static" => !cfg!(feature = "static"),
+			"internal.common.ratelimit.sec" | "internal.common.ratelimit.min" => {
+				!cfg!(feature = "ratelimit")
+			}
+			"internal.driver.upstream" => !cfg!(any(feature = "h2upstream", feature = "h3upstream")),
+			_ => false,
+		};
+
+		if is_disabled {
+			errors.push(FlowValidationError {
+				path: current_path.clone(),
+				message: format!(
+					"Plugin '{}' is disabled in this build. Please recompile Vane with the corresponding feature enabled.",
+					plugin_name
+				),
+			});
+			return errors;
+		}
+	}
 
 	// 1. Cycle Detection
 	if ancestors.contains(plugin_name) {
@@ -99,6 +143,26 @@ pub fn validate_flow_recursive(
 
 	if !is_generic && is_http_specific {
 		let current_proto = protocol.to_lowercase();
+
+		// Check if the protocol itself is disabled via features
+		let proto_disabled = match current_proto.as_str() {
+			"tls" => !cfg!(feature = "tls"),
+			"quic" => !cfg!(feature = "quic"),
+			"httpx" => !cfg!(feature = "httpx"),
+			_ => false,
+		};
+
+		if proto_disabled {
+			errors.push(FlowValidationError {
+				path: current_path.clone(),
+				message: format!(
+					"Protocol '{}' is disabled in this build. Please recompile Vane with the corresponding feature enabled.",
+					current_proto
+				),
+			});
+			return errors;
+		}
+
 		let supports_current = supported_protocols
 			.iter()
 			.any(|p| p.to_lowercase() == current_proto);
@@ -203,6 +267,16 @@ fn validate_plugin_inputs_internal(
 							def.name, def.param_type
 						),
 					});
+				}
+
+				// Deep validation for Target types (IP/Domain/Node)
+				if def.param_type == ParamType::Any || def.param_type == ParamType::Map {
+					if let Ok(target) = serde_json::from_value::<Target>(value.clone()) {
+						errors.extend(validate_target(
+							&target,
+							&format!("{}.input.{}", current_path, def.name),
+						));
+					}
 				}
 			}
 			None => {

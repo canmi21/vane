@@ -19,6 +19,42 @@ async fn main() {
 				env!("GIT_COMMIT_SHORT"),
 				env!("BUILD_DATE")
 			);
+
+			let mut features = Vec::new();
+			#[cfg(feature = "tcp")]
+			features.push("tcp");
+			#[cfg(feature = "udp")]
+			features.push("udp");
+			#[cfg(feature = "tls")]
+			features.push("tls");
+			#[cfg(feature = "quic")]
+			features.push("quic");
+			#[cfg(feature = "httpx")]
+			features.push("httpx");
+			#[cfg(feature = "domain-target")]
+			features.push("domain-target");
+			#[cfg(feature = "http-console")]
+			features.push("http-console");
+			#[cfg(feature = "unix-console")]
+			features.push("unix-console");
+			#[cfg(feature = "h2upstream")]
+			features.push("h2upstream");
+			#[cfg(feature = "h3upstream")]
+			features.push("h3upstream");
+			#[cfg(feature = "cgi")]
+			features.push("cgi");
+			#[cfg(feature = "static")]
+			features.push("static");
+			#[cfg(feature = "ratelimit")]
+			features.push("ratelimit");
+
+			let features_str = if features.is_empty() {
+				"none".to_string()
+			} else {
+				features.join(", ")
+			};
+			println!("features: [{}]", features_str);
+
 			return; // Exit after printing version.
 		}
 	}
