@@ -71,6 +71,11 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	// Critical: Lock the pending map to update state
 	// Scope the entry to ensure the shard lock is released before any .await
 	{
+		// 0. Pre-check global limits before even locking (optimistic)
+		if !session::try_reserve_global_bytes(datagram.len()) {
+			return Ok(());
+		}
+
 		let mut entry = if let Some(e) = session::PENDING_INITIALS.get_mut(&dcid_bytes) {
 			e
 		} else {
@@ -85,6 +90,8 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 							client_addr, parsed_packet.dcid
 						),
 					);
+					// Release bytes since we aren't storing
+					session::release_global_bytes(datagram.len());
 					return Ok(());
 				}
 			};
@@ -97,17 +104,28 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 					last_seen: Instant::now(),
 					processing: false,
 					_guard: guard,
+					total_bytes: 0,
 				})
 		};
 
-		// 1. If already being processed by another task, just buffer and return
+		// 1. Check Session Limits
+		if !session::check_session_limit(entry.total_bytes, datagram.len()) {
+			// Release the reserved bytes since we reject this packet
+			session::release_global_bytes(datagram.len());
+			return Ok(());
+		}
+
+		// 2. If already being processed by another task, buffer and return
 		if entry.processing {
+			entry.total_bytes += datagram.len();
 			entry
 				.queued_packets
 				.push((datagram.clone(), client_addr, dst_addr));
 			return Ok(());
 		}
 
+		// Update stats and queue
+		entry.total_bytes += datagram.len();
 		entry
 			.queued_packets
 			.push((datagram.clone(), client_addr, dst_addr));
@@ -249,15 +267,13 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 				);
 
 				// 3. Remove and Flush Pending State
-				if let Some((_, state)) = session::PENDING_INITIALS.remove(&dcid_bytes) {
+				if let Some((_, mut state)) = session::PENDING_INITIALS.remove(&dcid_bytes) {
+					let packets = state.drain_queue();
 					log(
 						LogLevel::Debug,
-						&format!(
-							"➜ Flushing {} buffered packets to H3 Muxer",
-							state.queued_packets.len()
-						),
+						&format!("➜ Flushing {} buffered packets to H3 Muxer", packets.len()),
 					);
-					for (data, c_addr, d_addr) in state.queued_packets {
+					for (data, c_addr, d_addr) in packets {
 						muxer.feed_packet(data, c_addr, d_addr)?;
 					}
 				} else {

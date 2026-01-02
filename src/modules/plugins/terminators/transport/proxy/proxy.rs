@@ -471,16 +471,17 @@ pub async fn proxy_quic_association(
 			);
 
 			// 3. Flush Queue
-			if let Some((_, state)) = session::PENDING_INITIALS.remove(&dcid) {
+			if let Some((_, mut state)) = session::PENDING_INITIALS.remove(&dcid) {
+				let packets = state.drain_queue();
 				log(
 					LogLevel::Debug,
 					&format!(
 						"➜ Flushing {} buffered packets to Upstream Proxy",
-						state.queued_packets.len()
+						packets.len()
 					),
 				);
 
-				for (pkt, _, _) in state.queued_packets {
+				for (pkt, _, _) in packets {
 					if pkt == datagram {
 						continue;
 					}
