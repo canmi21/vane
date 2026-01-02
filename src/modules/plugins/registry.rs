@@ -28,7 +28,7 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 	let registry = DashMap::new();
 	let transparent_proxy = Arc::new(TransparentProxyPlugin);
 
-	let plugins: Vec<Arc<dyn Plugin>> = vec![
+	let mut plugins: Vec<Arc<dyn Plugin>> = vec![
 		// Core Logic
 		Arc::new(ProtocolDetectPlugin),
 		// Universal Matcher
@@ -39,16 +39,29 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		Arc::new(ProxyNodePlugin),
 		Arc::new(ProxyDomainPlugin),
 		Arc::new(UpgradePlugin),
-		// Ratelimits
-		Arc::new(KeywordRateLimitSecPlugin),
-		Arc::new(KeywordRateLimitMinPlugin),
 		// Drivers (L7)
+		#[cfg(any(feature = "h2upstream", feature = "h3upstream"))]
 		Arc::new(FetchUpstreamPlugin),
 		Arc::new(CgiPlugin),
-		Arc::new(StaticPlugin),
 		// Terminators (L7)
 		Arc::new(SendResponsePlugin),
 	];
+
+	#[cfg(feature = "ratelimit")]
+	{
+		plugins.push(Arc::new(KeywordRateLimitSecPlugin));
+		plugins.push(Arc::new(KeywordRateLimitMinPlugin));
+	}
+
+	#[cfg(feature = "cgi")]
+	{
+		plugins.push(Arc::new(CgiPlugin));
+	}
+
+	#[cfg(feature = "static")]
+	{
+		plugins.push(Arc::new(StaticPlugin));
+	}
 
 	for plugin in plugins {
 		registry.insert(plugin.name().to_string(), plugin);

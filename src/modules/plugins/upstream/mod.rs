@@ -2,7 +2,9 @@
 
 pub mod hyper_client;
 pub mod pool;
+#[cfg(feature = "h3upstream")]
 pub mod quic_pool;
+#[cfg(feature = "h3upstream")]
 pub mod quinn_client;
 pub mod tls_verifier;
 
@@ -232,8 +234,13 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 					)
 					.await
 				}
+				#[cfg(feature = "h3upstream")]
+				"h3" => quinn_client::execute_quinn_request(container, &full_url, method, skip_verify).await,
+				#[cfg(not(feature = "h3upstream"))]
 				"h3" => {
-					quinn_client::execute_quinn_request(container, &full_url, method, skip_verify).await
+					return Err(anyhow!(
+						"HTTP/3 upstream support is disabled in this build."
+					));
 				}
 				_ => {
 					log(
