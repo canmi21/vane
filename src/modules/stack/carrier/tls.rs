@@ -26,38 +26,61 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 
 	let mut buf = vec![0u8; buffer_size];
 
+	let allow_parse_failure =
+		getenv::get_env("TLS_ALLOW_PARSE_FAILURE", "false".to_string()).to_lowercase() == "true";
+
+	let mut parse_success = false;
+
 	// 1. Peek ClientHello
 	match stream.peek(&mut buf).await {
-		Ok(n) => {
+		Ok(n) if n > 0 => {
 			log(
 				LogLevel::Debug,
 				&format!("⚙ Socket peek returned {} bytes.", n),
 			);
-			if n > 0 {
-				let payload = &buf[..n];
-				let clienthello_hex = hex::encode(payload);
-				kv.insert("tls.clienthello".to_string(), clienthello_hex);
+			let payload = &buf[..n];
+			let clienthello_hex = hex::encode(payload);
+			kv.insert("tls.clienthello".to_string(), clienthello_hex);
 
-				match clienthello::parse_client_hello(payload) {
-					Ok(data) => {
-						context::inject_tls_data(kv, data);
-					}
-					Err(e) => {
-						log(
-							LogLevel::Warn,
-							&format!("⚠ Failed to parse ClientHello (len={}): {:#}", n, e),
-						);
-					}
+			match clienthello::parse_client_hello(payload) {
+				Ok(data) => {
+					context::inject_tls_data(kv, data);
+					parse_success = true;
 				}
-			} else {
-				log(
-					LogLevel::Debug,
-					"⚙ Socket peek returned 0 bytes (Empty/Closed).",
-				);
+				Err(e) => {
+					log(
+						LogLevel::Warn,
+						&format!("⚠ Failed to parse ClientHello (len={}): {:#}", n, e),
+					);
+				}
 			}
+		}
+		Ok(_) => {
+			log(
+				LogLevel::Debug,
+				"⚙ Socket peek returned 0 bytes (Empty/Closed).",
+			);
 		}
 		Err(e) => {
 			log(LogLevel::Warn, &format!("✗ Failed to peek socket: {}", e));
+		}
+	}
+
+	if !parse_success {
+		if allow_parse_failure {
+			kv.insert("tls.sni".to_string(), "unknown".to_string());
+			log(
+				LogLevel::Warn,
+				"⚠ TLS inspection failed, continuing with 'unknown' context (TLS_ALLOW_PARSE_FAILURE=true)",
+			);
+		} else {
+			log(
+				LogLevel::Error,
+				"✗ TLS inspection failed. Dropping connection (Fail-Closed).",
+			);
+			return Err(Error::System(
+				"TLS ClientHello peek/parse failed and strict security is enabled.".into(),
+			));
 		}
 	}
 
