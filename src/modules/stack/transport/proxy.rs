@@ -9,19 +9,87 @@ use crate::common::{getenv, ip};
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
 use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context as TaskContext, Poll};
 use tokio::{
-	io,
+	io::{self, AsyncRead, AsyncWrite, ReadBuf},
 	net::{TcpStream, UdpSocket},
 	time::{Duration, Instant, timeout},
 };
+
+// --- Idle Watchdog Wrapper ---
+
+struct IdleWatchdog<S> {
+	inner: S,
+	last_activity: Arc<AtomicU64>,
+}
+
+impl<S> IdleWatchdog<S> {
+	fn new(inner: S, last_activity: Arc<AtomicU64>) -> Self {
+		Self {
+			inner,
+			last_activity,
+		}
+	}
+
+	fn update_activity(&self) {
+		let now = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap_or_default()
+			.as_secs();
+		self.last_activity.store(now, Ordering::Relaxed);
+	}
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for IdleWatchdog<S> {
+	fn poll_read(
+		mut self: Pin<&mut Self>,
+		cx: &mut TaskContext<'_>,
+		buf: &mut ReadBuf<'_>,
+	) -> Poll<io::Result<()>> {
+		let before = buf.filled().len();
+		let p = Pin::new(&mut self.inner).poll_read(cx, buf);
+		if let Poll::Ready(Ok(())) = p {
+			if buf.filled().len() > before {
+				self.update_activity();
+			}
+		}
+		p
+	}
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for IdleWatchdog<S> {
+	fn poll_write(
+		mut self: Pin<&mut Self>,
+		cx: &mut TaskContext<'_>,
+		buf: &[u8],
+	) -> Poll<io::Result<usize>> {
+		let p = Pin::new(&mut self.inner).poll_write(cx, buf);
+		if let Poll::Ready(Ok(n)) = p {
+			if n > 0 {
+				self.update_activity();
+			}
+		}
+		p
+	}
+
+	fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+		Pin::new(&mut self.inner).poll_flush(cx)
+	}
+
+	fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+		Pin::new(&mut self.inner).poll_shutdown(cx)
+	}
+}
 
 // Constants
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 // --- TCP Logic ---
 
-pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarget) -> Result<()> {
+pub async fn proxy_tcp_stream(client_stream: TcpStream, target: ResolvedTarget) -> Result<()> {
 	log(
 		LogLevel::Debug,
 		&format!(
@@ -38,7 +106,7 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 	)
 	.await;
 
-	let mut upstream_stream = match connect_result {
+	let upstream_stream = match connect_result {
 		Ok(Ok(stream)) => stream,
 		Ok(Err(e)) => {
 			log(
@@ -67,15 +135,48 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 	let _ = client_stream.set_nodelay(true);
 	let _ = upstream_stream.set_nodelay(true);
 
-	let (mut client_read, mut client_write) = client_stream.split();
-	let (mut upstream_read, mut upstream_write) = upstream_stream.split();
+	// Implement Idle Timeout
+	let last_activity = Arc::new(AtomicU64::new(
+		std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap_or_default()
+			.as_secs(),
+	));
+
+	let timeout_secs = getenv::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_string())
+		.parse::<u64>()
+		.unwrap_or(10);
+
+	let mut client_wrapped = IdleWatchdog::new(client_stream, last_activity.clone());
+	let mut upstream_wrapped = IdleWatchdog::new(upstream_stream, last_activity.clone());
+
+	let (mut client_read, mut client_write) = tokio::io::split(&mut client_wrapped);
+	let (mut upstream_read, mut upstream_write) = tokio::io::split(&mut upstream_wrapped);
 
 	let client_to_server = tokio::io::copy(&mut client_read, &mut upstream_write);
 	let server_to_client = tokio::io::copy(&mut upstream_read, &mut client_write);
 
+	let watchdog = async {
+		loop {
+			tokio::time::sleep(Duration::from_secs(1)).await;
+			let last = last_activity.load(Ordering::Relaxed);
+			let now = std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.unwrap_or_default()
+				.as_secs();
+			if now - last >= timeout_secs {
+				break;
+			}
+		}
+	};
+
 	tokio::select! {
 		res = client_to_server => res.map(|_| ()).context("Client->Server copy failed"),
 		res = server_to_client => res.map(|_| ()).context("Server->Client copy failed"),
+		_ = watchdog => {
+			log(LogLevel::Warn, "🛡 Security: Stream idle timeout triggered (TCP).");
+			Err(anyhow::anyhow!("Stream idle timeout"))
+		}
 	}
 }
 
@@ -98,7 +199,7 @@ pub async fn proxy_generic_stream(
 	)
 	.await;
 
-	let mut upstream_stream = match connect_result {
+	let upstream_stream = match connect_result {
 		Ok(Ok(stream)) => stream,
 		Ok(Err(e)) => {
 			log(
@@ -126,15 +227,48 @@ pub async fn proxy_generic_stream(
 
 	let _ = upstream_stream.set_nodelay(true);
 
-	let (mut client_read, mut client_write) = tokio::io::split(client_stream);
-	let (mut upstream_read, mut upstream_write) = upstream_stream.split();
+	// Implement Idle Timeout
+	let last_activity = Arc::new(AtomicU64::new(
+		std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap_or_default()
+			.as_secs(),
+	));
+
+	let timeout_secs = getenv::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_string())
+		.parse::<u64>()
+		.unwrap_or(10);
+
+	let mut client_wrapped = IdleWatchdog::new(client_stream, last_activity.clone());
+	let mut upstream_wrapped = IdleWatchdog::new(upstream_stream, last_activity.clone());
+
+	let (mut client_read, mut client_write) = tokio::io::split(&mut client_wrapped);
+	let (mut upstream_read, mut upstream_write) = tokio::io::split(&mut upstream_wrapped);
 
 	let client_to_server = tokio::io::copy(&mut client_read, &mut upstream_write);
 	let server_to_client = tokio::io::copy(&mut upstream_read, &mut client_write);
 
+	let watchdog = async {
+		loop {
+			tokio::time::sleep(Duration::from_secs(1)).await;
+			let last = last_activity.load(Ordering::Relaxed);
+			let now = std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.unwrap_or_default()
+				.as_secs();
+			if now - last >= timeout_secs {
+				break;
+			}
+		}
+	};
+
 	tokio::select! {
 		res = client_to_server => res.map(|_| ()).context("L4+ Client->Server copy failed"),
 		res = server_to_client => res.map(|_| ()).context("L4+ Server->Client copy failed"),
+		_ = watchdog => {
+			log(LogLevel::Warn, "🛡 Security: Stream idle timeout triggered (Generic).");
+			Err(anyhow::anyhow!("Stream idle timeout"))
+		}
 	}
 }
 
