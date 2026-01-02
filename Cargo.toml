@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.8.1"
+version = "0.8.2"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
 edition = "2024"
@@ -36,25 +36,23 @@ full = [
 ]
 
 # Core Transport (L4)
-tcp = ["dep:hex", "dep:fancy-regex"]
-udp = ["dep:hex", "dep:fancy-regex"]
+tcp = ["dep:fancy-regex"]
+udp = ["dep:fancy-regex"]
 
 # Carrier Layer (L4+)
-tls = ["dep:ring", "dep:rustls", "dep:tokio-rustls", "dep:rcgen", "dep:hyper-rustls", "dep:tls-parser", "dep:nom", "dep:hex", "dep:x509-parser", "dep:rustls-pemfile", "dep:rustls-native-certs"]
-quic = ["tls", "dep:quinn", "dep:nom", "dep:aes", "dep:hex"]
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:rcgen", "dep:hyper-rustls", "dep:tls-parser", "dep:x509-parser", "dep:rustls-pemfile", "dep:rustls-native-certs"]
+quic = ["dep:quinn", "dep:aes"]
 
 # Application Layer (L7)
-httpx = ["tls", "quic", "dep:hyper", "dep:hyper-util", "dep:http-body", "dep:http-body-util", "dep:infer", "dep:base64", "dep:hex", "dep:tower-service"]
+httpx = ["dep:hyper", "dep:hyper-util", "dep:http-body", "dep:http-body-util", "dep:tower-service", "dep:axum"]
 
 # Console / Management API
-console= ["http-console", "unix-console"]
-http-console = ["dep:axum"]
-unix-console = ["dep:axum"]
+console = ["dep:axum"]
 
 # Upstream Capabilities
-h2upstream = ["tls", "dep:reqwest"]
+h2upstream = ["dep:reqwest"]
 h3upstream = ["quic", "dep:h3", "dep:h3-quinn"]
-domain-target = ["tls", "dep:hickory-resolver"]
+domain-target = ["dep:hickory-resolver"]
 
 # Plugin Flags
 cgi = ["dep:base64"]
@@ -63,14 +61,12 @@ ratelimit = []
 
 # Crypto Backends
 aws-lc-rs = [
-	"dep:aws-lc-rs",
   "rustls?/aws-lc-rs",
   "tokio-rustls?/aws-lc-rs",
   "hyper-rustls?/aws-lc-rs",
   "quinn?/aws-lc-rs",
 ]
 ring = [
-	"dep:ring",
   "rustls?/ring",
   "tokio-rustls?/ring",
   "hyper-rustls?/ring",
@@ -87,7 +83,6 @@ fancy-log = "0.1"
 shellexpand = "3"
 lazy-motd = "1"
 chrono = { version = "0.4", features = ["serde"] }
-anynet = "1"
 notify = "8"
 arc-swap = "1"
 dashmap = "6"
@@ -102,12 +97,12 @@ fancy-regex = { version = "0.17", optional = true }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 futures = "0.3"
 anyhow = "1"
-hex = { version = "0.4", optional = true }
+hex = "0.4"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"], optional = true }
 hickory-resolver = { version = "0.25", optional = true }
 tls-parser = { version = "0.12", optional = true }
-nom = { version = "8", optional = true }
+x509-parser = { version = "0.18", optional = true }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"], optional = true }
 quinn-proto = "0.11"
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"], optional = true }
@@ -119,7 +114,6 @@ http-body-util = { version = "0.1", optional = true }
 bytes = "1"
 http = "1"
 rcgen = { version = "0.14", optional = true }
-x509-parser = { version = "0.18", optional = true }
 httparse = "1"
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
@@ -130,8 +124,7 @@ hyper-rustls = { version = "0.27", default-features = false, features = ["http2"
 infer = { version = "0.19", optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 tower-service = { version = "0.3", optional = true }
-ring = { version = "0.17", optional = true }
-aws-lc-rs = { version = "1", optional = true }
+ring = "0.17"
 aes = { version = "0.8", optional = true }
 base64 = { version = "0.22", optional = true }
 mime_guess = { version = "2", optional = true }
