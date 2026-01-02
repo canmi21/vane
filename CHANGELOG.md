@@ -7,11 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.1 (2. Jan, 2026)
+
+- **Changed:** Optimized the dependency tree by making most of heavy libraries optional, significantly reducing minimal build size.
+- **Fixed:** Resolved CGI `PATH_INFO` and `SCRIPT_NAME` derivation edge cases. Implemented segment-based splitting and path normalization to strictly adhere to RFC 3875.
+
 ## 0.8.0 (2. Jan, 2026)
 
-- **Added:** Comprehensive support for Rust Feature Flags. Users can now customize the binary by enabling/disabling 10 core features: `tcp`, `udp`, `tls`, `quic`, `httpx`, `h2upstream`, `h3upstream`, `cgi`, `static`, and `ratelimit`.
-- **Added:** Binary now displays the list of enabled features when running `vane -v` or `--version`.
-- **Changed:** Enhanced Flow Validator to detect disabled features. If a configuration uses a plugin or protocol that was not compiled in, Vane now provides a descriptive error message explaining which feature needs to be enabled.
+- **Added:** Comprehensive support for modular Rust Feature Flags. Users can now customize the binary by enabling/disabling 13 core features: `tcp`, `udp`, `tls`, `quic`, `httpx`, `h2upstream`, `h3upstream`, `cgi`, `static`, `ratelimit`, `domain-target`, `http-console`, and `unix-console`.
+- **Added:** Binary now displays the complete list of enabled features when running `vane -v` or `--version`.
+- **Changed:** Enhanced Flow Validator to detect disabled features. If a configuration uses a plugin, protocol, or domain-target that was not compiled in, Vane now provides a descriptive error message explaining which feature needs to be enabled.
 
 ## 0.7.20 (2. Jan, 2026)
 
