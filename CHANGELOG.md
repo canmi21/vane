@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.4 (2. Jan, 2026)
+
+- **Added:** Implemented robust **QUIC Anti-Amplification** and resource exhaustion protection for the L4+ carrier.
+- **Added:** Introduced `GLOBAL_PENDING_BYTES` accounting with a configurable limit (`QUIC_GLOBAL_PENDING_BYTES_LIMIT`, default 64MB) to prevent memory exhaustion attacks via flooded Initial packets.
+- **Added:** Enforced per-session buffering limits (`QUIC_SESSION_BUFFER_LIMIT`, default 64KB) to restrict the memory footprint of individual pending handshakes waiting for SNI reassembly.
+- **Changed:** Refactored `PendingState` to implement `Drop` (RAII), ensuring that global byte quotas are automatically released whenever a session state is processed, timed out, or discarded.
+- **Changed:** Introduced a safe `drain_queue()` mechanism for `PendingState` to handle data extraction under the new `Drop` semantics, maintaining strict resource accounting consistency.
+
 ## 0.8.3 (2. Jan, 2026)
 
 - **Changed:** Major architectural reorganization of the plugin system and network stack to improve maintainability and separate concerns.
