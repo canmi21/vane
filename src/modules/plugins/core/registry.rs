@@ -2,7 +2,7 @@
 
 use crate::modules::plugins::core::model::Plugin;
 use crate::modules::plugins::{
-	l7::{cgi::plugin::CgiPlugin, resource::r#static::StaticPlugin, upstream::FetchUpstreamPlugin},
+	l7::{cgi::CgiPlugin, resource::StaticPlugin, upstream::FetchUpstreamPlugin},
 	middleware::{
 		matcher::CommonMatchPlugin,
 		ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin},
