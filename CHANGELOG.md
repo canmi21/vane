@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.7 (2. Jan, 2026)
+
+- **Added:** Introduced `STREAM_IDLE_TIMEOUT_SECS` environment variable (default: 10s) to control the maximum allowed inactivity period for proxied streams.
+- **Changed:** Refactored the proxy engine to use a high-performance **Watchdog Wrapper Stream**. This mechanism enables zero-copy idle detection without impacting the efficiency of `tokio::io::copy`.
+
 ## 0.8.6 (2. Jan, 2026)
 
 - **Added:** Introduced four new opt-in security switches: `ALLOW_EXTERNAL_LINKER_ENV`, `ALLOW_EXTERNAL_RUNTIME_ENV`, `ALLOW_EXTERNAL_SHELL_ENV`, and `ALLOW_EXTERNAL_PATH_ENV_APPEND` (all default to `false`).
