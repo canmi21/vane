@@ -51,7 +51,113 @@ pub async fn execute(
 
 	let mut cmd = Command::new(resolved_program);
 	cmd.args(args);
-	cmd.envs(env);
+
+	// SEC-3: Sanitize environment variables
+	let allow_linker =
+		getenv::get_env("ALLOW_EXTERNAL_LINKER_ENV", "false".to_string()).to_lowercase() == "true";
+	let allow_runtime =
+		getenv::get_env("ALLOW_EXTERNAL_RUNTIME_ENV", "false".to_string()).to_lowercase() == "true";
+	let allow_shell =
+		getenv::get_env("ALLOW_EXTERNAL_SHELL_ENV", "false".to_string()).to_lowercase() == "true";
+	let allow_path_append =
+		getenv::get_env("ALLOW_EXTERNAL_PATH_ENV_APPEND", "false".to_string()).to_lowercase() == "true";
+
+	let mut sanitized_env = HashMap::new();
+
+	for (key, value) in env {
+		let k_up = key.to_uppercase();
+
+		// Category 1: Linker (LD_*, DYLD_*, etc.)
+		let is_linker = k_up.starts_with("LD_")
+			|| k_up.starts_with("DYLD_")
+			|| k_up.starts_with("_RLD_")
+			|| k_up == "SHLIB_PATH"
+			|| k_up == "LIBPATH";
+		if is_linker {
+			if allow_linker {
+				sanitized_env.insert(key.clone(), value.clone());
+			} else {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"🛡 Security: Dropped Linker env var '{}' (ALLOW_EXTERNAL_LINKER_ENV is false)",
+						key
+					),
+				);
+			}
+			continue;
+		}
+
+		// Category 2: Runtime (PYTHON*, NODE_*, etc.)
+		let is_runtime = k_up.starts_with("PYTHON")
+			|| k_up.starts_with("NODE_")
+			|| k_up.starts_with("PERL")
+			|| k_up.starts_with("RUBY")
+			|| k_up.starts_with("JAVA_")
+			|| k_up == "CLASSPATH";
+		if is_runtime {
+			if allow_runtime {
+				sanitized_env.insert(key.clone(), value.clone());
+			} else {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"🛡 Security: Dropped Runtime env var '{}' (ALLOW_EXTERNAL_RUNTIME_ENV is false)",
+						key
+					),
+				);
+			}
+			continue;
+		}
+
+		// Category 3: Shell (IFS, ENV, etc.)
+		let is_shell = k_up == "IFS" || k_up == "ENV" || k_up == "BASH_ENV" || k_up == "SHELLOPTS";
+		if is_shell {
+			if allow_shell {
+				sanitized_env.insert(key.clone(), value.clone());
+			} else {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"🛡 Security: Dropped Shell env var '{}' (ALLOW_EXTERNAL_SHELL_ENV is false)",
+						key
+					),
+				);
+			}
+			continue;
+		}
+
+		// Category 4: Path
+		if k_up == "PATH" {
+			if allow_path_append {
+				let system_path = std::env::var("PATH").unwrap_or_default();
+				let separator = if cfg!(windows) { ";" } else { ":" };
+				let new_path = format!("{}{}{}", system_path, separator, value);
+				sanitized_env.insert(key.clone(), new_path);
+				log(
+					LogLevel::Debug,
+					&format!(
+						"⚙ Appended user PATH to system PATH for plugin '{}'",
+						program
+					),
+				);
+			} else {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"🛡 Security: Dropped PATH env var from plugin '{}' (ALLOW_EXTERNAL_PATH_ENV_APPEND is false)",
+						program
+					),
+				);
+			}
+			continue;
+		}
+
+		// Other variables: Pass through
+		sanitized_env.insert(key.clone(), value.clone());
+	}
+
+	cmd.envs(sanitized_env);
 	cmd.stdin(Stdio::piped());
 	cmd.stdout(Stdio::piped());
 	// Refactor: Capture stderr to pipe instead of inheriting directly to terminal.
