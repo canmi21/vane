@@ -63,7 +63,11 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	envs.insert("PATH_INFO".to_string(), config.path_info.clone());
 
 	if !config.doc_root.is_empty() && !config.path_info.is_empty() {
-		let translated = format!("{}{}", config.doc_root, config.path_info);
+		let translated = format!(
+			"{}{}",
+			config.doc_root.trim_end_matches('/'),
+			config.path_info
+		);
 		envs.insert("PATH_TRANSLATED".to_string(), translated);
 	}
 

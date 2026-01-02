@@ -161,11 +161,13 @@ impl HttpMiddleware for CgiPlugin {
 
 		// 3. Path Info Auto Calculation
 		// RFC 3875: PATH_INFO = SCRIPT_NAME prefix stripped from URI
+		let mut script_name = get_str("script_name");
 		let mut path_info = get_str("path_info");
-		let script_name = get_str("script_name");
 
-		if path_info.is_empty() && !script_name.is_empty() && final_uri.starts_with(&script_name) {
-			path_info = final_uri[script_name.len()..].to_string();
+		if path_info.is_empty() && !script_name.is_empty() {
+			let (derived_script, derived_path) = derive_path_info(&final_uri, &script_name);
+			script_name = derived_script;
+			path_info = derived_path;
 		}
 
 		let config = CgiConfig {
@@ -208,5 +210,133 @@ impl L7Middleware for CgiPlugin {
 		inputs: ResolvedInputs,
 	) -> Result<MiddlewareOutput> {
 		<Self as HttpMiddleware>::execute(self, context, inputs).await
+	}
+}
+
+/// Robustly derives SCRIPT_NAME and PATH_INFO from a URI and a base script name.
+
+/// Adheres to RFC 3875 by ensuring segment-based splitting.
+
+fn derive_path_info(uri: &str, script_name: &str) -> (String, String) {
+	if script_name.is_empty() {
+		return (String::new(), uri.to_string());
+	}
+
+	// Normalize slashes for robust matching
+
+	let normalize = |p: &str| -> String {
+		let mut res = String::with_capacity(p.len());
+
+		let mut last_slash = false;
+
+		for c in p.chars() {
+			if c == '/' {
+				if !last_slash {
+					res.push(c);
+				}
+
+				last_slash = true;
+			} else {
+				res.push(c);
+
+				last_slash = false;
+			}
+		}
+
+		if !res.starts_with('/') {
+			res.insert(0, '/');
+		}
+
+		res
+	};
+
+	let norm_uri = normalize(uri);
+
+	let norm_script = normalize(script_name);
+
+	// Remove trailing slash from script_name for matching (unless it is just "/")
+
+	let match_base = if norm_script.len() > 1 && norm_script.ends_with('/') {
+		&norm_script[..norm_script.len() - 1]
+	} else {
+		&norm_script
+	};
+
+	if norm_uri.starts_with(match_base) {
+		let remainder = &norm_uri[match_base.len()..];
+
+		if remainder.is_empty() {
+			// Exact match: /cgi -> SCRIPT_NAME=/cgi, PATH_INFO=""
+
+			return (match_base.to_string(), String::new());
+		} else if remainder.starts_with('/') {
+			// Segment match: /cgi/foo -> SCRIPT_NAME=/cgi, PATH_INFO=/foo
+
+			return (match_base.to_string(), remainder.to_string());
+		} else if match_base == "/" {
+			// Root match
+
+			return (
+				"/".to_string(),
+				format!("/{}", remainder.trim_start_matches('/')),
+			);
+		}
+	}
+
+	// No segment-based match: fallback
+
+	(String::new(), norm_uri)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Tests CGI path derivation logic.
+	#[test]
+	fn test_derive_path_info() {
+		// 1. Exact match
+		assert_eq!(
+			derive_path_info("/cgi-bin/script", "/cgi-bin/script"),
+			("/cgi-bin/script".to_string(), "".to_string())
+		);
+
+		// 2. Segment match
+		assert_eq!(
+			derive_path_info("/cgi-bin/script/foo/bar", "/cgi-bin/script"),
+			("/cgi-bin/script".to_string(), "/foo/bar".to_string())
+		);
+
+		// 3. Partial prefix match (should NOT match)
+		// Current bug: /cgi-bin/script starts with /cgi -> PATH_INFO = -bin/script
+		// Fixed behavior: should not split unless at / boundary
+		assert_eq!(
+			derive_path_info("/cgi-bin/script", "/cgi"),
+			("".to_string(), "/cgi-bin/script".to_string())
+		);
+
+		// 4. Root script name
+		assert_eq!(
+			derive_path_info("/foo/bar", "/"),
+			("/".to_string(), "/foo/bar".to_string())
+		);
+
+		// 5. Empty script name
+		assert_eq!(
+			derive_path_info("/foo/bar", ""),
+			("".to_string(), "/foo/bar".to_string())
+		);
+
+		// 6. Non-matching paths
+		assert_eq!(
+			derive_path_info("/api/v1", "/cgi"),
+			("".to_string(), "/api/v1".to_string())
+		);
+
+		// 7. Redundant slashes
+		assert_eq!(
+			derive_path_info("//cgi-bin//script", "/cgi-bin"),
+			("/cgi-bin".to_string(), "/script".to_string())
+		);
 	}
 }
