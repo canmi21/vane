@@ -13,21 +13,26 @@ We have reached a major milestone with **Version 0.8.0**, implementing the first
 ### Recently Completed
 
 1. ✅ **Task 1.1: Rust Feature Flags (Wave 1 & 2)** (v0.8.0)
-   - Introduced 10 modular features: `tcp`, `udp`, `tls`, `quic`, `httpx`, `h2upstream`, `h3upstream`, `cgi`, `static`, `ratelimit`.
+   - Introduced 13 modular features: `tcp`, `udp`, `tls`, `quic`, `httpx`, `domain-target`, `http-console`, `unix-console`, `h2upstream`, `h3upstream`, `cgi`, `static`, `ratelimit`.
    - Default build remains "full" (all features enabled).
    - Added descriptive validator errors for disabled features.
    - Added feature list display to `vane -v` output.
 2. ✅ **Task 1.4: Custom Flow Validation Engine**
    - Eliminated all `Box::leak` occurrences.
    - Implemented Cycle Detection and path-based error tracing.
+3. ✅ **Task 2.21: Resolve CGI PATH_INFO Edge Cases**
+   - Implemented robust segment-based path derivation.
+   - Added path normalization to handle redundant slashes.
+   - Fixed `PATH_TRANSLATED` construction to prevent double slashes.
+   - Added comprehensive unit tests.
 
 ---
 
 ## 🎯 Next Steps: Phase II - Security & Quality Fixes
 
-**Scan Summary:** 11 CRITICAL issues fixed. 0.8.0 baseline established.
+**Scan Summary:** Most high-priority quality fixes complete.
 
-**Next Task**: Task 1.1 - Continue expanding Feature Flags (External Drivers)
+**Next Task**: Task 2.22 - Unify dependency versions (nom)
 
 ---
 
@@ -40,14 +45,12 @@ We have reached a major milestone with **Version 0.8.0**, implementing the first
 ## 📋 Current Task Queue (Priority Order)
 
 ### This Week (Quality & Reliability)
-1. ✅ ~~**Task 1.1** - Feature Flags support (Wave 1)~~ **COMPLETE**
-2. 🔄 **Task 1.1** - Feature Flags (Wave 2: External Drivers) **NEXT**
-3. **Task 2.21** - Resolve CGI PATH_INFO edge cases
-4. **Task 2.22** - Unify dependency versions (nom)
-
-### Next Week (Phase III - Organization)
-...
+1. ✅ ~~**Task 1.1** - Feature Flags support (Wave 1 & 2)~~ **COMPLETE**
+2. ✅ ~~**Task 2.21** - CGI PATH_INFO Edge Cases~~ **COMPLETE**
+3. 🔄 **Task 2.22** - Unify dependency versions (nom) **NEXT**
+4. **Task 0.4** - L4 legacy config file extraction (Phase III)
+5. **Task 3.1** - Reorganize plugin directory structure (Phase III)
 ## 📝 Version Information
 
-**Current Version**: 0.8.0
+**Current Version**: 0.8.1
 **Target Version**: 0.9.0
