@@ -33,10 +33,8 @@ async fn main() {
 			features.push("httpx");
 			#[cfg(feature = "domain-target")]
 			features.push("domain-target");
-			#[cfg(feature = "http-console")]
-			features.push("http-console");
-			#[cfg(feature = "unix-console")]
-			features.push("unix-console");
+			#[cfg(feature = "console")]
+			features.push("console");
 			#[cfg(feature = "h2upstream")]
 			features.push("h2upstream");
 			#[cfg(feature = "h3upstream")]

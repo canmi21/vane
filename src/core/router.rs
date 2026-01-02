@@ -1,52 +1,46 @@
 /* src/core/router.rs */
 
 use crate::{
-	core::{response, root::root_handler},
-	middleware::{auth, logger},
-	modules::{
-		plugins::handler as plugins_handler,
-		ports::{handler as ports_handler, model::PortState},
-	},
+	core::root, middleware::auth, middleware::logger,
+	modules::plugins::core::handler as plugins_handler, modules::ports::handler as ports_handler,
+	modules::ports::model::PortState,
 };
 use axum::{
-	Router,
-	http::StatusCode,
-	middleware,
-	response::IntoResponse,
+	Router, middleware,
 	routing::{get, post},
 };
 
-// The function signature now honestly declares that it returns a router
-// whose handlers require a state of type `PortState`.
-#[cfg(any(feature = "http-console", feature = "unix-console"))]
+#[cfg(feature = "console")]
 pub fn create_router() -> Router<PortState> {
 	Router::new()
-		.route("/", get(root_handler))
-		.route("/ports", get(ports_handler::get_ports_handler))
-		.route(
-			"/ports/{:port}",
-			post(ports_handler::post_port_handler)
-				.delete(ports_handler::delete_port_handler)
-				.get(ports_handler::get_port_status_handler),
+		.route("/", get(root::root_handler))
+		.nest(
+			"/ports",
+			Router::new()
+				.route("/", get(ports_handler::get_ports_handler))
+				.route(
+					"/{port}",
+					get(ports_handler::get_port_status_handler)
+						.post(ports_handler::post_port_handler)
+						.delete(ports_handler::delete_port_handler),
+				)
+				.route(
+					"/{port}/{protocol}",
+					post(ports_handler::post_protocol_handler).delete(ports_handler::delete_protocol_handler),
+				)
+				.layer(middleware::from_fn(auth::require_access_token)),
 		)
-		.route(
-			"/ports/{:port}/{:protocol}",
-			post(ports_handler::post_protocol_handler).delete(ports_handler::delete_protocol_handler),
+		.nest(
+			"/plugins",
+			Router::new()
+				.route("/", get(plugins_handler::list_plugins_handler))
+				.route(
+					"/{name}",
+					post(plugins_handler::create_plugin_handler)
+						.put(plugins_handler::update_plugin_handler)
+						.delete(plugins_handler::delete_plugin_handler),
+				)
+				.layer(middleware::from_fn(auth::require_access_token)),
 		)
-		.route("/plugins", get(plugins_handler::list_plugins_handler))
-		.route(
-			"/plugins/{:name}",
-			post(plugins_handler::create_plugin_handler)
-				.put(plugins_handler::update_plugin_handler)
-				.delete(plugins_handler::delete_plugin_handler),
-		)
-		// Global authentication middleware - ALL endpoints require ACCESS_TOKEN
-		.layer(middleware::from_fn(auth::require_access_token))
-		// Logging middleware (after auth, so only authenticated requests are logged)
 		.layer(middleware::from_fn(logger::log_requests))
-		.fallback(not_found_handler)
-}
-
-async fn not_found_handler() -> impl IntoResponse {
-	response::error(StatusCode::NOT_FOUND, "Resource not found.".to_string()).into_response()
 }

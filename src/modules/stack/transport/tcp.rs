@@ -1,58 +1,10 @@
 /* src/modules/stack/transport/tcp.rs */
 
-use crate::modules::plugins::model::{Layer, ProcessingStep};
+use crate::modules::plugins::core::model::{Layer, ProcessingStep};
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationErrors};
 
-use super::model::{Detect, Forward};
-
-// --- Legacy `protocols` Format ---
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct TcpSession {
-	pub keepalive: bool,
-	pub timeout: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum TcpDestination {
-	Resolver { resolver: String },
-	Forward { forward: Forward },
-}
-
-impl Validate for TcpDestination {
-	fn validate(&self) -> Result<(), ValidationErrors> {
-		match self {
-			TcpDestination::Resolver { .. } => Ok(()),
-			TcpDestination::Forward { forward } => forward.validate(),
-		}
-	}
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
-pub struct TcpProtocolRule {
-	#[validate(regex(
-        path = *super::model::NAME_REGEX,
-        message = "can only contain lowercase letters and numbers"
-    ))]
-	pub name: String,
-	#[validate(range(min = 1))]
-	pub priority: u32,
-	#[validate(nested)]
-	pub detect: Detect,
-	#[serde(default)]
-	pub session: Option<TcpSession>,
-	#[validate(nested)]
-	pub destination: TcpDestination,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Validate)]
-pub struct LegacyTcpConfig {
-	#[serde(rename = "protocols")]
-	#[validate(nested)]
-	pub rules: Vec<TcpProtocolRule>,
-}
+use super::legacy;
 
 // --- New `connection` (Flow) Format ---
 
@@ -75,7 +27,7 @@ impl Validate for FlowConfig {
 #[serde(untagged)]
 pub enum TcpConfig {
 	Flow(FlowConfig),
-	Legacy(LegacyTcpConfig),
+	Legacy(legacy::LegacyTcpConfig),
 }
 
 impl Validate for TcpConfig {
@@ -83,7 +35,7 @@ impl Validate for TcpConfig {
 		match self {
 			TcpConfig::Legacy(config) => {
 				let mut result = config.validate();
-				if let Err(e) = super::validator::validate_tcp_rules(&config.rules) {
+				if let Err(e) = legacy::validate_tcp_rules(&config.rules) {
 					match result {
 						Ok(()) => {
 							let mut errors = ValidationErrors::new();

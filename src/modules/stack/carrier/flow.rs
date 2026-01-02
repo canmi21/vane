@@ -1,4 +1,4 @@
-/* src/modules/stack/transport/flow.rs */
+/* src/modules/stack/carrier/flow.rs */
 
 use anyhow::Result;
 
@@ -8,14 +8,14 @@ use crate::modules::{
 	plugins::core::model::{ConnectionObject, ProcessingStep, TerminatorResult},
 };
 
-/// Public entry point for executing a flow.
 pub async fn execute(
 	step: &ProcessingStep,
 	kv: &mut KvStore,
 	conn: ConnectionObject,
+	parent_path: String,
 ) -> Result<TerminatorResult> {
-	kv.insert("conn.layer".to_string(), "l4".to_string());
+	kv.insert("conn.layer".to_string(), "l4p".to_string());
 
 	let mut context = TransportContext { kv };
-	engine::execute(step, &mut context, conn, String::new()).await
+	engine::execute(step, &mut context, conn, parent_path).await
 }

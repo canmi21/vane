@@ -1,6 +1,6 @@
 /* src/modules/stack/transport/validator.rs */
 
-use crate::modules::plugins::{
+use crate::modules::plugins::core::{
 	model::{Layer, ParamType, ProcessingStep},
 	registry,
 };
@@ -10,8 +10,7 @@ use std::collections::{HashMap, HashSet};
 use validator::{ValidationError, ValidationErrors};
 
 use super::model::Target;
-use super::tcp::TcpProtocolRule;
-use super::udp::UdpProtocolRule;
+use crate::modules::stack::transport::legacy::{tcp::TcpProtocolRule, udp::UdpProtocolRule};
 
 /// Internal error type for flow validation that doesn't require &'static str.
 #[derive(Debug)]
@@ -221,7 +220,7 @@ pub fn validate_flow_recursive(
 
 fn validate_plugin_inputs_internal(
 	plugin_name: &str,
-	param_defs: &[crate::modules::plugins::model::ParamDef],
+	param_defs: &[crate::modules::plugins::core::model::ParamDef],
 	inputs: &HashMap<String, Value>,
 	current_path: &str,
 	errors: &mut Vec<FlowValidationError>,

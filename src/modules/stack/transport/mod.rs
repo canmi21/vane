@@ -6,6 +6,7 @@ pub mod dispatcher;
 pub mod flow;
 pub mod fs;
 pub mod health;
+pub mod legacy;
 pub mod loader;
 pub mod model;
 pub mod proxy;
