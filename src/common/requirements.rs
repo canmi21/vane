@@ -1,7 +1,7 @@
 /* src/common/requirements.rs */
 
 use crate::common::getconf;
-use crate::modules::stack::protocol::carrier::quic::session as quic_session;
+use crate::modules::stack::carrier::quic::session as quic_session;
 use crate::modules::stack::transport::{health, session};
 use fancy_log::{LogLevel, log};
 use notify::{Event, EventKind, RecursiveMode, Watcher};

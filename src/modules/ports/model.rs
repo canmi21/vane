@@ -70,9 +70,12 @@ mod serde_arc {
 mod tests {
 	use super::*;
 	use crate::modules::stack::transport::{
+		legacy::{
+			LegacyTcpConfig,
+			tcp::{TcpDestination, TcpProtocolRule},
+		},
 		model::{Detect, DetectMethod, Forward, Strategy},
-		// CORRECTED: Import the necessary structs for building the test case.
-		tcp::{LegacyTcpConfig, TcpConfig, TcpDestination, TcpProtocolRule},
+		tcp::TcpConfig,
 	};
 	use serde_json::json;
 

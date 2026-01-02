@@ -5,7 +5,7 @@ use crate::common::getenv;
 use crate::modules::{
 	kv,
 	plugins::protocol::quic::parser,
-	stack::protocol::carrier::quic::{muxer::QuicMuxer, session},
+	stack::carrier::quic::{muxer::QuicMuxer, session},
 	stack::transport::{dispatcher, udp},
 };
 use dashmap::DashMap;

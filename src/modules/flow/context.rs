@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::modules::kv::KvStore;
-use crate::modules::stack::protocol::application::container::Container;
+use crate::modules::stack::application::container::Container;
 use crate::modules::template::{context::L7Context, context::SimpleContext, resolve_inputs};
 
 /// Execution context abstraction for flow engine.
