@@ -1,27 +1,35 @@
 # Agent Session Progress
 
 **Last Updated**: 2026-01-02
-**Current Task**: Task 6.2 - TLS Fail-Closed (Security Hardening)
-**Status**: Ready to start
-**Strategy**: Audit `tls.rs` for error handling during peek/parse.
+**Current Task**: Task 6.5 - External Env Sanitization (Security Hardening)
+**Status**: Task 6.2 Complete
+**Strategy**: Filter sensitive environment variables in `exec.rs` driver.
 
 ---
 
 ## 📍 Current Position
 
-Version bumped to **0.8.4**. `CHANGELOG.md` updated.
-Task 6.1 (QUIC Security) complete.
+Task 6.2 (TLS Fail-Closed) is complete. Version is now **0.8.5**.
 
-## 📋 Next Task: Task 6.2 - TLS Fail-Closed
+### Recently Completed
 
-**Goal:** Ensure that if Vane fails to peek or parse the TLS ClientHello, it doesn't bypass inspection (which might happen if the flow continues or falls back to an unsafe default).
+1. ✅ **Task 6.2: TLS Fail-Closed**
+   - Added `TLS_ALLOW_PARSE_FAILURE` toggle (default: `false`).
+   - Implemented active termination for failed TLS inspection (Strict mode).
+   - Added `unknown` SNI fallback for permissive mode.
+   - Updated `CHANGELOG.md` and `Cargo.toml`.
+
+## 📋 Next Task: Task 6.5 - External Env Sanitization
+
+**Goal:** Prevent privilege escalation or code injection via environment variables passed to external command plugins.
 
 **Audit Plan:**
-1.  Read `src/modules/stack/carrier/tls.rs` (again, focusing on error paths).
-2.  Identify where `peek` errors or `parse_client_hello` errors are logged but execution continues.
-3.  Change logic to return `Err` (drop connection) on failure, OR ensure fallback is explicitly "deny".
+1.  Read `src/modules/plugins/drivers/exec.rs`.
+2.  Identify where the `env` map is used to spawn processes.
+3.  Implement a blacklist of forbidden variables (e.g., `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, `PYTHONPATH`).
+4.  Log and ignore these variables if provided in the plugin configuration.
 
 ## 📝 Version Information
 
-**Current Version**: 0.8.4
-**Target Version**: 0.9.0
+**Current Version**: 0.8.5
+**Target Version**: 0.8.6

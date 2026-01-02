@@ -1,40 +1,55 @@
-# Vane Project Roadmap (Analysis Phase)
+# Vane TODO List
 
-**Status:** 🚧 Deep Codebase Analysis & Re-Documentation in Progress
-
-This phase involves a complete scan of the codebase to generate comprehensive documentation, identify architectural improvements, and plan the next generation of features and fixes.
-
----
-
-## 🔍 Phase IV: Deep Analysis & Documentation
-
-| ID | Task | Status | Output |
-|----|------|--------|--------|
-| 4.1 | **Scan Core Infrastructure**<br>(Bootstrap, Router, Socket, Common Utils) | ⏳ Pending | `docs/reference/01-core-infra.md` |
-| 4.2 | **Scan L4 Transport Stack**<br>(TCP/UDP Listeners, Proxies, Dispatchers) | ⏳ Pending | `docs/reference/02-l4-transport.md` |
-| 4.3 | **Scan L4+ Carrier Stack**<br>(TLS, QUIC, Session Management) | ⏳ Pending | `docs/reference/03-l4p-carrier.md` |
-| 4.4 | **Scan L7 Application Stack**<br>(HTTPX, H3, Container, Flow Engine) | ⏳ Pending | `docs/reference/04-l7-application.md` |
-| 4.5 | **Scan Plugin System**<br>(Core, Middleware, Terminators, L7 Drivers) | ⏳ Pending | `docs/reference/05-plugin-system.md` |
-| 4.6 | **Regenerate Architecture Guide**<br>(High-level system design) | ⏳ Pending | `ARCHITECTURE.md` |
-| 4.7 | **Rewrite Developer Guide**<br>(Code navigation, patterns) | ⏳ Pending | `CODE.md` |
+**Managed by:** Claude Code (100% AI-managed)
+**Last Updated:** 2026-01-02
 
 ---
 
-## 🛠 Phase V: Architecture & Quality Improvements (Planning)
+## 🎯 Current Status
 
-*Specific tasks will be populated in `.todo/` based on Phase IV findings.*
+**Phase IV (Deep Analysis & Documentation) Complete.**
+The codebase has been scanned, documented, and analyzed. New improvement tasks have been identified.
 
-### 📂 Code Organization Proposals
-- [ ] Folder structure refinement
-- [ ] File naming standardization (Rust keyword avoidance)
-- [ ] Dependency injection improvements
+---
 
-### 🛡 Vulnerability & Security
-- [ ] Logic gap analysis
-- [ ] Resource exhaustion risks
-- [ ] Panic safety audit (continuation)
+## 📋 Roadmap Phase V: Architecture & Quality Improvements
 
-### ⚡ Performance & Reliability
-- [ ] Async runtime optimization
-- [ ] Memory usage analysis
-- [ ] Error propagation refinement
+### 🏗️ Code Structure & Organization
+*Refining the codebase for maintainability.*
+
+| ID | Task | Priority | Detail |
+|----|------|----------|--------|
+| 5.1 | **Split `requirements.rs`** | Low | Extract `watcher.rs` and `lifecycle.rs`. |
+| 5.2 | **Refactor `bootstrap.rs`** | Medium | Extract `console.rs` and `logging.rs`. |
+| 5.3 | **Flatten `proxy.rs`** | Medium | Split into `transport/proxy/tcp.rs` and `udp.rs`. |
+| 5.4 | **Rename `static.rs`** | Low | Rename `l7/resource/static.rs` to `file_server.rs` to avoid keyword. |
+| 5.5 | **Deprecate Legacy Transport** | Low | Mark `modules/stack/transport/legacy` as frozen/deprecated. Plan future removal. |
+
+### 🛡️ Security Hardening
+*Addressing logic gaps identified in analysis.*
+
+| ID | Task | Priority | Detail |
+|----|------|----------|--------|
+| 6.1 | **QUIC Anti-Amplification** | High | Enforce strict byte limits on `PENDING_INITIALS` map. |
+| 6.2 | **TLS Fail-Closed** | High | Ensure TLS peek failure drops connection instead of passing through. |
+| 6.3 | **Stream Idle Timeouts** | Medium | Add `tokio::time::timeout` to all `io::copy` operations in proxies. |
+| 6.4 | **Global L7 Buffer Cap** | Medium | Implement global semaphore for `force_buffer` to prevent OOM. |
+| 6.5 | **External Env Sanitization** | High | Filter `LD_*` variables in Command driver. |
+
+### ⚡ Performance Optimization
+*Reducing overhead in the hot path.*
+
+| ID | Task | Priority | Detail |
+|----|------|----------|--------|
+| 7.1 | **Optimize KV Hashing** | Low | Switch `KvStore` to `ahash` or `fxhash`. |
+| 7.2 | **Lazy Hex Encoding** | Medium | Delay `hex::encode` of TLS/QUIC payloads until accessed in template. |
+| 7.3 | **Reduce UDP Cloning** | Medium | Use `Bytes` for UDP datagram propagation. |
+
+---
+
+## ✅ Completed Tasks (Phase I - III)
+
+See [CHANGELOG.md](CHANGELOG.md) for history.
+- Phase I: Core Architecture (Completed)
+- Phase II: Security & Quality (Completed)
+- Phase III: Code Organization (Completed)
