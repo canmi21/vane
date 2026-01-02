@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.5 (2. Jan, 2026)
+
+- **Changed:** Vane now actively terminates TLS connections if the `ClientHello` cannot be peeked or parsed, ensuring that SNI-based routing/filtering cannot be bypassed.
+- **Changed:** When allowed to continue after a parse failure (via `TLS_ALLOW_PARSE_FAILURE=true`), the SNI is explicitly set to `unknown` to allow downstream Flow logic to handle the exception gracefully.
+
 ## 0.8.4 (2. Jan, 2026)
 
 - **Added:** Implemented robust **QUIC Anti-Amplification** and resource exhaustion protection for the L4+ carrier.
