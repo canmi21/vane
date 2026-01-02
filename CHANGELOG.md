@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.3 (2. Jan, 2026)
+
+- **Changed:** Major architectural reorganization of the plugin system and network stack to improve maintainability and separate concerns.
+- **Changed:** Modularized `src/modules/plugins/` into four specialized sub-directories: `core/` (infrastructure), `middleware/` (logic), `terminators/` (endpoints), and `l7/` (drivers).
+- **Changed:** Flattened the network stack by removing the redundant `protocol/` layer. Moved `carrier/` (L4+) and `application/` (L7) directly under `src/modules/stack/`.
+- **Changed:** Standardized plugin file organization by merging standalone `plugin.rs` and `static.rs` files into their respective `mod.rs` entry points.
+- **Changed:** Updated all internal and external import paths to reflect the new modular structure while maintaining full functional compatibility.
+- **Fixed:** Resolved naming conflicts in the CGI module introduced during code merging.
+
 ## 0.8.2 (2. Jan, 2026)
 
 - **Changed:** Removed `anynet` dependency and associated `DETECT_PUBLIC_NETWORK` environment variable. Startup is now more focused and lightweight.
