@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.2 (2. Jan, 2026)
+
+- **Changed:** Removed `anynet` dependency and associated `DETECT_PUBLIC_NETWORK` environment variable. Startup is now more focused and lightweight.
+- **Changed:** Relaxed `deny.toml` to allow common transitive duplicates while maintaining strict security for core components.
+- **Fixed:** Resolved a significant dependency version duplication issue. By removing unused `nom 8` and legacy `anynet` stack, Vane now uses a unified dependency tree, improving compilation speed and reducing binary size.
+
 ## 0.8.1 (2. Jan, 2026)
 
 - **Changed:** Optimized the dependency tree by making most of heavy libraries optional, significantly reducing minimal build size.
