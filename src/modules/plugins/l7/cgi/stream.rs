@@ -1,6 +1,7 @@
 /* src/modules/plugins/l7/cgi/stream.rs */
 
 use crate::common::lifecycle::{Error, Result as VaneResult};
+use crate::modules::stack::application::container::{self, BufferGuard};
 use bytes::Bytes;
 use fancy_log::{LogLevel, log};
 use http_body::{Body, Frame, SizeHint};
@@ -11,12 +12,33 @@ use std::{
 };
 use tokio::{io::AsyncReadExt, process::ChildStdout, sync::mpsc, time::timeout};
 
+/// A wrapper for Bytes that carries a memory quota guard.
+pub struct QuotaBytes {
+	pub data: Bytes,
+	pub _guard: BufferGuard,
+}
+
+impl QuotaBytes {
+	pub fn new(data: Bytes) -> VaneResult<Self> {
+		let len = data.len();
+		if !container::try_reserve_buffer_memory(len) {
+			return Err(Error::System(
+				"Global L7 memory limit exceeded for CGI stream buffering.".into(),
+			));
+		}
+		Ok(Self {
+			data,
+			_guard: BufferGuard::new(len),
+		})
+	}
+}
+
 pub struct CgiResponseBody {
-	rx: mpsc::Receiver<VaneResult<Bytes>>,
+	rx: mpsc::Receiver<VaneResult<QuotaBytes>>,
 }
 
 impl CgiResponseBody {
-	pub fn new(rx: mpsc::Receiver<VaneResult<Bytes>>) -> Self {
+	pub fn new(rx: mpsc::Receiver<VaneResult<QuotaBytes>>) -> Self {
 		Self { rx }
 	}
 }
@@ -30,7 +52,7 @@ impl Body for CgiResponseBody {
 		cx: &mut Context<'_>,
 	) -> Poll<Option<std::result::Result<Frame<Self::Data>, Self::Error>>> {
 		match self.rx.poll_recv(cx) {
-			Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(Frame::data(bytes)))),
+			Poll::Ready(Some(Ok(quota_bytes))) => Poll::Ready(Some(Ok(Frame::data(quota_bytes.data)))),
 			Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
 			Poll::Ready(None) => Poll::Ready(None),
 			Poll::Pending => Poll::Pending,
@@ -42,16 +64,13 @@ impl Body for CgiResponseBody {
 	}
 
 	fn size_hint(&self) -> SizeHint {
-		// Do NOT return with_exact(0) here.
-		// That tells Hyper the body is empty, causing it to drop the stream.
-		// Default SizeHint implies unknown size, triggering chunked encoding.
 		SizeHint::default()
 	}
 }
 
 pub async fn pump_stdout(
 	mut stdout: ChildStdout,
-	tx: mpsc::Sender<VaneResult<Bytes>>,
+	tx: mpsc::Sender<VaneResult<QuotaBytes>>,
 	initial_chunk: Bytes,
 	max_size: usize,
 	timeout_sec: u64,
@@ -60,8 +79,16 @@ pub async fn pump_stdout(
 	let mut total_bytes = initial_chunk.len();
 
 	if !initial_chunk.is_empty() {
-		if tx.send(Ok(initial_chunk)).await.is_err() {
-			return;
+		match QuotaBytes::new(initial_chunk) {
+			Ok(qb) => {
+				if tx.send(Ok(qb)).await.is_err() {
+					return;
+				}
+			}
+			Err(e) => {
+				let _ = tx.send(Err(e)).await;
+				return;
+			}
 		}
 	}
 
@@ -86,8 +113,16 @@ pub async fn pump_stdout(
 				}
 
 				let data = Bytes::copy_from_slice(&buf[..n]);
-				if tx.send(Ok(data)).await.is_err() {
-					break;
+				match QuotaBytes::new(data) {
+					Ok(qb) => {
+						if tx.send(Ok(qb)).await.is_err() {
+							break;
+						}
+					}
+					Err(e) => {
+						let _ = tx.send(Err(e)).await;
+						return;
+					}
 				}
 			}
 			Ok(Err(e)) => {
