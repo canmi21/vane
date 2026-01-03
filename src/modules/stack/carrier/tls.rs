@@ -14,7 +14,9 @@ use crate::modules::{
 };
 use anyhow::anyhow;
 use fancy_log::{LogLevel, log};
+use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio::time::timeout;
 
 /// Entry point for TLS L4+ flows.
 /// Handles ClientHello parsing, L4+ routing, and L7 Handover.
@@ -24,19 +26,58 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 	let buffer_size_str = getenv::get_env("TLS_CLIENTHELLO_BUFFER_SIZE", "4096".to_string());
 	let buffer_size = buffer_size_str.parse::<usize>().unwrap_or(4096);
 
-	let mut buf = vec![0u8; buffer_size];
+	let peek_timeout_ms = getenv::get_env("TLS_HANDSHAKE_PEEK_TIMEOUT_MS", "500".to_string())
+		.parse::<u64>()
+		.unwrap_or(500);
 
 	let allow_parse_failure =
 		getenv::get_env("TLS_ALLOW_PARSE_FAILURE", "false".to_string()).to_lowercase() == "true";
 
+	let mut buf = vec![0u8; buffer_size];
 	let mut parse_success = false;
+	let mut error_code = None;
 
-	// 1. Peek ClientHello
-	match stream.peek(&mut buf).await {
-		Ok(n) if n > 0 => {
+	// 1. Smart Peek Loop (Handles fragmentation)
+	let peek_result = timeout(Duration::from_millis(peek_timeout_ms), async {
+		loop {
+			match stream.peek(&mut buf).await {
+				Ok(n) if n >= 5 => {
+					// Check if it's a Handshake (0x16)
+					if buf[0] != 0x16 {
+						return Err("not_tls");
+					}
+					// Calculate expected length from TLS header (bytes 3-4)
+					let record_len = ((buf[3] as usize) << 8) | (buf[4] as usize);
+					let total_expected = 5 + record_len;
+
+					if n >= total_expected {
+						// Full record available
+						return Ok(n);
+					}
+
+					if total_expected > buffer_size {
+						return Err("buffer_too_small");
+					}
+
+					// Wait a bit for more data
+					tokio::time::sleep(Duration::from_millis(10)).await;
+				}
+				Ok(0) => return Err("closed"),
+				Ok(_) => {
+					// Less than 5 bytes, wait
+					tokio::time::sleep(Duration::from_millis(10)).await;
+				}
+				Err(_) => return Err("io_error"),
+			}
+		}
+	})
+	.await;
+
+	match peek_result {
+		Ok(Ok(n)) => {
 			log(
 				LogLevel::Debug,
-				&format!("⚙ Socket peek returned {} bytes.", n),
+				&format!("⚙ Socket peek returned full record ({} bytes).", n),
 			);
 			let payload = &buf[..n];
 			let clienthello_hex = hex::encode(payload);
@@ -50,23 +91,30 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 				Err(e) => {
 					log(
 						LogLevel::Warn,
-						&format!("⚠ Failed to parse ClientHello (len={}): {:#}", n, e),
+						&format!("⚠ Failed to parse ClientHello: {:#}", e),
 					);
+					error_code = Some("malformed");
 				}
 			}
 		}
-		Ok(_) => {
-			log(
-				LogLevel::Debug,
-				"⚙ Socket peek returned 0 bytes (Empty/Closed).",
-			);
+		Ok(Err(code)) => {
+			log(LogLevel::Warn, &format!("⚠ TLS Peek failed: {}", code));
+			error_code = Some(code);
 		}
-		Err(e) => {
-			log(LogLevel::Warn, &format!("✗ Failed to peek socket: {}", e));
+		Err(_) => {
+			log(
+				LogLevel::Warn,
+				"⚠ TLS Peek timed out waiting for handshake.",
+			);
+			error_code = Some("timeout");
 		}
 	}
 
 	if !parse_success {
+		if let Some(err) = error_code {
+			kv.insert("tls.error".to_string(), err.to_string());
+		}
+
 		if allow_parse_failure {
 			kv.insert("tls.sni".to_string(), "unknown".to_string());
 			log(
@@ -76,10 +124,17 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 		} else {
 			log(
 				LogLevel::Error,
-				"✗ TLS inspection failed. Dropping connection (Fail-Closed).",
+				&format!(
+					"✗ TLS inspection failed ({}). Dropping connection (Fail-Closed).",
+					error_code.unwrap_or("unknown")
+				),
 			);
 			return Err(Error::System(
-				"TLS ClientHello peek/parse failed and strict security is enabled.".into(),
+				format!(
+					"TLS inspection failed: {}.",
+					error_code.unwrap_or("unknown")
+				)
+				.into(),
 			));
 		}
 	}

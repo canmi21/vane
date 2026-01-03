@@ -26,7 +26,15 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 	);
 
 	if let Some(sni) = data.sni {
-		kv.insert("tls.sni".to_string(), sni);
+		// Normalization: Lowercase + Character filtering
+		let sanitized = sanitize_sni(&sni);
+		if sanitized != sni {
+			log(
+				LogLevel::Debug,
+				&format!("⚙ SNI Normalized: '{}' -> '{}'", sni, sanitized),
+			);
+		}
+		kv.insert("tls.sni".to_string(), sanitized);
 	} else {
 		log(
 			LogLevel::Debug,
@@ -77,6 +85,16 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 	kv.insert("tls.has_grease".to_string(), data.has_grease.to_string());
 }
 
+/// Sanitizes SNI string to prevent injection and enforce standard naming.
+/// Converts to lowercase and filters out non-standard domain characters.
+fn sanitize_sni(sni: &str) -> String {
+	sni
+		.to_lowercase()
+		.chars()
+		.filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_')
+		.collect()
+}
+
 pub fn inject_quic_data(kv: &mut KvStore, data: QuicInitialData) {
 	log(
 		LogLevel::Debug,
@@ -95,6 +113,6 @@ pub fn inject_quic_data(kv: &mut KvStore, data: QuicInitialData) {
 	}
 
 	if let Some(sni) = data.sni_hint {
-		kv.insert("quic.sni".to_string(), sni);
+		kv.insert("quic.sni".to_string(), sanitize_sni(&sni));
 	}
 }
