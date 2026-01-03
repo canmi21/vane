@@ -1,6 +1,6 @@
 /* src/modules/stack/application/http/wrapper.rs */
 
-use crate::common::requirements::Error;
+use crate::common::lifecycle::Error;
 use bytes::Bytes;
 use http_body::{Body, Frame, SizeHint};
 use http_body_util::{Full, combinators::BoxBody};

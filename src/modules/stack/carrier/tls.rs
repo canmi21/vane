@@ -2,7 +2,7 @@
 
 use super::{context, flow};
 use crate::common::getenv;
-use crate::common::requirements::{Error, Result};
+use crate::common::lifecycle::{Error, Result};
 use crate::modules::{
 	kv::KvStore,
 	plugins::{

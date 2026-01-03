@@ -1,7 +1,7 @@
 /* src/modules/stack/application/http/httpx.rs */
 
 use super::wrapper::VaneBody;
-use crate::common::requirements::{Error, Result};
+use crate::common::lifecycle::{Error, Result};
 use crate::modules::kv::KvStore;
 use crate::modules::plugins::core::model::ConnectionObject;
 use crate::modules::stack::application::{
@@ -195,12 +195,12 @@ async fn serve_request(
 pub(super) fn extract_response_body_from_container(
 	container: &mut Container,
 ) -> BoxBody<Bytes, Error> {
-	// Steal the RESPONSE payload
+	// Steal the RESPONSE payload using mem::replace to avoid move errors with Drop
 	let payload = std::mem::replace(&mut container.response_body, PayloadState::Empty);
 
 	match payload {
 		PayloadState::Http(vane_body) => vane_body.boxed(),
-		PayloadState::Buffered(bytes) => Full::new(bytes).map_err(|e| match e {}).boxed(),
+		PayloadState::Buffered(bytes, _guard) => Full::new(bytes).map_err(|e| match e {}).boxed(),
 		PayloadState::Generic => BoxBody::default(),
 		PayloadState::Empty => BoxBody::default(),
 	}
