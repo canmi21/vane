@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## 0.8.10 (2. Jan, 2026)
+## 0.8.11 (3. Jan, 2026)
+
+- **Changed:** Implemented **Lazy Hex Encoding** (Task 7.2) for L4+ carrier data. Raw payloads (TLS ClientHello, QUIC Initial) are now stored as bytes and only converted to hex strings if explicitly requested by a template, significantly reducing CPU and memory overhead for most connections.
+
+## 0.8.10 (3. Jan, 2026)
 
 - **Added:** Integrated CGI response streaming into the adaptive memory quota system. Vane now tracks and limits memory usage for transient CGI output buffers, preventing OOM during large or slow script executions.
 - **Changed:** Refactored `CgiResponseBody` to use RAII `QuotaBytes`, ensuring that memory allocated for streaming chunks is automatically released back to the global pool once consumed by the client.
 - **Fixed:** Hardened the "Fail-Fast" allocation policy to cover edge cases in directory browsing and CGI initial data fragments.
 
-## 0.8.9 (2. Jan, 2026)
+## 0.8.9 (3. Jan, 2026)
 
 - **Added:** Implemented a **Smart Handshake Peek Loop** in the TLS carrier. Vane now intelligently waits for the full `ClientHello` record (up to `TLS_HANDSHAKE_PEEK_TIMEOUT_MS`, default 500ms), eliminating connection drops caused by network fragmentation.
 - **Added:** Introduced detailed error reporting for TLS failures. Injected `tls.error` keys (e.g., `incomplete`, `malformed`, `timeout`, `buffer_too_small`) into the KV store to enable precise Flow branching.
