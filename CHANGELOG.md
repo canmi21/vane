@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.13 (2. Jan, 2026)
+
+- **Changed:** Refactored `KvStore` to use `ahash::AHashMap`, providing significantly faster variable lookups and template resolutions on modern CPUs with AES instruction sets.
+- **Changed:** Updated internal transport contexts to utilize high-performance hashing for transient payload storage.
+
 ## 0.8.12 (2. Jan, 2026)
 
 - **Changed:** Significant optimization of the UDP data path by replacing `Vec<u8>` with `bytes::Bytes`.
