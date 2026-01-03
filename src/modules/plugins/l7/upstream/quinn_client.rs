@@ -1,7 +1,7 @@
 /* src/modules/plugins/l7/upstream/quinn_client.rs */
 
 use super::quic_pool;
-use crate::common::requirements::{Error, Result};
+use crate::common::lifecycle::{Error, Result};
 use crate::modules::stack::application::{
 	container::{Container, PayloadState},
 	http::wrapper::{H3BodyAdapter, VaneBody},
@@ -65,7 +65,7 @@ pub async fn execute_quinn_request(
 	let req_payload = std::mem::replace(&mut container.request_body, PayloadState::Empty);
 	let req_body_stream: Option<BoxBody<bytes::Bytes, Error>> = match req_payload {
 		PayloadState::Http(vane_body) => Some(vane_body.boxed()),
-		PayloadState::Buffered(bytes) => Some(Full::new(bytes).map_err(|e| match e {}).boxed()),
+		PayloadState::Buffered(bytes, _guard) => Some(Full::new(bytes).map_err(|e| match e {}).boxed()),
 		_ => None,
 	};
 

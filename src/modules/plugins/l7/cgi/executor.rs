@@ -1,7 +1,7 @@
 /* src/modules/plugins/l7/cgi/executor.rs */
 
 use super::stream::{CgiResponseBody, pump_stdout};
-use crate::common::{getenv, requirements::Error};
+use crate::common::{getenv, lifecycle::Error};
 use crate::modules::{
 	plugins::core::model::MiddlewareOutput,
 	stack::application::{

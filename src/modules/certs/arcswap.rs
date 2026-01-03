@@ -8,7 +8,7 @@ use tokio_rustls::rustls::pki_types::{
 	CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
 };
 
-use crate::common::requirements::{Error, Result};
+use crate::common::lifecycle::{Error, Result};
 
 // Clone derive (PrivateKeyDer is not implicitly Clone)
 #[derive(Debug)]

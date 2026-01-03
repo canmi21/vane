@@ -89,7 +89,7 @@ pub async fn terminate_and_handover(
 			let l7_conn = ConnectionObject::Stream(Box::new(tls_stream));
 
 			// 6. Handover to L7 Adapter
-			// Map requirements::Error to anyhow::Error
+			// Map lifecycle::Error to anyhow::Error
 			httpx::handle_connection(l7_conn, target_protocol)
 				.await
 				.map_err(|e| anyhow!("L7 Engine Error: {}", e))

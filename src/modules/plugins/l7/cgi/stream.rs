@@ -1,6 +1,6 @@
 /* src/modules/plugins/l7/cgi/stream.rs */
 
-use crate::common::requirements::{Error, Result as VaneResult};
+use crate::common::lifecycle::{Error, Result as VaneResult};
 use bytes::Bytes;
 use fancy_log::{LogLevel, log};
 use http_body::{Body, Frame, SizeHint};

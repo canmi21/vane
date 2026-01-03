@@ -1,7 +1,7 @@
 /* src/modules/certs/format.rs */
 
 use super::arcswap::LoadedCert;
-use crate::common::requirements::{Error, Result};
+use crate::common::lifecycle::{Error, Result};
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
