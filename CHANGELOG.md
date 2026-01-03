@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.10 (2. Jan, 2026)
+
+- **Added:** Integrated CGI response streaming into the adaptive memory quota system. Vane now tracks and limits memory usage for transient CGI output buffers, preventing OOM during large or slow script executions.
+- **Changed:** Refactored `CgiResponseBody` to use RAII `QuotaBytes`, ensuring that memory allocated for streaming chunks is automatically released back to the global pool once consumed by the client.
+- **Fixed:** Hardened the "Fail-Fast" allocation policy to cover edge cases in directory browsing and CGI initial data fragments.
+
 ## 0.8.9 (2. Jan, 2026)
 
 - **Added:** Implemented a **Smart Handshake Peek Loop** in the TLS carrier. Vane now intelligently waits for the full `ClientHello` record (up to `TLS_HANDSHAKE_PEEK_TIMEOUT_MS`, default 500ms), eliminating connection drops caused by network fragmentation.
