@@ -1,48 +1,41 @@
 # Agent Session Progress
 
 **Last Updated**: 2026-01-02
-**Current Task**: Task 6.4 - Global L7 Buffer Cap (Completed)
-**Status**: Milestone Achieved
-**Strategy**: Audit -> Fix -> Verify -> Document.
+**Current Task**: Task 7.2 Refinement - Payload Renaming
+**Status**: Implementation
+**Strategy**: Rename `raw_payloads` -> `payloads` across the codebase for clarity.
 
 ---
 
 ## 📍 Current Position
 
-L7 Memory Security (Task 6.4) is now fully implemented across all major components (Container, Static, Upstream, CGI).
+Refining the "Lazy Hex Encoding" implementation by standardizing naming conventions.
 
-### Recently Completed
+## 📋 Task Breakdown
 
-1. ✅ **Task 6.4: Global L7 Buffer Cap (CGI Integration)**
-   - Made memory reservation logic public in `container.rs`.
-   - Implemented `QuotaBytes` RAII wrapper in `cgi/stream.rs`.
-   - Updated `pump_stdout` to enforce global quota for every chunk sent to the client.
-   - Verified that memory is released immediately after chunks are consumed by Hyper.
-   - Updated `CHANGELOG.md` and `Cargo.toml` to **0.8.10**.
+### 1. Refactor Core Traits & Contexts
+- [ ] Update `src/modules/flow/context.rs`:
+    - `insert_raw` -> `insert_payload`
+    - `raw_payloads` -> `payloads`
+- [ ] Update `src/modules/template/context.rs`:
+    - `raw_payloads` -> `payloads`
+- [ ] Update `src/modules/template/hijack/l4p.rs`:
+    - `raw_payloads` -> `payloads`
 
-## 📋 Next Recommended Action
+### 2. Update Entry Points
+- [ ] Update `src/modules/stack/transport/flow.rs`:
+    - Parameter `initial_raw` -> `initial_payloads`
+- [ ] Update `src/modules/stack/carrier/flow.rs`:
+    - Parameter `initial_raw` -> `initial_payloads`
 
-We have completed the major security hardening and structure optimization tasks from Phase V. 
-I recommend proceeding with:
-**Task 6.2 Enhancement (Deep TLS Hardening)** - (Wait, I already did this in 0.8.10's turn previously? No, the user reset versions).
+### 3. Update Callers
+- [ ] Update `tls.rs`, `quic.rs`, `plain.rs`, `dispatcher.rs`, `udp.rs`.
 
-Actually, according to the latest `TODO.md` which I generated earlier:
-Remaining tasks are:
-- [ ] 6.2 (TLS Fail-Closed) - **Done** (in 0.8.5)
-- [ ] 6.1 (QUIC) - **Done** (in 0.8.4)
-- [ ] 6.3 (Timeouts) - **Done** (in 0.8.7)
-- [ ] 6.4 (L7 Memory) - **Done** (in 0.8.10)
-- [ ] 6.5 (Env Sanitization) - **Done** (in 0.8.6)
-
-Structure tasks remaining:
-- [ ] 5.1 (Split requirements) - **Done** (in 0.8.9)
-- [ ] 5.2 (Refactor bootstrap) - **Done** (in 0.8.9)
-- [ ] 5.3 (Flatten proxy) - **Done** (in 0.8.9)
-
-**Wait, the version numbers got shifted by the user.** 
-I should check the `TODO.md` state.
+### 4. Verify
+- [ ] `cargo check`.
+- [ ] Run unit test `test_l4p_hijacking`.
 
 ## 📝 Version Information
 
 **Current Version**: 0.8.10
-**Target Version**: 0.9.0
+**Target Version**: 0.8.10 (Fixing existing implementation)
