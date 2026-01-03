@@ -199,12 +199,12 @@ impl QuicMuxer {
 
 	pub fn feed_packet(
 		&self,
-		data: Vec<u8>,
+		data: bytes::Bytes,
 		src_addr: SocketAddr,
 		dst_addr: SocketAddr,
 	) -> Result<()> {
 		let packet = VirtualPacket {
-			data: bytes::Bytes::from(data),
+			data,
 			src_addr,
 			dst_addr,
 		};

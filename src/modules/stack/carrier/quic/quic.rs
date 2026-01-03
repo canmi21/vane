@@ -286,7 +286,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 					}
 				} else {
 					// If no pending state (e.g. this was the very first packet and processed immediately)
-					muxer.feed_packet(datagram, client_addr, dst_addr)?;
+					muxer.feed_packet(datagram.clone(), client_addr, dst_addr)?;
 				}
 
 				Ok(())

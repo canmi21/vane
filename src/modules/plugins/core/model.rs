@@ -104,7 +104,7 @@ pub enum ConnectionObject {
 	Tcp(TcpStream),
 	Udp {
 		socket: Arc<UdpSocket>,
-		datagram: Vec<u8>,
+		datagram: bytes::Bytes,
 		client_addr: SocketAddr,
 	},
 	Stream(Box<dyn ByteStream>),

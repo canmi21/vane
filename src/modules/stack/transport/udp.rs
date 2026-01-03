@@ -63,7 +63,7 @@ pub async fn dispatch_udp_datagram(
 	socket: Arc<UdpSocket>,
 	port: u16,
 	config: Arc<UdpConfig>,
-	datagram: Vec<u8>,
+	datagram: bytes::Bytes,
 	client_addr: SocketAddr,
 	mut kv_store: KvStore,
 ) {
@@ -84,7 +84,7 @@ pub async fn dispatch_udp_datagram(
 
 			let conn_object = ConnectionObject::Udp {
 				socket: socket.clone(),
-				datagram: datagram.to_vec(),
+				datagram: datagram.clone(),
 				client_addr,
 			};
 			let result = flow::execute(

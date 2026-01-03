@@ -70,12 +70,12 @@ pub enum SessionAction {
 	},
 }
 
-#[derive(Debug)] // Removed Clone to enforce RAII/Move semantics effectively (though we use Arc/DashMap)
+#[derive(Debug)]
 pub struct PendingState {
 	// Reassembled stream data (Offset -> Data)
 	pub crypto_stream: BTreeMap<usize, Vec<u8>>,
 	// Buffered packets (Data, ClientAddr, DstAddr)
-	pub queued_packets: Vec<(Vec<u8>, SocketAddr, SocketAddr)>,
+	pub queued_packets: Vec<(bytes::Bytes, SocketAddr, SocketAddr)>,
 	pub last_seen: Instant,
 	/// Flag to ensure only one task proceeds to flow execution
 	pub processing: bool,
@@ -87,14 +87,9 @@ pub struct PendingState {
 impl PendingState {
 	/// Safely drains the queued packets, reducing total_bytes and releasing global quota accordingly.
 	/// This is required because PendingState implements Drop.
-	pub fn drain_queue(&mut self) -> Vec<(Vec<u8>, SocketAddr, SocketAddr)> {
+	pub fn drain_queue(&mut self) -> Vec<(bytes::Bytes, SocketAddr, SocketAddr)> {
 		let packets = std::mem::take(&mut self.queued_packets);
-		let drained_size: usize = packets
-			.iter()
-			.map(|(data, _, _)| data.len())
-			.collect::<Vec<_>>()
-			.into_iter()
-			.sum();
+		let drained_size: usize = packets.iter().map(|(data, _, _)| data.len()).sum();
 
 		self.total_bytes = self.total_bytes.saturating_sub(drained_size);
 		release_global_bytes(drained_size);

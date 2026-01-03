@@ -170,7 +170,7 @@ fn spawn_reply_handler(
 
 pub async fn proxy_udp_direct(
 	main_socket: Arc<UdpSocket>,
-	datagram: &[u8],
+	datagram: &bytes::Bytes,
 	client_addr: SocketAddr,
 	target: ResolvedTarget,
 ) -> Result<()> {
@@ -313,7 +313,7 @@ fn spawn_quic_reply_handler(
 /// Handles QUIC packet forwarding using the global L4 Session table.
 pub async fn proxy_quic_association(
 	listener_socket: Arc<UdpSocket>,
-	datagram: &[u8],
+	datagram: &bytes::Bytes,
 	client_addr: SocketAddr,
 	target: ResolvedTarget,
 ) -> Result<()> {
@@ -482,7 +482,7 @@ pub async fn proxy_quic_association(
 				);
 
 				for (pkt, _, _) in packets {
-					if pkt == datagram {
+					if &pkt == datagram {
 						continue;
 					}
 					// FIX: Use upstream socket

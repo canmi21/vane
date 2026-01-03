@@ -57,7 +57,7 @@ pub fn spawn_reply_handler(
 
 pub async fn proxy_udp_direct(
 	main_socket: Arc<UdpSocket>,
-	datagram: &[u8],
+	datagram: &bytes::Bytes,
 	client_addr: SocketAddr,
 	target: ResolvedTarget,
 ) -> io::Result<()> {

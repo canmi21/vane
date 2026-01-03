@@ -219,7 +219,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 											session::touch_session(&cid);
 											let muxer = QuicMuxer::get_or_create(muxer_port, "default", socket_arc.clone());
 											let dst_addr = socket_arc.local_addr().unwrap_or(client_addr);
-											let _ = muxer.feed_packet(packet.to_vec(), client_addr, dst_addr);
+											let _ = muxer.feed_packet(bytes::Bytes::copy_from_slice(packet), client_addr, dst_addr);
 											continue;
 										}
 										session::SessionAction::Forward { target_addr, upstream_socket, .. } => {
@@ -245,7 +245,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 							}
 
 							// MISS ALL: Slow Path to Flow Engine
-							let datagram = packet.to_vec();
+							let datagram = bytes::Bytes::copy_from_slice(packet);
 							let socket_clone = socket_arc.clone();
 							let config_clone = udp_config.clone();
 							let kv_store = kv::new(&client_addr, "udp");
