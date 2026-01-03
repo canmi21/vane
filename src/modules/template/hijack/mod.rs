@@ -3,6 +3,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
+pub mod l4p;
 pub mod l7_http;
 
 /// Hijacker trait for layer-specific keyword handling

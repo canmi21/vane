@@ -128,7 +128,10 @@ mod tests {
 		let mut kv = KvStore::new();
 		kv.insert("key".to_string(), "value".to_string());
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let result = resolve_template("{{key}}", &mut context, 0).await;
 
 		assert_eq!(result, "value");
@@ -141,7 +144,10 @@ mod tests {
 		kv.insert("conn.ip".to_string(), "1.2.3.4".to_string());
 		kv.insert("conn.port".to_string(), "8080".to_string());
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let result = resolve_template("{{conn.ip}}:{{conn.port}}", &mut context, 0).await;
 
 		assert_eq!(result, "1.2.3.4:8080");
@@ -154,7 +160,10 @@ mod tests {
 		kv.insert("conn.protocol".to_string(), "http".to_string());
 		kv.insert("kv.http_backend".to_string(), "backend-01".to_string());
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let result = resolve_template("{{kv.{{conn.protocol}}_backend}}", &mut context, 0).await;
 
 		assert_eq!(result, "backend-01");
@@ -164,8 +173,11 @@ mod tests {
 	#[test]
 	#[serial_test::serial]
 	fn test_resolve_template_recursion_limit() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		// Nested depth 6 (exceeds default 5)
 		let deep_template = "{{a.{{b.{{c.{{d.{{e.{{f}}}}}}}}}}}}";
 
@@ -194,7 +206,10 @@ mod tests {
 			Value::String("https://{{host}}:{{port}}".to_string()),
 		);
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let resolved = resolve_inputs(&inputs, &mut context).await;
 
 		assert_eq!(
@@ -221,7 +236,10 @@ mod tests {
 			}),
 		);
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let resolved = resolve_inputs(&inputs, &mut context).await;
 
 		let config = resolved.get("config").unwrap();
@@ -234,8 +252,11 @@ mod tests {
 	/// Tests JSON recursion limit.
 	#[tokio::test]
 	async fn test_resolve_inputs_json_limit() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 
 		// Create a deeply nested JSON object (depth 10)
 		let mut deep_json = serde_json::json!({"val": "end"});
@@ -258,8 +279,11 @@ mod tests {
 	#[test]
 	#[serial_test::serial]
 	fn test_resolve_template_size_limit() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 
 		temp_env::with_var("MAX_TEMPLATE_RESULT_SIZE", Some("10"), || {
 			let rt = tokio::runtime::Runtime::new().unwrap();
@@ -274,8 +298,11 @@ mod tests {
 	/// Tests that parse errors return original string.
 	#[tokio::test]
 	async fn test_resolve_template_parse_error() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 
 		// Unclosed variable
 		let result = resolve_template("{{key", &mut context, 0).await;
@@ -285,8 +312,11 @@ mod tests {
 	/// Tests plain text without variables.
 	#[tokio::test]
 	async fn test_resolve_template_plain_text() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let result = resolve_template("plain text", &mut context, 0).await;
 
 		assert_eq!(result, "plain text");
@@ -295,8 +325,11 @@ mod tests {
 	/// Tests empty template.
 	#[tokio::test]
 	async fn test_resolve_template_empty() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let result = resolve_template("", &mut context, 0).await;
 
 		assert_eq!(result, "");

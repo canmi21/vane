@@ -102,7 +102,10 @@ mod tests {
 		let mut kv = KvStore::new();
 		kv.insert("key".to_string(), "value".to_string());
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let ast = parse_template("{{key}}").unwrap();
 		let result = resolve_ast(&ast, &mut context, 0, 5, 65536).await;
 
@@ -116,7 +119,10 @@ mod tests {
 		kv.insert("conn.ip".to_string(), "1.2.3.4".to_string());
 		kv.insert("conn.port".to_string(), "8080".to_string());
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let ast = parse_template("{{conn.ip}}:{{conn.port}}").unwrap();
 		let result = resolve_ast(&ast, &mut context, 0, 5, 65536).await;
 
@@ -130,7 +136,10 @@ mod tests {
 		kv.insert("conn.protocol".to_string(), "http".to_string());
 		kv.insert("kv.http_backend".to_string(), "backend-01".to_string());
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let ast = parse_template("{{kv.{{conn.protocol}}_backend}}").unwrap();
 		let result = resolve_ast(&ast, &mut context, 0, 5, 65536).await;
 
@@ -144,7 +153,10 @@ mod tests {
 		kv.insert("geo.country".to_string(), "US".to_string());
 		kv.insert("kv.US_domain".to_string(), "api.example.com".to_string());
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let ast = parse_template("https://{{kv.{{geo.country}}_domain}}/api").unwrap();
 		let result = resolve_ast(&ast, &mut context, 0, 5, 65536).await;
 
@@ -154,8 +166,11 @@ mod tests {
 	/// Tests that missing keys return original template.
 	#[tokio::test]
 	async fn test_resolve_missing_key() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let ast = parse_template("{{missing}}").unwrap();
 		let result = resolve_ast(&ast, &mut context, 0, 5, 65536).await;
 
@@ -165,8 +180,11 @@ mod tests {
 	/// Tests empty AST.
 	#[tokio::test]
 	async fn test_resolve_empty() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let result = resolve_ast(&[], &mut context, 0, 5, 65536).await;
 
 		assert_eq!(result, "");
@@ -175,8 +193,11 @@ mod tests {
 	/// Tests plain text without variables.
 	#[tokio::test]
 	async fn test_resolve_plain_text() {
-		let kv = KvStore::new();
-		let mut context = SimpleContext { kv: &kv };
+		let mut kv = KvStore::new();
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 		let ast = parse_template("plain text").unwrap();
 		let result = resolve_ast(&ast, &mut context, 0, 5, 65536).await;
 
@@ -192,7 +213,10 @@ mod tests {
 		// A safe token we don't want to leak
 		kv.insert("system.token".to_string(), "SECRET".to_string());
 
-		let mut context = SimpleContext { kv: &kv };
+		let mut context = SimpleContext {
+			kv: &mut kv,
+			payloads: None,
+		};
 
 		// Template tries to use user_input as part of a key
 		// AST for: {{prefix.{{user_input}}}}
