@@ -1,41 +1,35 @@
 # Agent Session Progress
 
 **Last Updated**: 2026-01-02
-**Current Task**: Task 6.4 - Global L7 Buffer Cap (Security Hardening)
-**Status**: Implementation
-**Strategy**: Adaptive memory limit based on OS free memory + Vane's current buffer usage.
+**Current Task**: Task 6.4 - Global L7 Buffer Cap (Deep Testing)
+**Status**: Task 6.2 Complete
+**Strategy**: Audit current L7 buffer usage and identify any remaining gaps.
 
 ---
 
 ## 📍 Current Position
 
-Implementing an intelligent, adaptive memory quota system for L7 buffering.
+Task 6.2 (TLS Hardening) is complete. Version is now **0.8.10**.
 
-## 📋 Task Breakdown (Task 6.4)
+### Recently Completed
 
-### 1. Update `container.rs`
-- [x] Add `GLOBAL_L7_BUFFERED_BYTES: AtomicUsize`.
-- [x] Add `CURRENT_MEMORY_LIMIT: AtomicUsize`.
-- [x] Implement `Drop` for `PayloadState` to release bytes.
-- [x] Update `force_buffer` to check quota.
+1. ✅ **Task 6.2: TLS Hardening**
+   - Implemented `peek_handshake` loop with fragmentation support.
+   - Added `TLS_HANDSHAKE_PEEK_TIMEOUT_MS` (500ms).
+   - Implemented SNI Sanitization (Lowercase + Character filtering).
+   - Added detailed `tls.error` codes.
+   - Updated `CHANGELOG.md` and `Cargo.toml`.
 
-### 2. Implement Memory Monitor
-- [ ] Create `src/common/ip.rs` (or appropriate place) helper to get free memory.
-- [ ] Since I cannot add crates easily, I will use:
-    - Linux: `/proc/meminfo`
-    - macOS/FreeBSD: `sysctl` command.
-- [ ] Spawn background task in `bootstrap.rs` to update `CURRENT_MEMORY_LIMIT` every 1s.
+## 📋 Next Task: Task 6.4 - Global L7 Buffer Cap (Follow-up)
 
-### 3. Configuration
-- [x] `L7_GLOBAL_BUFFER_LIMIT` (Fixed fallback).
-- [x] `L7_ADAPTIVE_MEMORY_LIMIT` (Toggle).
-- [x] `L7_ADAPTIVE_MEMORY_RATIO` (Percentage).
+**Goal:** Ensure the adaptive memory limit we implemented is used consistently across all L7 components.
 
-### 4. Version Bump
-- [ ] Update `Cargo.toml` to `0.8.8`.
-- [ ] Update `CHANGELOG.md`.
+**Audit Plan:**
+1.  Check `FetchUpstream` plugin for potential large body buffering.
+2.  Check `CGI` executor for stdout buffering limits.
+3.  Check `Static` plugin (Directory listing was already updated).
 
 ## 📝 Version Information
 
-**Current Version**: 0.8.7
-**Target Version**: 0.8.8
+**Current Version**: 0.8.10
+**Target Version**: 0.8.11
