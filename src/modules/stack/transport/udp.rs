@@ -83,12 +83,17 @@ pub async fn dispatch_udp_datagram(
 			context::populate_udp_context(&datagram, &mut kv_store);
 
 			let conn_object = ConnectionObject::Udp {
-				socket,
-				datagram,
+				socket: socket.clone(),
+				datagram: datagram.to_vec(),
 				client_addr,
 			};
-
-			let result = flow::execute(&flow_config.connection, &mut kv_store, conn_object).await;
+			let result = flow::execute(
+				&flow_config.connection,
+				&mut kv_store,
+				conn_object,
+				std::collections::HashMap::new(),
+			)
+			.await;
 
 			match result {
 				Ok(TerminatorResult::Finished) => {

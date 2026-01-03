@@ -36,7 +36,13 @@ pub async fn dispatch_tcp_connection(
 				Ok(n) => {
 					if n > 0 {
 						let conn_object = ConnectionObject::Tcp(socket);
-						let result = flow::execute(&flow_config.connection, &mut kv_store, conn_object).await;
+						let result = flow::execute(
+							&flow_config.connection,
+							&mut kv_store,
+							conn_object,
+							std::collections::HashMap::new(),
+						)
+						.await;
 
 						match result {
 							Ok(TerminatorResult::Finished) => {

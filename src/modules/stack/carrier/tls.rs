@@ -36,6 +36,7 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 	let mut buf = vec![0u8; buffer_size];
 	let mut parse_success = false;
 	let mut error_code = None;
+	let mut initial_payloads = std::collections::HashMap::new();
 
 	// 1. Smart Peek Loop (Handles fragmentation)
 	let peek_result = timeout(Duration::from_millis(peek_timeout_ms), async {
@@ -80,8 +81,12 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 				&format!("⚙ Socket peek returned full record ({} bytes).", n),
 			);
 			let payload = &buf[..n];
-			let clienthello_hex = hex::encode(payload);
-			kv.insert("tls.clienthello".to_string(), clienthello_hex);
+
+			// LAZY: Store raw bytes instead of eager hex encode
+			initial_payloads.insert(
+				"tls.clienthello".to_string(),
+				bytes::Bytes::copy_from_slice(payload),
+			);
 
 			match clienthello::parse_client_hello(payload) {
 				Ok(data) => {
@@ -150,7 +155,7 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 
 	// 3. Execute L4+ Flow
 	// We MUST capture the result to handle Upgrades (Handover).
-	let result = flow::execute(&config.connection, kv, conn, parent_path)
+	let result = flow::execute(&config.connection, kv, conn, parent_path, initial_payloads)
 		.await
 		.map_err(|e| {
 			log(

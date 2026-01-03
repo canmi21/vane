@@ -1,5 +1,6 @@
 /* src/modules/flow/context.rs */
 
+use bytes::Bytes;
 use std::any::Any;
 use std::collections::HashMap;
 
@@ -31,13 +32,15 @@ pub trait ExecutionContext: Send {
 	/// Some terminators need access to ConnectionObject or Container.
 	/// This provides the underlying context as `&mut (dyn Any + Send)`.
 	fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
+
+	/// Insert raw data for lazy resolution (L4/L4+ specific)
+	fn insert_payload(&mut self, _key: String, _data: Bytes) {}
 }
 
 /// Transport context for L4 and L4+ layers.
-///
-/// Only has KV store, no protocol-specific data.
 pub struct TransportContext<'a> {
 	pub kv: &'a mut KvStore,
+	pub payloads: HashMap<String, Bytes>,
 }
 
 #[async_trait]
@@ -47,13 +50,20 @@ impl<'a> ExecutionContext for TransportContext<'a> {
 	}
 
 	async fn resolve_inputs(&mut self, inputs: &HashMap<String, Value>) -> HashMap<String, Value> {
-		// Use SimpleContext (KV lookup only, no hijacking)
-		let mut simple_ctx = SimpleContext { kv: self.kv };
+		// Use SimpleContext with payloads support
+		let mut simple_ctx = SimpleContext {
+			kv: self.kv,
+			payloads: Some(&self.payloads),
+		};
 		resolve_inputs(inputs, &mut simple_ctx).await
 	}
 
 	fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
 		self.kv as &mut (dyn Any + Send)
+	}
+
+	fn insert_payload(&mut self, key: String, data: Bytes) {
+		self.payloads.insert(key, data);
 	}
 }
 

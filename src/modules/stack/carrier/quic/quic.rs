@@ -197,6 +197,13 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	let sni = sni_found
 		.ok_or_else(|| anyhow!("QUIC logic error: should_proceed is true but SNI is missing"))?;
 
+	let mut initial_payloads = std::collections::HashMap::new();
+	// LAZY: Store raw datagram for {{quic.initial}} hijacking
+	initial_payloads.insert(
+		"quic.initial".to_string(),
+		bytes::Bytes::copy_from_slice(&datagram),
+	);
+
 	context::inject_quic_data(
 		kv,
 		parser::QuicInitialData {
@@ -214,7 +221,8 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		.get("quic")
 		.ok_or_else(|| anyhow!("No resolver config found for 'quic'"))?;
 
-	let execution_result = flow::execute(&config.connection, kv, conn, parent_path).await;
+	let execution_result =
+		flow::execute(&config.connection, kv, conn, parent_path, initial_payloads).await;
 
 	// Apply Decision & Flush Buffer
 	match execution_result {

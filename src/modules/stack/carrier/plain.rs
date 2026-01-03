@@ -98,7 +98,14 @@ pub async fn run(
 		.get(protocol)
 		.ok_or_else(|| anyhow!("No resolver config found for '{}'", protocol))?;
 
-	let execution_result = flow::execute(&config.connection, kv, conn, parent_path).await;
+	let execution_result = flow::execute(
+		&config.connection,
+		kv,
+		conn,
+		parent_path,
+		std::collections::HashMap::new(),
+	)
+	.await;
 
 	// 4. Handle Outcome
 	match execution_result {
