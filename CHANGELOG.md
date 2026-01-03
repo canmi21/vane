@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.9 (2. Jan, 2026)
+
+- **Added:** Implemented a **Smart Handshake Peek Loop** in the TLS carrier. Vane now intelligently waits for the full `ClientHello` record (up to `TLS_HANDSHAKE_PEEK_TIMEOUT_MS`, default 500ms), eliminating connection drops caused by network fragmentation.
+- **Added:** Introduced detailed error reporting for TLS failures. Injected `tls.error` keys (e.g., `incomplete`, `malformed`, `timeout`, `buffer_too_small`) into the KV store to enable precise Flow branching.
+- **Changed:** Implemented strict **SNI Normalization**. Extracted Server Name Indication values are now automatically converted to lowercase and filtered to contain only standard alphanumeric, dot, hyphen, and underscore characters, preventing matching bypasses and injection risks.
+
 ## 0.8.8 (2. Jan, 2026)
 
 - **Added:** New environment variables: `L7_ADAPTIVE_MEMORY_LIMIT` (default: `true`), `L7_ADAPTIVE_MEMORY_RATIO` (default: `85`), and `L7_GLOBAL_BUFFER_LIMIT` (default: 512MB).
