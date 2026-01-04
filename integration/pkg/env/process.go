@@ -109,7 +109,7 @@ func (s *Sandbox) startVaneInternal(ctx context.Context, debugMode bool, withTok
 		// Tests should wait for specific port logs like "PORT XX TCP UP" if needed.
 	} else {
 		// Without token: console port won't start, just wait for startup logs
-		if err := proc.WaitForLog("ACCESS_TOKEN not set", 3*time.Second); err != nil {
+		if err := proc.WaitForLog("Access token not set, management API disabled", 3*time.Second); err != nil {
 			proc.Stop()
 			if !debugMode {
 				return nil, fmt.Errorf("vane startup failed: %w\nLogs:\n%s", err, logBuf.String())
@@ -151,8 +151,8 @@ func (p *Process) WaitForNoConsole(timeout time.Duration) error {
 	target := fmt.Sprintf("127.0.0.1:%d", p.sandbox.ConsolePort)
 
 	// Wait for the log message to ensure Vane has started
-	if err := p.WaitForLog("ACCESS_TOKEN not set", timeout); err != nil {
-		return fmt.Errorf("expected 'ACCESS_TOKEN not set' log message: %w", err)
+	if err := p.WaitForLog("Access token not set, management API disabled", timeout); err != nil {
+		return fmt.Errorf("expected 'Access token not set, management API disabled' log message: %w", err)
 	}
 
 	// Verify console port is NOT listening

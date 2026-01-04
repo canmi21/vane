@@ -18,7 +18,7 @@ import (
 // TestNoConsole verifies that Vane starts correctly without ACCESS_TOKEN:
 // - Management console port should NOT be listening
 // - Business ports should still work normally
-// - Logs should show "ACCESS_TOKEN not set" message
+// - Logs should show "Access token not set, management API disabled" message
 func TestNoConsole(ctx context.Context, s *env.Sandbox) error {
 	debugMode, _ := ctx.Value(env.DebugKey).(bool)
 
@@ -69,7 +69,7 @@ func TestNoConsole(ctx context.Context, s *env.Sandbox) error {
 	}
 
 	// 4. Start Vane WITHOUT ACCESS_TOKEN
-	// The startup process already waited for "ACCESS_TOKEN not set" log and business port initialization
+	// The startup process already waited for "Access token not set, management API disabled" log and business port initialization
 	proc, err := s.StartVaneWithoutToken(ctx, debugMode)
 	if err != nil {
 		return err

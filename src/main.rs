@@ -2,10 +2,14 @@
 
 use std::env;
 
+pub mod api;
+pub mod bootstrap;
 pub mod common;
-pub mod core;
-pub mod middleware;
-pub mod modules;
+pub mod engine;
+pub mod ingress;
+pub mod layers;
+pub mod plugins;
+pub mod resources;
 
 #[tokio::main]
 async fn main() {
@@ -58,5 +62,5 @@ async fn main() {
 	}
 
 	// If no version arg, start the vane proxy server.
-	core::bootstrap::start().await;
+	bootstrap::bootstrap::start().await;
 }

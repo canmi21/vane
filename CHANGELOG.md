@@ -7,19 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## 0.8.13 (2. Jan, 2026)
+## 0.8.13 (3. Jan, 2026)
 
 - **Changed:** Refactored `KvStore` to use `ahash::AHashMap`, providing significantly faster variable lookups and template resolutions on modern CPUs with AES instruction sets.
 - **Changed:** Updated internal transport contexts to utilize high-performance hashing for transient payload storage.
 
-## 0.8.12 (2. Jan, 2026)
+## 0.8.12 (3. Jan, 2026)
 
 - **Changed:** Significant optimization of the UDP data path by replacing `Vec<u8>` with `bytes::Bytes`.
 - **Changed:** Switched the core `ConnectionObject::Udp` payload type to `Bytes`, enabling zero-copy propagation of datagrams from the listener down to terminators and carriers.
 - **Changed:** Refactored the QUIC carrier and session management to utilize reference-counted `Bytes` for packet buffering and reassembly, eliminating redundant heap allocations and memory copies in the hot path.
 - **Changed:** Updated the QUIC Muxer and Virtual Socket to accept `Bytes` directly, streamlining the handover to the L7 H3 engine.
 
-## 0.8.11 (2. Jan, 2026)
+## 0.8.11 (3. Jan, 2026)
 
 - **Changed:** Implemented **Lazy Hex Encoding** (Task 7.2) for L4+ carrier data. Raw payloads (TLS ClientHello, QUIC Initial) are now stored as bytes and only converted to hex strings if explicitly requested by a template, significantly reducing CPU and memory overhead for most connections.
 
