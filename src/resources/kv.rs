@@ -1,7 +1,5 @@
 /* src/resources/kv/mod.rs */
 
-pub mod plugin_output;
-
 use ahash::AHashMap;
 use chrono::Utc;
 use std::net::SocketAddr;

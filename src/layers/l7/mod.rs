@@ -1,7 +1,6 @@
 /* src/layers/l7/mod.rs */
 
 pub mod container;
-pub mod dns;
 pub mod flow;
 pub mod hotswap;
 pub mod http;
