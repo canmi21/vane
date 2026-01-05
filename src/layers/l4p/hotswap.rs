@@ -2,10 +2,7 @@
 
 use super::model::{RESOLVER_REGISTRY, ResolverConfig, SUPPORTED_UPGRADE_PROTOCOLS};
 use crate::common::{
-	config::{
-		getconf,
-		loader::{self, LoadResult},
-	},
+	config::{file_loader, loader::{self, LoadResult}},
 	sys::hotswap::watch_loop,
 };
 use dashmap::DashMap;
@@ -17,7 +14,7 @@ use tokio::sync::mpsc;
 pub async fn scan_resolver_config(
 	current_state: &DashMap<String, Arc<ResolverConfig>>,
 ) -> DashMap<String, Arc<ResolverConfig>> {
-	let resolver_dir = getconf::get_config_dir().join("resolver");
+	let resolver_dir = file_loader::get_config_dir().join("resolver");
 	let new_registry = DashMap::new();
 
 	if let Ok(metadata) = fs::metadata(&resolver_dir).await {

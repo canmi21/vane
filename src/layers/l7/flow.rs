@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use crate::engine::contract::{ProcessingStep, TerminatorResult};
+use crate::engine::interfaces::{ProcessingStep, TerminatorResult};
 use crate::engine::executor;
 use crate::layers::l7::container::Container;
 

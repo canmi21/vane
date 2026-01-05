@@ -1,6 +1,6 @@
 /* src/plugins/protocol/upgrader/decryptor.rs */
 
-use crate::engine::contract::ConnectionObject;
+use crate::engine::interfaces::ConnectionObject;
 use crate::layers::l7::http::httpx;
 use crate::resources::{certs, kv::KvStore};
 use anyhow::{Result, anyhow};

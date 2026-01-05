@@ -1,7 +1,7 @@
 /* src/plugins/l4/proxy/domain.rs */
 
 use super::execute_proxy;
-use crate::engine::contract::{
+use crate::engine::interfaces::{
 	ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
 	TerminatorResult,
 };

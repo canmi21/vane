@@ -1,7 +1,7 @@
 /* src/layers/l4/session.rs */
 
 use super::model::ResolvedTarget;
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use crate::ingress::tasks::ConnectionGuard;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
@@ -33,11 +33,11 @@ pub static REVERSE_SESSIONS: Lazy<DashMap<SocketAddr, SocketAddr>> = Lazy::new(D
 /// The session timeout is configurable via the `UDP_SESSION_TIMEOUT_SECS` environment variable.
 pub fn start_session_cleanup_task() {
 	log(LogLevel::Debug, "⚙ Starting UDP session cleanup task...");
-	let buffer_limit_str = getenv::get_env("UDP_SESSION_BUFFER", "4194304".to_string());
+	let buffer_limit_str = env_loader::get_env("UDP_SESSION_BUFFER", "4194304".to_string());
 	let buffer_limit = buffer_limit_str.parse::<usize>().unwrap_or(4_194_304);
 
 	tokio::spawn(async move {
-		let session_timeout_secs = getenv::get_env("UDP_SESSION_TIMEOUT_SECS", "30".to_string())
+		let session_timeout_secs = env_loader::get_env("UDP_SESSION_TIMEOUT_SECS", "30".to_string())
 			.parse::<u64>()
 			.unwrap_or(30);
 		let session_timeout = Duration::from_secs(session_timeout_secs);

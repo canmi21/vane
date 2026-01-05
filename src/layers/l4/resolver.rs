@@ -1,7 +1,7 @@
 /* src/layers/l4/resolver.rs */
 
 use super::model::{ResolvedTarget, Target};
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use crate::resources::service_discovery::model::NODES_STATE;
 use fancy_log::{LogLevel, log};
 #[cfg(feature = "domain-target")]
@@ -17,10 +17,10 @@ use std::str::FromStr;
 
 #[cfg(feature = "domain-target")]
 static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
-	let ns1_str = getenv::get_env("NAMESERVER1", "1.1.1.1".to_string());
-	let ns1_port_str = getenv::get_env("NAMESERVER1_PORT", "53".to_string());
-	let ns2_str = getenv::get_env("NAMESERVER2", "8.8.8.8".to_string());
-	let ns2_port_str = getenv::get_env("NAMESERVER2_PORT", "53".to_string());
+	let ns1_str = env_loader::get_env("NAMESERVER1", "1.1.1.1".to_string());
+	let ns1_port_str = env_loader::get_env("NAMESERVER1_PORT", "53".to_string());
+	let ns2_str = env_loader::get_env("NAMESERVER2", "8.8.8.8".to_string());
+	let ns2_port_str = env_loader::get_env("NAMESERVER2_PORT", "53".to_string());
 
 	let mut config = ResolverConfig::new();
 

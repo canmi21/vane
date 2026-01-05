@@ -1,6 +1,6 @@
 /* src/layers/l7/model.rs */
 
-use crate::engine::contract::{Layer, ProcessingStep};
+use crate::engine::interfaces::{Layer, ProcessingStep};
 use crate::layers::l4::loader::PreProcess;
 use arc_swap::ArcSwap;
 use dashmap::DashMap;

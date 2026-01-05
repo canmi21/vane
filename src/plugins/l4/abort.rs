@@ -1,6 +1,6 @@
 /* src/plugins/l4/abort.rs */
 
-use crate::engine::contract::{
+use crate::engine::interfaces::{
 	ConnectionObject, Layer, ParamDef, Plugin, ResolvedInputs, Terminator, TerminatorResult,
 };
 use crate::resources::kv::KvStore;

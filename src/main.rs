@@ -62,5 +62,5 @@ async fn main() {
 	}
 
 	// If no version arg, start the vane proxy server.
-	bootstrap::bootstrap::start().await;
+	bootstrap::startup::start().await;
 }

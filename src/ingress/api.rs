@@ -1,8 +1,8 @@
-/* src/ingress/handler.rs */
+/* src/ingress/api.rs */
 
-use super::model::{PortState, Protocol};
+use super::state::{PortState, Protocol};
 use crate::api::response;
-use crate::common::{config::getconf, net::portool};
+use crate::common::{config::file_loader, net::port_utils};
 use crate::layers::l4::fs as transport_fs;
 use axum::{
 	extract::{Path, State},
@@ -12,7 +12,7 @@ use axum::{
 use tokio::fs;
 
 pub async fn get_ports_handler() -> Response {
-	let config_dir = getconf::get_config_dir();
+	let config_dir = file_loader::get_config_dir();
 	let mut ports = Vec::new();
 
 	let mut entries = match fs::read_dir(&config_dir).await {
@@ -61,10 +61,10 @@ pub async fn get_port_status_handler(
 }
 
 pub async fn post_port_handler(Path(port): Path<u16>) -> Response {
-	if !portool::is_valid_port(port) {
+	if !port_utils::is_valid_port(port) {
 		return response::error(StatusCode::BAD_REQUEST, "Invalid port.".into()).into_response();
 	}
-	let port_dir = getconf::get_config_dir().join(format!("[{}]", port));
+	let port_dir = file_loader::get_config_dir().join(format!("[{}]", port));
 	if fs::metadata(&port_dir).await.is_ok() {
 		return response::error(StatusCode::CONFLICT, "Exists.".into()).into_response();
 	}
@@ -75,7 +75,7 @@ pub async fn post_port_handler(Path(port): Path<u16>) -> Response {
 }
 
 pub async fn delete_port_handler(Path(port): Path<u16>) -> Response {
-	let port_dir = getconf::get_config_dir().join(format!("[{}]", port));
+	let port_dir = file_loader::get_config_dir().join(format!("[{}]", port));
 	if fs::metadata(&port_dir).await.is_err() {
 		return response::error(StatusCode::NOT_FOUND, "Not found.".into()).into_response();
 	}

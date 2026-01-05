@@ -2,7 +2,7 @@
 
 use super::session::{self, SessionAction};
 use super::virtual_socket::{VirtualPacket, VirtualUdpSocket};
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use crate::common::sys::lifecycle::{Error, Result};
 use crate::layers::l7::http::h3;
 use crate::resources::certs;
@@ -103,7 +103,7 @@ impl QuicMuxer {
 			),
 		);
 
-		let channel_cap_str = getenv::get_env("QUIC_VIRTUAL_CHANNEL_CAPACITY", "1024".to_string());
+		let channel_cap_str = env_loader::get_env("QUIC_VIRTUAL_CHANNEL_CAPACITY", "1024".to_string());
 		let channel_cap = channel_cap_str.parse::<usize>().unwrap_or(1024);
 
 		let (tx, rx) = mpsc::channel::<VirtualPacket>(channel_cap);

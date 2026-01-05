@@ -1,6 +1,6 @@
 /* src/resources/templates/parser.rs */
 
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use anyhow::{Context, Result, anyhow};
 
 /// Template AST node
@@ -18,10 +18,10 @@ pub enum TemplateNode {
 
 /// Parse template string into AST
 pub fn parse_template(input: &str) -> Result<Vec<TemplateNode>> {
-	let max_depth = getenv::get_env("MAX_TEMPLATE_PARSE_DEPTH", "5".to_string())
+	let max_depth = env_loader::get_env("MAX_TEMPLATE_PARSE_DEPTH", "5".to_string())
 		.parse()
 		.unwrap_or(5);
-	let max_nodes = getenv::get_env("MAX_TEMPLATE_PARSE_NODES", "50".to_string())
+	let max_nodes = env_loader::get_env("MAX_TEMPLATE_PARSE_NODES", "50".to_string())
 		.parse()
 		.unwrap_or(50);
 

@@ -1,8 +1,8 @@
 /* src/plugins/middleware/ratelimit.rs */
 
 use crate::{
-	common::config::getenv,
-	engine::contract::{
+	common::config::env_loader,
+	engine::interfaces::{
 		GenericMiddleware, Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 	},
 };
@@ -63,7 +63,7 @@ static MIN_POOL_USAGE: AtomicUsize = AtomicUsize::new(0);
 /// Checks memory usage and prunes entries if the limit is exceeded.
 /// Instead of rejecting new keys, it removes a portion of existing keys to make room.
 fn ensure_space(map: &DashMap<String, u32>, usage_counter: &AtomicUsize) {
-	let max_mem_str = getenv::get_env("MAX_LIMITER_MEMORY", "4194304".to_string()); // Default 4MB
+	let max_mem_str = env_loader::get_env("MAX_LIMITER_MEMORY", "4194304".to_string()); // Default 4MB
 	let max_mem = max_mem_str.parse::<usize>().unwrap_or(4_194_304);
 
 	let current_usage = usage_counter.load(Ordering::Relaxed);
@@ -96,7 +96,7 @@ fn ensure_space(map: &DashMap<String, u32>, usage_counter: &AtomicUsize) {
 }
 
 fn check_key_length(key: &str) -> bool {
-	let max_len_str = getenv::get_env("RATELIMIT_KEY_MAX_LEN", "256".to_string());
+	let max_len_str = env_loader::get_env("RATELIMIT_KEY_MAX_LEN", "256".to_string());
 	let max_len = max_len_str.parse::<usize>().unwrap_or(256);
 	key.len() <= max_len
 }

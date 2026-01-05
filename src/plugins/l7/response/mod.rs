@@ -2,7 +2,7 @@
 
 pub mod content_type;
 
-use crate::engine::contract::{
+use crate::engine::interfaces::{
 	L7Terminator, ParamDef, ParamType, Plugin, ResolvedInputs, TerminatorResult,
 };
 use crate::layers::l7::{

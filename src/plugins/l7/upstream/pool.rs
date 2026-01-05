@@ -1,7 +1,7 @@
 /* src/plugins/l7/upstream/pool.rs */
 
 use super::tls_verifier::NoVerifier;
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use crate::common::sys::lifecycle::Error;
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
@@ -62,25 +62,25 @@ pub static GLOBAL_SECURE_CLIENT: Lazy<HttpClient> = Lazy::new(|| build_client(fa
 pub static GLOBAL_INSECURE_CLIENT: Lazy<HttpClient> = Lazy::new(|| build_client(true));
 
 fn build_client(skip_verify: bool) -> HttpClient {
-	let idle_timeout_s = getenv::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_string())
+	let idle_timeout_s = env_loader::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_string())
 		.parse::<u64>()
 		.unwrap_or(90);
 
-	let max_idle = getenv::get_env("UPSTREAM_POOL_MAX_IDLE", "32".to_string())
+	let max_idle = env_loader::get_env("UPSTREAM_POOL_MAX_IDLE", "32".to_string())
 		.parse::<usize>()
 		.unwrap_or(32);
 
-	let keepalive_s = getenv::get_env("UPSTREAM_KEEPALIVE_INTERVAL", "30".to_string())
+	let keepalive_s = env_loader::get_env("UPSTREAM_KEEPALIVE_INTERVAL", "30".to_string())
 		.parse::<u64>()
 		.unwrap_or(30);
 
 	// Default 2MB (2 * 1024 * 1024)
-	let h2_stream_window = getenv::get_env("UPSTREAM_H2_STREAM_WINDOW", "2097152".to_string())
+	let h2_stream_window = env_loader::get_env("UPSTREAM_H2_STREAM_WINDOW", "2097152".to_string())
 		.parse::<u32>()
 		.unwrap_or(2_097_152);
 
 	// Default 2MB (2 * 1024 * 1024)
-	let h2_conn_window = getenv::get_env("UPSTREAM_H2_CONN_WINDOW", "2097152".to_string())
+	let h2_conn_window = env_loader::get_env("UPSTREAM_H2_CONN_WINDOW", "2097152".to_string())
 		.parse::<u32>()
 		.unwrap_or(2_097_152);
 

@@ -1,6 +1,6 @@
 /* src/ingress/udp.rs */
 
-use super::model::{CONFIG_STATE, Protocol, TASK_REGISTRY};
+use super::state::{CONFIG_STATE, Protocol, TASK_REGISTRY};
 use crate::layers::l4::udp;
 
 use crate::layers::l4p::quic::{muxer::QuicMuxer, session};

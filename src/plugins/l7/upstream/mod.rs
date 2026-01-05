@@ -8,7 +8,7 @@ pub mod quic_pool;
 pub mod quinn_client;
 pub mod tls_verifier;
 
-use crate::engine::contract::{
+use crate::engine::interfaces::{
 	HttpMiddleware, L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 };
 use crate::layers::l7::container::{Container, PayloadState};

@@ -1,13 +1,13 @@
-/* src/common/config/getconf.rs */
+/* src/common/config/file_loader.rs */
 
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use fancy_log::{LogLevel, log};
 use std::path::PathBuf;
 use tokio::fs;
 
 /// Retrieves the configuration directory path.
 pub fn get_config_dir() -> PathBuf {
-	let path_str = getenv::get_env("CONFIG_DIR", "~/vane/".to_string());
+	let path_str = env_loader::get_env("CONFIG_DIR", "~/vane/".to_string());
 	let expanded_path = shellexpand::tilde(&path_str).to_string();
 	PathBuf::from(expanded_path)
 }

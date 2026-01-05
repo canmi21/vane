@@ -1,8 +1,8 @@
 /* src/plugins/l7/cgi/executor.rs */
 
 use super::stream::{CgiResponseBody, pump_stdout};
-use crate::common::{config::getenv, sys::lifecycle::Error};
-use crate::engine::contract::MiddlewareOutput;
+use crate::common::{config::env_loader, sys::lifecycle::Error};
+use crate::engine::interfaces::MiddlewareOutput;
 use crate::layers::l7::{
 	container::{Container, PayloadState},
 	http::wrapper::VaneBody,
@@ -37,10 +37,10 @@ pub struct CgiConfig {
 }
 
 pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<MiddlewareOutput> {
-	let body_timeout_sec: u64 = getenv::get_env("CGI_BODY_TIMEOUT_SEC", "30".to_string())
+	let body_timeout_sec: u64 = env_loader::get_env("CGI_BODY_TIMEOUT_SEC", "30".to_string())
 		.parse()
 		.unwrap_or(30);
-	let max_body_size: usize = getenv::get_env("CGI_BODY_MAX_SIZE_BYTE", "10485760".to_string())
+	let max_body_size: usize = env_loader::get_env("CGI_BODY_MAX_SIZE_BYTE", "10485760".to_string())
 		.parse()
 		.unwrap_or(10_485_760);
 

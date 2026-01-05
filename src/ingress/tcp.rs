@@ -1,6 +1,6 @@
 /* src/ingress/tcp.rs */
 
-use super::model::{CONFIG_STATE, ListenerState, Protocol, TASK_REGISTRY};
+use super::state::{CONFIG_STATE, ListenerState, Protocol, TASK_REGISTRY};
 
 use crate::layers::l4::dispatcher;
 

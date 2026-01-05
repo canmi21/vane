@@ -1,7 +1,7 @@
 /* src/layers/l4/proxy/tcp.rs */
 
 use super::IdleWatchdog;
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use crate::layers::l4::{health, model::ResolvedTarget};
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
@@ -67,7 +67,7 @@ pub async fn proxy_tcp_stream(client_stream: TcpStream, target: ResolvedTarget) 
 			.as_secs(),
 	));
 
-	let timeout_secs = getenv::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_string())
+	let timeout_secs = env_loader::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_string())
 		.parse::<u64>()
 		.unwrap_or(10);
 

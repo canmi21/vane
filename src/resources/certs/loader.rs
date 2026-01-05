@@ -1,7 +1,7 @@
 /* src/resources/certs/loader.rs */
 
 use crate::common::{
-	config::getconf,
+	config::file_loader,
 	sys::{hotswap::watch_loop, lifecycle::Result},
 };
 use crate::resources::certs::{arcswap, format};
@@ -29,7 +29,7 @@ impl CertCandidate {
 }
 
 async fn ensure_default_certificate() {
-	let config_dir = getconf::get_config_dir().join("certs");
+	let config_dir = file_loader::get_config_dir().join("certs");
 	if fs::metadata(&config_dir).await.is_err() {
 		let _ = fs::create_dir_all(&config_dir).await;
 	}
@@ -75,7 +75,7 @@ async fn generate_self_signed(cert_path: &Path, key_path: &Path) -> Result<()> {
 }
 
 pub async fn scan_and_load_certs() {
-	let config_dir = getconf::get_config_dir().join("certs");
+	let config_dir = file_loader::get_config_dir().join("certs");
 	if fs::metadata(&config_dir).await.is_err() {
 		return;
 	}

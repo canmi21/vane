@@ -1,8 +1,8 @@
 /* src/plugins/core/external.rs */
 
-use crate::common::config::getenv;
-use crate::engine::contract::ConnectionObject;
-use crate::engine::contract::{
+use crate::common::config::env_loader;
+use crate::engine::interfaces::ConnectionObject;
+use crate::engine::interfaces::{
 	ExternalPluginConfig, ExternalPluginDriver, Layer, Middleware, MiddlewareOutput, ParamDef,
 	ParamType, Plugin, PluginRole, ResolvedInputs, Terminator, TerminatorResult,
 };
@@ -22,7 +22,7 @@ pub struct ExternalPlugin {
 }
 
 pub async fn get_trusted_bin_root() -> PathBuf {
-	let root = crate::common::config::getconf::get_config_dir().join("bin");
+	let root = crate::common::config::file_loader::get_config_dir().join("bin");
 	fs::canonicalize(&root).await.unwrap_or(root)
 }
 
@@ -73,7 +73,7 @@ impl ExternalPlugin {
 			return Err(anyhow!("External plugins cannot be Terminators."));
 		}
 
-		let skip_validation = getenv::to_lowercase(&getenv::get_env(
+		let skip_validation = env_loader::to_lowercase(&env_loader::get_env(
 			"SKIP_VALIDATE_CONNECTIVITY",
 			"false".to_string(),
 		)) == "true";
@@ -135,7 +135,7 @@ impl Plugin for ExternalPlugin {
 			None
 		}
 	}
-	fn as_generic_middleware(&self) -> Option<&dyn crate::engine::contract::GenericMiddleware> {
+	fn as_generic_middleware(&self) -> Option<&dyn crate::engine::interfaces::GenericMiddleware> {
 		if self.config.role == PluginRole::Middleware {
 			Some(self)
 		} else {
@@ -148,7 +148,7 @@ impl Plugin for ExternalPlugin {
 }
 
 #[async_trait]
-impl crate::engine::contract::GenericMiddleware for ExternalPlugin {
+impl crate::engine::interfaces::GenericMiddleware for ExternalPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec!["success".into(), "failure".into()]
 	}

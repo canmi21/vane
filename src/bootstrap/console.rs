@@ -11,8 +11,8 @@ use tokio::task::JoinHandle;
 use crate::api::middleware::auth;
 use crate::api::router;
 use crate::bootstrap::socket;
-use crate::common::{config::getenv, net::portool};
-use crate::ingress::model;
+use crate::common::{config::env_loader, net::port_utils};
+use crate::ingress::state;
 
 pub struct ConsoleHandles {
 	pub tcp_task: JoinHandle<()>,
@@ -51,17 +51,17 @@ pub async fn start() -> Option<ConsoleHandles> {
 				None
 			};
 
-			let requested_port = getenv::get_env("PORT", "3333".to_string())
+			let requested_port = env_loader::get_env("PORT", "3333".to_string())
 				.parse::<u16>()
 				.unwrap_or(3333);
-			let port = if portool::is_valid_port(requested_port) {
+			let port = if port_utils::is_valid_port(requested_port) {
 				requested_port
 			} else {
 				3333
 			};
 
 			let listen_ipv6 =
-				getenv::to_lowercase(&getenv::get_env("CONSOLE_LISTEN_IPV6", "false".to_string()))
+				env_loader::to_lowercase(&env_loader::get_env("CONSOLE_LISTEN_IPV6", "false".to_string()))
 					== "true";
 			let addr: SocketAddr = if listen_ipv6 {
 				([0; 8], port).into()
@@ -101,7 +101,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 
 				let tcp_server = serve(
 					tcp_listener,
-					app.clone().with_state(model::CONFIG_STATE.clone()),
+					app.clone().with_state(state::CONFIG_STATE.clone()),
 				)
 				.with_graceful_shutdown(async move {
 					tcp_notifier.notified().await;
@@ -119,7 +119,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 			#[cfg(feature = "console")]
 			let unix_handle = if let Some(listener) = unix_socket_listener {
 				let unix_notifier = shutdown_notifier.clone();
-				let unix_server = serve(listener, app.with_state(model::CONFIG_STATE.clone()))
+				let unix_server = serve(listener, app.with_state(state::CONFIG_STATE.clone()))
 					.with_graceful_shutdown(async move {
 						unix_notifier.notified().await;
 					});

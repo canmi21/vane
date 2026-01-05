@@ -3,9 +3,9 @@
 pub mod domain;
 pub mod ip;
 pub mod node;
-pub mod proxy;
+pub mod forwarder;
 
-use crate::engine::contract::ConnectionObject;
+use crate::engine::interfaces::ConnectionObject;
 use crate::layers::l4::model::ResolvedTarget;
 use crate::resources::kv::KvStore;
 use anyhow::{Result, anyhow};
@@ -23,7 +23,7 @@ pub async fn execute_proxy(
 
 	match conn {
 		ConnectionObject::Tcp(stream) => {
-			proxy::proxy_tcp_stream(stream, target).await?;
+			forwarder::proxy_tcp_stream(stream, target).await?;
 		}
 		ConnectionObject::Stream(stream) => {
 			log(
@@ -33,7 +33,7 @@ pub async fn execute_proxy(
 					protocol, target.ip, target.port
 				),
 			);
-			proxy::proxy_generic_stream(stream, target).await?;
+			forwarder::proxy_generic_stream(stream, target).await?;
 		}
 		ConnectionObject::Udp {
 			socket,
@@ -45,9 +45,9 @@ pub async fn execute_proxy(
 				.map(|p| p == "quic")
 				.unwrap_or(false);
 			if is_quic {
-				proxy::proxy_quic_association(socket, &datagram, client_addr, target).await?;
+				forwarder::proxy_quic_association(socket, &datagram, client_addr, target).await?;
 			} else {
-				proxy::proxy_udp_direct(socket, &datagram, client_addr, target).await?;
+				forwarder::proxy_udp_direct(socket, &datagram, client_addr, target).await?;
 			}
 		}
 		ConnectionObject::Virtual(desc) => {

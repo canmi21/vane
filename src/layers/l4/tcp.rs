@@ -1,6 +1,6 @@
 /* src/layers/l4/tcp.rs */
 
-use crate::engine::contract::{Layer, ProcessingStep};
+use crate::engine::interfaces::{Layer, ProcessingStep};
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationErrors};
 

@@ -1,6 +1,6 @@
 /* src/ingress/tasks.rs */
 
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use dashmap::DashMap;
 
 use once_cell::sync::Lazy;
@@ -35,10 +35,10 @@ pub struct ConnectionTracker {
 
 impl ConnectionTracker {
 	fn new() -> Self {
-		let max_conn = getenv::get_env("MAX_CONNECTIONS", "10000".to_string())
+		let max_conn = env_loader::get_env("MAX_CONNECTIONS", "10000".to_string())
 			.parse::<usize>()
 			.unwrap_or(10000);
-		let max_per_ip = getenv::get_env("MAX_CONNECTIONS_PER_IP", "50".to_string())
+		let max_per_ip = env_loader::get_env("MAX_CONNECTIONS_PER_IP", "50".to_string())
 			.parse::<usize>()
 			.unwrap_or(50);
 

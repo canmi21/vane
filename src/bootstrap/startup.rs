@@ -1,4 +1,4 @@
-/* src/bootstrap/bootstrap.rs */
+/* src/bootstrap/startup.rs */
 
 use dotenvy::dotenv;
 use fancy_log::{LogLevel, log};
@@ -7,10 +7,10 @@ use tokio::signal;
 
 use crate::bootstrap::{console, logging, monitor};
 use crate::common::{
-	config::getenv,
+	config::env_loader,
 	sys::{lifecycle, watcher},
 };
-use crate::ingress::{hotswap, listener, model};
+use crate::ingress::{hotswap, listener, state};
 use crate::layers::l4p::{hotswap as resolver_hotswap, model as resolver_model};
 use crate::layers::l7::{hotswap as app_hotswap, model as app_model};
 use crate::plugins::core::loader as plugin_loader;
@@ -38,8 +38,8 @@ pub async fn start() {
 	certs::loader::initialize().await;
 
 	// 4. Load Port Configurations (L4 Listeners)
-	let initial_ports: Vec<crate::ingress::model::PortStatus> = hotswap::scan_ports_config(&[]).await;
-	model::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
+	let initial_ports: Vec<crate::ingress::state::PortStatus> = hotswap::scan_ports_config(&[]).await;
+	state::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
 
 	// 5. Load L4+ Resolvers
 	let initial_resolvers =
@@ -110,12 +110,12 @@ fn setup_crypto() {
 	}
 }
 
-async fn start_initial_listeners(ports: &[model::PortStatus]) {
+async fn start_initial_listeners(ports: &[state::PortStatus]) {
 	log(
 		LogLevel::Info,
 		"⚙ Initializing listeners from existing config...",
 	);
-	let ip_version = if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
+	let ip_version = if env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
 		"IPv4 + IPv6"
 	} else {
 		"IPv4"
@@ -127,14 +127,14 @@ async fn start_initial_listeners(ports: &[model::PortStatus]) {
 				LogLevel::Info,
 				&format!("↑ {} PORT {} TCP UP", ip_version, status.port),
 			);
-			listener::start_listener(status.port, model::Protocol::Tcp);
+			listener::start_listener(status.port, state::Protocol::Tcp);
 		}
 		if status.udp_config.is_some() {
 			log(
 				LogLevel::Info,
 				&format!("↑ {} PORT {} UDP UP", ip_version, status.port),
 			);
-			listener::start_listener(status.port, model::Protocol::Udp);
+			listener::start_listener(status.port, state::Protocol::Udp);
 		}
 	}
 }

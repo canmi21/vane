@@ -1,6 +1,6 @@
 /* src/common/config/loader.rs */
 
-use crate::common::config::getconf;
+use crate::common::config::file_loader;
 use fancy_log::{LogLevel, log};
 use serde::de::DeserializeOwned;
 use std::path::Path;
@@ -24,7 +24,7 @@ pub async fn load_file<T>(path: &Path, context: Option<&str>) -> Option<T>
 where
 	T: DeserializeOwned + Validate + PreProcess,
 {
-	let config_dir = getconf::get_config_dir();
+	let config_dir = file_loader::get_config_dir();
 	let root = fs::canonicalize(&config_dir)
 		.await
 		.unwrap_or_else(|_| config_dir.clone());

@@ -1,7 +1,7 @@
 /* src/layers/l4/fs.rs */
 
-use crate::common::config::getconf;
-use crate::ingress::model::Protocol;
+use crate::common::config::file_loader;
+use crate::ingress::state::Protocol;
 use std::io;
 use std::path::PathBuf;
 use tokio::fs;
@@ -9,7 +9,7 @@ use tokio::fs;
 const SUPPORTED_EXTENSIONS: [&str; 4] = ["toml", "yml", "yaml", "json"];
 
 fn get_port_config_path(port: u16) -> PathBuf {
-	getconf::get_config_dir().join(format!("[{}]", port))
+	file_loader::get_config_dir().join(format!("[{}]", port))
 }
 
 pub async fn create_protocol_listener(port: u16, protocol: &Protocol) -> io::Result<()> {

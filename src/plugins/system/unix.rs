@@ -1,7 +1,7 @@
 /* src/plugins/system/unix.rs */
 
-use crate::common::config::getenv;
-use crate::engine::contract::{ExternalApiResponse, MiddlewareOutput, ResolvedInputs};
+use crate::common::config::env_loader;
+use crate::engine::interfaces::{ExternalApiResponse, MiddlewareOutput, ResolvedInputs};
 use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
 use std::time::Duration;
@@ -10,7 +10,7 @@ use tokio::net::UnixStream;
 use tokio::time::timeout;
 
 pub async fn execute(path: &str, name: &str, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
-	let timeout_secs = getenv::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
+	let timeout_secs = env_loader::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
 		.parse::<u64>()
 		.unwrap_or(10);
 	let duration = Duration::from_secs(timeout_secs);

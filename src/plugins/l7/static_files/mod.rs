@@ -6,7 +6,7 @@ pub mod range;
 pub mod router;
 
 use crate::common::sys::lifecycle::Error;
-use crate::engine::contract::{
+use crate::engine::interfaces::{
 	HttpMiddleware, L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 };
 use crate::layers::l7::{

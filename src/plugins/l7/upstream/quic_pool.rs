@@ -1,7 +1,7 @@
 /* src/plugins/l7/upstream/quic_pool.rs */
 
 use super::tls_verifier::NoVerifier;
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use crate::common::sys::lifecycle::{Error, Result};
 use crate::layers::l4::resolver;
 use fancy_log::{LogLevel, log};
@@ -33,7 +33,7 @@ async fn get_global_endpoint() -> Result<&'static Endpoint> {
 			let mut client_config = ClientConfig::new(Arc::new(quic_config));
 
 			// Get idle timeout from env, default 90s
-			let idle_timeout_s = getenv::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_string())
+			let idle_timeout_s = env_loader::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_string())
 				.parse::<u64>()
 				.unwrap_or(90);
 

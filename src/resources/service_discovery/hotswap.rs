@@ -2,7 +2,7 @@
 
 use super::model::{NODES_STATE, NodesConfig};
 use crate::common::{
-	config::{getconf, loader},
+	config::{file_loader, loader},
 	sys::hotswap::watch_loop,
 };
 use fancy_log::{LogLevel, log};
@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 
 /// Scans and loads the nodes configuration.
 pub async fn scan_nodes_config() -> Option<NodesConfig> {
-	let config_dir = getconf::get_config_dir();
+	let config_dir = file_loader::get_config_dir();
 	let res: loader::LoadResult<NodesConfig> =
 		loader::load_config("nodes", &config_dir.join("nodes")).await;
 

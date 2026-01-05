@@ -2,8 +2,8 @@
 
 use crate::{
 	api::{handlers::root, middleware::auth, middleware::logger},
-	ingress::handler as ports_handler,
-	ingress::model::PortState,
+	ingress::api as ports_handler,
+	ingress::state::PortState,
 	plugins::core::handler as plugins_handler,
 };
 use axum::{

@@ -1,6 +1,6 @@
 /* src/plugins/protocol/upgrader/upgrade.rs */
 
-use crate::engine::contract::{
+use crate::engine::interfaces::{
 	ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
 	TerminatorResult,
 };

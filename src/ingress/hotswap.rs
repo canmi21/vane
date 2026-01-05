@@ -2,11 +2,11 @@
 
 use super::{
 	listener,
-	model::{CONFIG_STATE, PortStatus, Protocol},
+	state::{CONFIG_STATE, PortStatus, Protocol},
 };
 use crate::common::config::loader::LoadResult;
 use crate::common::{
-	config::{getconf, getenv},
+	config::{file_loader, env_loader},
 	sys::hotswap::watch_loop,
 };
 use crate::layers::l4::{loader, tcp::TcpConfig, udp::UdpConfig};
@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 
 /// Scans the 'listener' config subdirectory for port configurations.
 pub async fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> {
-	let listener_dir = getconf::get_config_dir().join("listener");
+	let listener_dir = file_loader::get_config_dir().join("listener");
 	let mut statuses = Vec::new();
 	let current_map: HashMap<u16, &PortStatus> = current_state.iter().map(|s| (s.port, s)).collect();
 
@@ -105,7 +105,7 @@ pub async fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
 pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 	let ip_version_str =
-		if getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
+		if env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
 			"IPv4 + IPv6"
 		} else {
 			"IPv4"

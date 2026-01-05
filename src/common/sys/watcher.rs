@@ -1,6 +1,6 @@
 /* src/common/sys/watcher.rs */
 
-use crate::common::config::getconf;
+use crate::common::config::file_loader;
 use fancy_log::{LogLevel, log};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::{ffi::OsStr, time::Duration};
@@ -66,7 +66,7 @@ pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 				return;
 			}
 		};
-		let config_dir = getconf::get_config_dir();
+		let config_dir = file_loader::get_config_dir();
 		let _ = watcher.watch(&config_dir, RecursiveMode::Recursive);
 
 		let l_dir = fs::canonicalize(config_dir.join("listener"))

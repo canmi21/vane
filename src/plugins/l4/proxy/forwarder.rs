@@ -1,8 +1,8 @@
-/* src/plugins/l4/proxy/proxy.rs */
+/* src/plugins/l4/proxy/forwarder.rs */
 
 use crate::layers::l4p::quic::session::{self, SessionAction};
 use crate::{
-	common::{config::getenv, net::ip},
+	common::{config::env_loader, net::ip},
 	layers::l4::{
 		health,
 		model::ResolvedTarget,
@@ -83,7 +83,7 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 }
 
 pub async fn proxy_generic_stream(
-	client_stream: Box<dyn crate::engine::contract::ByteStream>,
+	client_stream: Box<dyn crate::engine::interfaces::ByteStream>,
 	target: ResolvedTarget,
 ) -> Result<()> {
 	log(
@@ -248,9 +248,9 @@ pub async fn proxy_udp_direct(
 		REVERSE_SESSIONS.insert(local_addr, client_addr);
 
 		let timeout_ms_str = if ip::is_private_ip(&target_ip) {
-			getenv::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
+			env_loader::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
 		} else {
-			getenv::get_env("UDP_TIMEOUT_REMOTE", "5000".to_string())
+			env_loader::get_env("UDP_TIMEOUT_REMOTE", "5000".to_string())
 		};
 		let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(5000);
 
@@ -284,7 +284,7 @@ fn spawn_quic_reply_handler(
 	listener_socket: Arc<UdpSocket>,
 	timeout_duration: Duration,
 ) {
-	let buf_size_str = getenv::get_env("QUIC_RECV_BUFFER_SIZE", "65535".to_string());
+	let buf_size_str = env_loader::get_env("QUIC_RECV_BUFFER_SIZE", "65535".to_string());
 	let buf_size = buf_size_str.parse::<usize>().unwrap_or(65535);
 
 	tokio::spawn(async move {
@@ -420,9 +420,9 @@ pub async fn proxy_quic_association(
 		});
 
 		let timeout_ms_str = if ip::is_private_ip(&target_ip_parsed) {
-			getenv::get_env("QUIC_TIMEOUT_LOCAL", "1000".to_string())
+			env_loader::get_env("QUIC_TIMEOUT_LOCAL", "1000".to_string())
 		} else {
-			getenv::get_env("QUIC_TIMEOUT_REMOTE", "10000".to_string())
+			env_loader::get_env("QUIC_TIMEOUT_REMOTE", "10000".to_string())
 		};
 		let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(10000);
 

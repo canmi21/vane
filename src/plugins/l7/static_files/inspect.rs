@@ -1,6 +1,6 @@
 /* src/plugins/l7/static_files/inspect.rs */
 
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use std::path::Path;
 use tokio::{
 	fs::File,
@@ -23,7 +23,7 @@ pub async fn determine_mime_type(path: &Path, file: &mut File) -> String {
 	}
 
 	// 2. Magic Bytes Sniffing (Fallback)
-	let sniff_len_str = getenv::get_env("STATIC_MIME_SNIFF_BYTES", "512".to_string());
+	let sniff_len_str = env_loader::get_env("STATIC_MIME_SNIFF_BYTES", "512".to_string());
 	let sniff_len: usize = sniff_len_str.parse().unwrap_or(512);
 
 	let mut buf = vec![0u8; sniff_len];

@@ -1,7 +1,7 @@
 /* src/plugins/system/exec.rs */
 
-use crate::common::config::getenv;
-use crate::engine::contract::{MiddlewareOutput, ResolvedInputs};
+use crate::common::config::env_loader;
+use crate::engine::interfaces::{MiddlewareOutput, ResolvedInputs};
 use crate::plugins::core::external;
 use anyhow::Result;
 use fancy_log::{LogLevel, log};
@@ -33,7 +33,7 @@ pub async fn execute(
 		}
 	};
 
-	let timeout_secs = getenv::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
+	let timeout_secs = env_loader::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
 		.parse::<u64>()
 		.unwrap_or(10);
 
@@ -52,13 +52,13 @@ pub async fn execute(
 
 	// SEC-3: Sanitize environment variables
 	let allow_linker =
-		getenv::get_env("ALLOW_EXTERNAL_LINKER_ENV", "false".to_string()).to_lowercase() == "true";
+		env_loader::get_env("ALLOW_EXTERNAL_LINKER_ENV", "false".to_string()).to_lowercase() == "true";
 	let allow_runtime =
-		getenv::get_env("ALLOW_EXTERNAL_RUNTIME_ENV", "false".to_string()).to_lowercase() == "true";
+		env_loader::get_env("ALLOW_EXTERNAL_RUNTIME_ENV", "false".to_string()).to_lowercase() == "true";
 	let allow_shell =
-		getenv::get_env("ALLOW_EXTERNAL_SHELL_ENV", "false".to_string()).to_lowercase() == "true";
+		env_loader::get_env("ALLOW_EXTERNAL_SHELL_ENV", "false".to_string()).to_lowercase() == "true";
 	let allow_path_append =
-		getenv::get_env("ALLOW_EXTERNAL_PATH_ENV_APPEND", "false".to_string()).to_lowercase() == "true";
+		env_loader::get_env("ALLOW_EXTERNAL_PATH_ENV_APPEND", "false".to_string()).to_lowercase() == "true";
 
 	let mut sanitized_env = HashMap::new();
 

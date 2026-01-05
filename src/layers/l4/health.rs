@@ -1,7 +1,7 @@
 /* src/layers/l4/health.rs */
 
 use super::{legacy::tcp::TcpDestination, model::ResolvedTarget, resolver, tcp::TcpConfig};
-use crate::{common::config::getenv, ingress::model::CONFIG_STATE};
+use crate::{common::config::env_loader, ingress::state::CONFIG_STATE};
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
@@ -64,7 +64,7 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 	let mut unique_targets = HashSet::new();
 	let config_guard = CONFIG_STATE.load();
 
-	let connect_timeout_ms = getenv::get_env("HEALTH_TCP_CONNECT_TIMEOUT_MS", "2000".to_string())
+	let connect_timeout_ms = env_loader::get_env("HEALTH_TCP_CONNECT_TIMEOUT_MS", "2000".to_string())
 		.parse::<u64>()
 		.unwrap_or(2000);
 
@@ -129,7 +129,7 @@ pub async fn initial_health_check() {
 pub fn start_periodic_health_checkers() {
 	log(LogLevel::Debug, "⚙ Starting periodic health checkers...");
 	tokio::spawn(async move {
-		let interval_secs = getenv::get_env("HEALTH_TCP_INTERVAL_SECS", "5".to_string())
+		let interval_secs = env_loader::get_env("HEALTH_TCP_INTERVAL_SECS", "5".to_string())
 			.parse::<u64>()
 			.unwrap_or(5);
 		let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
@@ -142,10 +142,10 @@ pub fn start_periodic_health_checkers() {
 		}
 	});
 	tokio::spawn(async move {
-		let interval_secs = getenv::get_env("HEALTH_UDP_CLEANUP_INTERVAL_SECS", "5".to_string())
+		let interval_secs = env_loader::get_env("HEALTH_UDP_CLEANUP_INTERVAL_SECS", "5".to_string())
 			.parse::<u64>()
 			.unwrap_or(5);
-		let unhealthy_ttl_secs = getenv::get_env("HEALTH_UDP_UNHEALTHY_TTL_SECS", "10".to_string())
+		let unhealthy_ttl_secs = env_loader::get_env("HEALTH_UDP_UNHEALTHY_TTL_SECS", "10".to_string())
 			.parse::<u64>()
 			.unwrap_or(10);
 

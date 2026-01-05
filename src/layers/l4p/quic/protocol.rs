@@ -1,9 +1,9 @@
-/* src/layers/l4p/quic/quic.rs */
+/* src/layers/l4p/quic/protocol.rs */
 
 use super::muxer::QuicMuxer;
 use super::session::{self, PendingState, SessionAction};
-use crate::common::config::getenv;
-use crate::engine::contract::{ConnectionObject, TerminatorResult};
+use crate::common::config::env_loader;
+use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
 use crate::ingress::tasks::GLOBAL_TRACKER;
 use crate::layers::l4p::model::RESOLVER_REGISTRY;
 use crate::layers::l4p::{context, flow};
@@ -31,7 +31,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	context::inject_common(kv, "quic");
 
 	// Initial Lightweight Parse to get DCID and Crypto Frames
-	let limit_str = getenv::get_env("QUIC_LONG_HEADER_BUFFER_SIZE", "4096".to_string());
+	let limit_str = env_loader::get_env("QUIC_LONG_HEADER_BUFFER_SIZE", "4096".to_string());
 	let max_len = limit_str.parse::<usize>().unwrap_or(4096);
 	let parse_len = std::cmp::min(datagram.len(), max_len);
 
@@ -60,7 +60,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	let mut sni_found = parsed_packet.sni_hint.clone();
 	let mut should_proceed = false;
 
-	let max_pending_packets = getenv::get_env("QUIC_MAX_PENDING_PACKETS", "5".to_string())
+	let max_pending_packets = env_loader::get_env("QUIC_MAX_PENDING_PACKETS", "5".to_string())
 		.parse::<usize>()
 		.unwrap_or(5);
 

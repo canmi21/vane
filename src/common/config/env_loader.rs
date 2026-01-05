@@ -1,4 +1,4 @@
-/* src/common/config/getenv.rs */
+/* src/common/config/env_loader.rs */
 
 use std::env;
 use std::ffi::OsStr;

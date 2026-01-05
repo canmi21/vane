@@ -1,6 +1,6 @@
 /* src/layers/l4/validator.rs */
 
-use crate::engine::contract::{Layer, ParamType, ProcessingStep};
+use crate::engine::interfaces::{Layer, ParamType, ProcessingStep};
 use crate::plugins::core::registry;
 use serde_json::Value;
 use std::borrow::Cow;
@@ -218,7 +218,7 @@ pub fn validate_flow_recursive(
 
 fn validate_plugin_inputs_internal(
 	plugin_name: &str,
-	param_defs: &[crate::engine::contract::ParamDef],
+	param_defs: &[crate::engine::interfaces::ParamDef],
 	inputs: &HashMap<String, Value>,
 	current_path: &str,
 	errors: &mut Vec<FlowValidationError>,

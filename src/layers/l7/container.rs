@@ -11,7 +11,7 @@ use hyper::upgrade::OnUpgrade;
 use tokio::sync::oneshot;
 
 use crate::common::{
-	config::getenv,
+	config::env_loader,
 	sys::lifecycle::{Error, Result},
 };
 use crate::layers::l7::{
@@ -109,7 +109,7 @@ impl PayloadState {
 
 	/// Internal helper to buffer the current state into memory.
 	async fn force_buffer(&mut self) -> Result<&Bytes> {
-		let max_len_str = getenv::get_env("L7_MAX_BUFFER_SIZE", "10485760".to_string()); // Default 10MB
+		let max_len_str = env_loader::get_env("L7_MAX_BUFFER_SIZE", "10485760".to_string()); // Default 10MB
 		let max_len = max_len_str.parse::<usize>().unwrap_or(10485760);
 
 		// Temporarily take ownership of self to perform transition

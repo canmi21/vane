@@ -1,9 +1,9 @@
 /* src/layers/l4p/tls.rs */
 
 use super::{context, flow};
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use crate::common::sys::lifecycle::{Error, Result};
-use crate::engine::contract::{ConnectionObject, TerminatorResult};
+use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
 use crate::layers::l4p::model::RESOLVER_REGISTRY;
 use crate::plugins::protocol::tls::clienthello;
 use crate::plugins::protocol::upgrader::decryptor;
@@ -19,15 +19,15 @@ use tokio::time::timeout;
 pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Result<()> {
 	log(LogLevel::Debug, "➜ Entering TLS L4+ Resolver...");
 
-	let buffer_size_str = getenv::get_env("TLS_CLIENTHELLO_BUFFER_SIZE", "4096".to_string());
+	let buffer_size_str = env_loader::get_env("TLS_CLIENTHELLO_BUFFER_SIZE", "4096".to_string());
 	let buffer_size = buffer_size_str.parse::<usize>().unwrap_or(4096);
 
-	let peek_timeout_ms = getenv::get_env("TLS_HANDSHAKE_PEEK_TIMEOUT_MS", "500".to_string())
+	let peek_timeout_ms = env_loader::get_env("TLS_HANDSHAKE_PEEK_TIMEOUT_MS", "500".to_string())
 		.parse::<u64>()
 		.unwrap_or(500);
 
 	let allow_parse_failure =
-		getenv::get_env("TLS_ALLOW_PARSE_FAILURE", "false".to_string()).to_lowercase() == "true";
+		env_loader::get_env("TLS_ALLOW_PARSE_FAILURE", "false".to_string()).to_lowercase() == "true";
 
 	let mut buf = vec![0u8; buffer_size];
 	let mut parse_success = false;

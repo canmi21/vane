@@ -1,7 +1,7 @@
 /* src/layers/l4/proxy/stream.rs */
 
 use super::IdleWatchdog;
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use crate::layers::l4::{health, model::ResolvedTarget};
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
@@ -16,7 +16,7 @@ use tokio::{
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub async fn proxy_generic_stream(
-	client_stream: Box<dyn crate::engine::contract::ByteStream>,
+	client_stream: Box<dyn crate::engine::interfaces::ByteStream>,
 	target: ResolvedTarget,
 ) -> Result<()> {
 	log(
@@ -70,7 +70,7 @@ pub async fn proxy_generic_stream(
 			.as_secs(),
 	));
 
-	let timeout_secs = getenv::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_string())
+	let timeout_secs = env_loader::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_string())
 		.parse::<u64>()
 		.unwrap_or(10);
 

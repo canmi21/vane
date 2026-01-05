@@ -1,6 +1,6 @@
 /* src/bootstrap/socket.rs */
 
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use fancy_log::{LogLevel, log};
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -8,7 +8,7 @@ use tokio::net::UnixListener;
 use tokio::time::{Duration, sleep};
 
 fn get_socket_path() -> PathBuf {
-	let socket_dir_str = getenv::get_env("SOCKET_DIR", "/var/run/vane".to_string());
+	let socket_dir_str = env_loader::get_env("SOCKET_DIR", "/var/run/vane".to_string());
 	Path::new(&socket_dir_str).join("console.sock")
 }
 

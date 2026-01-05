@@ -1,7 +1,7 @@
 /* src/plugins/core/loader.rs */
 
-use crate::common::config::{getconf, getenv};
-use crate::engine::contract::{ExternalPluginConfig, Plugin};
+use crate::common::config::{file_loader, env_loader};
+use crate::engine::interfaces::{ExternalPluginConfig, Plugin};
 use crate::plugins::core::external::ExternalPlugin;
 use crate::plugins::core::registry;
 use anyhow::{Result, anyhow};
@@ -15,7 +15,7 @@ use tokio::fs;
 const PLUGINS_CONFIG_FILE: &str = "plugins.json";
 
 pub async fn initialize() -> usize {
-	let config_path = getconf::get_config_dir().join(PLUGINS_CONFIG_FILE);
+	let config_path = file_loader::get_config_dir().join(PLUGINS_CONFIG_FILE);
 	if fs::metadata(&config_path).await.is_err() {
 		let empty: HashMap<String, ExternalPluginConfig> = HashMap::new();
 		if let Ok(c) = serde_json::to_string_pretty(&empty) {
@@ -52,7 +52,7 @@ pub async fn initialize() -> usize {
 
 fn start_background_health_check() {
 	tokio::spawn(async move {
-		let mins = getenv::get_env("EXTERNAL_PLUGIN_CHECK_INTERVAL_MINS", "15".into())
+		let mins = env_loader::get_env("EXTERNAL_PLUGIN_CHECK_INTERVAL_MINS", "15".into())
 			.parse::<u64>()
 			.unwrap_or(15);
 		let mut interval = tokio::time::interval(Duration::from_secs(mins * 60));
@@ -70,7 +70,7 @@ fn start_background_health_check() {
 }
 
 async fn save_to_disk(configs: &HashMap<String, ExternalPluginConfig>) -> Result<()> {
-	let path = getconf::get_config_dir().join(PLUGINS_CONFIG_FILE);
+	let path = file_loader::get_config_dir().join(PLUGINS_CONFIG_FILE);
 	fs::write(path, serde_json::to_string_pretty(configs)?).await?;
 	Ok(())
 }
@@ -81,7 +81,7 @@ pub async fn register_plugin(config: ExternalPluginConfig) -> Result<()> {
 	}
 	let plugin = ExternalPlugin::new(config.clone());
 	plugin.validate_connectivity().await?;
-	let path = getconf::get_config_dir().join(PLUGINS_CONFIG_FILE);
+	let path = file_loader::get_config_dir().join(PLUGINS_CONFIG_FILE);
 	let content = fs::read_to_string(&path)
 		.await
 		.unwrap_or_else(|_| "{}".to_string());
@@ -94,7 +94,7 @@ pub async fn register_plugin(config: ExternalPluginConfig) -> Result<()> {
 }
 
 pub async fn delete_plugin(name: &str) -> Result<()> {
-	let path = getconf::get_config_dir().join(PLUGINS_CONFIG_FILE);
+	let path = file_loader::get_config_dir().join(PLUGINS_CONFIG_FILE);
 	let content = fs::read_to_string(&path)
 		.await
 		.unwrap_or_else(|_| "{}".to_string());

@@ -2,7 +2,7 @@
 
 use super::wrapper::VaneBody;
 use crate::common::sys::lifecycle::{Error, Result};
-use crate::engine::contract::ConnectionObject;
+use crate::engine::interfaces::ConnectionObject;
 use crate::layers::l7::{
 	container::{Container, PayloadState},
 	flow,

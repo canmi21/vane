@@ -1,6 +1,6 @@
 /* src/layers/l4/legacy/udp.rs */
 
-use crate::common::{config::getenv, net::ip};
+use crate::common::{config::env_loader, net::ip};
 use crate::ingress::tasks::GLOBAL_TRACKER;
 use crate::layers::l4::model::{DetectMethod, Forward};
 use crate::layers::l4::session::{REVERSE_SESSIONS, SESSIONS, Session};
@@ -195,9 +195,9 @@ pub async fn dispatch_legacy_udp(
 										REVERSE_SESSIONS.insert(local_addr, client_addr);
 
 										let timeout_ms_str = if ip::is_private_ip(&target_ip) {
-											getenv::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
+											env_loader::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
 										} else {
-											getenv::get_env("UDP_TIMEOUT_REMOTE", "5000".to_string())
+											env_loader::get_env("UDP_TIMEOUT_REMOTE", "5000".to_string())
 										};
 										let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(5000);
 

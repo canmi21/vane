@@ -4,7 +4,7 @@ pub mod exec;
 pub mod httpx;
 pub mod unix;
 
-use crate::engine::contract::{ExternalPluginDriver, MiddlewareOutput, ResolvedInputs};
+use crate::engine::interfaces::{ExternalPluginDriver, MiddlewareOutput, ResolvedInputs};
 use anyhow::Result;
 
 /// Executes the appropriate driver logic based on the configuration.

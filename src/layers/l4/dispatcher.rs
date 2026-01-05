@@ -1,7 +1,7 @@
 /* src/layers/l4/dispatcher.rs */
 
 use super::{context, flow, legacy, tcp::TcpConfig};
-use crate::engine::contract::{ConnectionObject, TerminatorResult};
+use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
 
 use crate::layers::l4p::{plain, tls};
 use crate::resources::kv::KvStore;

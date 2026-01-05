@@ -1,6 +1,6 @@
 /* src/plugins/core/registry.rs */
 
-use crate::engine::contract::Plugin;
+use crate::engine::interfaces::Plugin;
 use crate::plugins::l4::{
 	abort::AbortConnectionPlugin,
 	proxy::{domain::ProxyDomainPlugin, ip::TransparentProxyPlugin, node::ProxyNodePlugin},

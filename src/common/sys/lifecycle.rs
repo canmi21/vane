@@ -1,6 +1,6 @@
 /* src/common/sys/lifecycle.rs */
 
-use crate::common::config::getconf;
+use crate::common::config::file_loader;
 use crate::layers::l4::{health, session};
 use crate::layers::l4p::quic::session as quic_session;
 
@@ -24,8 +24,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Ensures all mandatory configuration directories and files exist.
 pub async fn ensure_config_files_exist() {
-	getconf::init_config_dirs(vec!["listener", "resolver", "certs", "application", "bin"]).await;
-	getconf::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"]).await;
+	file_loader::init_config_dirs(vec!["listener", "resolver", "certs", "application", "bin"]).await;
+	file_loader::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"]).await;
 }
 
 /// Spawns essential background maintenance tasks.

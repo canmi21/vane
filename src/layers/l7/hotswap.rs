@@ -2,10 +2,7 @@
 
 use super::model::{APPLICATION_REGISTRY, ApplicationConfig, SUPPORTED_APP_PROTOCOLS};
 use crate::common::{
-	config::{
-		getconf,
-		loader::{self, LoadResult},
-	},
+	config::{file_loader, loader::{self, LoadResult}},
 	sys::hotswap::watch_loop,
 };
 use dashmap::DashMap;
@@ -17,7 +14,7 @@ use tokio::sync::mpsc;
 pub async fn scan_application_config(
 	current_state: &DashMap<String, Arc<ApplicationConfig>>,
 ) -> DashMap<String, Arc<ApplicationConfig>> {
-	let app_dir = getconf::get_config_dir().join("application");
+	let app_dir = file_loader::get_config_dir().join("application");
 	let new_registry = DashMap::new();
 
 	if let Ok(metadata) = fs::metadata(&app_dir).await {

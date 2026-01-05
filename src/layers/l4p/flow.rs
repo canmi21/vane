@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::engine::context::TransportContext;
-use crate::engine::contract::{ConnectionObject, ProcessingStep, TerminatorResult};
+use crate::engine::interfaces::{ConnectionObject, ProcessingStep, TerminatorResult};
 use crate::engine::executor;
 use crate::resources::kv::KvStore;
 

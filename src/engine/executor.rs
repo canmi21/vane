@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use fancy_log::{LogLevel, log};
 
 use crate::{
-	engine::contract::{ConnectionObject, MiddlewareOutput, ProcessingStep, TerminatorResult},
+	engine::interfaces::{ConnectionObject, MiddlewareOutput, ProcessingStep, TerminatorResult},
 	layers::l7::container::Container,
 	plugins::core::registry,
 };
@@ -33,7 +33,7 @@ pub async fn execute<C: ExecutionContext>(
 	flow_path: String,
 ) -> Result<TerminatorResult> {
 	let timeout_secs =
-		crate::common::config::getenv::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
+		crate::common::config::env_loader::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
 			.parse::<u64>()
 			.unwrap_or(10);
 
@@ -104,7 +104,7 @@ async fn execute_recursive<C: ExecutionContext>(
 	let is_external = registry::get_external_plugin(plugin_name).is_some();
 	if is_external {
 		if let Some(last_failure) = registry::EXTERNAL_PLUGIN_FAILURES.get(plugin_name) {
-			let quiet_period_secs = crate::common::config::getenv::get_env(
+			let quiet_period_secs = crate::common::config::env_loader::get_env(
 				"EXTERNAL_PLUGIN_QUIET_PERIOD_SECS",
 				"3".to_string(),
 			)
@@ -226,7 +226,7 @@ async fn handle_middleware_output<C: ExecutionContext>(
 	output: MiddlewareOutput,
 	plugin_name: &str,
 	flow_path: &str,
-	instance: &crate::engine::contract::PluginInstance,
+	instance: &crate::engine::interfaces::PluginInstance,
 	context: &mut C,
 	conn: ConnectionObject,
 ) -> Result<TerminatorResult> {

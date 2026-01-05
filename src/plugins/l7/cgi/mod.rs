@@ -3,7 +3,7 @@
 pub mod executor;
 pub mod stream;
 
-use crate::engine::contract::{
+use crate::engine::interfaces::{
 	HttpMiddleware, L7Middleware, MiddlewareOutput, ParamDef, ParamType, Plugin, ResolvedInputs,
 };
 use crate::layers::l7::container::Container;

@@ -7,14 +7,14 @@ pub mod resolver;
 
 pub use context::TemplateContext;
 
-use crate::common::config::getenv;
+use crate::common::config::env_loader;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
 /// Returns the maximum allowed recursion depth for template and JSON resolution.
 /// Configurable via `MAX_TEMPLATE_DEPTH` environment variable.
 fn get_max_depth() -> usize {
-	getenv::get_env("MAX_TEMPLATE_DEPTH", "5".to_string())
+	env_loader::get_env("MAX_TEMPLATE_DEPTH", "5".to_string())
 		.parse()
 		.unwrap_or(5)
 }
@@ -22,7 +22,7 @@ fn get_max_depth() -> usize {
 /// Returns the maximum allowed size (in bytes) for a resolved template string.
 /// Configurable via `MAX_TEMPLATE_RESULT_SIZE` environment variable.
 fn get_max_size() -> usize {
-	getenv::get_env("MAX_TEMPLATE_RESULT_SIZE", "65536".to_string())
+	env_loader::get_env("MAX_TEMPLATE_RESULT_SIZE", "65536".to_string())
 		.parse()
 		.unwrap_or(65536)
 }

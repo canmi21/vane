@@ -1,7 +1,7 @@
 /* src/ingress/listener.rs */
 
-use super::model::{CONFIG_STATE, ListenerState, Protocol, RunningListener, TASK_REGISTRY};
-use crate::common::config::getenv;
+use super::state::{CONFIG_STATE, ListenerState, Protocol, RunningListener, TASK_REGISTRY};
+use crate::common::config::env_loader;
 use crate::ingress::hotswap::scan_ports_config;
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
@@ -15,7 +15,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 	}
 
 	tokio::spawn(async move {
-		let listen_ipv6 = getenv::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true";
+		let listen_ipv6 = env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true";
 		let addr: std::net::SocketAddr = if listen_ipv6 {
 			([0; 8], port).into()
 		} else {
@@ -73,13 +73,13 @@ pub fn stop_listener(port: u16, protocol: Protocol) {
 }
 
 pub async fn is_port_active(port: u16) -> bool {
-	let state: Vec<crate::ingress::model::PortStatus> = scan_ports_config(&[]).await;
+	let state: Vec<crate::ingress::state::PortStatus> = scan_ports_config(&[]).await;
 	state.iter().any(|s| s.port == port && s.active)
 }
 
 async fn is_listener_still_required(port: u16, protocol: &Protocol) -> bool {
 	let current_state = CONFIG_STATE.load();
-	let state: Vec<crate::ingress::model::PortStatus> = scan_ports_config(&current_state).await;
+	let state: Vec<crate::ingress::state::PortStatus> = scan_ports_config(&current_state).await;
 	state.iter().any(|s| {
 		if s.port != port {
 			return false;
