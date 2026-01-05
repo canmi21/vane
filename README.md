@@ -21,7 +21,7 @@
 
 Vane is a high-performance, flow-based network protocol engine written in Rust. It is designed to bridge the architectural gap between raw transport layer (L4) forwarding and complex application layer (L7) processing. Unlike traditional proxies that rely on static hierarchical configurations, Vane utilizes a dynamic, composable pipeline architecture that treats network connections as programmable flows.
 
-Vane operates as a protocol funnel—connections enter at L4 (TCP/UDP), optionally pass through L4+ (TLS/QUIC inspection), and can terminate at any layer based on runtime flow decisions. HTTP is one of many protocols supported; the architecture is designed for extensibility to DNS, gRPC, and other application protocols.
+Vane operates as a protocol funnel—connections enter at L4 (TCP/UDP), optionally pass through L4+ (TLS/QUIC inspection), and can terminate at any layer based on runtime flow decisions. HTTP is the primary application protocol at L7, with full support for HTTP/1.1, HTTP/2, HTTP/3, and WebSocket. The architecture is designed for extensibility to additional application protocols.
 
 ## Core Concepts
 
@@ -37,8 +37,8 @@ Vane abandons the traditional "virtual host" configuration model in favor of a d
 Vane manages network traffic across three strictly defined architectural layers, allowing for precise control over the depth of packet inspection:
 
 - **L4 (Transport):** Handles raw TCP streams and UDP datagrams. It provides high-performance switching based on IP stickiness, load balancing, and connection metadata.
-- **L4+ (Carrier):** A specialized state where Vane inspects encrypted or complex protocols (TLS, QUIC) without terminating the secure session. It can extract SNI, ALPN, and Connection IDs to make routing decisions before determining whether to forward the encrypted stream or terminate it.
-- **L7 (Application):** The fully terminated layer where Vane acts as a server (HTTP/1.1, HTTP/2, HTTP/3). Here, the system utilizes a unified "Container" model to manipulate headers, bodies, and payloads using a full-duplex streaming engine.
+- **L4+ (Carrier):** A specialized layer that handles encrypted protocols (TLS, QUIC). It can operate in two modes: transparent routing by extracting SNI, ALPN, and Connection IDs for passthrough forwarding, or full protocol termination to expose plaintext streams to L7.
+- **L7 (Application):** The fully terminated layer where Vane acts as an HTTP server (HTTP/1.1, HTTP/2, HTTP/3). Here, the system utilizes a unified "Container" model to manipulate headers, bodies, and payloads using a full-duplex streaming engine.
 
 ### Two-Phase Dispatch
 
@@ -46,7 +46,7 @@ Vane manages network traffic across three strictly defined architectural layers,
 
 - **L4 (Transport):** No Two-Phase model. Traffic is handled with single-pass, stateless forwarding and flow decisions.
 - **L4+ (Carrier):** Two-Phase refers to **UDP/QUIC fast–slow path separation**. Initial packets go through deep inspection and routing (slow path). Once a session is established, subsequent packets are forwarded in O(1) via CID and IP stickiness (fast path).
-- **L7 (Application):** Two-Phase represents a **split request lifecycle**. Upstream fetching is modeled as a middleware (`FetchUpstream`), allowing modification both **before** the request is sent upstream and **after** the response returns. This decouples upstream and downstream protocols and enables full-duplex HTTP any-to-any bridging (H1/H2/H3).
+- **L7 (Application):** Two-Phase represents a **split request lifecycle**. Upstream fetching is implemented as a terminator that decouples client and upstream protocols, enabling full-duplex HTTP any-to-any bridging (H1↔H2↔H3) with independent protocol negotiation on each side.
 
 ## Distinctions
 
@@ -67,10 +67,10 @@ Unlike proxies that treat UDP as a second-class citizen, Vane features a dedicat
 
 ## Technical Advantages
 
-- **Zero-Copy Architecture:** The internal data plane heavily utilizes Rust's ownership model and `Bytes` abstractions to pass data between network layers without unnecessary memory allocation. Features like "Lazy Buffering" ensure that payloads are only loaded into memory when explicitly requested by a plugin.
+- **Zero-Copy Architecture:** The internal data plane heavily utilizes Rust's ownership model and `Bytes` abstractions to pass data between network layers without unnecessary memory allocation. On-demand extraction ensures that request headers and bodies are only loaded into memory when explicitly accessed via template resolution.
 - **Full-Duplex Streaming:** The upstream drivers are architected to handle large-scale data transfer (e.g., multi-gigabyte streams) asynchronously. Request and response paths are decoupled, preventing head-of-line blocking and deadlocks common in synchronous proxy implementations.
 - **Cross-Layer Context Continuity:** Vane maintains a unified key–value context that persists across **L4, L4+, and L7**. Connection metadata such as source IP/port, transport details, and handshake-derived attributes are propagated upward and remain accessible at higher layers. This allows L7 template rendering (`{{ ... }}`) and middleware logic to reference low-level connection and protocol state without re-parsing or breaking layer boundaries.
-- **Stateful L4+ Routing:** Vane can route encrypted traffic without terminating the secure session. At the L4+ layer, it routes **TLS connections based on SNI and ALPN**, and **QUIC connections based on SNI** by parsing handshake metadata (including fragmented ClientHello data), enabling certificate-less, zero-trust routing decisions.
+- **Stateful L4+ Routing:** Vane can route encrypted traffic without terminating the secure session. At the L4+ layer, it routes **TLS connections based on SNI and ALPN**, and **QUIC connections based on SNI** by parsing ClientHello metadata, enabling certificate-less, zero-trust routing decisions.
 - **Hot-Swappable Configuration:** All layers of the stack—from L4 listeners and TLS certificates to L7 application pipelines—support runtime reconfiguration. The system employs a "Keep-Last-Known-Good" strategy to ensure stability during updates.
 
 ## Star History
