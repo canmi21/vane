@@ -19,7 +19,11 @@ func NewTcpEchoServer() (*TcpServer, error) {
 	if err != nil {
 		return nil, err
 	}
+	return NewTcpEchoServerFromListener(l), nil
+}
 
+// NewTcpEchoServerFromListener creates a server from an existing listener.
+func NewTcpEchoServerFromListener(l net.Listener) *TcpServer {
 	s := &TcpServer{
 		Listener: l,
 		Port:     l.Addr().(*net.TCPAddr).Port,
@@ -27,7 +31,7 @@ func NewTcpEchoServer() (*TcpServer, error) {
 
 	s.wg.Add(1)
 	go s.serve()
-	return s, nil
+	return s
 }
 
 func (s *TcpServer) serve() {

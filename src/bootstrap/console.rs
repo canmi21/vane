@@ -60,9 +60,10 @@ pub async fn start() -> Option<ConsoleHandles> {
 				3333
 			};
 
-			let listen_ipv6 =
-				env_loader::to_lowercase(&env_loader::get_env("CONSOLE_LISTEN_IPV6", "false".to_string()))
-					== "true";
+			let listen_ipv6 = env_loader::to_lowercase(&env_loader::get_env(
+				"CONSOLE_LISTEN_IPV6",
+				"false".to_string(),
+			)) == "true";
 			let addr: SocketAddr = if listen_ipv6 {
 				([0; 8], port).into()
 			} else {

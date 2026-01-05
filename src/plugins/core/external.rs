@@ -150,7 +150,16 @@ impl Plugin for ExternalPlugin {
 #[async_trait]
 impl crate::engine::interfaces::GenericMiddleware for ExternalPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
-		vec!["success".into(), "failure".into()]
+		if self.config.output.is_empty() {
+			vec!["success".into(), "failure".into()]
+		} else {
+			self
+				.config
+				.output
+				.iter()
+				.map(|s| Cow::Owned(s.clone()))
+				.collect()
+		}
 	}
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
 		drivers::execute_driver(&self.config.driver, self.name(), inputs).await
@@ -160,7 +169,16 @@ impl crate::engine::interfaces::GenericMiddleware for ExternalPlugin {
 #[async_trait]
 impl Middleware for ExternalPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
-		vec!["success".into(), "failure".into()]
+		if self.config.output.is_empty() {
+			vec!["success".into(), "failure".into()]
+		} else {
+			self
+				.config
+				.output
+				.iter()
+				.map(|s| Cow::Owned(s.clone()))
+				.collect()
+		}
 	}
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
 		drivers::execute_driver(&self.config.driver, self.name(), inputs).await

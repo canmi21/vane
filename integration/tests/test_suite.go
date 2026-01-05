@@ -9,6 +9,7 @@ import (
 	"canmi.net/vane-mock-tests/tests/l4"
 	"canmi.net/vane-mock-tests/tests/l4p"
 	"canmi.net/vane-mock-tests/tests/l7"
+	"canmi.net/vane-mock-tests/tests/mgmt"
 )
 
 // Re-define here to match runner
@@ -38,6 +39,10 @@ func Initialize() {
 	}
 	// Import L7 tests
 	for _, t := range l7.GetTests() {
+		register(t.Name, t.Desc, TestFunc(t.Run))
+	}
+	// Import Mgmt tests
+	for _, t := range mgmt.GetTests() {
 		register(t.Name, t.Desc, TestFunc(t.Run))
 	}
 }

@@ -35,3 +35,26 @@ func (s *Sandbox) CompileCgiBin(sourceRelativePath string) (string, error) {
 
 	return outPath, nil
 }
+
+// CompileGoBin writes Go source code to a file and compiles it.
+func (s *Sandbox) CompileGoBin(sourceContent string) (string, error) {
+	srcPath := filepath.Join(s.RootDir, "plugin.go")
+	if err := os.WriteFile(srcPath, []byte(sourceContent), 0644); err != nil {
+		return "", fmt.Errorf("failed to write go source: %w", err)
+	}
+
+	// Vane security requires plugins to be in config/bin
+	binDir := filepath.Join(s.ConfigDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create trusted bin dir: %w", err)
+	}
+
+	outPath := filepath.Join(binDir, "plugin_bin")
+	cmd := exec.Command("go", "build", "-o", outPath, srcPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("go compilation failed: %v\n%s", err, string(output))
+	}
+
+	return outPath, nil
+}

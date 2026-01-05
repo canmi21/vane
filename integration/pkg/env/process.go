@@ -66,8 +66,15 @@ func (s *Sandbox) startVaneInternal(ctx context.Context, debugMode bool, withTok
 
 	// Add ACCESS_TOKEN for default tests (enables management console)
 	if withToken {
-		token := generateAccessToken()
-		envVars = append(envVars, fmt.Sprintf("ACCESS_TOKEN=%s", token))
+		if _, ok := s.Env["ACCESS_TOKEN"]; !ok {
+			token := generateAccessToken()
+			envVars = append(envVars, fmt.Sprintf("ACCESS_TOKEN=%s", token))
+		}
+	}
+
+	// Merge custom sandbox environment variables
+	for k, v := range s.Env {
+		envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
 	}
 
 	cmd.Env = append(os.Environ(), envVars...)

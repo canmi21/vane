@@ -15,7 +15,8 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 	}
 
 	tokio::spawn(async move {
-		let listen_ipv6 = env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true";
+		let listen_ipv6 =
+			env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true";
 		let addr: std::net::SocketAddr = if listen_ipv6 {
 			([0; 8], port).into()
 		} else {
@@ -28,26 +29,57 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 		);
 
 		let shutdown_tx = match protocol {
-			Protocol::Tcp => match TcpListener::bind(addr).await {
-				Ok(l) => Some(super::tcp::spawn_tcp_listener_task(port, l)),
-				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ TCP bind failed on {}: {}", addr, e),
-					);
-					None
+			Protocol::Tcp => {
+				let mut listener = None;
+				for i in 0..5 {
+					match TcpListener::bind(addr).await {
+						Ok(l) => {
+							listener = Some(l);
+							break;
+						}
+						Err(e) => {
+							if i == 4 {
+								log(
+									LogLevel::Error,
+									&format!(
+										"✗ TCP bind failed on {}: {} (giving up after 5 retries)",
+										addr, e
+									),
+								);
+							} else {
+								// Retry shortly, allowing old listener time to release port
+								tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+							}
+						}
+					}
 				}
-			},
-			Protocol::Udp => match UdpSocket::bind(addr).await {
-				Ok(s) => Some(super::udp::spawn_udp_listener_task(port, s)),
-				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ UDP bind failed on {}: {}", addr, e),
-					);
-					None
+				listener.map(|l| super::tcp::spawn_tcp_listener_task(port, l))
+			}
+			Protocol::Udp => {
+				let mut socket = None;
+				for i in 0..5 {
+					match UdpSocket::bind(addr).await {
+						Ok(s) => {
+							socket = Some(s);
+							break;
+						}
+						Err(e) => {
+							if i == 4 {
+								log(
+									LogLevel::Error,
+									&format!(
+										"✗ UDP bind failed on {}: {} (giving up after 5 retries)",
+										addr, e
+									),
+								);
+							} else {
+								tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+							}
+						}
+					}
 				}
-			},
+				socket.map(|s| super::udp::spawn_udp_listener_task(port, s))
+			}
 		};
 
 		if let Some(tx) = shutdown_tx {

@@ -58,7 +58,8 @@ pub async fn execute(
 	let allow_shell =
 		env_loader::get_env("ALLOW_EXTERNAL_SHELL_ENV", "false".to_string()).to_lowercase() == "true";
 	let allow_path_append =
-		env_loader::get_env("ALLOW_EXTERNAL_PATH_ENV_APPEND", "false".to_string()).to_lowercase() == "true";
+		env_loader::get_env("ALLOW_EXTERNAL_PATH_ENV_APPEND", "false".to_string()).to_lowercase()
+			== "true";
 
 	let mut sanitized_env = HashMap::new();
 

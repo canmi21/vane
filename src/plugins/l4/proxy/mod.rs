@@ -1,9 +1,9 @@
 /* src/plugins/l4/proxy/mod.rs */
 
 pub mod domain;
+pub mod forwarder;
 pub mod ip;
 pub mod node;
-pub mod forwarder;
 
 use crate::engine::interfaces::ConnectionObject;
 use crate::layers::l4::model::ResolvedTarget;

@@ -40,6 +40,8 @@ func GetTests() []TestEntry {
 		// CGI Tests
 		{Name: "l7_test_cgi_binary_c", Desc: "CGI: Binary Execution (C Compiled)", Run: TestCgiBasic},
 		{Name: "l7_test_cgi_script_lua", Desc: "CGI: Script Execution (Lua Interpreter)", Run: TestCgiLua},
+		{Name: "l7_test_external_api_registration", Desc: "External Plugin: API Registration & Hot Reload", Run: TestExternalApiRegistration},
+		{Name: "l7_test_external_persistence", Desc: "External Plugin: Persistence across restarts", Run: TestExternalPersistence},
 
 		// WebSocket Tunneling Tests
 		{Name: "l7_test_ws_deny_default", Desc: "WebSocket: Should reject if disabled", Run: TestWSDeny},

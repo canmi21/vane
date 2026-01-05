@@ -115,11 +115,12 @@ async fn start_initial_listeners(ports: &[state::PortStatus]) {
 		LogLevel::Info,
 		"⚙ Initializing listeners from existing config...",
 	);
-	let ip_version = if env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
-		"IPv4 + IPv6"
-	} else {
-		"IPv4"
-	};
+	let ip_version =
+		if env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
+			"IPv4 + IPv6"
+		} else {
+			"IPv4"
+		};
 
 	for status in ports {
 		if status.tcp_config.is_some() {

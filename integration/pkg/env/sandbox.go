@@ -3,8 +3,10 @@ package env
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Sandbox represents an isolated execution environment for a Vane instance.
@@ -14,6 +16,7 @@ type Sandbox struct {
 	ConfigDir   string // /tmp/vane_test_xyz/config
 	SocketDir   string // /tmp/vane_test_xyz/socket
 	ConsolePort int    // TCP port for Vane Console/HealthCheck
+	Env         map[string]string
 }
 
 // NewSandbox creates the directory structure and allocates a console port.
@@ -65,6 +68,7 @@ func NewSandbox() (*Sandbox, error) {
 		ConfigDir:   configDir,
 		SocketDir:   socketDir,
 		ConsolePort: port,
+		Env:         make(map[string]string),
 	}, nil
 }
 
@@ -86,4 +90,9 @@ func (s *Sandbox) WriteConfig(relativePath string, content []byte) error {
 	}
 
 	return os.WriteFile(fullPath, content, 0644)
+}
+
+// ConnectConsole attempts to dial the Vane console port.
+func (s *Sandbox) ConnectConsole() (net.Conn, error) {
+	return net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", s.ConsolePort), 500*time.Millisecond)
 }

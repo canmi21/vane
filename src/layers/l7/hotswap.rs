@@ -2,7 +2,10 @@
 
 use super::model::{APPLICATION_REGISTRY, ApplicationConfig, SUPPORTED_APP_PROTOCOLS};
 use crate::common::{
-	config::{file_loader, loader::{self, LoadResult}},
+	config::{
+		file_loader,
+		loader::{self, LoadResult},
+	},
 	sys::hotswap::watch_loop,
 };
 use dashmap::DashMap;

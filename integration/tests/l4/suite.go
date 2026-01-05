@@ -29,5 +29,9 @@ func GetTests() []TestCase {
 		{Name: "l4_test_udp_flow_detect_dns", Desc: "Verifies L4 DNS Detection", Run: TestUdpFlowDetectDns},
 		{Name: "l4_test_udp_flow_detect_quic", Desc: "Verifies L4 QUIC Detection", Run: TestUdpFlowDetectQuic},
 		{Name: "l4_test_tcp_flow_ratelimit", Desc: "Verifies L4 Rate Limiting", Run: TestTcpFlowRateLimit},
+		{Name: "l4_test_backend_recovery", Desc: "Verifies Backend Auto Recovery", Run: TestBackendRecovery},
+		{Name: "l4_test_tcp_fallback", Desc: "Verifies TCP fallback targets", Run: TestTcpFallback},
+		{Name: "l4_test_tcp_protocol_filtering", Desc: "Verifies protocol-based filtering", Run: TestTcpProtocolFiltering},
+		{Name: "l4_test_tcp_ip_filtering", Desc: "Verifies IP-based filtering (Flow Matcher)", Run: TestTcpIpFiltering},
 	}
 }

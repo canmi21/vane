@@ -6,7 +6,7 @@ use super::{
 };
 use crate::common::config::loader::LoadResult;
 use crate::common::{
-	config::{file_loader, env_loader},
+	config::{env_loader, file_loader},
 	sys::hotswap::watch_loop,
 };
 use crate::layers::l4::{loader, tcp::TcpConfig, udp::UdpConfig};

@@ -52,6 +52,8 @@ pub struct ExternalPluginConfig {
 	pub driver: ExternalPluginDriver,
 	#[serde(default)]
 	pub params: Vec<ExternalParamDef>,
+	#[serde(default)]
+	pub output: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

@@ -1,6 +1,6 @@
 /* src/plugins/core/loader.rs */
 
-use crate::common::config::{file_loader, env_loader};
+use crate::common::config::{env_loader, file_loader};
 use crate::engine::interfaces::{ExternalPluginConfig, Plugin};
 use crate::plugins::core::external::ExternalPlugin;
 use crate::plugins::core::registry;

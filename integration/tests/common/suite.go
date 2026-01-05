@@ -18,5 +18,6 @@ type TestCase struct {
 func GetTests() []TestCase {
 	return []TestCase{
 		{Name: "common_test_no_console", Desc: "Verifies no-console mode without ACCESS_TOKEN", Run: TestNoConsole},
+		{Name: "common_test_config_resilience", Desc: "Verifies Vane stability with bad configs", Run: TestConfigResilience},
 	}
 }
