@@ -3,7 +3,7 @@ protocols:
     priority: 1
     detect:
       method: magic
-      pattern: "0x16"
+      pattern: '0x16'
     session:
       keepalive: true
       timeout: 30000
@@ -14,7 +14,7 @@ protocols:
     priority: 2
     detect:
       method: prefix
-      pattern: "GET "
+      pattern: 'GET '
     destination:
       type: forward
       forward:

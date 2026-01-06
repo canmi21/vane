@@ -500,7 +500,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Changed:** Enhanced the configuration diffing logic to perform a deep equality check (`PartialEq`) on loaded `TcpConfig` and `UdpConfig` objects.
 - **Changed:** Implemented a new `RELOAD` lifecycle action. When a configuration change is detected for an active port, the listener is now automatically stopped and immediately restarted to apply the new settings, clearly logged as `↻ ... RELOAD (Config Changed)`.
-- **Fixed:** Resolved a critical issue in the configuration hot-swap mechanism (`src/modules/ports/hotswap.rs`) where changes to the *content* of an existing listener's file (e.g., updating flow rules, targets, or logic) were ignored if the listener remained active. The system previously only tracked the presence of a configuration, failing to trigger updates for in-place modifications.
+- **Fixed:** Resolved a critical issue in the configuration hot-swap mechanism (`src/modules/ports/hotswap.rs`) where changes to the _content_ of an existing listener's file (e.g., updating flow rules, targets, or logic) were ignored if the listener remained active. The system previously only tracked the presence of a configuration, failing to trigger updates for in-place modifications.
 
 ## 0.2.4 (2. Dec, 2025)
 
@@ -641,7 +641,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Added:** Support for `regex` as a protocol detection method, allowing for more complex and precise matching of L4 traffic.
 - **Changed:** The health check module has been refactored to distinguish between a blocking initial check and subsequent periodic checks.
-- **Fixed:** Corrected a critical race condition in the application startup sequence. The initial health check now runs *after* the configuration has been loaded, eliminating the initial window where all targets were considered unavailable.
+- **Fixed:** Corrected a critical race condition in the application startup sequence. The initial health check now runs _after_ the configuration has been loaded, eliminating the initial window where all targets were considered unavailable.
 
 ## 0.1.0 (8. Nov, 2025)
 
@@ -684,7 +684,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.0.9 (8. Nov, 2025)
 
-- **Changed:** The application startup sequence has been refined. Dynamic port listeners are now initialized *after* the management console and network discovery have started, ensuring a cleaner and more logical boot order.
+- **Changed:** The application startup sequence has been refined. Dynamic port listeners are now initialized _after_ the management console and network discovery have started, ensuring a cleaner and more logical boot order.
 - **Changed:** Listener status logs (`UP`/`DOWN`) are now more descriptive, specifying whether the listener is binding to `IPv4` or dual-stack `IPv4 + IPv6`.
 - **Fixed:** Corrected a critical bug where listeners configured at application startup were not being activated. The application now correctly scans and starts all required listeners when it first launches.
 

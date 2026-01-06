@@ -182,7 +182,10 @@ mod tests {
 		assert_eq!(read_varint(&[0x40, 0x40]).unwrap(), (64, 2));
 		assert_eq!(read_varint(&[0x7b, 0xbd]).unwrap(), (15293, 2));
 		// 4-byte
-		assert_eq!(read_varint(&[0x9d, 0x7f, 0x3e, 0x7d]).unwrap(), (494878333, 4));
+		assert_eq!(
+			read_varint(&[0x9d, 0x7f, 0x3e, 0x7d]).unwrap(),
+			(494878333, 4)
+		);
 	}
 
 	#[test]
@@ -231,7 +234,7 @@ mod tests {
 		];
 
 		// This will likely fail in Step 9 (Crypto) because we have no real payload,
-		// but Step 1-8 should pass. 
+		// but Step 1-8 should pass.
 		// Note: extract_decrypted_content returns unwrap_or(...) in current code.
 		let res = parse_initial_packet(&packet).unwrap();
 		assert_eq!(res.version, "0x00000001");

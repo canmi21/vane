@@ -50,7 +50,9 @@ src/
 ### Module Responsibilities
 
 #### bootstrap/
+
 Handles system initialization in a defined sequence. Key components:
+
 - `startup.rs`: Orchestrates the 13-step bootstrap process
 - `logging.rs`: Configures logging based on LOG_LEVEL environment variable
 - `console.rs`: Starts the management API server
@@ -58,7 +60,9 @@ Handles system initialization in a defined sequence. Key components:
 - `socket.rs`: Creates Unix domain sockets for IPC
 
 #### common/
+
 Provides shared utilities across modules:
+
 - `config/env_loader.rs`: Environment variable loading with defaults
 - `config/file_loader.rs`: Configuration file reading from CONFIG_DIR
 - `net/`: Network utilities (IP validation, port management)
@@ -66,14 +70,18 @@ Provides shared utilities across modules:
 - `sys/watcher.rs`: File change detection for hot-reloading
 
 #### engine/
+
 Core flow execution engine:
+
 - `executor.rs`: Recursive flow execution with timeout and circuit breaker
 - `interfaces.rs`: Plugin trait definitions and data structures
 - `context.rs`: Execution context abstraction (Transport vs Application)
 - `key_scoping.rs`: KV key namespacing for plugin outputs
 
 #### ingress/
+
 Connection entry points:
+
 - `tcp.rs`: TCP listener and connection handler
 - `udp.rs`: UDP listener with datagram processing
 - `listener.rs`: Unified listener management
@@ -82,7 +90,9 @@ Connection entry points:
 - `tasks.rs`: Connection rate limiting
 
 #### layers/l4/
+
 Transport layer routing:
+
 - `dispatcher.rs`: Routes connections to flow configurations
 - `flow.rs`: L4 flow execution entry point
 - `resolver.rs`: Target resolution (IP, Domain, Node)
@@ -93,7 +103,9 @@ Transport layer routing:
 - `proxy/`: TCP/UDP forwarding implementations
 
 #### layers/l4p/
+
 Protocol inspection layer:
+
 - `plain.rs`: Plaintext HTTP protocol handler
 - `tls.rs`: TLS ClientHello parsing and SNI extraction
 - `quic/`: QUIC protocol support (session, muxer, protocol)
@@ -102,7 +114,9 @@ Protocol inspection layer:
 - `hotswap.rs`: Protocol configuration reloading
 
 #### layers/l7/
+
 Application layer processing:
+
 - `container.rs`: Universal L7 message envelope (request/response)
 - `flow.rs`: L7 flow execution
 - `protocol_data.rs`: Protocol-specific extensions
@@ -110,7 +124,9 @@ Application layer processing:
 - `model.rs`: Application registry
 
 #### plugins/
+
 Plugin implementations:
+
 - `core/`: Plugin registry and loader
 - `system/`: System plugins (exec, httpx, unix)
 - `middleware/`: Middleware plugins (ratelimit, etc.)
@@ -118,14 +134,18 @@ Plugin implementations:
 - `l7/`: L7 plugins (upstream, cgi, static_files)
 
 #### resources/
+
 Shared resources:
+
 - `kv.rs`: Per-connection key-value store (AHashMap)
 - `service_discovery/`: Node and upstream management
 - `certs/`: TLS certificate loading and storage
 - `templates/`: Template resolution system
 
 #### api/
+
 Management API:
+
 - `handlers/`: API endpoint handlers
 - `middleware/auth.rs`: Token-based authentication
 
@@ -170,6 +190,7 @@ pub struct PluginInstance {
 Each step contains exactly one plugin. Plugin inputs use template strings for variable substitution. Plugin outputs define branches that map to subsequent steps.
 
 Example flow structure:
+
 ```json
 {
   "detect_tls": {
@@ -195,6 +216,7 @@ Example flow structure:
 Each connection maintains a per-connection key-value store (`KvStore`) that accumulates metadata as the connection traverses layers:
 
 **Initial Population** (on connection accept):
+
 - `conn.uuid`: UUIDv7 connection identifier
 - `conn.ip`: Client IP address
 - `conn.port`: Client port number
@@ -203,6 +225,7 @@ Each connection maintains a per-connection key-value store (`KvStore`) that accu
 - `conn.layer`: Current processing layer (l4, l4p, or l7)
 
 **Layer 4+ Additions**:
+
 - `tls.sni`: TLS Server Name Indication
 - `tls.alpn`: TLS Application-Layer Protocol Negotiation
 - `tls.error`: TLS parsing error code (if any)
@@ -219,6 +242,7 @@ plugin.<flow_path>.<plugin_name>.<key>
 ```
 
 Example: A plugin named `auth` in branch `detect.tls.route` storing `username` becomes:
+
 ```
 plugin.detect.tls.route.auth.username
 ```
@@ -246,6 +270,7 @@ pub enum ConnectionObject {
 Each layer has specific responsibilities and constraints:
 
 **Layer 4 (Transport)**:
+
 - Operates on raw TCP streams or UDP datagrams
 - Limited to transport-layer metadata (IP, port, protocol)
 - Can peek initial bytes for protocol detection
@@ -253,6 +278,7 @@ Each layer has specific responsibilities and constraints:
 - Output: Proxy to target, Deny connection, or Upgrade to L4+
 
 **Layer 4+ (Carrier)**:
+
 - Inspects encrypted protocols without full termination
 - Parses ClientHello for TLS, QUIC headers for routing
 - Extracts routing metadata (SNI, ALPN, Host header)
@@ -260,6 +286,7 @@ Each layer has specific responsibilities and constraints:
 - Output: Proxy with metadata, or Upgrade to L7
 
 **Layer 7 (Application)**:
+
 - Full HTTP request/response processing
 - Access to headers, body, and protocol data
 - Can modify requests before upstream forwarding
@@ -275,6 +302,7 @@ Located in `src/layers/l4/`, this layer handles transport-level routing for TCP 
 #### Entry Point
 
 Connections enter through `dispatcher.rs` which:
+
 1. Retrieves port configuration from `CONFIG_STATE`
 2. Creates initial `KvStore` with connection metadata
 3. Selects TCP or UDP configuration based on protocol
@@ -283,6 +311,7 @@ Connections enter through `dispatcher.rs` which:
 #### Flow Execution
 
 The `flow.rs` module executes L4 flows:
+
 1. Creates `TransportContext` with KV store and payload cache
 2. Calls `engine::executor::execute()` with flow definition
 3. Handles terminator results:
@@ -292,6 +321,7 @@ The `flow.rs` module executes L4 flows:
 #### Context and Peek Buffer
 
 L4 operates on a peek buffer to make routing decisions without consuming data:
+
 - TCP: Reads initial bytes into buffer using `peek()` system call
 - UDP: Entire datagram available immediately
 - Buffer size configurable: `TCP_DETECT_LIMIT` and `UDP_DETECT_LIMIT`
@@ -315,6 +345,7 @@ pub enum Target {
 **Domain Target**: DNS resolution performed at connection time. Uses custom DNS resolver configured via NAMESERVER1/NAMESERVER2 environment variables. Supports A and AAAA records.
 
 **Node Target**: Lookup in service discovery registry (`nodes.json`). Node entries contain:
+
 - `id`: Node identifier
 - `ip`: IP address
 - `port`: Port number
@@ -336,12 +367,14 @@ Health status is considered in all strategies. Unhealthy targets are excluded.
 UDP is connectionless but Vane maintains stateful sessions in `session.rs`:
 
 **Session Table**:
+
 - Key: Client IP + Port
 - Value: Associated upstream socket and buffer
 - TTL: Configurable via `UDP_SESSION_TIMEOUT_SECS` (default 30s)
 - Cleanup: Background task removes expired entries
 
 **Bidirectional Forwarding**:
+
 1. Client -> Server: Create session, forward datagram
 2. Server -> Client: Lookup session, forward response
 3. Session reused for subsequent datagrams from same client
@@ -351,12 +384,14 @@ UDP is connectionless but Vane maintains stateful sessions in `session.rs`:
 The `health.rs` module monitors upstream availability:
 
 **TCP Health Checks**:
+
 - Periodic connection attempts to upstream
 - Interval: `HEALTH_TCP_INTERVAL_SECS` (default 5s)
 - Timeout: `HEALTH_TCP_CONNECT_TIMEOUT_MS` (default 2000ms)
 - Marks targets healthy/unhealthy based on connection success
 
 **UDP Health Checks**:
+
 - Passive monitoring (no active probing)
 - Marks unhealthy if no response within TTL
 - Cleanup interval: `HEALTH_UDP_CLEANUP_INTERVAL_SECS` (default 5s)
@@ -368,12 +403,14 @@ Located in `src/layers/l4p/`, this layer inspects protocols for routing without 
 #### Supported Protocols
 
 **Plain HTTP** (`plain.rs`):
+
 - Detects HTTP by parsing request line
 - Extracts: Method, Host header, Path, Version
 - Populates KV: `http.method`, `http.host`, `http.path`, `http.version`
 - Buffer size: `HTTP_PLAIN_HEADER_BUFFER_SIZE` (default 4096 bytes)
 
 **TLS** (`tls.rs`):
+
 - Parses ClientHello handshake message
 - Extracts Server Name Indication (SNI) from extensions
 - Populates KV: `tls.sni`, `tls.alpn`
@@ -383,6 +420,7 @@ Located in `src/layers/l4p/`, this layer inspects protocols for routing without 
 - Fail mode: Fail-closed by default, configurable via `TLS_ALLOW_PARSE_FAILURE`
 
 **QUIC** (`quic/`):
+
 - Validates QUIC packet header (fixed bit 0x40)
 - Extracts Connection ID (CID) for session tracking
 - Supports long and short headers
@@ -398,16 +436,19 @@ Located in `src/layers/l4p/`, this layer inspects protocols for routing without 
 Protocol detection uses magic byte analysis and heuristics:
 
 **TLS Detection**:
+
 - First byte: 0x16 (Handshake)
 - Validates record version
 - Verifies handshake type is ClientHello
 
 **QUIC Detection**:
+
 - First byte fixed bit: 0x40 set
 - Validates version field
 - Checks Connection ID length
 
 **HTTP Detection**:
+
 - Matches ASCII method prefixes: GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH
 - Validates request line format
 - Checks for HTTP version string
@@ -417,12 +458,14 @@ Protocol detection uses magic byte analysis and heuristics:
 QUIC uses a sophisticated session system in `quic/session.rs`:
 
 **Session Table**:
+
 - Maps Connection ID (CID) to flow metadata
 - Stores flow definition and accumulated KV data
 - TTL: `QUIC_SESSION_TTL_SECS` (default 300s)
 - Atomic updates using DashMap
 
 **Sticky IP Table**:
+
 - Fallback when CID not found in session table
 - Maps Client IP to flow metadata
 - TTL: `QUIC_STICKY_SESSION_TTL` (default 60s)
@@ -430,6 +473,7 @@ QUIC uses a sophisticated session system in `quic/session.rs`:
 
 **Fast Path**:
 UDP listener checks session tables before invoking L4 flow:
+
 1. Extract CID from QUIC packet
 2. Lookup in session table
 3. If hit: Use cached flow, skip L4 processing
@@ -450,6 +494,7 @@ The `quic/muxer.rs` module multiplexes QUIC packets to flow tasks:
 #### Resolver Configuration
 
 L4+ configurations are stored in `resolvers/` directory:
+
 - `tls.json`: TLS SNI-based routing
 - `http.json`: HTTP Host/Path routing
 - `quic.json`: QUIC-specific routing
@@ -477,6 +522,7 @@ pub struct Container {
 ```
 
 **Components**:
+
 - `kv`: Connection metadata from L4/L4+
 - `request_headers`: HTTP request headers (hyper::HeaderMap)
 - `request_body`: Lazy-buffered request body
@@ -505,17 +551,20 @@ Buffering occurs on-demand when templates access `{{req.body}}` or when middlewa
 L7 employs adaptive memory limits to prevent resource exhaustion:
 
 **Global Buffer Quota**:
+
 - Default: 512MB (`L7_GLOBAL_BUFFER_LIMIT`)
 - Adaptive mode: 85% of system memory (`L7_ADAPTIVE_MEMORY_RATIO`)
 - Enabled via: `L7_ADAPTIVE_MEMORY_LIMIT=true`
 
 **Per-Request Limit**:
+
 - Default: 10MB (`L7_MAX_BUFFER_SIZE`)
 - Enforced when buffering request/response bodies
 - Exceeding limit returns error to client
 
 **BufferGuard**:
 RAII pattern using `BufferGuard` struct:
+
 1. On creation: Atomically increment global counter
 2. Check if quota exceeded
 3. On drop: Atomically decrement global counter
@@ -525,17 +574,20 @@ This ensures automatic cleanup and prevents memory leaks.
 #### HTTP Protocol Support
 
 **HTTP/1.1**:
+
 - Uses hyper HTTP/1 implementation
 - Keepalive support via connection pooling
 - Chunked transfer encoding support
 
 **HTTP/2**:
+
 - Requires `h2upstream` feature flag
 - Multiplexing supported
 - Stream window: `UPSTREAM_H2_STREAM_WINDOW` (default 2MB)
 - Connection window: `UPSTREAM_H2_CONN_WINDOW` (default 2MB)
 
 **HTTP/3**:
+
 - Requires `h3upstream` feature flag
 - Built on QUIC transport
 - Integrated with QUIC muxer
@@ -543,6 +595,7 @@ This ensures automatic cleanup and prevents memory leaks.
 #### Application Configuration
 
 L7 applications are defined in `applications/` directory. Each application is a flow definition that can:
+
 - Execute middleware chains
 - Transform requests/responses
 - Route based on headers/path
@@ -591,6 +644,7 @@ pub struct MiddlewareOutput {
 - `store`: Optional key-value pairs to add to KV store
 
 The executor processes this by:
+
 1. Validating branch exists in plugin configuration
 2. Storing KV updates with scoped keys
 3. Recursively executing the next step defined by the branch
@@ -620,15 +674,18 @@ Upgrades allow layer transitions (L4 -> L4+, L4+ -> L7) by returning the connect
 External plugins are protected by a passive circuit breaker:
 
 **Failure Detection**:
+
 - Runtime errors during plugin execution
 - Middleware returning "failure" branch
 
 **Quiet Period**:
+
 - Duration: `EXTERNAL_PLUGIN_QUIET_PERIOD_SECS` (default 3s)
 - During quiet period: Skip plugin I/O, return synthetic failure branch
 - Automatic recovery after quiet period expires
 
 **Implementation**:
+
 - Failure timestamps stored in `EXTERNAL_PLUGIN_FAILURES` DashMap
 - Checked before each plugin invocation
 - Reset on successful execution
@@ -638,11 +695,13 @@ External plugins are protected by a passive circuit breaker:
 The engine supports multiple execution contexts via the `ExecutionContext` trait:
 
 **TransportContext** (L4/L4+):
+
 - KV store access
 - Payload cache for peek buffers
 - Template resolution using KV and hex-encoded payloads
 
 **ApplicationContext** (L7):
+
 - Mutable Container reference
 - Full HTTP request/response access
 - Template resolution with HTTP hijacking (headers, body)
@@ -655,6 +714,7 @@ Contexts implement `resolve_inputs()` to handle template substitution based on a
 Plugin outputs are namespaced to prevent collisions. The `key_scoping.rs` module provides:
 
 **Path Construction**:
+
 ```rust
 pub fn next_path(parent: &str, plugin: &str, branch: &str) -> String {
     if parent.is_empty() {
@@ -666,6 +726,7 @@ pub fn next_path(parent: &str, plugin: &str, branch: &str) -> String {
 ```
 
 **Scoped Key Formatting**:
+
 ```rust
 pub fn format_scoped_key(path: &str, plugin: &str, key: &str) -> String {
     if path.is_empty() {
@@ -677,6 +738,7 @@ pub fn format_scoped_key(path: &str, plugin: &str, key: &str) -> String {
 ```
 
 Example flow path evolution:
+
 ```
 Initial: ""
 After plugin "detect" (branch "tls"): "detect.tls"
@@ -684,6 +746,7 @@ After plugin "route" (branch "match"): "detect.tls.route.match"
 ```
 
 Keys stored by plugin "auth" in this path:
+
 ```
 plugin.detect.tls.route.match.auth.username
 plugin.detect.tls.route.match.auth.role
@@ -700,6 +763,7 @@ The plugin system supports both internal (compiled-in) and external (dynamically
 Five main traits define plugin capabilities:
 
 **Plugin** (Base Trait):
+
 ```rust
 pub trait Plugin: Send + Sync + Any {
     fn name(&self) -> &str;
@@ -711,17 +775,20 @@ pub trait Plugin: Send + Sync + Any {
 ```
 
 **GenericMiddleware** (Cross-Layer):
+
 ```rust
 pub trait GenericMiddleware: Plugin {
     fn output(&self) -> Vec<Cow<'static, str>>;
     async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
 }
 ```
+
 - Used for: Protocol-agnostic middleware (rate limiting, detection, routing)
 - Access: Template-resolved inputs only
 - External: Supported
 
 **HttpMiddleware** (L7 HTTP):
+
 ```rust
 pub trait HttpMiddleware: Plugin {
     fn output(&self) -> Vec<Cow<'static, str>>;
@@ -732,11 +799,13 @@ pub trait HttpMiddleware: Plugin {
     ) -> Result<MiddlewareOutput>;
 }
 ```
+
 - Used for: HTTP-specific transformations (header manipulation, body inspection)
 - Access: Full Container (downcast from Any)
 - External: Not supported (requires Rust implementation)
 
 **Terminator** (Generic):
+
 ```rust
 pub trait Terminator: Plugin {
     fn supported_layers(&self) -> Vec<Layer>;
@@ -748,11 +817,13 @@ pub trait Terminator: Plugin {
     ) -> Result<TerminatorResult>;
 }
 ```
+
 - Used for: Connection termination (proxy, deny, upgrade)
 - Access: KV store and connection object
 - External: Not currently supported
 
 **L7Terminator** (L7 Privileged):
+
 ```rust
 pub trait L7Terminator: Plugin {
     async fn execute_l7(
@@ -762,6 +833,7 @@ pub trait L7Terminator: Plugin {
     ) -> Result<TerminatorResult>;
 }
 ```
+
 - Used for: L7-specific terminators (send_response, fetch_upstream)
 - Access: Full Container
 - External: Not supported
@@ -771,6 +843,7 @@ pub trait L7Terminator: Plugin {
 The registry in `src/plugins/core/registry.rs` manages plugin lifecycle:
 
 **Internal Plugin Registration**:
+
 ```rust
 pub fn register_plugin(plugin: Arc<dyn Plugin>) {
     PLUGIN_REGISTRY.insert(plugin.name().to_string(), plugin);
@@ -780,6 +853,7 @@ pub fn register_plugin(plugin: Arc<dyn Plugin>) {
 Internal plugins are registered at compile-time using static initialization.
 
 **External Plugin Registration**:
+
 ```rust
 pub fn register_external_plugin(
     name: String,
@@ -794,6 +868,7 @@ pub fn register_external_plugin(
 External plugins are loaded from `plugins.json` during bootstrap.
 
 **Plugin Lookup**:
+
 ```rust
 pub fn get_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
     PLUGIN_REGISTRY.get(name).map(|e| Arc::clone(e.value()))
@@ -807,36 +882,42 @@ Thread-safe using DashMap for concurrent access.
 External plugins use one of three driver types:
 
 **HTTP Driver**:
+
 ```json
 {
-  "type": "http",
-  "url": "http://localhost:9000/plugin"
+	"type": "http",
+	"url": "http://localhost:9000/plugin"
 }
 ```
+
 - Sends POST request with JSON payload
 - Expects JSON response with `status`, `data`, `message` fields
 - Timeout: `FLOW_EXECUTION_TIMEOUT_SECS`
 - TLS verification: Controlled by `SKIP_TLS_VERIFY`
 
 **Unix Socket Driver**:
+
 ```json
 {
-  "type": "unix",
-  "path": "/var/run/plugin.sock"
+	"type": "unix",
+	"path": "/var/run/plugin.sock"
 }
 ```
+
 - Connects to Unix domain socket
 - Protocol: Same as HTTP driver (JSON over socket)
 
 **Command Driver**:
+
 ```json
 {
-  "type": "command",
-  "program": "/usr/bin/plugin",
-  "args": ["--mode", "middleware"],
-  "env": {"KEY": "value"}
+	"type": "command",
+	"program": "/usr/bin/plugin",
+	"args": ["--mode", "middleware"],
+	"env": { "KEY": "value" }
 }
 ```
+
 - Spawns process for each invocation
 - Input: JSON sent to stdin
 - Output: JSON read from stdout
@@ -849,29 +930,29 @@ External plugins are defined in `plugins.json`:
 
 ```json
 {
-  "plugins": [
-    {
-      "name": "custom_auth",
-      "role": "middleware",
-      "driver": {
-        "type": "http",
-        "url": "http://localhost:9001/auth"
-      },
-      "params": [
-        {"name": "token", "required": true}
-      ],
-      "output": ["success", "failure"]
-    }
-  ]
+	"plugins": [
+		{
+			"name": "custom_auth",
+			"role": "middleware",
+			"driver": {
+				"type": "http",
+				"url": "http://localhost:9001/auth"
+			},
+			"params": [{ "name": "token", "required": true }],
+			"output": ["success", "failure"]
+		}
+	]
 }
 ```
 
 **Validation**:
+
 - Parameter definitions checked at load time
 - Output branches must be non-empty for middleware
 - Role must be "middleware" or "terminator"
 
 **Health Checking**:
+
 - Periodic validation interval: `EXTERNAL_PLUGIN_CHECK_INTERVAL_MINS` (default 15 minutes)
 - Ensures plugin processes/servers remain responsive
 - Circuit breaker activates on failures
@@ -899,6 +980,7 @@ pub enum ParamType {
 ```
 
 Validation occurs before plugin execution:
+
 1. Check all required parameters are present
 2. Verify parameter types match definitions
 3. Reject execution if validation fails
@@ -906,22 +988,26 @@ Validation occurs before plugin execution:
 ### Built-in Plugins
 
 **Detection Plugins** (`plugins/l4/detect/`):
+
 - `tls_detect`: TLS ClientHello detection
 - `quic_detect`: QUIC packet detection
 - `http_detect`: HTTP method detection
 - `dns_detect`: DNS query detection
 
 **Proxy Plugins** (`plugins/l4/proxy/`):
+
 - `tcp_proxy`: TCP forwarding
 - `udp_proxy`: UDP forwarding
 - `deny`: Connection rejection
 
 **Middleware Plugins** (`plugins/middleware/`):
+
 - `ratelimit`: Rate limiting based on keys
 - `header_inject`: HTTP header manipulation
 - `log`: Request logging
 
 **L7 Terminators** (`plugins/l7/`):
+
 - `http_fetch`: Upstream HTTP request
 - `send_response`: Direct response generation
 - `static_serve`: Static file serving
@@ -935,6 +1021,7 @@ Vane's configuration system supports hot-reloading without downtime.
 
 **ports.json**:
 Defines TCP/UDP listeners and their L4 flows:
+
 ```json
 {
   "ports": [
@@ -951,43 +1038,47 @@ Defines TCP/UDP listeners and their L4 flows:
 }
 ```
 
-**resolvers/*.json**:
+**resolvers/\*.json**:
 L4+ protocol handlers:
+
 - `tls.json`: TLS SNI routing
 - `http.json`: HTTP Host/Path routing
 - `quic.json`: QUIC CID routing
 
-**applications/*.json**:
+**applications/\*.json**:
 L7 application pipelines:
+
 - Define middleware chains
 - Configure upstream targets
 - Set response policies
 
 **nodes.json**:
 Service discovery registry:
+
 ```json
 {
-  "nodes": {
-    "backend1": {
-      "ip": "192.168.1.10",
-      "port": 8080,
-      "weight": 100
-    }
-  }
+	"nodes": {
+		"backend1": {
+			"ip": "192.168.1.10",
+			"port": 8080,
+			"weight": 100
+		}
+	}
 }
 ```
 
 **certs.json**:
 TLS certificate definitions:
+
 ```json
 {
-  "certificates": [
-    {
-      "domains": ["example.com", "*.example.com"],
-      "cert_path": "/path/to/cert.pem",
-      "key_path": "/path/to/key.pem"
-    }
-  ]
+	"certificates": [
+		{
+			"domains": ["example.com", "*.example.com"],
+			"cert_path": "/path/to/cert.pem",
+			"key_path": "/path/to/key.pem"
+		}
+	]
 }
 ```
 
@@ -999,6 +1090,7 @@ External plugin registry (see Plugin System section).
 The `watcher.rs` module monitors configuration files using the notify crate:
 
 **Watch Targets**:
+
 - `CONFIG_DIR/ports.json`
 - `CONFIG_DIR/resolvers/*.json`
 - `CONFIG_DIR/applications/*.json`
@@ -1017,21 +1109,25 @@ Changes are sent via Tokio channels to respective hotswap handlers.
 Configuration updates use `arc-swap` for lock-free atomic pointer swaps:
 
 **Port Configuration**:
+
 ```rust
 pub static CONFIG_STATE: ArcSwap<Vec<PortStatus>> = ArcSwap::from_pointee(vec![]);
 ```
 
 **Protocol Registry**:
+
 ```rust
 pub static RESOLVER_REGISTRY: ArcSwap<HashMap<String, ProtocolFlow>> = ArcSwap::from_pointee(HashMap::new());
 ```
 
 **Application Registry**:
+
 ```rust
 pub static APPLICATION_REGISTRY: ArcSwap<HashMap<String, ApplicationConfig>> = ArcSwap::from_pointee(HashMap::new());
 ```
 
 **Swap Process**:
+
 1. Detect file change via watcher
 2. Load and parse new configuration
 3. Validate configuration syntax and semantics
@@ -1039,6 +1135,7 @@ pub static APPLICATION_REGISTRY: ArcSwap<HashMap<String, ApplicationConfig>> = A
 5. On failure: Log error, retain previous configuration
 
 **Consistency**:
+
 - In-flight connections use configuration snapshot from start time
 - New connections immediately see updated configuration
 - No connection drops or service interruption
@@ -1048,17 +1145,20 @@ pub static APPLICATION_REGISTRY: ArcSwap<HashMap<String, ApplicationConfig>> = A
 Configuration validation occurs before swapping:
 
 **Syntax Validation**:
+
 - JSON parsing errors
 - Required fields present
 - Type checking
 
 **Semantic Validation**:
+
 - Plugin existence verification
 - Parameter requirement checking
 - Output branch completeness
 - Target reachability (optional, best-effort)
 
 **Layer Validation**:
+
 - L4 flows cannot use L7-specific plugins
 - L7 flows cannot use L4-specific terminators
 - Protocol compatibility checking
@@ -1074,6 +1174,7 @@ The template system in `src/resources/templates/` provides variable substitution
 Templates use double-brace syntax: `{{variable_name}}`
 
 **Direct KV Lookup**:
+
 ```
 {{conn.ip}}          -> "192.168.1.100"
 {{tls.sni}}          -> "example.com"
@@ -1081,6 +1182,7 @@ Templates use double-brace syntax: `{{variable_name}}`
 ```
 
 **Nested Access** (for JSON values in KV):
+
 ```
 {{request.headers.host}}      -> Access nested JSON field
 {{plugin.parser.data.field}}  -> Scoped plugin output access
@@ -1091,12 +1193,14 @@ Templates use double-brace syntax: `{{variable_name}}`
 Template resolution depends on execution context:
 
 **L4/L4+ (TransportContext)**:
+
 - KV store lookup
 - Payload hijacking for raw data:
   - `{{req.peek_buffer_hex}}`: Hex-encoded peek buffer
   - `{{req.peek_buffer_bytes}}`: Raw bytes (if supported by plugin)
 
 **L7 (ApplicationContext)**:
+
 - KV store lookup
 - HTTP hijacking:
   - `{{req.body}}`: Request body (triggers buffering)
@@ -1126,6 +1230,7 @@ Implemented in `src/resources/templates/mod.rs`:
 
 **Key Validation**:
 Plugin outputs are validated to prevent template injection:
+
 - Keys containing `{` or `}` are rejected
 - Prevents plugins from injecting template syntax into KV store
 
@@ -1142,12 +1247,14 @@ Depth and size limits prevent resource exhaustion attacks through deeply nested 
 Global connection tracking in `src/ingress/tasks.rs`:
 
 **Per-IP Limiting**:
+
 - Limit: `MAX_CONNECTIONS_PER_IP` (default 50)
 - Tracked using DashMap: IP -> connection count
 - Atomic increment on accept, decrement on close
 - Exceeding limit: Connection rejected with log entry
 
 **Global Limiting**:
+
 - Limit: `MAX_CONNECTIONS` (default 10000)
 - Atomic counter for total active connections
 - Exceeding limit: New connections rejected
@@ -1158,15 +1265,18 @@ Connection counts decremented automatically using RAII guards that execute on co
 ### Buffer Management
 
 **TCP Buffers**:
+
 - System socket buffers used (kernel managed)
 - Peek buffer size: `TCP_DETECT_LIMIT` (default 64 bytes)
 
 **UDP Buffers**:
+
 - Datagram size: `UDP_DETECT_LIMIT` (default 64 bytes) for protocol detection
 - Session buffers: `UDP_SESSION_BUFFER` (default 4MB) per session
 - QUIC buffers: See QUIC section
 
 **L7 Buffers**:
+
 - Managed through BufferGuard system
 - Global quota enforcement
 - Per-request limits
@@ -1177,21 +1287,25 @@ Connection counts decremented automatically using RAII guards that execute on co
 HTTP upstream connections use pooling in `src/plugins/l7/upstream/pool.rs`:
 
 **Configuration**:
+
 - Idle timeout: `UPSTREAM_POOL_IDLE_TIMEOUT` (default 90s)
 - Max idle connections: `UPSTREAM_POOL_MAX_IDLE` (default 32)
 - Keepalive interval: `UPSTREAM_KEEPALIVE_INTERVAL` (default 30s)
 
 **HTTP/2 Specific**:
+
 - Stream window: `UPSTREAM_H2_STREAM_WINDOW` (default 2MB)
 - Connection window: `UPSTREAM_H2_CONN_WINDOW` (default 2MB)
 
 **Pool Behavior**:
+
 - Reuses connections when possible
 - Closes idle connections after timeout
 - Per-host connection limits
 - Thread-safe using Arc and Mutex
 
 **QUIC Pooling** (`quic_pool.rs`):
+
 - Separate pool for QUIC/HTTP3 connections
 - Idle timeout: `UPSTREAM_POOL_IDLE_TIMEOUT` (default 90s)
 - Connection reuse based on server name
@@ -1201,6 +1315,7 @@ HTTP upstream connections use pooling in `src/plugins/l7/upstream/pool.rs`:
 Certificates loaded in `src/resources/certs/loader.rs`:
 
 **Storage Structure**:
+
 ```rust
 pub static CERT_REGISTRY: ArcSwap<HashMap<String, Arc<CertifiedKey>>> = ...;
 ```
@@ -1209,6 +1324,7 @@ pub static CERT_REGISTRY: ArcSwap<HashMap<String, Arc<CertifiedKey>>> = ...;
 **Value**: `CertifiedKey` containing certificate chain and private key
 
 **Lookup**:
+
 1. Exact domain match
 2. Wildcard match (e.g., `*.example.com` matches `www.example.com`)
 3. Fallback to default certificate (if configured)
@@ -1221,17 +1337,20 @@ Certificate updates detected via file watcher, atomically swapped without droppi
 ### Task Model
 
 **Per-Connection Tasks**:
+
 - One Tokio task per TCP connection
 - Task spawned on accept, runs until connection close
 - Connection object owned by task (no sharing)
 - KV store owned by task
 
 **UDP Datagram Processing**:
+
 - One Tokio task per UDP datagram
 - Short-lived task (completes after forwarding)
 - Session table shared across datagrams (DashMap for thread-safety)
 
 **Background Tasks**:
+
 - File watchers: One task per watched directory/file
 - Health checkers: One task per check type (TCP/UDP)
 - Memory monitor: One task for L7 buffer tracking
@@ -1241,6 +1360,7 @@ Certificate updates detected via file watcher, atomically swapped without droppi
 ### Shared State
 
 **ArcSwap Registries** (Read-Heavy):
+
 - `CONFIG_STATE`: Port configurations
 - `RESOLVER_REGISTRY`: L4+ protocol handlers
 - `APPLICATION_REGISTRY`: L7 application flows
@@ -1250,6 +1370,7 @@ Certificate updates detected via file watcher, atomically swapped without droppi
 Lock-free reads, atomic pointer swaps for updates.
 
 **DashMap Tables** (Read-Write):
+
 - `PLUGIN_REGISTRY`: Plugin lookup
 - `EXTERNAL_PLUGIN_REGISTRY`: External plugin metadata
 - `EXTERNAL_PLUGIN_FAILURES`: Circuit breaker state
@@ -1260,6 +1381,7 @@ Lock-free reads, atomic pointer swaps for updates.
 Concurrent read/write with internal sharding for performance.
 
 **Atomic Counters**:
+
 - Global connection count (AtomicUsize)
 - Per-IP connection counts (stored in DashMap)
 - L7 buffer quota (AtomicUsize)
@@ -1267,29 +1389,35 @@ Concurrent read/write with internal sharding for performance.
 ### Synchronization Primitives
 
 **Channels**:
+
 - File watcher -> Hotswap handler: `tokio::sync::mpsc`
 - HTTP adapter -> L7 flow: `tokio::sync::oneshot`
 - QUIC muxer: `tokio::sync::mpsc` with bounded capacity
 
 **RwLock** (Rare):
+
 - External plugin registry writes (infrequent updates)
 
 **Mutex** (Avoided):
+
 - Connection pooling uses `hyper::client::pool` internal locks
 - Generally avoided in hot path
 
 ### Async Runtime
 
 **Tokio Multi-Threaded Runtime**:
+
 - Worker threads: Default = CPU core count
 - Work-stealing scheduler
 - All I/O operations are async (TcpStream, UdpSocket)
 
 **Blocking Operations**:
+
 - File I/O for configuration loading: Uses `tokio::fs` (backed by thread pool)
 - DNS resolution: Uses `trust-dns-resolver` async resolver
 
 **Cancellation**:
+
 - Connection tasks cancelled on client disconnect (Tokio task cancellation)
 - Flow execution timeout enforced via `tokio::time::timeout`
 - Graceful shutdown on SIGTERM (active connections allowed to complete)
@@ -1303,19 +1431,23 @@ Implemented in `src/plugins/middleware/ratelimit.rs`:
 **Algorithm**: Token bucket using `governor` crate
 
 **Configuration**:
+
 - Max memory: `MAX_LIMITER_MEMORY` (default 4MB)
 - Key max length: `RATELIMIT_KEY_MAX_LEN` (default 256 bytes)
 
 **Key Sources**:
+
 - Client IP: `{{conn.ip}}`
 - Custom keys: Template-based (e.g., `{{plugin.auth.user}}`)
 
 **Rate Formats**:
+
 - Per-second: "100/s"
 - Per-minute: "1000/m"
 - Per-hour: "10000/h"
 
 **Behavior**:
+
 - Returns "allowed" or "denied" branch
 - Middleware plugin (can be chained)
 - Thread-safe quota tracking
@@ -1326,6 +1458,7 @@ Implemented in `src/plugins/l7/cgi/executor.rs`:
 
 **Environment Variables**:
 Standard CGI variables populated:
+
 - `GATEWAY_INTERFACE=CGI/1.1`
 - `SERVER_PROTOCOL=HTTP/1.1`
 - `REQUEST_METHOD`, `REQUEST_URI`, `QUERY_STRING`
@@ -1335,6 +1468,7 @@ Standard CGI variables populated:
 - HTTP headers as `HTTP_*` variables
 
 **Execution**:
+
 - Spawns process using `tokio::process::Command`
 - Request body sent to stdin
 - Response read from stdout
@@ -1342,6 +1476,7 @@ Standard CGI variables populated:
 - Max body size: `CGI_BODY_MAX_SIZE_BYTE` (default 10MB)
 
 **Response Parsing**:
+
 - Parses CGI response headers
 - Converts to HTTP response
 - Supports both parsed headers and document responses
@@ -1351,12 +1486,14 @@ Standard CGI variables populated:
 Implemented in `src/plugins/l7/static_files/`:
 
 **MIME Detection**:
+
 - Uses `infer` crate for content sniffing
 - Sniff bytes: `STATIC_MIME_SNIFF_BYTES` (default 512)
 - Fallback to file extension mapping
 - Default: `application/octet-stream`
 
 **Features**:
+
 - Range request support
 - ETag generation
 - Last-Modified headers
@@ -1364,6 +1501,7 @@ Implemented in `src/plugins/l7/static_files/`:
 - Directory listing (optional)
 
 **Security**:
+
 - Path traversal prevention
 - Configurable root directory
 - Hidden file filtering
@@ -1373,12 +1511,14 @@ Implemented in `src/plugins/l7/static_files/`:
 Implemented in `src/layers/l4/resolver.rs`:
 
 **Resolver Configuration**:
+
 - Primary nameserver: `NAMESERVER1` (default 1.1.1.1)
 - Primary port: `NAMESERVER1_PORT` (default 53)
 - Secondary nameserver: `NAMESERVER2` (default 8.8.8.8)
 - Secondary port: `NAMESERVER2_PORT` (default 53)
 
 **Implementation**:
+
 - Uses `trust-dns-resolver` async resolver
 - Supports A and AAAA records
 - Concurrent queries to both nameservers
@@ -1390,18 +1530,21 @@ Implemented in `src/layers/l4/resolver.rs`:
 Connections can upgrade across layers:
 
 **L4 -> L4+**:
+
 1. L4 terminator returns `TerminatorResult::Upgrade`
 2. Specifies protocol name (e.g., "tls", "quic", "http")
 3. Connection object wrapped in appropriate stream
 4. L4+ dispatcher invoked with protocol handler
 
 **L4+ -> L7**:
+
 1. L4+ terminator returns `TerminatorResult::Upgrade`
 2. Specifies protocol name (e.g., "httpx", "h3")
 3. HTTP adapter creates Container from request
 4. L7 flow executed with Container context
 
 **WebSocket Upgrade** (L7 internal):
+
 - Handled via `protocol_data` in Container
 - Upgrade handle stored for post-processing
 - Response sent with 101 Switching Protocols
@@ -1410,17 +1553,20 @@ Connections can upgrade across layers:
 ### Health and Monitoring
 
 **Logging**:
+
 - Structured logging via `fancy_log` crate
 - Log levels: trace, debug, info, warn, error
 - Emoji prefixes for visual parsing
 - Configurable via `LOG_LEVEL` environment variable
 
 **Metrics** (Future):
+
 - Planned Prometheus exporter
 - Connection counts, request rates, latency percentiles
 - Plugin execution times, error rates
 
 **Management API**:
+
 - REST API on port `PORT` (default 3333)
 - Authentication via `ACCESS_TOKEN` (optional)
 - Endpoints:
@@ -1431,6 +1577,7 @@ Connections can upgrade across layers:
 ### Security Features
 
 **External Plugin Sandboxing**:
+
 - Environment variable filtering for command plugins
 - Linker env: `ALLOW_EXTERNAL_LINKER_ENV` (default false)
 - Runtime env: `ALLOW_EXTERNAL_RUNTIME_ENV` (default false)
@@ -1438,19 +1585,23 @@ Connections can upgrade across layers:
 - PATH append: `ALLOW_EXTERNAL_PATH_ENV_APPEND` (default false)
 
 **Plugin Validation**:
+
 - External plugin signature verification (if enabled)
 - Skip via: `SKIP_EXTERNAL_PLUGIN_VALIDATION` (default false)
 
 **TLS Verification**:
+
 - Upstream TLS verification enabled by default
 - Skip via: `SKIP_TLS_VERIFY` (default false, security risk)
 
 **Input Sanitization**:
+
 - Template injection prevention
 - Parameter type validation
 - Key name validation (reject braces)
 
 **Resource Limits**:
+
 - Connection rate limiting
 - Memory quotas
 - Execution timeouts

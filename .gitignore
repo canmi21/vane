@@ -13,6 +13,7 @@ lerna-debug.log*
 
 # Project
 node_modules
+out
 dist
 dist/*
 dist-ssr
@@ -21,8 +22,9 @@ coverage
 .env
 .venv
 *.tsbuildinfo
-docs
 .report
+.next
+.source
 
 # rust
 target

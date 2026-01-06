@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# examples/plugins/exec/test_shell_template.sh
 
 # Print debug info to Stderr
 echo "⚙ Starting execution..." >&2

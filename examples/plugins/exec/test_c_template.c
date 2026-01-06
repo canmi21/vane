@@ -1,3 +1,5 @@
+/* examples/plugins/exec/test_c_template.c */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

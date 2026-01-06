@@ -41,7 +41,7 @@ Example:
 ```text
 // src/module/example.rs
 
-````
+```
 
 ---
 
@@ -62,7 +62,7 @@ Example:
 - Open an Issue for discussion first.
 - If your idea is not accepted:
 
-  > *If you have solid ideas you want to experiment with, make a fork and see how it works.*
+  > _If you have solid ideas you want to experiment with, make a fork and see how it works._
 
 ---
 
@@ -90,9 +90,9 @@ Example:
 
 - Integration tests, mocks, or code-level tests as appropriate.
 - Feature PRs must:
-
   - Modify source files
   - Add an entry to `CHANGELOG.md` under **Unreleased**
+
 - Only maintainers may publish released versions.
 
 ---

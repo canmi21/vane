@@ -1,3 +1,5 @@
+/* examples/plugins/exec/test_go_template.go */
+
 package main
 
 import (

@@ -9,26 +9,26 @@
 connection:
   internal.protocol.detect:
     input:
-      method: "http"
-      payload: "{{req.peek_buffer_hex}}"
+      method: 'http'
+      payload: '{{req.peek_buffer_hex}}'
     output:
       # Branch: Protocol IS HTTP
-      "true":
+      'true':
         # Assumption: 'my_external_auth' is a registered external plugin
         # verifying a token from the connection context or payload.
         my_external_auth:
           input:
-            auth_token: "secret123" # Static input for demo
+            auth_token: 'secret123' # Static input for demo
           output:
-            "success":
+            'success':
               internal.transport.proxy.transparent:
                 input:
-                  target.ip: "127.0.0.1"
+                  target.ip: '127.0.0.1'
                   target.port: 8080
-            "failure":
+            'failure':
               internal.transport.abort:
                 input: {}
       # Branch: Protocol is NOT HTTP
-      "false":
+      'false':
         internal.transport.abort:
           input: {}

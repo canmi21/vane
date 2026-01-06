@@ -1,9 +1,9 @@
 ---
 name: Question
 about: Ask a usage or clarification question
-title: ""
+title: ''
 labels: question
-assignees: ""
+assignees: ''
 ---
 
 ## Question

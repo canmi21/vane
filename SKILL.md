@@ -36,7 +36,7 @@ Every source file MUST begin with something like this:
 
 ```rust
 /* src/[relative-path]/[file].rs */
-````
+```
 
 Second line MUST be blank. No exceptions.
 

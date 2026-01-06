@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# examples/plugins/exec/test_python_template.py
 
 import sys
 import json

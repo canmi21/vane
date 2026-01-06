@@ -7,9 +7,9 @@ services:
     env_file:
       - ./.env
     ports:
-      - "80:80/tcp"
-      - "443:443/tcp"
-      - "443:443/udp"
+      - '80:80/tcp'
+      - '443:443/tcp'
+      - '443:443/udp'
     volumes:
       - /opt/vane:/root/vane
     restart: unless-stopped

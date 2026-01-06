@@ -1,3 +1,5 @@
+// examples/plugins/exec/test_java_template.java
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.IOException;

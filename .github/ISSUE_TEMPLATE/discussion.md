@@ -1,9 +1,9 @@
 ---
 name: Discussion / Proposal
 about: Open-ended discussion or idea exploration
-title: ""
+title: ''
 labels: discussion
-assignees: ""
+assignees: ''
 ---
 
 ## Topic

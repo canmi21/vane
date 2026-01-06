@@ -3,7 +3,7 @@ protocols:
     priority: 1
     detect:
       method: magic
-      pattern: "0xc3"
+      pattern: '0xc3'
     destination:
       type: resolver
       resolver: quic

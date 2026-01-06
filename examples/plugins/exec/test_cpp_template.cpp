@@ -1,3 +1,5 @@
+/* examples/plugins/exec/test_cpp_template.cpp */
+
 #include <iostream>
 #include <string>
 
