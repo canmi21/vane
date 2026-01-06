@@ -34,7 +34,7 @@ impl Validate for UdpDestination {
 pub struct UdpProtocolRule {
 	#[validate(regex(
         path = *crate::layers::l4::model::NAME_REGEX,
-        message = "can only contain lowercase letters and numbers"
+        message = "can only contain lowercase letters, numbers, underscores and hyphens"
     ))]
 	pub name: String,
 	#[validate(range(min = 1))]

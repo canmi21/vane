@@ -144,5 +144,5 @@ impl Validate for Forward {
 }
 
 lazy_static::lazy_static! {
-		pub(super) static ref NAME_REGEX: regex::Regex = regex::Regex::new(r"^[a-z0-9]+$").expect("Failed to compile NAME_REGEX");
+		pub(super) static ref NAME_REGEX: regex::Regex = regex::Regex::new(r"^[a-z0-9_-]+$").expect("Failed to compile NAME_REGEX");
 }
