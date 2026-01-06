@@ -33,5 +33,12 @@ func GetTests() []TestCase {
 		{Name: "l4_test_tcp_fallback", Desc: "Verifies TCP fallback targets", Run: TestTcpFallback},
 		{Name: "l4_test_tcp_protocol_filtering", Desc: "Verifies protocol-based filtering", Run: TestTcpProtocolFiltering},
 		{Name: "l4_test_tcp_ip_filtering", Desc: "Verifies IP-based filtering (Flow Matcher)", Run: TestTcpIpFiltering},
+		{Name: "l4_test_lb_random", Desc: "Verifies Random Load Balancing Strategy", Run: TestLoadBalancerRandom},
+		{Name: "l4_test_lb_serial", Desc: "Verifies Serial Load Balancing Strategy", Run: TestLoadBalancerSerial},
+		{Name: "l4_test_tcp_health", Desc: "Verifies TCP Active Health Check", Run: TestTcpHealthCheck},
+		{Name: "l4_test_resolve_ip", Desc: "Verifies IP-based target resolution", Run: TestResolveIp},
+		{Name: "l4_test_resolve_node", Desc: "Verifies Node-based target resolution", Run: TestResolveNode},
+		{Name: "l4_test_resolve_domain", Desc: "Verifies Domain-based target resolution (DNS Mock)", Run: TestResolveDomain},
+		{Name: "l4_test_resolve_domain_failure", Desc: "Verifies DNS resolution failure handling", Run: TestResolveDomainFailure},
 	}
 }

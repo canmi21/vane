@@ -47,5 +47,6 @@ func GetTests() []TestEntry {
 		{Name: "l7_test_ws_deny_default", Desc: "WebSocket: Should reject if disabled", Run: TestWSDeny},
 		{Name: "l7_test_ws_allow_echo", Desc: "WebSocket: Basic Echo Tunneling", Run: TestWSAllow},
 		{Name: "l7_test_ws_stream_1gb", Desc: "WebSocket: 1GB Bidirectional Streaming", Run: TestWSStreamLarge},
+		{Name: "l7_test_upstream_pool", Desc: "HTTP Upstream: Connection Pooling", Run: TestUpstreamConnectionPooling},
 	}
 }

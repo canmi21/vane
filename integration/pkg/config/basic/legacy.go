@@ -1,10 +1,12 @@
 /* integration/pkg/config/basic/legacy.go */
 package basic
 
-// Target represents a backend destination.
+// Target represents a backend destination (IP, Domain, or Node).
 type Target struct {
-	Ip   string `yaml:"ip"`
-	Port int    `yaml:"port"`
+	Ip     string `yaml:"ip,omitempty"`
+	Domain string `yaml:"domain,omitempty"`
+	Node   string `yaml:"node,omitempty"`
+	Port   int    `yaml:"port"`
 }
 
 // Strategy defines how targets are selected (random, serial, fastest).
