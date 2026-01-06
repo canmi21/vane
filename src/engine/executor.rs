@@ -201,7 +201,20 @@ async fn execute_recursive<C: ExecutionContext>(
 
 	// 6. Check for runtime errors and update circuit breaker
 	let output = match output_res {
-		Ok(out) => out,
+		Ok(out) => {
+			if is_external && out.branch == "failure" {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"⚠ External plugin '{}' returned 'failure' branch. Marking as failed in Circuit Breaker.",
+						plugin_name
+					),
+				);
+				registry::EXTERNAL_PLUGIN_FAILURES
+					.insert(plugin_name.to_string(), std::time::Instant::now());
+			}
+			out
+		}
 		Err(e) => {
 			if is_external {
 				log(
