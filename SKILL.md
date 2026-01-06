@@ -488,10 +488,10 @@ When updating CHANGELOG.md for a new version release, follow these strict rules:
 
 ## Additional Resources
 
-- **Source code**: `/Users/canmi/Canmi/Project/vane/src/`
-- **Architecture docs**: `/Users/canmi/Canmi/Project/vane/docs/`
-- **Integration tests**: `/Users/canmi/Canmi/Project/vane/integration/tests/`
-- **TODO tracking**: `/Users/canmi/Canmi/Project/vane/TODO.md` and `.todo/`
+- **Source code**: `src/`
+- **Architecture docs**: `docs/`
+- **Integration tests**: `integration/tests/`
+- **TODO tracking**: `TODO.md`
 - **License**: MIT
 
 ---
