@@ -163,3 +163,82 @@ fn parse_sni_value(data: &[u8]) -> Result<String> {
 	}
 	Ok(String::from_utf8_lossy(&data[c..c + len]).to_string())
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_parse_crypto_frames_basic() {
+		// Construct a payload with a single CRYPTO frame (type 0x06)
+		// Offset: 0, Length: 4, Data: [0xaa, 0xbb, 0xcc, 0xdd]
+		let mut payload = vec![0x06, 0x00, 0x04];
+		payload.extend_from_slice(&[0xaa, 0xbb, 0xcc, 0xdd]);
+
+		let (sni, map) = parse_crypto_frames_for_sni(&payload).unwrap();
+		assert!(sni.is_none());
+		assert_eq!(map.len(), 1);
+		assert_eq!(map.get(&0).unwrap(), &vec![0xaa, 0xbb, 0xcc, 0xdd]);
+	}
+
+	#[test]
+	fn test_parse_multiple_crypto_frames() {
+		// Frame 1: Off 0, Len 2 [0x01, 0x02]
+		// Frame 2: Off 2, Len 2 [0x03, 0x04]
+		let payload = vec![
+			0x06, 0x00, 0x02, 0x01, 0x02, // F1
+			0x06, 0x02, 0x02, 0x03, 0x04, // F2
+		];
+
+		let (_, map) = parse_crypto_frames_for_sni(&payload).unwrap();
+		assert_eq!(map.len(), 2);
+		assert_eq!(map.get(&0).unwrap(), &vec![0x01, 0x02]);
+		assert_eq!(map.get(&2).unwrap(), &vec![0x03, 0x04]);
+	}
+
+	#[test]
+	fn test_parse_tls_client_hello_sni_extraction() {
+		// Construct a minimal TLS 1.3 ClientHello (Handshake only, no Record layer as per QUIC CRYPTO stream)
+		// Handshake Header: [Type: 1(CH), Len: 3-bytes]
+		let mut ch = vec![0x01, 0x00, 0x00, 0x30]; // Type 1, Len 48
+		ch.extend_from_slice(&[0x03, 0x03]); // Ver 1.2
+		ch.extend_from_slice(&[0x00; 32]); // Random
+		ch.push(0x00); // Session ID len 0
+		ch.extend_from_slice(&[0x00, 0x02, 0x00, 0x2f]); // Ciphers (len 2, 1 cipher)
+		ch.extend_from_slice(&[0x01, 0x00]); // Comp (len 1, null)
+
+		// Extensions
+		let mut ext = vec![0x00, 0x00]; // Type SNI
+		let sni_name = b"vane.test";
+		let mut sni_val = vec![0x00, 0x00]; // List len (will fill later)
+		sni_val.push(0x00); // Type HostName
+		sni_val.extend_from_slice(&((sni_name.len() as u16).to_be_bytes())); // Name len
+		sni_val.extend_from_slice(sni_name);
+
+		// Fill list len
+		let list_len = (sni_val.len() - 2) as u16;
+		sni_val[0..2].copy_from_slice(&list_len.to_be_bytes());
+
+		ext.extend_from_slice(&((sni_val.len() as u16).to_be_bytes()));
+		ext.extend_from_slice(&sni_val);
+
+		let ext_total_len = ext.len() as u16;
+		ch.extend_from_slice(&ext_total_len.to_be_bytes());
+		ch.extend_from_slice(&ext);
+
+		// Fix Handshake Length
+		let total_handshake_body = (ch.len() - 4) as u32;
+		let body_len_bytes = &total_handshake_body.to_be_bytes()[1..4];
+		ch[1..4].copy_from_slice(body_len_bytes);
+
+		let sni = parse_tls_client_hello_sni(&ch).unwrap();
+		assert_eq!(sni, "vane.test");
+	}
+
+	#[test]
+	fn test_truncated_frames() {
+		// CRYPTO frame header says 10 bytes, but only 5 provided
+		let payload = vec![0x06, 0x00, 0x0a, 0x01, 0x02, 0x03, 0x04, 0x05];
+		assert!(parse_crypto_frames_for_sni(&payload).is_err());
+	}
+}

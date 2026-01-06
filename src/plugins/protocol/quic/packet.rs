@@ -169,3 +169,73 @@ pub fn read_varint(buf: &[u8]) -> Result<(usize, usize)> {
 	}
 	Ok((val as usize, len))
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_read_varint() {
+		// 1-byte (0 to 63)
+		assert_eq!(read_varint(&[0x25]).unwrap(), (37, 1));
+		// 2-byte (64 to 16383) -> 0x40 0x00 is 0
+		assert_eq!(read_varint(&[0x40, 0x40]).unwrap(), (64, 2));
+		assert_eq!(read_varint(&[0x7b, 0xbd]).unwrap(), (15293, 2));
+		// 4-byte
+		assert_eq!(read_varint(&[0x9d, 0x7f, 0x3e, 0x7d]).unwrap(), (494878333, 4));
+	}
+
+	#[test]
+	fn test_peek_long_header_dcid() {
+		// Long Header: [First(1)] [Version(4)] [DCIDLen(1)] [DCID(N)]
+		// DCIDLen = 8, DCID = 0102030405060708
+		let packet = vec![
+			0xc0, 0x00, 0x00, 0x00, 0x01, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		];
+		let dcid = peek_long_header_dcid(&packet).unwrap();
+		assert_eq!(dcid, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+
+		// Too short
+		assert!(peek_long_header_dcid(&[0xc0, 0x00]).is_none());
+		// DCID length 0 (invalid for Long Header in Vane context typically)
+		assert!(peek_long_header_dcid(&[0xc0, 0x00, 0x00, 0x00, 0x01, 0x00]).is_none());
+	}
+
+	#[test]
+	fn test_peek_short_header_dcid() {
+		// Short Header: [First(1)] [DCID(N)]
+		let packet = vec![0x40, 0xaa, 0xbb, 0xcc, 0xdd];
+		let dcid = peek_short_header_dcid(&packet, 4).unwrap();
+		assert_eq!(dcid, vec![0xaa, 0xbb, 0xcc, 0xdd]);
+
+		// Buffer too short for expected DCID length
+		assert!(peek_short_header_dcid(&packet, 10).is_none());
+	}
+
+	#[test]
+	fn test_parse_initial_packet_basic_header() {
+		// Minimal Initial Packet structure (without real crypto payload)
+		// Byte 0: 11000000 (Initial)
+		// Version: 0x00000001
+		// DCID: 4 bytes (0x11223344)
+		// SCID: 0 bytes
+		// Token: 0 (VarInt 0)
+		// Length: 0 (VarInt 0)
+		let packet = vec![
+			0xc0, // Header
+			0x00, 0x00, 0x00, 0x01, // Version
+			0x04, 0x11, 0x22, 0x33, 0x44, // DCID
+			0x00, // SCID Len 0
+			0x00, // Token Len 0
+			0x00, // Length 0
+		];
+
+		// This will likely fail in Step 9 (Crypto) because we have no real payload,
+		// but Step 1-8 should pass. 
+		// Note: extract_decrypted_content returns unwrap_or(...) in current code.
+		let res = parse_initial_packet(&packet).unwrap();
+		assert_eq!(res.version, "0x00000001");
+		assert_eq!(res.dcid, "11223344");
+		assert_eq!(res.scid, "");
+	}
+}
