@@ -204,7 +204,6 @@ impl Middleware for KeywordRateLimitSecPlugin {
 }
 
 // --- Plugin: Per Minute ---
-
 pub struct KeywordRateLimitMinPlugin;
 
 impl Plugin for KeywordRateLimitMinPlugin {

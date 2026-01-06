@@ -1,6 +1,7 @@
 /* src/plugins/protocol/tls/clienthello.rs */
 
 use anyhow::{Result, anyhow};
+use fancy_log::{LogLevel, log};
 use tls_parser::{
 	TlsExtension, TlsMessage, TlsMessageHandshake, parse_tls_extensions, parse_tls_plaintext,
 };
@@ -39,6 +40,8 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 		.msg
 		.first()
 		.ok_or_else(|| anyhow!("Empty TLS record"))?;
+
+	log(LogLevel::Debug, &format!("⚙ TLS Message type: {:?}", msg));
 
 	let handshake = match msg {
 		TlsMessage::Handshake(h) => h,
@@ -172,4 +175,70 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 	}
 
 	Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use fancy_log::set_log_level;
+
+	#[test]
+	fn test_is_grease() {
+		assert!(is_grease(0x0a0a));
+		assert!(is_grease(0x1a1a));
+		assert!(is_grease(0x2a2a));
+		assert!(is_grease(0x7a7a));
+		assert!(!is_grease(0x1234));
+		assert!(!is_grease(0x0303));
+	}
+
+	#[test]
+	fn test_parse_valid_client_hello() {
+		set_log_level(LogLevel::Debug);
+
+		// A standard TLS 1.2 ClientHello with SNI: "google"
+		let raw_hex = "16030100850100008103031234567812345678123456781234567812345678123456781234567812345678000002002f010000560000000b0009000006676f6f676c65000b000403000102000a000c000a001d0017001e00190018002300000016000000170000000d0020001e060106020603050105020503040104020403030103020303020102020203";
+		let payload = hex::decode(raw_hex).unwrap();
+
+		let res = parse_client_hello(&payload);
+		assert!(res.is_ok(), "Should parse valid hex: {:?}", res.err());
+		let data = res.unwrap();
+
+		assert_eq!(data.sni, Some("google".to_string()));
+		assert_eq!(data.legacy_version, "0303");
+	}
+
+	#[test]
+	fn test_parse_minimal_client_hello() {
+		// Very basic ClientHello with no extensions
+		// Content: Handshake(ClientHello), Version 3.3, Random, SessionID(Empty), Ciphers(2), Comp(1), Extensions(0)
+		let raw_hex = "160301002d010000290303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000002002f0100";
+		let payload = hex::decode(raw_hex).unwrap();
+
+		let res = parse_client_hello(&payload).unwrap();
+		assert_eq!(res.sni, None);
+		assert!(res.alpn.is_empty());
+		assert!(!res.has_grease);
+	}
+
+	#[test]
+	fn test_parse_malformed_data() {
+		// Not a TLS record (starts with HTTP GET)
+		assert!(parse_client_hello(b"GET / HTTP/1.1").is_err());
+
+		// Truncated record
+		assert!(parse_client_hello(&[0x16, 0x03, 0x01, 0x00, 0x05]).is_err());
+	}
+
+	#[test]
+	fn test_grease_detection() {
+		// ClientHello with a GREASE cipher (0x0a0a)
+		let raw_hex = "160301002f0100002b0303000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000040a0a002f0100";
+		let payload = hex::decode(raw_hex).unwrap();
+
+		let res = parse_client_hello(&payload).unwrap();
+		assert!(res.has_grease);
+		// GREASE should be filtered out from cipher_suites vector
+		assert!(!res.cipher_suites.contains(&"0a0a".to_string()));
+	}
 }

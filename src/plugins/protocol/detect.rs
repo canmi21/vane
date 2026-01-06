@@ -152,3 +152,106 @@ impl Middleware for ProtocolDetectPlugin {
 		<Self as GenericMiddleware>::execute(self, inputs).await
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_dns_detection() {
+		// 1. Valid DNS Query
+		// ID=1234, Flags=0x0100 (RD), QD=1, AN=0, NS=0, AR=0
+		let mut valid_dns = vec![
+			0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		];
+		// Append "example.com" (7example3com0) type A class IN
+		valid_dns.extend_from_slice(&[
+			0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01,
+			0x00, 0x01,
+		]);
+		assert!(
+			detect(&valid_dns, "dns"),
+			"Valid DNS query should be detected"
+		);
+
+		// 2. DNS Response (QR bit set)
+		// Flags=0x8180 (QR=1, RD, RA)
+		let mut response = valid_dns.clone();
+		response[2] = 0x81;
+		assert!(!detect(&response, "dns"), "DNS response should be rejected");
+
+		// 3. Invalid Opcode (Opcode=1, IQUERY - obsolete but testing the bitmask)
+		// Flags=0x0900 (QR=0, Opcode=1, RD)
+		let mut bad_opcode = valid_dns.clone();
+		bad_opcode[2] = 0x09;
+		assert!(
+			!detect(&bad_opcode, "dns"),
+			"Non-standard Opcode should be rejected"
+		);
+
+		// 4. Zero QDCOUNT
+		let mut zero_questions = valid_dns.clone();
+		zero_questions[4] = 0x00;
+		zero_questions[5] = 0x00;
+		assert!(
+			!detect(&zero_questions, "dns"),
+			"QDCOUNT=0 should be rejected"
+		);
+
+		// 5. Truncated Header
+		assert!(!detect(&valid_dns[..10], "dns"), "Truncated header");
+	}
+
+	#[test]
+	fn test_http_detection() {
+		assert!(detect(b"GET / HTTP/1.1\r\n", "http"));
+		assert!(detect(b"POST /api/v1/submit HTTP/1.1\r\n", "http"));
+		assert!(detect(b"HEAD /index.html HTTP/1.1\r\n", "http"));
+		assert!(!detect(b"HELLO WORLD", "http"));
+		assert!(!detect(b"SSH-2.0", "http"));
+	}
+
+	#[test]
+	fn test_tls_detection() {
+		// TLS ClientHello (0x16, 0x03, 0x01)
+		let tls_handshake = [0x16, 0x03, 0x01, 0x00, 0x50];
+		assert!(detect(&tls_handshake, "tls"));
+
+		// SSLv3 (0x16, 0x03, 0x00) - Vane only checks 0x16 0x03
+		let sslv3 = [0x16, 0x03, 0x00, 0x00, 0x10];
+		assert!(detect(&sslv3, "tls"));
+
+		// Random junk
+		assert!(!detect(&[0x00, 0x01, 0x02], "tls"));
+	}
+
+	#[test]
+	fn test_quic_detection() {
+		// QUIC v1 Initial Packet
+		// Header Form: 1 (Long)
+		// Fixed Bit: 1
+		// Type: 00 (Initial)
+		// Byte 0 = 11000000 = 0xC0
+		// Version = 1
+		let mut quic_initial = vec![0xC0, 0x00, 0x00, 0x00, 0x01];
+		// Pad to > 20 bytes
+		quic_initial.extend_from_slice(&[0x00; 20]);
+
+		assert!(detect(&quic_initial, "quic"));
+
+		// QUIC v2 (Version 2)
+		let mut quic_v2 = vec![0xC0, 0x00, 0x00, 0x00, 0x02];
+		quic_v2.extend_from_slice(&[0x00; 20]);
+		assert!(detect(&quic_v2, "quic"));
+
+		// Short Header (0xxxxxxx) - Should be rejected by this strict heuristic
+		let mut short_header = vec![0x40, 0xAB, 0xCD, 0xEF]; // 0100...
+		short_header.extend_from_slice(&[0x00; 20]);
+		assert!(!detect(&short_header, "quic"), "Short header rejected");
+
+		// Wrong Version
+		let mut bad_version = vec![0xC0, 0x00, 0x00, 0x00, 0x00]; // Version negotiation / 0
+		bad_version.extend_from_slice(&[0x00; 20]);
+		assert!(!detect(&bad_version, "quic"), "Version 0 rejected");
+	}
+}

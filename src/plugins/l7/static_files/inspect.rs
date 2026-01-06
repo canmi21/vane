@@ -62,3 +62,80 @@ pub fn generate_etag(modified: std::time::SystemTime, size: u64) -> String {
 		.unwrap_or_default();
 	format!("W/\"{:x}-{:x}\"", duration.as_nanos(), size)
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use tempfile::NamedTempFile;
+
+	#[tokio::test]
+	async fn test_mime_by_extension() {
+		// 1. HTML
+		let f = NamedTempFile::new_in(".").unwrap();
+		let path = Path::new("index.html"); // We only need the path for extension guess
+		let mut file = File::open(f.path()).await.unwrap();
+		assert_eq!(determine_mime_type(path, &mut file).await, "text/html");
+
+		// 2. JSON
+		let path = Path::new("data.json");
+		assert_eq!(
+			determine_mime_type(path, &mut file).await,
+			"application/json"
+		);
+
+		// 3. Image (Case Insensitive)
+		let path = Path::new("PHOTO.JPG");
+		assert_eq!(determine_mime_type(path, &mut file).await, "image/jpeg");
+	}
+
+	#[tokio::test]
+	async fn test_mime_by_sniffing() {
+		// Create a file with NO extension but PNG content
+		let tmp = NamedTempFile::new().unwrap();
+		// PNG Magic Bytes: 89 50 4E 47 0D 0A 1A 0A
+		let png_data = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+		std::fs::write(tmp.path(), &png_data).unwrap();
+
+		let mut file = File::open(tmp.path()).await.unwrap();
+		let path = Path::new("unknown_file");
+
+		assert_eq!(determine_mime_type(path, &mut file).await, "image/png");
+	}
+
+	#[tokio::test]
+	async fn test_mime_fallback_text() {
+		let tmp = NamedTempFile::new().unwrap();
+		std::fs::write(tmp.path(), b"Just some plain text content").unwrap();
+
+		let mut file = File::open(tmp.path()).await.unwrap();
+		let path = Path::new("README");
+
+		assert_eq!(determine_mime_type(path, &mut file).await, "text/plain");
+	}
+
+	#[tokio::test]
+	async fn test_mime_fallback_octet_stream() {
+		let tmp = NamedTempFile::new().unwrap();
+		// Random binary data that doesn't match any magic bytes
+		let binary_data = [0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE];
+		std::fs::write(tmp.path(), &binary_data).unwrap();
+
+		let mut file = File::open(tmp.path()).await.unwrap();
+		let path = Path::new("binary.data");
+
+		assert_eq!(
+			determine_mime_type(path, &mut file).await,
+			"application/octet-stream"
+		);
+	}
+
+	#[test]
+	fn test_etag_generation() {
+		let t1 = std::time::UNIX_EPOCH + std::time::Duration::from_secs(100);
+		let etag = generate_etag(t1, 500);
+		// 100 secs = 100,000,000,000 nanos = 174876e800 hex
+		// 500 = 1f4 hex
+		assert!(etag.starts_with("W/\""));
+		assert!(etag.contains("1f4"));
+	}
+}

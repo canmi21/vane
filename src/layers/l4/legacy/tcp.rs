@@ -16,6 +16,19 @@ pub struct TcpSession {
 	pub timeout: u64,
 }
 
+impl Validate for TcpSession {
+	fn validate(&self) -> Result<(), ValidationErrors> {
+		if self.timeout == 0 {
+			let mut errors = ValidationErrors::new();
+			let mut err = ValidationError::new("range");
+			err.message = Some("timeout must be greater than 0".into());
+			errors.add("timeout", err);
+			return Err(errors);
+		}
+		Ok(())
+	}
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TcpDestination {
@@ -44,6 +57,7 @@ pub struct TcpProtocolRule {
 	#[validate(nested)]
 	pub detect: Detect,
 	#[serde(default)]
+	#[validate(nested)]
 	pub session: Option<TcpSession>,
 	#[validate(nested)]
 	pub destination: TcpDestination,

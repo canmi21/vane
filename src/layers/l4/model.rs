@@ -25,17 +25,33 @@ impl Validate for Target {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		let mut errors = ValidationErrors::new();
 		match self {
-			Target::Ip { ip, .. } => {
+			Target::Ip { ip, port } => {
 				if ip.parse::<IpAddr>().is_err() {
 					errors.add("ip", ValidationError::new("ip"));
 				}
+				if *port == 0 {
+					let mut err = ValidationError::new("range");
+					err.message = Some("port must be greater than 0".into());
+					errors.add("port", err);
+				}
 			}
-			Target::Domain { domain, .. } => {
+			Target::Domain { domain, port } => {
 				if domain.is_empty() || domain.len() > 253 {
 					errors.add("domain", ValidationError::new("hostname"));
 				}
+				if *port == 0 {
+					let mut err = ValidationError::new("range");
+					err.message = Some("port must be greater than 0".into());
+					errors.add("port", err);
+				}
 			}
-			Target::Node { .. } => { /* Node name validity is checked implicitly */ }
+			Target::Node { port, .. } => {
+				if *port == 0 {
+					let mut err = ValidationError::new("range");
+					err.message = Some("port must be greater than 0".into());
+					errors.add("port", err);
+				}
+			}
 		}
 		if errors.is_empty() {
 			Ok(())

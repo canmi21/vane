@@ -362,3 +362,80 @@ pub fn validate_udp_rules(rules: &[UdpProtocolRule]) -> Result<(), ValidationErr
 	}
 	Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+	use crate::layers::l4::legacy::tcp::{TcpDestination, TcpProtocolRule, TcpSession};
+	use crate::layers::l4::model::{Detect, DetectMethod, Forward, Strategy, Target};
+	use validator::Validate;
+
+	#[test]
+	fn test_validate_target_port_range() {
+		// 1. Valid Port
+		let valid = Target::Ip {
+			ip: "127.0.0.1".to_string(),
+			port: 8080,
+		};
+		assert!(valid.validate().is_ok());
+
+		// 2. Invalid Port 0
+		let invalid = Target::Ip {
+			ip: "127.0.0.1".to_string(),
+			port: 0,
+		};
+		let res = invalid.validate();
+		assert!(res.is_err());
+		let errs = res.unwrap_err();
+		assert!(errs.field_errors().contains_key("port"));
+	}
+
+	#[test]
+	fn test_validate_timeout_value() {
+		// 1. Valid Timeout
+		let session_valid = TcpSession {
+			keepalive: true,
+			timeout: 30,
+		};
+		assert!(session_valid.validate().is_ok());
+
+		// 2. Invalid Timeout 0
+		let session_invalid = TcpSession {
+			keepalive: true,
+			timeout: 0,
+		};
+		let res = session_invalid.validate();
+		assert!(res.is_err());
+		assert!(res.unwrap_err().field_errors().contains_key("timeout"));
+	}
+
+	#[test]
+	fn test_validate_tcp_rule_nested() {
+		let rule = TcpProtocolRule {
+			name: "test_rule".to_string(),
+			priority: 1,
+			detect: Detect {
+				method: DetectMethod::Fallback,
+				pattern: "any".to_string(),
+			},
+			session: Some(TcpSession {
+				keepalive: true,
+				timeout: 0, // Invalid!
+			}),
+			destination: TcpDestination::Forward {
+				forward: Forward {
+					strategy: Strategy::Random,
+					targets: vec![Target::Ip {
+						ip: "1.1.1.1".into(),
+						port: 80,
+					}],
+					fallbacks: vec![],
+				},
+			},
+		};
+
+		let res = rule.validate();
+		assert!(res.is_err());
+		// Error path should be session.timeout ideally, or session
+		// Validator nested errors structure is complex, just checking it fails is enough for unit test.
+	}
+}

@@ -96,7 +96,17 @@ impl GenericMiddleware for CommonMatchPlugin {
 			"contains" | "contain" => left.contains(right),
 			"startswith" | "starts_with" => left.starts_with(right),
 			"endswith" | "ends_with" => left.ends_with(right),
-			// Future expansion (Regex, Numeric comparisons, etc.)
+			// Regex Matching
+			"regex" | "re" | "match" => match regex::Regex::new(right) {
+				Ok(re) => re.is_match(left),
+				Err(e) => {
+					log(
+						LogLevel::Error,
+						&format!("✗ Invalid regex pattern '{}': {}", right, e),
+					);
+					false
+				}
+			},
 			_ => false,
 		};
 
@@ -121,5 +131,68 @@ impl Middleware for CommonMatchPlugin {
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
 		// Delegate to Generic implementation
 		<Self as GenericMiddleware>::execute(self, inputs).await
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::collections::HashMap;
+
+	/// Tests that the matcher correctly handles various string operations.
+	#[tokio::test]
+	async fn test_string_matching_operators() {
+		let plugin = CommonMatchPlugin;
+
+		let cases = vec![
+			// Equality
+			("hello", "hello", "eq", "true"),
+			("hello", "world", "eq", "false"),
+			("hello", "HELLO", "eq", "false"),
+			// Inequality
+			("hello", "world", "ne", "true"),
+			("hello", "hello", "ne", "false"),
+			// Contains
+			("hello world", "world", "contains", "true"),
+			("hello world", "rust", "contains", "false"),
+			// StartsWith
+			("https://vane.com", "https://", "startswith", "true"),
+			("https://vane.com", "http://", "startswith", "false"),
+			("https://vane.com", "vane", "startswith", "false"),
+			// EndsWith
+			("image.png", ".png", "endswith", "true"),
+			("image.png", ".jpg", "endswith", "false"),
+			// Regex
+			("vane-123", r"^vane-\d+$", "regex", "true"),
+			("vane-abc", r"^vane-\d+$", "regex", "false"),
+			("test", "[invalid", "regex", "false"), // Invalid regex should fail safely
+		];
+
+		for (left, right, op, expected) in cases {
+			let mut inputs = HashMap::new();
+			inputs.insert("left".to_string(), Value::String(left.to_string()));
+			inputs.insert("right".to_string(), Value::String(right.to_string()));
+			inputs.insert("operator".to_string(), Value::String(op.to_string()));
+
+			let out = GenericMiddleware::execute(&plugin, inputs).await.unwrap();
+			assert_eq!(
+				out.branch, expected,
+				"Failed match: '{}' {} '{}' should be {}",
+				left, op, right, expected
+			);
+		}
+	}
+
+	/// Tests default operator (equality).
+	#[tokio::test]
+	async fn test_default_operator() {
+		let plugin = CommonMatchPlugin;
+		let mut inputs = HashMap::new();
+		inputs.insert("left".to_string(), Value::String("a".to_string()));
+		inputs.insert("right".to_string(), Value::String("a".to_string()));
+		// No operator provided
+
+		let out = GenericMiddleware::execute(&plugin, inputs).await.unwrap();
+		assert_eq!(out.branch, "true");
 	}
 }
