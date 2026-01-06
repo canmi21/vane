@@ -222,9 +222,43 @@ func TestResolveDomain(ctx context.Context, s *env.Sandbox) error {
 func TestResolveDomainFailure(ctx context.Context, s *env.Sandbox) error {
 	debug, _ := ctx.Value(env.DebugKey).(bool)
 
-	// 1. Configure Vane with Non-existent DNS
+	// 1. Setup Mock DNS Server (Returns NXDomain)
+	dnsAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	dnsConn, err := net.ListenUDP("udp", dnsAddr)
+	if err != nil {
+		return err
+	}
+	defer dnsConn.Close()
+	dnsPort := dnsConn.LocalAddr().(*net.UDPAddr).Port
+
+	// DNS Resolver Task: Always return NXDomain
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			n, remote, err := dnsConn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			if n < 12 {
+				continue
+			}
+			// Construct NXDomain Response
+			resp := make([]byte, n)
+			copy(resp, buf[:n])
+			resp[2] = 0x81 // Response
+			resp[3] = 0x83 // Recursion Available + RCODE=3 (NXDomain)
+			resp[7] = 0    // 0 Answers
+
+			dnsConn.WriteToUDP(resp, remote)
+		}
+	}()
+
+	// 2. Configure Vane with Mock DNS
 	s.Env["NAMESERVER1"] = "127.0.0.1"
-	s.Env["NAMESERVER1_PORT"] = "1" // Unlikely to have DNS on port 1
+	s.Env["NAMESERVER1_PORT"] = fmt.Sprintf("%d", dnsPort)
 
 	ports, _ := env.GetFreePorts(1)
 	vanePort := ports[0]

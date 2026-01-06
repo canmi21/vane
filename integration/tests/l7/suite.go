@@ -48,5 +48,16 @@ func GetTests() []TestEntry {
 		{Name: "l7_test_ws_allow_echo", Desc: "WebSocket: Basic Echo Tunneling", Run: TestWSAllow},
 		{Name: "l7_test_ws_stream_1gb", Desc: "WebSocket: 1GB Bidirectional Streaming", Run: TestWSStreamLarge},
 		{Name: "l7_test_upstream_pool", Desc: "HTTP Upstream: Connection Pooling", Run: TestUpstreamConnectionPooling},
+		{Name: "l7_test_static_basic", Desc: "Static Server: Basic index.html serving", Run: TestStaticServeBasic},
+		{Name: "l7_test_static_range", Desc: "Static Server: HTTP Range (Partial Content)", Run: TestStaticRange},
+		{Name: "l7_test_static_spa", Desc: "Static Server: SPA Fallback", Run: TestStaticSPA},
+		{Name: "l7_test_static_browse", Desc: "Static Server: Directory Browsing", Run: TestStaticBrowse},
+		{Name: "l7_test_static_traversal", Desc: "Static Server: Path Traversal Prevention", Run: TestStaticTraversal},
+		{Name: "l7_test_static_precompressed", Desc: "Static Server: Precompressed .gz serving", Run: TestStaticPrecompressed},
+		{Name: "l7_test_template_headers", Desc: "Template: Header Hijacking", Run: TestTemplateHeaderHijacking},
+		{Name: "l7_test_template_body", Desc: "Template: Body Hijacking", Run: TestTemplateBodyHijacking},
+		{Name: "l7_test_template_nested", Desc: "Template: Nested variable resolution", Run: TestTemplateNested},
+		{Name: "l7_test_template_limit", Desc: "Template: Recursion depth limit", Run: TestTemplateRecursionLimit},
+		{Name: "l7_test_template_json", Desc: "Template: Resolution inside JSON Input", Run: TestTemplateJsonResolution},
 	}
 }

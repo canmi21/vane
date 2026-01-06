@@ -2,7 +2,7 @@
 name = "vane"
 version = "0.8.13"
 categories = ["network-programming", "web-programming", "asynchronous"]
-description = "A flow-based, two-phase reverse proxy with modular protocol layers and unified middleware."
+description = "A flow-based reverse proxy with multi-layer routing and programmable pipelines."
 edition = "2024"
 rust-version = { workspace = true }
 homepage = "https://vaneproxy.com"

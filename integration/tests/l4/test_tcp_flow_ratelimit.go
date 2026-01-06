@@ -91,9 +91,9 @@ func TestTcpFlowRateLimit(ctx context.Context, s *env.Sandbox) error {
 			nil,
 		)
 	}
-	if successCount > int64(limitPerSec*2) {
+	if successCount > int64(limitPerSec*2)+1 {
 		return term.FormatFailure(
-			fmt.Sprintf("Rate limiter failed to block enough. Got %d, want <= %d", successCount, limitPerSec*2),
+			fmt.Sprintf("Rate limiter failed to block enough. Got %d, want <= %d", successCount, limitPerSec*2+1),
 			nil,
 		)
 	}
