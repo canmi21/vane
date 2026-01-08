@@ -1,0 +1,6 @@
+{
+  "title": "Flows",
+  "description": "Flow-based execution model",
+  "icon": "Workflow",
+  "pages": ["index", "syntax", "templates", "examples"]
+}

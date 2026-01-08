@@ -1,0 +1,6 @@
+{
+  "title": "Common",
+  "description": "Common utilities and helpers",
+  "icon": "Box",
+  "pages": ["index", "utilities"]
+}

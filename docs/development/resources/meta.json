@@ -1,0 +1,6 @@
+{
+  "title": "Resources",
+  "description": "Shared resources and utilities",
+  "icon": "FolderTree",
+  "pages": ["index", "kv-store", "service-discovery", "certificates", "templates"]
+}

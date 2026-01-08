@@ -2,11 +2,18 @@
 
 import { docs } from 'fumadocs-mdx:collections/server';
 import { type InferPageType, loader } from 'fumadocs-core/source';
+import { icons } from 'lucide-react';
+import { createElement } from 'react';
 
 // See https://fumadocs.dev/docs/headless/source-api for more info
 export const source = loader({
 	baseUrl: '/docs',
 	source: docs.toFumadocsSource(),
+	icon(iconKey) {
+		if (iconKey && iconKey in icons) {
+			return createElement(icons[iconKey as keyof typeof icons]);
+		}
+	},
 	plugins: [],
 });
 

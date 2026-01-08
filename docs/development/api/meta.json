@@ -1,0 +1,6 @@
+{
+  "title": "API Console",
+  "description": "Management API",
+  "icon": "Webhook",
+  "pages": ["index", "management-api"]
+}
