@@ -1,18 +1,18 @@
 {
-  "title": "Development",
-  "description": "Developer documentation",
-  "icon": "GitMerge",
+	"title": "Development",
+	"description": "Developer documentation",
+	"icon": "GitMerge",
 	"root": true,
-  "pages": [
-    "index",
-    "roadmap",
-    "bootstrap",
-    "common",
-    "engine",
-    "ingress",
-    "layers",
-    "plugins",
-    "resources",
-    "api"
-  ]
+	"pages": [
+		"index",
+		"roadmap",
+		"bootstrap",
+		"common",
+		"engine",
+		"ingress",
+		"layers",
+		"plugins",
+		"resources",
+		"api"
+	]
 }

@@ -1,6 +1,44 @@
 ---
-title: Common
-description: Common utilities and helpers
+title: Overview
+description: Shared utilities, configuration loaders, and system abstractions in Vane.
 icon: Hammer
 ---
 
+The `common` module serves as the foundational utility library for the Vane project. It provides thread-safe configuration management, network utility functions, and system-level abstractions used across all layers (L4, L4+, and L7) and the bootstrap sequence.
+
+## Core Pillars
+
+The module is organized into three specialized sub-modules:
+
+| Sub-module                         | Responsibility                                                                  |
+| :--------------------------------- | :------------------------------------------------------------------------------ |
+| [`sys`](./common/system)           | Lifecycle management, file-system watchers, and OS-specific resource detection. |
+| [`net`](./common/network)          | IP validation, address parsing, and port availability checking.                 |
+| [`config`](./common/configuration) | Environment variable loading and atomic configuration file reading.             |
+
+## Design Principles
+
+1.  **Thread Safety**: Most utilities are designed to be used in concurrent contexts, utilizing atomic operations where necessary.
+2.  **Abstraction**: It masks platform-specific differences (especially in the `sys` module) to provide a unified API for the rest of the engine.
+3.  **Fail-Fast**: Configuration loaders are designed to halt execution if critical environmental prerequisites are not met.
+
+## Usage in the Engine
+
+The `common` utilities are imported globally throughout the codebase. For example, environment variables are accessed via a centralized loader to ensure consistency:
+
+```rust
+use crate::common::config::env_loader;
+
+let port = env_loader::get_env("PORT", "3333".to_string());
+```
+
+<Callout type="info" title="Centralized Source of Truth">
+	By centralizing these utilities, Vane ensures that logic like "how to detect free memory" or "how
+	to validate an IP" is implemented correctly once and reused everywhere, reducing the surface area
+	for bugs.
+</Callout>
+
+<Callout type="idea">
+	Explore the dedicated guides for [System](./common/system), [Network](./common/network), and
+	[Configuration](./common/configuration) utilities.
+</Callout>

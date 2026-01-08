@@ -1,15 +1,15 @@
 {
-  "title": "Configurations",
-  "description": "Configuration files and environment variables",
-  "icon": "Settings",
-  "pages": [
-    "index",
-    "ports",
-    "resolvers",
-    "applications",
-    "nodes",
-    "certs",
-    "plugins-config",
-    "environment-variables"
-  ]
+	"title": "Configurations",
+	"description": "Configuration files and environment variables",
+	"icon": "Settings",
+	"pages": [
+		"index",
+		"ports",
+		"resolvers",
+		"applications",
+		"nodes",
+		"certs",
+		"plugins-config",
+		"environment-variables"
+	]
 }

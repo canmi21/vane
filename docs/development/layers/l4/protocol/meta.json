@@ -1,6 +1,6 @@
 {
-  "title": "Protocols",
-  "description": " ",
-  "icon": "Shuffle",
-  "pages": ["tcp", "udp"]
+	"title": "Protocols",
+	"description": " ",
+	"icon": "Shuffle",
+	"pages": ["tcp", "udp"]
 }

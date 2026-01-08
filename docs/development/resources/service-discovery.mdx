@@ -1,10 +1,78 @@
 ---
 title: Service Discovery
-description: Service discovery system
-icon: Search
+description: Management of upstream nodes and backend service health.
+icon: Radar
 ---
 
-## Reference
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-- `src/resources/service_discovery/`
+The Service Discovery module manages the registry of upstream nodes that Vane uses for load balancing and proxying. It transforms static configuration into a high-performance, flattened runtime state.
 
+## Data Model & Hierarchy
+
+The configuration (typically defined in `nodes.json` or `nodes.toml`) follows a multi-tiered hierarchy to allow flexible backend definitions.
+
+- **`NodesConfig`**: The top-level container.
+- **`Node`**: A logical grouping of backends (e.g., "web-cluster").
+- **`IpConfig`**: A specific IP address associated with one or more ports.
+
+### Pre-Processing & Flattening
+
+To ensure the proxying path is as fast as possible, Vane does not traverse the nested node tree during request processing. Instead, it uses a **Flattening Strategy** during the loading phase.
+
+The `PreProcess` trait transforms the tree into a flat list of `ProcessedNode` entries:
+
+```rust title="src/resources/service_discovery/model.rs"
+pub struct ProcessedNode {
+    pub node_name: String,
+    pub address: String,
+    pub port: u16,
+    pub ip_type: IpType,
+}
+```
+
+If a node has 2 IPs and each IP specifies 3 ports, the flattener generates 6 discrete `ProcessedNode` entries. This flat list is what the Layer 4 load balancers consume directly.
+
+## Configuration Validation
+
+Vane performs rigorous validation during the loading process to prevent runtime failures:
+
+1.  **Unique Names**: Every node must have a unique identifier.
+2.  **Formatting**: Node names are restricted to lowercase letters, numbers, and hyphens (`[a-z0-9-]+`).
+3.  **Network Sanity**: IP addresses must be valid, and every IP configuration must include at least one port.
+
+## Loading & Hotswap Pipeline
+
+<Steps>
+<Step>
+
+### Initial Scan
+
+During Step 2 of the [Startup Sequence](../bootstrap/startup-sequence), `scan_nodes_config()` searches for `nodes.*` in the config directory.
+
+</Step>
+<Step>
+
+### Atomic Storage
+
+The parsed and validated config is stored in `NODES_STATE`, a global `ArcSwap<NodesConfig>`. This allows all worker tasks to read the node list without locking.
+
+</Step>
+<Step>
+
+### Real-time Updates
+
+The `hotswap.rs` module runs a dedicated watch loop. When a file change is detected:
+
+- The new file is loaded and validated.
+- If valid **and** different from the current state, an atomic pointer swap occurs.
+- If the new file is invalid, the engine continues using the old state and logs an error.
+
+</Step>
+</Steps>
+
+<Callout type="info" title="Effective Changes Only">
+	Vane's hotswap logic compares the actual content of the new configuration against the old one. If
+	you save the file without making changes, the engine will detect that no "effective change"
+	occurred and skip the expensive re-calculation and swap.
+</Callout>

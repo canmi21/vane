@@ -1,10 +1,85 @@
 ---
 title: Certificates
-description: Certificate management
+description: Dynamic TLS certificate management and hot-reloading repository.
 icon: LockKeyhole
 ---
 
-## Reference
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-- `src/resources/certs/`
+The `src/resources/certs` module serves as the central repository for TLS material. It handles the secure loading, parsing, and in-memory storage of X.509 certificate chains and private keys, providing a thread-safe source for the L4+ TLS resolvers.
 
+## Automated Scanning & Pairing
+
+Vane simplifies certificate management by automatically scanning the `certs/` configuration directory. It groups files based on their filename stem (the part before the extension).
+
+For example, if the directory contains:
+
+- `example.com.crt`
+- `example.com.key`
+
+Vane automatically detects them as a pair with the ID `example.com`.
+
+### File Extensions
+
+- **Certificates**: `.crt`, `.pem`
+- **Private Keys**: `.key`
+
+## The Loading Pipeline
+
+<Mermaid
+  chart='
+graph LR;
+    subgraph Watcher [Detection]
+        Change([File Change]) --> Debounce[2s Debounce];
+    end
+
+    Debounce --> Scan[Scan Dir];
+
+    subgraph Processor [Logic]
+        Scan --> Group[Group Pairs];
+        Group --> Parse[Parse PEM];
+        Parse --> Validate{Valid?};
+    end
+
+    Validate -- Yes --> Update[Atomic Swap];
+    Validate -- No --> Error[Log Error];
+
+    Update --> Registry[(Global Registry)];
+
+'
+/>
+
+## Implementation Details
+
+<Steps>
+<Step>
+
+### Default Certificate Generation
+
+To ensure Vane works out-of-the-box for development, the loader checks for a `default` certificate on startup.
+If `default.crt` and `default.key` are missing **or** expiring within 7 days, Vane automatically generates a self-signed certificate for `localhost` / `127.0.0.1` using the `rcgen` crate.
+
+</Step>
+<Step>
+
+### Safe Private Key Handling
+
+Vane uses `rustls::pki_types::PrivateKeyDer` to store keys. This type intentionally does not implement `Clone` to prevent accidental copying of sensitive key material in memory.
+When a new TLS connection needs a key, Vane wraps it in an `Arc`, allowing cheap, thread-safe shared access without duplication.
+
+</Step>
+<Step>
+
+### Validation
+
+Before accepting a certificate pair into the registry, `format.rs` performs a cryptographic sanity check. It attempts to load the private key into a ring-compatible signing key. If the key format is invalid or unsupported, the pair is rejected immediately, preventing runtime handshake failures.
+
+</Step>
+</Steps>
+
+<Callout type="info" title="SNI Mapping">
+	This module acts as a **Storage Repository**, mapping `IDs` (filenames) to `Certificates`. The
+	logic that maps `SNI Hostnames` (e.g., `api.example.com`) to these `IDs` resides in the L4+ TLS
+	Resolver configuration. This separation allows multiple domains to reuse the same wildcard
+	certificate easily.
+</Callout>

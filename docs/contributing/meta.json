@@ -1,14 +1,14 @@
 {
-  "title": "Contributing",
-  "description": "How to work correctly",
-  "icon": "GitPullRequest",
+	"title": "Contributing",
+	"description": "How to work correctly",
+	"icon": "GitPullRequest",
 	"root": true,
-  "pages": [
-    "index",
+	"pages": [
+		"index",
 		"coding-guide",
-    "writing-guide",
-    "markdown-style",
-    "documentation-pr",
-    "review-process"
-  ]
+		"writing-guide",
+		"markdown-style",
+		"documentation-pr",
+		"review-process"
+	]
 }

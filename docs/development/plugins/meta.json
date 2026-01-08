@@ -1,6 +1,6 @@
 {
-  "title": "Plugins",
-  "description": "Plugin system implementation",
-  "icon": "Blocks",
-  "pages": ["index", "architecture", "types"]
+	"title": "Plugins",
+	"description": "Plugin system implementation",
+	"icon": "Blocks",
+	"pages": ["index", "architecture", "types"]
 }

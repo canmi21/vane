@@ -52,7 +52,9 @@ Vane manages network traffic across three strictly defined architectural layers,
 
 ### Programmable vs. Configurable
 
-Traditional proxies are configured; Vane is programmed. Through its plugin system, Vane allows administrators to define logic flows (e.g., "If protocol is HTTP and source IP is X, then rate limit, otherwise upgrade to HTTP/3"). This logic is defined in declarative JSON, YAML, or TOML, but executes with the speed of compiled Rust code.
+Traditional proxies are configured around fixed roles; Vane is programmed as a flow engine. A single inbound connection can be routed, upgraded, or terminated at different layers based on runtime decisions. For example, Vane can route a TLS connection at **L4+** purely by inspecting SNI without terminating encryption, promote the same listener to **L7 HTTPX** when the domain requires full application handling, or apply **middleware** such as header-based authentication only for specific paths before proxying.
+
+These flows are described declaratively in JSON, YAML, or TOML, yet execute on a compiled, zero-copy Rust data plane.
 
 ### Hybrid Plugin Ecosystem
 

@@ -1,12 +1,82 @@
 ---
 title: Startup Sequence
-description: Bootstrap sequence and initialization
+description: A detailed breakdown of the system initialization and bootstrap orchestration.
 icon: Zap
 ---
 
-## Reference
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-- `src/bootstrap/startup.rs`
-- `src/bootstrap/logging.rs`
-- `src/bootstrap/console.rs`
+The startup sequence in Vane is a tightly orchestrated process designed to ensure that all internal states, configuration registries, and background services are ready before any network listeners are activated. This sequential approach prevents race conditions and ensures that the first connection accepted by Vane always finds a fully initialized system.
 
+The sequence is managed by the `start()` function in `src/bootstrap/startup.rs`.
+
+## Initialization Flow
+
+<Steps>
+<Step>
+
+### Foundation & Infrastructure
+
+The process begins by establishing the runtime environment.
+
+- **Crypto Setup**: Initializes the global `rustls` crypto provider (installing `aws-lc-rs` or `ring` based on feature flags).
+- **Environment**: Loads `.env` variables via `dotenvy` and configures the `fancy_log` level.
+- **Readiness Check**: Verifies that critical configuration directories exist. The system halts immediately if the infrastructure is incomplete.
+
+</Step>
+<Step>
+
+### Registry Loading
+
+Vane uses atomic `ArcSwap` registries for lock-free state management. These are populated sequentially:
+
+1.  **Service Discovery**: Scans `nodes.json` for upstream backends.
+2.  **Certificates**: Loads TLS certificates and keys into the `CERT_REGISTRY`.
+3.  **Port Configuration**: Loads listener definitions (TCP/UDP) from `ports.json`.
+4.  **Protocol Handlers**:
+    - **L4+ Resolvers**: Loads TLS, QUIC, and HTTP routing rules from `resolvers/`.
+    - **L7 Applications**: Loads HTTP middleware pipelines from `applications/`.
+
+</Step>
+<Step>
+
+### System Activation
+
+Before opening ports, internal subsystems are spun up to support the traffic flow.
+
+- **Background Tasks**: Spawns health checkers and upstream maintenance routines.
+- **Plugin System**: Initializes the plugin loader and validates external plugins defined in `plugins.json`.
+- **Adaptive Monitor**: Starts the L7 memory monitor, which calculates dynamic buffer limits based on available system RAM.
+
+</Step>
+<Step>
+
+### Network & Management
+
+With the state fully loaded, Vane interacts with the outside world.
+
+- **Listener Activation**: Binds to configured TCP/UDP ports and begins the `tokio` accept loops.
+- **Hotswap Activation**: Starts file system watchers (`notify`) to enable zero-downtime configuration updates.
+- **Console API**: Launches the Management HTTP server and Unix socket interface.
+
+</Step>
+<Step>
+
+### Runtime Loop & Shutdown
+
+The main thread enters a signal wait state (listening for `SIGINT` or `SIGTERM`).
+
+Upon receiving a termination signal, the **Graceful Shutdown** sequence triggers:
+
+1.  Stops the Management API.
+2.  Notifies background tasks to exit.
+3.  Cleans up Unix domain sockets.
+
+</Step>
+</Steps>
+
+<Callout type="warn" title="Fail-Fast Design">
+	The bootstrap sequence is designed to be strict. If any step returns an error (e.g., a malformed
+	configuration file or a port conflict), Vane will log a fatal error and exit immediately rather
+	than starting in a partially broken state.
+</Callout>

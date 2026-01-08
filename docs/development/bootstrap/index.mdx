@@ -1,6 +1,49 @@
 ---
-title: Bootstrap
-description: System initialization and startup
+title: Overview
+description: Understanding the system initialization and startup orchestration in Vane.
 icon: CircleArrowUp
 ---
 
+The `bootstrap` module is the entry point of the Vane system. It is responsible for orchestrating the initialization sequence, ensuring that all infrastructure, configuration, and background services are properly loaded and started before the system begins accepting network traffic.
+
+## Core Responsibilities
+
+The bootstrap process follows a strict linear sequence to handle dependencies correctly. Its primary goals include:
+
+1.  **Environment Preparation**: Loading `.env` files and configuring global logging.
+2.  **Infrastructure Validation**: Ensuring configuration directories and essential files exist.
+3.  **Resource Loading**: Atomically loading service discovery nodes, TLS certificates, and layer configurations.
+4.  **Plugin Initialization**: Loading and validating external plugins.
+5.  **Service Activation**: Starting background monitors, hotswap watchers, and the management API.
+6.  **Listener Binding**: Finally, binding TCP/UDP ports to start processing traffic.
+
+## Sub-modules
+
+The `bootstrap` package is organized into several specialized modules:
+
+| Module                                    | Responsibility                                                                         |
+| :---------------------------------------- | :------------------------------------------------------------------------------------- |
+| [`startup`](./bootstrap/startup-sequence) | The central orchestrator that defines the 13-step bootstrap sequence.                  |
+| `logging`                                 | Configures the global logger (`fancy_log`) and displays the startup banner (MOTD).     |
+| `console`                                 | Initializes the Management API (Console) server, supporting both TCP and Unix sockets. |
+| [`monitor`](./bootstrap/monitoring)       | Implements the L7 adaptive memory monitor to prevent resource exhaustion.              |
+| `socket`                                  | Handles Unix domain socket creation and permission management for local IPC.           |
+
+## Execution Entry Point
+
+The entire sequence is triggered from `src/main.rs`, which calls `bootstrap::startup::start()`.
+
+```rust title="src/main.rs"
+#[tokio::main]
+async fn main() {
+    // ...
+    bootstrap::startup::start().await;
+}
+```
+
+If any critical step in the bootstrap sequence fails, the system will log a fatal error and terminate immediately to prevent running in an inconsistent state.
+
+<Callout title="Deep Dive">
+	For a detailed breakdown of each step in the initialization process, refer to the [Startup
+	Sequence](./bootstrap/startup-sequence) documentation.
+</Callout>

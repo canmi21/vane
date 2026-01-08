@@ -1,0 +1,83 @@
+---
+title: Configuration
+description: Environment and file-based configuration management.
+icon: Settings
+---
+
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+Vane uses a dual-layer configuration strategy: **Environment Variables** for static startup parameters (like ports and paths) and **File-Based Configuration** for dynamic, hot-swappable resources (like upstream nodes and protocol routes).
+
+The `src/common/config` module provides the tooling to load, parse, and validate these configurations safely.
+
+## Environment Variables
+
+The `env_loader.rs` module handles basic string retrieval from the process environment.
+
+- **Defaults**: All retrievals support a default fallback value.
+- **Utility**: Includes helpers for boolean parsing and numeric validation.
+
+```rust
+use crate::common::config::env_loader;
+
+// If "PORT" is not set, returns "3333"
+let port = env_loader::get_env("PORT", "3333".to_string());
+```
+
+## File Loading System
+
+The core complexity lies in `loader.rs` and `file_loader.rs`, which implement a robust, multi-format configuration loading pipeline.
+
+### Supported Formats
+
+Vane supports the following formats, automatically detecting them by extension in this order:
+
+1.  `toml`
+2.  `yaml` / `yml`
+3.  `json`
+
+### The Loading Pipeline
+
+When `load_file<T>(path)` is called, the following security and validation steps occur:
+
+<Steps>
+<Step>
+
+### Path Resolution & Security Check
+
+The loader resolves the absolute path of the target file.
+**Crucially**, it verifies that the resolved path is strictly within the `CONFIG_DIR`. This prevents directory traversal attacks where a malicious configuration path might point to sensitive system files.
+
+</Step>
+<Step>
+
+### Format Detection & Parsing
+
+The file extension determines the parser (`serde_json`, `serde_yaml`, or `toml`). The content is deserialized into the generic type `T`.
+
+</Step>
+<Step>
+
+### Pre-Processing
+
+If type `T` implements the `PreProcess` trait, the `pre_process()` hook is called. This allows configurations to mutate themselves immediately after loading (e.g., setting default inner values or injecting context like the filename).
+
+</Step>
+<Step>
+
+### Validation
+
+Finally, the `validate()` method (from the `validator` crate) is executed. If validation fails (e.g., a required field is missing or a port is out of range), the loader returns `None` and logs a detailed error.
+
+</Step>
+</Steps>
+
+<Callout type="warn" title="Conflict Detection">
+	If multiple files with the same base name exist (e.g., `nodes.toml` and `nodes.json`), the loader
+	will detect this ambiguity, log a warning, and ignore the duplicates to prevent deterministic
+	confusion.
+</Callout>
+
+## Initialization
+
+The `file_loader` module also handles the "scaffolding" of the configuration directory. Functions like `init_config_files` ensure that the required directory structure exists on startup, creating default files if they are missing. This improves the "first-run" experience.
