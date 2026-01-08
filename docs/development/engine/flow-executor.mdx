@@ -1,9 +1,87 @@
 ---
 title: Flow Executor
-description: Flow execution engine implementation
+description: The high-performance recursive runtime for plugin execution.
 icon: GitBranch
 ---
 
-## Reference
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-- `src/engine/executor.rs`
+The Flow Executor is the heart of Vane's runtime. It is responsible for orchestrating the transition between plugins, managing the connections metadata, and ensuring system stability through timeouts and circuit breakers.
+
+## Execution Algorithm
+
+The executor operates recursively through the flow tree. At each step, it performs a series of validations and dispatches before moving to the next branch.
+
+<Steps>
+<Step>
+
+### Input Resolution
+
+Before a plugin is executed, its `input` parameters (defined in JSON) are passed through the [Template System](../resources/templates). This replaces any double-brace variables (`{{...}}`) with real-time data from the [KV Store](../resources/kv-store).
+
+</Step>
+<Step>
+
+### Plugin Dispatch
+
+The engine looks up the plugin in the registry and invokes it. Vane supports multiple plugin types with a strict priority order:
+
+1.  **HttpMiddleware**: HTTP-specific logic (L7 only).
+2.  **GenericMiddleware**: Protocol-agnostic logic (Available in all layers).
+3.  **Terminator**: Final steps that end the flow or request an upgrade.
+
+</Step>
+<Step>
+
+### Result Processing
+
+- **Middleware**: Returns a "branch" name. The engine updates the metadata and recurses into the next step defined for that branch.
+- **Terminator**: Returns a final result, such as `Finished` or `Upgrade`.
+
+</Step>
+</Steps>
+
+## Passive Circuit Breaker
+
+To protect the engine from slow or failing external plugins (HTTP/Unix/Command), the executor implements a passive circuit breaker.
+
+<Mermaid
+	chart="
+graph LR
+    Exec[Execute Plugin] --> Check{In Quiet Period?}
+    Check -- Yes --> Skip[Skip IO / Return failure]
+    Check -- No --> RealExec[Invoke External Plugin]
+    RealExec -- Error/Failure --> Mark[Mark Fail / Start Timer]
+    RealExec -- Success --> Reset[Reset Failure State]
+"
+/>
+
+- **Trigger**: A circuit breaker activates if an external plugin returns a runtime error or a designated `failure` branch.
+- **Quiet Period**: Controlled by `EXTERNAL_PLUGIN_QUIET_PERIOD_SECS` (default 3s). During this time, Vane avoids making I/O calls to the plugin, effectively "short-circuiting" the request to the failure path.
+
+## Key Scoping
+
+To ensure that plugins remain modular and don't overwrite each other's data, Vane automatically namespaces every value stored in the [KV Store](../resources/kv-store).
+
+### Scoping Format
+
+`plugin.{flow_path}.{sanitized_plugin_name}.{key}`
+
+- **`flow_path`**: The exact branch path taken to reach this plugin (e.g., `detect.tls.route.match`).
+- **`plugin_name`**: The name of the plugin (dots replaced by underscores).
+
+**Example:**
+If a plugin named `auth` is executed after a `detect` branch, its output `user` will be stored as:
+`plugin.detect.success.auth.user`
+
+## Safety & Limits
+
+| Parameter                           | Default | Description                                                 |
+| :---------------------------------- | :------ | :---------------------------------------------------------- |
+| `FLOW_EXECUTION_TIMEOUT_SECS`       | `10s`   | Maximum time allowed for a full flow to complete.           |
+| `EXTERNAL_PLUGIN_QUIET_PERIOD_SECS` | `3s`    | Duration to wait before retrying a failing external plugin. |
+
+<Callout type="warn" title="Key Name Validation">
+	The executor strictly validates all key names added by plugins. Any attempt to store a key
+	containing `{` or `}` is rejected to prevent template injection vulnerabilities.
+</Callout>

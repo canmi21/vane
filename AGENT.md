@@ -18,51 +18,30 @@
 1. **Preserve Frontmatter**: NEVER delete existing `icon` or `title` fields. Always `read_file` before `write_file`.
 2. **No Title Repetition**: Do NOT include an H1 (`# Title`) at the top of the body. The Frontmatter `title` is automatically rendered.
 3. **No Description Repetition**: Do NOT repeat the description text immediately after the title. Start directly with context.
-4. **Linking Rule**: When linking to sub-pages from an `index.mdx`, use the explicit path relative to the section root if requested (e.g., `./bootstrap/startup-sequence` instead of `./startup-sequence`).
+4. **Linking Rule**: **GLOBAL CONSISTENCY**: All links within the `development/` section must be written relative to the `docs/development/` root.
 5. **Component Syntax**:
-   - **Callouts**: Use `<Callout type="info|warn|error">Content</Callout>` (React syntax), NOT GFM blockquotes.
-   - **Mermaid**: Use `<Mermaid chart="..." />` component. **RESTRICTION**: Use ONLY for complex logic (branching, loops, state machines). **NEVER** use for simple linear lists.
-   - **Steps**: Use `<Steps>...</Steps>` component for linear sequences (like startup flows or guides).
+   - **Callouts**: Use `<Callout type="info|warn|error">Content</Callout>`.
+   - **Mermaid**: Use `<Mermaid chart="..." />` component. Use **graph LR** for cleaner horizontal layouts.
+   - **Steps**: Use `<Steps>...</Steps>` component for sequences.
 
 ## ⚠️ Content Anti-Patterns
 
 1. **No Artificial Numbering**: Avoid "Phase 1", "Step 5" prefixes in headers. Use natural, descriptive headers.
-2. **Quality Diagrams**: Do not use diagrams to visualize simple lists. If a list suffices, use a list. If it's a sequence, use `<Steps>`.
+2. **Clean Headers**: Do **NOT** use raw code symbols (e.g., `CONFIG_STATE`, `TASK_REGISTRY`) directly in section headers. Use descriptive, human-readable titles and mention symbols in the body text.
+3. **Quality Diagrams**: Do not use diagrams to visualize simple lists. If it's a sequence, use `<Steps>`.
+4. **Verify Implementation**: Never assume config sources. Check `hotswap.rs` or `loader.rs`.
 
 ## State Machine Rules
 
 ### 1. 🔍 ANALYZING (Code Inspection)
 
-- **Goal**: Deeply understand the module to be documented.
-- **Actions**:
-  - Review `ARCHITECTURE.md` relevant sections.
-  - Inspect actual Rust source code (`read_file`, `search_file_content`).
-  - **Verify** implementation details against architectural claims.
-
 ### 2. ✍️ WRITING (Documentation)
-
-- **Goal**: Produce high-quality MDX content.
-- **Actions**:
-  - Fill the MDX skeleton based on analysis.
-  - **Check Git Diff**: If uncertain about previous content (icons), check git.
-  - **CRITICAL CONFLICT CHECK**:
-    - If **Actual Code** != **Architecture Document**:
-    - **STOP** immediately.
-    - **REPORT** discrepancy to user.
-    - **WAIT** for explicit user decision before proceeding.
-  - Adhere to the Style Guide & Fumadocs Rules.
 
 ### 3. 🛑 IDLE (Await Instruction)
 
-- **Goal**: Checkpoint for user feedback.
-- **Actions**:
-  - Stop immediately after completing **ONE** file.
-  - Update `TODO.md` (mark task as completed).
-  - Report status and **WAIT** for user command ("Continue", "Modify", etc.).
-
 ## Current Status
 
-- **Phase**: Setup & Planning
-- **State**: 🛑 IDLE (Refactoring Complete)
-- **Last Action**: Split `utilities.mdx` into `configuration.mdx`, `network.mdx`, `system.mdx`.
-- **Next Task**: Phase 1: Foundation & Startup -> `docs/development/common/configuration.mdx`
+- **Phase**: Core Resources & Ingress
+- **State**: 🛑 IDLE (Correction Phase)
+- **Last Action**: Refining headers in `docs/development/ingress/connection-management.mdx`.
+- **Next Task**: Phase 3: The Engine & Plugin System -> `docs/development/engine/index.mdx`

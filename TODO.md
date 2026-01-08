@@ -32,15 +32,15 @@ This plan outlines the sequence for filling out the development documentation sk
 - [x] `docs/development/resources/templates.mdx`
 - [x] `docs/development/resources/service-discovery.mdx`
 - [x] `docs/development/resources/certificates.mdx`
-- [ ] `docs/development/ingress/index.mdx`
-- [ ] `docs/development/ingress/listeners.mdx`
-- [ ] `docs/development/ingress/connection-management.mdx`
+- [x] `docs/development/ingress/index.mdx`
+- [x] `docs/development/ingress/listeners.mdx`
+- [x] `docs/development/ingress/connection-management.mdx`
 
 ### Phase 3: The Engine & Plugin System
 
-- [ ] `docs/development/engine/index.mdx`
-- [ ] `docs/development/engine/flow-executor.mdx`
-- [ ] `docs/development/engine/plugin-system.mdx`
+- [x] `docs/development/engine/index.mdx`
+- [x] `docs/development/engine/flow-executor.mdx`
+- [x] `docs/development/engine/plugin-system.mdx`
 - [ ] `docs/development/plugins/index.mdx`
 - [ ] `docs/development/plugins/architecture.mdx`
 - [ ] `docs/development/plugins/types.mdx`

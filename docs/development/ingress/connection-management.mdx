@@ -1,11 +1,87 @@
 ---
 title: Connection Management
-description: Connection management and hot-reload
+description: Global connection tracking, rate limiting, and state persistence.
 icon: Link
 ---
 
-## Reference
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-- `src/ingress/state.rs`
-- `src/ingress/hotswap.rs`
-- `src/ingress/tasks.rs`
+Vane employs a centralized management system to track active connections and maintain the engine's global state. This ensures that the system stays within resource limits and can handle configuration updates atomically.
+
+## Connection Tracking & Limiting
+
+The `src/ingress/tasks.rs` module implements a high-performance connection tracker using a **RAII (Resource Acquisition Is Initialization)** pattern.
+
+### The Guard Pattern
+
+Vane uses a `ConnectionGuard` to ensure that every connection is accounted for throughout its entire lifecycle.
+
+<Steps>
+<Step>
+
+### Acquisition
+
+When a new connection is accepted by the `tcp` or `udp` modules, they call `GLOBAL_TRACKER.acquire(client_ip)`.
+
+The tracker performs two checks:
+
+1.  **Global Limit**: Total active connections across the entire engine (`MAX_CONNECTIONS`).
+2.  **Per-IP Limit**: Maximum concurrent connections allowed from a single IP address (`MAX_CONNECTIONS_PER_IP`).
+
+If either limit is exceeded, the request returns `None`, and the connection is immediately rejected.
+
+</Step>
+<Step>
+
+### Retention
+
+If successful, a `ConnectionGuard` is returned. This guard is held by the connection's asynchronous task. As long as the guard exists, the connection is counted as "active".
+
+</Step>
+<Step>
+
+### Automatic Release
+
+When the connection task terminates (due to completion, timeout, or error), the guard is dropped. The `Drop` implementation automatically decrements the global and per-IP counters.
+
+</Step>
+</Steps>
+
+## Global State Registries
+
+Vane maintains two primary registries in `src/ingress/state.rs` to manage the engine's runtime environment.
+
+### Port Configuration State
+
+The `CONFIG_STATE` is an `ArcSwap` container holding the current `PortStatus` for all listeners.
+
+- **Atomic Swapping**: When the [Hotswap System](./ingress/index#zero-downtime-diffing) detects a change, it prepares a new state and performs a single atomic pointer swap.
+- **Lock-free Reads**: Workers can read the current configuration snapshot without any lock contention, ensuring high throughput.
+
+### Listener Task Registry
+
+The `TASK_REGISTRY` is a `DashMap` that tracks the handles (`RunningListener`) of all running listener tasks. It is used to:
+
+- Route shutdown signals to specific listeners.
+- Monitor the health of active ports.
+- Manage the transition of listeners from `Active` to `Draining` states during reloads.
+
+## Configuration Parameters
+
+The following environment variables control the behavior of the connection manager:
+
+| Variable                 | Default | Description                                          |
+| :----------------------- | :------ | :--------------------------------------------------- |
+| `MAX_CONNECTIONS`        | `10000` | Global limit for concurrent connections.             |
+| `MAX_CONNECTIONS_PER_IP` | `50`    | Maximum connections allowed from a single client IP. |
+
+<Callout type="warn" title="IP Count Cleanup">
+	To prevent memory leaks from a large number of unique client IPs, Vane automatically removes an
+	IP's entry from the tracker map once its active connection count drops to zero.
+</Callout>
+
+<Callout type="info" title="Draining State">
+	When a listener is stopped, it may enter a `Draining` state. In this state, the listener no longer
+	accepts new connections but remains in the registry until all existing `ConnectionGuards`
+	associated with its tasks are released.
+</Callout>

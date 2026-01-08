@@ -1,5 +1,82 @@
 ---
-title: Ingress Data
-description: Connection listeners and management
+title: Design Insights
+description: Connection acceptance, listener management, and global rate limiting.
 icon: FlagTriangleRight
 ---
+
+The `ingress` module is the entry point for all network traffic entering Vane. It manages the lifecycle of TCP and UDP listeners, handles the initial connection handshake, and enforces global connection limits before handing off control to the [Layer 4](./layers/l4) engine.
+
+## Core Responsibilities
+
+| Component                                  | Responsibility                                                       |
+| :----------------------------------------- | :------------------------------------------------------------------- |
+| [`listener`](./ingress/listeners)          | Unified interface for starting and stopping socket listeners.        |
+| `tcp` / `udp`                              | Protocol-specific accept loops and datagram processing logic.        |
+| [`state`](./ingress/connection-management) | Global configuration state (ports, protocols) managed via `ArcSwap`. |
+| [`tasks`](./ingress/connection-management) | Concurrency control, connection counting, and global rate limiting.  |
+| `hotswap`                                  | Dynamic re-binding of ports via a directory-based watch loop.        |
+
+## The Connection Lifecycle
+
+1.  **Bind**: Listeners are bound to ports defined in the `listener/` directory.
+2.  **Accept**: The `tcp` or `udp` modules accept incoming packets/streams.
+3.  **Guard**: The `tasks` module checks if the global or per-IP connection limit is reached.
+4.  **Handover**: Valid connections are wrapped in a `ConnectionObject` and dispatched to the L4 engine.
+
+## Configuration Source
+
+Unlike monolithic proxies, Vane uses a **directory-based** structure for listener configuration, located in `listener/`.
+
+Each port is defined by a subdirectory named `[PORT]`. Inside, protocol configurations (`tcp.*`, `udp.*`) can be defined using any of the [supported formats](../common/configuration#supported-formats) (`.toml`, `.yaml`, `.json`).
+
+### Directory Structure Example
+
+```text
+listener/
+├── [80]/
+│   └── tcp.yaml       # Defines TCP flow for port 80
+├── [443]/
+│   ├── tcp.toml       # Defines TCP flow for port 443
+│   └── udp.json       # Defines UDP (QUIC) flow for port 443
+└── [53]/
+    ├── tcp.yaml       # DNS over TCP
+    └── udp.yaml       # DNS over UDP
+```
+
+<Callout type="info" title="Why Brackets?">
+	The `[PORT]` naming convention is strictly enforced by the scanner. This prevents accidental
+	loading of temporary directories or backup folders that don't match the pattern.
+</Callout>
+
+## Zero-Downtime Diffing
+
+The `hotswap` module implements a smart "diffing" engine for listeners. When the `listener/` directory changes:
+
+<Mermaid
+	chart='
+graph LR
+    subgraph Input
+        New[New Scan]
+        Old[Running State]
+    end
+    
+    New & Old --> Diff{Diff Engine}
+    
+    Diff -- "Port Added" --> Start([Start Listener])
+    Diff -- "Port Removed" --> Stop([Stop Listener])
+    Diff -- "Config Changed" --> Reload([Reload Listener])
+    Diff -- "No Change" --> Ignore([No-op])
+'
+/>
+
+1.  **Scan**: It builds a new snapshot of all defined ports.
+2.  **Diff**: It compares the new snapshot against the running state.
+3.  **Action**:
+    - **New Port**: Spawns a new listener immediately (`UP`).
+    - **Removed Port**: Stops the existing listener (`DOWN`).
+    - **Modified Config**: Restarts the listener with the new configuration (`RELOAD`).
+
+<Callout type="idea">
+	Deep dive into [Listeners Implementation](./ingress/listeners) or [Connection
+	Management](./ingress/connection-management).
+</Callout>

@@ -1,11 +1,89 @@
 ---
 title: Listeners Life Cycle
-description: TCP/UDP listener implementation
+description: Detailed implementation of TCP/UDP listener orchestration and error recovery.
 icon: ArrowDownUp
 ---
 
-## Reference
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-- `src/ingress/tcp.rs`
-- `src/ingress/udp.rs`
-- `src/ingress/listener.rs`
+The `src/ingress/listener.rs` module acts as the orchestrator for all network entry points in Vane. It abstracts the differences between TCP and UDP sockets and provides a unified interface for starting, stopping, and recovering listeners.
+
+## The Listener Registry
+
+Vane tracks all active listeners in the `TASK_REGISTRY`. Each entry maps a `(Port, Protocol)` tuple to a `RunningListener` handle, which contains:
+
+- **State**: The current status (Active, Error, etc.).
+- **Shutdown Channel**: A `oneshot` or `mpsc` sender used to signal the asynchronous accept loop to terminate.
+
+## Start Sequence
+
+When a listener is triggered to start (either during bootstrap or via hotswap), it follows a robust binding sequence:
+
+<Steps>
+<Step>
+
+### Pre-flight Check
+
+The registry is checked to see if a listener already exists for the given port and protocol. If it does, the request is ignored to prevent duplicates.
+
+</Step>
+<Step>
+
+### Bind with Retries
+
+Binding to a network port can fail if the port is temporarily held by a closing socket (TIME_WAIT). Vane attempts to bind up to **5 times** with a **100ms delay** between attempts.
+
+```rust
+// Logic from src/ingress/listener.rs
+for i in 0..5 {
+    match TcpListener::bind(addr).await {
+        Ok(l) => { listener = Some(l); break; }
+        Err(e) => {
+            if i == 4 { /* log fatal error */ }
+            else { tokio::time::sleep(100ms).await; }
+        }
+    }
+}
+```
+
+</Step>
+<Step>
+
+### Task Spawning
+
+Once bound, a protocol-specific task is spawned:
+
+- **TCP**: `spawn_tcp_listener_task`
+- **UDP**: `spawn_udp_listener_task`
+
+The resulting shutdown handle is stored back in the `TASK_REGISTRY`.
+
+</Step>
+</Steps>
+
+## Automatic Recovery
+
+One of Vane's key reliability features is its self-healing listeners. If an active listener encounters a fatal I/O error during runtime, it triggers the `handle_listener_error` workflow.
+
+1.  **Requirement Check**: Vane re-scans the configuration to see if the port _should_ still be active.
+2.  **Backoff**: If still required, it waits for **5 seconds** to avoid rapid crash-looping.
+3.  **Restart**: It calls `start_listener` to attempt a fresh bind and task initialization.
+
+## IP Version Handling
+
+Listeners honor the `LISTEN_IPV6` environment variable:
+
+- **`true`**: Binds to `[::]:port` (IPv6 dual-stack, allowing both v4 and v6 on many systems).
+- **`false`**: Binds to `0.0.0.0:port` (IPv4 only).
+
+<Callout type="warn" title="Port Conflicts">
+	If all 5 bind retries fail (e.g., another process has locked the port permanently), Vane will log
+	a `LogLevel::Error`. In the bootstrap phase, this will cause the entire engine to halt to prevent
+	a partially-running state.
+</Callout>
+
+<Callout type="info" title="Hotswap Integration">
+	The `stop_listener` function gracefully shuts down the listener by sending a signal through the
+	stored channel. This ensures that the socket is properly closed before a new configuration
+	attempts to re-bind the same port.
+</Callout>

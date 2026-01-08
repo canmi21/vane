@@ -1,5 +1,46 @@
 ---
-title: Engine
-description: Flow execution engine
-icon: CodeXml
+title: Overview
+description: The core flow execution logic and plugin orchestration system.
+icon: Workflow
 ---
+
+The `engine` module is the beating heart of Vane. It implements the "Flow-Based Programming" model, responsible for traversing the configuration tree, executing plugins in sequence, and managing the state transition between different network layers.
+
+## Core Responsibilities
+
+| Component                              | Responsibility                                                                                            |
+| :------------------------------------- | :-------------------------------------------------------------------------------------------------------- |
+| [`executor`](./engine/flow-executor)   | The recursive runtime that drives the execution of middleware chains and terminators.                     |
+| [`interfaces`](./engine/plugin-system) | Defines the traits (`Plugin`, `Middleware`, `Terminator`) that all logic units must implement.            |
+| `context`                              | Provides the execution environment (L4 vs. L7), exposing data like the `KvStore` and payloads to plugins. |
+| `key_scoping`                          | Automatically namespaces plugin outputs to prevent data collisions in complex flows.                      |
+
+## The Execution Model
+
+Vane treats network processing as a **Directed Acyclic Graph (DAG)** of plugins, simplified into a tree structure for configuration.
+
+1.  **Input**: A `ConnectionObject` and an initial `KvStore`.
+2.  **Process**: The engine walks the flow tree. At each step:
+    - It resolves inputs using the [Template System](./resources/templates).
+    - It executes the plugin.
+    - It updates the `KvStore` with the plugin's output.
+    - It determines the next branch based on the plugin's result.
+3.  **Output**: The flow ends when a `Terminator` plugin is reached (e.g., `proxy`, `deny`, or `upgrade`).
+
+## Key Concepts
+
+### Context Abstraction
+
+The engine is layer-agnostic. It defines a `Context` trait that allows the same execution logic to drive:
+
+- **L4 Flows**: Operating on raw TCP streams and peek buffers.
+- **L7 Flows**: Operating on HTTP requests and responses.
+
+### Automatic Scoping
+
+To ensure plugins are reusable, the engine implements [Key Scoping](./engine/flow-executor#key-scoping). A plugin doesn't need to know where it is in the flow; the engine automatically prefixes its output keys (e.g., `plugin.path.to.auth.user`) to ensure isolation.
+
+<Callout type="idea">
+	Deep dive into the [Flow Executor](./engine/flow-executor) or the [Plugin
+	System](./engine/plugin-system).
+</Callout>
