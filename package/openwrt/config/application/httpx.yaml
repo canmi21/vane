@@ -1,0 +1,85 @@
+pipeline:
+  internal.common.match:
+    input:
+      left: '{{req.path}}'
+      operator: 'starts_with'
+      right: '/cgi-bin/luci'
+    output:
+      true:
+        internal.driver.cgi:
+          input:
+            command: '/usr/bin/lua'
+            script: '/www/cgi-bin/luci'
+            doc_root: '/www'
+            script_name: '/cgi-bin/luci'
+            method: '{{req.method}}'
+            uri: '{{req.path}}'
+            query: '{{req.query}}'
+            remote_addr: '{{conn.ip}}'
+            server_port: '{{server.port}}'
+          output:
+            success:
+              internal.terminator.response: {}
+            failure:
+              internal.transport.abort: {}
+      false:
+        internal.common.match:
+          input:
+            left: '{{req.path}}'
+            operator: 'starts_with'
+            right: '/admin'
+          output:
+            true:
+              internal.driver.cgi:
+                input:
+                  command: '/usr/bin/lua'
+                  script: '/www/cgi-bin/luci'
+                  doc_root: '/www'
+                  script_name: '/cgi-bin/luci'
+                  path_info: '{{req.path}}'
+                  method: '{{req.method}}'
+                  uri: '{{req.path}}'
+                  query: '{{req.query}}'
+                  remote_addr: '{{conn.ip}}'
+                  server_port: '{{server.port}}'
+                output:
+                  success:
+                    internal.terminator.response: {}
+                  failure:
+                    internal.transport.abort: {}
+            false:
+              internal.common.match:
+                input:
+                  left: '{{req.path}}'
+                  operator: '=='
+                  right: '/'
+                output:
+                  true:
+                    internal.terminator.response:
+                      input:
+                        status: 302
+                        headers:
+                          Location: '/cgi-bin/luci'
+                          Content-Type: 'text/html'
+                        body: 'Redirecting to LuCI...'
+                  false:
+                    internal.driver.static:
+                      input:
+                        root: '/www'
+                        uri: '{{req.path}}'
+                        index: 'index.html'
+                        precompress: true
+                        spa: false
+                      output:
+                        success:
+                          internal.terminator.response: {}
+                        not_found:
+                          internal.terminator.response:
+                            input:
+                              status: 404
+                              body: '404 Not Found'
+                        failure:
+                          internal.terminator.response:
+                            input:
+                              status: 500
+                              body: '500 Internal Error'

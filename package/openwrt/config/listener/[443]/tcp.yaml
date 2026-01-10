@@ -1,0 +1,4 @@
+connection:
+  internal.transport.upgrade:
+    input:
+      protocol: 'tls'
