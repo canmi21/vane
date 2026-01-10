@@ -13,15 +13,12 @@ start_service() {
     procd_set_param workdir $CONF_DIR
 
     if [ -f "$CONF_DIR/.env" ]; then
-        while read -r line; do
-            case "$line" in
-                \#*|"") continue ;;
-                *=*)
-                    var_name="${line%%=*}"
-                    var_value="${line#*=}"
-                    var_value="$(echo "$var_value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
-                    procd_set_param env "$var_name=$var_value"
-                    ;;
+    while read -r line; do
+        case "$line" in
+            \#*|"") continue ;;
+            *=*)
+                procd_set_param env "$line"
+                ;;
             esac
         done < "$CONF_DIR/.env"
     fi
@@ -29,7 +26,7 @@ start_service() {
     procd_set_param limits core="unlimited"
     procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
 
-		procd_set_param stdout 1
+    procd_set_param stdout 1
     procd_set_param stderr 1
 
     procd_close_instance
