@@ -86,13 +86,15 @@ pub fn validate_flow_recursive(
 		}
 	}
 
-	// 1. Cycle Detection
-	if ancestors.contains(plugin_name) {
+	// 1. Cycle Detection (based on instance path, not plugin name)
+	// A cycle occurs when an instance's output tree eventually leads back to that same instance,
+	// not when the same plugin type appears multiple times in different positions.
+	if ancestors.contains(&current_path) {
 		errors.push(FlowValidationError {
 			path: current_path.clone(),
 			message: format!(
-				"Cycle detected: plugin '{}' calls itself in its output tree.",
-				plugin_name
+				"Cycle detected: instance at '{}' calls itself in its output tree.",
+				current_path
 			),
 		});
 		return errors;
@@ -199,7 +201,7 @@ pub fn validate_flow_recursive(
 			);
 		}
 
-		ancestors.push(plugin_name.clone());
+		ancestors.push(current_path.clone());
 		for (branch, next_step) in &instance.output {
 			let branch_path = format!("{}.{}", current_path, branch);
 			errors.extend(validate_flow_recursive(

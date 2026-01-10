@@ -47,6 +47,11 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	let body_bytes = container.force_buffer_request().await?.clone();
 	let content_length = body_bytes.len().to_string();
 
+	log(
+		LogLevel::Debug,
+		&format!("⚙ CGI Request: method={}, body_size={} bytes", config.method, body_bytes.len()),
+	);
+
 	let mut envs = HashMap::new();
 	envs.insert("GATEWAY_INTERFACE".to_string(), "CGI/1.1".to_string());
 	envs.insert(
@@ -119,16 +124,24 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	tokio::spawn(async move {
 		let mut reader = BufReader::new(stderr).lines();
 		while let Ok(Some(line)) = reader.next_line().await {
-			log(LogLevel::Debug, &format!("⚙ CGI: {}", line));
+			log(LogLevel::Debug, &format!("⚙ CGI stderr: {}", line));
 		}
 	});
 
-	tokio::spawn(async move {
+	// IMPORTANT: Write stdin BEFORE reading stdout to prevent CGI from blocking
+	// Many CGI scripts (especially POST handlers) wait for complete stdin before responding
+	if !body_bytes.is_empty() {
 		if let Err(e) = stdin.write_all(&body_bytes).await {
-			log(LogLevel::Debug, &format!("⚠ CGI stdin write error: {}", e));
+			log(LogLevel::Warn, &format!("⚠ CGI stdin write failed: {}", e));
+			let _ = child.kill().await;
+			return Ok(MiddlewareOutput {
+				branch: Cow::Borrowed("failure"),
+				store: None,
+			});
 		}
-		drop(stdin);
-	});
+		log(LogLevel::Debug, &format!("✓ CGI stdin written: {} bytes", body_bytes.len()));
+	}
+	drop(stdin); // Close stdin to signal EOF to CGI
 
 	let mut header_buffer = BytesMut::new();
 	let mut body_start_chunk = BytesMut::new();
@@ -175,7 +188,7 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	let headers_str = String::from_utf8_lossy(&header_buffer);
 	log(
 		LogLevel::Debug,
-		&format!("⚙ CGI Headers Parsed ({} bytes)", header_buffer.len()),
+		&format!("⚙ CGI Headers Parsed ({} bytes):\n{}", header_buffer.len(), headers_str),
 	);
 
 	for line in headers_str.lines() {
@@ -184,9 +197,11 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 			let val = v.trim();
 
 			if key.eq_ignore_ascii_case("Status") {
+				// Extract numeric status code from "302 Found" -> "302"
+				let status_code = val.split_whitespace().next().unwrap_or("200");
 				container
 					.kv
-					.insert("res.status".to_string(), val.to_string());
+					.insert("res.status".to_string(), status_code.to_string());
 			} else if let (Ok(h_name), Ok(h_val)) = (
 				HeaderName::from_bytes(key.as_bytes()),
 				HeaderValue::from_str(val),

@@ -1,5 +1,6 @@
 /* src/common/sys/system.rs */
 
+#[cfg(any(target_os = "macos", target_os = "freebsd"))]
 use std::process::Command;
 
 /// Returns the free memory of the system in bytes.

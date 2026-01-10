@@ -37,7 +37,8 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 					}
 
 					// Create the KV store as soon as the connection is accepted.
-					let kv_store = kv::new(&addr, "tcp");
+					let server_addr = socket.local_addr().unwrap_or_else(|_| format!("0.0.0.0:{}", port).parse().unwrap());
+					let kv_store = kv::new(&addr, &server_addr, "tcp");
 					log(LogLevel::Debug, &format!("⚙ Accepted TCP connection from {} on port {}", addr, port));
 
 					let config_guard = CONFIG_STATE.load();

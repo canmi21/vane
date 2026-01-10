@@ -90,7 +90,8 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 							let datagram = bytes::Bytes::copy_from_slice(packet);
 							let socket_clone = socket_arc.clone();
 							let config_clone = udp_config.clone();
-							let kv_store = kv::new(&client_addr, "udp");
+							let server_addr = socket_arc.local_addr().unwrap_or_else(|_| format!("0.0.0.0:{}", port).parse().unwrap());
+							let kv_store = kv::new(&client_addr, &server_addr, "udp");
 
 							tokio::spawn(async move {
 								udp::dispatch_udp_datagram(socket_clone, port, config_clone, datagram, client_addr, kv_store).await;
