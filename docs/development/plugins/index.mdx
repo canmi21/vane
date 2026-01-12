@@ -1,5 +1,45 @@
 ---
-title: Design
-description: Plugin system implementation
-icon: Puzzle
+title: Overview
+description: The implementation architecture of internal and external logic units.
+icon: Blocks
 ---
+
+The `plugins` module contains the actual implementation of the processing logic used in Vane's flows. It provides a rich set of built-in components for proxying, protocol detection, and request manipulation, while also providing the machinery to load and execute third-party code.
+
+## Module Structure
+
+The package is organized by responsibility and network layer:
+
+| Sub-module                       | Responsibility                                                                                               |
+| :------------------------------- | :----------------------------------------------------------------------------------------------------------- |
+| [`core`](./plugins/architecture) | The infrastructure for plugin registration, loading, and external process management.                        |
+| `l4-l4p-l7`                      | Layer-specific implementations (e.g., TCP forwarding, HTTP upstreaming, Static files).                       |
+| `middleware`                     | Reusable cross-layer components like rate limiters and header matchers.                                      |
+| `protocol`                       | Deep protocol inspection tools (TLS ClientHello parsing, QUIC header analysis).                              |
+| `system`                         | Drivers for "System Plugins" that bridge internal execution to external environments `HTTP`/`Unix`/`Binary`. |
+
+## Design Pillars
+
+1.  **Uniform Registration**: All plugins, whether internal or external, are registered in a centralized `registry`. The engine interacts with them through uniform traits.
+2.  **Encapsulation**: Internal plugins are grouped by layer to prevent cross-layer contamination (e.g., L4 plugins shouldn't reference HTTP headers).
+3.  **Extensibility**: The system is designed to treat external drivers as "first-class citizens", allowing users to extend Vane's logic without modifying the core Rust source.
+
+## Built-in vs. External
+
+### Built-in Plugins
+
+Compiled directly into the Vane binary. These are high-performance implementations of core networking tasks like load balancing (`l4::proxy`), SSL termination helper (`protocol::tls`), and HTTP fetching (`l7::upstream`).
+
+### External Plugins
+
+Loaded at runtime via `plugins.json`. These rely on the **System Drivers** located in `src/plugins/system/` to communicate with external processes over HTTP, Unix Domain Sockets, or StdIO.
+
+<Callout type="info" title="Registry Lifecycle">
+	Internal plugins are registered during the binary's static initialization, while external plugins
+	are loaded and validated during the [Bootstrap Sequence](./bootstrap/startup-sequence).
+</Callout>
+
+<Callout type="idea">
+	Explore the [Plugin Architecture](./plugins/architecture) for a deep dive into the loading logic,
+	or [Plugin Types](./plugins/types) to understand the trait specializations.
+</Callout>

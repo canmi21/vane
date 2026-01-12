@@ -1,0 +1,40 @@
+---
+title: Rate Limiter
+description: Token-bucket traffic limiting.
+icon: Timer
+---
+
+- **ID**: `internal.common.ratelimit.sec` / `internal.common.ratelimit.min`
+- **Source**: `src/plugins/middleware/ratelimit.rs`
+- **Trait**: `GenericMiddleware`
+- **Layer**: **L4**, **L4+**, **L7**
+
+## Logic Flow
+
+Implements a distributed token bucket to limit frequency of events.
+
+<Mermaid
+	chart="
+graph LR
+    Input[Resolve Template] --> Key[Rate Key]
+    Key --> Bucket{Check Quota}
+    Bucket -- Available --> Allow([Branch: true])
+    Bucket -- Empty --> Deny([Branch: false])
+"
+/>
+
+### Output Branches
+
+- **`true`**: Request is within the rate limit (Allowed).
+- **`false`**: Request exceeded the rate limit (Denied).
+
+## Parameters
+
+| Name    | Type    | Required | Description                                                 |
+| :------ | :------ | :------- | :---------------------------------------------------------- |
+| `key`   | String  | Yes      | The unique identifier for the bucket (e.g., `{{conn.ip}}`). |
+| `limit` | Integer | Yes      | Maximum requests allowed per interval (sec/min).            |
+
+### Memory Safety
+
+The rate limiter includes a self-preservation mechanism. If the internal map exceeds `MAX_LIMITER_MEMORY` (default 4MB), it randomly evicts 10% of keys to prevent Out-Of-Memory crashes.

@@ -1,0 +1,44 @@
+---
+title: Static Files
+description: Serving local file content.
+icon: FileText
+---
+
+- **ID**: `internal.driver.static`
+- **Source**: `src/plugins/l7/static_files/mod.rs`
+- **Trait**: `HttpMiddleware`
+- **Layer**: **L7 Only**
+
+## Logic Flow
+
+Resolves a local file and **attaches** it to the response container as a stream.
+It does **not** send the bytes to the client immediately; a Terminator (like `SendResponse`) is required to flush the stream.
+
+<Mermaid
+	chart="
+graph LR
+    Path[Resolve Path] --> Check{Exists?}
+    Check -- Yes --> MIME[Detect Type]
+    MIME --> Attach[Attach File Stream]
+    Attach --> Next[Next: Terminator]
+    Check -- No --> 404[Set 404 Status]
+"
+/>
+
+### Output Branches
+
+- **`success`**: File found and attached (or directory listing generated).
+- **`not_found`**: File does not exist (and no SPA fallback).
+- **`failure`**: Permission denied, path traversal attempt, or IO error.
+
+### Parameters
+
+| Name          | Required | Description                                                     |
+| :------------ | :------- | :-------------------------------------------------------------- |
+| `root`        | **Yes**  | Local directory root path.                                      |
+| `uri`         | **Yes**  | Request URI to map to the file system.                          |
+| `index`       | No       | Index file name (default `index.html`).                         |
+| `spa`         | No       | Enable Single Page App mode (fallback to index).                |
+| `browse`      | No       | Enable directory listing (default `false`).                     |
+| `precompress` | No       | Check for `.gz` files if client accepts gzip (default `false`). |
+| `symlink`     | No       | Allow following symlinks (default `false`).                     |

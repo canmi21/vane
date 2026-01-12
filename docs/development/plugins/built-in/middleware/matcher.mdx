@@ -1,0 +1,49 @@
+---
+title: Common Matcher
+description: Conditional branching logic based on string comparison.
+icon: Signpost
+---
+
+- **ID**: `internal.common.match`
+- **Source**: `src/plugins/middleware/matcher.rs`
+- **Trait**: `GenericMiddleware`
+- **Layer**: **L4**, **L4+**, **L7**
+
+## Logic Flow
+
+The matcher evaluates a condition (`left` [operator] `right`) and returns a boolean branch.
+
+<Mermaid
+	chart="
+graph LR
+    Input[Resolve Inputs] --> Eval{Condition?}
+    Eval -- True --> True([Branch: true])
+    Eval -- False --> False([Branch: false])
+"
+/>
+
+### Output Branches
+
+- **`true`**: The condition evaluated to true.
+- **`false`**: The condition evaluated to false.
+
+## Parameters
+
+| Name       | Type   | Required | Description                                           |
+| :--------- | :----- | :------- | :---------------------------------------------------- |
+| `left`     | String | Yes      | Left operand (usually a template like `{{conn.ip}}`). |
+| `right`    | String | Yes      | Right operand to compare against.                     |
+| `operator` | String | No       | The comparison operator (default: `==`).              |
+
+### Operators
+
+The `operator` parameter supports the following comparison methods:
+
+| Category        | Operators (Synonyms)                | Description                                       |
+| :-------------- | :---------------------------------- | :------------------------------------------------ |
+| **Equality**    | `==`, `eq`, `equal`, `equals`       | True if `left` equals `right`.                    |
+| **Inequality**  | `!=`, `ne`, `notequal`, `not_equal` | True if `left` does not equal `right`.            |
+| **Containment** | `contains`, `contain`               | True if `left` contains the string `right`.       |
+| **Prefix**      | `startswith`, `starts_with`         | True if `left` starts with the string `right`.    |
+| **Suffix**      | `endswith`, `ends_with`             | True if `left` ends with the string `right`.      |
+| **Regex**       | `regex`, `re`, `match`              | True if `left` matches the regex pattern `right`. |

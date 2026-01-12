@@ -1,0 +1,60 @@
+---
+title: Proxy Request
+description: Transport layer TCP/UDP forwarding.
+icon: Waypoints
+---
+
+- **Layer**: **L4**, **L4+** (Terminator)
+
+## Transparent Proxy
+
+- **ID**: `internal.transport.proxy`
+- **Source**: `src/plugins/l4/proxy/ip.rs`
+- **Trait**: `Terminator`
+
+### Logic
+
+Proxies the connection to a static, explicitly defined IP and Port.
+
+<Mermaid
+	chart="
+graph LR
+    Input[Target IP] --> Connect[Connect]
+    Connect --> Pipe[Bi-directional Copy]
+"
+/>
+
+### Parameters
+
+| Name          | Required | Description                    |
+| :------------ | :------- | :----------------------------- |
+| `target.ip`   | Yes      | Destination IPv4/IPv6 address. |
+| `target.port` | Yes      | Destination port.              |
+
+---
+
+## Node Proxy
+
+- **ID**: `internal.transport.proxy.node`
+- **Source**: `src/plugins/l4/proxy/node.rs`
+- **Trait**: `Terminator`
+
+### Logic
+
+Proxies to a dynamic node from the [Service Discovery](../../resources/service-discovery) registry.
+
+<Mermaid
+	chart="
+graph LR
+    Input[Node Name] --> LB{Load Balance}
+    LB --> Select[Select IP]
+    Select --> Connect[Connect]
+"
+/>
+
+### Parameters
+
+| Name          | Required | Description                                    |
+| :------------ | :------- | :--------------------------------------------- |
+| `target.node` | Yes      | Name of the node group to target.              |
+| `target.port` | Yes      | Port to connect to on the selected backend IP. |

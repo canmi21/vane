@@ -20,22 +20,21 @@ Templates are resolved from the inside out. Consider the example: `{{kv.{{conn.p
 
 <Mermaid
   chart='
-graph TD;
-    subgraph Step1 [Phase 1: Parse Inner Variable]
+graph LR;
+    subgraph Step1 [Phase 1: Parse Inner]
         Inner["{{conn.protocol}}"] -- Lookup --> Value1["http"]
     end
 
-    subgraph Step2 [Phase 2: Construct Outer Key]
-        Value1 --> Concat["kv. + http + _backend"]
-        Concat --> Key["kv.http_backend"]
+    subgraph Step2 [Phase 2: Construct Key]
+        Concat["kv. + http + _backend"] --> Key["kv.http_backend"]
     end
 
     subgraph Step3 [Phase 3: Final Resolution]
-        Key -- Lookup --> Final["backend-01"]
+        Value2["backend-01"]
     end
 
-    Step1 --> Step2
-    Step2 --> Step3
+    Value1 --> Concat
+    Key --> Value2
 
 '
 />

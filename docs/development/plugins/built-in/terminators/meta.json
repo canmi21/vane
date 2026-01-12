@@ -1,0 +1,6 @@
+{
+	"title": "Terminators",
+	"description": "Final connection handlers",
+	"icon": "CircleSlash",
+	"pages": ["index", "proxy", "upgrade", "response"]
+}

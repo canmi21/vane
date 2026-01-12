@@ -1,0 +1,87 @@
+---
+title: Layer 4 (Transport)
+description: Packet-level routing and proxying logic.
+icon: Network
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+Layer 4 (L4) is the **Transport Layer** of Vane. It handles raw TCP streams and UDP datagrams directly from the socket.
+
+## Key Responsibilities
+
+- **Ingress**: Accepting initial connections.
+- **Peeking**: Inspecting the first N bytes of a stream without consuming them (for protocol detection).
+- **Routing**: Dispatching connections to specific backends based on IP/Port or peeked data.
+- **Upgrading**: Recognizing high-level protocols (like TLS) and handing off control to Layer 4+.
+
+## Context & State
+
+L4 operates within a `TransportContext`.
+
+| Component | Description |
+| :--- | :--- |
+| **`KV Store`** | Initialized with `conn.ip`, `conn.port`, `conn.proto`. |
+| **`Peek Buffer`** | A cache of the first few bytes (configurable limit). |
+| **`Connection`** | `TcpStream` (TCP) or `UdpSocket` + `Datagram` (UDP). |
+
+### Template Variables
+
+In L4, you can access the raw peek buffer using templates:
+
+- `{{req.peek_buffer_hex}}`: The initial bytes as a hex string (e.g., `160301...` for TLS).
+
+## Target Resolution
+
+When proxying, Vane resolves targets dynamically. This logic handles `internal.transport.proxy` requests.
+
+### 1. Static IP
+Directly connects to an IP address.
+```json
+{ "target.ip": "10.0.0.1", "target.port": 8080 }
+```
+
+### 2. Domain Name
+Resolves a hostname using the internal async DNS resolver.
+- **Config**: `NAMESERVER1`, `NAMESERVER2` (env vars).
+- **Feature**: Requires `domain-target` feature flag.
+- **Logic**: Resolves A/AAAA records and connects to the first success.
+
+### 3. Service Node
+Resolves a node from the Service Discovery registry (`nodes.json`).
+- **Logic**: Finds the node by ID, selects a healthy IP/Port pair.
+```json
+{ "target.node": "backend-api", "target.port": 80 }
+```
+
+## UDP Session Management
+
+Since UDP is connectionless, Vane creates **Virtual Sessions** to maintain stateful flows (e.g., for NAT-like behavior).
+
+<Mermaid
+	chart="
+graph LR
+    Client -->|Packet A| Vane
+    Vane -- Create Session --> Upstream
+    Upstream -->|Reply A| Vane
+    Vane -- Lookup Session --> Client
+"
+/>
+
+- **Key**: `(Client IP, Protocol)`
+- **Timeout**: `UDP_SESSION_TIMEOUT_SECS` (Default: 30s).
+- **Cleanup**: A background task prunes expired sessions to prevent memory leaks.
+
+## Upgrade Flow
+
+L4 is often just a stepping stone. An **Upgrade** transfers the connection to a higher layer.
+
+**Example**: TLS Detection & Upgrade
+
+1. **Peek**: L4 reads first 5 bytes.
+2. **Match**: Plugin detects `0x16` (TLS Handshake).
+3. **Upgrade**: Terminator returns `Upgrade("tls")`.
+4. **Transition**:
+    - The `TcpStream` is passed to the **L4+ Dispatcher**.
+    - L4 flow ends.
+    - L4+ flow begins (parsing ClientHello).

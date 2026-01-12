@@ -1,12 +1,104 @@
 ---
-title: Types
-description: Plugin implementation types
+title: Plugin Types
+description: Detailed implementation of internal plugins and external system drivers.
 icon: Component
 ---
 
-## Reference
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-- `src/plugins/system/`
-- `src/plugins/middleware/`
-- `src/plugins/l4/`
-- `src/plugins/l7/`
+Vane categorizes plugins based on their implementation source and operational logic. This guide covers the high-performance internal components and the drivers that power external extensions.
+
+## Internal Plugins (Rust)
+
+Built-in plugins are compiled directly into the Vane binary for maximum performance.
+
+### Middleware
+
+Used for cross-layer logic like:
+
+- **`matcher`**: Evaluates conditions against the [KV Store](../resources/kv-store) to route traffic.
+- **`ratelimit`**: Token-bucket based limiting (per second or minute).
+
+### Terminators
+
+Responsible for the final action of a flow:
+
+- **L4 Proxy**: TCP/UDP forwarding to IPs, Domains, or SD Nodes.
+- **L7 Upstream**: Full HTTP/2 and HTTP/3 reverse proxying.
+- **Response**: Generating synthetic HTTP responses directly.
+
+---
+
+## External Drivers (The "System" Layer)
+
+External plugins are executed by Vane via one of three specialized drivers. They all follow a **JSON-in, JSON-out** contract but differ in communication method.
+
+| Driver      | Transport          | Best For                                           |
+| :---------- | :----------------- | :------------------------------------------------- |
+| **HTTPX**   | HTTP/HTTPS         | Remote microservices, serverless functions.        |
+| **Unix**    | Unix Domain Socket | High-performance local sidecars.                   |
+| **Command** | StdIO (Subprocess) | Scripts (Python, Node.js), binaries, or CLI tools. |
+
+### 1. HTTPX & Unix Drivers
+
+Both drivers encapsulate the plugin's `inputs` into a POST request.
+
+- **HTTPX**: Supports custom timeouts and optional TLS verification skipping.
+- **Unix**: Communicates over a local socket file, reducing networking overhead while maintaining the simplicity of the HTTP protocol.
+
+### 2. Command Driver (Subprocess)
+
+The `command` driver is the most powerful and requires the strictest security measures.
+
+#### Execution Pipeline
+
+<Steps>
+<Step>
+
+### Path Validation
+
+The program must exist within the **Trusted Bin Root** (see [Architecture](./architecture#security-the-trusted-bin-root)).
+
+</Step>
+<Step>
+
+### Environment Sanitization
+
+To prevent privilege escalation or library hijacking, Vane aggressively filters environment variables provided in the configuration:
+
+- **Linker Variables**: `LD_PRELOAD`, `DYLD_LIBRARY_PATH` are dropped by default.
+- **Runtime Variables**: `PYTHONPATH`, `NODE_OPTIONS` are dropped.
+- **Shell Variables**: `IFS`, `BASH_ENV` are dropped.
+
+Operators can selectively allow these via `ALLOW_EXTERNAL_*` environment flags.
+
+</Step>
+<Step>
+
+### Communication & Logging
+
+Vane pipes the JSON input to the child's `stdin`. It then captures `stdout` for the result and redirected `stderr` to Vane's internal **Debug Log**, ensuring that external script errors are visible in Vane's console.
+
+</Step>
+</Steps>
+
+## External API Contract
+
+All external drivers expect the following JSON response structure:
+
+```json
+{
+	"status": "success",
+	"data": {
+		"branch": "success",
+		"store": { "user_id": "12345" }
+	},
+	"message": "Optional error or info message"
+}
+```
+
+<Callout type="warn" title="Driver Failures">
+	If an external driver encounters an I/O error (e.g., connection refused or process crash), it
+	automatically triggers the [Passive Circuit
+	Breaker](../engine/flow-executor#passive-circuit-breaker) to prevent performance degradation.
+</Callout>

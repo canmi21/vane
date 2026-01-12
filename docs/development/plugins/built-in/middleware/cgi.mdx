@@ -1,0 +1,63 @@
+---
+title: CGI
+description: Common Gateway Interface execution driver.
+icon: FileCog
+---
+
+- **ID**: `internal.driver.cgi`
+- **Source**: `src/plugins/l7/cgi/mod.rs`
+- **Trait**: `HttpMiddleware` (Logic), `L7Middleware` (Generic)
+- **Layer**: **L7 Only**
+
+## Logic Flow
+
+Executes an external script, capturing its output into the response container.
+This is a **Driver** middleware: it generates the response body but leaves the final transmission to a Terminator.
+
+<Mermaid
+	chart="
+graph LR
+    Input --> Spawn[Subprocess]
+    Spawn --> Pipe[StdIO]
+    Pipe --> Parse[Parse Output]
+    Parse --> Attach[Attach to Container]
+    Attach --> Next[Next: Terminator]
+"
+/>
+
+### Output Branches
+
+- **`success`**: Script executed and output attached to container.
+- **`failure`**: Script failed to execute or timed out.
+
+### Parameters
+
+#### Execution Control
+
+| Name      | Required | Description                                      |
+| :-------- | :------- | :----------------------------------------------- |
+| `command` | **Yes**  | Path to the executable.                          |
+| `script`  | No       | Script file path (if command is an interpreter). |
+| `timeout` | No       | Execution timeout in seconds (default 30).       |
+
+#### Metadata Inputs (Template Injection Targets)
+
+Use these to inject request data into the CGI environment.
+
+| Name          | Required | Description                  |
+| :------------ | :------- | :--------------------------- |
+| `method`      | No       | HTTP Method (default `GET`). |
+| `uri`         | **Yes**  | Full Request URI.            |
+| `query`       | No       | Query string.                |
+| `remote_addr` | No       | Client IP address.           |
+| `remote_port` | No       | Client port.                 |
+| `server_port` | No       | Server listening port.       |
+| `server_name` | No       | Server hostname.             |
+
+#### Context & Path Resolution
+
+| Name          | Required | Description                        |
+| :------------ | :------- | :--------------------------------- |
+| `doc_root`    | No       | Document root for path resolution. |
+| `path_info`   | No       | Explicit PATH_INFO override.       |
+| `script_name` | No       | Explicit SCRIPT_NAME override.     |

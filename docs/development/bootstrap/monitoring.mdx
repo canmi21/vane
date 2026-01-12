@@ -84,7 +84,6 @@ The monitoring behavior is controlled via several environment variables:
 | `L7_ADAPTIVE_MEMORY_LIMIT` | `true`      | Enables or disables adaptive memory management. |
 | `L7_ADAPTIVE_MEMORY_RATIO` | `85`        | The % of available memory Vane aims to utilize. |
 | `L7_GLOBAL_BUFFER_LIMIT`   | `536870912` | 512MB fallback limit if adaptive mode is off.   |
-| `LOG_LEVEL`                | `info`      | Controls the verbosity of monitoring logs.      |
 
 <Callout type="info" title="Safety Margin">
 	The adaptive ratio is capped at 95% internally to ensure that the operating system always has a
