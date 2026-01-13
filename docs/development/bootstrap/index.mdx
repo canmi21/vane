@@ -21,13 +21,13 @@ The bootstrap process follows a strict linear sequence to handle dependencies co
 
 The `bootstrap` package is organized into several specialized modules:
 
-| Module                                    | Responsibility                                                                         |
-| :---------------------------------------- | :------------------------------------------------------------------------------------- |
-| [`startup`](./bootstrap/startup-sequence) | The central orchestrator that defines the 13-step bootstrap sequence.                  |
-| `logging`                                 | Configures the global logger (`fancy_log`) and displays the startup banner (MOTD).     |
-| `console`                                 | Initializes the Management API (Console) server, supporting both TCP and Unix sockets. |
-| [`monitor`](./bootstrap/monitoring)       | Implements the L7 adaptive memory monitor to prevent resource exhaustion.              |
-| `socket`                                  | Handles Unix domain socket creation and permission management for local IPC.           |
+| Module                                    | Responsibility                                                                                     |
+| :---------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| [`startup`](./bootstrap/startup-sequence) | The central orchestrator that defines the bootstrap sequence (3 foundational + 13 numbered steps). |
+| `logging`                                 | Configures the global logger (`fancy_log`) and displays the startup banner (MOTD).                 |
+| `console`                                 | Initializes the Management API (Console) server, supporting both TCP and Unix sockets.             |
+| [`monitor`](./bootstrap/monitoring)       | Implements the L7 adaptive memory monitor to prevent resource exhaustion.                          |
+| `socket`                                  | Handles Unix domain socket creation and permission management for local IPC.                       |
 
 ## Execution Entry Point
 

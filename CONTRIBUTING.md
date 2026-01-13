@@ -101,6 +101,7 @@ Example:
 
 - All participation must comply with the project’s Code of Conduct.
 - Violations may be reported.
+- Commit messages **must be clear, objective, and descriptive**, and commits **must be logically grouped and kept compact**.
 - **Maintainers have final say on interpretation and enforcement.**
 
 ---

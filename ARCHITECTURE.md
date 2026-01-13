@@ -53,7 +53,7 @@ src/
 
 Handles system initialization in a defined sequence. Key components:
 
-- `startup.rs`: Orchestrates the 13-step bootstrap process
+- `startup.rs`: Orchestrates the bootstrap process (3 foundational steps + 13 numbered steps)
 - `logging.rs`: Configures logging based on LOG_LEVEL environment variable
 - `console.rs`: Starts the management API server
 - `monitor.rs`: Manages L7 adaptive memory limits
@@ -65,9 +65,12 @@ Provides shared utilities across modules:
 
 - `config/env_loader.rs`: Environment variable loading with defaults
 - `config/file_loader.rs`: Configuration file reading from CONFIG_DIR
+- `config/loader.rs`: Generic config file loader supporting TOML, YAML, and JSON formats
 - `net/`: Network utilities (IP validation, port management)
 - `sys/lifecycle.rs`: System lifecycle management
 - `sys/watcher.rs`: File change detection for hot-reloading
+- `sys/hotswap.rs`: Generic watch loop for hot-reloading configurations
+- `sys/system.rs`: Cross-platform system information utilities (memory detection)
 
 #### engine/
 
@@ -88,6 +91,7 @@ Connection entry points:
 - `state.rs`: Global configuration state (ArcSwap)
 - `hotswap.rs`: Configuration reload handler
 - `tasks.rs`: Connection rate limiting
+- `api.rs`: Management API handlers for port configuration queries
 
 #### layers/l4/
 
@@ -95,12 +99,19 @@ Transport layer routing:
 
 - `dispatcher.rs`: Routes connections to flow configurations
 - `flow.rs`: L4 flow execution entry point
+- `tcp.rs`: TCP configuration models and validation (FlowConfig, TcpConfig)
+- `udp.rs`: UDP configuration models and validation (FlowConfig, UdpConfig)
 - `resolver.rs`: Target resolution (IP, Domain, Node)
 - `balancer.rs`: Load balancing strategies
 - `session.rs`: UDP session state management
 - `health.rs`: Health check support
 - `context.rs`: Connection context and peek buffer analysis
+- `model.rs`: Data models for targets (Target, ResolvedTarget)
+- `validator.rs`: Flow configuration validation logic
+- `loader.rs`: Configuration file loading with PreProcess trait implementation
+- `fs.rs`: Filesystem operations for port configuration management
 - `proxy/`: TCP/UDP forwarding implementations
+- `legacy/`: Legacy configuration format support (backward compatibility)
 
 #### layers/l4p/
 
@@ -110,6 +121,7 @@ Protocol inspection layer:
 - `tls.rs`: TLS ClientHello parsing and SNI extraction
 - `quic/`: QUIC protocol support (session, muxer, protocol)
 - `flow.rs`: L4+ flow execution
+- `context.rs`: Protocol data injection into KV store (TLS, QUIC, HTTP metadata)
 - `model.rs`: Protocol registry and configuration
 - `hotswap.rs`: Protocol configuration reloading
 
@@ -122,6 +134,7 @@ Application layer processing:
 - `protocol_data.rs`: Protocol-specific extensions
 - `http/`: HTTP protocol implementations
 - `model.rs`: Application registry
+- `hotswap.rs`: Application configuration hot-reloading
 
 #### plugins/
 
@@ -129,9 +142,14 @@ Plugin implementations:
 
 - `core/`: Plugin registry and loader
 - `system/`: System plugins (exec, httpx, unix)
-- `middleware/`: Middleware plugins (ratelimit, etc.)
-- `l4/`: L4 plugins (proxy, detect)
-- `l7/`: L7 plugins (upstream, cgi, static_files)
+- `middleware/`: Middleware plugins (ratelimit, matcher, etc.)
+- `protocol/`: Protocol-specific plugins
+  - `detect.rs`: Protocol detection (HTTP, TLS, DNS, QUIC)
+  - `tls/`: TLS ClientHello parsing
+  - `quic/`: QUIC protocol parsing (crypto, frame, packet)
+  - `upgrader/`: Protocol upgrade handlers (decryptor, upgrade)
+- `l4/`: L4 plugins (proxy, abort)
+- `l7/`: L7 plugins (upstream, cgi, static_files, response)
 
 #### resources/
 
@@ -151,24 +169,30 @@ Management API:
 
 ## Bootstrap Sequence
 
-The system initializes through a 13-step sequence defined in `src/bootstrap/startup.rs`:
+The system initializes through a structured sequence defined in `src/bootstrap/startup.rs`. The process begins with foundational setup, followed by 13 numbered initialization steps (with an additional 8.5 step for resource monitoring):
 
-1. **Crypto Setup**: Initialize TLS backends (aws-lc-rs or ring based on feature flags)
-2. **Environment Loading**: Load `.env` file using dotenvy
-3. **Logging Initialization**: Configure logging level from LOG_LEVEL
-4. **Infrastructure Readiness**: Ensure configuration files exist
-5. **Service Discovery Load**: Load nodes.json for upstream targets
-6. **Certificate Load**: Load TLS certificates from certs.json
-7. **Port Configuration Load**: Load TCP/UDP listener definitions from ports.json
-8. **L4+ Resolver Load**: Load protocol handlers from resolvers/ directory
-9. **L7 Application Load**: Load application handlers from applications/ directory
-10. **Background Tasks Start**: Start maintenance routines
-11. **Plugin Initialization**: Load external plugins from plugins.json
-12. **Memory Monitor Start**: Initialize L7 buffer limit monitoring
-13. **Listener Activation**: Bind and listen on configured ports
-14. **Hotswap Activation**: Start file watchers for configuration changes
-15. **Console API Start**: Start management HTTP server
-16. **Signal Wait**: Run until SIGTERM or Ctrl+C received
+### Foundational Setup (Pre-numbered)
+
+- **Crypto Setup**: Initialize TLS backends (aws-lc-rs or ring based on feature flags)
+- **Environment Loading**: Load `.env` file using dotenvy
+- **Logging Initialization**: Configure logging level from LOG_LEVEL and print MOTD banner
+
+### Main Bootstrap Sequence (Numbered Steps)
+
+1. **Infrastructure Readiness**: Ensure configuration directories and files exist
+2. **Service Discovery Load**: Load nodes.json for upstream targets
+3. **Certificate Load**: Load TLS certificates from certs.json
+4. **Port Configuration Load**: Load TCP/UDP listener definitions from ports.json
+5. **L4+ Resolver Load**: Load protocol handlers from resolvers/ directory
+6. **L7 Application Load**: Load application handlers from applications/ directory
+7. **Background Tasks Start**: Start maintenance routines
+8. **Plugin Initialization**: Load external plugins from plugins.json
+   8.5. **Memory Monitor Start**: Initialize L7 adaptive buffer limit monitoring
+9. **Listener Activation**: Bind and listen on configured ports
+10. **Hotswap Activation**: Start file watchers for configuration changes
+11. **Console API Start**: Start management HTTP server
+12. **Signal Wait**: Run until SIGTERM or Ctrl+C received
+13. **Graceful Shutdown**: Clean up console handles and exit gracefully
 
 The sequence ensures dependencies are satisfied before dependent components initialize. Errors during critical steps halt the process.
 
@@ -760,7 +784,7 @@ The plugin system supports both internal (compiled-in) and external (dynamically
 
 ### Plugin Traits
 
-Five main traits define plugin capabilities:
+Seven traits define plugin capabilities (including two legacy traits):
 
 **Plugin** (Base Trait):
 
@@ -837,6 +861,38 @@ pub trait L7Terminator: Plugin {
 - Used for: L7-specific terminators (send_response, fetch_upstream)
 - Access: Full Container
 - External: Not supported
+
+**Middleware** (Legacy - Deprecated):
+
+```rust
+pub trait Middleware: Plugin {
+    fn output(&self) -> Vec<Cow<'static, str>>;
+    async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput>;
+}
+```
+
+- **Status**: Legacy trait, transitioning to `GenericMiddleware`
+- Used for: Generic middleware (same signature as GenericMiddleware)
+- Access: Template-resolved inputs only
+- External: Supported
+- **Note**: New plugins should use `GenericMiddleware` instead
+
+**L7Middleware** (L7 Generic):
+
+```rust
+pub trait L7Middleware: Plugin {
+    fn output(&self) -> Vec<Cow<'static, str>>;
+    async fn execute_l7(
+        &self,
+        context: &mut (dyn Any + Send),
+        inputs: ResolvedInputs,
+    ) -> Result<MiddlewareOutput>;
+}
+```
+
+- Used for: L7 middleware with container access (similar to HttpMiddleware but more generic)
+- Access: Full Container (downcast from Any)
+- External: Not supported (requires Rust implementation)
 
 ### Plugin Registry
 
