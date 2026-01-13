@@ -40,5 +40,6 @@ func GetTests() []TestCase {
 		{Name: "l4_test_resolve_node", Desc: "Verifies Node-based target resolution", Run: TestResolveNode},
 		{Name: "l4_test_resolve_domain", Desc: "Verifies Domain-based target resolution (DNS Mock)", Run: TestResolveDomain},
 		{Name: "l4_test_resolve_domain_failure", Desc: "Verifies DNS resolution failure handling", Run: TestResolveDomainFailure},
+		{Name: "l4_test_template_parsing", Desc: "Verifies L4 template variable parsing", Run: TestTemplateParsing},
 	}
 }
