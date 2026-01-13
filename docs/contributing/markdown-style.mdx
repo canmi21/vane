@@ -3,3 +3,77 @@ title: Markdown Style
 description: Markdown formatting and style requirements
 icon: FileText
 ---
+
+Vane uses GitHub Flavored Markdown (GFM) extended with MDX components from Fumadocs.
+
+## Frontmatter
+
+Every MDX file **must** start with the following frontmatter:
+
+```yaml
+---
+title: Page Title
+description: A short summary for SEO and previews.
+icon: IconName
+---
+```
+
+- **Icon**: Pick a semantic icon from [Lucide React](https://lucide.dev/icons). Do not change existing icons without good reason.
+
+## Components
+
+### Callouts (Admonitions)
+
+Use `<Callout>` instead of standard blockquotes (`>`) for highlighted information.
+
+```tsx
+<Callout title="Note">
+  This is a general note.
+</Callout>
+
+<Callout type="warn" title="Warning">
+  Be careful with this setting.
+</Callout>
+
+<Callout type="error" title="Critical">
+  This will crash the server.
+</Callout>
+```
+
+### Steps
+
+Use `<Steps>` for sequential instructions.
+
+```tsx
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+<Steps>
+	<Step>### First Step Do this.</Step>
+	<Step>### Second Step Then do that.</Step>
+</Steps>;
+```
+
+## Diagrams (Mermaid)
+
+We use Mermaid for diagrams.
+
+- **Orientation**: Prefer **Horizontal** (`graph LR`) for flows. Use `graph TD` only for hierarchies.
+- **Style**: Keep diagrams simple. Avoid complex subgraphs unless necessary.
+
+```tsx
+<Mermaid
+	chart="
+graph LR
+    A[Input] --> B{Process}
+    B -- Yes --> C[Output]
+    B -- No --> D[Error]
+"
+/>
+```
+
+## Linking
+
+- **Internal Links**: Use relative paths.
+  - Sibling: `./sibling-file`
+  - Parent: `../parent-folder/file`
+- **External Links**: Use standard Markdown syntax `[Link](https://example.com)`.

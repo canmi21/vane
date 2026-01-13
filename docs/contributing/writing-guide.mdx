@@ -3,3 +3,45 @@ title: Writing Guide
 description: Documentation writing guidelines and best practices
 icon: PenTool
 ---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Good documentation is as important as good code. Follow these guidelines to ensure your writing is clear, consistent, and helpful.
+
+## Language & Tone
+
+- **Language**: All documentation MUST be in **English**.
+- **Voice**: Active, direct, and professional.
+  - **Good**: "Vane parses the header."
+  - **Bad**: "The header is parsed by Vane."
+- **Perspective**: Use "we" for the project/team, and "you" for the user.
+
+## Fact-Checking
+
+<Callout type="error" title="Critical Rule">
+	**Never assume.** Always verify technical details against the source code (`src/`) before writing.
+	This is especially critical if you are using **AI Tools** to assist with writing.
+</Callout>
+
+- **Accuracy**: If the code says the default timeout is `19s`, do not write `20s`.
+- **No Hallucinations**: Ensure every statement is backed by actual code. Do not invent configurations or behaviors that do not exist.
+- **New Features**: If you need to document a feature that doesn't exist yet, do not "write it into existence." Open a [Feature Request Issue](https://github.com/canmi21/vane/issues/new?template=feature_request.md) to discuss it first.
+
+## Structure
+
+1.  **Title**: Clear and concise.
+2.  **Introduction**: One or two sentences explaining `what` this page covers and `why` it matters.
+3.  **Body**: Use headings (`##`, `###`) to break up text. Keep paragraphs short.
+4.  **Examples**: Provide code snippets or configuration examples whenever possible.
+
+## Terminology
+
+Consistency is key. Use the defined project terms:
+
+- **Flow**: A chain of plugin executions.
+- **Plugin**: The base unit of logic. A Plugin is either a Middleware or a Terminator.
+- **Middleware**: A plugin that processes a request and passes control to the next step.
+- **Terminator**: A plugin that ends the flow or upgrades the connection.
+- **L4 / Transport Layer**: TCP/UDP handling.
+- **L4+ / Carrier Layer**: Protocol inspection (TLS/QUIC) without termination.
+- **L7 / Application Layer**: Full HTTP termination.
