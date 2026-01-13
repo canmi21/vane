@@ -8,6 +8,31 @@ The `ingress` module is the entry point for all network traffic entering Vane. I
 
 ## Core Responsibilities
 
+<Mermaid
+	chart='
+graph LR
+    subgraph Config [File System]
+        Dir["listener/[PORT]/"]
+    end
+
+    subgraph Ingress [Ingress Module]
+        Watcher[Hotswap Watcher]
+        Registry[Task Registry]
+        TCP[TCP Accept Loop]
+        UDP[UDP Recv Loop]
+    end
+
+    Dir --> Watcher
+    Watcher -->|Diff| Registry
+    Registry -->|Spawn/Stop| TCP
+    Registry -->|Spawn/Stop| UDP
+
+    TCP & UDP -->|Guard| Tracker[Global Tracker]
+    TCP & UDP -->|Handover| L4[Layer 4 Engine]
+
+'
+/>
+
 | Component                                  | Responsibility                                                       |
 | :----------------------------------------- | :------------------------------------------------------------------- |
 | [`listener`](./ingress/listeners)          | Unified interface for starting and stopping socket listeners.        |

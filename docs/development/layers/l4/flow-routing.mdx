@@ -1,9 +1,30 @@
 ---
 title: Flow Routing
-description: Flow execution
+description: Dynamic pipeline execution.
 icon: SquareFunction
 ---
 
-## Reference
+## Overview
 
-- `src/layers/l4/flow.rs`
+Flow Routing is the modern execution model for Vane. Instead of static rules, it uses a **Tree of Plugins**.
+
+**Source**: `src/layers/l4/flow.rs`
+
+## Execution Context
+
+Flows operate within a `TransportContext`.
+
+```rust
+pub struct TransportContext {
+    pub kv: KvStore,
+    pub payloads: AHashMap<String, Bytes>, // Cached peek buffers
+}
+```
+
+## Logic
+
+1.  **Initialize**: `kv` is populated with connection metadata (`conn.ip`, `conn.port`).
+2.  **Execute**: The `engine::executor` traverses the plugin tree.
+3.  **Result**:
+    - **Finished**: The connection was handled (e.g., Proxied or Denied).
+    - **Upgrade**: The connection requests a layer transition (e.g., to L4+ for TLS).

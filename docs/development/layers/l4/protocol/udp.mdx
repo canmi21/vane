@@ -1,7 +1,30 @@
 ---
 title: UDP
-description: U
+description: User Datagram Protocol handling.
 icon: CircleFadingArrowUp
 ---
 
-## Reference
+## Overview
+
+UDP handling in Vane is designed for high-performance, connectionless packet switching. It implements a **Virtual Session** layer to support stateful behavior (like NAT).
+
+**Source**: `src/layers/l4/udp.rs`
+
+## Datagram Processing
+
+Unlike TCP streams, UDP is packet-based. Each datagram is processed individually, but linked to a session.
+
+### Flow Mode (Recommended)
+
+Delegates to the Flow Engine.
+
+- **Context**: Populates `kv` with packet metadata.
+- **Upgrades**: Supports upgrading to **QUIC** (`internal.transport.upgrade`).
+
+### Legacy Mode
+
+Implements a strict NAT-like behavior.
+
+- **NAT**: Binds a dedicated upstream socket for each client session.
+- **Reverse Routing**: Automatically maps upstream replies back to the correct client.
+- **Timeouts**: `UDP_TIMEOUT_LOCAL` (LAN) and `UDP_TIMEOUT_REMOTE` (WAN).

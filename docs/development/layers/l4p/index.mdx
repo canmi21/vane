@@ -1,7 +1,55 @@
 ---
-title: Overview
-description: overview
-icon: Telescope
+title: Carrier Layer
+description: Protocol inspection and carrier logic.
+icon: Radio
 ---
 
-## Reference
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+Layer 4+ (L4+) acts as the **Carrier Layer**. It bridges the gap between raw packets and full application logic.
+
+## Why L4+?
+
+L4+ solves the "Chicken and Egg" problem of encrypted traffic:
+
+> _To know where to route the request, you need to decrypt it. To decrypt it, you need to know which certificate to use (which depends on where you route it)._
+
+L4+ peeks at the unencrypted handshake (ClientHello) to extract the **SNI (Server Name Indication)**. This allows Vane to:
+
+1.  Route traffic to the correct backend without decrypting (Pass-through).
+2.  Select the correct certificate for TLS Termination (L7 Upgrade).
+
+## Context & State
+
+L4+ extends the `TransportContext` with protocol-specific metadata.
+
+| Protocol | KV Keys           | Description                                                      |
+| :------- | :---------------- | :--------------------------------------------------------------- |
+| **TLS**  | `tls.sni`         | The requested domain name.                                       |
+|          | `tls.alpn`        | Application-Layer Protocol Negotiation (e.g., `h2`, `http/1.1`). |
+|          | `tls.clienthello` | Raw ClientHello bytes (Bytes).                                   |
+| **HTTP** | `http.host`       | The value of the `Host` header.                                  |
+|          | `http.method`     | The request method (GET, POST...).                               |
+|          | `http.path`       | The request path.                                                |
+
+## Upgrading to L7
+
+L4+ is the gatekeeper for Layer 7.
+
+<Steps>
+<Step>
+### Decision
+The L4+ flow (`tls.json`) determines that the request for `api.example.com` needs WAF protection.
+</Step>
+
+<Step>
+	### Termination The flow executes `upgrade "httpx"`. - **TLS**: Vane loads the certificate for
+	`api.example.com`, completes the TLS Handshake (Decrypts), and produces a plaintext stream. -
+	**Plain**: The stream is passed directly.
+</Step>
+
+<Step>
+### Handover
+The (now plaintext) stream is handed to the **L7 Engine**, which parses the full HTTP body and executes middleware.
+</Step>
+</Steps>

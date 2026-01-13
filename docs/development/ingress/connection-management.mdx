@@ -16,6 +16,19 @@ The `src/ingress/tasks.rs` module implements a high-performance connection track
 
 Vane uses a `ConnectionGuard` to ensure that every connection is accounted for throughout its entire lifecycle.
 
+<Mermaid
+	chart="
+graph LR
+    Accept[New Connection] --> Acquire[Tracker: acquire]
+    Acquire -- Success --> Guard[Hold ConnectionGuard]
+    Acquire -- Full --> Deny[Reject Connection]
+    
+    Guard --> Work[Execute Flow]
+    Work --> Drop[Guard Dropped]
+    Drop --> Release[Tracker: release]
+"
+/>
+
 <Steps>
 <Step>
 

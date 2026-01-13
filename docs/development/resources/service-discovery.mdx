@@ -20,6 +20,25 @@ The configuration (typically defined in `nodes.json` or `nodes.toml`) follows a 
 
 To ensure the proxying path is as fast as possible, Vane does not traverse the nested node tree during request processing. Instead, it uses a **Flattening Strategy** during the loading phase.
 
+<Mermaid
+  chart='
+graph LR
+    subgraph Input [Hierarchical Config]
+        NodeA["Node: web"] --> IP1["IP: 1.1.1.1"]
+        IP1 --> P1["Port: 80"]
+        IP1 --> P2["Port: 443"]
+    end
+
+    Input -->|Flattening| Output
+
+    subgraph Output [Runtime Registry]
+        PN1["web | 1.1.1.1:80"]
+        PN2["web | 1.1.1.1:443"]
+    end
+
+'
+/>
+
 The `PreProcess` trait transforms the tree into a flat list of `ProcessedNode` entries:
 
 ```rust title="src/resources/service_discovery/model.rs"

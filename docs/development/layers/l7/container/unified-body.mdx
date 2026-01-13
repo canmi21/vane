@@ -1,9 +1,38 @@
 ---
-title: Unified Body Warpper
-description: A Warpper hold HTTP header and body
+title: Unified Body Wrapper
+description: The VaneBody abstraction.
 icon: Blend
 ---
 
-## Reference
+## Overview
 
-- `src/layers/l7/container.rs`
+To support multiple protocols (H1, H2, H3) and lazy buffering without excessive copying, Vane uses a unified body enum: `VaneBody`.
+
+**Source**: `src/layers/l7/http/wrapper.rs`
+
+<Mermaid
+	chart="
+graph LR
+    H1[H1 Stream] --> Enum{VaneBody Enum}
+    H2[H2 Stream] --> Enum
+    H3[H3 Channel] --> Enum
+    Mem[Buffered Bytes] --> Enum
+    
+    Enum -->|Poll Frame| Middleware
+    Enum -->|Collect| Buffer[In-Memory]
+"
+/>
+
+## Variants
+
+| Variant        | Source                  | Description                                    |
+| :------------- | :---------------------- | :--------------------------------------------- |
+| **`Hyper`**    | `hyper::body::Incoming` | Zero-copy stream from H1/H2 connections.       |
+| **`H3`**       | `BoxBody<Bytes>`        | Stream from the H3 channel adapter.            |
+| **`Buffered`** | `Full<Bytes>`           | Fully buffered in memory (after lazy loading). |
+| **`Generic`**  | `BoxBody<Bytes>`        | For plugins like CGI or internal streams.      |
+| **`Empty`**    | `None`                  | Represents a 0-byte body.                      |
+
+## Memory Efficiency
+
+VaneBody implements `http_body::Body`. Middleware can pass it through untouched (streaming) or call `collect()` to buffer it (transitioning the Container state to `PayloadState::Buffered`).

@@ -1,9 +1,32 @@
 ---
-title: Overview
-description: L4 overview and dispatcher
-icon: Telescope
+title: Transport Layer
+description: Packet-level routing and proxying logic.
+icon: Network
 ---
 
-## Reference
+import { Step, Steps } from 'fumadocs-ui/components/steps';
 
-- `src/layers/l4/dispatcher.rs`
+Layer 4 (L4) is the **Transport Layer** of Vane. It handles raw TCP streams and UDP datagrams directly from the socket.
+
+## Key Responsibilities
+
+- **Ingress**: Accepting initial connections.
+- **Peeking**: Inspecting the first N bytes of a stream without consuming them (for protocol detection).
+- **Routing**: Dispatching connections to specific backends based on IP/Port or peeked data.
+- **Upgrading**: Recognizing high-level protocols (like TLS) and handing off control to Layer 4+.
+
+## Context & State
+
+L4 operates within a `TransportContext`.
+
+| Component         | Description                                            |
+| :---------------- | :----------------------------------------------------- |
+| **`KV Store`**    | Initialized with `conn.ip`, `conn.port`, `conn.proto`. |
+| **`Peek Buffer`** | A cache of the first few bytes (configurable limit).   |
+| **`Connection`**  | `TcpStream` (TCP) or `UdpSocket` + `Datagram` (UDP).   |
+
+### Template Variables
+
+In L4, you can access the raw peek buffer using templates:
+
+- `{{req.peek_buffer_hex}}`: The initial bytes as a hex string (e.g., `160301...` for TLS).

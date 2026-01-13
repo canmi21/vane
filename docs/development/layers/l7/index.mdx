@@ -1,7 +1,79 @@
 ---
-title: Overview
-description: overview
-icon: Telescope
+title: Application Layer
+description: Full HTTP termination and payload processing.
+icon: AppWindow
 ---
 
-## Reference
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+Layer 7 (L7) is where Vane performs full **HTTP Termination**. Unlike L4/L4+, it parses the entire request (Headers & Body), allowing for deep inspection, transformation, and synthetic responses.
+
+## The Unified Adapter
+
+Vane's L7 Architecture is designed around **Protocol Unification**. The Flow Engine does not know (or care) whether a request came from HTTP/1.1, HTTP/2 multiplexed stream, HTTP/3 QUIC stream, or a virtual internal channel.
+
+**Source**: `src/layers/l7/http/`
+
+### Abstraction Layers
+
+1.  **Transport Unification**: `httpx.rs` (H1/H2) and `h3.rs` (QUIC) normalize diverse underlying transports (TcpStream, TlsStream, QuicSendStream) into a standard lifecycle.
+2.  **Body Unification**: `wrapper.rs` provides `VaneBody`, a zero-copy enum that wraps:
+    - `hyper::body::Incoming` (H1/H2)
+    - `h3::server::RequestStream` (via Channel Adapter)
+    - `PayloadState::Buffered` (In-memory Bytes)
+    - `BoxBody` (Generic Streams)
+
+This allows middleware to operate on `{{req.body}}` uniformly, regardless of whether the client is using a 30-year-old HTTP/1.0 connection or a cutting-edge HTTP/3 QUIC datagram.
+
+<Mermaid
+	chart="
+graph TD
+    subgraph Transports
+        H1[HTTP/1.1]
+        H2[HTTP/2]
+        H3[HTTP/3 over QUIC]
+    end
+
+    subgraph Adapters
+        Httpx[Httpx Adapter]
+        H3Adapter[H3 Driver]
+    end
+
+    Container[Universal Container]
+
+    H1 --> Httpx
+    H2 --> Httpx
+    H3 --> H3Adapter
+
+    Httpx -->|Create| Container
+    H3Adapter -->|Create| Container
+
+"
+/>
+
+### Lifecycle
+
+<Steps>
+<Step>
+### Ingress
+Hyper accepts the connection (H1, H2, or H3) and parses the request headers.
+</Step>
+
+<Step>
+	### Injection The Adapter populates the `Container`: - **KV**: `req.method`, `req.path`,
+	`req.host`, `req.proto`. - **Headers**: Moved zero-copy into `request_headers`. - **Body**:
+	Wrapped in `PayloadState::Http`.
+</Step>
+
+<Step>
+	### Execution The Flow Engine executes middleware. - **Middleware** can inspect headers or
+	force-buffer the body. - **Drivers** (like `static-files`) populate `response_body`.
+</Step>
+
+<Step>
+### Termination
+A Terminator (e.g., `send_response`) signals completion.
+- It sends the `response_headers` via a oneshot channel.
+- It yields the `response_body` back to Hyper for streaming to the client.
+</Step>
+</Steps>

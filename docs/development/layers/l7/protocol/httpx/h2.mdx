@@ -1,10 +1,41 @@
 ---
 title: HTTP/2
-description: HTTP protocol implementation
+description: Multiplexed binary streams.
 icon: Globe
 ---
 
-## Reference
+import { Step, Steps } from 'fumadocs-ui/components/steps';
 
-- `src/layers/l7/http/`
-- `src/layers/l7/flow.rs`
+## Implementation
+
+**Source**: `src/layers/l7/http/httpx.rs`
+
+HTTP/2 support is integrated into the same `httpx` adapter as HTTP/1.1, utilizing Hyper's automatic protocol detection.
+
+<Mermaid
+	chart="
+graph LR
+    Conn[TCP Connection] -->|Multiplex| S1[Stream 1]
+    Conn -->|Multiplex| S2[Stream 2]
+    S1 -->|Spawn| Task1[Task 1]
+    S2 -->|Spawn| Task2[Task 2]
+    Task1 --> Container
+    Task2 --> Container
+"
+/>
+
+<Steps>
+<Step>
+### Server Side (Ingress)
+- **Multiplexing**: Handled transparently by Hyper.
+- **Concurrency**: Each stream spawns a new Tokio task executing the L7 Flow.
+- **Prioritization**: Basic stream prioritization supported by `h2` crate.
+</Step>
+
+<Step>
+### Client Side (Upstream)
+- **Feature**: `h2upstream` (enabled by default).
+- **Pooling**: Uses a sophisticated connection pool (`src/plugins/l7/upstream/pool.rs`).
+- **Reuse**: Reuses the same TCP connection for multiple concurrent requests.
+</Step>
+</Steps>

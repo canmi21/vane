@@ -1,9 +1,45 @@
 ---
-title: Proxy Target
-description: Proxy implementation
+title: Proxy & Routing
+description: Target resolution and load balancing strategies.
 icon: ArrowLeftRight
 ---
 
-## Reference
+## Target Resolution
 
-- `src/layers/l4/proxy/`
+When proxying, Vane resolves targets dynamically. This logic handles `internal.transport.proxy` requests.
+
+### 1. Static IP
+
+Directly connects to an IP address.
+
+```json
+{ "target.ip": "10.0.0.1", "target.port": 8080 }
+```
+
+### 2. Domain Name
+
+Resolves a hostname using the internal async DNS resolver.
+
+- **Config**: `NAMESERVER1`, `NAMESERVER2` (env vars).
+- **Feature**: Requires `domain-target` feature flag.
+- **Logic**: Resolves A/AAAA records and connects to the first success.
+
+### 3. Service Node
+
+Resolves a node from the Service Discovery registry (`nodes.json`).
+
+- **Logic**: Finds the node by ID, selects a healthy IP/Port pair.
+
+```json
+{ "target.node": "backend-api", "target.port": 80 }
+```
+
+## Load Balancing
+
+When multiple targets are resolved (e.g., a Service Node returns 5 IPs), Vane applies a strategy to pick one.
+
+| Strategy      | Description                                                           |
+| :------------ | :-------------------------------------------------------------------- |
+| **`Random`**  | Picks a target using a uniform distribution.                          |
+| **`Serial`**  | Round-robin selection using atomic counters.                          |
+| **`Fastest`** | Picks the target with the lowest latency (based on TCP Health Check). |

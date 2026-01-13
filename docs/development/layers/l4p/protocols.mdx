@@ -1,10 +1,33 @@
 ---
 title: Protocols
-description: TLS and plaintext HTTP protocol handling
+description: Supported L4+ inspection protocols.
 icon: FileKey
 ---
 
-## Reference
+## Overview
 
-- `src/layers/l4p/plain.rs`
-- `src/layers/l4p/tls.rs`
+L4+ "Inspectors" are responsible for peeking at the stream, extracting metadata, and populating the context.
+
+## Supported Protocols
+
+### TLS
+
+**Source**: `src/layers/l4p/tls.rs`
+
+- **Action**: Peeks at the ClientHello.
+- **Extracts**: SNI (`tls.sni`), ALPN (`tls.alpn`).
+- **Fail Mode**: Can fail-closed or fail-open (`TLS_ALLOW_PARSE_FAILURE`).
+
+### HTTP (Plaintext)
+
+**Source**: `src/layers/l4p/plain.rs`
+
+- **Action**: Peeks at the HTTP Request Line and Headers.
+- **Extracts**: Host (`http.host`), Method (`http.method`), Path (`http.path`).
+- **Use Case**: Virtual Hosting for unencrypted traffic.
+
+### QUIC
+
+**Source**: `src/layers/l4p/quic/`
+
+- See [QUIC Mechanics](./protocol/quic) for details.

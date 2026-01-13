@@ -1,11 +1,29 @@
 ---
 title: Flow Management
-description: Flow execution and hot-reload
+description: Resolver-based flow execution and hot-reloading.
 icon: GitBranch
 ---
 
-## Reference
+## Resolvers vs. Listeners
 
-- `src/layers/l4p/flow.rs`
-- `src/layers/l4p/model.rs`
-- `src/layers/l4p/hotswap.rs`
+Unlike L4 (which binds to **Ports**), L4+ flows are bound to **Protocol Names**. These flow definitions are called **Resolvers**.
+
+- **Path**: `CONFIG_DIR/resolver/<protocol>.{json,yaml}`
+- **Supported**: `tls`, `http`, `quic`.
+
+When an L4 connection upgrades to "tls", the engine looks up the `tls` resolver config to decide what to do next.
+
+## Architecture
+
+**Source**: `src/layers/l4p/model.rs`
+
+- **Registry**: `RESOLVER_REGISTRY`. A thread-safe `DashMap` wrapped in `ArcSwap`.
+- **Atomic Hotswap**: When a file changes in the `resolver/` directory, Vane reloads _all_ resolvers and atomically swaps the registry pointer. This ensures zero downtime and consistency.
+
+## Execution
+
+**Source**: `src/layers/l4p/flow.rs`
+
+1.  **Context**: Initializes `TransportContext` with `conn.layer = "l4p"`.
+2.  **Payloads**: Injects protocol-specific payloads (e.g., `tls.clienthello`) into the context for plugins to access.
+3.  **Run**: Executes the configured pipeline.

@@ -61,6 +61,37 @@ The resulting shutdown handle is stored back in the `TASK_REGISTRY`.
 </Step>
 </Steps>
 
+## Workflow
+
+### TCP Accept Loop
+
+TCP listeners operate on a stream-oriented "Accept" loop.
+
+<Mermaid
+	chart="
+graph LR
+    Accept[Accept Socket] --> Guard{GLOBAL_TRACKER}
+    Guard -- Deny --> Close[Drop Socket]
+    Guard -- Allow --> Task[Spawn Task]
+    Task --> Dispatch[L4 Dispatcher]
+"
+/>
+
+### UDP Receive Loop
+
+UDP listeners operate on a packet-oriented "Recv" loop.
+
+<Mermaid
+	chart="
+graph LR
+    Recv[Recv Datagram] --> Guard{GLOBAL_TRACKER}
+    Guard -- Deny --> Drop[Discard Packet]
+    Guard -- Allow --> Process[Process Datagram]
+    Process --> Session[Lookup/Create Session]
+    Session --> Dispatch[L4 Dispatcher]
+"
+/>
+
 ## Automatic Recovery
 
 One of Vane's key reliability features is its self-healing listeners. If an active listener encounters a fatal I/O error during runtime, it triggers the `handle_listener_error` workflow.

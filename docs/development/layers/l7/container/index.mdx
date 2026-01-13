@@ -1,10 +1,55 @@
 ---
-title: Generic Model
-description: Container structure and memory management
-icon: Leaf
+title: The Container
+description: Universal request/response envelope.
+icon: Box
 ---
 
-## Reference
+## Overview
 
-- `src/layers/l7/container.rs`
-- `src/layers/l7/protocol_data.rs`
+At the heart of L7 is the `Container`. It is the universal envelope for all requests.
+
+<Mermaid
+	chart="
+graph LR
+    subgraph Container
+        KV[Control Plane: KV Store]
+        DP[Data Plane: Headers/Body]
+        EP[Extension Plane: Protocol Data]
+    end
+    
+    In[Ingress] --> Container
+    Container --> Flow[Flow Engine]
+    Flow --> Terminator[Terminator]
+"
+/>
+
+```rust
+pub struct Container {
+    // Control Plane (Metadata for Routing)
+    pub kv: KvStore,
+
+    // Data Plane (The actual HTTP content)
+    pub request_headers: HeaderMap,
+    pub request_body: PayloadState,
+    pub response_headers: HeaderMap,
+    pub response_body: PayloadState,
+
+    // Extension Plane (Protocol-specific hooks)
+    pub protocol_data: Option<Box<dyn ProtocolData>>,
+}
+```
+
+### Payload State (Lazy Buffering)
+
+Vane aims to be zero-copy where possible. The body uses a lazy state machine:
+
+| State          | Description                                                                |
+| :------------- | :------------------------------------------------------------------------- |
+| **`Http`**     | A raw stream from the socket (Hyper Body). Low memory footprint.           |
+| **`Buffered`** | Fully loaded into memory (`Bytes`). Triggered by accessing `{{req.body}}`. |
+| **`Empty`**    | No body exists.                                                            |
+
+> **Memory Safety**: Buffering is protected by two layers:
+>
+> 1. **Global Limit**: `L7_ADAPTIVE_MEMORY_LIMIT` (Default 85% RAM) or fixed `512MB`.
+> 2. **Per-Request**: `L7_MAX_BUFFER_SIZE` (Default 10MB). Exceeding this returns a System Error.

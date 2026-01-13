@@ -1,7 +1,18 @@
 ---
-title: TLS
-description: T
+title: TLS Inspector
+description: TLS ClientHello parsing and SNI extraction.
 icon: LockKeyhole
 ---
 
-## Reference
+## Logic
+
+**Source**: `src/layers/l4p/tls.rs`
+
+It performs a "Smart Peek" operation:
+
+1.  Peeks into the TCP stream.
+2.  Waits for a complete TLS Record (handling fragmentation).
+3.  Parses the `ClientHello` message.
+4.  Populates `tls.sni` and `tls.alpn`.
+
+If configured, it executes the `tls.json` resolver flow to determine the next step.

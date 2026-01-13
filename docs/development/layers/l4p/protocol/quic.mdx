@@ -1,9 +1,23 @@
 ---
-title: QUIC
-description: QUIC protocol implementation
+title: QUIC Mechanics
+description: Session tracking and sticky IP logic.
 icon: Zap
 ---
 
-## Reference
+## Overview
 
-- `src/layers/l4p/quic/`
+QUIC requires specialized handling due to its connectionless nature (UDP) but stateful requirements (Encryption/Streams).
+
+### Session Tracking
+
+Vane tracks QUIC sessions using the **Connection ID (CID)**.
+
+1.  **Registry**: Maps CIDs to Flow Actions (Forward or Terminate).
+2.  **Sticky IP**: If CID lookup fails (e.g., during migration or transparent proxying), Vane falls back to `IP_STICKY_MAP` to route packets from the same Client IP to the same Upstream.
+
+### Buffer Limits
+
+To prevent amplification attacks or memory exhaustion, Vane enforces strict limits on pending QUIC packets:
+
+- **Global Pending Limit**: `QUIC_GLOBAL_PENDING_BYTES_LIMIT` (Default: 64MB).
+- **Per-Session Limit**: `QUIC_SESSION_BUFFER_LIMIT` (Default: 64KB).
