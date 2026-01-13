@@ -42,35 +42,53 @@ By adding the current usage to a percentage of the _remaining_ free memory, Vane
 
 ### Platform Detection
 
-The `src/common/sys/system.rs` module provides cross-platform abstractions for memory detection:
+The `src/common/sys/system.rs` module provides cross-platform abstractions for memory detection.
 
-- **Linux**: Parses `/proc/meminfo` for `MemAvailable` or `MemFree`.
-- **macOS/FreeBSD**: Uses `sysctl` to query `vm.page_free_count` and `hw.pagesize`.
+<Mermaid
+	chart="
+graph LR
+    OS[Operating System] --> Check{Check Platform}
+    Check -- Linux --> Proc[Parse /proc/meminfo]
+    Check -- macOS/BSD --> Sysctl[sysctl vm.page_free_count]
+    Proc & Sysctl --> Bytes[Available Bytes]
+"
+/>
 
 </Step>
 <Step>
 
 ### Background Orchestration
 
-The monitor is spawned as a detached `tokio` task during Step 8.5 of the [Startup Sequence](./bootstrap/startup-sequence).
+The monitor is spawned as a detached `tokio` task. It continuously polls the system and updates the global limit atomically.
 
-```rust title="src/bootstrap/monitor.rs"
-tokio::spawn(async move {
-    loop {
-        if let Some(free_mem) = system::get_free_memory() {
-            // ... calculate and update limit ...
-        }
-        sleep(Duration::from_secs(1)).await;
-    }
-});
-```
+<Mermaid
+	chart="
+graph LR
+    Timer[Interval 1s] --> Detect[Get Free Memory]
+    Detect --> Calc[Calculate Limit]
+    Calc --> Atomic[Update CURRENT_MEMORY_LIMIT]
+    Atomic --> Timer
+"
+/>
 
 </Step>
 <Step>
 
 ### Global Accounting
 
-The L7 layer uses an atomic counter, `GLOBAL_L7_BUFFERED_BYTES`, defined in `src/layers/l7/container.rs`. Every plugin or middleware that buffers a payload must increment this counter through a `BufferGuard`. If the increment would exceed the current limit, the operation is rejected.
+The L7 layer uses an atomic counter, `GLOBAL_L7_BUFFERED_BYTES`. Every plugin or middleware that buffers a payload must increment this counter through a `BufferGuard`.
+
+<Mermaid
+	chart="
+graph LR
+    Req[Buffer Request] --> Check{Check Limit}
+    Check -- Exceeded --> Deny[Return Error]
+    Check -- OK --> Inc[Atomic Add]
+    Inc --> Guard[Create BufferGuard]
+    Guard --> Drop[Drop Guard]
+    Drop --> Dec[Atomic Sub]
+"
+/>
 
 </Step>
 </Steps>

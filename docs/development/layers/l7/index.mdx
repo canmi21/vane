@@ -14,16 +14,7 @@ Vane's L7 Architecture is designed around **Protocol Unification**. The Flow Eng
 
 **Source**: `src/layers/l7/http/`
 
-### Abstraction Layers
-
-1.  **Transport Unification**: `httpx.rs` (H1/H2) and `h3.rs` (QUIC) normalize diverse underlying transports (TcpStream, TlsStream, QuicSendStream) into a standard lifecycle.
-2.  **Body Unification**: `wrapper.rs` provides `VaneBody`, a zero-copy enum that wraps:
-    - `hyper::body::Incoming` (H1/H2)
-    - `h3::server::RequestStream` (via Channel Adapter)
-    - `PayloadState::Buffered` (In-memory Bytes)
-    - `BoxBody` (Generic Streams)
-
-This allows middleware to operate on `{{req.body}}` uniformly, regardless of whether the client is using a 30-year-old HTTP/1.0 connection or a cutting-edge HTTP/3 QUIC datagram.
+### Abstraction Hierarchy
 
 <Mermaid
 	chart="
@@ -51,29 +42,77 @@ graph TD
 "
 />
 
-### Lifecycle
+## Lifecycle
 
 <Steps>
 <Step>
-### Ingress
-Hyper accepts the connection (H1, H2, or H3) and parses the request headers.
-</Step>
 
-<Step>
-	### Injection The Adapter populates the `Container`: - **KV**: `req.method`, `req.path`,
-	`req.host`, `req.proto`. - **Headers**: Moved zero-copy into `request_headers`. - **Body**:
-	Wrapped in `PayloadState::Http`.
-</Step>
+### Ingress & Parsing
 
-<Step>
-	### Execution The Flow Engine executes middleware. - **Middleware** can inspect headers or
-	force-buffer the body. - **Drivers** (like `static-files`) populate `response_body`.
-</Step>
+Hyper (or Quinn) accepts the connection and parses the raw bytes into Protocol Frames.
 
+<Mermaid
+	chart="
+graph LR
+    Socket[TCP/QUIC] --> Engine{Protocol Engine}
+    Engine -->|Headers Frame| Headers[Header Map]
+    Engine -->|Data Frame| Body[Body Stream]
+"
+/>
+
+</Step>
 <Step>
+
+### Container Injection
+
+The Adapter populates the `Container` with zero-copy moves.
+
+<Mermaid
+	chart="
+graph LR
+    Adapter[Adapter] -->|Metadata| KV[KV Store]
+    Adapter -->|Move| ReqH[Request Headers]
+    Adapter -->|Wrap| ReqB[VaneBody Payload]
+    KV & ReqH & ReqB --> Container
+"
+/>
+
+</Step>
+<Step>
+
+### Flow Execution
+
+The Flow Engine executes middleware. Middleware can inspect headers or force-buffer the body on demand.
+
+<Mermaid
+	chart="
+graph LR
+    Container --> Flow[Flow Executor]
+    Flow --> Mid1[Middleware 1]
+    Mid1 --> Mid2[Middleware 2]
+    Mid2 -->|Buffer?| Body{Access Body?}
+    Body -- Yes --> Mem[Buffer Memory]
+    Body -- No --> Stream[Keep Streaming]
+"
+/>
+
+</Step>
+<Step>
+
 ### Termination
-A Terminator (e.g., `send_response`) signals completion.
-- It sends the `response_headers` via a oneshot channel.
-- It yields the `response_body` back to Hyper for streaming to the client.
+
+A Terminator signals completion. It sends headers via a oneshot channel and streams the body back to the protocol engine.
+
+<Mermaid
+	chart="
+graph LR
+    Terminator -->|Signal| Channel[Oneshot TX]
+    Terminator -->|Stream| Body[Response Body]
+    Channel --> Adapter[Wait RX]
+    Body --> Adapter
+    Adapter -->|Serialize| Client
+"
+/>
+
 </Step>
 </Steps>

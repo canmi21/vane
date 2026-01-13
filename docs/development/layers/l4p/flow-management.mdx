@@ -4,26 +4,64 @@ description: Resolver-based flow execution and hot-reloading.
 icon: GitBranch
 ---
 
-## Resolvers vs. Listeners
+import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-Unlike L4 (which binds to **Ports**), L4+ flows are bound to **Protocol Names**. These flow definitions are called **Resolvers**.
+L4+ uses a specific flow management strategy called **Resolvers**. Unlike L4 Listeners which bind to ports, Resolvers bind to protocol names (e.g., `tls`, `http`, `quic`).
 
-- **Path**: `CONFIG_DIR/resolver/<protocol>.{json,yaml}`
-- **Supported**: `tls`, `http`, `quic`.
+## Architecture & Lifecycle
 
-When an L4 connection upgrades to "tls", the engine looks up the `tls` resolver config to decide what to do next.
+<Steps>
+<Step>
 
-## Architecture
+### Registry Structure
 
-**Source**: `src/layers/l4p/model.rs`
+Resolvers are stored in a global, thread-safe registry powered by `ArcSwap`. This allows lock-free reads during high-concurrency traffic.
 
-- **Registry**: `RESOLVER_REGISTRY`. A thread-safe `DashMap` wrapped in `ArcSwap`.
-- **Atomic Hotswap**: When a file changes in the `resolver/` directory, Vane reloads _all_ resolvers and atomically swaps the registry pointer. This ensures zero downtime and consistency.
+<Mermaid
+	chart="
+graph LR
+    Reg[RESOLVER_REGISTRY] -->|Atomic Load| Map{DashMap}
+    Map -- tls --> TLS_Flow[TLS Config]
+    Map -- http --> HTTP_Flow[HTTP Config]
+    Map -- quic --> QUIC_Flow[QUIC Config]
+"
+/>
 
-## Execution
+</Step>
+<Step>
 
-**Source**: `src/layers/l4p/flow.rs`
+### Atomic Hotswap
 
-1.  **Context**: Initializes `TransportContext` with `conn.layer = "l4p"`.
-2.  **Payloads**: Injects protocol-specific payloads (e.g., `tls.clienthello`) into the context for plugins to access.
-3.  **Run**: Executes the configured pipeline.
+When a configuration file changes in `resolver/`, the Hotswap system triggers a reload.
+
+<Mermaid
+	chart="
+graph LR
+    Watcher[File Watcher] -->|Event| Hotswap[Hotswap Task]
+    Hotswap -->|Scan| Disk[Load All Resolvers]
+    Disk -->|Build| NewMap[New Registry Map]
+    NewMap -->|Swap| Global[Update ArcSwap]
+    Global -->|Drop Old| Cleanup[Free Old Configs]
+"
+/>
+
+</Step>
+<Step>
+
+### Execution Context
+
+When a flow starts, the L4+ engine initializes a specialized `TransportContext`.
+
+<Mermaid
+	chart="
+graph LR
+    Init[Initialize Context] --> KV[Set conn.layer = l4p]
+    Init --> Payloads[Inject Payloads]
+    Payloads -->|tls.clienthello| Context
+    Payloads -->|http.headers| Context
+    Context --> Exec[Execute Flow]
+"
+/>
+
+</Step>
+</Steps>

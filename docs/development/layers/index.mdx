@@ -8,10 +8,6 @@ import { Step, Steps } from 'fumadocs-ui/components/steps';
 
 Vane operates on a strictly tiered architecture, processing connections at different levels of the OSI model depending on the required depth of inspection.
 
-The engine distinguishes between **Three Layers**, each with its own execution context and capabilities.
-
-## The Three Layers
-
 <Mermaid
 	chart="
 graph LR
@@ -27,6 +23,8 @@ graph LR
 "
 />
 
+## The Three Layers
+
 ### 1. Layer 4 (Transport)
 
 **Source**: `src/layers/l4/`
@@ -36,18 +34,16 @@ The entry point for all connections. It operates on raw **TCP Streams** and **UD
 - **Focus**: Routing based on IP, Port, and initial packet sniffing.
 - **Context**: `TransportContext` (Connection metadata, peek buffer).
 - **Actions**: Proxy (TCP/UDP), Deny, or **Upgrade** to a higher layer.
-- **No Decryption**: It cannot see inside encrypted traffic (TLS/QUIC) beyond the initial handshake.
 
 ### 2. Layer 4+ (Carrier)
 
 **Source**: `src/layers/l4p/`
 
-The "Carrier" layer handles protocol inspection **without full termination**. It parses handshake headers to make intelligent routing decisions for encrypted protocols.
+The "Carrier" layer handles protocol inspection **without full termination**. It parses handshake headers (ClientHello) to make intelligent routing decisions for encrypted protocols.
 
 - **Focus**: TLS SNI, ALPN, QUIC Connection IDs.
 - **Context**: `TransportContext` (Same as L4, but with protocol-specific metadata).
 - **Actions**: Route based on SNI/Host, Proxy, or **Upgrade** to L7.
-- **Partial Parsing**: It parses _just enough_ to route (e.g., ClientHello), then tunnels or hands off.
 
 ### 3. Layer 7 (Application)
 
@@ -58,7 +54,6 @@ The Application layer provides full **HTTP Termination**. It parses the entire r
 - **Focus**: HTTP Headers, Body, Path, Query, Methods.
 - **Context**: `Container` (Full Request/Response envelope).
 - **Actions**: Middleware transformation, Synthetic Responses, Upstream Fetching.
-- **Full Termination**: The connection is terminated at Vane; a new connection is made to the upstream.
 
 ## Layer Transitions (Upgrading)
 
@@ -66,24 +61,69 @@ Connections move up the stack via an **Upgrade** mechanism. This is triggered by
 
 <Steps>
 <Step>
+
 ### L4 Ingress
-A TCP connection arrives. The **L4 Flow** peeks at the first few bytes.
-Plugin `detect.tls` sees a TLS ClientHello.
-</Step>
 
-<Step>
-	### Upgrade Signal The L4 flow executes an **Upgrade Terminator** (e.g., `upgrade "tls"`). The
-	engine suspends L4 processing and wraps the stream in a TLS parser.
-</Step>
+A TCP connection arrives. The **L4 Flow** peeks at the first few bytes. The `detect.tls` plugin identifies a TLS ClientHello.
 
-<Step>
-	### L4+ Routing The **L4+ Flow** (`tls.json`) parses the SNI (e.g., `example.com`). It decides
-	this domain requires WAF processing.
-</Step>
+<Mermaid
+	chart="
+graph LR
+    Socket[New Socket] --> Peek{Peek Bytes}
+    Peek -- 0x16 --> Detect[Detect TLS]
+    Detect --> Term[Upgrade Terminator]
+"
+/>
 
+</Step>
 <Step>
+
+### Upgrade Signal
+
+The L4 flow executes an **Upgrade Terminator** (e.g., `upgrade "tls"`). The engine suspends L4 processing and wraps the stream in a TLS parser.
+
+<Mermaid
+	chart="
+graph LR
+    Term --> Signal[Signal: Upgrade TLS]
+    Signal --> Engine[Engine Switch]
+    Engine --> Wrap[Wrap Stream]
+    Wrap --> L4P[L4+ Dispatcher]
+"
+/>
+
+</Step>
+<Step>
+
+### L4+ Routing
+
+The **L4+ Flow** (`tls.json`) parses the SNI (e.g., `example.com`). It decides this domain requires WAF processing.
+
+<Mermaid
+	chart="
+graph LR
+    L4P --> Parse[Parse ClientHello]
+    Parse --> SNI[Extract SNI]
+    SNI --> Route{Check Rules}
+    Route -- Match --> Next[Upgrade HTTTPX]
+"
+/>
+
+</Step>
+<Step>
+
 ### Final Upgrade
-The L4+ flow executes `upgrade "httpx"`.
-The engine performs the TLS handshake, decrypts the traffic, and hands the plaintext stream to the **L7 Engine**.
+
+The L4+ flow executes `upgrade "httpx"`. The engine performs the TLS handshake (using the cert for `example.com`), decrypts the traffic, and hands the plaintext stream to the **L7 Engine**.
+
+<Mermaid
+	chart="
+graph LR
+    Next --> Handshake[TLS Handshake]
+    Handshake --> Decrypt[Decrypt Stream]
+    Decrypt --> L7[L7 Adapter]
+"
+/>
+
 </Step>
 </Steps>

@@ -12,8 +12,8 @@ The `KvStore` is a high-performance, per-connection storage space used to accumu
 
 Technically, the `KvStore` is a type alias for `ahash::AHashMap<String, String>`.
 
-- **AHashMap**: Vane uses `ahash` because it is significantly faster than the standard library's `HashMap` for small-to-medium string keys, which is critical for the hot path of plugin execution.
-- **String Storage**: To maintain maximum compatibility and simplicity for templates and external plugins, all values are stored as strings.
+- **AHashMap**: Vane uses `ahash` because it is significantly faster than the standard library's `HashMap` for small-to-medium string keys.
+- **String Storage**: To maintain maximum compatibility, all values are stored as strings.
 
 ## Lifecycle
 
@@ -25,29 +25,46 @@ The `KvStore` follows the strict lifecycle of the network connection it is attac
 ### Creation Phase
 
 A new store is initialized in the `ingress` layer immediately after a TCP or UDP connection is accepted.
-At this stage, standard metadata is populated: `conn.uuid`, `conn.ip`, `conn.proto`, etc.
+
+<Mermaid
+	chart="
+graph LR
+    Socket[Accept Socket] --> Init[Init KvStore]
+    Init --> Fill[Populate conn.ip, uuid...]
+    Fill --> Flow[Pass to Flow Engine]
+"
+/>
 
 </Step>
 <Step>
 
 ### Mutation & Processing
 
-The `KvStore` is owned by the connection task (the flow).
-As the connection traverses layers:
+The `KvStore` is owned by the connection task. As the connection traverses layers, metadata is added incrementally.
 
-- **L4**: Adds routing decisions.
-- **L4+**: Adds protocol headers (SNI, Host).
-- **L7**: Middleware plugins inject results and headers.
-
-Throughout this process, the [Template System](./templates) reads from the store to resolve dynamic configuration values.
+<Mermaid
+	chart="
+graph LR
+    L4[L4 Layer] -->|conn.proto| KV[(KvStore)]
+    L4P[L4+ Layer] -->|tls.sni| KV
+    L7[L7 Middleware] -->|plugin.auth.user| KV
+"
+/>
 
 </Step>
 <Step>
 
 ### Destruction Phase
 
-When the connection terminates (client disconnects or server closes), the task ends.
-The `KvStore` is automatically dropped, releasing all memory back to the system.
+When the connection terminates, the task ends and the `KvStore` is automatically dropped.
+
+<Mermaid
+	chart="
+graph LR
+    Close[Connection Close] --> Drop[Drop KvStore]
+    Drop --> Free[Free Memory]
+"
+/>
 
 </Step>
 </Steps>
@@ -66,14 +83,14 @@ Upon initialization, Vane pre-populates the store with essential metadata under 
 
 ## Key Scoping & Conventions
 
-To prevent collisions between different subsystems and plugins, Vane follows a strict dot-notated naming convention:
+To prevent collisions, Vane follows a strict dot-notated naming convention:
 
 - **`conn.*`**: Core transport-layer metadata.
-- **`tls.*`**: Metadata extracted during L4+ TLS inspection (e.g., `tls.sni`).
-- **`http.*`**: Metadata from HTTP protocol handlers (e.g., `http.host`).
-- **`plugin.<path>.<name>.*`**: Keys added by specific plugins. The engine automatically handles this scoping to ensure that two instances of the same plugin in different branches do not overwrite each other's data.
+- **`tls.*`**: Metadata from TLS inspection.
+- **`http.*`**: Metadata from HTTP protocol handlers.
+- **`plugin.<path>.<name>.*`**: Scoped keys added by specific plugins.
 
 <Callout type="info" title="Performance Tip">
-	While the `KvStore` is fast, avoid storing large blobs of data (like full request bodies) directly
-	as keys. Instead, use the store for metadata and rely on the execution context for payload access.
+	Avoid storing large blobs of data (like full request bodies) as keys. Use the store for metadata
+	and rely on the execution context for payload access.
 </Callout>

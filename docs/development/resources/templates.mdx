@@ -56,7 +56,13 @@ The engine is not limited to plain strings. Through `resolve_inputs()`, Vane can
 
 The `parser.rs` module converts the raw string into an Abstract Syntax Tree (AST) composed of `Text` and `Variable` nodes.
 
-- **Limit**: To prevent ReDoS or stack overflow, parsing is limited to a depth of 5 and 50 total nodes by default.
+<Mermaid
+	chart="
+graph LR
+    Raw[Raw String] --> Parser[AST Parser]
+    Parser --> Nodes[AST: Text + Variable Nodes]
+"
+/>
 
 </Step>
 <Step>
@@ -65,12 +71,32 @@ The `parser.rs` module converts the raw string into an Abstract Syntax Tree (AST
 
 The `resolver.rs` module traverses the AST. If a `Variable` node contains nested parts, it recursively calls the resolver to determine the final key name.
 
+<Mermaid
+	chart="
+graph LR
+    AST[AST Nodes] --> Resolve[Recursive Resolver]
+    Resolve --> Nested{Nested?}
+    Nested -- Yes --> Resolve
+    Nested -- No --> Key[Final Key Name]
+"
+/>
+
 </Step>
 <Step>
 
 ### Context Lookup
 
-The resolved key is passed to a `TemplateContext`. While usually linked to the connection's `KvStore`, the context can also "hijack" data directly from protocol streams (e.g., peeking at request bodies or headers on-demand).
+The resolved key is passed to a `TemplateContext`. While usually linked to the connection's `KvStore`, the context can also "hijack" data directly from protocol streams.
+
+<Mermaid
+	chart="
+graph LR
+    Key[Key Name] --> Context{TemplateContext}
+    Context --> KV[KV Store Lookup]
+    Context --> Hijack[Protocol Hijacking]
+    KV & Hijack --> Value[Final String Value]
+"
+/>
 
 </Step>
 </Steps>

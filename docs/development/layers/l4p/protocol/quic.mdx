@@ -4,20 +4,65 @@ description: Session tracking and sticky IP logic.
 icon: Zap
 ---
 
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
 ## Overview
 
 QUIC requires specialized handling due to its connectionless nature (UDP) but stateful requirements (Encryption/Streams).
 
+<Steps>
+<Step>
+
 ### Session Tracking
 
-Vane tracks QUIC sessions using the **Connection ID (CID)**.
+Vane tracks QUIC sessions primarily using the **Connection ID (CID)** to support connection migration.
 
-1.  **Registry**: Maps CIDs to Flow Actions (Forward or Terminate).
-2.  **Sticky IP**: If CID lookup fails (e.g., during migration or transparent proxying), Vane falls back to `IP_STICKY_MAP` to route packets from the same Client IP to the same Upstream.
+<Mermaid
+	chart="
+graph LR
+    Packet[UDP Packet] --> Extract[Extract DCID]
+    Extract --> Lookup{CID Registry}
+    Lookup -- Hit --> Action[Execute Cached Action]
+    Lookup -- Miss --> L4[New L4 Flow]
+"
+/>
 
-### Buffer Limits
+</Step>
+<Step>
 
-To prevent amplification attacks or memory exhaustion, Vane enforces strict limits on pending QUIC packets:
+### Sticky IP Fallback
 
-- **Global Pending Limit**: `QUIC_GLOBAL_PENDING_BYTES_LIMIT` (Default: 64MB).
-- **Per-Session Limit**: `QUIC_SESSION_BUFFER_LIMIT` (Default: 64KB).
+If CID lookup fails (e.g., during server-initiated CID migration or transparent proxying where CIDs change), Vane falls back to IP-based stickiness.
+
+<Mermaid
+	chart="
+graph LR
+    Lookup -- Miss --> Sticky{Check Sticky Map}
+    Sticky -- Hit --> Forward[Forward to Upstream]
+    Sticky -- Miss --> Drop[Drop or New Flow]
+"
+/>
+
+</Step>
+<Step>
+
+### Buffer Safety
+
+To prevent amplification attacks or memory exhaustion, Vane enforces strict limits on pending QUIC packets before they are accepted by a flow.
+
+<Mermaid
+	chart="
+graph LR
+    Packet --> Global{Global Limit?}
+    Global -- OK --> Session{Session Limit?}
+    Global -- Full --> Drop1[Drop Packet]
+    Session -- OK --> Buffer[Buffer Packet]
+    Session -- Full --> Drop2[Drop Packet]
+"
+/>
+
+- **Global Limit**: `QUIC_GLOBAL_PENDING_BYTES_LIMIT` (Default: 64MB).
+- **Session Limit**: `QUIC_SESSION_BUFFER_LIMIT` (Default: 64KB).
+
+</Step>
+</Steps>

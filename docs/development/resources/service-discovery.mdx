@@ -50,15 +50,15 @@ pub struct ProcessedNode {
 }
 ```
 
-If a node has 2 IPs and each IP specifies 3 ports, the flattener generates 6 discrete `ProcessedNode` entries. This flat list is what the Layer 4 load balancers consume directly.
+If a node has 2 IPs and each IP specifies 3 ports, the flattener generates 6 discrete `ProcessedNode` entries.
 
 ## Configuration Validation
 
-Vane performs rigorous validation during the loading process to prevent runtime failures:
+Vane performs rigorous validation during the loading process:
 
 1.  **Unique Names**: Every node must have a unique identifier.
-2.  **Formatting**: Node names are restricted to lowercase letters, numbers, and hyphens (`[a-z0-9-]+`).
-3.  **Network Sanity**: IP addresses must be valid, and every IP configuration must include at least one port.
+2.  **Formatting**: Node names are restricted to lowercase letters, numbers, and hyphens.
+3.  **Network Sanity**: IP addresses must be valid.
 
 ## Loading & Hotswap Pipeline
 
@@ -67,31 +67,57 @@ Vane performs rigorous validation during the loading process to prevent runtime 
 
 ### Initial Scan
 
-During Step 2 of the [Startup Sequence](../bootstrap/startup-sequence), `scan_nodes_config()` searches for `nodes.*` in the config directory.
+During the bootstrap sequence, Vane searches for node configuration files in the config directory.
+
+<Mermaid
+	chart="
+graph LR
+    Start[Bootstrap] --> Scan[Scan nodes.*]
+    Scan --> Found{File Found?}
+    Found -- Yes --> Parse[Parse YAML/JSON/TOML]
+    Found -- No --> Empty[Init Empty Registry]
+"
+/>
 
 </Step>
 <Step>
 
 ### Atomic Storage
 
-The parsed and validated config is stored in `NODES_STATE`, a global `ArcSwap<NodesConfig>`. This allows all worker tasks to read the node list without locking.
+The parsed and validated config is stored in `NODES_STATE`, a global `ArcSwap<NodesConfig>`.
+
+<Mermaid
+	chart="
+graph LR
+    Parsed[Parsed Config] --> Pre[Pre-Process: Flattening]
+    Pre --> Validate{validate}
+    Validate -- Ok --> Store[Store in NODES_STATE]
+    Validate -- Err --> Log[Log Error / Keep Old]
+"
+/>
 
 </Step>
 <Step>
 
 ### Real-time Updates
 
-The `hotswap.rs` module runs a dedicated watch loop. When a file change is detected:
+The `hotswap.rs` module runs a dedicated watch loop to detect file changes and perform zero-downtime swaps.
 
-- The new file is loaded and validated.
-- If valid **and** different from the current state, an atomic pointer swap occurs.
-- If the new file is invalid, the engine continues using the old state and logs an error.
+<Mermaid
+	chart="
+graph LR
+    Notify[Watcher Event] --> Scan[Re-scan File]
+    Scan --> Diff{Content Changed?}
+    Diff -- Yes --> Swap[Atomic Swap Pointer]
+    Diff -- No --> Ignore[No-op]
+"
+/>
 
 </Step>
 </Steps>
 
 <Callout type="info" title="Effective Changes Only">
 	Vane's hotswap logic compares the actual content of the new configuration against the old one. If
-	you save the file without making changes, the engine will detect that no "effective change"
-	occurred and skip the expensive re-calculation and swap.
+	you save the file without making changes, the engine will skip the expensive re-calculation and
+	swap.
 </Callout>

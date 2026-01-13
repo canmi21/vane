@@ -12,72 +12,104 @@ Vane categorizes plugins based on their implementation source and operational lo
 
 Built-in plugins are compiled directly into the Vane binary for maximum performance.
 
+<Mermaid
+	chart="
+graph LR
+    Engine[Flow Engine] --> Internal{Type?}
+    Internal -- Middleware --> Matcher[Matcher/RateLimit]
+    Internal -- Terminator --> Proxy[Proxy/Response]
+"
+/>
+
 ### Middleware
 
 Used for cross-layer logic like:
 
-- **`matcher`**: Evaluates conditions against the [KV Store](../resources/kv-store) to route traffic.
-- **`ratelimit`**: Token-bucket based limiting (per second or minute).
+- **`matcher`**: Evaluates conditions against the [KV Store](../resources/kv-store).
+- **`ratelimit`**: Token-bucket based limiting.
 
 ### Terminators
 
 Responsible for the final action of a flow:
 
-- **L4 Proxy**: TCP/UDP forwarding to IPs, Domains, or SD Nodes.
-- **L7 Upstream**: Full HTTP/2 and HTTP/3 reverse proxying.
-- **Response**: Generating synthetic HTTP responses directly.
+- **L4 Proxy**: TCP/UDP forwarding.
+- **L7 Upstream**: Full HTTP reverse proxying.
 
 ---
 
-## External Drivers (The "System" Layer)
+## External Drivers
 
-External plugins are executed by Vane via one of three specialized drivers. They all follow a **JSON-in, JSON-out** contract but differ in communication method.
+External plugins are executed by Vane via specialized drivers.
 
-| Driver      | Transport          | Best For                                           |
-| :---------- | :----------------- | :------------------------------------------------- |
-| **HTTPX**   | HTTP/HTTPS         | Remote microservices, serverless functions.        |
-| **Unix**    | Unix Domain Socket | High-performance local sidecars.                   |
-| **Command** | StdIO (Subprocess) | Scripts (Python, Node.js), binaries, or CLI tools. |
+<Mermaid
+	chart="
+graph LR
+    Engine --> Driver{Driver Type}
+    Driver -- HTTP --> Remote[Remote Service]
+    Driver -- Unix --> Sidecar[Local Sidecar]
+    Driver -- Command --> Child[Subprocess]
+"
+/>
 
 ### 1. HTTPX & Unix Drivers
 
 Both drivers encapsulate the plugin's `inputs` into a POST request.
 
-- **HTTPX**: Supports custom timeouts and optional TLS verification skipping.
-- **Unix**: Communicates over a local socket file, reducing networking overhead while maintaining the simplicity of the HTTP protocol.
+- **HTTPX**: Supports custom timeouts and TLS.
+- **Unix**: Communicates over a local socket file.
 
 ### 2. Command Driver (Subprocess)
 
-The `command` driver is the most powerful and requires the strictest security measures.
-
-#### Execution Pipeline
+The `command` driver executes a binary or script.
 
 <Steps>
 <Step>
 
 ### Path Validation
 
-The program must exist within the **Trusted Bin Root** (see [Architecture](./architecture#security-the-trusted-bin-root)).
+The program must exist within the **Trusted Bin Root** to prevent unauthorized execution.
+
+<Mermaid
+	chart="
+graph LR
+    Input[Program Path] --> Check{In Trusted Root?}
+    Check -- Yes --> Safe[Proceed]
+    Check -- No --> Block[Log Error]
+"
+/>
 
 </Step>
 <Step>
 
 ### Environment Sanitization
 
-To prevent privilege escalation or library hijacking, Vane aggressively filters environment variables provided in the configuration:
+To prevent privilege escalation, Vane filters dangerous environment variables.
 
-- **Linker Variables**: `LD_PRELOAD`, `DYLD_LIBRARY_PATH` are dropped by default.
-- **Runtime Variables**: `PYTHONPATH`, `NODE_OPTIONS` are dropped.
-- **Shell Variables**: `IFS`, `BASH_ENV` are dropped.
-
-Operators can selectively allow these via `ALLOW_EXTERNAL_*` environment flags.
+<Mermaid
+	chart="
+graph LR
+    Env[Input Env] --> Filter{Filter}
+    Filter -- Drop --> Unsafe[LD_PRELOAD / PYTHONPATH]
+    Filter -- Keep --> Safe[APP_KEY / DEBUG]
+    Safe --> Child[Child Process]
+"
+/>
 
 </Step>
 <Step>
 
 ### Communication & Logging
 
-Vane pipes the JSON input to the child's `stdin`. It then captures `stdout` for the result and redirected `stderr` to Vane's internal **Debug Log**, ensuring that external script errors are visible in Vane's console.
+Vane pipes inputs to `stdin` and captures `stdout` for results. `stderr` is redirected to Vane's debug logs.
+
+<Mermaid
+	chart="
+graph LR
+    Vane -->|JSON| Stdin[Subprocess STDIN]
+    Stdout[Subprocess STDOUT] -->|JSON| Vane
+    Stderr[Subprocess STDERR] -->|Text| Log[Vane Logger]
+"
+/>
 
 </Step>
 </Steps>

@@ -4,24 +4,50 @@ description: The VaneBody abstraction.
 icon: Blend
 ---
 
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
 ## Overview
 
-To support multiple protocols (H1, H2, H3) and lazy buffering without excessive copying, Vane uses a unified body enum: `VaneBody`.
+To support multiple protocols (H1, H2, H3) and lazy buffering without excessive copying, Vane uses a unified body enum: `VaneBody`. This abstraction shields middleware from the complexities of the underlying transport.
 
 **Source**: `src/layers/l7/http/wrapper.rs`
+
+## Architecture
+
+<Steps>
+<Step>
+
+### Ingress Sources
+
+Requests arrive via different transports. `VaneBody` unifies them into a single type.
+
+<Mermaid
+	chart="
+graph TB
+    H1[H1 Stream] --> Enum{VaneBody}
+    H2[H2 Stream] --> Enum
+    H3[H3 Channel] --> Enum
+    Mem[Buffered Bytes] --> Enum
+"
+/>
+
+</Step>
+<Step>
+
+### Consumption Modes
+
+Middleware can consume the body in two ways: streaming or buffering.
 
 <Mermaid
 	chart="
 graph LR
-    H1[H1 Stream] --> Enum{VaneBody Enum}
-    H2[H2 Stream] --> Enum
-    H3[H3 Channel] --> Enum
-    Mem[Buffered Bytes] --> Enum
-    
-    Enum -->|Poll Frame| Middleware
-    Enum -->|Collect| Buffer[In-Memory]
+    Enum -->|poll_frame| Stream[Zero-Copy Stream]
+    Enum -->|collect| Buffer[In-Memory Buffer]
 "
 />
+
+</Step>
+</Steps>
 
 ## Variants
 
@@ -35,4 +61,4 @@ graph LR
 
 ## Memory Efficiency
 
-VaneBody implements `http_body::Body`. Middleware can pass it through untouched (streaming) or call `collect()` to buffer it (transitioning the Container state to `PayloadState::Buffered`).
+`VaneBody` implements `http_body::Body`. This allows it to be passed through the entire L7 pipeline without copying data unless explicitly requested by a middleware that needs to inspect the body content.

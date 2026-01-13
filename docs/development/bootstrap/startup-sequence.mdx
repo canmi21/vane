@@ -19,23 +19,46 @@ The sequence is managed by the `start()` function in `src/bootstrap/startup.rs`.
 
 The process begins by establishing the runtime environment.
 
-- **Crypto Setup**: Initializes the global `rustls` crypto provider (installing `aws-lc-rs` or `ring` based on feature flags).
-- **Environment**: Loads `.env` variables via `dotenvy` and configures the `fancy_log` level.
-- **Readiness Check**: Verifies that critical configuration directories exist. The system halts immediately if the infrastructure is incomplete.
+- **Crypto Setup**: Initializes `aws-lc-rs` or `ring`.
+- **Environment**: Loads `.env` and sets log level.
+- **Readiness Check**: Ensures that critical configuration directories exist, creating them if they are missing.
+
+<Mermaid
+	chart="
+graph LR
+    Main[main.rs] -->|start| Crypto[Init Crypto]
+    Crypto --> Env[Load .env]
+    Env --> Logger[Init Logger]
+    Logger --> Check{Config Dirs Exist?}
+    Check -- No --> Create[Create Dirs]
+    Check -- Yes --> Next([Next Step])
+    Create --> Next
+"
+/>
 
 </Step>
 <Step>
 
 ### Registry Loading
 
-Vane uses atomic `ArcSwap` registries for lock-free state management. These are populated sequentially:
+Vane uses atomic `ArcSwap` registries for lock-free state management. These are populated sequentially from disk.
 
-1.  **Service Discovery**: Scans `nodes.json` for upstream backends.
-2.  **Certificates**: Loads TLS certificates and keys into the `CERT_REGISTRY`.
-3.  **Port Configuration**: Loads listener definitions (TCP/UDP) from `ports.json`.
-4.  **Protocol Handlers**:
-    - **L4+ Resolvers**: Loads TLS, QUIC, and HTTP routing rules from `resolvers/`.
-    - **L7 Applications**: Loads HTTP middleware pipelines from `applications/`.
+<Mermaid
+	chart="
+graph LR
+    Loader[File Loader] --> Nodes[nodes.json]
+    Loader --> Certs[certs/]
+    Loader --> Ports[ports.json]
+    Loader --> Resolvers[resolvers/]
+    Loader --> Apps[applications/]
+    
+    Nodes -->|Store| NODES_STATE
+    Certs -->|Store| CERT_REGISTRY
+    Ports -->|Store| CONFIG_STATE
+    Resolvers -->|Store| RESOLVER_REGISTRY
+    Apps -->|Store| APPLICATION_REGISTRY
+"
+/>
 
 </Step>
 <Step>
@@ -44,39 +67,60 @@ Vane uses atomic `ArcSwap` registries for lock-free state management. These are 
 
 Before opening ports, internal subsystems are spun up to support the traffic flow.
 
-- **Background Tasks**: Spawns health checkers and upstream maintenance routines.
-- **Plugin System**: Initializes the plugin loader and validates external plugins defined in `plugins.json`.
-- **Adaptive Monitor**: Starts the L7 memory monitor, which calculates dynamic buffer limits based on available system RAM.
+<Mermaid
+	chart="
+graph LR
+    Init[Init Subsystems] --> Tasks[Spawn Background Tasks]
+    Init --> Plugins[Load Plugins]
+    Init --> Monitor[Start L7 Memory Monitor]
+    
+    Plugins -->|Validate| ExtRegistry[External Plugin Registry]
+    Monitor -->|Loop| MemCheck[Check Free RAM]
+"
+/>
 
 </Step>
 <Step>
 
 ### Network & Management
 
-With the state fully loaded, Vane interacts with the outside world.
+With the state fully loaded, Vane interacts with the outside world by binding ports and starting the management interface.
 
-- **Listener Activation**: Binds to configured TCP/UDP ports and begins the `tokio` accept loops.
-- **Hotswap Activation**: Starts file system watchers (`notify`) to enable zero-downtime configuration updates.
-- **Console API**: Launches the Management HTTP server and Unix socket interface.
+<Mermaid
+	chart="
+graph LR
+    Bind[Bind Listeners] --> TCP[TCP Loops]
+    Bind --> UDP[UDP Loops]
+    
+    Start --> Hotswap[Spawn Watchers]
+    Start --> API[Console API]
+    
+    TCP & UDP -->|Ready| Traffic([Accept Traffic])
+"
+/>
 
 </Step>
 <Step>
 
 ### Runtime Loop & Shutdown
 
-The main thread enters a signal wait state (listening for `SIGINT` or `SIGTERM`).
+The main thread enters a signal wait state. Upon receiving a termination signal, the graceful shutdown sequence triggers.
 
-Upon receiving a termination signal, the **Graceful Shutdown** sequence triggers:
-
-1.  Stops the Management API.
-2.  Notifies background tasks to exit.
-3.  Cleans up Unix domain sockets.
+<Mermaid
+	chart="
+graph LR
+    Wait[Wait for Signal] -->|SIGINT/TERM| Shutdown
+    
+    Shutdown --> StopAPI[Stop API]
+    Shutdown --> Exit([Process Exit])
+"
+/>
 
 </Step>
 </Steps>
 
-<Callout type="warn" title="Fail-Fast Design">
-	The bootstrap sequence is designed to be strict. If any step returns an error (e.g., a malformed
-	configuration file or a port conflict), Vane will log a fatal error and exit immediately rather
-	than starting in a partially broken state.
+<Callout type="info" title="Resilient Startup">
+	Vane is designed to be resilient. If configuration files are missing or invalid during startup, it
+	will typically log an error and continue with an empty or default state rather than crashing. This
+	ensures the process remains alive and can be corrected via hot-reloading.
 </Callout>

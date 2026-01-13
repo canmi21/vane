@@ -17,26 +17,50 @@ The executor operates recursively through the flow tree. At each step, it perfor
 
 ### Input Resolution
 
-Before a plugin is executed, its `input` parameters (defined in JSON) are passed through the [Template System](../resources/templates). This replaces any double-brace variables (`{{...}}`) with real-time data from the [KV Store](../resources/kv-store).
+Before a plugin is executed, its `input` parameters are passed through the Template System. This replaces double-brace variables with real-time metadata.
+
+<Mermaid
+	chart="
+graph LR
+    Input[JSON Input] --> Tpl[Template Engine]
+    KV[(KV Store)] --> Tpl
+    Tpl --> Resolved[Resolved Parameters]
+"
+/>
 
 </Step>
 <Step>
 
 ### Plugin Dispatch
 
-The engine looks up the plugin in the registry and invokes it. Vane supports multiple plugin types with a strict priority order:
+The engine looks up the plugin in the registry and invokes it. Vane follows a strict priority order based on the implemented Traits.
 
-1.  **HttpMiddleware**: HTTP-specific logic (L7 only).
-2.  **GenericMiddleware**: Protocol-agnostic logic (Available in all layers).
-3.  **Terminator**: Final steps that end the flow or request an upgrade.
+<Mermaid
+	chart="
+graph LR
+    Params[Resolved Params] --> Registry{Lookup Plugin}
+    Registry --> Http[HttpMiddleware]
+    Registry --> Generic[GenericMiddleware]
+    Registry --> Term[Terminator]
+"
+/>
 
 </Step>
 <Step>
 
 ### Result Processing
 
-- **Middleware**: Returns a "branch" name. The engine updates the metadata and recurses into the next step defined for that branch.
-- **Terminator**: Returns a final result, such as `Finished` or `Upgrade`.
+The outcome of the plugin determines whether the engine recurses into a deeper branch or finishes the current flow.
+
+<Mermaid
+	chart="
+graph LR
+    Result{Plugin Result}
+    Result -- Branch Name --> Next[Recurse: Next Step]
+    Result -- Finished --> Done([End Flow])
+    Result -- Upgrade --> Layer([Layer Transition])
+"
+/>
 
 </Step>
 </Steps>
@@ -57,7 +81,7 @@ graph LR
 />
 
 - **Trigger**: A circuit breaker activates if an external plugin returns a runtime error or a designated `failure` branch.
-- **Quiet Period**: Controlled by `EXTERNAL_PLUGIN_QUIET_PERIOD_SECS` (default 3s). During this time, Vane avoids making I/O calls to the plugin, effectively "short-circuiting" the request to the failure path.
+- **Quiet Period**: Controlled by `EXTERNAL_PLUGIN_QUIET_PERIOD_SECS` (default 3s).
 
 ## Key Scoping
 
