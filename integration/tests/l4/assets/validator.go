@@ -1,3 +1,5 @@
+/* integration/tests/l4/assets/validator.go */
+
 package main
 
 import (
