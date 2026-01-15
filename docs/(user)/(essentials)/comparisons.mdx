@@ -14,16 +14,30 @@ This document is not a benchmark. We do not claim Vane is "faster" or "better" t
 
 ## When NOT to use Vane
 
+Let's start by disqualifying Vane. If your requirements fit these patterns, other tools are likely superior choices:
+
+<Accordions type="single">
+<Accordion title="Simple configuration & Auto-HTTPS">
+<Callout type="warn">
+	Vane's Auto ACME are still work on progess.
+</Callout>
+If you just want to serve a **React SPA** or **WordPress** site with automatic SSL, use **[Caddy](https://caddyserver.com/)**. It is purpose-built for this ease of use. Vane requires explicit configuration for every step.
+</Accordion>
+
+<Accordion title="Simple, High-Performance Static Load Balancing">
+	If you have a fixed set of backends and need raw, kernel-optimized throughput with static rules,
+	use **[Nginx](https://nginx.org/)** or **[HAProxy](https://www.haproxy.org/)**. They are
+	battle-hardened standards.
+</Accordion>
+
+<Accordion title="Container Ingress Controller">
 <Callout type="warn">
 	Vane's native docker discovery not ready yet; use Traefik if you need "zero-config" features
 	today.
 </Callout>
-
-Let's start by disqualifying Vane. If your requirements fit these patterns, other tools are likely superior choices:
-
-- **Static Website Hosting & Auto-HTTPS**: If you just want to serve a **React SPA** or **WordPress** site with automatic SSL, use **[Caddy](https://caddyserver.com/)**. It is purpose-built for this ease of use. Vane requires explicit configuration for every step.
-- **Simple, High-Performance Static Load Balancing**: If you have a fixed set of backends and need raw, kernel-optimized throughput with static rules, use **[Nginx](https://nginx.org/)** or **[HAProxy](https://www.haproxy.org/)**. They are battle-hardened standards.
-- **Container Ingress Controller**: If you need a standard Ingress controller that strictly follows the docker or K8s Ingress spec out-of-the-box, use **[Traefik](https://traefik.io/)** or **[nginx-ingress](https://github.com/kubernetes/ingress-nginx)**. Vane is a lower-level primitive that **could** build an ingress, but isn't one by default.
+If you need a standard Ingress controller that strictly follows the docker or K8s Ingress spec out-of-the-box, use **[Traefik](https://traefik.io/)** or **[nginx-ingress](https://github.com/kubernetes/ingress-nginx)**. Vane is a lower-level primitive that **could** build an ingress, but isn't one by default.
+</Accordion>
+</Accordions>
 
 ## Ideal Use Cases for Vane
 
