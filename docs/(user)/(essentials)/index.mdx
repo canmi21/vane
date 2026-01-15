@@ -5,6 +5,7 @@ icon: BookOpen
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
 Vane is a **programmable traffic engine** designed to solve the structural rigidity of traditional proxies. Instead of reducing network traffic to routing rules, Vane executes dynamic **Flows**, exposing the entire traffic lifecycle as a first-class primitive.
 
@@ -25,6 +26,7 @@ Vane is built on three core architectural decisions. We prioritize **explicitnes
 Most proxies use static lists of rules that become brittle as complexity grows.
 
 **Vane treats traffic handling as a program.** Traffic traverses a **user-defined Flow**—a programmable decision graph where you explicitly define how a connection is inspected, modified, or directed.
+
 - We traded **declarative brevity** for **imperative clarity**.
 - You define the exact sequence of logic and transformations.
 - There is no ambiguity; you own the execution path.
@@ -33,9 +35,11 @@ Most proxies use static lists of rules that become brittle as complexity grows.
 
 Vane rejects the "muddy middle" where transport and application logic blend, but it does not trap you in a single layer. We enforce a **continuous but strictly bounded** upgrade model:
 
-- **Layer 4**: Start with raw speed and zero parsing.
-- **Layer 4+**: Dynamically upgrade to inspect headers (SNI, CID) without termination.
-- **Layer 7**: Upgrade again only when full HTTP parsing is strictly necessary.
+| Layer              | Behavior                                                              |
+| ------------------ | --------------------------------------------------------------------- |
+| **L4** Transport   | Start with raw speed and zero parsing                                 |
+| **L4+** Carrier    | Dynamically upgrade to inspect headers (SNI, CID) without termination |
+| **L7** Application | Upgrade again only when full HTTP parsing is strictly necessary       |
 
 You pay the cost of abstraction only when you need it. A connection can start at L4 and seamlessly transition up the stack based on its behavior.
 
@@ -51,8 +55,18 @@ Vane's core engine does not know how to rate-limit, authenticate, or even proxy 
 
 Vane is built for infrastructure engineers and platform architects who need:
 
-- **Granular Control**: You need to intercept a connection at the TCP handshake, inspect the TLS SNI, and decide whether to terminate it or pass it through untouched.
-- **Dynamic Routing**: Your routing logic depends on real-time external state, not just static config files.
-- **Protocol Agnosticism**: You need to handle HTTP, HTTP/3 (QUIC), and raw TCP streams within a single unified control plane.
+<Accordions type="single">
+<Accordion title="Granular Control: Inspect, Decide, Route at Every Layer">
+You need precise control over every stage of connection handling. This means intercepting a connection at the TCP handshake, inspecting the TLS SNI without terminating the connection, and dynamically deciding whether to terminate, pass through untouched, or apply conditional transformations based on runtime state. Vane gives you explicit control over each decision point in the traffic flow.
+</Accordion>
+
+<Accordion title="Dynamic Routing: Beyond Static Config Files">
+Your routing logic cannot be fully expressed in static configuration files. Instead, it depends on real-time external state—such as service discovery backends, feature flags, database queries, or custom business logic. Vane allows you to query external systems, make routing decisions programmatically, and update traffic behavior without restarting or reloading the proxy.
+</Accordion>
+
+<Accordion title="Protocol Agnosticism: One Control Plane for All Traffic">
+You need to handle multiple protocols—HTTP/1.1, HTTP/2, HTTP/3 (QUIC), and raw TCP/TLS streams—within a single unified control plane. Rather than deploying separate proxies for different protocol layers, Vane provides a consistent programmable model that works across L4, L4+, and L7, enabling you to build one coherent traffic management layer for your entire stack.
+</Accordion>
+</Accordions>
 
 If you value **transparency over magic** and **composability over convention**, Vane is designed for you.

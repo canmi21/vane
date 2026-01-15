@@ -7,37 +7,37 @@ icon: Info
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="info">
-This document defines Vane's operational model within your infrastructure. It clarifies where Vane sits, how it processes connections, and the terminology used to describe its behavior.
-</Callout>
-
 Vane operates as a **transparent execution layer** between clients and upstreams.
+
 - **Data Plane**: It accepts connections from Clients, executes user-defined logic, and optionally connects to Upstreams.
 - **Control Plane**: Its behavior is driven by atomic configuration updates, applied without dropping connections.
 
 ## The Execution Lifecycle
 
-Vane does not follow a fixed "receive → route → forward" pipeline. Instead, when a connection arrives, it triggers a programmable sequence of events:
+Vane does not follow a fixed `receive → route → forward` pipeline. Instead, when a connection arrives, it triggers a programmable sequence of events:
 
 <Steps>
 <Step>
 **Accept**
-A new connection (TCP/UDP) is established on a configured listener. At this moment, it is just a raw stream of bytes without meaning.
+A new connection `TCP`/`UDP` is established on a configured listener. At this moment, it is just a raw stream of bytes without meaning.
 </Step>
 
 <Step>
-**Context Initialization**
-To track this connection's journey, an execution **Context** is immediately initialized. This mutable container will hold all state—metadata, variables, and buffers—as the connection progresses.
+	**Context Initialization** To track this connection's journey, an execution **Context** is
+	immediately initialized. This mutable container will hold all `state`, `metadata`, `variables`,
+	and `buffers` as the connection progresses.
 </Step>
 
 <Step>
-**Flow Entry**
-The connection is then handed over to a **Flow**—the user-defined decision graph specific to this port. From here on, the engine follows your instructions, not a hardcoded path.
+	**Flow Entry** The connection is then handed over to a **Flow** which is the user-defined decision
+	graph specific to this port. From here on, the engine follows your instructions, not a hardcoded
+	path.
 </Step>
 
 <Step>
-**Plugin Execution**
-Plugins execute sequentially against the Context. As each plugin runs, it inspects the state, potentially modifies it, and **decides** which branch of the graph the connection should traverse next.
+	**Plugin Execution** Plugins execute sequentially against the Context. As each plugin runs, it
+	inspects the state, potentially modifies it, and **decides** which branch of the graph the
+	connection should traverse next.
 </Step>
 
 <Step>
@@ -48,36 +48,47 @@ This loop of inspection and decision-making continues until a terminal action is
 
 ## Routing is Optional
 
-It is critical to understand that **routing to an upstream is just one possible outcome** of a Flow.
+<Callout type="warn">
+	It is critical to understand that **routing to an upstream is just one possible outcome** of a
+	Flow.
+</Callout>
 
 Vane is not fundamentally a "router". It is an engine for executing logic. Depending on the path taken through your Flow, a connection might:
-- **Be routed** to an upstream server because it passed all checks.
-- **Receive a direct response** constructed by Vane (e.g., a synthetic JSON payload) without ever touching a backend.
-- **Be rejected** immediately because a security policy triggered.
-- **Upgrade its layer** (e.g., TCP → TLS) to allow for deeper inspection before a final decision is made.
 
-The decision to route—or to respond directly—is not a system default; it is a choice delegated entirely to your Flow definition.
+- **Be routed** to an upstream server because it passed all checks.
+- **Receive a direct response** constructed by Vane (e.g., a synthetic `JSON` payload) without ever touching a backend.
+- **Be rejected** immediately because a security policy triggered.
+- **Upgrade its layer** (e.g., `TCP` → `TLS`) to allow for deeper inspection before a final decision is made.
+
+The decision to route or to respond directly is not a system default; it is a choice delegated entirely to your Flow definition.
 
 ## Terminology Boundaries
 
 To effectively use Vane, you must distinguish between these core concepts.
 
 ### Flow
+
 The definition of the decision graph. A Flow is a tree of steps where each step executes a Plugin and branches based on the result.
 
 ### Plugin
+
 The atomic unit of logic. Plugins are divided into two roles:
+
 - **Middleware**: Performs work (inspection, modification) and returns a branch to continue execution.
 - **Terminator**: Performs a final action (proxy, respond, abort) that ends the current Flow branch.
 
 ### Layer
+
 The level of abstraction at which the engine is currently operating:
-- **L4 (Transport)**: Operating on raw IP/Port pairs.
-- **L4+ (Inspection)**: Operating on protocol headers without decryption.
-- **L7 (Application)**: Operating on fully parsed application messages (HTTP).
+
+- **Transport Layer** Operating on raw IP/Port pairs.
+- **Carrier Layer** Operating on protocol headers without decryption.
+- **Application Layer** Operating on fully parsed application messages (e.g., `HTTP`).
 
 ### Upgrade
+
 The mechanism for moving a connection from a lower layer to a higher layer. An upgrade preserves the physical connection but replaces the execution Context with one capable of understanding the new protocol.
 
 ### Context
-The mutable state carrier for a single connection. It persists across Plugin executions and accumulates metadata (e.g., "Client IP", "TLS SNI", "User ID") as the Flow progresses.
+
+The mutable state carrier for a single connection. It persists across Plugin executions and accumulates metadata (e.g., `Client IP`, `TLS SNI`, `User ID`) as the Flow progresses.
