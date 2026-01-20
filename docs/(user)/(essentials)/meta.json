@@ -2,5 +2,5 @@
 	"title": "Essentials",
 	"description": "Essential concepts and getting started",
 	"icon": "ToolCase",
-	"pages": ["index", "what-is-vane", "comparisons", "manual-installation", "guides"]
+	"pages": ["index", "what-is-vane", "comparisons"]
 }

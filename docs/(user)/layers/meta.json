@@ -1,6 +1,0 @@
-{
-	"title": "Layers",
-	"description": "Three-layer architecture of Vane",
-	"icon": "Layers",
-	"pages": ["index", "l4-transport", "l4p-carrier", "l7-application"]
-}

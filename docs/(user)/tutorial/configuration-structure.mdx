@@ -1,0 +1,117 @@
+---
+title: Configuration
+description: Understanding the Vane configuration directory layout
+icon: FolderOpen
+---
+
+import { File, Folder, Files } from 'fumadocs-ui/components/files';
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+Vane uses a **structured file-based** configuration system. Instead of a single monolithic file, configuration is split into logical units responsible for different aspects of the system.
+
+## Environment Variables
+
+<Callout type="info">It is recommended to set it to `/etc/vane` or `/opt/vane` on Linux.</Callout>
+
+By default, Vane looks for configuration in the current working directory under `~/vane`. You can override this location using the `CONFIG_DIR` environment variable.
+
+## Directory Layout
+
+<Callout type="info">
+	`json`, `yaml` and `toml` are all supported formats, but they cannot be configured in
+	[parallel](#parallel-configuration).
+</Callout>
+
+The configuration directory follows a strict naming convention. Vane expects the following structure:
+
+<Files>
+	<Folder name="~/vane" defaultOpen>
+		<Folder name="applications" defaultOpen>
+			<File name="httpx.yaml" />
+		</Folder>
+		<Folder name="certs">
+			<File name="default.crt" />
+			<File name="default.key" />
+			<File name="example.com.crt" />
+			<File name="example.com.key" />
+		</Folder>
+		<Folder name="listener" defaultOpen>
+			<Folder name="[80]">
+				<File name="tcp.json" />
+				<File name="udp.toml" />
+			</Folder>
+			<Folder name="[443]">
+				<File name="tcp.yml" />
+				<File name="udp.yaml" />
+			</Folder>
+		</Folder>
+		<File name="nodes.toml" />
+		<File name="plugins.json" />
+		<Folder name="resolvers" defaultOpen>
+			<File name="tls.yaml" />
+			<File name="http.json" />
+		</Folder>
+	</Folder>
+</Files>
+
+### File Format
+
+All user-facing configuration files support `YAML`, `JSON`, and `TOML` formats. However, `YAML` and `JSON` are the recommended choices for user-authored configurations. `TOML` is less suitable for expressing hierarchical tree structures, which makes it harder to clearly represent “flow-like” concepts. Both `.yaml` and `.yml` extensions are supported, but `.yaml` is preferred.
+
+### Parallel configuration
+
+<Files>
+	<Folder name="~/vane" defaultOpen>
+		<Folder name="resolvers" defaultOpen>
+			<File name="tls.yaml" />
+			<File name="tls.json" />
+		</Folder>
+	</Folder>
+</Files>
+
+This is an example of parallel configuration. If it occurs, Vane will not use any of these configurations and print an warning.
+
+### Atomic Hot-Reload
+
+All configuration files support atomic hot reloading at runtime, with a 2s debounce delay. Any FS Event involving write operations will trigger a reload. If the newly provided configuration is valid, Vane applies the update; otherwise, it falls back to a **keep-last-known-good** strategy and continues running with the previous valid state.
+
+### Deactivate
+
+Deletion FS Events are handled differently, if a configuration file is removed, Vane may activate the corresponding configuration change only if that configuration is explicitly designed to be removable such as user-defined "listeners". In all cases, Vane **never** transitions into an invalid state.
+
+## Configuration Files
+
+The configuration directory is organized by function to keep distinct logical layers separate. Below is a breakdown of the specific purpose for each directory and file type:
+
+<Accordions type="single">
+  <Accordion title="applications">
+    Contains Layer 7 flow definitions that handle full applications level things, such as request and response processing. Files in this directory define middleware pipelines, transformation logic, and upstream forwarding rules for specific web applications.
+  </Accordion>
+
+<Accordion title="certs">
+	A storage directory for TLS certificate chains (`.crt`) and private keys (`.key`). Vane
+	automatically scans, loads, and matches these certificates to domains during SSL/TLS handshakes.
+</Accordion>
+
+<Accordion title="listener">
+	Configures network entry points and transport-layer (L4) behavior. This directory is structured by
+	port number (e.g., `[443]`), where each folder contains specific definitions for TCP and UDP flows
+	bound to that port.
+</Accordion>
+
+<Accordion title="nodes.*">
+	Acts as the static service discovery registry for the legacy engine. This file defines the L4 pool
+	of upstream backend targets, including their IP addresses, ports, and load-balancing weights.
+</Accordion>
+
+<Accordion title="plugins.*">
+	The configuration registry for external plugins. It defines which external binaries or services
+	are loaded, their execution drivers (HTTP, socket, or command), and their initialization
+	parameters.
+</Accordion>
+
+  <Accordion title="resolvers">
+    Handles Layer 4+ protocol inspection and intermediate routing. Files here define how traffic is routed based on extracted metadata such as TLS SNI, HTTP Host headers, or QUIC CIDs without fully terminating the connection.
+  </Accordion>
+</Accordions>

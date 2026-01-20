@@ -1,6 +1,0 @@
-{
-	"title": "Plugins",
-	"description": "Plugin system and development",
-	"icon": "Puzzle",
-	"pages": ["index", "built-in-reference", "external-plugins", "plugin-development"]
-}

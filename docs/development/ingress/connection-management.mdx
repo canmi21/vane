@@ -22,10 +22,11 @@ graph LR
     Accept[New Connection] --> Acquire[Tracker: acquire]
     Acquire -- Success --> Guard[Hold ConnectionGuard]
     Acquire -- Full --> Deny[Reject Connection]
-    
+
     Guard --> Work[Execute Flow]
     Work --> Drop[Guard Dropped]
     Drop --> Release[Tracker: release]
+
 "
 />
 

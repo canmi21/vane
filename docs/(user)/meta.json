@@ -3,5 +3,5 @@
 	"description": "Usage and configuration",
 	"icon": "BookOpen",
 	"root": true,
-	"pages": ["(essentials)", "layers", "flows", "plugins", "configurations"]
+	"pages": ["(essentials)", "tutorial", "concepts", "reference", "operations", "recipe"]
 }
