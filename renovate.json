@@ -1,10 +1,11 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-
-	"extends": ["config:recommended", ":preserveSemverRanges", "group:allNonMajor"],
-
-	"baseBranches": ["latest"],
-
+	"extends": [
+		"config:recommended",
+		":preserveSemverRanges",
+		"group:allNonMajor"
+	],
+	"baseBranchPatterns": ["latest"],
 	"ignoreDeps": [
 		"@types/react",
 		"@types/react-dom",
@@ -13,9 +14,7 @@
 		"typescript",
 		"lucide-react"
 	],
-
 	"rangeStrategy": "in-range-only",
-
 	"packageRules": [
 		{
 			"matchManagers": ["npm"],
