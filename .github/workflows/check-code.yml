@@ -1,0 +1,64 @@
+name: Code Check
+
+on:
+  pull_request:
+    branches: ['latest']
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Lint & Test & Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check Rust Formatting
+        run: cargo fmt --check
+
+      - name: Check Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Cargo Deny Check
+        uses: EmbarkStudios/cargo-deny-action@v2
+
+      - name: Run Rust Unit Tests
+        run: cargo test
+
+      - name: Install Vane
+        run: cargo install --path .
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      - name: Install Go Dependencies
+        working-directory: integration
+        run: go mod download
+
+      - name: Check Go Formatting
+        working-directory: integration
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go code is not formatted:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Build Integration Tests
+        working-directory: integration
+        run: go build
+
+      - name: Run Integration Tests
+        working-directory: integration
+        # Ensure ~/.cargo/bin is in PATH so the test runner can find 'vane'
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          go run main.go

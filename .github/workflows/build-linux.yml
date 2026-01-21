@@ -1,0 +1,131 @@
+name: Build Linux
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+        description: 'Git ref to checkout (tag or branch)'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # musl (static)
+          - target: x86_64-unknown-linux-musl
+            libc: musl
+            arch: x86_64
+            for_openwrt: true
+            features: ''
+          - target: aarch64-unknown-linux-musl
+            libc: musl
+            arch: aarch64
+            for_openwrt: true
+            features: ''
+          # gnu (glibc)
+          - target: x86_64-unknown-linux-gnu
+            libc: gnu
+            arch: x86_64
+            for_openwrt: false
+            features: ''
+          - target: aarch64-unknown-linux-gnu
+            libc: gnu
+            arch: aarch64
+            for_openwrt: false
+            features: ''
+          - target: armv7-unknown-linux-gnueabihf
+            libc: gnu
+            arch: armv7
+            for_openwrt: false
+            features: ''
+          # i686
+          - target: i686-unknown-linux-gnu
+            libc: gnu
+            arch: x86
+            for_openwrt: false
+            features: ''
+          # loongarch64
+          - target: loongarch64-unknown-linux-gnu
+            libc: gnu
+            arch: loongarch64
+            for_openwrt: false
+            features: '--no-default-features --features full,ring'
+          - target: loongarch64-unknown-linux-musl
+            libc: musl
+            arch: loongarch64
+            for_openwrt: false
+            features: '--no-default-features --features full,ring'
+          # riscv64
+          - target: riscv64gc-unknown-linux-gnu
+            libc: gnu
+            arch: riscv64
+            for_openwrt: false
+            features: '--no-default-features --features full,ring'
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Get package info
+        id: pkg
+        run: |
+          # Try to get bin name from [[bin]], fallback to [package] name
+          BIN_NAME=$(grep -A1 '^\[\[bin\]\]' Cargo.toml | grep '^name' | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' || true)
+          if [ -z "$BIN_NAME" ]; then
+            BIN_NAME=$(grep '^name' Cargo.toml | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
+          fi
+          VERSION="${{ inputs.ref }}"
+          VERSION="${VERSION#v}"
+          echo "bin_name=$BIN_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build
+        run: cross build --profile minimum --target ${{ matrix.target }} ${{ matrix.features }}
+
+      - name: Install UPX
+        if: ${{ matrix.libc == 'musl' && (matrix.arch == 'x86_64' || matrix.arch == 'aarch64') }}
+        run: |
+          UPX_VERSION="4.2.4"
+          curl -Lo upx.tar.xz "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-amd64_linux.tar.xz"
+          tar -xf upx.tar.xz
+          sudo mv upx-${UPX_VERSION}-amd64_linux/upx /usr/local/bin/
+
+      - name: Compress with UPX
+        if: ${{ matrix.libc == 'musl' && (matrix.arch == 'x86_64' || matrix.arch == 'aarch64') }}
+        run: upx --best --lzma target/${{ matrix.target }}/minimum/${{ steps.pkg.outputs.bin_name }}
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/minimum/${{ steps.pkg.outputs.bin_name }} dist/
+          cp LICENSE dist/
+          cd dist
+          tar -czvf ../${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-linux-${{ matrix.libc }}-${{ matrix.arch }}.tar.gz *
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.bin_name }}-linux-${{ matrix.libc }}-${{ matrix.arch }}
+          path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-linux-${{ matrix.libc }}-${{ matrix.arch }}.tar.gz
+          retention-days: 1
+
+      - name: Upload binary for OpenWrt
+        if: ${{ matrix.for_openwrt }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-linux-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/minimum/${{ steps.pkg.outputs.bin_name }}
+          retention-days: 1

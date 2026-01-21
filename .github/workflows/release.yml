@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and release (e.g., v0.8.14)'
+        required: true
+        type: string
+
+jobs:
+  build-linux:
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+  build-macos:
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+  build-bsd:
+    uses: ./.github/workflows/build-bsd.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+  package-openwrt:
+    needs: [build-linux]
+    uses: ./.github/workflows/package-openwrt.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+  package-debian:
+    needs: [build-linux]
+    uses: ./.github/workflows/package-debian.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+  package-archlinux:
+    needs: [build-linux]
+    uses: ./.github/workflows/package-archlinux.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+  package-alpine:
+    needs: [build-linux]
+    uses: ./.github/workflows/package-alpine.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+  package-rhel:
+    needs: [build-linux]
+    uses: ./.github/workflows/package-rhel.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+  release:
+    needs:
+      [
+        build-linux,
+        build-macos,
+        build-bsd,
+        package-openwrt,
+        package-debian,
+        package-archlinux,
+        package-alpine,
+        package-rhel,
+      ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.ipk" -o -name "*.deb" -o -name "*.rpm" -o -name "*.pkg.tar.zst" -o -name "*.apk" \) -exec mv {} release/ \;
+          ls -la release/
+
+      - name: Extract release notes from CHANGELOG
+        id: changelog
+        run: |
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          NOTES=$(awk -v ver="$VERSION" '
+            /^## / {
+              if (found) exit
+              if ($2 ~ "^"ver) { found=1; next }
+            }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${VERSION}"
+          fi
+
+          # Simple release notes: Header + Extracted Changelog
+          echo -e "## What's Changed\n" > release_notes.md
+          echo "$NOTES" >> release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          body_path: release_notes.md
+          files: release/*
+          draft: false
+          prerelease: false
+          generate_release_notes: false

@@ -1,0 +1,102 @@
+name: Package Debian
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+        description: 'Git ref to checkout (tag or branch)'
+
+jobs:
+  debian:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            deb_arch: amd64
+          - arch: aarch64
+            deb_arch: arm64
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Get package info
+        id: pkg
+        run: |
+          BIN_NAME=$(grep -A1 '^\[\[bin\]\]' Cargo.toml | grep '^name' | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' || true)
+          if [ -z "$BIN_NAME" ]; then
+            BIN_NAME=$(grep '^name' Cargo.toml | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
+          fi
+          VERSION="${{ inputs.ref }}"
+          VERSION="${VERSION#v}"
+          echo "bin_name=$BIN_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download pre-built binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.bin_name }}-linux-gnu-${{ matrix.arch }}
+          path: build
+
+      - name: Extract binary
+        run: |
+          cd build
+          tar -xzf *.tar.gz
+          mv ${{ steps.pkg.outputs.bin_name }} ../
+
+      - name: Build deb package
+        run: |
+          PKG_ROOT="${{ steps.pkg.outputs.bin_name }}_${{ steps.pkg.outputs.version }}_${{ matrix.deb_arch }}"
+          mkdir -p "$PKG_ROOT/DEBIAN"
+          mkdir -p "$PKG_ROOT/usr/bin"
+          mkdir -p "$PKG_ROOT/usr/lib/systemd/system"
+          mkdir -p "$PKG_ROOT/usr/share/licenses/${{ steps.pkg.outputs.bin_name }}"
+          mkdir -p "$PKG_ROOT/etc/vane"
+
+          # Binary
+          cp ${{ steps.pkg.outputs.bin_name }} "$PKG_ROOT/usr/bin/"
+          chmod 755 "$PKG_ROOT/usr/bin/${{ steps.pkg.outputs.bin_name }}"
+
+          # Systemd service
+          cp package/default/vane.service "$PKG_ROOT/usr/lib/systemd/system/"
+
+          # License
+          cp LICENSE "$PKG_ROOT/usr/share/licenses/${{ steps.pkg.outputs.bin_name }}/"
+
+          # Config files (copy all from default, rename .env.example)
+          cp -r package/default/* "$PKG_ROOT/etc/vane/"
+          # Explicitly copy .env.example as .env
+          cp package/default/.env.example "$PKG_ROOT/etc/vane/.env"
+          rm -f "$PKG_ROOT/etc/vane/vane.service"
+
+          # Control file
+          cp package/debian/control "$PKG_ROOT/DEBIAN/"
+          sed -i "s/%VERSION%/${{ steps.pkg.outputs.version }}/g" "$PKG_ROOT/DEBIAN/control"
+          sed -i "s/%ARCH%/${{ matrix.deb_arch }}/g" "$PKG_ROOT/DEBIAN/control"
+
+          # Conffiles
+          cp package/debian/conffiles "$PKG_ROOT/DEBIAN/"
+
+          # Postinst
+          cp package/debian/postinst "$PKG_ROOT/DEBIAN/"
+          chmod 755 "$PKG_ROOT/DEBIAN/postinst"
+
+          # Build
+          dpkg-deb --build "$PKG_ROOT"
+
+      - name: Rename and upload
+        run: |
+          FINAL_NAME="${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-debian-${{ matrix.arch }}.deb"
+          mv *.deb "$FINAL_NAME"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.bin_name }}-debian-${{ matrix.arch }}
+          path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-debian-${{ matrix.arch }}.deb
+          retention-days: 1
