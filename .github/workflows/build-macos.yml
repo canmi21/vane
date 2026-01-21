@@ -10,10 +10,10 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
@@ -52,14 +52,14 @@ jobs:
           zip -r ../${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-macos-aarch64.zip *
 
       - name: Upload tar.gz artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-macos-aarch64-tar
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-macos-aarch64.tar.gz
           retention-days: 1
 
       - name: Upload zip artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-macos-aarch64-zip
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-macos-aarch64.zip

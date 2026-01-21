@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
@@ -40,7 +40,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download pre-built binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: bin-linux-${{ matrix.arch }}
           path: package/openwrt/target
@@ -88,7 +88,7 @@ jobs:
           echo "ipk_name=$FINAL_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-openwrt-${{ matrix.arch }}
           path: ${{ steps.ipk.outputs.ipk_name }}

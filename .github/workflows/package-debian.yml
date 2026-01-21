@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
@@ -38,7 +38,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download pre-built binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-linux-gnu-${{ matrix.arch }}
           path: build
@@ -95,7 +95,7 @@ jobs:
           mv *.deb "$FINAL_NAME"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-debian-${{ matrix.arch }}
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-debian-${{ matrix.arch }}.deb
