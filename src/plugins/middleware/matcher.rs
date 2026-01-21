@@ -82,8 +82,7 @@ impl GenericMiddleware for CommonMatchPlugin {
 		log(
 			LogLevel::Debug,
 			&format!(
-				"⚙ Match Plugin: Comparing Left='{}' with Right='{}' (Op: '{}')",
-				left, right, operator
+				"⚙ Match Plugin: Comparing Left='{left}' with Right='{right}' (Op: '{operator}')"
 			),
 		);
 
@@ -102,7 +101,7 @@ impl GenericMiddleware for CommonMatchPlugin {
 				Err(e) => {
 					log(
 						LogLevel::Error,
-						&format!("✗ Invalid regex pattern '{}': {}", right, e),
+						&format!("✗ Invalid regex pattern '{right}': {e}"),
 					);
 					false
 				}

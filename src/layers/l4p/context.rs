@@ -9,11 +9,11 @@ use fancy_log::{LogLevel, log};
 pub fn inject_common(kv: &mut KvStore, protocol: &str) {
 	log(
 		LogLevel::Debug,
-		&format!("⚙ Injecting L4+ Context for protocol: {}", protocol),
+		&format!("⚙ Injecting L4+ Context for protocol: {protocol}"),
 	);
 
-	kv.insert("conn.layer".to_string(), "l4p".to_string());
-	kv.insert("conn.proto.carrier".to_string(), protocol.to_string());
+	kv.insert("conn.layer".to_owned(), "l4p".to_owned());
+	kv.insert("conn.proto.carrier".to_owned(), protocol.to_owned());
 }
 
 pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
@@ -31,10 +31,10 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 		if sanitized != sni {
 			log(
 				LogLevel::Debug,
-				&format!("⚙ SNI Normalized: '{}' -> '{}'", sni, sanitized),
+				&format!("⚙ SNI Normalized: '{sni}' -> '{sanitized}'"),
 			);
 		}
-		kv.insert("tls.sni".to_string(), sanitized);
+		kv.insert("tls.sni".to_owned(), sanitized);
 	} else {
 		log(
 			LogLevel::Debug,
@@ -43,46 +43,46 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 	}
 
 	if !data.alpn.is_empty() {
-		kv.insert("tls.alpn".to_string(), data.alpn.join(","));
+		kv.insert("tls.alpn".to_owned(), data.alpn.join(","));
 	}
 
-	kv.insert("tls.version.legacy".to_string(), data.legacy_version);
-	kv.insert("tls.session_id".to_string(), data.session_id);
+	kv.insert("tls.version.legacy".to_owned(), data.legacy_version);
+	kv.insert("tls.session_id".to_owned(), data.session_id);
 
 	kv.insert(
-		"tls.cipher_suites".to_string(),
+		"tls.cipher_suites".to_owned(),
 		data.cipher_suites.join(","),
 	);
 	kv.insert(
-		"tls.compression".to_string(),
+		"tls.compression".to_owned(),
 		data.compression_methods.join(","),
 	);
 	kv.insert(
-		"tls.supported_versions".to_string(),
+		"tls.supported_versions".to_owned(),
 		data.supported_versions.join(","),
 	);
 	kv.insert(
-		"tls.supported_groups".to_string(),
+		"tls.supported_groups".to_owned(),
 		data.supported_groups.join(","),
 	);
 	kv.insert(
-		"tls.signature_algorithms".to_string(),
+		"tls.signature_algorithms".to_owned(),
 		data.signature_algorithms.join(","),
 	);
 	kv.insert(
-		"tls.key_share_groups".to_string(),
+		"tls.key_share_groups".to_owned(),
 		data.key_share_groups.join(","),
 	);
 	kv.insert(
-		"tls.psk_modes".to_string(),
+		"tls.psk_modes".to_owned(),
 		data.psk_key_exchange_modes.join(","),
 	);
 
 	kv.insert(
-		"tls.has_renegotiation_info".to_string(),
+		"tls.has_renegotiation_info".to_owned(),
 		data.has_renegotiation_info.to_string(),
 	);
-	kv.insert("tls.has_grease".to_string(), data.has_grease.to_string());
+	kv.insert("tls.has_grease".to_owned(), data.has_grease.to_string());
 }
 
 /// Sanitizes SNI string to prevent injection and enforce standard naming.
@@ -104,15 +104,15 @@ pub fn inject_quic_data(kv: &mut KvStore, data: QuicInitialData) {
 		),
 	);
 
-	kv.insert("quic.dcid".to_string(), data.dcid);
-	kv.insert("quic.scid".to_string(), data.scid);
-	kv.insert("quic.version".to_string(), data.version);
+	kv.insert("quic.dcid".to_owned(), data.dcid);
+	kv.insert("quic.scid".to_owned(), data.scid);
+	kv.insert("quic.version".to_owned(), data.version);
 
 	if let Some(token) = data.token {
-		kv.insert("quic.token".to_string(), token);
+		kv.insert("quic.token".to_owned(), token);
 	}
 
 	if let Some(sni) = data.sni_hint {
-		kv.insert("quic.sni".to_string(), sanitize_sni(&sni));
+		kv.insert("quic.sni".to_owned(), sanitize_sni(&sni));
 	}
 }

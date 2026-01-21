@@ -9,7 +9,7 @@ use tokio::fs;
 const SUPPORTED_EXTENSIONS: [&str; 4] = ["toml", "yml", "yaml", "json"];
 
 fn get_port_config_path(port: u16) -> PathBuf {
-	file_loader::get_config_dir().join(format!("[{}]", port))
+	file_loader::get_config_dir().join(format!("[{port}]"))
 }
 
 pub async fn create_protocol_listener(port: u16, protocol: &Protocol) -> io::Result<()> {
@@ -35,7 +35,7 @@ pub async fn delete_protocol_listener(port: u16, protocol: &Protocol) -> io::Res
 		Protocol::Udp => "udp",
 	};
 	for ext in SUPPORTED_EXTENSIONS {
-		let path = port_dir.join(format!("{}.{}", base_name, ext));
+		let path = port_dir.join(format!("{base_name}.{ext}"));
 		if fs::metadata(&path).await.is_ok() {
 			fs::remove_file(path).await?;
 		}

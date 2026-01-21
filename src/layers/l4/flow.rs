@@ -16,7 +16,7 @@ pub async fn execute(
 	conn: ConnectionObject,
 	initial_payloads: ahash::AHashMap<String, Bytes>,
 ) -> Result<TerminatorResult> {
-	kv.insert("conn.layer".to_string(), "l4".to_string());
+	kv.insert("conn.layer".to_owned(), "l4".to_owned());
 
 	let mut context = TransportContext {
 		kv,

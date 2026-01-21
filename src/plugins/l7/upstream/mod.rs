@@ -119,10 +119,10 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 
 				container
 					.kv
-					.insert("res.status".to_string(), "405".to_string());
+					.insert("res.status".to_owned(), "405".to_owned());
 				container.kv.insert(
-					"res.body".to_string(),
-					"Method Not Allowed: WebSocket upgrade is disabled".to_string(),
+					"res.body".to_owned(),
+					"Method Not Allowed: WebSocket upgrade is disabled".to_owned(),
 				);
 
 				// Set response headers
@@ -140,8 +140,8 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 				return Ok(MiddlewareOutput {
 					branch: "success".into(),
 					store: Some(std::collections::HashMap::from([(
-						"error".to_string(),
-						"WebSocket not allowed".to_string(),
+						"error".to_owned(),
+						"WebSocket not allowed".to_owned(),
 					)])),
 				});
 			}
@@ -165,13 +165,13 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 		let query_input = inputs.get("query").and_then(Value::as_str);
 
 		let raw_path = if let Some(p) = path_input {
-			p.to_string()
+			p.to_owned()
 		} else {
 			container
 				.kv
 				.get("req.path")
 				.cloned()
-				.unwrap_or_else(|| "/".to_string())
+				.unwrap_or_else(|| "/".to_owned())
 		};
 
 		let (clean_path, final_query) = if let Some(q) = query_input {
@@ -179,27 +179,23 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 				.split_once('?')
 				.map(|(pre, _)| pre)
 				.unwrap_or(&raw_path);
-			(p.to_string(), q.to_string())
-		} else {
-			if let Some((p, q)) = raw_path.split_once('?') {
-				(p.to_string(), q.to_string())
-			} else {
-				if path_input.is_none() {
-					let q = container.kv.get("req.query").cloned().unwrap_or_default();
-					(raw_path, q)
-				} else {
-					(raw_path, String::new())
-				}
-			}
-		};
+			(p.to_owned(), q.to_owned())
+		} else if let Some((p, q)) = raw_path.split_once('?') {
+  				(p.to_owned(), q.to_owned())
+  			} else if path_input.is_none() {
+     					let q = container.kv.get("req.query").cloned().unwrap_or_default();
+     					(raw_path, q)
+     				} else {
+     					(raw_path, String::new())
+     				};
 
 		let path_normalized = clean_path.trim_start_matches('/');
 
 		// 3. Construct Full URL
 		let full_url = if final_query.is_empty() {
-			format!("{}/{}", url_prefix, path_normalized)
+			format!("{url_prefix}/{path_normalized}")
 		} else {
-			format!("{}/{}?{}", url_prefix, path_normalized, final_query)
+			format!("{url_prefix}/{path_normalized}?{final_query}")
 		};
 
 		let method = inputs.get("method").and_then(Value::as_str);
@@ -214,7 +210,7 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 			.and_then(Value::as_bool)
 			.unwrap_or(false);
 
-		log(LogLevel::Debug, &format!("➜ Upstream Target: {}", full_url));
+		log(LogLevel::Debug, &format!("➜ Upstream Target: {full_url}"));
 
 		// For WebSocket upgrade requests, always use H1.1 regardless of version config
 		let result = if is_client_ws_upgrade && websocket_enabled {
@@ -243,7 +239,7 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 				_ => {
 					log(
 						LogLevel::Warn,
-						&format!("⚠ Unknown version '{}', falling back to auto.", version),
+						&format!("⚠ Unknown version '{version}', falling back to auto."),
 					);
 					hyper_client::execute_hyper_request(
 						container,
@@ -263,11 +259,11 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 				store: None,
 			}),
 			Err(e) => {
-				log(LogLevel::Error, &format!("✗ FetchUpstream Failed: {}", e));
+				log(LogLevel::Error, &format!("✗ FetchUpstream Failed: {e}"));
 				Ok(MiddlewareOutput {
 					branch: "failure".into(),
 					store: Some(std::collections::HashMap::from([(
-						"error".to_string(),
+						"error".to_owned(),
 						e.to_string(),
 					)])),
 				})

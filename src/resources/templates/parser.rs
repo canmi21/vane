@@ -12,16 +12,16 @@ pub enum TemplateNode {
 	/// Variable reference {{...}}
 	Variable {
 		/// Can contain nested nodes for concatenation/nesting
-		parts: Vec<TemplateNode>,
+		parts: Vec<Self>,
 	},
 }
 
 /// Parse template string into AST
 pub fn parse_template(input: &str) -> Result<Vec<TemplateNode>> {
-	let max_depth = env_loader::get_env("MAX_TEMPLATE_PARSE_DEPTH", "5".to_string())
+	let max_depth = env_loader::get_env("MAX_TEMPLATE_PARSE_DEPTH", "5".to_owned())
 		.parse()
 		.unwrap_or(5);
-	let max_nodes = env_loader::get_env("MAX_TEMPLATE_PARSE_NODES", "50".to_string())
+	let max_nodes = env_loader::get_env("MAX_TEMPLATE_PARSE_NODES", "50".to_owned())
 		.parse()
 		.unwrap_or(50);
 
@@ -38,8 +38,7 @@ fn parse_recursive(
 ) -> Result<Vec<TemplateNode>> {
 	if depth > max_depth {
 		return Err(anyhow!(
-			"Template parsing depth limit ({}) exceeded",
-			max_depth
+			"Template parsing depth limit ({max_depth}) exceeded"
 		));
 	}
 
@@ -58,8 +57,7 @@ fn parse_recursive(
 					*node_count += 1;
 					if *node_count > max_nodes {
 						return Err(anyhow!(
-							"Template parsing node limit ({}) exceeded",
-							max_nodes
+							"Template parsing node limit ({max_nodes}) exceeded"
 						));
 					}
 					nodes.push(TemplateNode::Text(current_text.clone()));
@@ -76,8 +74,7 @@ fn parse_recursive(
 				*node_count += 1;
 				if *node_count > max_nodes {
 					return Err(anyhow!(
-						"Template parsing node limit ({}) exceeded",
-						max_nodes
+						"Template parsing node limit ({max_nodes}) exceeded"
 					));
 				}
 				nodes.push(TemplateNode::Variable { parts });
@@ -94,8 +91,7 @@ fn parse_recursive(
 		*node_count += 1;
 		if *node_count > max_nodes {
 			return Err(anyhow!(
-				"Template parsing node limit ({}) exceeded",
-				max_nodes
+				"Template parsing node limit ({max_nodes}) exceeded"
 			));
 		}
 		nodes.push(TemplateNode::Text(current_text));
@@ -105,7 +101,7 @@ fn parse_recursive(
 }
 
 /// Parse content inside {{ ... }} until }}
-fn parse_variable_content(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<String> {
+fn parse_variable_content(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Result<String> {
 	let mut content = String::new();
 	let mut depth = 0;
 

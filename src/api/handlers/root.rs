@@ -36,16 +36,15 @@ pub async fn root_handler() -> impl IntoResponse {
 
 	// The string that mimics the `--version` output. This is the VALUE.
 	let version_string = format!(
-		"{} {} ({} {})",
-		pkg_name_raw, pkg_version, git_commit, build_date
+		"{pkg_name_raw} {pkg_version} ({git_commit} {build_date})"
 	);
 
 	// Create the "build" object manually to support a dynamic key.
 	let mut build_map = Map::new();
 	// The KEY is the dynamic, lowercased package name.
 	build_map.insert(pkg_name_raw.to_lowercase(), Value::String(version_string));
-	build_map.insert("rust".to_string(), Value::String(rustc_version.into()));
-	build_map.insert("cargo".to_string(), Value::String(cargo_version.into()));
+	build_map.insert("rust".to_owned(), Value::String(rustc_version.into()));
+	build_map.insert("cargo".to_owned(), Value::String(cargo_version.into()));
 
 	response::success(json!({
 			"package": {

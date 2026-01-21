@@ -12,10 +12,11 @@ pub mod plugins;
 pub mod resources;
 
 #[tokio::main]
+#[allow(clippy::vec_init_then_push)]
 async fn main() {
 	// Handle command-line version argument.
-	if let Some(arg) = env::args().nth(1) {
-		if arg == "-v" || arg == "--version" {
+	if let Some(arg) = env::args().nth(1)
+		&& (arg == "-v" || arg == "--version") {
 			println!(
 				"{} {} ({} {})",
 				env!("CARGO_PKG_NAME"),
@@ -51,15 +52,14 @@ async fn main() {
 			features.push("ratelimit");
 
 			let features_str = if features.is_empty() {
-				"none".to_string()
+				"none".to_owned()
 			} else {
 				features.join(", ")
 			};
-			println!("features: [{}]", features_str);
+			println!("features: [{features_str}]");
 
 			return; // Exit after printing version.
 		}
-	}
 
 	// If no version arg, start the vane proxy server.
 	bootstrap::startup::start().await;

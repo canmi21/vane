@@ -33,7 +33,7 @@ pub enum TcpConfig {
 impl Validate for TcpConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		match self {
-			TcpConfig::Legacy(config) => {
+			Self::Legacy(config) => {
 				let mut result = config.validate();
 				if let Err(e) = legacy::validate_tcp_rules(&config.rules) {
 					match result {
@@ -49,7 +49,7 @@ impl Validate for TcpConfig {
 				}
 				result
 			}
-			TcpConfig::Flow(config) => config.validate(),
+			Self::Flow(config) => config.validate(),
 		}
 	}
 }

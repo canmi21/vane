@@ -9,7 +9,7 @@ use serde_json::json;
 /// GET /plugins
 pub async fn list_plugins_handler() -> impl IntoResponse {
 	let plugins = registry::list_external_plugins();
-	let names: Vec<String> = plugins.iter().map(|p| p.name().to_string()).collect();
+	let names: Vec<String> = plugins.iter().map(|p| p.name().to_owned()).collect();
 	response::success(json!({ "plugins": names })).into_response()
 }
 
@@ -21,7 +21,7 @@ pub async fn create_plugin_handler(
 	if config.name != name {
 		return response::error(
 			StatusCode::BAD_REQUEST,
-			"Path name and body name mismatch.".to_string(),
+			"Path name and body name mismatch.".to_owned(),
 		)
 		.into_response();
 	}
@@ -30,7 +30,7 @@ pub async fn create_plugin_handler(
 	if registry::get_plugin(&name).is_some() {
 		return response::error(
 			StatusCode::CONFLICT,
-			format!("Plugin '{}' already exists.", name),
+			format!("Plugin '{name}' already exists."),
 		)
 		.into_response();
 	}
@@ -39,7 +39,7 @@ pub async fn create_plugin_handler(
 		Ok(_) => response::success(json!({ "status": "created", "name": name })).into_response(),
 		Err(e) => response::error(
 			StatusCode::BAD_REQUEST,
-			format!("Failed to register plugin: {}", e),
+			format!("Failed to register plugin: {e}"),
 		)
 		.into_response(),
 	}
@@ -53,7 +53,7 @@ pub async fn update_plugin_handler(
 	if config.name != name {
 		return response::error(
 			StatusCode::BAD_REQUEST,
-			"Path name and body name mismatch.".to_string(),
+			"Path name and body name mismatch.".to_owned(),
 		)
 		.into_response();
 	}
@@ -61,7 +61,7 @@ pub async fn update_plugin_handler(
 	if registry::get_external_plugin(&name).is_none() {
 		return response::error(
 			StatusCode::NOT_FOUND,
-			format!("External plugin '{}' not found.", name),
+			format!("External plugin '{name}' not found."),
 		)
 		.into_response();
 	}
@@ -70,7 +70,7 @@ pub async fn update_plugin_handler(
 		Ok(_) => response::success(json!({ "status": "updated", "name": name })).into_response(),
 		Err(e) => response::error(
 			StatusCode::BAD_REQUEST,
-			format!("Failed to update plugin: {}", e),
+			format!("Failed to update plugin: {e}"),
 		)
 		.into_response(),
 	}
@@ -81,7 +81,7 @@ pub async fn delete_plugin_handler(Path(name): Path<String>) -> impl IntoRespons
 	if registry::get_external_plugin(&name).is_none() {
 		return response::error(
 			StatusCode::NOT_FOUND,
-			format!("External plugin '{}' not found.", name),
+			format!("External plugin '{name}' not found."),
 		)
 		.into_response();
 	}
@@ -90,7 +90,7 @@ pub async fn delete_plugin_handler(Path(name): Path<String>) -> impl IntoRespons
 		Ok(_) => response::success(json!({ "status": "deleted", "name": name })).into_response(),
 		Err(e) => response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Failed to delete plugin: {}", e),
+			format!("Failed to delete plugin: {e}"),
 		)
 		.into_response(),
 	}

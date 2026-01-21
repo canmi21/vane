@@ -98,16 +98,15 @@ impl QuicMuxer {
 		log(
 			LogLevel::Info,
 			&format!(
-				"➜ Initializing QUIC Muxer (Virtual Socket) for port {}",
-				port
+				"➜ Initializing QUIC Muxer (Virtual Socket) for port {port}"
 			),
 		);
 
-		let channel_cap_str = env_loader::get_env("QUIC_VIRTUAL_CHANNEL_CAPACITY", "1024".to_string());
+		let channel_cap_str = env_loader::get_env("QUIC_VIRTUAL_CHANNEL_CAPACITY", "1024".to_owned());
 		let channel_cap = channel_cap_str.parse::<usize>().unwrap_or(1024);
 
 		let (tx, rx) = mpsc::channel::<VirtualPacket>(channel_cap);
-		let cert_id = cert_sni.to_string();
+		let cert_id = cert_sni.to_owned();
 
 		tokio::spawn(async move {
 			let mut endpoint_config = quinn::EndpointConfig::default();
@@ -118,7 +117,7 @@ impl QuicMuxer {
 				Err(e) => {
 					log(
 						LogLevel::Error,
-						&format!("✗ Failed to build QUIC config: {}", e),
+						&format!("✗ Failed to build QUIC config: {e}"),
 					);
 					return;
 				}
@@ -137,7 +136,7 @@ impl QuicMuxer {
 				Err(e) => {
 					log(
 						LogLevel::Error,
-						&format!("✗ Failed to create QUIC endpoint: {}", e),
+						&format!("✗ Failed to create QUIC endpoint: {e}"),
 					);
 					return;
 				}
@@ -145,7 +144,7 @@ impl QuicMuxer {
 
 			log(
 				LogLevel::Info,
-				&format!("✓ QUIC Endpoint initialized (port {})", port),
+				&format!("✓ QUIC Endpoint initialized (port {port})"),
 			);
 
 			while let Some(incoming) = endpoint.accept().await {
@@ -153,10 +152,10 @@ impl QuicMuxer {
 					match incoming.await {
 						Ok(conn) => {
 							if let Err(e) = h3::handle_connection(conn).await {
-								log(LogLevel::Error, &format!("✗ H3 Engine Error: {:#}", e));
+								log(LogLevel::Error, &format!("✗ H3 Engine Error: {e:#}"));
 							}
 						}
-						Err(e) => log(LogLevel::Warn, &format!("⚠ QUIC Handshake Error: {}", e)),
+						Err(e) => log(LogLevel::Warn, &format!("⚠ QUIC Handshake Error: {e}")),
 					}
 				});
 			}
@@ -170,7 +169,7 @@ impl QuicMuxer {
 
 	fn build_server_config(cert_id: &str) -> Result<quinn::ServerConfig> {
 		let cert = certs::arcswap::get_certificate(cert_id)
-			.ok_or_else(|| Error::Configuration(format!("Certificate not found")))?;
+			.ok_or_else(|| Error::Configuration("Certificate not found".to_owned()))?;
 
 		let mut crypto = rustls::ServerConfig::builder()
 			.with_no_client_auth()
@@ -210,11 +209,13 @@ impl QuicMuxer {
 			dst_addr,
 		};
 
+		// Drop packet if channel is full
 		match self.tx.try_send(packet) {
-			Ok(_) => Ok(()),
-			Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+			Ok(_) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
 			Err(mpsc::error::TrySendError::Closed(_)) => {
-				Err(Error::System("QUIC Muxer channel closed".to_string()))
+				Err(crate::common::sys::lifecycle::Error::System(
+					"QUIC Muxer channel closed".to_owned(),
+				))
 			}
 		}
 	}

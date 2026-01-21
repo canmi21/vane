@@ -31,19 +31,16 @@ pub fn parse_crypto_frames_for_sni(
 
 				log(
 					LogLevel::Debug,
-					&format!("⚙ Found CRYPTO frame: off={}, len={}", offset, length),
+					&format!("⚙ Found CRYPTO frame: off={offset}, len={length}"),
 				);
 				crypto_map.insert(offset, data);
 
 				cursor += length;
 			}
 			0x00 | 0x01 => {} // PADDING / PING (Ignore)
-			0x02 | 0x03 => {
-				break;
-			} // ACK (Stop parsing)
 			_ => {
 				break;
-			} // Unknown (Stop)
+			} // ACK / Unknown (Stop)
 		}
 	}
 
@@ -58,10 +55,7 @@ pub fn parse_crypto_frames_for_sni(
 	}
 
 	let sni = if !stream.is_empty() {
-		match parse_tls_client_hello_sni(&stream) {
-			Ok(s) => Some(s),
-			Err(_) => None, // Might be incomplete, that's fine
-		}
+		parse_tls_client_hello_sni(&stream).ok()
 	} else {
 		None
 	};

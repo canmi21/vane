@@ -26,22 +26,23 @@ pub type KvStore = AHashMap<String, String>;
 /// # Returns
 ///
 /// A `KvStore` instance populated with initial key-value pairs.
+#[must_use] 
 pub fn new(peer_addr: &SocketAddr, server_addr: &SocketAddr, protocol: &str) -> KvStore {
 	let mut kv = KvStore::new();
 
 	// UUIDv7 as time-related connection id
 	let uuid = Uuid::now_v7().to_string().replace('-', "");
 
-	kv.insert("conn.uuid".to_string(), uuid);
-	kv.insert("conn.ip".to_string(), peer_addr.ip().to_string());
-	kv.insert("conn.port".to_string(), peer_addr.port().to_string());
-	kv.insert("conn.proto".to_string(), protocol.to_lowercase());
+	kv.insert("conn.uuid".to_owned(), uuid);
+	kv.insert("conn.ip".to_owned(), peer_addr.ip().to_string());
+	kv.insert("conn.port".to_owned(), peer_addr.port().to_string());
+	kv.insert("conn.proto".to_owned(), protocol.to_lowercase());
 	kv.insert(
-		"conn.timestamp".to_string(),
+		"conn.timestamp".to_owned(),
 		Utc::now().timestamp().to_string(),
 	);
-	kv.insert("server.ip".to_string(), server_addr.ip().to_string());
-	kv.insert("server.port".to_string(), server_addr.port().to_string());
+	kv.insert("server.ip".to_owned(), server_addr.ip().to_string());
+	kv.insert("server.port".to_owned(), server_addr.port().to_string());
 
 	kv
 }

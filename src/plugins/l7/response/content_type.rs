@@ -25,11 +25,10 @@ pub fn guess_mime(bytes: &Bytes) -> &'static str {
 
 		// JSON detection
 		let start_byte = bytes.iter().find(|&&b| !b.is_ascii_whitespace());
-		if let Some(&b'{') | Some(&b'[') = start_byte {
-			if serde_json::from_slice::<Value>(bytes).is_ok() {
+		if let Some(&b'{' | &b'[') = start_byte
+			&& serde_json::from_slice::<Value>(bytes).is_ok() {
 				return "application/json";
 			}
-		}
 
 		// Fallback for valid text that isn't JSON or HTML
 		return "text/plain; charset=utf-8";

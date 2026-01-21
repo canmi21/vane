@@ -7,7 +7,7 @@ use super::{tcp::TcpConfig, udp::UdpConfig};
 // Implement PreProcess for the new enum. It only applies to the legacy variant.
 impl PreProcess for TcpConfig {
 	fn pre_process(&mut self) {
-		if let TcpConfig::Legacy(config) = self {
+		if let Self::Legacy(config) = self {
 			for rule in &mut config.rules {
 				rule.name = rule.name.to_lowercase();
 			}
@@ -17,7 +17,7 @@ impl PreProcess for TcpConfig {
 
 impl PreProcess for UdpConfig {
 	fn pre_process(&mut self) {
-		if let UdpConfig::Legacy(config) = self {
+		if let Self::Legacy(config) = self {
 			for rule in &mut config.rules {
 				rule.name = rule.name.to_lowercase();
 			}

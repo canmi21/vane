@@ -32,15 +32,14 @@ impl Service<Name> for VaneResolver {
 	}
 
 	fn call(&mut self, name: Name) -> Self::Future {
-		let host = name.as_str().to_string();
+		let host = name.as_str().to_owned();
 		Box::pin(async move {
 			// Call Global Resolver
 			let ips = crate::layers::l4::resolver::resolve_domain_to_ips(&host).await;
 
 			if ips.is_empty() {
-				return Err(std::io::Error::new(
-					std::io::ErrorKind::Other,
-					format!("Vane DNS lookup returned no IPs for {}", host),
+				return Err(std::io::Error::other(
+					format!("Vane DNS lookup returned no IPs for {host}"),
 				));
 			}
 
@@ -62,25 +61,25 @@ pub static GLOBAL_SECURE_CLIENT: Lazy<HttpClient> = Lazy::new(|| build_client(fa
 pub static GLOBAL_INSECURE_CLIENT: Lazy<HttpClient> = Lazy::new(|| build_client(true));
 
 fn build_client(skip_verify: bool) -> HttpClient {
-	let idle_timeout_s = env_loader::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_string())
+	let idle_timeout_s = env_loader::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_owned())
 		.parse::<u64>()
 		.unwrap_or(90);
 
-	let max_idle = env_loader::get_env("UPSTREAM_POOL_MAX_IDLE", "32".to_string())
+	let max_idle = env_loader::get_env("UPSTREAM_POOL_MAX_IDLE", "32".to_owned())
 		.parse::<usize>()
 		.unwrap_or(32);
 
-	let keepalive_s = env_loader::get_env("UPSTREAM_KEEPALIVE_INTERVAL", "30".to_string())
+	let keepalive_s = env_loader::get_env("UPSTREAM_KEEPALIVE_INTERVAL", "30".to_owned())
 		.parse::<u64>()
 		.unwrap_or(30);
 
 	// Default 2MB (2 * 1024 * 1024)
-	let h2_stream_window = env_loader::get_env("UPSTREAM_H2_STREAM_WINDOW", "2097152".to_string())
+	let h2_stream_window = env_loader::get_env("UPSTREAM_H2_STREAM_WINDOW", "2097152".to_owned())
 		.parse::<u32>()
 		.unwrap_or(2_097_152);
 
 	// Default 2MB (2 * 1024 * 1024)
-	let h2_conn_window = env_loader::get_env("UPSTREAM_H2_CONN_WINDOW", "2097152".to_string())
+	let h2_conn_window = env_loader::get_env("UPSTREAM_H2_CONN_WINDOW", "2097152".to_owned())
 		.parse::<u32>()
 		.unwrap_or(2_097_152);
 

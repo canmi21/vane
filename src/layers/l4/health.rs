@@ -16,7 +16,7 @@ pub struct TargetHealth {
 
 impl TargetHealth {
 	fn unhealthy() -> Self {
-		TargetHealth {
+		Self {
 			available: false,
 			latency: Duration::MAX,
 		}
@@ -39,8 +39,8 @@ async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 	let health_status = match check_result {
 		Ok(Ok(_)) => {
 			let latency = start.elapsed();
-			if let Some(existing) = TARGET_HEALTH_REGISTRY.get_mut(&target) {
-				if !existing.available {
+			if let Some(existing) = TARGET_HEALTH_REGISTRY.get_mut(&target)
+				&& !existing.available {
 					log(
 						LogLevel::Info,
 						&format!(
@@ -49,7 +49,6 @@ async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 						),
 					);
 				}
-			}
 			TargetHealth {
 				available: true,
 				latency,
@@ -64,13 +63,13 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 	let mut unique_targets = HashSet::new();
 	let config_guard = CONFIG_STATE.load();
 
-	let connect_timeout_ms = env_loader::get_env("HEALTH_TCP_CONNECT_TIMEOUT_MS", "2000".to_string())
+	let connect_timeout_ms = env_loader::get_env("HEALTH_TCP_CONNECT_TIMEOUT_MS", "2000".to_owned())
 		.parse::<u64>()
 		.unwrap_or(2000);
 
 	for port_status in config_guard.iter() {
-		if let Some(tcp_config) = &port_status.tcp_config {
-			if let TcpConfig::Legacy(legacy_config) = &**tcp_config {
+		if let Some(tcp_config) = &port_status.tcp_config
+			&& let TcpConfig::Legacy(legacy_config) = &**tcp_config {
 				for rule in &legacy_config.rules {
 					if let TcpDestination::Forward { forward } = &rule.destination {
 						for rt in resolver::resolve_targets(&forward.targets).await {
@@ -82,7 +81,6 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 					}
 				}
 			}
-		}
 	}
 	unique_targets
 		.into_iter()
@@ -93,7 +91,7 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 pub fn mark_tcp_target_unhealthy(target: &ResolvedTarget) {
 	if TARGET_HEALTH_REGISTRY
 		.get(target)
-		.map_or(true, |h| h.available)
+		.is_none_or(|h| h.available)
 	{
 		log(
 			LogLevel::Warn,
@@ -129,7 +127,7 @@ pub async fn initial_health_check() {
 pub fn start_periodic_health_checkers() {
 	log(LogLevel::Debug, "⚙ Starting periodic health checkers...");
 	tokio::spawn(async move {
-		let interval_secs = env_loader::get_env("HEALTH_TCP_INTERVAL_SECS", "5".to_string())
+		let interval_secs = env_loader::get_env("HEALTH_TCP_INTERVAL_SECS", "5".to_owned())
 			.parse::<u64>()
 			.unwrap_or(5);
 		let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
@@ -142,10 +140,10 @@ pub fn start_periodic_health_checkers() {
 		}
 	});
 	tokio::spawn(async move {
-		let interval_secs = env_loader::get_env("HEALTH_UDP_CLEANUP_INTERVAL_SECS", "5".to_string())
+		let interval_secs = env_loader::get_env("HEALTH_UDP_CLEANUP_INTERVAL_SECS", "5".to_owned())
 			.parse::<u64>()
 			.unwrap_or(5);
-		let unhealthy_ttl_secs = env_loader::get_env("HEALTH_UDP_UNHEALTHY_TTL_SECS", "10".to_string())
+		let unhealthy_ttl_secs = env_loader::get_env("HEALTH_UDP_UNHEALTHY_TTL_SECS", "10".to_owned())
 			.parse::<u64>()
 			.unwrap_or(10);
 

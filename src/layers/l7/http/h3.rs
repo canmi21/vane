@@ -26,8 +26,7 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 			Ok(driver) => driver,
 			Err(e) => {
 				return Err(Error::System(format!(
-					"H3 Protocol Handshake failed: {}",
-					e
+					"H3 Protocol Handshake failed: {e}"
 				)));
 			}
 		};
@@ -40,13 +39,13 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 					match resolver.resolve_request().await {
 						Ok((req, stream)) => {
 							if let Err(e) = serve_h3_request(req, stream).await {
-								log(LogLevel::Error, &format!("✗ H3 Request Error: {:#}", e));
+								log(LogLevel::Error, &format!("✗ H3 Request Error: {e:#}"));
 							}
 						}
 						Err(e) => {
 							log(
 								LogLevel::Error,
-								&format!("✗ Failed to resolve request: {}", e),
+								&format!("✗ Failed to resolve request: {e}"),
 							);
 						}
 					}
@@ -54,7 +53,7 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 			}
 			Ok(None) => break,
 			Err(e) => {
-				log(LogLevel::Warn, &format!("⚠ H3 Accept Error: {}", e));
+				log(LogLevel::Warn, &format!("⚠ H3 Accept Error: {e}"));
 				break;
 			}
 		}
@@ -87,24 +86,22 @@ where
 	let response_payload = PayloadState::Empty;
 
 	let mut kv = KvStore::new();
-	kv.insert("req.proto".to_string(), "h3".to_string());
-	kv.insert("req.method".to_string(), parts.method.to_string());
-	kv.insert("req.path".to_string(), parts.uri.path().to_string());
+	kv.insert("req.proto".to_owned(), "h3".to_owned());
+	kv.insert("req.method".to_owned(), parts.method.to_string());
+	kv.insert("req.path".to_owned(), parts.uri.path().to_owned());
 
 	// Inject Query String
 	if let Some(q) = parts.uri.query() {
-		kv.insert("req.query".to_string(), q.to_string());
+		kv.insert("req.query".to_owned(), q.to_owned());
 	}
 
 	if let Some(host) = parts
 		.headers
 		.get("host")
 		.or_else(|| parts.headers.get(":authority"))
-	{
-		if let Ok(h) = host.to_str() {
-			kv.insert("req.host".to_string(), h.to_string());
+		&& let Ok(h) = host.to_str() {
+			kv.insert("req.host".to_owned(), h.to_owned());
 		}
-	}
 
 	let request_headers = std::mem::take(&mut parts.headers);
 	let response_headers = HeaderMap::new();
@@ -131,7 +128,7 @@ where
 	// We need to retrieve the response BODY stream from the container.
 	let flow_handle = tokio::spawn(async move {
 		if let Err(e) = flow::execute_l7(&config.pipeline, &mut container, String::new()).await {
-			log(LogLevel::Error, &format!("✗ L7 Flow Logic Failed: {:#}", e));
+			log(LogLevel::Error, &format!("✗ L7 Flow Logic Failed: {e:#}"));
 			return None;
 		}
 		// Extract Response Body BEFORE container drops
@@ -162,12 +159,11 @@ where
 				match recv_result {
 					Ok(Some(mut buf)) => {
 						let bytes = buf.copy_to_bytes(buf.remaining());
-						if let Some(tx) = body_tx.as_ref() {
-							if tx.send(Ok(bytes)).await.is_err() {
+						if let Some(tx) = body_tx.as_ref()
+							&& tx.send(Ok(bytes)).await.is_err() {
 								request_finished = true;
 								body_tx = None;
 							}
-						}
 					}
 					Ok(None) => {
 						// EOF
@@ -186,33 +182,30 @@ where
 
 			// Branch B: Wait for Response Headers
 			res_signal = &mut res_rx, if response_body_stream.is_none() && !response_finished => {
-				match res_signal {
-					Ok(response) => {
-						if let Err(e) = stream.send_response(response).await {
-							log(LogLevel::Error, &format!("✗ Failed to send H3 headers: {}", e));
-							response_finished = true;
-						}
+				if let Ok(response) = res_signal {
+    						if let Err(e) = stream.send_response(response).await {
+    							log(LogLevel::Error, &format!("✗ Failed to send H3 headers: {e}"));
+    							response_finished = true;
+    						}
 
-						// Take ownership of the task handle
-						if let Some(task) = flow_task.take() {
-							if let Ok(Some(body)) = task.await {
-								response_body_stream = Some(body);
-							} else {
-								response_finished = true;
-								let _ = stream.finish().await;
-							}
-						} else {
-							// Should not happen if logic flows correctly
-							response_finished = true;
-							let _ = stream.finish().await;
-						}
-					}
-					Err(_) => {
-						// Flow failed or dropped sender
-						response_finished = true;
-						let _ = stream.finish().await;
-					}
-				}
+    						// Take ownership of the task handle
+    						if let Some(task) = flow_task.take() {
+    							if let Ok(Some(body)) = task.await {
+    								response_body_stream = Some(body);
+    							} else {
+    								response_finished = true;
+    								let _ = stream.finish().await;
+    							}
+    						} else {
+    							// Should not happen if logic flows correctly
+    							response_finished = true;
+    							let _ = stream.finish().await;
+    						}
+    					} else {
+    						// Flow failed or dropped sender
+    						response_finished = true;
+    						let _ = stream.finish().await;
+    					}
 			}
 
 			// Branch C: Pump Response Body (Stream -> H3)
@@ -225,17 +218,15 @@ where
 			}, if response_body_stream.is_some() && !response_finished => {
 				match frame_future {
 					Some(Ok(frame)) => {
-						if let Ok(data) = frame.into_data() {
-							if !data.is_empty() {
-								if let Err(e) = stream.send_data(data).await {
-									log(LogLevel::Warn, &format!("Failed to send H3 data: {}", e));
+						if let Ok(data) = frame.into_data()
+							&& !data.is_empty()
+								&& let Err(e) = stream.send_data(data).await {
+									log(LogLevel::Warn, &format!("Failed to send H3 data: {e}"));
 									response_finished = true;
 								}
-							}
-						}
 					}
 					Some(Err(e)) => {
-						log(LogLevel::Error, &format!("Response Body Error: {}", e));
+						log(LogLevel::Error, &format!("Response Body Error: {e}"));
 						response_finished = true;
 						let _ = stream.finish().await;
 					}

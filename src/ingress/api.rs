@@ -20,7 +20,7 @@ pub async fn get_ports_handler() -> Response {
 		Err(e) => {
 			return response::error(
 				StatusCode::INTERNAL_SERVER_ERROR,
-				format!("Failed to read config directory: {}", e),
+				format!("Failed to read config directory: {e}"),
 			)
 			.into_response();
 		}
@@ -35,13 +35,11 @@ pub async fn get_ports_handler() -> Response {
 			continue;
 		}
 
-		if let Some(name) = entry.file_name().to_str() {
-			if name.starts_with('[') && name.ends_with(']') {
-				if let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
+		if let Some(name) = entry.file_name().to_str()
+			&& name.starts_with('[') && name.ends_with(']')
+				&& let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
 					ports.push(port);
 				}
-			}
-		}
 	}
 
 	ports.sort_unstable();
@@ -64,7 +62,7 @@ pub async fn post_port_handler(Path(port): Path<u16>) -> Response {
 	if !port_utils::is_valid_port(port) {
 		return response::error(StatusCode::BAD_REQUEST, "Invalid port.".into()).into_response();
 	}
-	let port_dir = file_loader::get_config_dir().join(format!("[{}]", port));
+	let port_dir = file_loader::get_config_dir().join(format!("[{port}]"));
 	if fs::metadata(&port_dir).await.is_ok() {
 		return response::error(StatusCode::CONFLICT, "Exists.".into()).into_response();
 	}
@@ -75,7 +73,7 @@ pub async fn post_port_handler(Path(port): Path<u16>) -> Response {
 }
 
 pub async fn delete_port_handler(Path(port): Path<u16>) -> Response {
-	let port_dir = file_loader::get_config_dir().join(format!("[{}]", port));
+	let port_dir = file_loader::get_config_dir().join(format!("[{port}]"));
 	if fs::metadata(&port_dir).await.is_err() {
 		return response::error(StatusCode::NOT_FOUND, "Not found.".into()).into_response();
 	}

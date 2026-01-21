@@ -66,8 +66,7 @@ impl Terminator for UpgradePlugin {
 					log(
 						LogLevel::Warn,
 						&format!(
-							"⚠ Ignored 'cert' parameter for L4 -> L4+ upgrade to '{}'.",
-							protocol
+							"⚠ Ignored 'cert' parameter for L4 -> L4+ upgrade to '{protocol}'."
 						),
 					);
 				}
@@ -75,11 +74,10 @@ impl Terminator for UpgradePlugin {
 					log(
 						LogLevel::Debug,
 						&format!(
-							"⚙ Upgrade requested with explicit cert override: {}",
-							cert_sni
+							"⚙ Upgrade requested with explicit cert override: {cert_sni}"
 						),
 					);
-					kv.insert("tls.termination.cert_sni".to_string(), cert_sni.to_string());
+					kv.insert("tls.termination.cert_sni".to_owned(), cert_sni.to_owned());
 				}
 				ConnectionObject::Virtual(_) => {
 					// Virtual connections in L7 might support this if re-encrypting
@@ -88,38 +86,32 @@ impl Terminator for UpgradePlugin {
 		}
 
 		match (&conn, protocol) {
-			(ConnectionObject::Tcp(_), "tls") | (ConnectionObject::Tcp(_), "http") => {}
-			(ConnectionObject::Udp { .. }, "quic")
-			| (ConnectionObject::Udp { .. }, "h3")
-			| (ConnectionObject::Udp { .. }, "httpx") => {}
+			(ConnectionObject::Tcp(_), "tls" | "http")
+			| (ConnectionObject::Udp { .. }, "quic" | "h3" | "httpx")
+			| (ConnectionObject::Stream(_), _) => {}
 
 			(ConnectionObject::Tcp(_), "quic") => return Err(anyhow!("Invalid Upgrade: TCP -> QUIC")),
-			(ConnectionObject::Udp { .. }, "tls") | (ConnectionObject::Udp { .. }, "http") => {
-				return Err(anyhow!("Invalid Upgrade: UDP -> Stream"));
-			}
-			(ConnectionObject::Stream(_), _) => {}
 			(ConnectionObject::Virtual(_), _) => {
 				log(
 					LogLevel::Warn,
 					&format!(
-						"⚠ Attempting upgrade on Virtual connection to '{}'.",
-						protocol
+						"⚠ Attempting upgrade on Virtual connection to '{protocol}'."
 					),
 				);
 			}
 			_ => log(
 				LogLevel::Warn,
-				&format!("⚠ Allowing unchecked upgrade to '{}'.", protocol),
+				&format!("⚠ Allowing unchecked upgrade to '{protocol}'."),
 			),
 		}
 
 		log(
 			LogLevel::Debug,
-			&format!("➜ Signal upgrade to protocol: {}", protocol),
+			&format!("➜ Signal upgrade to protocol: {protocol}"),
 		);
 
 		Ok(TerminatorResult::Upgrade {
-			protocol: protocol.to_string(),
+			protocol: protocol.to_owned(),
 			conn,
 			parent_path: String::new(),
 		})

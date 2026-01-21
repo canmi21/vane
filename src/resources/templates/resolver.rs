@@ -28,7 +28,7 @@ fn resolve_ast_with_depth<'a>(
 		if depth > max_depth {
 			fancy_log::log(
 				fancy_log::LogLevel::Error,
-				&format!("✗ Template recursion depth limit ({}) exceeded", max_depth),
+				&format!("✗ Template recursion depth limit ({max_depth}) exceeded"),
 			);
 			return String::new();
 		}
@@ -41,7 +41,7 @@ fn resolve_ast_with_depth<'a>(
 					if result.len() + s.len() > max_size {
 						fancy_log::log(
 							fancy_log::LogLevel::Error,
-							&format!("✗ Template result size limit ({}) exceeded", max_size),
+							&format!("✗ Template result size limit ({max_size}) exceeded"),
 						);
 						return result;
 					}
@@ -59,8 +59,7 @@ fn resolve_ast_with_depth<'a>(
 						fancy_log::log(
 							fancy_log::LogLevel::Error,
 							&format!(
-								"✗ Security: Template injection attempt detected in key name: '{}'. Refusing lookup.",
-								key
+								"✗ Security: Template injection attempt detected in key name: '{key}'. Refusing lookup."
 							),
 						);
 						// Return the original template format to signify it wasn't resolved
@@ -76,7 +75,7 @@ fn resolve_ast_with_depth<'a>(
 					if result.len() + value.len() > max_size {
 						fancy_log::log(
 							fancy_log::LogLevel::Error,
-							&format!("✗ Template result size limit ({}) exceeded", max_size),
+							&format!("✗ Template result size limit ({max_size}) exceeded"),
 						);
 						return result;
 					}

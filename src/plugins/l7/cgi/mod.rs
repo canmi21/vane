@@ -130,8 +130,7 @@ impl HttpMiddleware for CgiPlugin {
 			inputs
 				.get(key)
 				.and_then(Value::as_str)
-				.unwrap_or("")
-				.to_string()
+				.unwrap_or("").to_owned()
 		};
 
 		// 1. Mandatory Fields
@@ -152,13 +151,13 @@ impl HttpMiddleware for CgiPlugin {
 			// Case A: Query is Explicit.
 			// We strip '?' from URI if present to ensure 'uri' is pure Path.
 			let clean_path = raw_uri.split_once('?').map(|(p, _)| p).unwrap_or(raw_uri);
-			(clean_path.to_string(), raw_query)
+			(clean_path.to_owned(), raw_query)
 		} else {
 			// Case B: Query is Implicit (Fallback).
 			// Try to extract from URI.
 			match raw_uri.split_once('?') {
-				Some((path, query)) => (path.to_string(), query.to_string()),
-				None => (raw_uri.to_string(), String::new()),
+				Some((path, query)) => (path.to_owned(), query.to_owned()),
+				None => (raw_uri.to_owned(), String::new()),
 			}
 		};
 
@@ -182,8 +181,7 @@ impl HttpMiddleware for CgiPlugin {
 			method: inputs
 				.get("method")
 				.and_then(Value::as_str)
-				.unwrap_or("GET")
-				.to_string(),
+				.unwrap_or("GET").to_owned(),
 			uri: final_uri,
 			query: final_query,
 			remote_addr: get_str("remote_addr"),
@@ -217,12 +215,10 @@ impl L7Middleware for CgiPlugin {
 }
 
 /// Robustly derives SCRIPT_NAME and PATH_INFO from a URI and a base script name.
-
 /// Adheres to RFC 3875 by ensuring segment-based splitting.
-
 fn derive_path_info(uri: &str, script_name: &str) -> (String, String) {
 	if script_name.is_empty() {
-		return (String::new(), uri.to_string());
+		return (String::new(), uri.to_owned());
 	}
 
 	// Normalize slashes for robust matching
@@ -265,22 +261,20 @@ fn derive_path_info(uri: &str, script_name: &str) -> (String, String) {
 		&norm_script
 	};
 
-	if norm_uri.starts_with(match_base) {
-		let remainder = &norm_uri[match_base.len()..];
-
+	if let Some(remainder) = norm_uri.strip_prefix(match_base) {
 		if remainder.is_empty() {
 			// Exact match: /cgi -> SCRIPT_NAME=/cgi, PATH_INFO=""
 
-			return (match_base.to_string(), String::new());
+			return (match_base.to_owned(), String::new());
 		} else if remainder.starts_with('/') {
 			// Segment match: /cgi/foo -> SCRIPT_NAME=/cgi, PATH_INFO=/foo
 
-			return (match_base.to_string(), remainder.to_string());
+			return (match_base.to_owned(), remainder.to_owned());
 		} else if match_base == "/" {
 			// Root match
 
 			return (
-				"/".to_string(),
+				"/".to_owned(),
 				format!("/{}", remainder.trim_start_matches('/')),
 			);
 		}

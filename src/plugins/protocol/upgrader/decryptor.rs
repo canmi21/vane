@@ -15,13 +15,10 @@ pub async fn terminate_and_handover(
 	target_protocol: String,
 ) -> Result<()> {
 	// 1. Unwrap the L4+ Stream
-	let stream = match conn {
-		ConnectionObject::Stream(s) => s,
-		_ => {
-			return Err(anyhow!(
-				"Cannot terminate TLS on non-stream connection object"
-			));
-		}
+	let ConnectionObject::Stream(stream) = conn else {
+		return Err(anyhow!(
+			"Cannot terminate TLS on non-stream connection object"
+		));
 	};
 
 	// 2. Determine Certificate Strategy
@@ -29,7 +26,7 @@ pub async fn terminate_and_handover(
 		.get("tls.termination.cert_sni")
 		.cloned()
 		.or_else(|| kv.get("tls.sni").cloned())
-		.unwrap_or_else(|| "default".to_string());
+		.unwrap_or_else(|| "default".to_owned());
 
 	// 3. Fetch Certificate
 	let cert = match certs::arcswap::get_certificate(&cert_lookup_key) {
@@ -39,14 +36,12 @@ pub async fn terminate_and_handover(
 				log(
 					LogLevel::Warn,
 					&format!(
-						"⚠ Certificate '{}' not found. Falling back to 'default'.",
-						cert_lookup_key
+						"⚠ Certificate '{cert_lookup_key}' not found. Falling back to 'default'."
 					),
 				);
 				certs::arcswap::get_certificate("default").ok_or_else(|| {
 					anyhow!(
-						"CRITICAL: Neither '{}' nor 'default' certificate found.",
-						cert_lookup_key
+						"CRITICAL: Neither '{cert_lookup_key}' nor 'default' certificate found."
 					)
 				})?
 			} else {
@@ -58,8 +53,7 @@ pub async fn terminate_and_handover(
 	log(
 		LogLevel::Debug,
 		&format!(
-			"⚙ Terminating TLS using certificate for: '{}'",
-			cert_lookup_key
+			"⚙ Terminating TLS using certificate for: '{cert_lookup_key}'"
 		),
 	);
 
@@ -68,7 +62,7 @@ pub async fn terminate_and_handover(
 		.with_no_client_auth()
 		// FIXED: Use key_clone() helper
 		.with_single_cert(cert.certs.clone(), cert.key_clone()?)
-		.map_err(|e| anyhow!("Invalid TLS configuration: {}", e))?;
+		.map_err(|e| anyhow!("Invalid TLS configuration: {e}"))?;
 
 	// Httpx supports both H2 and H1 via ALPN negotiation
 	if target_protocol == "httpx" || target_protocol == "h2" || target_protocol == "http/1.1" {
@@ -92,10 +86,10 @@ pub async fn terminate_and_handover(
 			// Map lifecycle::Error to anyhow::Error
 			httpx::handle_connection(l7_conn, target_protocol)
 				.await
-				.map_err(|e| anyhow!("L7 Engine Error: {}", e))
+				.map_err(|e| anyhow!("L7 Engine Error: {e}"))
 		}
 		Err(e) => {
-			log(LogLevel::Error, &format!("✗ TLS Handshake failed: {}", e));
+			log(LogLevel::Error, &format!("✗ TLS Handshake failed: {e}"));
 			Err(anyhow::Error::from(e))
 		}
 	}

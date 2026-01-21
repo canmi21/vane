@@ -18,7 +18,7 @@ where
 	while rx.recv().await.is_some() {
 		log(
 			LogLevel::Info,
-			&format!("➜ Config change signal received for {}, reloading...", name),
+			&format!("➜ Config change signal received for {name}, reloading..."),
 		);
 		on_reload().await;
 	}

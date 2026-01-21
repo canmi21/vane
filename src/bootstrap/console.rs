@@ -41,7 +41,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 						Err(e) => {
 							log(
 								LogLevel::Error,
-								&format!("✗ Failed to bind unix socket: {}", e),
+								&format!("✗ Failed to bind unix socket: {e}"),
 							);
 							None
 						}
@@ -51,7 +51,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 				None
 			};
 
-			let requested_port = env_loader::get_env("PORT", "3333".to_string())
+			let requested_port = env_loader::get_env("PORT", "3333".to_owned())
 				.parse::<u16>()
 				.unwrap_or(3333);
 			let port = if port_utils::is_valid_port(requested_port) {
@@ -62,7 +62,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 
 			let listen_ipv6 = env_loader::to_lowercase(&env_loader::get_env(
 				"CONSOLE_LISTEN_IPV6",
-				"false".to_string(),
+				"false".to_owned(),
 			)) == "true";
 			let addr: SocketAddr = if listen_ipv6 {
 				([0; 8], port).into()
@@ -83,21 +83,21 @@ pub async fn start() -> Option<ConsoleHandles> {
 					Err(e) => {
 						log(
 							LogLevel::Error,
-							&format!("✗ Failed to bind TCP console: {}", e),
+							&format!("✗ Failed to bind TCP console: {e}"),
 						);
 						// Fallback if TCP fails but we want to return something?
 						// Better to return None or exit. Bootstrap handles the exit.
 						return None;
 					}
 				};
-				log(LogLevel::Info, &format!("✓ TCP console bound to {}", addr));
+				log(LogLevel::Info, &format!("✓ TCP console bound to {addr}"));
 				log(
 					LogLevel::Info,
-					&format!("✓ Listening on http://localhost:{}", port),
+					&format!("✓ Listening on http://localhost:{port}"),
 				);
 				log(
 					LogLevel::Info,
-					&format!("✓ Listening on http://127.0.0.1:{}", port),
+					&format!("✓ Listening on http://127.0.0.1:{port}"),
 				);
 
 				let tcp_server = serve(
@@ -110,7 +110,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 
 				tokio::spawn(async move {
 					if let Err(e) = tcp_server.await {
-						log(LogLevel::Error, &format!("✗ TCP console error: {}", e));
+						log(LogLevel::Error, &format!("✗ TCP console error: {e}"));
 					}
 				})
 			};
@@ -128,7 +128,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 					if let Err(e) = unix_server.await {
 						log(
 							LogLevel::Error,
-							&format!("✗ Unix socket console error: {}", e),
+							&format!("✗ Unix socket console error: {e}"),
 						);
 					}
 				}))
@@ -145,11 +145,11 @@ pub async fn start() -> Option<ConsoleHandles> {
 			})
 		}
 		Err(err_msg) => {
-			log(LogLevel::Error, &format!("✗ {}", err_msg));
-			std::process::exit(1);
-		}
-	}
-}
+			            log(LogLevel::Error, &format!("✗ {err_msg}"));
+			            #[allow(clippy::exit)]
+			            std::process::exit(1);
+			        }
+			    }}
 
 /// Performs cleanup and graceful shutdown of the console servers.
 pub async fn stop(handles: ConsoleHandles) {

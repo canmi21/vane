@@ -37,10 +37,10 @@ pub struct CgiConfig {
 }
 
 pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<MiddlewareOutput> {
-	let body_timeout_sec: u64 = env_loader::get_env("CGI_BODY_TIMEOUT_SEC", "30".to_string())
+	let body_timeout_sec: u64 = env_loader::get_env("CGI_BODY_TIMEOUT_SEC", "30".to_owned())
 		.parse()
 		.unwrap_or(30);
-	let max_body_size: usize = env_loader::get_env("CGI_BODY_MAX_SIZE_BYTE", "10485760".to_string())
+	let max_body_size: usize = env_loader::get_env("CGI_BODY_MAX_SIZE_BYTE", "10485760".to_owned())
 		.parse()
 		.unwrap_or(10_485_760);
 
@@ -53,17 +53,17 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	);
 
 	let mut envs = HashMap::new();
-	envs.insert("GATEWAY_INTERFACE".to_string(), "CGI/1.1".to_string());
+	envs.insert("GATEWAY_INTERFACE".to_owned(), "CGI/1.1".to_owned());
 	envs.insert(
-		"SERVER_SOFTWARE".to_string(),
+		"SERVER_SOFTWARE".to_owned(),
 		format!("Vane/{}", env!("CARGO_PKG_VERSION")),
 	);
-	envs.insert("REDIRECT_STATUS".to_string(), "200".to_string());
-	envs.insert("SERVER_PROTOCOL".to_string(), "HTTP/1.1".to_string());
-	envs.insert("SCRIPT_FILENAME".to_string(), config.script.clone());
-	envs.insert("SCRIPT_NAME".to_string(), config.script_name);
-	envs.insert("DOCUMENT_ROOT".to_string(), config.doc_root.clone());
-	envs.insert("PATH_INFO".to_string(), config.path_info.clone());
+	envs.insert("REDIRECT_STATUS".to_owned(), "200".to_owned());
+	envs.insert("SERVER_PROTOCOL".to_owned(), "HTTP/1.1".to_owned());
+	envs.insert("SCRIPT_FILENAME".to_owned(), config.script.clone());
+	envs.insert("SCRIPT_NAME".to_owned(), config.script_name);
+	envs.insert("DOCUMENT_ROOT".to_owned(), config.doc_root.clone());
+	envs.insert("PATH_INFO".to_owned(), config.path_info.clone());
 
 	if !config.doc_root.is_empty() && !config.path_info.is_empty() {
 		let translated = format!(
@@ -71,25 +71,25 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 			config.doc_root.trim_end_matches('/'),
 			config.path_info
 		);
-		envs.insert("PATH_TRANSLATED".to_string(), translated);
+		envs.insert("PATH_TRANSLATED".to_owned(), translated);
 	}
 
-	envs.insert("REQUEST_METHOD".to_string(), config.method);
-	envs.insert("REQUEST_URI".to_string(), config.uri);
-	envs.insert("QUERY_STRING".to_string(), config.query);
-	envs.insert("REMOTE_ADDR".to_string(), config.remote_addr);
-	envs.insert("REMOTE_PORT".to_string(), config.remote_port);
-	envs.insert("SERVER_PORT".to_string(), config.server_port);
-	envs.insert("SERVER_NAME".to_string(), config.server_name);
-	envs.insert("CONTENT_LENGTH".to_string(), content_length);
+	envs.insert("REQUEST_METHOD".to_owned(), config.method);
+	envs.insert("REQUEST_URI".to_owned(), config.uri);
+	envs.insert("QUERY_STRING".to_owned(), config.query);
+	envs.insert("REMOTE_ADDR".to_owned(), config.remote_addr);
+	envs.insert("REMOTE_PORT".to_owned(), config.remote_port);
+	envs.insert("SERVER_PORT".to_owned(), config.server_port);
+	envs.insert("SERVER_NAME".to_owned(), config.server_name);
+	envs.insert("CONTENT_LENGTH".to_owned(), content_length);
 
 	for (k, v) in &container.request_headers {
 		let key = k.as_str().to_uppercase().replace('-', "_");
 		if let Ok(val) = v.to_str() {
 			if key == "CONTENT_TYPE" {
-				envs.insert("CONTENT_TYPE".to_string(), val.to_string());
+				envs.insert("CONTENT_TYPE".to_owned(), val.to_owned());
 			} else if key != "CONTENT_LENGTH" {
-				envs.insert(format!("HTTP_{}", key), val.to_string());
+				envs.insert(format!("HTTP_{key}"), val.to_owned());
 			}
 		}
 	}
@@ -124,7 +124,7 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	tokio::spawn(async move {
 		let mut reader = BufReader::new(stderr).lines();
 		while let Ok(Some(line)) = reader.next_line().await {
-			log(LogLevel::Debug, &format!("⚙ CGI stderr: {}", line));
+			log(LogLevel::Debug, &format!("⚙ CGI stderr: {line}"));
 		}
 	});
 
@@ -132,7 +132,7 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	// Many CGI scripts (especially POST handlers) wait for complete stdin before responding
 	if !body_bytes.is_empty() {
 		if let Err(e) = stdin.write_all(&body_bytes).await {
-			log(LogLevel::Warn, &format!("⚠ CGI stdin write failed: {}", e));
+			log(LogLevel::Warn, &format!("⚠ CGI stdin write failed: {e}"));
 			let _ = child.kill().await;
 			return Ok(MiddlewareOutput {
 				branch: Cow::Borrowed("failure"),
@@ -201,7 +201,7 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 				let status_code = val.split_whitespace().next().unwrap_or("200");
 				container
 					.kv
-					.insert("res.status".to_string(), status_code.to_string());
+					.insert("res.status".to_owned(), status_code.to_owned());
 			} else if let (Ok(h_name), Ok(h_val)) = (
 				HeaderName::from_bytes(key.as_bytes()),
 				HeaderValue::from_str(val),

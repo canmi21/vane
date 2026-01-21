@@ -52,8 +52,7 @@ pub async fn execute_proxy(
 		}
 		ConnectionObject::Virtual(desc) => {
 			return Err(anyhow!(
-				"Cannot transport-proxy a Virtual connection: {}",
-				desc
+				"Cannot transport-proxy a Virtual connection: {desc}"
 			));
 		}
 	}

@@ -33,22 +33,19 @@ pub async fn validate_command_path(program: &str) -> Result<PathBuf> {
 	let absolute_path = if program_path.is_absolute() {
 		fs::canonicalize(program_path)
 			.await
-			.map_err(|e| anyhow!("Failed to resolve absolute path '{}': {}", program, e))?
+			.map_err(|e| anyhow!("Failed to resolve absolute path '{program}': {e}"))?
 	} else {
 		let joined = bin_root.join(program_path);
 		fs::canonicalize(&joined).await.map_err(|e| {
 			anyhow!(
-				"Program '{}' not found in trusted bin directory: {}",
-				program,
-				e
+				"Program '{program}' not found in trusted bin directory: {e}"
 			)
 		})?
 	};
 
 	if !absolute_path.starts_with(&bin_root) {
 		return Err(anyhow!(
-			"Security Violation - Program '{}' is outside the trusted bin directory.",
-			program
+			"Security Violation - Program '{program}' is outside the trusted bin directory."
 		));
 	}
 
@@ -57,13 +54,14 @@ pub async fn validate_command_path(program: &str) -> Result<PathBuf> {
 		.map(|m| m.is_file())
 		.unwrap_or(false)
 	{
-		return Err(anyhow!("Path '{}' is not a file.", program));
+		return Err(anyhow!("Path '{program}' is not a file."));
 	}
 
 	Ok(absolute_path)
 }
 
 impl ExternalPlugin {
+	#[must_use] 
 	pub fn new(config: ExternalPluginConfig) -> Self {
 		Self { config }
 	}
@@ -75,7 +73,7 @@ impl ExternalPlugin {
 
 		let skip_validation = env_loader::to_lowercase(&env_loader::get_env(
 			"SKIP_VALIDATE_CONNECTIVITY",
-			"false".to_string(),
+			"false".to_owned(),
 		)) == "true";
 
 		match &self.config.driver {
@@ -97,7 +95,7 @@ impl ExternalPlugin {
 					return Ok(());
 				}
 				if fs::metadata(path).await.is_err() {
-					return Err(anyhow!("Unix socket path does not exist: {}", path));
+					return Err(anyhow!("Unix socket path does not exist: {path}"));
 				}
 				Ok(())
 			}

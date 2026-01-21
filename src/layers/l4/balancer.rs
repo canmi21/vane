@@ -21,7 +21,7 @@ pub async fn select_tcp_target(
 	let resolved_targets = resolver::resolve_targets(&forward_config.targets).await;
 	let available_targets: Vec<ResolvedTarget> = resolved_targets
 		.into_iter()
-		.filter(|t| TARGET_HEALTH_REGISTRY.get(t).map_or(false, |h| h.available))
+		.filter(|t| TARGET_HEALTH_REGISTRY.get(t).is_some_and(|h| h.available))
 		.collect();
 
 	let chosen_pool = if !available_targets.is_empty() {
@@ -30,7 +30,7 @@ pub async fn select_tcp_target(
 		let resolved_fallbacks = resolver::resolve_targets(&forward_config.fallbacks).await;
 		resolved_fallbacks
 			.into_iter()
-			.filter(|t| TARGET_HEALTH_REGISTRY.get(t).map_or(false, |h| h.available))
+			.filter(|t| TARGET_HEALTH_REGISTRY.get(t).is_some_and(|h| h.available))
 			.collect()
 	};
 	choose_from_pool(port, rule_name, &forward_config.strategy, chosen_pool)
@@ -45,7 +45,7 @@ pub async fn select_udp_target(
 	let resolved_targets = resolver::resolve_targets(&forward_config.targets).await;
 	let available_targets: Vec<ResolvedTarget> = resolved_targets
 		.into_iter()
-		.filter(|t| is_udp_target_healthy(t))
+		.filter(is_udp_target_healthy)
 		.collect();
 
 	let chosen_pool = if !available_targets.is_empty() {
@@ -54,7 +54,7 @@ pub async fn select_udp_target(
 		let resolved_fallbacks = resolver::resolve_targets(&forward_config.fallbacks).await;
 		resolved_fallbacks
 			.into_iter()
-			.filter(|t| is_udp_target_healthy(t))
+			.filter(is_udp_target_healthy)
 			.collect()
 	};
 	choose_from_pool(port, rule_name, &forward_config.strategy, chosen_pool)
@@ -81,7 +81,7 @@ fn choose_from_pool(
 				.map_or(std::time::Duration::MAX, |h| h.latency)
 		}),
 		Strategy::Serial => {
-			let key = (port, rule_name.to_string());
+			let key = (port, rule_name.to_owned());
 			let counter = SERIAL_COUNTERS.entry(key).or_default();
 			let index = counter.fetch_add(1, Ordering::Relaxed) % pool.len();
 			pool.get(index).cloned()

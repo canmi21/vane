@@ -29,11 +29,11 @@ async fn get_global_endpoint() -> Result<&'static Endpoint> {
 				.with_no_client_auth();
 
 			let quic_config = quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
-				.map_err(|e| Error::System(format!("QUIC Crypto Config Error: {}", e)))?;
+				.map_err(|e| Error::System(format!("QUIC Crypto Config Error: {e}")))?;
 			let mut client_config = ClientConfig::new(Arc::new(quic_config));
 
 			// Get idle timeout from env, default 90s
-			let idle_timeout_s = env_loader::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_string())
+			let idle_timeout_s = env_loader::get_env("UPSTREAM_POOL_IDLE_TIMEOUT", "90".to_owned())
 				.parse::<u64>()
 				.unwrap_or(90);
 
@@ -41,24 +41,23 @@ async fn get_global_endpoint() -> Result<&'static Endpoint> {
 			transport.max_idle_timeout(Some(
 				Duration::from_secs(idle_timeout_s)
 					.try_into()
-					.map_err(|e| Error::System(format!("Invalid idle timeout duration: {}", e)))?,
+					.map_err(|e| Error::System(format!("Invalid idle timeout duration: {e}")))?,
 			));
 			transport.keep_alive_interval(Some(Duration::from_secs(10)));
 			client_config.transport_config(Arc::new(transport));
 
 			let addr = "0.0.0.0:0"
 				.parse()
-				.map_err(|e| Error::System(format!("Failed to parse bind address for QUIC: {}", e)))?;
+				.map_err(|e| Error::System(format!("Failed to parse bind address for QUIC: {e}")))?;
 
 			let mut endpoint = Endpoint::client(addr)
-				.map_err(|e| Error::System(format!("Failed to bind QUIC Endpoint: {}", e)))?;
+				.map_err(|e| Error::System(format!("Failed to bind QUIC Endpoint: {e}")))?;
 			endpoint.set_default_client_config(client_config);
 
 			log(
 				LogLevel::Debug,
 				&format!(
-					"➜ QUIC Global Endpoint Initialized (0.0.0.0:0) | IdleTimeout: {}s",
-					idle_timeout_s
+					"➜ QUIC Global Endpoint Initialized (0.0.0.0:0) | IdleTimeout: {idle_timeout_s}s"
 				),
 			);
 			Ok(endpoint)
@@ -74,7 +73,7 @@ pub async fn get_or_create_connection(
 	port: u16,
 	skip_verify: bool,
 ) -> Result<QuicSender> {
-	let key = PoolKey(host.to_string(), port, skip_verify);
+	let key = PoolKey(host.to_owned(), port, skip_verify);
 
 	{
 		let pool = CONNECTION_POOL.read().await;
@@ -91,8 +90,7 @@ pub async fn get_or_create_connection(
 	log(
 		LogLevel::Debug,
 		&format!(
-			"➜ FetchUpstream H3 Establishing new QUIC connection to {}:{}",
-			host, port
+			"➜ FetchUpstream H3 Establishing new QUIC connection to {host}:{port}"
 		),
 	);
 	let sender = connect_internal(host, port, skip_verify).await?;
@@ -105,13 +103,13 @@ async fn connect_internal(host: &str, port: u16, skip_verify: bool) -> Result<Qu
 	let ips = resolver::resolve_domain_to_ips(host).await;
 	let ip = ips
 		.first()
-		.ok_or_else(|| Error::System(format!("DNS lookup returned no IPs for host: {}", host)))?;
+		.ok_or_else(|| Error::System(format!("DNS lookup returned no IPs for host: {host}")))?;
 
 	let addr = SocketAddr::new(*ip, port);
 
 	let crypto = build_rustls_config(skip_verify)?;
 	let quic_crypto = quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
-		.map_err(|e| Error::System(format!("TLS Config Error: {}", e)))?;
+		.map_err(|e| Error::System(format!("TLS Config Error: {e}")))?;
 
 	let client_config = ClientConfig::new(Arc::new(quic_crypto));
 
@@ -119,16 +117,16 @@ async fn connect_internal(host: &str, port: u16, skip_verify: bool) -> Result<Qu
 
 	let connection = endpoint
 		.connect_with(client_config, addr, host)
-		.map_err(|e| Error::System(format!("QUIC Connect Failed: {}", e)))?
+		.map_err(|e| Error::System(format!("QUIC Connect Failed: {e}")))?
 		.await
-		.map_err(|e| Error::System(format!("QUIC Handshake Failed: {}", e)))?;
+		.map_err(|e| Error::System(format!("QUIC Handshake Failed: {e}")))?;
 
 	let quinn_conn = h3_quinn::Connection::new(connection);
 	let (mut driver, send_request) = h3::client::new(quinn_conn)
 		.await
-		.map_err(|e| Error::System(format!("H3 Handshake Failed: {}", e)))?;
+		.map_err(|e| Error::System(format!("H3 Handshake Failed: {e}")))?;
 
-	let key_clone = PoolKey(host.to_string(), port, skip_verify);
+	let key_clone = PoolKey(host.to_owned(), port, skip_verify);
 
 	// Monitor connection lifecycle
 	tokio::spawn(async move {
@@ -180,7 +178,7 @@ fn build_rustls_config(skip_verify: bool) -> Result<rustls::ClientConfig> {
 			if let Err(e) = roots.add(cert) {
 				log(
 					LogLevel::Warn,
-					&format!("⚠ Failed to add a system root cert: {}", e),
+					&format!("⚠ Failed to add a system root cert: {e}"),
 				);
 			}
 		}

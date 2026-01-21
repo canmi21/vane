@@ -37,7 +37,7 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 	// 3. Packet Type Check (Initial is 0x00)
 	let packet_type = (first_byte & 0x30) >> 4;
 	if packet_type != 0 {
-		return Err(anyhow!("Not an Initial Packet (Type: {})", packet_type));
+		return Err(anyhow!("Not an Initial Packet (Type: {packet_type})"));
 	}
 
 	let mut cursor = 1;
@@ -53,7 +53,7 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 		version_bytes[2],
 		version_bytes[3],
 	]);
-	let version = format!("0x{:08x}", version_val);
+	let version = format!("0x{version_val:08x}");
 	cursor += 4;
 
 	// 5. DCID
@@ -63,7 +63,7 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 	let dcid_len = payload[cursor] as usize;
 	cursor += 1;
 	if dcid_len > 20 {
-		return Err(anyhow!("DCID length {} exceeds 20", dcid_len));
+		return Err(anyhow!("DCID length {dcid_len} exceeds 20"));
 	}
 	if cursor + dcid_len > payload.len() {
 		return Err(anyhow!("Truncated DCID"));
@@ -79,7 +79,7 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 	let scid_len = payload[cursor] as usize;
 	cursor += 1;
 	if scid_len > 20 {
-		return Err(anyhow!("SCID length {} exceeds 20", scid_len));
+		return Err(anyhow!("SCID length {scid_len} exceeds 20"));
 	}
 	if cursor + scid_len > payload.len() {
 		return Err(anyhow!("Truncated SCID"));
@@ -132,6 +132,7 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 }
 
 // Helpers for L4 Fast Path
+#[must_use] 
 pub fn peek_long_header_dcid(packet: &[u8]) -> Option<Vec<u8>> {
 	if packet.len() < 6 {
 		return None;
@@ -146,6 +147,7 @@ pub fn peek_long_header_dcid(packet: &[u8]) -> Option<Vec<u8>> {
 	Some(packet[6..6 + dcid_len].to_vec())
 }
 
+#[must_use] 
 pub fn peek_short_header_dcid(packet: &[u8], len: usize) -> Option<Vec<u8>> {
 	if packet.len() < 1 + len {
 		return None;
@@ -164,8 +166,8 @@ pub fn read_varint(buf: &[u8]) -> Result<(usize, usize)> {
 		return Err(anyhow!("Buffer too short for VarInt"));
 	}
 	let mut val = (first & 0x3f) as u64;
-	for i in 1..len {
-		val = (val << 8) | (buf[i] as u64);
+	for b in buf.iter().take(len).skip(1) {
+		val = (val << 8) | (*b as u64);
 	}
 	Ok((val as usize, len))
 }

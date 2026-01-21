@@ -17,7 +17,7 @@ pub async fn dispatch_tcp_connection(
 ) {
 	let peer_addr = socket
 		.peer_addr()
-		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
+		.map_or_else(|_| "unknown".to_owned(), |a| a.to_string());
 
 	match &*config {
 		TcpConfig::Legacy(legacy_config) => {
@@ -27,8 +27,7 @@ pub async fn dispatch_tcp_connection(
 			log(
 				LogLevel::Debug,
 				&format!(
-					"⚙ Entering Flow Engine path for connection from {}.",
-					peer_addr
+					"⚙ Entering Flow Engine path for connection from {peer_addr}."
 				),
 			);
 
@@ -55,14 +54,14 @@ pub async fn dispatch_tcp_connection(
 							}) => {
 								log(
 									LogLevel::Info,
-									&format!("➜ Upgrading connection to: {}", protocol),
+									&format!("➜ Upgrading connection to: {protocol}"),
 								);
 								match (protocol.as_str(), conn) {
 									#[cfg(feature = "tls")]
 									("tls", ConnectionObject::Tcp(stream)) => {
 										tokio::spawn(async move {
 											if let Err(e) = tls::run(stream, &mut kv_store, parent_path).await {
-												log(LogLevel::Error, &format!("✗ TLS Carrier failed: {:#}", e));
+												log(LogLevel::Error, &format!("✗ TLS Carrier failed: {e:#}"));
 											}
 										});
 									}
@@ -73,20 +72,20 @@ pub async fn dispatch_tcp_connection(
 									("http", ConnectionObject::Tcp(stream)) => {
 										tokio::spawn(async move {
 											if let Err(e) = plain::run(stream, &mut kv_store, parent_path, "http").await {
-												log(LogLevel::Error, &format!("✗ HTTP Carrier failed: {:#}", e));
+												log(LogLevel::Error, &format!("✗ HTTP Carrier failed: {e:#}"));
 											}
 										});
 									}
 									// FIXED: Create an owned String for the closure to capture
 									(proto_str, ConnectionObject::Tcp(stream)) => {
-										let proto_owned = proto_str.to_string();
+										let proto_owned = proto_str.to_owned();
 										tokio::spawn(async move {
 											if let Err(e) =
 												plain::run(stream, &mut kv_store, parent_path, &proto_owned).await
 											{
 												log(
 													LogLevel::Error,
-													&format!("✗ Plain Carrier ({}) failed: {:#}", proto_owned, e),
+													&format!("✗ Plain Carrier ({proto_owned}) failed: {e:#}"),
 												);
 											}
 										});
@@ -94,13 +93,13 @@ pub async fn dispatch_tcp_connection(
 									(p, _) => {
 										log(
 											LogLevel::Error,
-											&format!("✗ Unsupported upgrade protocol '{}' or object mismatch.", p),
+											&format!("✗ Unsupported upgrade protocol '{p}' or object mismatch."),
 										);
 									}
 								}
 							}
 							Err(e) => {
-								log(LogLevel::Error, &format!("✗ Flow execution failed: {}", e));
+								log(LogLevel::Error, &format!("✗ Flow execution failed: {e}"));
 							}
 						}
 					} else {
@@ -108,7 +107,7 @@ pub async fn dispatch_tcp_connection(
 					}
 				}
 				Err(e) => {
-					log(LogLevel::Warn, &format!("⚠ Failed to peek: {}", e));
+					log(LogLevel::Warn, &format!("⚠ Failed to peek: {e}"));
 				}
 			}
 		}

@@ -41,8 +41,7 @@ pub fn try_reserve_buffer_memory(amount: usize) -> bool {
 		log(
 			LogLevel::Warn,
 			&format!(
-				"🛡 Security: L7 Global Buffer Limit reached! Denying allocation of {} bytes (Used: {}/{})",
-				amount, current, limit
+				"🛡 Security: L7 Global Buffer Limit reached! Denying allocation of {amount} bytes (Used: {current}/{limit})"
 			),
 		);
 		return false;
@@ -64,6 +63,7 @@ pub struct BufferGuard {
 }
 
 impl BufferGuard {
+	#[must_use] 
 	pub fn new(size: usize) -> Self {
 		Self { size }
 	}
@@ -101,30 +101,29 @@ impl PayloadState {
 		let len = bytes.len();
 		if !try_reserve_buffer_memory(len) {
 			return Err(Error::System(
-				"Global L7 memory limit exceeded. Buffering denied.".to_string(),
+				"Global L7 memory limit exceeded. Buffering denied.".to_owned(),
 			));
 		}
-		Ok(PayloadState::Buffered(bytes, BufferGuard::new(len)))
+		Ok(Self::Buffered(bytes, BufferGuard::new(len)))
 	}
 
 	/// Internal helper to buffer the current state into memory.
 	async fn force_buffer(&mut self) -> Result<&Bytes> {
-		let max_len_str = env_loader::get_env("L7_MAX_BUFFER_SIZE", "10485760".to_string()); // Default 10MB
+		let max_len_str = env_loader::get_env("L7_MAX_BUFFER_SIZE", "10485760".to_owned()); // Default 10MB
 		let max_len = max_len_str.parse::<usize>().unwrap_or(10485760);
 
 		// Temporarily take ownership of self to perform transition
 		// We use Empty as a placeholder during the async collect()
-		let current_state = std::mem::replace(self, PayloadState::Empty);
+		let current_state = std::mem::replace(self, Self::Empty);
 
 		match current_state {
-			PayloadState::Http(body) => {
+			Self::Http(body) => {
 				// 1. Get body size hint if available
 				let size_hint = body.size_hint().lower() as usize;
 				if size_hint > max_len {
-					*self = PayloadState::Http(body); // Restore
+					*self = Self::Http(body); // Restore
 					return Err(Error::System(format!(
-						"Payload size hint too large: {} > {}",
-						size_hint, max_len
+						"Payload size hint too large: {size_hint} > {max_len}"
 					)));
 				}
 
@@ -132,37 +131,36 @@ impl PayloadState {
 				let collected = body
 					.collect()
 					.await
-					.map_err(|e| Error::System(format!("Failed to buffer Vane body: {}", e)))?;
+					.map_err(|e| Error::System(format!("Failed to buffer Vane body: {e}")))?;
 
 				let bytes = collected.to_bytes();
 				let actual_len = bytes.len();
 
 				if actual_len > max_len {
 					return Err(Error::System(format!(
-						"Actual payload too large to buffer: {} > {}",
-						actual_len, max_len
+						"Actual payload too large to buffer: {actual_len} > {max_len}"
 					)));
 				}
 
 				// 3. Create buffered state (enforces GLOBAL quota)
 				*self = Self::new_buffered(bytes)?;
 			}
-			PayloadState::Buffered(bytes, guard) => {
+			Self::Buffered(bytes, guard) => {
 				// Already buffered, just restore
-				*self = PayloadState::Buffered(bytes, guard);
+				*self = Self::Buffered(bytes, guard);
 			}
-			PayloadState::Generic => {
+			Self::Generic => {
 				*self = Self::new_buffered(Bytes::new())?;
 			}
-			PayloadState::Empty => {
-				*self = PayloadState::Empty;
+			Self::Empty => {
+				*self = Self::Empty;
 			}
 		}
 
 		match self {
-			PayloadState::Buffered(b, _) => Ok(b),
+			Self::Buffered(b, _) => Ok(b),
 			_ => Err(Error::System(
-				"Internal state inconsistency: payload not buffered after force_buffer".to_string(),
+				"Internal state inconsistency: payload not buffered after force_buffer".to_owned(),
 			)),
 		}
 	}

@@ -116,19 +116,19 @@ pub enum ConnectionObject {
 impl fmt::Debug for ConnectionObject {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			ConnectionObject::Tcp(stream) => f
+			Self::Tcp(stream) => f
 				.debug_struct("ConnectionObject::Tcp")
 				.field("peer_addr", &stream.peer_addr().ok())
 				.finish(),
-			ConnectionObject::Udp { client_addr, .. } => f
+			Self::Udp { client_addr, .. } => f
 				.debug_struct("ConnectionObject::Udp")
 				.field("client_addr", client_addr)
 				.finish(),
-			ConnectionObject::Stream(_) => f
+			Self::Stream(_) => f
 				.debug_struct("ConnectionObject::Stream")
 				.field("type", &"Box<dyn ByteStream>")
 				.finish(),
-			ConnectionObject::Virtual(desc) => f
+			Self::Virtual(desc) => f
 				.debug_struct("ConnectionObject::Virtual")
 				.field("desc", desc)
 				.finish(),

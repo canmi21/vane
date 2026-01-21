@@ -39,9 +39,9 @@ pub async fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> 
 				continue;
 			}
 
-			if let Some(name) = entry.file_name().to_str() {
-				if name.starts_with('[') && name.ends_with(']') {
-					if let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
+			if let Some(name) = entry.file_name().to_str()
+				&& name.starts_with('[') && name.ends_with(']')
+					&& let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
 						let port_path = entry.path();
 						let new_tcp = loader::load_config::<TcpConfig>("tcp", &port_path.join("tcp")).await;
 						let new_udp = loader::load_config::<UdpConfig>("udp", &port_path.join("udp")).await;
@@ -56,8 +56,7 @@ pub async fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> 
 										log(
 											LogLevel::Warn,
 											&format!(
-												"⚠ New TCP config for port {} is invalid. Keeping last known good version.",
-												port
+												"⚠ New TCP config for port {port} is invalid. Keeping last known good version."
 											),
 										);
 									}
@@ -76,8 +75,7 @@ pub async fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> 
 										log(
 											LogLevel::Warn,
 											&format!(
-												"⚠ New UDP config for port {} is invalid. Keeping last known good version.",
-												port
+												"⚠ New UDP config for port {port} is invalid. Keeping last known good version."
 											),
 										);
 									}
@@ -95,8 +93,6 @@ pub async fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> 
 							udp_config,
 						});
 					}
-				}
-			}
 		}
 	}
 	statuses
@@ -105,7 +101,7 @@ pub async fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> 
 /// Listens for update signals, calculates the config diff, and starts/stops listeners.
 pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 	let ip_version_str =
-		if env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true" {
+		if env_loader::get_env("LISTEN_IPV6", "false".to_owned()).to_lowercase() == "true" {
 			"IPv4 + IPv6"
 		} else {
 			"IPv4"
@@ -140,8 +136,7 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 							log(
 								LogLevel::Info,
 								&format!(
-									"↻ {} PORT {} TCP RELOAD (Config Changed)",
-									ip_version_str, port
+									"↻ {ip_version_str} PORT {port} TCP RELOAD (Config Changed)"
 								),
 							);
 							listener::stop_listener(*port, Protocol::Tcp);
@@ -150,13 +145,13 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 					} else if new_tcp.is_some() {
 						log(
 							LogLevel::Info,
-							&format!("↑ {} PORT {} TCP UP", ip_version_str, port),
+							&format!("↑ {ip_version_str} PORT {port} TCP UP"),
 						);
 						listener::start_listener(*port, Protocol::Tcp);
 					} else {
 						log(
 							LogLevel::Info,
-							&format!("↓ {} PORT {} TCP DOWN", ip_version_str, port),
+							&format!("↓ {ip_version_str} PORT {port} TCP DOWN"),
 						);
 						listener::stop_listener(*port, Protocol::Tcp);
 					}
@@ -169,8 +164,7 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 							log(
 								LogLevel::Info,
 								&format!(
-									"↻ {} PORT {} UDP RELOAD (Config Changed)",
-									ip_version_str, port
+									"↻ {ip_version_str} PORT {port} UDP RELOAD (Config Changed)"
 								),
 							);
 							listener::stop_listener(*port, Protocol::Udp);
@@ -179,13 +173,13 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 					} else if new_udp.is_some() {
 						log(
 							LogLevel::Info,
-							&format!("↑ {} PORT {} UDP UP", ip_version_str, port),
+							&format!("↑ {ip_version_str} PORT {port} UDP UP"),
 						);
 						listener::start_listener(*port, Protocol::Udp);
 					} else {
 						log(
 							LogLevel::Info,
-							&format!("↓ {} PORT {} UDP DOWN", ip_version_str, port),
+							&format!("↓ {ip_version_str} PORT {port} UDP DOWN"),
 						);
 						listener::stop_listener(*port, Protocol::Udp);
 					}
@@ -193,18 +187,18 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 				}
 			} else {
 				// Purely new
-				if let Some(_) = new_tcp {
+				if new_tcp.is_some() {
 					log(
 						LogLevel::Info,
-						&format!("↑ {} PORT {} TCP UP", ip_version_str, port),
+						&format!("↑ {ip_version_str} PORT {port} TCP UP"),
 					);
 					listener::start_listener(*port, Protocol::Tcp);
 					has_changes = true;
 				}
-				if let Some(_) = new_udp {
+				if new_udp.is_some() {
 					log(
 						LogLevel::Info,
-						&format!("↑ {} PORT {} UDP UP", ip_version_str, port),
+						&format!("↑ {ip_version_str} PORT {port} UDP UP"),
 					);
 					listener::start_listener(*port, Protocol::Udp);
 					has_changes = true;
@@ -218,7 +212,7 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 				if old_tcp.is_some() {
 					log(
 						LogLevel::Info,
-						&format!("↓ {} PORT {} TCP DOWN", ip_version_str, port),
+						&format!("↓ {ip_version_str} PORT {port} TCP DOWN"),
 					);
 					listener::stop_listener(*port, Protocol::Tcp);
 					has_changes = true;
@@ -226,7 +220,7 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 				if old_udp.is_some() {
 					log(
 						LogLevel::Info,
-						&format!("↓ {} PORT {} UDP DOWN", ip_version_str, port),
+						&format!("↓ {ip_version_str} PORT {port} UDP DOWN"),
 					);
 					listener::stop_listener(*port, Protocol::Udp);
 					has_changes = true;

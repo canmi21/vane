@@ -39,7 +39,7 @@ impl PreProcess for ResolverConfig {
 	}
 
 	fn set_context(&mut self, context: &str) {
-		self.protocol = context.to_string();
+		self.protocol = context.to_owned();
 	}
 }
 

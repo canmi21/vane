@@ -18,6 +18,7 @@ pub struct ConfigChangeReceivers {
 }
 
 /// Starts the filesystem watchers for configuration directories.
+#[must_use] 
 pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 	let (p_tx, p_rx) = mpsc::channel(1);
 	let (n_tx, n_rx) = mpsc::channel(1);
@@ -61,7 +62,7 @@ pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 			Err(e) => {
 				log(
 					LogLevel::Error,
-					&format!("✗ Failed to initialize config watcher: {}", e),
+					&format!("✗ Failed to initialize config watcher: {e}"),
 				);
 				return;
 			}

@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 /// A unified Body enum that bridges Hyper (H1/H2), H3 (Quinn), and Buffered data.
 /// It implements `http_body::Body`, allowing zero-copy streaming to upstream clients.
 #[derive(Debug)]
+#[derive(Default)]
 pub enum VaneBody {
 	/// Native Hyper Body (HTTP/1.1, HTTP/2)
 	Hyper(Incoming),
@@ -26,14 +27,10 @@ pub enum VaneBody {
 	Buffered(Full<Bytes>),
 
 	/// Empty Body
-	Empty,
+	#[default]
+ Empty,
 }
 
-impl Default for VaneBody {
-	fn default() -> Self {
-		Self::Empty
-	}
-}
 
 impl Body for VaneBody {
 	type Data = Bytes;
@@ -51,13 +48,12 @@ impl Body for VaneBody {
 					Poll::Ready(Some(Ok(frame)))
 				}
 				Poll::Ready(Some(Err(e))) => {
-					Poll::Ready(Some(Err(Error::System(format!("Hyper Body Error: {}", e)))))
+					Poll::Ready(Some(Err(Error::System(format!("Hyper Body Error: {e}")))))
 				}
 				Poll::Ready(None) => Poll::Ready(None),
 				Poll::Pending => Poll::Pending,
 			},
-			Self::H3(body) => Pin::new(body).poll_frame(cx),
-			Self::Generic(body) => Pin::new(body).poll_frame(cx),
+			Self::H3(body) | Self::Generic(body) => Pin::new(body).poll_frame(cx),
 			Self::Buffered(body) => match Pin::new(body).poll_frame(cx) {
 				Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
 				Poll::Ready(Some(Err(e))) => match e {}, // Full<Bytes> never errors
@@ -71,8 +67,7 @@ impl Body for VaneBody {
 	fn is_end_stream(&self) -> bool {
 		match self {
 			Self::Hyper(b) => b.is_end_stream(),
-			Self::H3(b) => b.is_end_stream(),
-			Self::Generic(b) => b.is_end_stream(),
+			Self::H3(b) | Self::Generic(b) => b.is_end_stream(),
 			Self::Buffered(b) => b.is_end_stream(),
 			Self::Empty => true,
 		}
@@ -81,8 +76,7 @@ impl Body for VaneBody {
 	fn size_hint(&self) -> SizeHint {
 		match self {
 			Self::Hyper(b) => b.size_hint(),
-			Self::H3(b) => b.size_hint(),
-			Self::Generic(b) => b.size_hint(),
+			Self::H3(b) | Self::Generic(b) => b.size_hint(),
 			Self::Buffered(b) => b.size_hint(),
 			Self::Empty => SizeHint::with_exact(0),
 		}
@@ -98,6 +92,7 @@ pub struct H3BodyAdapter {
 }
 
 impl H3BodyAdapter {
+	#[must_use] 
 	pub fn new(rx: mpsc::Receiver<Result<Bytes, Error>>) -> Self {
 		Self { rx }
 	}

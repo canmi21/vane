@@ -14,7 +14,7 @@ use std::collections::HashMap;
 /// Returns the maximum allowed recursion depth for template and JSON resolution.
 /// Configurable via `MAX_TEMPLATE_DEPTH` environment variable.
 fn get_max_depth() -> usize {
-	env_loader::get_env("MAX_TEMPLATE_DEPTH", "5".to_string())
+	env_loader::get_env("MAX_TEMPLATE_DEPTH", "5".to_owned())
 		.parse()
 		.unwrap_or(5)
 }
@@ -22,7 +22,7 @@ fn get_max_depth() -> usize {
 /// Returns the maximum allowed size (in bytes) for a resolved template string.
 /// Configurable via `MAX_TEMPLATE_RESULT_SIZE` environment variable.
 fn get_max_size() -> usize {
-	env_loader::get_env("MAX_TEMPLATE_RESULT_SIZE", "65536".to_string())
+	env_loader::get_env("MAX_TEMPLATE_RESULT_SIZE", "65536".to_owned())
 		.parse()
 		.unwrap_or(65536)
 }
@@ -40,9 +40,9 @@ pub async fn resolve_template(
 	if depth > max_depth {
 		fancy_log::log(
 			fancy_log::LogLevel::Error,
-			&format!("✗ Template recursion depth limit ({}) exceeded", max_depth),
+			&format!("✗ Template recursion depth limit ({max_depth}) exceeded"),
 		);
-		return template.to_string();
+		return template.to_owned();
 	}
 
 	match parser::parse_template(template) {
@@ -50,9 +50,9 @@ pub async fn resolve_template(
 		Err(e) => {
 			fancy_log::log(
 				fancy_log::LogLevel::Warn,
-				&format!("⚠ Template parse error: {}, returning original string", e),
+				&format!("⚠ Template parse error: {e}, returning original string"),
 			);
-			template.to_string()
+			template.to_owned()
 		}
 	}
 }
@@ -84,7 +84,7 @@ fn resolve_value_recursive<'a>(
 		if depth > max_depth {
 			fancy_log::log(
 				fancy_log::LogLevel::Error,
-				&format!("✗ JSON recursion depth limit ({}) exceeded", max_depth),
+				&format!("✗ JSON recursion depth limit ({max_depth}) exceeded"),
 			);
 			return value.clone();
 		}

@@ -88,7 +88,7 @@ impl L7Terminator for SendResponsePlugin {
 			let mut response = Response::builder()
 				.status(StatusCode::SWITCHING_PROTOCOLS)
 				.body(())
-				.map_err(|e| anyhow!("Failed to build WebSocket 101 response: {}", e))?;
+				.map_err(|e| anyhow!("Failed to build WebSocket 101 response: {e}"))?;
 
 			// Use backend's response headers (contains Upgrade handshake headers)
 			*response.headers_mut() = std::mem::take(&mut container.response_headers);
@@ -127,15 +127,14 @@ impl L7Terminator for SendResponsePlugin {
 								log(
 									LogLevel::Debug,
 									&format!(
-										"✓ WebSocket tunnel closed gracefully. Client→Upstream: {} bytes, Upstream→Client: {} bytes",
-										client_to_upstream, upstream_to_client
+										"✓ WebSocket tunnel closed gracefully. Client→Upstream: {client_to_upstream} bytes, Upstream→Client: {upstream_to_client} bytes"
 									),
 								);
 							}
 							Err(e) => {
 								log(
 									LogLevel::Warn,
-									&format!("⚠ WebSocket tunnel I/O error: {}", e),
+									&format!("⚠ WebSocket tunnel I/O error: {e}"),
 								);
 							}
 						}
@@ -143,7 +142,7 @@ impl L7Terminator for SendResponsePlugin {
 					Err(e) => {
 						log(
 							LogLevel::Error,
-							&format!("✗ WebSocket upgrade failed: {}", e),
+							&format!("✗ WebSocket upgrade failed: {e}"),
 						);
 					}
 				}
@@ -176,10 +175,7 @@ impl L7Terminator for SendResponsePlugin {
 			headers.clear();
 
 			for (k, v) in headers_input {
-				let header_name = match HeaderName::from_bytes(k.as_bytes()) {
-					Ok(n) => n,
-					Err(_) => continue,
-				};
+				let Ok(header_name) = HeaderName::from_bytes(k.as_bytes()) else { continue };
 
 				match v {
 					Value::String(s) => {
@@ -189,11 +185,10 @@ impl L7Terminator for SendResponsePlugin {
 					}
 					Value::Array(arr) => {
 						for item in arr {
-							if let Some(s) = item.as_str() {
-								if let Ok(val) = HeaderValue::from_str(s) {
+							if let Some(s) = item.as_str()
+								&& let Ok(val) = HeaderValue::from_str(s) {
 									headers.append(header_name.clone(), val);
 								}
-							}
 						}
 					}
 					_ => {}
@@ -211,7 +206,7 @@ impl L7Terminator for SendResponsePlugin {
 				let mime = content_type::guess_mime(&body_bytes);
 				headers.insert(
 					http::header::CONTENT_TYPE,
-					HeaderValue::from_str(mime).map_err(|e| anyhow!("Invalid mime type: {}", e))?,
+					HeaderValue::from_str(mime).map_err(|e| anyhow!("Invalid mime type: {e}"))?,
 				);
 			}
 
@@ -237,7 +232,7 @@ impl L7Terminator for SendResponsePlugin {
 		let mut response = Response::builder()
 			.status(status_code)
 			.body(())
-			.map_err(|e| anyhow!("Failed to build response: {}", e))?;
+			.map_err(|e| anyhow!("Failed to build response: {e}"))?;
 		*response.headers_mut() = std::mem::take(headers);
 
 		// 5. Signal Adapter
@@ -274,15 +269,15 @@ fn parse_body_input(input: &Value) -> Result<Bytes> {
 					use base64::prelude::*;
 					let decoded = BASE64_STANDARD
 						.decode(content)
-						.map_err(|e| anyhow!("Base64 decode failed: {}", e))?;
+						.map_err(|e| anyhow!("Base64 decode failed: {e}"))?;
 					Ok(Bytes::from(decoded))
 				}
 				"hex" => {
-					let decoded = hex::decode(content).map_err(|e| anyhow!("Hex decode failed: {}", e))?;
+					let decoded = hex::decode(content).map_err(|e| anyhow!("Hex decode failed: {e}"))?;
 					Ok(Bytes::from(decoded))
 				}
 				"text" | "utf8" => Ok(Bytes::copy_from_slice(content.as_bytes())),
-				_ => Err(anyhow!("Unknown encoding: {}", encoding)),
+				_ => Err(anyhow!("Unknown encoding: {encoding}")),
 			}
 		}
 		_ => Err(anyhow!("Invalid body format. Expected String or Object.")),

@@ -25,7 +25,7 @@ impl Validate for Target {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		let mut errors = ValidationErrors::new();
 		match self {
-			Target::Ip { ip, port } => {
+			Self::Ip { ip, port } => {
 				if ip.parse::<IpAddr>().is_err() {
 					errors.add("ip", ValidationError::new("ip"));
 				}
@@ -35,7 +35,7 @@ impl Validate for Target {
 					errors.add("port", err);
 				}
 			}
-			Target::Domain { domain, port } => {
+			Self::Domain { domain, port } => {
 				if domain.is_empty() || domain.len() > 253 {
 					errors.add("domain", ValidationError::new("hostname"));
 				}
@@ -45,7 +45,7 @@ impl Validate for Target {
 					errors.add("port", err);
 				}
 			}
-			Target::Node { port, .. } => {
+			Self::Node { port, .. } => {
 				if *port == 0 {
 					let mut err = ValidationError::new("range");
 					err.message = Some("port must be greater than 0".into());
@@ -106,7 +106,7 @@ impl Validate for Forward {
 		}
 
 		for (i, target) in self.targets.iter().enumerate() {
-			let path = format!("targets[{}]", i);
+			let path = format!("targets[{i}]");
 			let target_errors_list = super::validator::validate_target(target, &path);
 			for flow_err in target_errors_list {
 				let mut err = ValidationError::new("feature_disabled");
@@ -120,7 +120,7 @@ impl Validate for Forward {
 						for error in field_errors {
 							let mut err = error.clone();
 							let old_msg = err.message.clone().unwrap_or_else(|| Cow::from("invalid"));
-							err.message = Some(format!("[index {}] {}: {}", i, field, old_msg).into());
+							err.message = Some(format!("[index {i}] {field}: {old_msg}").into());
 							errors.add("targets", err);
 						}
 					}
@@ -129,7 +129,7 @@ impl Validate for Forward {
 		}
 
 		for (i, target) in self.fallbacks.iter().enumerate() {
-			let path = format!("fallbacks[{}]", i);
+			let path = format!("fallbacks[{i}]");
 			let target_errors_list = super::validator::validate_target(target, &path);
 			for flow_err in target_errors_list {
 				let mut err = ValidationError::new("feature_disabled");
@@ -143,7 +143,7 @@ impl Validate for Forward {
 						for error in field_errors {
 							let mut err = error.clone();
 							let old_msg = err.message.clone().unwrap_or_else(|| Cow::from("invalid"));
-							err.message = Some(format!("[index {}] {}: {}", i, field, old_msg).into());
+							err.message = Some(format!("[index {i}] {field}: {old_msg}").into());
 							errors.add("fallbacks", err);
 						}
 					}

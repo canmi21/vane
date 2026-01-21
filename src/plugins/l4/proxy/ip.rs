@@ -73,7 +73,7 @@ impl Terminator for TransparentProxyPlugin {
 			.ok_or_else(|| anyhow!("Resolved input 'target.port' is missing or not an integer"))?;
 
 		let target = ResolvedTarget {
-			ip: target_ip.to_string(),
+			ip: target_ip.to_owned(),
 			port: target_port,
 		};
 

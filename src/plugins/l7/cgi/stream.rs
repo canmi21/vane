@@ -38,6 +38,7 @@ pub struct CgiResponseBody {
 }
 
 impl CgiResponseBody {
+	#[must_use] 
 	pub fn new(rx: mpsc::Receiver<VaneResult<QuotaBytes>>) -> Self {
 		Self { rx }
 	}
@@ -98,7 +99,7 @@ pub async fn pump_stdout(
 			Ok(Ok(0)) => {
 				log(
 					LogLevel::Debug,
-					&format!("✓ CGI Body Pump EOF. Total: {} bytes", total_bytes),
+					&format!("✓ CGI Body Pump EOF. Total: {total_bytes} bytes"),
 				);
 				break;
 			}
@@ -126,7 +127,7 @@ pub async fn pump_stdout(
 				}
 			}
 			Ok(Err(e)) => {
-				log(LogLevel::Error, &format!("✗ CGI Read Error: {}", e));
+				log(LogLevel::Error, &format!("✗ CGI Read Error: {e}"));
 				let _ = tx.send(Err(Error::System(e.to_string()))).await;
 				break;
 			}

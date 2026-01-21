@@ -30,11 +30,11 @@ impl<'a> Hijacker for L4PlusHijacker<'a> {
 			let hex_encoded = hex::encode(raw);
 
 			// 3. Cache back to KV for future lookups in the same flow
-			self.kv.insert(key.to_string(), hex_encoded.clone());
+			self.kv.insert(key.to_owned(), hex_encoded.clone());
 
 			return Ok(hex_encoded);
 		}
 
-		anyhow::bail!("Raw data for key '{}' not found in L4+ context", key)
+		anyhow::bail!("Raw data for key '{key}' not found in L4+ context")
 	}
 }

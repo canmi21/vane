@@ -19,15 +19,15 @@ use tokio::time::timeout;
 pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Result<()> {
 	log(LogLevel::Debug, "➜ Entering TLS L4+ Resolver...");
 
-	let buffer_size_str = env_loader::get_env("TLS_CLIENTHELLO_BUFFER_SIZE", "4096".to_string());
+	let buffer_size_str = env_loader::get_env("TLS_CLIENTHELLO_BUFFER_SIZE", "4096".to_owned());
 	let buffer_size = buffer_size_str.parse::<usize>().unwrap_or(4096);
 
-	let peek_timeout_ms = env_loader::get_env("TLS_HANDSHAKE_PEEK_TIMEOUT_MS", "500".to_string())
+	let peek_timeout_ms = env_loader::get_env("TLS_HANDSHAKE_PEEK_TIMEOUT_MS", "500".to_owned())
 		.parse::<u64>()
 		.unwrap_or(500);
 
 	let allow_parse_failure =
-		env_loader::get_env("TLS_ALLOW_PARSE_FAILURE", "false".to_string()).to_lowercase() == "true";
+		env_loader::get_env("TLS_ALLOW_PARSE_FAILURE", "false".to_owned()).to_lowercase() == "true";
 
 	let mut buf = vec![0u8; buffer_size];
 	let mut parse_success = false;
@@ -74,13 +74,13 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 		Ok(Ok(n)) => {
 			log(
 				LogLevel::Debug,
-				&format!("⚙ Socket peek returned full record ({} bytes).", n),
+				&format!("⚙ Socket peek returned full record ({n} bytes)."),
 			);
 			let payload = &buf[..n];
 
 			// LAZY: Store raw bytes instead of eager hex encode
 			initial_payloads.insert(
-				"tls.clienthello".to_string(),
+				"tls.clienthello".to_owned(),
 				bytes::Bytes::copy_from_slice(payload),
 			);
 
@@ -92,14 +92,14 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 				Err(e) => {
 					log(
 						LogLevel::Warn,
-						&format!("⚠ Failed to parse ClientHello: {:#}", e),
+						&format!("⚠ Failed to parse ClientHello: {e:#}"),
 					);
 					error_code = Some("malformed");
 				}
 			}
 		}
 		Ok(Err(code)) => {
-			log(LogLevel::Warn, &format!("⚠ TLS Peek failed: {}", code));
+			log(LogLevel::Warn, &format!("⚠ TLS Peek failed: {code}"));
 			error_code = Some(code);
 		}
 		Err(_) => {
@@ -113,11 +113,11 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 
 	if !parse_success {
 		if let Some(err) = error_code {
-			kv.insert("tls.error".to_string(), err.to_string());
+			kv.insert("tls.error".to_owned(), err.to_owned());
 		}
 
 		if allow_parse_failure {
-			kv.insert("tls.sni".to_string(), "unknown".to_string());
+			kv.insert("tls.sni".to_owned(), "unknown".to_owned());
 			log(
 				LogLevel::Warn,
 				"⚠ TLS inspection failed, continuing with 'unknown' context (TLS_ALLOW_PARSE_FAILURE=true)",
@@ -134,8 +134,7 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 				format!(
 					"TLS inspection failed: {}.",
 					error_code.unwrap_or("unknown")
-				)
-				.into(),
+				),
 			));
 		}
 	}
@@ -156,7 +155,7 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 		.map_err(|e| {
 			log(
 				LogLevel::Error,
-				&format!("✗ TLS Flow execution failed: {:#}", e),
+				&format!("✗ TLS Flow execution failed: {e:#}"),
 			);
 			e
 		})?;
@@ -176,27 +175,23 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 			parent_path: _,
 		} => {
 			// Connects L4+ to L7.
-			match protocol.as_str() {
-				"httpx" => {
-					log(
-						LogLevel::Info,
-						&format!("➜ Handing over to Decryptor for L7 protocol: {}", protocol),
-					);
-					decryptor::terminate_and_handover(conn, kv, protocol)
-						.await
-						.map_err(|e| Error::System(format!("TLS Termination Error: {:#}", e)))
-				}
-				_ => {
-					log(
-						LogLevel::Error,
-						&format!("✗ Unsupported L4+ Upgrade Target: {}", protocol),
-					);
-					Err(Error::Configuration(format!(
-						"Unknown/Unsupported protocol upgrade: {}",
-						protocol
-					)))
-				}
-			}
+			if protocol.as_str() == "httpx" {
+   					log(
+   						LogLevel::Info,
+   						&format!("➜ Handing over to Decryptor for L7 protocol: {protocol}"),
+   					);
+   					decryptor::terminate_and_handover(conn, kv, protocol)
+   						.await
+   						.map_err(|e| Error::System(format!("TLS Termination Error: {e:#}")))
+   				} else {
+   					log(
+   						LogLevel::Error,
+   						&format!("✗ Unsupported L4+ Upgrade Target: {protocol}"),
+   					);
+   					Err(Error::Configuration(format!(
+   						"Unknown/Unsupported protocol upgrade: {protocol}"
+   					)))
+   				}
 		}
 	}
 }

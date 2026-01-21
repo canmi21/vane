@@ -56,17 +56,17 @@ impl AsyncUdpSocket for VirtualUdpSocket {
 		})
 	}
 
-	fn try_send(&self, transmit: &Transmit) -> io::Result<()> {
+	fn try_send(&self, transmit: &Transmit<'_>) -> io::Result<()> {
 		// Direct non-blocking send via physical socket
 		self
 			.physical_socket
-			.try_send_to(&transmit.contents, transmit.destination)?;
+			.try_send_to(transmit.contents, transmit.destination)?;
 		Ok(())
 	}
 
 	fn poll_recv(
 		&self,
-		cx: &mut Context,
+		cx: &mut Context<'_>,
 		bufs: &mut [io::IoSliceMut<'_>],
 		meta: &mut [RecvMeta],
 	) -> Poll<io::Result<usize>> {
@@ -138,7 +138,7 @@ struct VirtualPoller {
 }
 
 impl UdpPoller for VirtualPoller {
-	fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+	fn poll_writable(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
 		self.socket.poll_send_ready(cx)
 	}
 }

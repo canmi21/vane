@@ -23,7 +23,7 @@ use tokio::sync::oneshot;
 pub async fn handle_connection(conn: ConnectionObject, protocol_id: String) -> Result<()> {
 	log(
 		LogLevel::Debug,
-		&format!("➜ Starting L7 Httpx Engine (Proto: {})...", protocol_id),
+		&format!("➜ Starting L7 Httpx Engine (Proto: {protocol_id})..."),
 	);
 
 	let io = match conn {
@@ -61,7 +61,7 @@ pub async fn handle_connection(conn: ConnectionObject, protocol_id: String) -> R
 	if let Err(e) = builder.serve_connection_with_upgrades(io, service).await {
 		log(
 			LogLevel::Error,
-			&format!("✗ Httpx Connection Error: {:?}", e),
+			&format!("✗ Httpx Connection Error: {e:?}"),
 		);
 	}
 
@@ -109,21 +109,20 @@ async fn serve_request(
 
 	// http metadata
 	let mut kv = KvStore::new();
-	kv.insert("req.proto".to_string(), protocol_id.clone());
-	kv.insert("req.method".to_string(), parts.method.to_string());
-	kv.insert("req.path".to_string(), parts.uri.path().to_string());
-	kv.insert("req.version".to_string(), format!("{:?}", parts.version));
+	kv.insert("req.proto".to_owned(), protocol_id.clone());
+	kv.insert("req.method".to_owned(), parts.method.to_string());
+	kv.insert("req.path".to_owned(), parts.uri.path().to_owned());
+	kv.insert("req.version".to_owned(), format!("{:?}", parts.version));
 
 	// Inject Query String
 	if let Some(q) = parts.uri.query() {
-		kv.insert("req.query".to_string(), q.to_string());
+		kv.insert("req.query".to_owned(), q.to_owned());
 	}
 
-	if let Some(host) = parts.headers.get("host") {
-		if let Ok(h) = host.to_str() {
-			kv.insert("req.host".to_string(), h.to_string());
+	if let Some(host) = parts.headers.get("host")
+		&& let Ok(h) = host.to_str() {
+			kv.insert("req.host".to_owned(), h.to_owned());
 		}
-	}
 
 	// Pass full HeaderMap to Container Zero-Copy Move
 	// We take ownership of parts.headers.
@@ -141,53 +140,46 @@ async fn serve_request(
 	);
 
 	// Inject client upgrade handle if present
-	if let Some(upgrade) = client_upgrade {
-		if let Some(http_data) = container.http_data_mut() {
+	if let Some(upgrade) = client_upgrade
+		&& let Some(http_data) = container.http_data_mut() {
 			http_data.client_upgrade = Some(upgrade);
 		}
-	}
 
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();
-		match registry.get(&protocol_id) {
-			Some(c) => c.value().clone(),
-			None => {
-				log(
-					LogLevel::Error,
-					&format!("✗ No config for app protocol: {}", protocol_id),
-				);
-				return Ok(response_error(500, "Configuration Error")?);
-			}
-		}
+		if let Some(c) = registry.get(&protocol_id) { c.value().clone() } else {
+  				log(
+  					LogLevel::Error,
+  					&format!("✗ No config for app protocol: {protocol_id}"),
+  				);
+  				return response_error(500, "Configuration Error");
+  			}
 	};
 
-	if let Err(e) = flow::execute_l7(&config.pipeline, &mut container, "".to_string()).await {
+	if let Err(e) = flow::execute_l7(&config.pipeline, &mut container, "".to_owned()).await {
 		log(
 			LogLevel::Error,
-			&format!("✗ L7 Flow Execution Failed: {:#}", e),
+			&format!("✗ L7 Flow Execution Failed: {e:#}"),
 		);
-		return Ok(response_error(502, "Bad Gateway (Flow Error)")?);
+		return response_error(502, "Bad Gateway (Flow Error)");
 	}
 
 	// Wait for the Terminator to signal the response headers
-	match res_rx.await {
-		Ok(response_parts) => {
-			let (parts, _) = response_parts.into_parts();
+	if let Ok(response_parts) = res_rx.await {
+ 			let (parts, _) = response_parts.into_parts();
 
-			// Retrieve the Response Body from the Container!
-			// We extract from response_body slot now.
-			let final_body = extract_response_body_from_container(&mut container);
+ 			// Retrieve the Response Body from the Container!
+ 			// We extract from response_body slot now.
+ 			let final_body = extract_response_body_from_container(&mut container);
 
-			Ok(Response::from_parts(parts, final_body))
-		}
-		Err(_) => {
-			log(
-				LogLevel::Warn,
-				"⚠ Flow finished but no response signal received.",
-			);
-			Ok(response_error(502, "Bad Gateway (No Response Signal)")?)
-		}
-	}
+ 			Ok(Response::from_parts(parts, final_body))
+ 		} else {
+ 			log(
+ 				LogLevel::Warn,
+ 				"⚠ Flow finished but no response signal received.",
+ 			);
+ 			Ok(response_error(502, "Bad Gateway (No Response Signal)")?)
+ 		}
 }
 
 /// Helper to extract and convert the Container's RESPONSE payload.
@@ -201,17 +193,16 @@ pub(super) fn extract_response_body_from_container(
 	match payload {
 		PayloadState::Http(vane_body) => vane_body.boxed(),
 		PayloadState::Buffered(bytes, _guard) => Full::new(bytes).map_err(|e| match e {}).boxed(),
-		PayloadState::Generic => BoxBody::default(),
-		PayloadState::Empty => BoxBody::default(),
+		PayloadState::Generic | PayloadState::Empty => BoxBody::default(),
 	}
 }
 
 fn response_error(status: u16, msg: &str) -> Result<Response<BoxBody<Bytes, Error>>> {
-	let body = Full::new(Bytes::from(msg.to_string()))
+	let body = Full::new(Bytes::from(msg.to_owned()))
 		.map_err(|e| match e {})
 		.boxed();
 	Response::builder()
 		.status(status)
 		.body(body)
-		.map_err(|e| Error::System(format!("Failed to build error response: {}", e)))
+		.map_err(|e| Error::System(format!("Failed to build error response: {e}")))
 }

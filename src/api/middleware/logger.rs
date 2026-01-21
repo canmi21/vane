@@ -23,10 +23,10 @@ pub async fn log_requests(request: Request<Body>, next: Next) -> Response {
 		|| method == Method::PATCH
 	{
 		// Log mutating requests as INFO.
-		log(LogLevel::Info, &format!("➜ {} {}", method, path));
+		log(LogLevel::Info, &format!("➜ {method} {path}"));
 	} else {
 		// Log non-mutating (read-only) requests as DEBUG.
-		log(LogLevel::Debug, &format!("➜ {} {}", method, path));
+		log(LogLevel::Debug, &format!("➜ {method} {path}"));
 	}
 
 	next.run(request).await

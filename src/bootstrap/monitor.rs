@@ -8,19 +8,19 @@ use tokio::time::{Duration, sleep};
 /// Starts the background L7 memory monitor.
 pub async fn start_l7_memory_monitor() {
 	let adaptive_enabled =
-		env_loader::get_env("L7_ADAPTIVE_MEMORY_LIMIT", "true".to_string()).to_lowercase() == "true";
-	let ratio = env_loader::get_env("L7_ADAPTIVE_MEMORY_RATIO", "85".to_string())
+		env_loader::get_env("L7_ADAPTIVE_MEMORY_LIMIT", "true".to_owned()).to_lowercase() == "true";
+	let ratio = env_loader::get_env("L7_ADAPTIVE_MEMORY_RATIO", "85".to_owned())
 		.parse::<u64>()
 		.unwrap_or(85)
 		.min(95);
-	let fallback_limit = env_loader::get_env("L7_GLOBAL_BUFFER_LIMIT", "536870912".to_string())
+	let fallback_limit = env_loader::get_env("L7_GLOBAL_BUFFER_LIMIT", "536870912".to_owned())
 		.parse::<usize>()
 		.unwrap_or(536_870_912);
 
 	if !adaptive_enabled {
 		log(
 			LogLevel::Info,
-			&format!("⚙ L7 Memory Limit: Fixed ({} bytes)", fallback_limit),
+			&format!("⚙ L7 Memory Limit: Fixed ({fallback_limit} bytes)"),
 		);
 		container::update_memory_limit(fallback_limit);
 		return;
@@ -38,8 +38,7 @@ pub async fn start_l7_memory_monitor() {
 	log(
 		LogLevel::Info,
 		&format!(
-			"✓ L7 Memory Limit: Adaptive (Ratio: {}%, Fallback: {} bytes)",
-			ratio, fallback_limit
+			"✓ L7 Memory Limit: Adaptive (Ratio: {ratio}%, Fallback: {fallback_limit} bytes)"
 		),
 	);
 

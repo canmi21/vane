@@ -9,6 +9,7 @@ pub struct ByteRange {
 
 /// Parses the "Range" header (e.g., "bytes=0-499").
 /// Currently supports single ranges and suffix ranges (RFC 9110).
+#[must_use] 
 pub fn parse_range_header(header_val: &str, total_size: u64) -> Option<ByteRange> {
 	if total_size == 0 || !header_val.starts_with("bytes=") {
 		return None;
@@ -23,11 +24,7 @@ pub fn parse_range_header(header_val: &str, total_size: u64) -> Option<ByteRange
 		if suffix_len == 0 {
 			return None;
 		}
-		let start = if suffix_len >= total_size {
-			0
-		} else {
-			total_size - suffix_len
-		};
+		let start = total_size.saturating_sub(suffix_len);
 		return Some(ByteRange {
 			start,
 			length: total_size - start,

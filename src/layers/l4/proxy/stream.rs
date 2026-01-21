@@ -70,7 +70,7 @@ pub async fn proxy_generic_stream(
 			.as_secs(),
 	));
 
-	let timeout_secs = env_loader::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_string())
+	let timeout_secs = env_loader::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_owned())
 		.parse::<u64>()
 		.unwrap_or(10);
 

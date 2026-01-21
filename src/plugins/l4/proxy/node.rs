@@ -78,9 +78,7 @@ impl Terminator for ProxyNodePlugin {
 
 		if candidates.is_empty() {
 			return Err(anyhow!(
-				"No available IP addresses found for node '{}' on port {}",
-				target_node_name,
-				target_port
+				"No available IP addresses found for node '{target_node_name}' on port {target_port}"
 			));
 		}
 
@@ -96,7 +94,7 @@ impl Terminator for ProxyNodePlugin {
 		};
 
 		let target = ResolvedTarget {
-			ip: selected_ip.to_string(),
+			ip: selected_ip.clone(),
 			port: target_port,
 		};
 

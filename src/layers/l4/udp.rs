@@ -35,7 +35,7 @@ pub enum UdpConfig {
 impl Validate for UdpConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		match self {
-			UdpConfig::Legacy(config) => {
+			Self::Legacy(config) => {
 				let mut result = config.validate();
 				if let Err(e) = legacy::validate_udp_rules(&config.rules) {
 					match result {
@@ -51,7 +51,7 @@ impl Validate for UdpConfig {
 				}
 				result
 			}
-			UdpConfig::Flow(config) => config.validate(),
+			Self::Flow(config) => config.validate(),
 		}
 	}
 }
@@ -76,7 +76,7 @@ pub async fn dispatch_udp_datagram(
 		UdpConfig::Flow(flow_config) => {
 			log(
 				LogLevel::Debug,
-				&format!("⚙ Entering Flow Engine path for UDP from {}.", client_addr),
+				&format!("⚙ Entering Flow Engine path for UDP from {client_addr}."),
 			);
 
 			context::populate_udp_context(&datagram, &mut kv_store);
@@ -104,7 +104,7 @@ pub async fn dispatch_udp_datagram(
 				}) => {
 					log(
 						LogLevel::Info,
-						&format!("➜ Upgrading UDP flow to: {}", protocol),
+						&format!("➜ Upgrading UDP flow to: {protocol}"),
 					);
 
 					match (protocol.as_str(), conn) {
@@ -112,7 +112,7 @@ pub async fn dispatch_udp_datagram(
 						("quic", conn_obj) => {
 							tokio::spawn(async move {
 								if let Err(e) = quic::protocol::run(conn_obj, &mut kv_store, parent_path).await {
-									log(LogLevel::Error, &format!("✗ QUIC Carrier failed: {:#}", e));
+									log(LogLevel::Error, &format!("✗ QUIC Carrier failed: {e:#}"));
 								}
 							});
 						}
@@ -123,7 +123,7 @@ pub async fn dispatch_udp_datagram(
 						(p, _) => {
 							log(
 								LogLevel::Error,
-								&format!("✗ Unsupported upgrade protocol '{}' for UDP flow.", p),
+								&format!("✗ Unsupported upgrade protocol '{p}' for UDP flow."),
 							);
 						}
 					}
@@ -131,7 +131,7 @@ pub async fn dispatch_udp_datagram(
 				Err(e) => {
 					log(
 						LogLevel::Error,
-						&format!("✗ UDP Flow execution failed for {}: {:#}", client_addr, e),
+						&format!("✗ UDP Flow execution failed for {client_addr}: {e:#}"),
 					);
 				}
 			}

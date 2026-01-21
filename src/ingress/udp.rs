@@ -37,19 +37,17 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 								// 2A. Try CID Lookup
 								if (packet[0] & 0x80) != 0 {
 									// Long Header
-									if let Some(dcid) = parser::peek_long_header_dcid(packet) {
-										if let Some(action) = session::get_session(&dcid) {
-											hit_session = Some((dcid.to_vec(), action));
+									if let Some(dcid) = parser::peek_long_header_dcid(packet)
+										&& let Some(action) = session::get_session(&dcid) {
+											hit_session = Some((dcid.clone(), action));
 										}
-									}
 								} else {
 									// Short Header - Speculative Try
 									for &cid_len in &[8, 12, 16] {
-										if let Some(dcid) = parser::peek_short_header_dcid(packet, cid_len) {
-																					if let Some(action) = session::get_session(&dcid) {
-																						hit_session = Some((dcid.to_vec(), action));
+										if let Some(dcid) = parser::peek_short_header_dcid(packet, cid_len)
+																					&& let Some(action) = session::get_session(&dcid) {
+																						hit_session = Some((dcid.clone(), action));
 																						break;											}
-										}
 									}
 								};
 
@@ -68,7 +66,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 											session::touch_session(&cid);
 											// Notice, This use the NAT upstream socket to send, NOT the listener
 											if let Err(e) = upstream_socket.send_to(packet, target_addr).await {
-												log(LogLevel::Debug, &format!("⚠ Fast Path Forward Error: {}", e));
+												log(LogLevel::Debug, &format!("⚠ Fast Path Forward Error: {e}"));
 											}
 											continue;
 										}
@@ -79,7 +77,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 									if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
 										// Hit Sticky! Blind forward using valid source socket.
 										if let Err(e) = upstream_socket.send_to(packet, target).await {
-											log(LogLevel::Debug, &format!("⚠ Sticky Forward Error: {}", e));
+											log(LogLevel::Debug, &format!("⚠ Sticky Forward Error: {e}"));
 										}
 										continue;
 									}
@@ -90,7 +88,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 							let datagram = bytes::Bytes::copy_from_slice(packet);
 							let socket_clone = socket_arc.clone();
 							let config_clone = udp_config.clone();
-							let server_addr = socket_arc.local_addr().unwrap_or_else(|_| format!("0.0.0.0:{}", port).parse().unwrap());
+							let server_addr = socket_arc.local_addr().unwrap_or_else(|_| format!("0.0.0.0:{port}").parse().unwrap());
 							let kv_store = kv::new(&client_addr, &server_addr, "udp");
 
 							tokio::spawn(async move {
@@ -98,7 +96,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 							});
 						}
 						_ = &mut shutdown_rx => {
-							log(LogLevel::Debug, &format!("⚙ UDP listener on port {} received shutdown signal.", port));
+							log(LogLevel::Debug, &format!("⚙ UDP listener on port {port} received shutdown signal."));
 							break;
 						}
 					}
@@ -107,8 +105,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 				log(
 					LogLevel::Warn,
 					&format!(
-						"✗ UDP listener started on port {}, but no config found.",
-						port
+						"✗ UDP listener started on port {port}, but no config found."
 					),
 				);
 			}
@@ -117,7 +114,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 		TASK_REGISTRY.remove(&key);
 		log(
 			LogLevel::Debug,
-			&format!("⚙ UDP listener on port {} has shut down.", port),
+			&format!("⚙ UDP listener on port {port} has shut down."),
 		);
 	});
 

@@ -30,7 +30,7 @@ pub async fn require_access_token(req: Request, next: Next) -> Result<Response, 
 		.and_then(|v| v.to_str().ok());
 
 	match auth_header {
-		Some(token) if token == format!("Bearer {}", expected_token) => {
+		Some(token) if token == format!("Bearer {expected_token}") => {
 			// Token matches - allow request
 			Ok(next.run(req).await)
 		}
@@ -69,15 +69,13 @@ pub fn validate_access_token() -> Result<Option<String>, String> {
 
 	if len < 16 {
 		return Err(format!(
-			"ACCESS_TOKEN too short ({} chars, requires 16-128 chars)",
-			len
+			"ACCESS_TOKEN too short ({len} chars, requires 16-128 chars)"
 		));
 	}
 
 	if len > 128 {
 		return Err(format!(
-			"ACCESS_TOKEN too long ({} chars, requires 16-128 chars)",
-			len
+			"ACCESS_TOKEN too long ({len} chars, requires 16-128 chars)"
 		));
 	}
 

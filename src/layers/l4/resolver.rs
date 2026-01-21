@@ -17,10 +17,10 @@ use std::str::FromStr;
 
 #[cfg(feature = "domain-target")]
 static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
-	let ns1_str = env_loader::get_env("NAMESERVER1", "1.1.1.1".to_string());
-	let ns1_port_str = env_loader::get_env("NAMESERVER1_PORT", "53".to_string());
-	let ns2_str = env_loader::get_env("NAMESERVER2", "8.8.8.8".to_string());
-	let ns2_port_str = env_loader::get_env("NAMESERVER2_PORT", "53".to_string());
+	let ns1_str = env_loader::get_env("NAMESERVER1", "1.1.1.1".to_owned());
+	let ns1_port_str = env_loader::get_env("NAMESERVER1_PORT", "53".to_owned());
+	let ns2_str = env_loader::get_env("NAMESERVER2", "8.8.8.8".to_owned());
+	let ns2_port_str = env_loader::get_env("NAMESERVER2_PORT", "53".to_owned());
 
 	let mut config = ResolverConfig::new();
 
@@ -30,7 +30,7 @@ static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 	} else {
 		log(
 			LogLevel::Warn,
-			&format!("✗ Invalid format for NAMESERVER1 or NAMESERVER1_PORT"),
+			"✗ Invalid format for NAMESERVER1 or NAMESERVER1_PORT",
 		);
 	}
 
@@ -40,7 +40,7 @@ static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 	} else {
 		log(
 			LogLevel::Warn,
-			&format!("✗ Invalid format for NAMESERVER2 or NAMESERVER2_PORT"),
+			"✗ Invalid format for NAMESERVER2 or NAMESERVER2_PORT",
 		);
 	}
 
@@ -51,13 +51,13 @@ static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 
 #[cfg(feature = "domain-target")]
 pub async fn resolve_domain_to_ips(domain: &str) -> Vec<IpAddr> {
-	log(LogLevel::Debug, &format!("⚙ Resolving domain: {}", domain));
+	log(LogLevel::Debug, &format!("⚙ Resolving domain: {domain}"));
 	match DNS_RESOLVER.lookup_ip(domain).await {
 		Ok(lookup) => lookup.iter().collect(),
 		Err(e) => {
 			log(
 				LogLevel::Warn,
-				&format!("✗ DNS lookup failed for {}: {}", domain, e),
+				&format!("✗ DNS lookup failed for {domain}: {e}"),
 			);
 			Vec::new()
 		}
@@ -121,8 +121,7 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 					log(
 						LogLevel::Warn,
 						&format!(
-							"✗ Node '{}' with port {} not found in nodes configuration.",
-							node, port
+							"✗ Node '{node}' with port {port} not found in nodes configuration."
 						),
 					);
 				}

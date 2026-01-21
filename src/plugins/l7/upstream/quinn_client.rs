@@ -24,7 +24,7 @@ pub async fn execute_quinn_request(
 	skip_verify: bool,
 ) -> Result<()> {
 	let uri =
-		Uri::from_str(url_str).map_err(|e| Error::Configuration(format!("Invalid URL: {}", e)))?;
+		Uri::from_str(url_str).map_err(|e| Error::Configuration(format!("Invalid URL: {e}")))?;
 
 	let host = uri
 		.host()
@@ -56,7 +56,7 @@ pub async fn execute_quinn_request(
 	let stream = send_request
 		.send_request(request)
 		.await
-		.map_err(|e| Error::System(format!("Failed to send H3 headers: {}", e)))?;
+		.map_err(|e| Error::System(format!("Failed to send H3 headers: {e}")))?;
 
 	// Split stream for concurrent Read/Write to avoid head-of-line blocking/deadlocks
 	let (mut driver_send, mut driver_recv) = stream.split();
@@ -76,17 +76,15 @@ pub async fn execute_quinn_request(
 			loop {
 				match body.frame().await {
 					Some(Ok(frame)) => {
-						if let Ok(data) = frame.into_data() {
-							if !data.is_empty() {
-								if let Err(e) = driver_send.send_data(data).await {
-									log(LogLevel::Warn, &format!("⚠ H3 Upload interrupted: {}", e));
+						if let Ok(data) = frame.into_data()
+							&& !data.is_empty()
+								&& let Err(e) = driver_send.send_data(data).await {
+									log(LogLevel::Warn, &format!("⚠ H3 Upload interrupted: {e}"));
 									break;
 								}
-							}
-						}
 					}
 					Some(Err(e)) => {
-						log(LogLevel::Error, &format!("✗ H3 Request Read Error: {}", e));
+						log(LogLevel::Error, &format!("✗ H3 Request Read Error: {e}"));
 						break;
 					}
 					None => {
@@ -108,8 +106,7 @@ pub async fn execute_quinn_request(
 		Ok(res) => res,
 		Err(e) => {
 			return Err(Error::System(format!(
-				"Failed to receive H3 response: {}",
-				e
+				"Failed to receive H3 response: {e}"
 			)));
 		}
 	};
@@ -117,13 +114,13 @@ pub async fn execute_quinn_request(
 	let status = response.status();
 	log(
 		LogLevel::Debug,
-		&format!("✓ H3 Upstream Responded: {}", status),
+		&format!("✓ H3 Upstream Responded: {status}"),
 	);
 
 	// 7. Update Container Headers
 	container
 		.kv
-		.insert("res.status".to_string(), status.as_u16().to_string());
+		.insert("res.status".to_owned(), status.as_u16().to_string());
 	container.response_headers = response.headers().clone();
 
 	// 8. SPAWN DOWNLOAD TASK (Upstream -> Channel -> Response Body)
@@ -136,7 +133,7 @@ pub async fn execute_quinn_request(
 					let bytes = chunk.copy_to_bytes(chunk.remaining());
 					if res_body_tx.send(Ok(bytes)).await.is_err() {
 						// Downstream receiver dropped, stop reading upstream
-						let _ = driver_recv.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+						driver_recv.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
 						break;
 					}
 				}
@@ -145,7 +142,7 @@ pub async fn execute_quinn_request(
 					break;
 				}
 				Err(e) => {
-					log(LogLevel::Error, &format!("✗ H3 Download Error: {}", e));
+					log(LogLevel::Error, &format!("✗ H3 Download Error: {e}"));
 					let _ = res_body_tx.send(Err(Error::System(e.to_string()))).await;
 					break;
 				}

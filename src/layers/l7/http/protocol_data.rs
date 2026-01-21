@@ -36,6 +36,7 @@ pub struct HttpProtocolData {
 
 impl HttpProtocolData {
 	/// Creates a new HttpProtocolData with no upgrade handles.
+	#[must_use] 
 	pub fn new() -> Self {
 		Self {
 			client_upgrade: None,

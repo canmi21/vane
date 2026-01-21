@@ -11,10 +11,9 @@ pub async fn generate_listing(root_path: &std::path::Path, uri_path: &str) -> Re
 
 	write!(
 		html,
-		"<html><head><title>Index of {}</title></head>",
-		uri_path
+		"<html><head><title>Index of {uri_path}</title></head>"
 	)?;
-	write!(html, "<body><h1>Index of {}</h1><hr><table>", uri_path)?;
+	write!(html, "<body><h1>Index of {uri_path}</h1><hr><table>")?;
 	write!(html, "<tr><th>Name</th><th>Size</th></tr>")?;
 
 	// Add Parent Link
@@ -28,20 +27,19 @@ pub async fn generate_listing(root_path: &std::path::Path, uri_path: &str) -> Re
 		let is_dir = meta.is_dir();
 
 		let display_name = if is_dir {
-			format!("{}/", name)
+			format!("{name}/")
 		} else {
 			name.clone()
 		};
 		let size_str = if is_dir {
-			"-".to_string()
+			"-".to_owned()
 		} else {
 			format!("{}", meta.len())
 		};
 
 		write!(
 			html,
-			"<tr><td><a href=\"{}\">{}</a></td><td>{}</td></tr>",
-			name, display_name, size_str
+			"<tr><td><a href=\"{name}\">{display_name}</a></td><td>{size_str}</td></tr>"
 		)?;
 	}
 

@@ -8,29 +8,27 @@ pub fn resolve_path(root: &str, uri_path: &str, allow_symlinks: bool) -> Result<
 	// 1. Percent Decode
 	let decoded_uri = percent_encoding::percent_decode_str(uri_path)
 		.decode_utf8()
-		.map_err(|e| anyhow!("Failed to decode URI: {}", e))?;
+		.map_err(|e| anyhow!("Failed to decode URI: {e}"))?;
 
 	// 2. Normalize & Join (Logical Sanitization)
 	// We iterate over components to remove ".." and "." logic purely in memory first.
 	// This guarantees 'final_path' has no ".." components syntactically.
 	let root_path = Path::new(root)
 		.canonicalize()
-		.map_err(|e| anyhow!("Root path '{}' is invalid or does not exist: {}", root, e))?;
+		.map_err(|e| anyhow!("Root path '{root}' is invalid or does not exist: {e}"))?;
 
 	let mut final_path = root_path.clone();
 
 	for component in Path::new(decoded_uri.as_ref()).components() {
 		match component {
 			Component::Normal(c) => final_path.push(c),
-			Component::RootDir => {} // Ignore, we explicitly join with root
-			Component::CurDir => {}  // Ignore "."
+			Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
 			Component::ParentDir => {
 				// Logical Security: Prevent popping above root via ".."
 				if final_path > root_path {
 					final_path.pop();
 				}
 			}
-			Component::Prefix(_) => {} // Ignore Windows prefixes
 		}
 	}
 
@@ -58,7 +56,7 @@ pub fn resolve_path(root: &str, uri_path: &str, allow_symlinks: bool) -> Result<
 
 				// For ALL other errors (PermissionDenied, Loop, etc.), we MUST fail.
 				// Fallback is strictly forbidden here to prevents security bypasses.
-				return Err(anyhow!("Path Resolution Security Error: {}", e));
+				return Err(anyhow!("Path Resolution Security Error: {e}"));
 			}
 		}
 	}

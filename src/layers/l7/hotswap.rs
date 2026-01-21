@@ -34,25 +34,25 @@ pub async fn scan_application_config(
 
 		match config {
 			LoadResult::Ok(config) => {
-				new_registry.insert(protocol.to_string(), Arc::new(config));
+				new_registry.insert(protocol.to_owned(), Arc::new(config));
 				log(
 					LogLevel::Debug,
-					&format!("⚙ Loaded application config: {}", protocol),
+					&format!("⚙ Loaded application config: {protocol}"),
 				);
 			}
 			LoadResult::Invalid => {
 				if let Some(old_config) = current_state.get(protocol) {
 					log(
 						LogLevel::Warn,
-						&format!("⚠ Keeping old config for {}", protocol),
+						&format!("⚠ Keeping old config for {protocol}"),
 					);
-					new_registry.insert(protocol.to_string(), old_config.value().clone());
+					new_registry.insert(protocol.to_owned(), old_config.value().clone());
 				}
 			}
 			LoadResult::NotFound => {
 				log(
 					LogLevel::Info,
-					&format!("↓ Application protocol '{}' removed.", protocol),
+					&format!("↓ Application protocol '{protocol}' removed."),
 				);
 			}
 		}

@@ -11,27 +11,26 @@ use std::time::Duration;
 pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
 	log(
 		LogLevel::Debug,
-		&format!("➜ Executing external HTTP middleware: {}", name),
+		&format!("➜ Executing external HTTP middleware: {name}"),
 	);
 
 	// 1. Check Env for TLS Verification Skip
 	let skip_tls = env_loader::to_lowercase(&env_loader::get_env(
 		"EXTERNAL_HTTPS_CALL_SKIP_TLS_VERIFY",
-		"false".to_string(),
+		"false".to_owned(),
 	)) == "true";
 
 	if skip_tls {
 		log(
 			LogLevel::Debug,
 			&format!(
-				"⚠ TLS Verification disabled for external plugin '{}' via EXTERNAL_HTTPS_CALL_SKIP_TLS_VERIFY.",
-				name
+				"⚠ TLS Verification disabled for external plugin '{name}' via EXTERNAL_HTTPS_CALL_SKIP_TLS_VERIFY."
 			),
 		);
 	}
 
 	// 2. Build Client
-	let timeout_secs = env_loader::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
+	let timeout_secs = env_loader::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_owned())
 		.parse::<u64>()
 		.unwrap_or(10);
 
@@ -39,7 +38,7 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 		.timeout(Duration::from_secs(timeout_secs)) // Runtime timeout
 		.danger_accept_invalid_certs(skip_tls)
 		.build()
-		.map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
+		.map_err(|e| anyhow!("Failed to build HTTP client: {e}"))?;
 
 	// 3. Send POST Request
 	let response = match client.post(url).json(&inputs).send().await {
@@ -47,7 +46,7 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 		Err(e) => {
 			log(
 				LogLevel::Error,
-				&format!("✗ External HTTP request failed for '{}': {}", name, e),
+				&format!("✗ External HTTP request failed for '{name}': {e}"),
 			);
 			return Ok(MiddlewareOutput {
 				branch: "failure".into(),
@@ -79,8 +78,7 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 			log(
 				LogLevel::Error,
 				&format!(
-					"✗ Failed to parse external API response JSON for '{}': {}",
-					name, e
+					"✗ Failed to parse external API response JSON for '{name}': {e}"
 				),
 			);
 			return Ok(MiddlewareOutput {
@@ -94,19 +92,17 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 	if api_response.status == "success" {
 		api_response.data.ok_or_else(|| {
 			anyhow!(
-				"External API for '{}' returned success but 'data' is missing.",
-				name
+				"External API for '{name}' returned success but 'data' is missing."
 			)
 		})
 	} else {
 		let msg = api_response
 			.message
-			.unwrap_or_else(|| "Unknown error".to_string());
+			.unwrap_or_else(|| "Unknown error".to_owned());
 		log(
 			LogLevel::Warn,
 			&format!(
-				"⚠ External API for '{}' returned error status: {}",
-				name, msg
+				"⚠ External API for '{name}' returned error status: {msg}"
 			),
 		);
 		Ok(MiddlewareOutput {

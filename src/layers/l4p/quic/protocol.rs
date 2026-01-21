@@ -31,25 +31,22 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	context::inject_common(kv, "quic");
 
 	// Initial Lightweight Parse to get DCID and Crypto Frames
-	let limit_str = env_loader::get_env("QUIC_LONG_HEADER_BUFFER_SIZE", "4096".to_string());
+	let limit_str = env_loader::get_env("QUIC_LONG_HEADER_BUFFER_SIZE", "4096".to_owned());
 	let max_len = limit_str.parse::<usize>().unwrap_or(4096);
 	let parse_len = std::cmp::min(datagram.len(), max_len);
 
-	let parsed_packet = match parser::parse_initial_packet(&datagram[..parse_len]) {
-		Ok(p) => p,
-		Err(_) => {
-			// If parsing fails (Short Header/Handshake), check IP:PORT sticky map.
-			if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
-				// Blind forward to sticky target using correct source port
-				log(
-					LogLevel::Debug,
-					&format!("➜ Sticky Forward: {} -> {}", client_addr, target),
-				);
-				let _ = upstream_socket.send_to(&datagram, target).await;
-			}
-			return Ok(());
-		}
-	};
+	let Ok(parsed_packet) = parser::parse_initial_packet(&datagram[..parse_len]) else {
+ 			// If parsing fails (Short Header/Handshake), check IP:PORT sticky map.
+ 			if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
+ 				// Blind forward to sticky target using correct source port
+ 				log(
+ 					LogLevel::Debug,
+ 					&format!("➜ Sticky Forward: {client_addr} -> {target}"),
+ 				);
+ 				let _ = upstream_socket.send_to(&datagram, target).await;
+ 			}
+ 			return Ok(());
+ 		};
 
 	let dcid_bytes = hex::decode(&parsed_packet.dcid).unwrap_or_default();
 	if dcid_bytes.is_empty() {
@@ -60,7 +57,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	let mut sni_found = parsed_packet.sni_hint.clone();
 	let mut should_proceed = false;
 
-	let max_pending_packets = env_loader::get_env("QUIC_MAX_PENDING_PACKETS", "5".to_string())
+	let max_pending_packets = env_loader::get_env("QUIC_MAX_PENDING_PACKETS", "5".to_owned())
 		.parse::<usize>()
 		.unwrap_or(5);
 
@@ -76,21 +73,18 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 			e
 		} else {
 			// Apply Connection Rate Limits
-			let guard = match GLOBAL_TRACKER.acquire(client_addr.ip()) {
-				Some(g) => g,
-				None => {
-					log(
-						LogLevel::Debug,
-						&format!(
-							"⚙ Rate limited QUIC session from {} (DCID {})",
-							client_addr, parsed_packet.dcid
-						),
-					);
-					// Release bytes since we aren't storing
-					session::release_global_bytes(datagram.len());
-					return Ok(());
-				}
-			};
+			let Some(guard) = GLOBAL_TRACKER.acquire(client_addr.ip()) else {
+   					log(
+   						LogLevel::Debug,
+   						&format!(
+   							"⚙ Rate limited QUIC session from {} (DCID {})",
+   							client_addr, parsed_packet.dcid
+   						),
+   					);
+   					// Release bytes since we aren't storing
+   					session::release_global_bytes(datagram.len());
+   					return Ok(());
+   				};
 
 			session::PENDING_INITIALS
 				.entry(dcid_bytes.clone())
@@ -196,7 +190,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	let mut initial_payloads = ahash::AHashMap::new();
 	// LAZY: Store raw datagram for {{quic.initial}} hijacking
 	initial_payloads.insert(
-		"quic.initial".to_string(),
+		"quic.initial".to_owned(),
 		bytes::Bytes::copy_from_slice(&datagram),
 	);
 
@@ -287,7 +281,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 
 				Ok(())
 			} else {
-				Err(anyhow!("Unsupported QUIC upgrade target: {}", protocol))
+				Err(anyhow!("Unsupported QUIC upgrade target: {protocol}"))
 			}
 		}
 		Err(e) => Err(e),

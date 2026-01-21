@@ -16,7 +16,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 
 	tokio::spawn(async move {
 		let listen_ipv6 =
-			env_loader::get_env("LISTEN_IPV6", "false".to_string()).to_lowercase() == "true";
+			env_loader::get_env("LISTEN_IPV6", "false".to_owned()).to_lowercase() == "true";
 		let addr: std::net::SocketAddr = if listen_ipv6 {
 			([0; 8], port).into()
 		} else {
@@ -25,7 +25,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 
 		log(
 			LogLevel::Info,
-			&format!("⚙ Binding {:?} listener on {}...", protocol, addr),
+			&format!("⚙ Binding {protocol:?} listener on {addr}..."),
 		);
 
 		let shutdown_tx = match protocol {
@@ -42,8 +42,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 								log(
 									LogLevel::Error,
 									&format!(
-										"✗ TCP bind failed on {}: {} (giving up after 5 retries)",
-										addr, e
+										"✗ TCP bind failed on {addr}: {e} (giving up after 5 retries)"
 									),
 								);
 							} else {
@@ -68,8 +67,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 								log(
 									LogLevel::Error,
 									&format!(
-										"✗ UDP bind failed on {}: {} (giving up after 5 retries)",
-										addr, e
+										"✗ UDP bind failed on {addr}: {e} (giving up after 5 retries)"
 									),
 								);
 							} else {
@@ -92,7 +90,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 			);
 			log(
 				LogLevel::Info,
-				&format!("✓ {:?} listener on port {} is UP", protocol, port),
+				&format!("✓ {protocol:?} listener on port {port} is UP"),
 			);
 		}
 	});
@@ -127,16 +125,14 @@ pub async fn handle_listener_error(port: u16, protocol: Protocol, error: std::io
 	log(
 		LogLevel::Warn,
 		&format!(
-			"⚠ Listener error on port {} {:?}: {}",
-			port, protocol, error
+			"⚠ Listener error on port {port} {protocol:?}: {error}"
 		),
 	);
 	if is_listener_still_required(port, &protocol).await {
 		log(
 			LogLevel::Info,
 			&format!(
-				"↻ Retrying {:?} listener on port {} in 5s...",
-				protocol, port
+				"↻ Retrying {protocol:?} listener on port {port} in 5s..."
 			),
 		);
 		tokio::time::sleep(std::time::Duration::from_secs(5)).await;

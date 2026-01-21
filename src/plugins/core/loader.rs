@@ -25,7 +25,7 @@ pub async fn initialize() -> usize {
 	}
 	let mut content = fs::read_to_string(&config_path).await.unwrap_or_default();
 	if content.trim().is_empty() {
-		content = "{}".to_string();
+		content = "{}".to_owned();
 		let _ = fs::write(&config_path, &content).await;
 	}
 	let configs: HashMap<String, ExternalPluginConfig> =
@@ -43,7 +43,7 @@ pub async fn initialize() -> usize {
 	if count > 0 {
 		log(
 			LogLevel::Info,
-			&format!("✓ Loaded {} external plugins.", count),
+			&format!("✓ Loaded {count} external plugins."),
 		);
 		start_background_health_check();
 	}
@@ -59,7 +59,7 @@ fn start_background_health_check() {
 		loop {
 			interval.tick().await;
 			for plugin in registry::list_external_plugins() {
-				let name = plugin.name().to_string();
+				let name = plugin.name().to_owned();
 				if let Some(ext) = plugin.as_any().downcast_ref::<ExternalPlugin>() {
 					let res = ext.validate_connectivity().await;
 					registry::EXTERNAL_PLUGIN_STATUS.insert(name, res.map_err(|e| e.to_string()));
@@ -84,7 +84,7 @@ pub async fn register_plugin(config: ExternalPluginConfig) -> Result<()> {
 	let path = file_loader::get_config_dir().join(PLUGINS_CONFIG_FILE);
 	let content = fs::read_to_string(&path)
 		.await
-		.unwrap_or_else(|_| "{}".to_string());
+		.unwrap_or_else(|_| "{}".to_owned());
 	let mut configs: HashMap<String, ExternalPluginConfig> =
 		serde_json::from_str(&content).unwrap_or_default();
 	configs.insert(config.name.clone(), config);
@@ -97,7 +97,7 @@ pub async fn delete_plugin(name: &str) -> Result<()> {
 	let path = file_loader::get_config_dir().join(PLUGINS_CONFIG_FILE);
 	let content = fs::read_to_string(&path)
 		.await
-		.unwrap_or_else(|_| "{}".to_string());
+		.unwrap_or_else(|_| "{}".to_owned());
 	let mut configs: HashMap<String, ExternalPluginConfig> =
 		serde_json::from_str(&content).unwrap_or_default();
 	if configs.remove(name).is_none() {

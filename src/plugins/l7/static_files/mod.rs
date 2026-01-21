@@ -146,7 +146,7 @@ impl HttpMiddleware for StaticPlugin {
 			Ok(p) => p,
 			Err(e) => {
 				// Path traversal attempt or invalid root
-				container.kv.insert("res.error".to_string(), e.to_string());
+				container.kv.insert("res.error".to_owned(), e.to_string());
 				return Ok(MiddlewareOutput {
 					branch: Cow::Borrowed("failure"),
 					store: None,
@@ -244,15 +244,14 @@ impl HttpMiddleware for StaticPlugin {
 					"{}.gz",
 					fs_path.extension().unwrap_or_default().to_string_lossy()
 				));
-				if let Ok(gz_meta) = tokio::fs::metadata(&gz_path).await {
-					if let Ok(gz_file) = File::open(&gz_path).await {
+				if let Ok(gz_meta) = tokio::fs::metadata(&gz_path).await
+					&& let Ok(gz_file) = File::open(&gz_path).await {
 						// Switch to compressed file
 						file = gz_file;
 						metadata = gz_meta;
 						content_encoding = Some("gzip");
 						// Content-Type remains that of original file
 					}
-				}
 			}
 		}
 
@@ -261,7 +260,7 @@ impl HttpMiddleware for StaticPlugin {
 		let headers = &mut container.response_headers;
 
 		let ct_val = HeaderValue::from_str(&content_type)
-			.map_err(|e| anyhow!("Invalid content-type generated: {}", e))?;
+			.map_err(|e| anyhow!("Invalid content-type generated: {e}"))?;
 
 		headers.insert(http::header::CONTENT_TYPE, ct_val);
 
@@ -288,10 +287,10 @@ impl HttpMiddleware for StaticPlugin {
 		if let Some(r) = range {
 			// Range Response
 
-			if let Err(_) = file.seek(SeekFrom::Start(r.start)).await {
+			if (file.seek(SeekFrom::Start(r.start)).await).is_err() {
 				container
 					.kv
-					.insert("res.status".to_string(), "500".to_string());
+					.insert("res.status".to_owned(), "500".to_owned());
 
 				return Ok(MiddlewareOutput {
 					branch: Cow::Borrowed("failure"),
@@ -306,7 +305,7 @@ impl HttpMiddleware for StaticPlugin {
 
 			container
 				.kv
-				.insert("res.status".to_string(), "206".to_string());
+				.insert("res.status".to_owned(), "206".to_owned());
 
 			let range_val = format!(
 				"bytes {}-{}/{}",
@@ -316,7 +315,7 @@ impl HttpMiddleware for StaticPlugin {
 			);
 
 			let cr_val = HeaderValue::from_str(&range_val)
-				.map_err(|e| anyhow!("Invalid content-range generated: {}", e))?;
+				.map_err(|e| anyhow!("Invalid content-range generated: {e}"))?;
 
 			headers.insert(http::header::CONTENT_RANGE, cr_val);
 		} else if range_header.is_some() && range.is_none() {
@@ -324,12 +323,12 @@ impl HttpMiddleware for StaticPlugin {
 
 			container
 				.kv
-				.insert("res.status".to_string(), "416".to_string());
+				.insert("res.status".to_owned(), "416".to_owned());
 
 			let range_val = format!("bytes */{}", metadata.len());
 
 			let cr_val = HeaderValue::from_str(&range_val)
-				.map_err(|e| anyhow!("Invalid content-range generated: {}", e))?;
+				.map_err(|e| anyhow!("Invalid content-range generated: {e}"))?;
 
 			headers.insert(http::header::CONTENT_RANGE, cr_val);
 

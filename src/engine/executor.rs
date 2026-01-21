@@ -33,25 +33,21 @@ pub async fn execute<C: ExecutionContext>(
 	flow_path: String,
 ) -> Result<TerminatorResult> {
 	let timeout_secs =
-		crate::common::config::env_loader::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_string())
+		crate::common::config::env_loader::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_owned())
 			.parse::<u64>()
 			.unwrap_or(10);
 
-	match tokio::time::timeout(
+	if let Ok(result) = tokio::time::timeout(
 		std::time::Duration::from_secs(timeout_secs),
 		execute_recursive(step, context, conn, flow_path),
 	)
-	.await
-	{
-		Ok(result) => result,
-		Err(_) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Flow execution timed out after {}s", timeout_secs),
-			);
-			Err(anyhow!("Flow execution timeout"))
-		}
-	}
+	.await { result } else {
+ 			log(
+ 				LogLevel::Error,
+ 				&format!("✗ Flow execution timed out after {timeout_secs}s"),
+ 			);
+ 			Err(anyhow!("Flow execution timeout"))
+ 		}
 }
 
 /// Convenience wrapper for L7 flow execution.
@@ -90,23 +86,22 @@ async fn execute_recursive<C: ExecutionContext>(
 
 	// 3. Get plugin from registry
 	let plugin = registry::get_plugin(plugin_name)
-		.ok_or_else(|| anyhow!("Plugin '{}' not found in registry", plugin_name))?;
+		.ok_or_else(|| anyhow!("Plugin '{plugin_name}' not found in registry"))?;
 
 	log(
 		LogLevel::Debug,
 		&format!(
-			"➜ Executing plugin: {} (Path: '{}')",
-			plugin_name, flow_path
+			"➜ Executing plugin: {plugin_name} (Path: '{flow_path}')"
 		),
 	);
 
 	// --- Passive Circuit Breaker (for External Plugins) ---
 	let is_external = registry::get_external_plugin(plugin_name).is_some();
-	if is_external {
-		if let Some(last_failure) = registry::EXTERNAL_PLUGIN_FAILURES.get(plugin_name) {
+	if is_external
+		&& let Some(last_failure) = registry::EXTERNAL_PLUGIN_FAILURES.get(plugin_name) {
 			let quiet_period_secs = crate::common::config::env_loader::get_env(
 				"EXTERNAL_PLUGIN_QUIET_PERIOD_SECS",
-				"3".to_string(),
+				"3".to_owned(),
 			)
 			.parse::<u64>()
 			.unwrap_or(3);
@@ -115,16 +110,15 @@ async fn execute_recursive<C: ExecutionContext>(
 				log(
 					LogLevel::Warn,
 					&format!(
-						"➜ Circuit Breaker: Plugin '{}' is in quiet period (last failure < {}s ago). Skipping IO and returning failure branch.",
-						plugin_name, quiet_period_secs
+						"➜ Circuit Breaker: Plugin '{plugin_name}' is in quiet period (last failure < {quiet_period_secs}s ago). Skipping IO and returning failure branch."
 					),
 				);
 				// Fast-fail: return failure branch with metadata
 				let output = MiddlewareOutput {
 					branch: "failure".into(),
 					store: Some(std::collections::HashMap::from([(
-						"error".to_string(),
-						"circuit_breaker_active".to_string(),
+						"error".to_owned(),
+						"circuit_breaker_active".to_owned(),
 					)])),
 				};
 				// We proceed to handle this as a standard middleware output
@@ -132,7 +126,6 @@ async fn execute_recursive<C: ExecutionContext>(
 					.await;
 			}
 		}
-	}
 
 	// 4. Try dispatch (Priority: Middleware > Terminator)
 	let output_res = if let Some(http_middleware) = plugin.as_http_middleware() {
@@ -140,41 +133,40 @@ async fn execute_recursive<C: ExecutionContext>(
 		http_middleware
 			.execute(context.as_any_mut(), resolved_inputs)
 			.await
-			.with_context(|| format!("Error executing HTTP middleware '{}'", plugin_name))
+			.with_context(|| format!("Error executing HTTP middleware '{plugin_name}'"))
 	} else if let Some(generic_middleware) = plugin.as_generic_middleware() {
 		// 4.2 Generic Middleware (Internal or External)
 		generic_middleware
 			.execute(resolved_inputs)
 			.await
-			.with_context(|| format!("Error executing generic middleware '{}'", plugin_name))
+			.with_context(|| format!("Error executing generic middleware '{plugin_name}'"))
 	} else if let Some(l7_middleware) = plugin.as_l7_middleware() {
 		// 4.3 Legacy L7 Fallback
 		l7_middleware
 			.execute_l7(context.as_any_mut(), resolved_inputs)
 			.await
-			.with_context(|| format!("Error executing L7 middleware '{}'", plugin_name))
+			.with_context(|| format!("Error executing L7 middleware '{plugin_name}'"))
 	} else if let Some(middleware) = plugin.as_middleware() {
 		// 4.4 Legacy generic Fallback
 		middleware
 			.execute(resolved_inputs)
 			.await
-			.with_context(|| format!("Error executing middleware '{}'", plugin_name))
+			.with_context(|| format!("Error executing middleware '{plugin_name}'"))
 	} else {
 		// 5. Try terminator dispatch (L7 Priority > Standard)
 		let terminator_result = if let Some(l7_terminator) = plugin.as_l7_terminator() {
 			l7_terminator
 				.execute_l7(context.as_any_mut(), resolved_inputs)
 				.await
-				.with_context(|| format!("Error executing L7 terminator '{}'", plugin_name))?
+				.with_context(|| format!("Error executing L7 terminator '{plugin_name}'"))?
 		} else if let Some(terminator) = plugin.as_terminator() {
 			terminator
 				.execute(resolved_inputs, context.kv_mut(), conn)
 				.await
-				.with_context(|| format!("Error executing terminator '{}'", plugin_name))?
+				.with_context(|| format!("Error executing terminator '{plugin_name}'"))?
 		} else {
 			return Err(anyhow!(
-				"Plugin '{}' is neither Middleware nor Terminator",
-				plugin_name
+				"Plugin '{plugin_name}' is neither Middleware nor Terminator"
 			));
 		};
 
@@ -182,15 +174,14 @@ async fn execute_recursive<C: ExecutionContext>(
 			TerminatorResult::Finished => {
 				log(
 					LogLevel::Debug,
-					&format!("✓ Flow terminated successfully by '{}'", plugin_name),
+					&format!("✓ Flow terminated successfully by '{plugin_name}'"),
 				);
 			}
 			TerminatorResult::Upgrade { protocol, .. } => {
 				log(
 					LogLevel::Info,
 					&format!(
-						"➜ Flow upgrade requested by '{}' -> Protocol: {}",
-						plugin_name, protocol
+						"➜ Flow upgrade requested by '{plugin_name}' -> Protocol: {protocol}"
 					),
 				);
 			}
@@ -206,12 +197,11 @@ async fn execute_recursive<C: ExecutionContext>(
 				log(
 					LogLevel::Warn,
 					&format!(
-						"⚠ External plugin '{}' returned 'failure' branch. Marking as failed in Circuit Breaker.",
-						plugin_name
+						"⚠ External plugin '{plugin_name}' returned 'failure' branch. Marking as failed in Circuit Breaker."
 					),
 				);
 				registry::EXTERNAL_PLUGIN_FAILURES
-					.insert(plugin_name.to_string(), std::time::Instant::now());
+					.insert(plugin_name.clone(), std::time::Instant::now());
 			}
 			out
 		}
@@ -220,12 +210,11 @@ async fn execute_recursive<C: ExecutionContext>(
 				log(
 					LogLevel::Error,
 					&format!(
-						"✗ Runtime error in external plugin '{}': {}. Activating quiet period.",
-						plugin_name, e
+						"✗ Runtime error in external plugin '{plugin_name}': {e}. Activating quiet period."
 					),
 				);
 				registry::EXTERNAL_PLUGIN_FAILURES
-					.insert(plugin_name.to_string(), std::time::Instant::now());
+					.insert(plugin_name.clone(), std::time::Instant::now());
 			}
 			return Err(e);
 		}
@@ -260,8 +249,7 @@ async fn handle_middleware_output<C: ExecutionContext>(
 				log(
 					LogLevel::Error,
 					&format!(
-						"✗ Security: Plugin '{}' attempted to store an invalid key name containing '{{' or '}}'. Ignoring: '{}'",
-						plugin_name, raw_key
+						"✗ Security: Plugin '{plugin_name}' attempted to store an invalid key name containing '{{' or '}}'. Ignoring: '{raw_key}'"
 					),
 				);
 				continue;
@@ -270,7 +258,7 @@ async fn handle_middleware_output<C: ExecutionContext>(
 			let scoped_key = key_scoping::format_scoped_key(flow_path, plugin_name, &raw_key);
 			log(
 				LogLevel::Debug,
-				&format!("⚙ KV Update: {} = {}", scoped_key, value),
+				&format!("⚙ KV Update: {scoped_key} = {value}"),
 			);
 			kv.insert(scoped_key, value);
 		}

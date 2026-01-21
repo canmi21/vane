@@ -26,11 +26,11 @@ pub async fn run(
 ) -> Result<()> {
 	log(
 		LogLevel::Debug,
-		&format!("➜ Entering Plaintext L4+ Resolver ({})", protocol),
+		&format!("➜ Entering Plaintext L4+ Resolver ({protocol})"),
 	);
 
 	// 1. Configurable Peek Buffer
-	let peek_limit_str = env_loader::get_env("HTTP_PLAIN_HEADER_BUFFER_SIZE", "4096".to_string());
+	let peek_limit_str = env_loader::get_env("HTTP_PLAIN_HEADER_BUFFER_SIZE", "4096".to_owned());
 	let peek_limit = peek_limit_str.parse::<usize>().unwrap_or(4096);
 	let mut buf = vec![0u8; peek_limit];
 
@@ -45,20 +45,20 @@ pub async fn run(
 			let mut req = httparse::Request::new(&mut headers);
 
 			match req.parse(data) {
-				Ok(httparse::Status::Complete(_)) | Ok(httparse::Status::Partial) => {
+				Ok(httparse::Status::Complete(_) | httparse::Status::Partial) => {
 					// Extract Method
 					if let Some(m) = req.method {
-						kv.insert("http.method".to_string(), m.to_string());
+						kv.insert("http.method".to_owned(), m.to_owned());
 					}
 					// Extract Path
 					if let Some(p) = req.path {
-						kv.insert("http.path".to_string(), p.to_string());
+						kv.insert("http.path".to_owned(), p.to_owned());
 					}
 					// Extract Host Header
 					for h in req.headers {
 						if h.name.eq_ignore_ascii_case("Host") {
 							let host_val = String::from_utf8_lossy(h.value);
-							kv.insert("http.host".to_string(), host_val.to_string());
+							kv.insert("http.host".to_owned(), host_val.to_string());
 							break;
 						}
 					}
@@ -83,7 +83,7 @@ pub async fn run(
 		Err(e) => {
 			log(
 				LogLevel::Warn,
-				&format!("⚠ Failed to peek TCP stream: {}", e),
+				&format!("⚠ Failed to peek TCP stream: {e}"),
 			);
 		}
 	}
@@ -95,7 +95,7 @@ pub async fn run(
 	let registry = RESOLVER_REGISTRY.load();
 	let config = registry
 		.get(protocol)
-		.ok_or_else(|| anyhow!("No resolver config found for '{}'", protocol))?;
+		.ok_or_else(|| anyhow!("No resolver config found for '{protocol}'"))?;
 
 	let execution_result = flow::execute(
 		&config.connection,
@@ -123,15 +123,14 @@ pub async fn run(
 				handle_plain_handover(conn, target_proto).await
 			} else {
 				Err(anyhow!(
-					"Unsupported L7 upgrade protocol from Plaintext: {}",
-					target_proto
+					"Unsupported L7 upgrade protocol from Plaintext: {target_proto}"
 				))
 			}
 		}
 		Err(e) => {
 			log(
 				LogLevel::Error,
-				&format!("✗ Plain Flow execution failed: {:#}", e),
+				&format!("✗ Plain Flow execution failed: {e:#}"),
 			);
 			Err(e)
 		}
@@ -142,10 +141,10 @@ pub async fn run(
 async fn handle_plain_handover(conn: ConnectionObject, target_protocol: String) -> Result<()> {
 	log(
 		LogLevel::Debug,
-		&format!("➜ Handing over to L7 Engine ({})...", target_protocol),
+		&format!("➜ Handing over to L7 Engine ({target_protocol})..."),
 	);
 
 	httpx::handle_connection(conn, target_protocol)
 		.await
-		.map_err(|e| anyhow!("L7 Engine Error: {}", e))
+		.map_err(|e| anyhow!("L7 Engine Error: {e}"))
 }

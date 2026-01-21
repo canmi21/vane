@@ -6,7 +6,7 @@ use std::env;
 
 /// Sets up the global logging level based on the LOG_LEVEL environment variable.
 pub fn setup() {
-	let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+	let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_owned());
 	let log_level = match level.to_lowercase().as_str() {
 		"debug" => LogLevel::Debug,
 		"warn" => LogLevel::Warn,

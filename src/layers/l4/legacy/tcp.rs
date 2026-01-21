@@ -39,8 +39,8 @@ pub enum TcpDestination {
 impl Validate for TcpDestination {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		match self {
-			TcpDestination::Resolver { .. } => Ok(()),
-			TcpDestination::Forward { forward } => forward.validate(),
+			Self::Resolver { .. } => Ok(()),
+			Self::Forward { forward } => forward.validate(),
 		}
 	}
 }
@@ -78,11 +78,11 @@ pub async fn dispatch_legacy_tcp(
 ) {
 	let peer_addr = socket
 		.peer_addr()
-		.map_or_else(|_| "unknown".to_string(), |a| a.to_string());
+		.map_or_else(|_| "unknown".to_owned(), |a| a.to_string());
 	let mut rules = config.rules.clone();
 	rules.sort_by_key(|r| r.priority);
 
-	let limit_str = env_loader::get_env("TCP_DETECT_LIMIT", "64".to_string());
+	let limit_str = env_loader::get_env("TCP_DETECT_LIMIT", "64".to_owned());
 	let limit = limit_str.parse::<usize>().unwrap_or(64);
 	const MAX_DETECT_LIMIT: usize = 8192;
 	let final_limit = limit.min(MAX_DETECT_LIMIT);
@@ -93,7 +93,7 @@ pub async fn dispatch_legacy_tcp(
 		Err(e) => {
 			log(
 				LogLevel::Warn,
-				&format!("⚠ Failed to peek initial data from {}: {}", peer_addr, e),
+				&format!("⚠ Failed to peek initial data from {peer_addr}: {e}"),
 			);
 			return;
 		}
@@ -109,7 +109,7 @@ pub async fn dispatch_legacy_tcp(
 		let matches = match &rule.detect.method {
 			DetectMethod::Magic => {
 				if let Some(hex_str) = rule.detect.pattern.strip_prefix("0x") {
-					u8::from_str_radix(hex_str, 16).map_or(false, |b| incoming_data.starts_with(&[b]))
+					u8::from_str_radix(hex_str, 16).is_ok_and(|b| incoming_data.starts_with(&[b]))
 				} else {
 					false
 				}
@@ -148,7 +148,7 @@ pub async fn dispatch_legacy_tcp(
 			);
 			match rule.destination {
 				TcpDestination::Resolver { resolver } => {
-					log(LogLevel::Debug, &format!("⚙ Legacy Resolver: {}", resolver));
+					log(LogLevel::Debug, &format!("⚙ Legacy Resolver: {resolver}"));
 					// legacy resolver placeholder
 					return;
 				}

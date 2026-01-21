@@ -36,7 +36,7 @@ impl PreProcess for ApplicationConfig {
 	}
 
 	fn set_context(&mut self, context: &str) {
-		self.protocol = context.to_string();
+		self.protocol = context.to_owned();
 	}
 }
 

@@ -20,7 +20,7 @@ pub async fn execute_hyper_request(
 	skip_verify: bool,
 ) -> Result<()> {
 	let uri =
-		Uri::from_str(url_str).map_err(|e| Error::Configuration(format!("Invalid URL: {}", e)))?;
+		Uri::from_str(url_str).map_err(|e| Error::Configuration(format!("Invalid URL: {e}")))?;
 
 	let method = if let Some(m) = method_str {
 		Method::from_str(m).unwrap_or(Method::GET)
@@ -35,7 +35,7 @@ pub async fn execute_hyper_request(
 	if let Some(v) = version_hint {
 		log(
 			LogLevel::Debug,
-			&format!("⚙ Upstream Version Hint: {} (Hyper Auto Selected)", v),
+			&format!("⚙ Upstream Version Hint: {v} (Hyper Auto Selected)"),
 		);
 	}
 
@@ -61,7 +61,7 @@ pub async fn execute_hyper_request(
 
 	let req = req_builder
 		.body(body)
-		.map_err(|e| Error::System(format!("Failed to build upstream request: {}", e)))?;
+		.map_err(|e| Error::System(format!("Failed to build upstream request: {e}")))?;
 
 	let client = if skip_verify {
 		&*GLOBAL_INSECURE_CLIENT
@@ -79,13 +79,13 @@ pub async fn execute_hyper_request(
 			let status = res.status();
 			log(
 				LogLevel::Debug,
-				&format!("✓ Upstream Responded: {}", status),
+				&format!("✓ Upstream Responded: {status}"),
 			);
 
 			// Update KV for Status
 			container
 				.kv
-				.insert("res.status".to_string(), status.as_u16().to_string());
+				.insert("res.status".to_owned(), status.as_u16().to_string());
 
 			// Propagate Response Headers (Upstream -> Client)
 			container.response_headers = std::mem::take(res.headers_mut());
@@ -98,9 +98,9 @@ pub async fn execute_hyper_request(
 		Err(e) => {
 			log(
 				LogLevel::Error,
-				&format!("✗ Upstream Request Failed: {}", e),
+				&format!("✗ Upstream Request Failed: {e}"),
 			);
-			Err(Error::System(format!("Upstream error: {}", e)))
+			Err(Error::System(format!("Upstream error: {e}")))
 		}
 	}
 }
@@ -114,7 +114,7 @@ pub async fn execute_h1_websocket_request(
 	skip_verify: bool,
 ) -> Result<()> {
 	let uri =
-		Uri::from_str(url_str).map_err(|e| Error::Configuration(format!("Invalid URL: {}", e)))?;
+		Uri::from_str(url_str).map_err(|e| Error::Configuration(format!("Invalid URL: {e}")))?;
 
 	let method = if let Some(m) = method_str {
 		Method::from_str(m).unwrap_or(Method::GET)
@@ -146,7 +146,7 @@ pub async fn execute_h1_websocket_request(
 
 	let req = req_builder
 		.body(body)
-		.map_err(|e| Error::System(format!("Failed to build WebSocket request: {}", e)))?;
+		.map_err(|e| Error::System(format!("Failed to build WebSocket request: {e}")))?;
 
 	let client = if skip_verify {
 		&*GLOBAL_INSECURE_CLIENT
@@ -166,11 +166,11 @@ pub async fn execute_h1_websocket_request(
 	match client.request(req).await {
 		Ok(mut res) => {
 			let status = res.status();
-			log(LogLevel::Debug, &format!("✓ Backend Responded: {}", status));
+			log(LogLevel::Debug, &format!("✓ Backend Responded: {status}"));
 
 			container
 				.kv
-				.insert("res.status".to_string(), status.as_u16().to_string());
+				.insert("res.status".to_owned(), status.as_u16().to_string());
 
 			// Propagate Response Headers
 			container.response_headers = std::mem::take(res.headers_mut());
@@ -190,7 +190,7 @@ pub async fn execute_h1_websocket_request(
 				// Backend rejected upgrade, treat as normal HTTP response
 				log(
 					LogLevel::Debug,
-					&format!("⚠ Backend rejected WebSocket upgrade (status: {})", status),
+					&format!("⚠ Backend rejected WebSocket upgrade (status: {status})"),
 				);
 
 				let incoming = res.into_body();
@@ -202,9 +202,9 @@ pub async fn execute_h1_websocket_request(
 		Err(e) => {
 			log(
 				LogLevel::Error,
-				&format!("✗ WebSocket Upgrade Request Failed: {}", e),
+				&format!("✗ WebSocket Upgrade Request Failed: {e}"),
 			);
-			Err(Error::System(format!("WebSocket request error: {}", e)))
+			Err(Error::System(format!("WebSocket request error: {e}")))
 		}
 	}
 }

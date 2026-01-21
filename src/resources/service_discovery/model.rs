@@ -80,7 +80,7 @@ impl Validate for NodesConfig {
 						for error in field_errors {
 							let mut err = error.clone();
 							let old_msg = err.message.clone().unwrap_or_else(|| Cow::from("invalid"));
-							err.message = Some(format!("[node {}] {}: {}", i, field, old_msg).into());
+							err.message = Some(format!("[node {i}] {field}: {old_msg}").into());
 							validation_errors.add("nodes", err);
 						}
 					}

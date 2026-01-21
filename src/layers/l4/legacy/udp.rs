@@ -24,8 +24,8 @@ pub enum UdpDestination {
 impl Validate for UdpDestination {
 	fn validate(&self) -> Result<(), ValidationErrors> {
 		match self {
-			UdpDestination::Resolver { .. } => Ok(()),
-			UdpDestination::Forward { forward } => forward.validate(),
+			Self::Resolver { .. } => Ok(()),
+			Self::Forward { forward } => forward.validate(),
 		}
 	}
 }
@@ -70,23 +70,19 @@ fn spawn_reply_handler(
 		let mut buf = [0; 65535];
 		if let Ok(local_addr) = upstream_socket.local_addr() {
 			loop {
-				match tokio::time::timeout(timeout, upstream_socket.recv_from(&mut buf)).await {
-					Ok(Ok((len, _))) => {
-						if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr) {
-							if main_socket
-								.send_to(&buf[..len], *client_addr)
-								.await
-								.is_err()
-							{
-								break;
-							}
-						}
-					}
-					_ => {
-						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {}
-						break;
-					}
-				}
+				if let Ok(Ok((len, _))) = tokio::time::timeout(timeout, upstream_socket.recv_from(&mut buf)).await {
+    						if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr)
+    							&& main_socket
+    								.send_to(&buf[..len], *client_addr)
+    								.await
+    								.is_err()
+    							{
+    								break;
+    							}
+    					} else {
+    						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {}
+    						break;
+    					}
 			}
 		}
 	});
@@ -106,7 +102,7 @@ pub async fn dispatch_legacy_udp(
 		let matches = match &rule.detect.method {
 			DetectMethod::Magic => {
 				if let Some(hex_str) = rule.detect.pattern.strip_prefix("0x") {
-					u8::from_str_radix(hex_str, 16).map_or(false, |b| datagram.starts_with(&[b]))
+					u8::from_str_radix(hex_str, 16).is_ok_and(|b| datagram.starts_with(&[b]))
 				} else {
 					false
 				}
@@ -162,68 +158,58 @@ pub async fn dispatch_legacy_udp(
 			}
 
 			// 2. Create new session if needed
-			if current_session.is_none() {
-				match &rule.destination {
-					UdpDestination::Forward { forward } => {
-						if let Some(target) = balancer::select_udp_target(port, &rule.name, forward).await {
-							if let Ok(target_ip) = target.ip.parse::<IpAddr>() {
-								if let Ok(upstream_socket) = bind_upstream_socket(&target_ip).await {
-									let upstream_arc = Arc::new(upstream_socket);
-									if let Ok(local_addr) = upstream_arc.local_addr() {
-										// Apply Connection Rate Limits
-										let guard = match GLOBAL_TRACKER.acquire(client_addr.ip()) {
-											Some(g) => g,
-											None => {
-												log(
-													LogLevel::Debug,
-													&format!(
-														"⚙ Rate limited UDP session from {} for rule {}",
-														client_addr, rule.name
-													),
-												);
-												continue;
-											}
-										};
+			if current_session.is_none()
+				&& let UdpDestination::Forward { forward } = &rule.destination
+    						&& let Some(target) = balancer::select_udp_target(port, &rule.name, forward).await
+    							&& let Ok(target_ip) = target.ip.parse::<IpAddr>()
+    								&& let Ok(upstream_socket) = bind_upstream_socket(&target_ip).await {
+    									let upstream_arc = Arc::new(upstream_socket);
+    									if let Ok(local_addr) = upstream_arc.local_addr() {
+    										// Apply Connection Rate Limits
+    										let Some(guard) = GLOBAL_TRACKER.acquire(client_addr.ip()) else {
+    											log(
+    												LogLevel::Debug,
+    												&format!(
+    													"⚙ Rate limited UDP session from {} for rule {}",
+    													client_addr, rule.name
+    												),
+    											);
+    											continue;
+    										};
 
-										let new_session = Arc::new(Session {
-											target: target.clone(),
-											upstream_socket: upstream_arc.clone(),
-											last_seen: Instant::now(),
-											_guard: guard,
-										});
-										SESSIONS.insert(session_key.clone(), new_session.clone());
-										REVERSE_SESSIONS.insert(local_addr, client_addr);
+    										let new_session = Arc::new(Session {
+    											target: target.clone(),
+    											upstream_socket: upstream_arc.clone(),
+    											last_seen: Instant::now(),
+    											_guard: guard,
+    										});
+    										SESSIONS.insert(session_key.clone(), new_session.clone());
+    										REVERSE_SESSIONS.insert(local_addr, client_addr);
 
-										let timeout_ms_str = if ip::is_private_ip(&target_ip) {
-											env_loader::get_env("UDP_TIMEOUT_LOCAL", "500".to_string())
-										} else {
-											env_loader::get_env("UDP_TIMEOUT_REMOTE", "5000".to_string())
-										};
-										let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(5000);
+    										let timeout_ms_str = if ip::is_private_ip(&target_ip) {
+    											env_loader::get_env("UDP_TIMEOUT_LOCAL", "500".to_owned())
+    										} else {
+    											env_loader::get_env("UDP_TIMEOUT_REMOTE", "5000".to_owned())
+    										};
+    										let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(5000);
 
-										spawn_reply_handler(
-											upstream_arc,
-											socket.clone(),
-											Duration::from_millis(timeout_ms),
-										);
+    										spawn_reply_handler(
+    											upstream_arc,
+    											socket.clone(),
+    											Duration::from_millis(timeout_ms),
+    										);
 
-										log(
-											LogLevel::Debug,
-											&format!(
-												"➜ Established Legacy UDP NAT: {} <-> {}:{}",
-												client_addr, target.ip, target.port
-											),
-										);
+    										log(
+    											LogLevel::Debug,
+    											&format!(
+    												"➜ Established Legacy UDP NAT: {} <-> {}:{}",
+    												client_addr, target.ip, target.port
+    											),
+    										);
 
-										current_session = Some(new_session);
-									}
-								}
-							}
-						}
-					}
-					_ => {}
-				}
-			}
+    										current_session = Some(new_session);
+    									}
+    								}
 
 			// 3. Send Data
 			if let Some(session) = current_session {

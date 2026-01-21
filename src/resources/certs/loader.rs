@@ -38,11 +38,10 @@ async fn ensure_default_certificate() {
 	let mut should_generate = false;
 	if fs::metadata(&cert_path).await.is_err() || fs::metadata(&key_path).await.is_err() {
 		should_generate = true;
-	} else if let Ok(expiring) = check_cert_expiration(&cert_path).await {
-		if expiring {
+	} else if let Ok(expiring) = check_cert_expiration(&cert_path).await
+		&& expiring {
 			should_generate = true;
 		}
-	}
 	if should_generate {
 		log(LogLevel::Info, "⚙ Generating default certificate...");
 		let _ = generate_self_signed(&cert_path, &key_path).await;
@@ -54,9 +53,9 @@ async fn check_cert_expiration(cert_path: &Path) -> Result<bool> {
 		.await
 		.map_err(|e| crate::common::sys::lifecycle::Error::Io(e.to_string()))?;
 	let (_, pem) = parse_x509_pem(&content)
-		.map_err(|e| crate::common::sys::lifecycle::Error::Tls(format!("PEM error: {}", e)))?;
+		.map_err(|e| crate::common::sys::lifecycle::Error::Tls(format!("PEM error: {e}")))?;
 	let (_, x509) = x509_parser::certificate::X509Certificate::from_der(&pem.contents)
-		.map_err(|e| crate::common::sys::lifecycle::Error::Tls(format!("X509 error: {}", e)))?;
+		.map_err(|e| crate::common::sys::lifecycle::Error::Tls(format!("X509 error: {e}")))?;
 	let not_after = x509.validity.not_after.timestamp();
 	let now = SystemTime::now()
 		.duration_since(UNIX_EPOCH)
@@ -66,9 +65,9 @@ async fn check_cert_expiration(cert_path: &Path) -> Result<bool> {
 }
 
 async fn generate_self_signed(cert_path: &Path, key_path: &Path) -> Result<()> {
-	let san = vec!["localhost".to_string(), "127.0.0.1".to_string()];
+	let san = vec!["localhost".to_owned(), "127.0.0.1".to_owned()];
 	let ck = rcgen::generate_simple_self_signed(san)
-		.map_err(|e| crate::common::sys::lifecycle::Error::Tls(format!("rcgen error: {}", e)))?;
+		.map_err(|e| crate::common::sys::lifecycle::Error::Tls(format!("rcgen error: {e}")))?;
 	let _ = fs::write(cert_path, ck.cert.pem()).await;
 	let _ = fs::write(key_path, ck.signing_key.serialize_pem()).await;
 	Ok(())
@@ -81,18 +80,15 @@ pub async fn scan_and_load_certs() {
 	}
 	let current_state = arcswap::CERT_REGISTRY.load();
 	let mut new_state = current_state.as_ref().clone();
-	let mut entries = match fs::read_dir(&config_dir).await {
-		Ok(e) => e,
-		Err(_) => return,
-	};
+	let Ok(mut entries) = fs::read_dir(&config_dir).await else { return };
 	let mut candidates: HashMap<String, CertCandidate> = HashMap::new();
 	while let Ok(Some(entry)) = entries.next_entry().await {
 		let path = entry.path();
 		if !path.is_file() {
 			continue;
 		}
-		if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-			if let Some(dot_idx) = filename.rfind('.') {
+		if let Some(filename) = path.file_name().and_then(|s| s.to_str())
+			&& let Some(dot_idx) = filename.rfind('.') {
 				let stem = filename[..dot_idx].to_string();
 				let ext = &filename[dot_idx + 1..];
 				let record = candidates.entry(stem).or_insert_with(CertCandidate::new);
@@ -103,19 +99,14 @@ pub async fn scan_and_load_certs() {
 					_ => {}
 				}
 			}
-		}
 	}
 	for (id, candidate) in candidates {
-		let key_path = match candidate.key {
-			Some(p) => p,
-			None => continue,
-		};
+		let Some(key_path) = candidate.key else { continue };
 		let cert_path = candidate.crt.or(candidate.pem);
-		if let Some(c_path) = cert_path {
-			if let Ok(ck) = format::load_and_validate_pair(&c_path, &key_path).await {
+		if let Some(c_path) = cert_path
+			&& let Ok(ck) = format::load_and_validate_pair(&c_path, &key_path).await {
 				new_state.insert(id, ck);
 			}
-		}
 	}
 	arcswap::update_registry(new_state);
 }

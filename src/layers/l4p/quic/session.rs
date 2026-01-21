@@ -19,14 +19,14 @@ static GLOBAL_PENDING_BYTES: AtomicUsize = AtomicUsize::new(0);
 
 // Default: 64MB global limit
 fn get_global_byte_limit() -> usize {
-	env_loader::get_env("QUIC_GLOBAL_PENDING_BYTES_LIMIT", "67108864".to_string())
+	env_loader::get_env("QUIC_GLOBAL_PENDING_BYTES_LIMIT", "67108864".to_owned())
 		.parse()
 		.unwrap_or(67_108_864)
 }
 
 // Default: 64KB per session limit (enough for massive fragmented ClientHello)
 fn get_session_byte_limit() -> usize {
-	env_loader::get_env("QUIC_SESSION_BUFFER_LIMIT", "65536".to_string())
+	env_loader::get_env("QUIC_SESSION_BUFFER_LIMIT", "65536".to_owned())
 		.parse()
 		.unwrap_or(65_536)
 }
@@ -39,8 +39,7 @@ pub fn try_reserve_global_bytes(amount: usize) -> bool {
 		log(
 			LogLevel::Warn,
 			&format!(
-				"⚠ QUIC Global Buffer Limit Exceeded! Dropping {} bytes (Current: {}/{})",
-				amount, current, limit
+				"⚠ QUIC Global Buffer Limit Exceeded! Dropping {amount} bytes (Current: {current}/{limit})"
 			),
 		);
 		return false;
@@ -106,16 +105,16 @@ impl Drop for PendingState {
 }
 
 /// Global registry mapping Connection IDs (DCID) to Actions.
-pub static CID_REGISTRY: Lazy<DashMap<Vec<u8>, SessionAction>> = Lazy::new(|| DashMap::new());
+pub static CID_REGISTRY: Lazy<DashMap<Vec<u8>, SessionAction>> = Lazy::new(DashMap::new);
 
 /// Registry for pending Initials waiting for SNI.
-pub static PENDING_INITIALS: Lazy<DashMap<Vec<u8>, PendingState>> = Lazy::new(|| DashMap::new());
+pub static PENDING_INITIALS: Lazy<DashMap<Vec<u8>, PendingState>> = Lazy::new(DashMap::new);
 
 /// IP Stickiness Map: ClientAddr -> (TargetAddr, UpstreamSocket, LastSeen, Guard)
 /// Used when CID lookup fails (e.g. server-initiated CID migration in Transparent Proxy).
 pub static IP_STICKY_MAP: Lazy<
 	DashMap<SocketAddr, (SocketAddr, Arc<UdpSocket>, Instant, ConnectionGuard)>,
-> = Lazy::new(|| DashMap::new());
+> = Lazy::new(DashMap::new);
 
 pub fn register_session(cid: Vec<u8>, action: SessionAction) {
 	// Removal from PENDING_INITIALS triggers Drop, releasing bytes automatically.
@@ -144,49 +143,48 @@ pub fn get_session(cid: &[u8]) -> Option<SessionAction> {
 	CID_REGISTRY.get(cid).map(|r| r.value().clone())
 }
 
-pub fn touch_session(cid: &[u8]) {
-	if let Some(mut entry) = CID_REGISTRY.get_mut(cid) {
-		match entry.value_mut() {
-			SessionAction::Forward { last_seen, .. } => *last_seen = Instant::now(),
-			SessionAction::Terminate { last_seen, .. } => *last_seen = Instant::now(),
+	pub fn touch_session(cid: &[u8]) {
+		if let Some(mut entry) = CID_REGISTRY.get_mut(cid) {
+			match entry.value_mut() {
+				SessionAction::Forward { last_seen, .. }
+				| SessionAction::Terminate { last_seen, .. } => *last_seen = Instant::now(),
+			}
 		}
 	}
-}
 
-pub fn check_session_limit(current: usize, add: usize) -> bool {
-	let limit = get_session_byte_limit();
-	if current + add > limit {
-		log(
-			LogLevel::Warn,
-			&format!(
-				"⚠ QUIC Session Buffer Limit Exceeded! Dropping (Current: {}/{})",
-				current, limit
-			),
-		);
-		return false;
+	#[must_use] 
+	pub fn check_session_limit(current: usize, add: usize) -> bool {
+		let limit = get_session_byte_limit();
+		if current + add > limit {
+			log(
+				LogLevel::Warn,
+				&format!(
+					"⚠ QUIC Session Buffer Limit Exceeded! Dropping (Current: {current}/{limit})"
+				),
+			);
+			return false;
+		}
+		true
 	}
-	true
-}
 
-pub fn cleanup_sessions(timeout_secs: u64) {
-	let now = Instant::now();
+	pub fn cleanup_sessions(timeout_secs: u64) {
+		let now = Instant::now();
 
-	// Cleanup CID Sessions
-	CID_REGISTRY.retain(|_, action| {
-		let last = match action {
-			SessionAction::Forward { last_seen, .. } => last_seen,
-			SessionAction::Terminate { last_seen, .. } => last_seen,
-		};
-		now.duration_since(*last).as_secs() < timeout_secs
-	});
-
+		// Cleanup CID Sessions
+		CID_REGISTRY.retain(|_, action| {
+			let last = match action {
+				SessionAction::Forward { last_seen, .. }
+				| SessionAction::Terminate { last_seen, .. } => last_seen,
+			};
+			now.duration_since(*last).as_secs() < timeout_secs
+		});
 	// Cleanup Pending Initials (Strict 10s)
 	// Removal triggers Drop -> release_global_bytes
 	PENDING_INITIALS.retain(|_, state| now.duration_since(state.last_seen).as_secs() < 10);
 
 	// Cleanup Sticky Sessions
 	// Default: 60 seconds (generous for NAT rebinding/migration)
-	let sticky_timeout_str = env_loader::get_env("QUIC_STICKY_SESSION_TTL", "60".to_string());
+	let sticky_timeout_str = env_loader::get_env("QUIC_STICKY_SESSION_TTL", "60".to_owned());
 	let sticky_timeout = sticky_timeout_str.parse::<u64>().unwrap_or(60);
 
 	IP_STICKY_MAP.retain(|_, (_, _, last, _)| now.duration_since(*last).as_secs() < sticky_timeout);
@@ -199,7 +197,7 @@ pub fn start_cleanup_task() {
 	log(LogLevel::Debug, "⚙ Starting QUIC session cleanup task...");
 
 	tokio::spawn(async move {
-		let ttl_str = env_loader::get_env("QUIC_SESSION_TTL_SECS", "300".to_string());
+		let ttl_str = env_loader::get_env("QUIC_SESSION_TTL_SECS", "300".to_owned());
 		let ttl = ttl_str.parse::<u64>().unwrap_or(300);
 		let check_interval = Duration::from_secs(ttl / 2);
 

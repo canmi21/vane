@@ -72,8 +72,7 @@ impl Terminator for ProxyDomainPlugin {
 
 		if ips.is_empty() {
 			return Err(anyhow!(
-				"DNS resolution failed: No IPs found for domain '{}'",
-				target_domain
+				"DNS resolution failed: No IPs found for domain '{target_domain}'"
 			));
 		}
 

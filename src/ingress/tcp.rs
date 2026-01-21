@@ -19,27 +19,24 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 					let client_ip: std::net::IpAddr = addr.ip();
 
 					// Apply Connection Rate Limits
-					let _guard = match super::tasks::GLOBAL_TRACKER.acquire(client_ip) {
-						Some(g) => g,
-						None => {
-							log(LogLevel::Debug, &format!("⚙ Rate limited TCP connection from {} on port {}", addr, port));
-							continue;
-						}
+					let Some(_guard) = super::tasks::GLOBAL_TRACKER.acquire(client_ip) else {
+						log(LogLevel::Debug, &format!("⚙ Rate limited TCP connection from {addr} on port {port}"));
+						continue;
 					};
 
 					if let Some(task) = TASK_REGISTRY.get(&key) {
 						let mut state = task.state.lock().await;
 						if let ListenerState::Draining {..} = *state {
-							log(LogLevel::Debug, &format!("⚙ Rejecting new connection from {} on draining port {}", addr, port));
+							log(LogLevel::Debug, &format!("⚙ Rejecting new connection from {addr} on draining port {port}"));
 							continue;
 						}
 						*state = ListenerState::Active;
 					}
 
 					// Create the KV store as soon as the connection is accepted.
-					let server_addr = socket.local_addr().unwrap_or_else(|_| format!("0.0.0.0:{}", port).parse().unwrap());
+					let server_addr = socket.local_addr().unwrap_or_else(|_| format!("0.0.0.0:{port}").parse().unwrap());
 					let kv_store = kv::new(&addr, &server_addr, "tcp");
-					log(LogLevel::Debug, &format!("⚙ Accepted TCP connection from {} on port {}", addr, port));
+					log(LogLevel::Debug, &format!("⚙ Accepted TCP connection from {addr} on port {port}"));
 
 					let config_guard = CONFIG_STATE.load();
 					let port_status = config_guard.iter().find(|s| s.port == port);
@@ -51,18 +48,18 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 								dispatcher::dispatch_tcp_connection(socket, port, tcp_config, kv_store).await;
 							});
 						} else {
-							log(LogLevel::Warn, &format!("✗ TCP listener is active on port {}, but no config found. Dropping connection from {}.", port, addr));
+							log(LogLevel::Warn, &format!("✗ TCP listener is active on port {port}, but no config found. Dropping connection from {addr}."));
 						}
 					}
 												}
-																		_ = &mut shutdown_rx => {				                    log(LogLevel::Debug, &format!("⚙ TCP listener on port {} received shutdown signal.", port));					break;
+																		_ = &mut shutdown_rx => {				                    log(LogLevel::Debug, &format!("⚙ TCP listener on port {port} received shutdown signal."));					break;
 				}
 			}
 		}
 		TASK_REGISTRY.remove(&key);
 		log(
 			LogLevel::Debug,
-			&format!("⚙ TCP listener on port {} has shut down.", port),
+			&format!("⚙ TCP listener on port {port} has shut down."),
 		);
 	});
 	shutdown_tx

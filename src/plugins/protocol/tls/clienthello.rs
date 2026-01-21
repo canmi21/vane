@@ -31,7 +31,7 @@ fn is_grease(val: u16) -> bool {
 /// Main entry point to parse a raw ClientHello buffer using tls-parser.
 pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 	// Parse the TLS Record Layer
-	let result = parse_tls_plaintext(payload).map_err(|e| anyhow!("TLS parse failed: {:?}", e))?;
+	let result = parse_tls_plaintext(payload).map_err(|e| anyhow!("TLS parse failed: {e:?}"))?;
 
 	let (_rem, record) = result;
 
@@ -41,23 +41,21 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 		.first()
 		.ok_or_else(|| anyhow!("Empty TLS record"))?;
 
-	log(LogLevel::Debug, &format!("⚙ TLS Message type: {:?}", msg));
+	log(LogLevel::Debug, &format!("⚙ TLS Message type: {msg:?}"));
 
-	let handshake = match msg {
-		TlsMessage::Handshake(h) => h,
-		_ => return Err(anyhow!("Not a TLS Handshake record")),
+	let TlsMessage::Handshake(handshake) = msg else {
+		return Err(anyhow!("Not a TLS Handshake record"));
 	};
 
-	let client_hello = match handshake {
-		TlsMessageHandshake::ClientHello(ch) => ch,
-		_ => return Err(anyhow!("Not a ClientHello message")),
+	let TlsMessageHandshake::ClientHello(client_hello) = handshake else {
+		return Err(anyhow!("Not a ClientHello message"));
 	};
 
-	let mut data = TlsClientHelloData::default();
-
-	// 1. Basic Fields
-	data.legacy_version = format!("{:04x}", client_hello.version.0);
-	data.random = hex::encode(client_hello.random);
+	let mut data = TlsClientHelloData {
+		legacy_version: format!("{:04x}", client_hello.version.0),
+		random: hex::encode(client_hello.random),
+		..Default::default()
+	};
 
 	if let Some(sid) = client_hello.session_id {
 		data.session_id = hex::encode(sid);
@@ -69,7 +67,7 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 		if is_grease(val) {
 			data.has_grease = true;
 		} else {
-			data.cipher_suites.push(format!("{:04x}", val));
+			data.cipher_suites.push(format!("{val:04x}"));
 		}
 	}
 
@@ -102,7 +100,7 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 								if is_grease(val) {
 									data.has_grease = true;
 								} else {
-									data.supported_versions.push(format!("{:04x}", val));
+									data.supported_versions.push(format!("{val:04x}"));
 								}
 							}
 						}
@@ -112,13 +110,13 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 								if is_grease(val) {
 									data.has_grease = true;
 								} else {
-									data.supported_groups.push(format!("{:04x}", val));
+									data.supported_groups.push(format!("{val:04x}"));
 								}
 							}
 						}
 						TlsExtension::SignatureAlgorithms(sigs) => {
 							for sig in sigs {
-								data.signature_algorithms.push(format!("{:04x}", sig));
+								data.signature_algorithms.push(format!("{sig:04x}"));
 							}
 						}
 						TlsExtension::KeyShare(key_share_bytes) => {
@@ -141,13 +139,13 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 								if is_grease(group) {
 									data.has_grease = true;
 								} else {
-									data.key_share_groups.push(format!("{:04x}", group));
+									data.key_share_groups.push(format!("{group:04x}"));
 								}
 							}
 						}
 						TlsExtension::PskExchangeModes(modes) => {
 							for mode in modes {
-								data.psk_key_exchange_modes.push(format!("{:02x}", mode));
+								data.psk_key_exchange_modes.push(format!("{mode:02x}"));
 							}
 						}
 						TlsExtension::RenegotiationInfo(_) => {
@@ -169,7 +167,7 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 				}
 			}
 			Err(e) => {
-				return Err(anyhow!("Failed to parse TLS extensions: {:?}", e));
+				return Err(anyhow!("Failed to parse TLS extensions: {e:?}"));
 			}
 		}
 	}

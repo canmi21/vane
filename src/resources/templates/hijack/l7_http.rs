@@ -66,13 +66,13 @@ impl<'a> Hijacker for HttpHijacker<'a> {
 			return Ok(format!("{:?}", self.container.response_headers));
 		}
 
-		anyhow::bail!("Unsupported HTTP hijack key: {}", key)
+		anyhow::bail!("Unsupported HTTP hijack key: {key}")
 	}
 }
 
 fn get_header_value(map: &http::HeaderMap, key_name: &str) -> String {
 	match map.get(key_name) {
-		Some(val) => val.to_str().unwrap_or("").to_string(),
+		Some(val) => val.to_str().unwrap_or("").to_owned(),
 		None => String::new(),
 	}
 }

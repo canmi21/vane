@@ -8,17 +8,16 @@ use tokio::net::UnixListener;
 use tokio::time::{Duration, sleep};
 
 fn get_socket_path() -> PathBuf {
-	let socket_dir_str = env_loader::get_env("SOCKET_DIR", "/var/run/vane".to_string());
+	let socket_dir_str = env_loader::get_env("SOCKET_DIR", "/var/run/vane".to_owned());
 	Path::new(&socket_dir_str).join("console.sock")
 }
 
 pub async fn bind_unix_socket() -> Result<UnixListener, std::io::Error> {
 	let socket_path = get_socket_path();
-	if let Some(parent_dir) = socket_path.parent() {
-		if fs::metadata(parent_dir).await.is_err() {
+	if let Some(parent_dir) = socket_path.parent()
+		&& fs::metadata(parent_dir).await.is_err() {
 			fs::create_dir_all(parent_dir).await?;
 		}
-	}
 	if fs::metadata(&socket_path).await.is_ok() {
 		log(
 			LogLevel::Warn,

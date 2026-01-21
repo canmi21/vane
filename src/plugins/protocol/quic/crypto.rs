@@ -38,7 +38,7 @@ pub fn extract_decrypted_content(
 		Err(e) => {
 			log(
 				LogLevel::Debug,
-				&format!("✗ Failed to decrypt/parse: {}", e),
+				&format!("✗ Failed to decrypt/parse: {e}"),
 			);
 			Err(e)
 		}
@@ -98,7 +98,7 @@ fn decrypt_payload(
 	let mut decrypted = encrypted_payload.to_vec();
 	opening_key
 		.open_in_place(nonce_obj, aead::Aad::from(&aad), &mut decrypted)
-		.map_err(|e| anyhow!("AEAD error: {:?}", e))?;
+		.map_err(|e| anyhow!("AEAD error: {e:?}"))?;
 
 	// Remove Tag
 	if decrypted.len() < 16 {
@@ -136,8 +136,7 @@ fn remove_header_protection(first: u8, payload: &[u8], hp_key: &[u8]) -> Result<
 	log(
 		LogLevel::Debug,
 		&format!(
-			"✓ Removed HP: PN={} (len={}), first=0x{:02x}",
-			pn, pn_len, unprotected_first
+			"✓ Removed HP: PN={pn} (len={pn_len}), first=0x{unprotected_first:02x}"
 		),
 	);
 	Ok((pn, pn_len, unprotected_first))

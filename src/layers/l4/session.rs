@@ -33,11 +33,11 @@ pub static REVERSE_SESSIONS: Lazy<DashMap<SocketAddr, SocketAddr>> = Lazy::new(D
 /// The session timeout is configurable via the `UDP_SESSION_TIMEOUT_SECS` environment variable.
 pub fn start_session_cleanup_task() {
 	log(LogLevel::Debug, "⚙ Starting UDP session cleanup task...");
-	let buffer_limit_str = env_loader::get_env("UDP_SESSION_BUFFER", "4194304".to_string());
+	let buffer_limit_str = env_loader::get_env("UDP_SESSION_BUFFER", "4194304".to_owned());
 	let buffer_limit = buffer_limit_str.parse::<usize>().unwrap_or(4_194_304);
 
 	tokio::spawn(async move {
-		let session_timeout_secs = env_loader::get_env("UDP_SESSION_TIMEOUT_SECS", "30".to_string())
+		let session_timeout_secs = env_loader::get_env("UDP_SESSION_TIMEOUT_SECS", "30".to_owned())
 			.parse::<u64>()
 			.unwrap_or(30);
 		let session_timeout = Duration::from_secs(session_timeout_secs);
@@ -55,11 +55,10 @@ pub fn start_session_cleanup_task() {
 			}
 
 			for key in expired_keys {
-				if let Some((_, session)) = SESSIONS.remove(&key) {
-					if let Ok(addr) = session.upstream_socket.local_addr() {
+				if let Some((_, session)) = SESSIONS.remove(&key)
+					&& let Ok(addr) = session.upstream_socket.local_addr() {
 						REVERSE_SESSIONS.remove(&addr);
 					}
-				}
 			}
 
 			// Memory limit enforcement logic remains the same.
@@ -69,8 +68,7 @@ pub fn start_session_cleanup_task() {
 				log(
 					LogLevel::Warn,
 					&format!(
-						"⚠ UDP session buffer limit exceeded ({} > {}). Pruning oldest sessions.",
-						current_size, buffer_limit
+						"⚠ UDP session buffer limit exceeded ({current_size} > {buffer_limit}). Pruning oldest sessions."
 					),
 				);
 				let mut all_sessions: Vec<_> = SESSIONS
@@ -80,11 +78,10 @@ pub fn start_session_cleanup_task() {
 				all_sessions.sort_by_key(|a| a.1);
 				let to_prune_count = (SESSIONS.len() as f64 * 0.1).ceil() as usize;
 				for (key, _) in all_sessions.iter().take(to_prune_count) {
-					if let Some((_, session)) = SESSIONS.remove(key) {
-						if let Ok(addr) = session.upstream_socket.local_addr() {
+					if let Some((_, session)) = SESSIONS.remove(key)
+						&& let Ok(addr) = session.upstream_socket.local_addr() {
 							REVERSE_SESSIONS.remove(&addr);
 						}
-					}
 				}
 			}
 		}
