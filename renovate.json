@@ -1,7 +1,10 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+
 	"extends": ["config:recommended", ":preserveSemverRanges", "group:allNonMajor"],
+
 	"baseBranches": ["latest"],
+
 	"ignoreDeps": [
 		"@types/react",
 		"@types/react-dom",
@@ -9,5 +12,30 @@
 		"@types/node",
 		"typescript",
 		"lucide-react"
+	],
+
+	"rangeStrategy": "in-range-only",
+
+	"packageRules": [
+		{
+			"matchManagers": ["npm"],
+			"groupName": "pnpm dependencies",
+			"prTitle": "chore(deps): update npm registry dependencies"
+		},
+		{
+			"matchManagers": ["cargo"],
+			"groupName": "rust dependencies",
+			"prTitle": "chore(deps): update crates.io registry dependencies"
+		},
+		{
+			"matchManagers": ["github-actions"],
+			"groupName": "github actions",
+			"prTitle": "ci: update github actions deps"
+		},
+		{
+			"matchManagers": ["dockerfile"],
+			"groupName": "docker images",
+			"prTitle": "chore: update docker deps and images"
+		}
 	]
 }
