@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.8.14 (21. Jan, 2026)
+
+- **Added:** Introduced comprehensive test coverage for QUIC protocol handling, including multi-frame and cross-packet scenarios, ensuring robust stream reassembly.
+- **Added:** Implemented new decoding tests for TLS ClientHello and internal static server tools to verify correctness of handshake parsing.
+- **Changed:** Refined validation logic for plugin names and adjusted regex patterns to better align with internal naming conventions.
+- **Fixed:** Massive codebase cleanup and optimization. Resolved over 1.4k+ clippy warnings and lint errors, including fixing memory safety patterns, optimizing string allocations, and standardizing error handling across all modules.
+- **Fixed:** Corrected `is_private_ipv4` logic to strictly adhere to IANA reserved ranges, now correctly identifying `0.0.0.0/8` (Current Network) and documentation ranges as non-public.
+- **Fixed:** Resolved a fallback logic error in the external plugin execution driver, ensuring consistent behavior when external processes fail or timeout.
+
 ## 0.8.13 (3. Jan, 2026)
 
 - **Changed:** Refactored `KvStore` to use `ahash::AHashMap`, providing significantly faster variable lookups and template resolutions on modern CPUs with AES instruction sets.
