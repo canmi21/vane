@@ -1,0 +1,92 @@
+name: Publish to AUR
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and release (e.g., v{a.b.c})'
+        required: true
+        type: string
+
+jobs:
+  aur-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Extract Version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          # Strip 'v' prefix
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Target Version: $VERSION"
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Setup Known Hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Setup Git Identity
+        run: |
+          git config --global user.name "Canmi"
+          git config --global user.email "t@canmi.icu"
+
+      - name: Clone AUR Repository
+        run: |
+          git clone ssh://aur@aur.archlinux.org/vane.git aur_repo || (mkdir aur_repo && cd aur_repo && git init && git remote add origin ssh://aur@aur.archlinux.org/vane.git)
+
+      - name: Prepare AUR Files
+        run: |
+          # Clean AUR directory except .git
+          find aur_repo -maxdepth 1 -not -name '.git' -not -name 'aur_repo' -exec rm -rf {} +
+
+          # Copy AUR package files
+          cp repo/package/aur/PKGBUILD aur_repo/
+          cp repo/package/aur/vane.install aur_repo/
+
+          # Copy Documentation
+          cp repo/LICENSE aur_repo/
+          cp repo/README.md aur_repo/
+          cp repo/CHANGELOG.md aur_repo/
+
+          # Replace Version in PKGBUILD
+          sed -i "s/%VERSION%/${{ steps.version.outputs.version }}/g" aur_repo/PKGBUILD
+
+          # Verify replacement
+          grep "pkgver=${{ steps.version.outputs.version }}" aur_repo/PKGBUILD
+
+      - name: Generate .SRCINFO
+        uses: docker://archlinux:base-devel
+        with:
+          args: /bin/bash -c "cd aur_repo && chown -R nobody . && sudo -u nobody makepkg --printsrcinfo > .SRCINFO"
+
+      - name: Commit and Push
+        working-directory: aur_repo
+        run: |
+          git add .
+          
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "release: v${{ steps.version.outputs.version }}"
+            git push origin master
+          fi

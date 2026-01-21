@@ -1,4 +1,4 @@
-# Maintainer: Vane Project
+# Maintainer: Canmi <t@canmi.icu>
 pkgname=vane
 pkgver=%VERSION%
 pkgrel=1
