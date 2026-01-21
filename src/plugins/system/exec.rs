@@ -57,9 +57,9 @@ pub async fn execute(
 		env_loader::get_env("ALLOW_EXTERNAL_RUNTIME_ENV", "false".to_owned()).to_lowercase() == "true";
 	let allow_shell =
 		env_loader::get_env("ALLOW_EXTERNAL_SHELL_ENV", "false".to_owned()).to_lowercase() == "true";
-	let allow_path_append =
-		env_loader::get_env("ALLOW_EXTERNAL_PATH_ENV_APPEND", "false".to_owned()).to_lowercase()
-			== "true";
+	let allow_path_append = env_loader::get_env("ALLOW_EXTERNAL_PATH_ENV_APPEND", "false".to_owned())
+		.to_lowercase()
+		== "true";
 
 	let mut sanitized_env = HashMap::new();
 
@@ -115,9 +115,7 @@ pub async fn execute(
 			} else {
 				log(
 					LogLevel::Warn,
-					&format!(
-						"⚠ Security: Dropped Shell env var '{key}' (ALLOW_EXTERNAL_SHELL_ENV is false)"
-					),
+					&format!("⚠ Security: Dropped Shell env var '{key}' (ALLOW_EXTERNAL_SHELL_ENV is false)"),
 				);
 			}
 			continue;
@@ -132,9 +130,7 @@ pub async fn execute(
 				sanitized_env.insert(key.clone(), new_path);
 				log(
 					LogLevel::Debug,
-					&format!(
-						"⚙ Appended user PATH to system PATH for plugin '{program}'"
-					),
+					&format!("⚙ Appended user PATH to system PATH for plugin '{program}'"),
 				);
 			} else {
 				log(
@@ -177,42 +173,43 @@ pub async fn execute(
 	input_payload.push(b'\n');
 
 	if let Some(mut stdin) = child.stdin.take()
-		&& let Err(e) = stdin.write_all(&input_payload).await {
-			log(
-				LogLevel::Error,
-				&format!("✗ Failed to write to plugin stdin: {e}"),
-			);
-			let _ = child.kill().await;
-			return Ok(MiddlewareOutput {
-				branch: "failure".into(),
-				store: None,
-			});
-		}
+		&& let Err(e) = stdin.write_all(&input_payload).await
+	{
+		log(
+			LogLevel::Error,
+			&format!("✗ Failed to write to plugin stdin: {e}"),
+		);
+		let _ = child.kill().await;
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	}
 
 	// Wait for output (captures stdout and stderr) with timeout
 	// We handle this manually because wait_with_output consumes the child object.
 	let Some(stdout) = child.stdout.take() else {
- 			log(
- 				LogLevel::Error,
- 				&format!("✗ Failed to take stdout from plugin process '{program}'"),
- 			);
- 			let _ = child.kill().await;
- 			return Ok(MiddlewareOutput {
- 				branch: "failure".into(),
- 				store: None,
- 			});
- 		};
+		log(
+			LogLevel::Error,
+			&format!("✗ Failed to take stdout from plugin process '{program}'"),
+		);
+		let _ = child.kill().await;
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	};
 	let Some(stderr) = child.stderr.take() else {
- 			log(
- 				LogLevel::Error,
- 				&format!("✗ Failed to take stderr from plugin process '{program}'"),
- 			);
- 			let _ = child.kill().await;
- 			return Ok(MiddlewareOutput {
- 				branch: "failure".into(),
- 				store: None,
- 			});
- 		};
+		log(
+			LogLevel::Error,
+			&format!("✗ Failed to take stderr from plugin process '{program}'"),
+		);
+		let _ = child.kill().await;
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	};
 
 	let mut stdout_res = Vec::new();
 	let mut stderr_res = Vec::new();
@@ -230,32 +227,30 @@ pub async fn execute(
 	};
 
 	let Ok(res) = timeout(Duration::from_secs(timeout_secs), process_future).await else {
- 			log(
- 				LogLevel::Error,
- 				&format!(
- 					"✗ Plugin process '{program}' timed out after {timeout_secs}s. Killing child."
- 				),
- 			);
- 			let _ = child.kill().await;
- 			return Ok(MiddlewareOutput {
- 				branch: "failure".into(),
- 				store: None,
- 			});
- 		};
+		log(
+			LogLevel::Error,
+			&format!("✗ Plugin process '{program}' timed out after {timeout_secs}s. Killing child."),
+		);
+		let _ = child.kill().await;
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	};
 
-    let exit_status = match res {
- 			Ok(s) => s,
- 			Err(e) => {
- 				log(
- 					LogLevel::Error,
- 					&format!("✗ Plugin process '{program}' failed: {e}"),
- 				);
- 				return Ok(MiddlewareOutput {
- 					branch: "failure".into(),
- 					store: None,
- 				});
- 			}
- 		};
+	let exit_status = match res {
+		Ok(s) => s,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Plugin process '{program}' failed: {e}"),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// Refactor: Process captured stderr and log as Debug level.
 	if !stderr_res.is_empty() {
@@ -270,9 +265,7 @@ pub async fn execute(
 	if !exit_status.success() {
 		log(
 			LogLevel::Error,
-			&format!(
-				"✗ Plugin process '{program}' exited with error status: {exit_status}"
-			),
+			&format!("✗ Plugin process '{program}' exited with error status: {exit_status}"),
 		);
 		return Ok(MiddlewareOutput {
 			branch: "failure".into(),
@@ -286,9 +279,7 @@ pub async fn execute(
 		Err(e) => {
 			log(
 				LogLevel::Error,
-				&format!(
-					"✗ Failed to parse output JSON from plugin '{program}': {e}"
-				),
+				&format!("✗ Failed to parse output JSON from plugin '{program}': {e}"),
 			);
 			return Ok(MiddlewareOutput {
 				branch: "failure".into(),

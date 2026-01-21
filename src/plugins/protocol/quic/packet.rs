@@ -132,7 +132,7 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 }
 
 // Helpers for L4 Fast Path
-#[must_use] 
+#[must_use]
 pub fn peek_long_header_dcid(packet: &[u8]) -> Option<Vec<u8>> {
 	if packet.len() < 6 {
 		return None;
@@ -147,7 +147,7 @@ pub fn peek_long_header_dcid(packet: &[u8]) -> Option<Vec<u8>> {
 	Some(packet[6..6 + dcid_len].to_vec())
 }
 
-#[must_use] 
+#[must_use]
 pub fn peek_short_header_dcid(packet: &[u8], len: usize) -> Option<Vec<u8>> {
 	if packet.len() < 1 + len {
 		return None;

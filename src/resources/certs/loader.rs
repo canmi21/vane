@@ -39,9 +39,10 @@ async fn ensure_default_certificate() {
 	if fs::metadata(&cert_path).await.is_err() || fs::metadata(&key_path).await.is_err() {
 		should_generate = true;
 	} else if let Ok(expiring) = check_cert_expiration(&cert_path).await
-		&& expiring {
-			should_generate = true;
-		}
+		&& expiring
+	{
+		should_generate = true;
+	}
 	if should_generate {
 		log(LogLevel::Info, "⚙ Generating default certificate...");
 		let _ = generate_self_signed(&cert_path, &key_path).await;
@@ -80,7 +81,9 @@ pub async fn scan_and_load_certs() {
 	}
 	let current_state = arcswap::CERT_REGISTRY.load();
 	let mut new_state = current_state.as_ref().clone();
-	let Ok(mut entries) = fs::read_dir(&config_dir).await else { return };
+	let Ok(mut entries) = fs::read_dir(&config_dir).await else {
+		return;
+	};
 	let mut candidates: HashMap<String, CertCandidate> = HashMap::new();
 	while let Ok(Some(entry)) = entries.next_entry().await {
 		let path = entry.path();
@@ -88,25 +91,29 @@ pub async fn scan_and_load_certs() {
 			continue;
 		}
 		if let Some(filename) = path.file_name().and_then(|s| s.to_str())
-			&& let Some(dot_idx) = filename.rfind('.') {
-				let stem = filename[..dot_idx].to_string();
-				let ext = &filename[dot_idx + 1..];
-				let record = candidates.entry(stem).or_insert_with(CertCandidate::new);
-				match ext {
-					"crt" => record.crt = Some(path),
-					"pem" => record.pem = Some(path),
-					"key" => record.key = Some(path),
-					_ => {}
-				}
+			&& let Some(dot_idx) = filename.rfind('.')
+		{
+			let stem = filename[..dot_idx].to_string();
+			let ext = &filename[dot_idx + 1..];
+			let record = candidates.entry(stem).or_insert_with(CertCandidate::new);
+			match ext {
+				"crt" => record.crt = Some(path),
+				"pem" => record.pem = Some(path),
+				"key" => record.key = Some(path),
+				_ => {}
 			}
+		}
 	}
 	for (id, candidate) in candidates {
-		let Some(key_path) = candidate.key else { continue };
+		let Some(key_path) = candidate.key else {
+			continue;
+		};
 		let cert_path = candidate.crt.or(candidate.pem);
 		if let Some(c_path) = cert_path
-			&& let Ok(ck) = format::load_and_validate_pair(&c_path, &key_path).await {
-				new_state.insert(id, ck);
-			}
+			&& let Ok(ck) = format::load_and_validate_pair(&c_path, &key_path).await
+		{
+			new_state.insert(id, ck);
+		}
 	}
 	arcswap::update_registry(new_state);
 }

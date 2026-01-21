@@ -35,9 +35,7 @@ pub async fn root_handler() -> impl IntoResponse {
 	let request_timestamp = Utc::now().to_rfc3339();
 
 	// The string that mimics the `--version` output. This is the VALUE.
-	let version_string = format!(
-		"{pkg_name_raw} {pkg_version} ({git_commit} {build_date})"
-	);
+	let version_string = format!("{pkg_name_raw} {pkg_version} ({git_commit} {build_date})");
 
 	// Create the "build" object manually to support a dynamic key.
 	let mut build_map = Map::new();

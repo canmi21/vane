@@ -38,7 +38,7 @@ pub fn success<T: Serialize>(data: T) -> impl IntoResponse {
 /// * `status_code` - The HTTP status code for the response.
 /// * `message` - A descriptive error message.
 ///
-#[must_use] 
+#[must_use]
 pub fn error(status_code: StatusCode, message: String) -> impl IntoResponse {
 	let response = ApiResponse::<()> {
 		// No data is sent on error

@@ -81,9 +81,7 @@ impl GenericMiddleware for CommonMatchPlugin {
 
 		log(
 			LogLevel::Debug,
-			&format!(
-				"⚙ Match Plugin: Comparing Left='{left}' with Right='{right}' (Op: '{operator}')"
-			),
+			&format!("⚙ Match Plugin: Comparing Left='{left}' with Right='{right}' (Op: '{operator}')"),
 		);
 
 		let result = match operator.as_str() {

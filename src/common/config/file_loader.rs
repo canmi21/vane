@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use tokio::fs;
 
 /// Retrieves the configuration directory path.
-#[must_use] 
+#[must_use]
 pub fn get_config_dir() -> PathBuf {
 	let path_str = env_loader::get_env("CONFIG_DIR", "~/vane/".to_owned());
 	let expanded_path = shellexpand::tilde(&path_str).to_string();
@@ -18,17 +18,18 @@ pub async fn init_config_files(files_to_check: Vec<&str>) {
 	let config_dir = get_config_dir();
 
 	if fs::metadata(&config_dir).await.is_err()
-		&& let Err(e) = fs::create_dir_all(&config_dir).await {
-			log(
-				LogLevel::Error,
-				&format!(
-					"✗ Failed to create main config directory {}: {}",
-					config_dir.display(),
-					e
-				),
-			);
-			return;
-		}
+		&& let Err(e) = fs::create_dir_all(&config_dir).await
+	{
+		log(
+			LogLevel::Error,
+			&format!(
+				"✗ Failed to create main config directory {}: {}",
+				config_dir.display(),
+				e
+			),
+		);
+		return;
+	}
 
 	for file_path in files_to_check {
 		let full_path = config_dir.join(file_path);
@@ -39,17 +40,18 @@ pub async fn init_config_files(files_to_check: Vec<&str>) {
 
 		if let Some(parent_dir) = full_path.parent()
 			&& fs::metadata(parent_dir).await.is_err()
-				&& let Err(e) = fs::create_dir_all(parent_dir).await {
-					log(
-						LogLevel::Error,
-						&format!(
-							"✗ Failed to create config subdirectory {}: {}",
-							parent_dir.display(),
-							e
-						),
-					);
-					continue;
-				}
+			&& let Err(e) = fs::create_dir_all(parent_dir).await
+		{
+			log(
+				LogLevel::Error,
+				&format!(
+					"✗ Failed to create config subdirectory {}: {}",
+					parent_dir.display(),
+					e
+				),
+			);
+			continue;
+		}
 
 		match fs::File::create(&full_path).await {
 			Ok(_) => log(

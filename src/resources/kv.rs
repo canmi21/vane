@@ -26,7 +26,7 @@ pub type KvStore = AHashMap<String, String>;
 /// # Returns
 ///
 /// A `KvStore` instance populated with initial key-value pairs.
-#[must_use] 
+#[must_use]
 pub fn new(peer_addr: &SocketAddr, server_addr: &SocketAddr, protocol: &str) -> KvStore {
 	let mut kv = KvStore::new();
 

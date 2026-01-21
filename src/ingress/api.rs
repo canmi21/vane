@@ -36,10 +36,12 @@ pub async fn get_ports_handler() -> Response {
 		}
 
 		if let Some(name) = entry.file_name().to_str()
-			&& name.starts_with('[') && name.ends_with(']')
-				&& let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
-					ports.push(port);
-				}
+			&& name.starts_with('[')
+			&& name.ends_with(']')
+			&& let Ok(port) = name[1..name.len() - 1].parse::<u16>()
+		{
+			ports.push(port);
+		}
 	}
 
 	ports.sort_unstable();

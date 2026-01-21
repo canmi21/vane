@@ -37,9 +37,7 @@ pub async fn start_l7_memory_monitor() {
 
 	log(
 		LogLevel::Info,
-		&format!(
-			"✓ L7 Memory Limit: Adaptive (Ratio: {ratio}%, Fallback: {fallback_limit} bytes)"
-		),
+		&format!("✓ L7 Memory Limit: Adaptive (Ratio: {ratio}%, Fallback: {fallback_limit} bytes)"),
 	);
 
 	tokio::spawn(async move {

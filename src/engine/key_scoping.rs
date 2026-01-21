@@ -16,7 +16,7 @@ fn push_sanitized(target: &mut String, name: &str) {
 ///
 /// # Format
 /// `plugin.{flow_path}.{sanitized_plugin_name}.{key}`
-#[must_use] 
+#[must_use]
 pub fn format_scoped_key(flow_path: &str, plugin_name: &str, key: &str) -> String {
 	// Pre-calculate capacity to perform exactly one heap allocation.
 	// "plugin." (7) + flow_path + plugin_name + key + possible dots
@@ -36,7 +36,7 @@ pub fn format_scoped_key(flow_path: &str, plugin_name: &str, key: &str) -> Strin
 
 /// Helper to generate the next path segment for recursion.
 /// Format: {current_path}.{sanitized_plugin_name}.{branch}
-#[must_use] 
+#[must_use]
 pub fn next_path(current_path: &str, plugin_name: &str, branch: &str) -> String {
 	// Pre-calculate capacity to perform exactly one heap allocation.
 	let capacity = current_path.len() + plugin_name.len() + branch.len() + 2;

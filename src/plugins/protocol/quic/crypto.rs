@@ -36,10 +36,7 @@ pub fn extract_decrypted_content(
 			frame::parse_crypto_frames_for_sni(&decrypted)
 		}
 		Err(e) => {
-			log(
-				LogLevel::Debug,
-				&format!("✗ Failed to decrypt/parse: {e}"),
-			);
+			log(LogLevel::Debug, &format!("✗ Failed to decrypt/parse: {e}"));
 			Err(e)
 		}
 	}
@@ -135,9 +132,7 @@ fn remove_header_protection(first: u8, payload: &[u8], hp_key: &[u8]) -> Result<
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"✓ Removed HP: PN={pn} (len={pn_len}), first=0x{unprotected_first:02x}"
-		),
+		&format!("✓ Removed HP: PN={pn} (len={pn_len}), first=0x{unprotected_first:02x}"),
 	);
 	Ok((pn, pn_len, unprotected_first))
 }

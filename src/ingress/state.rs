@@ -54,18 +54,19 @@ mod serde_arc {
 	use serde::{Serialize, Serializer};
 	use std::sync::Arc;
 
-    // Custom serializer to handle Option<Arc<T>>
-    #[allow(clippy::ref_option)]
-    pub(super) fn serialize<S, T>(val: &Option<Arc<T>>, s: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        T: Serialize,
-    {
-        match val {
-            Some(v) => v.serialize(s),
-            None => s.serialize_none(),
-        }
-    }}
+	// Custom serializer to handle Option<Arc<T>>
+	#[allow(clippy::ref_option)]
+	pub(super) fn serialize<S, T>(val: &Option<Arc<T>>, s: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+		T: Serialize,
+	{
+		match val {
+			Some(v) => v.serialize(s),
+			None => s.serialize_none(),
+		}
+	}
+}
 
 #[cfg(test)]
 mod tests {

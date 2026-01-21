@@ -15,9 +15,10 @@ fn get_socket_path() -> PathBuf {
 pub async fn bind_unix_socket() -> Result<UnixListener, std::io::Error> {
 	let socket_path = get_socket_path();
 	if let Some(parent_dir) = socket_path.parent()
-		&& fs::metadata(parent_dir).await.is_err() {
-			fs::create_dir_all(parent_dir).await?;
-		}
+		&& fs::metadata(parent_dir).await.is_err()
+	{
+		fs::create_dir_all(parent_dir).await?;
+	}
 	if fs::metadata(&socket_path).await.is_ok() {
 		log(
 			LogLevel::Warn,

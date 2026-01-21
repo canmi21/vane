@@ -41,13 +41,16 @@ pub async fn execute<C: ExecutionContext>(
 		std::time::Duration::from_secs(timeout_secs),
 		execute_recursive(step, context, conn, flow_path),
 	)
-	.await { result } else {
- 			log(
- 				LogLevel::Error,
- 				&format!("✗ Flow execution timed out after {timeout_secs}s"),
- 			);
- 			Err(anyhow!("Flow execution timeout"))
- 		}
+	.await
+	{
+		result
+	} else {
+		log(
+			LogLevel::Error,
+			&format!("✗ Flow execution timed out after {timeout_secs}s"),
+		);
+		Err(anyhow!("Flow execution timeout"))
+	}
 }
 
 /// Convenience wrapper for L7 flow execution.
@@ -90,42 +93,39 @@ async fn execute_recursive<C: ExecutionContext>(
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ Executing plugin: {plugin_name} (Path: '{flow_path}')"
-		),
+		&format!("➜ Executing plugin: {plugin_name} (Path: '{flow_path}')"),
 	);
 
 	// --- Passive Circuit Breaker (for External Plugins) ---
 	let is_external = registry::get_external_plugin(plugin_name).is_some();
-	if is_external
-		&& let Some(last_failure) = registry::EXTERNAL_PLUGIN_FAILURES.get(plugin_name) {
-			let quiet_period_secs = crate::common::config::env_loader::get_env(
-				"EXTERNAL_PLUGIN_QUIET_PERIOD_SECS",
-				"3".to_owned(),
-			)
-			.parse::<u64>()
-			.unwrap_or(3);
+	if is_external && let Some(last_failure) = registry::EXTERNAL_PLUGIN_FAILURES.get(plugin_name) {
+		let quiet_period_secs = crate::common::config::env_loader::get_env(
+			"EXTERNAL_PLUGIN_QUIET_PERIOD_SECS",
+			"3".to_owned(),
+		)
+		.parse::<u64>()
+		.unwrap_or(3);
 
-			if last_failure.elapsed().as_secs() < quiet_period_secs {
-				log(
-					LogLevel::Warn,
-					&format!(
-						"➜ Circuit Breaker: Plugin '{plugin_name}' is in quiet period (last failure < {quiet_period_secs}s ago). Skipping IO and returning failure branch."
-					),
-				);
-				// Fast-fail: return failure branch with metadata
-				let output = MiddlewareOutput {
-					branch: "failure".into(),
-					store: Some(std::collections::HashMap::from([(
-						"error".to_owned(),
-						"circuit_breaker_active".to_owned(),
-					)])),
-				};
-				// We proceed to handle this as a standard middleware output
-				return handle_middleware_output(output, plugin_name, &flow_path, instance, context, conn)
-					.await;
-			}
+		if last_failure.elapsed().as_secs() < quiet_period_secs {
+			log(
+				LogLevel::Warn,
+				&format!(
+					"➜ Circuit Breaker: Plugin '{plugin_name}' is in quiet period (last failure < {quiet_period_secs}s ago). Skipping IO and returning failure branch."
+				),
+			);
+			// Fast-fail: return failure branch with metadata
+			let output = MiddlewareOutput {
+				branch: "failure".into(),
+				store: Some(std::collections::HashMap::from([(
+					"error".to_owned(),
+					"circuit_breaker_active".to_owned(),
+				)])),
+			};
+			// We proceed to handle this as a standard middleware output
+			return handle_middleware_output(output, plugin_name, &flow_path, instance, context, conn)
+				.await;
 		}
+	}
 
 	// 4. Try dispatch (Priority: Middleware > Terminator)
 	let output_res = if let Some(http_middleware) = plugin.as_http_middleware() {
@@ -180,9 +180,7 @@ async fn execute_recursive<C: ExecutionContext>(
 			TerminatorResult::Upgrade { protocol, .. } => {
 				log(
 					LogLevel::Info,
-					&format!(
-						"➜ Flow upgrade requested by '{plugin_name}' -> Protocol: {protocol}"
-					),
+					&format!("➜ Flow upgrade requested by '{plugin_name}' -> Protocol: {protocol}"),
 				);
 			}
 		}
@@ -200,8 +198,7 @@ async fn execute_recursive<C: ExecutionContext>(
 						"⚠ External plugin '{plugin_name}' returned 'failure' branch. Marking as failed in Circuit Breaker."
 					),
 				);
-				registry::EXTERNAL_PLUGIN_FAILURES
-					.insert(plugin_name.clone(), std::time::Instant::now());
+				registry::EXTERNAL_PLUGIN_FAILURES.insert(plugin_name.clone(), std::time::Instant::now());
 			}
 			out
 		}
@@ -213,8 +210,7 @@ async fn execute_recursive<C: ExecutionContext>(
 						"✗ Runtime error in external plugin '{plugin_name}': {e}. Activating quiet period."
 					),
 				);
-				registry::EXTERNAL_PLUGIN_FAILURES
-					.insert(plugin_name.clone(), std::time::Instant::now());
+				registry::EXTERNAL_PLUGIN_FAILURES.insert(plugin_name.clone(), std::time::Instant::now());
 			}
 			return Err(e);
 		}

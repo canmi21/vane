@@ -40,9 +40,7 @@ impl<'a> TemplateContext for SimpleContext<'a> {
 					Err(e) => {
 						log(
 							LogLevel::Warn,
-							&format!(
-								"⚠ L4+ Hijacking failed for '{key}': {e}, trying KV fallback"
-							),
+							&format!("⚠ L4+ Hijacking failed for '{key}': {e}, trying KV fallback"),
 						);
 					}
 				}
@@ -50,15 +48,15 @@ impl<'a> TemplateContext for SimpleContext<'a> {
 		}
 
 		// 2. Standard KV lookup
-		if let Some(value) = self.kv.get(key) { value.clone() } else {
-  				log(
-  					LogLevel::Warn,
-  					&format!(
-  						"⚠ Template key '{key}' not found in KV Store, keeping original: {{{{{key}}}}}"
-  					),
-  				);
-  				format!("{{{{{key}}}}}") // Return original {{key}}
-  			}
+		if let Some(value) = self.kv.get(key) {
+			value.clone()
+		} else {
+			log(
+				LogLevel::Warn,
+				&format!("⚠ Template key '{key}' not found in KV Store, keeping original: {{{{{key}}}}}"),
+			);
+			format!("{{{{{key}}}}}") // Return original {{key}}
+		}
 	}
 }
 
@@ -81,9 +79,7 @@ impl<'a> TemplateContext for L7Context<'a> {
 				Err(e) => {
 					log(
 						LogLevel::Warn,
-						&format!(
-							"⚠ Hijacking failed for '{key}': {e}, trying KV fallback"
-						),
+						&format!("⚠ Hijacking failed for '{key}': {e}, trying KV fallback"),
 					);
 					// Fall through to KV Store
 				}
@@ -91,15 +87,15 @@ impl<'a> TemplateContext for L7Context<'a> {
 		}
 
 		// 2. Fallback to KV Store
-		if let Some(value) = self.container.kv.get(key) { value.clone() } else {
-  				log(
-  					LogLevel::Warn,
-  					&format!(
-  						"⚠ Template key '{key}' not found, keeping original: {{{{{key}}}}}"
-  					),
-  				);
-  				format!("{{{{{key}}}}}") // Return original {{key}}
-  			}
+		if let Some(value) = self.container.kv.get(key) {
+			value.clone()
+		} else {
+			log(
+				LogLevel::Warn,
+				&format!("⚠ Template key '{key}' not found, keeping original: {{{{{key}}}}}"),
+			);
+			format!("{{{{{key}}}}}") // Return original {{key}}
+		}
 	}
 }
 

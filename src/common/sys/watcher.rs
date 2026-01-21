@@ -18,7 +18,7 @@ pub struct ConfigChangeReceivers {
 }
 
 /// Starts the filesystem watchers for configuration directories.
-#[must_use] 
+#[must_use]
 pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 	let (p_tx, p_rx) = mpsc::channel(1);
 	let (n_tx, n_rx) = mpsc::channel(1);

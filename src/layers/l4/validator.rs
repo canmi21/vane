@@ -17,18 +17,19 @@ pub struct FlowValidationError {
 	pub message: String,
 }
 
-#[must_use] 
+#[must_use]
 pub fn validate_target(target: &Target, path: &str) -> Vec<FlowValidationError> {
 	let mut errors = Vec::new();
 	if let Target::Domain { domain, .. } = target
- 			&& !cfg!(feature = "domain-target") {
- 				errors.push(FlowValidationError {
+		&& !cfg!(feature = "domain-target")
+	{
+		errors.push(FlowValidationError {
  					path: path.to_owned(),
  					message: format!(
  						"Domain target '{domain}' is disabled in this build. Please recompile with 'domain-target' feature enabled."
  					),
  				});
- 			}
+	}
 	errors
 }
 
@@ -173,111 +174,114 @@ pub fn validate_flow_recursive(
 			Some(m.output())
 		} else if let Some(m) = plugin.as_middleware() {
 			Some(m.output())
-		} else { plugin.as_l7_middleware().map(|m| m.output()) };
+		} else {
+			plugin.as_l7_middleware().map(|m| m.output())
+		};
 
-		        if let Some(branches) = expected_branches {
-		            validate_middleware_outputs_internal(
-		                plugin_name,
-		                &branches,
-		                &instance.output,
-		                &current_path,
-		                &mut errors,
-		            );
-		        }
-		
-		        ancestors.push(current_path.clone());
-		        for (branch, next_step) in &instance.output {
-		            let branch_path = format!("{current_path}.{branch}");
-		            errors.extend(validate_flow_recursive(
-		                next_step,
-		                layer,
-		                protocol,
-		                branch_path,
-		                ancestors,
-		            ));
-		        }
-		        ancestors.pop();
-		    }
-		
-		    errors
+		if let Some(branches) = expected_branches {
+			validate_middleware_outputs_internal(
+				plugin_name,
+				&branches,
+				&instance.output,
+				&current_path,
+				&mut errors,
+			);
 		}
-		
-		fn validate_plugin_inputs_internal(
-		    plugin_name: &str,
-		    param_defs: &[crate::engine::interfaces::ParamDef],
-		    inputs: &HashMap<String, Value>,
-		    current_path: &str,
-		    errors: &mut Vec<FlowValidationError>,
-		) {
-		    for input_name in inputs.keys() {
-		        if !param_defs
-		            .iter()
-		            .any(|p| p.name.as_ref() == input_name.as_str())
-		        {
-		            errors.push(FlowValidationError {
-		                path: format!("{current_path}.input.{input_name}"),
-		                message: format!(
-		                    "Plugin '{plugin_name}' does not accept parameter '{input_name}'."
-		                ),
-		            });
-		        }
-		    }
-		
-		    for def in param_defs {
-		        match inputs.get(def.name.as_ref()) {
-		            Some(value) => {
-		                if let Some(s) = value.as_str()
-		                    && s.starts_with("{{") && s.ends_with("}}") {
-		                        continue;
-		                    }
-		
-		                let is_valid_type = match def.param_type {
-		                    ParamType::Integer => value.is_i64() || value.is_u64(),
-		                    ParamType::Boolean => value.is_boolean(),
-		                    ParamType::String | ParamType::Bytes => value.is_string(),
-		                    ParamType::Map => value.is_object(),
-		                    ParamType::Array => value.is_array(),
-		                    ParamType::Any => true,
-		                };
-		                if !is_valid_type {
-		                    errors.push(FlowValidationError {
-		                        path: format!("{}.input.{}", current_path, def.name),
-		                        message: format!(
-		                            "Parameter '{}' must be of type {:?}.",
-		                            def.name, def.param_type
-		                        ),
-		                    });
-		                }
-		
-		                // Deep validation for Target types (IP/Domain/Node)
-		                if (def.param_type == ParamType::Any || def.param_type == ParamType::Map)
-		                    && let Ok(target) = serde_json::from_value::<Target>(value.clone()) {
-		                        errors.extend(validate_target(
-		                            &target,
-		                            &format!("{}.input.{}", current_path, def.name),
-		                        ));
-		                    }
-		            }
-		            None => {
-		                if def.required {
-		                    errors.push(FlowValidationError {
-		                        path: format!("{}.input.{}", current_path, def.name),
-		                        message: format!("Required parameter '{}' is missing.", def.name),
-		                    });
-		                }
-		            }
-		        }
-		    }
+
+		ancestors.push(current_path.clone());
+		for (branch, next_step) in &instance.output {
+			let branch_path = format!("{current_path}.{branch}");
+			errors.extend(validate_flow_recursive(
+				next_step,
+				layer,
+				protocol,
+				branch_path,
+				ancestors,
+			));
 		}
-		
-		fn validate_middleware_outputs_internal(
-		    plugin_name: &str,
-		    expected_branches: &[Cow<'static, str>],
-		    outputs: &HashMap<String, ProcessingStep>,
-		    current_path: &str,
-		    errors: &mut Vec<FlowValidationError>,
-		) {
-		    let expected_set: HashSet<&str> = expected_branches.iter().map(|s| s.as_ref()).collect();
+		ancestors.pop();
+	}
+
+	errors
+}
+
+fn validate_plugin_inputs_internal(
+	plugin_name: &str,
+	param_defs: &[crate::engine::interfaces::ParamDef],
+	inputs: &HashMap<String, Value>,
+	current_path: &str,
+	errors: &mut Vec<FlowValidationError>,
+) {
+	for input_name in inputs.keys() {
+		if !param_defs
+			.iter()
+			.any(|p| p.name.as_ref() == input_name.as_str())
+		{
+			errors.push(FlowValidationError {
+				path: format!("{current_path}.input.{input_name}"),
+				message: format!("Plugin '{plugin_name}' does not accept parameter '{input_name}'."),
+			});
+		}
+	}
+
+	for def in param_defs {
+		match inputs.get(def.name.as_ref()) {
+			Some(value) => {
+				if let Some(s) = value.as_str()
+					&& s.starts_with("{{")
+					&& s.ends_with("}}")
+				{
+					continue;
+				}
+
+				let is_valid_type = match def.param_type {
+					ParamType::Integer => value.is_i64() || value.is_u64(),
+					ParamType::Boolean => value.is_boolean(),
+					ParamType::String | ParamType::Bytes => value.is_string(),
+					ParamType::Map => value.is_object(),
+					ParamType::Array => value.is_array(),
+					ParamType::Any => true,
+				};
+				if !is_valid_type {
+					errors.push(FlowValidationError {
+						path: format!("{}.input.{}", current_path, def.name),
+						message: format!(
+							"Parameter '{}' must be of type {:?}.",
+							def.name, def.param_type
+						),
+					});
+				}
+
+				// Deep validation for Target types (IP/Domain/Node)
+				if (def.param_type == ParamType::Any || def.param_type == ParamType::Map)
+					&& let Ok(target) = serde_json::from_value::<Target>(value.clone())
+				{
+					errors.extend(validate_target(
+						&target,
+						&format!("{}.input.{}", current_path, def.name),
+					));
+				}
+			}
+			None => {
+				if def.required {
+					errors.push(FlowValidationError {
+						path: format!("{}.input.{}", current_path, def.name),
+						message: format!("Required parameter '{}' is missing.", def.name),
+					});
+				}
+			}
+		}
+	}
+}
+
+fn validate_middleware_outputs_internal(
+	plugin_name: &str,
+	expected_branches: &[Cow<'static, str>],
+	outputs: &HashMap<String, ProcessingStep>,
+	current_path: &str,
+	errors: &mut Vec<FlowValidationError>,
+) {
+	let expected_set: HashSet<&str> = expected_branches.iter().map(|s| s.as_ref()).collect();
 	for branch_name in outputs.keys() {
 		if !expected_set.contains(branch_name.as_str()) {
 			errors.push(FlowValidationError {

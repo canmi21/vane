@@ -59,10 +59,7 @@ pub async fn handle_connection(conn: ConnectionObject, protocol_id: String) -> R
 	//
 	// Related rustc ICE issue: https://github.com/rust-lang/rust/issues/150378
 	if let Err(e) = builder.serve_connection_with_upgrades(io, service).await {
-		log(
-			LogLevel::Error,
-			&format!("✗ Httpx Connection Error: {e:?}"),
-		);
+		log(LogLevel::Error, &format!("✗ Httpx Connection Error: {e:?}"));
 	}
 
 	Ok(())
@@ -120,9 +117,10 @@ async fn serve_request(
 	}
 
 	if let Some(host) = parts.headers.get("host")
-		&& let Ok(h) = host.to_str() {
-			kv.insert("req.host".to_owned(), h.to_owned());
-		}
+		&& let Ok(h) = host.to_str()
+	{
+		kv.insert("req.host".to_owned(), h.to_owned());
+	}
 
 	// Pass full HeaderMap to Container Zero-Copy Move
 	// We take ownership of parts.headers.
@@ -141,19 +139,22 @@ async fn serve_request(
 
 	// Inject client upgrade handle if present
 	if let Some(upgrade) = client_upgrade
-		&& let Some(http_data) = container.http_data_mut() {
-			http_data.client_upgrade = Some(upgrade);
-		}
+		&& let Some(http_data) = container.http_data_mut()
+	{
+		http_data.client_upgrade = Some(upgrade);
+	}
 
 	let config = {
 		let registry = APPLICATION_REGISTRY.load();
-		if let Some(c) = registry.get(&protocol_id) { c.value().clone() } else {
-  				log(
-  					LogLevel::Error,
-  					&format!("✗ No config for app protocol: {protocol_id}"),
-  				);
-  				return response_error(500, "Configuration Error");
-  			}
+		if let Some(c) = registry.get(&protocol_id) {
+			c.value().clone()
+		} else {
+			log(
+				LogLevel::Error,
+				&format!("✗ No config for app protocol: {protocol_id}"),
+			);
+			return response_error(500, "Configuration Error");
+		}
 	};
 
 	if let Err(e) = flow::execute_l7(&config.pipeline, &mut container, "".to_owned()).await {
@@ -166,20 +167,20 @@ async fn serve_request(
 
 	// Wait for the Terminator to signal the response headers
 	if let Ok(response_parts) = res_rx.await {
- 			let (parts, _) = response_parts.into_parts();
+		let (parts, _) = response_parts.into_parts();
 
- 			// Retrieve the Response Body from the Container!
- 			// We extract from response_body slot now.
- 			let final_body = extract_response_body_from_container(&mut container);
+		// Retrieve the Response Body from the Container!
+		// We extract from response_body slot now.
+		let final_body = extract_response_body_from_container(&mut container);
 
- 			Ok(Response::from_parts(parts, final_body))
- 		} else {
- 			log(
- 				LogLevel::Warn,
- 				"⚠ Flow finished but no response signal received.",
- 			);
- 			Ok(response_error(502, "Bad Gateway (No Response Signal)")?)
- 		}
+		Ok(Response::from_parts(parts, final_body))
+	} else {
+		log(
+			LogLevel::Warn,
+			"⚠ Flow finished but no response signal received.",
+		);
+		Ok(response_error(502, "Bad Gateway (No Response Signal)")?)
+	}
 }
 
 /// Helper to extract and convert the Container's RESPONSE payload.

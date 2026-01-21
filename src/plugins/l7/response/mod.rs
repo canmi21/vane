@@ -140,10 +140,7 @@ impl L7Terminator for SendResponsePlugin {
 						}
 					}
 					Err(e) => {
-						log(
-							LogLevel::Error,
-							&format!("✗ WebSocket upgrade failed: {e}"),
-						);
+						log(LogLevel::Error, &format!("✗ WebSocket upgrade failed: {e}"));
 					}
 				}
 			});
@@ -175,7 +172,9 @@ impl L7Terminator for SendResponsePlugin {
 			headers.clear();
 
 			for (k, v) in headers_input {
-				let Ok(header_name) = HeaderName::from_bytes(k.as_bytes()) else { continue };
+				let Ok(header_name) = HeaderName::from_bytes(k.as_bytes()) else {
+					continue;
+				};
 
 				match v {
 					Value::String(s) => {
@@ -186,9 +185,10 @@ impl L7Terminator for SendResponsePlugin {
 					Value::Array(arr) => {
 						for item in arr {
 							if let Some(s) = item.as_str()
-								&& let Ok(val) = HeaderValue::from_str(s) {
-									headers.append(header_name.clone(), val);
-								}
+								&& let Ok(val) = HeaderValue::from_str(s)
+							{
+								headers.append(header_name.clone(), val);
+							}
 						}
 					}
 					_ => {}

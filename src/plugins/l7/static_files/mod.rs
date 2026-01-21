@@ -245,13 +245,14 @@ impl HttpMiddleware for StaticPlugin {
 					fs_path.extension().unwrap_or_default().to_string_lossy()
 				));
 				if let Ok(gz_meta) = tokio::fs::metadata(&gz_path).await
-					&& let Ok(gz_file) = File::open(&gz_path).await {
-						// Switch to compressed file
-						file = gz_file;
-						metadata = gz_meta;
-						content_encoding = Some("gzip");
-						// Content-Type remains that of original file
-					}
+					&& let Ok(gz_file) = File::open(&gz_path).await
+				{
+					// Switch to compressed file
+					file = gz_file;
+					metadata = gz_meta;
+					content_encoding = Some("gzip");
+					// Content-Type remains that of original file
+				}
 			}
 		}
 

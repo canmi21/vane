@@ -77,9 +77,7 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 		Err(e) => {
 			log(
 				LogLevel::Error,
-				&format!(
-					"✗ Failed to parse external API response JSON for '{name}': {e}"
-				),
+				&format!("✗ Failed to parse external API response JSON for '{name}': {e}"),
 			);
 			return Ok(MiddlewareOutput {
 				branch: "failure".into(),
@@ -90,20 +88,16 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 
 	// 6. Check Logic Status
 	if api_response.status == "success" {
-		api_response.data.ok_or_else(|| {
-			anyhow!(
-				"External API for '{name}' returned success but 'data' is missing."
-			)
-		})
+		api_response
+			.data
+			.ok_or_else(|| anyhow!("External API for '{name}' returned success but 'data' is missing."))
 	} else {
 		let msg = api_response
 			.message
 			.unwrap_or_else(|| "Unknown error".to_owned());
 		log(
 			LogLevel::Warn,
-			&format!(
-				"⚠ External API for '{name}' returned error status: {msg}"
-			),
+			&format!("⚠ External API for '{name}' returned error status: {msg}"),
 		);
 		Ok(MiddlewareOutput {
 			branch: "failure".into(),

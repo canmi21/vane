@@ -63,7 +63,7 @@ pub struct BufferGuard {
 }
 
 impl BufferGuard {
-	#[must_use] 
+	#[must_use]
 	pub fn new(size: usize) -> Self {
 		Self { size }
 	}

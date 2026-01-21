@@ -17,38 +17,34 @@ pub async fn execute(path: &str, name: &str, inputs: ResolvedInputs) -> Result<M
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ Executing external Unix middleware (timeout {timeout_secs}s): {name}"
-		),
+		&format!("➜ Executing external Unix middleware (timeout {timeout_secs}s): {name}"),
 	);
 
 	// 1. Connect to Unix Socket
 	let Ok(res) = timeout(duration, UnixStream::connect(path)).await else {
- 			log(
- 				LogLevel::Error,
- 				&format!(
- 					"✗ Unix connection to {path} timed out after {timeout_secs}s"
- 				),
- 			);
- 			return Ok(MiddlewareOutput {
- 				branch: "failure".into(),
- 				store: None,
- 			});
- 		};
+		log(
+			LogLevel::Error,
+			&format!("✗ Unix connection to {path} timed out after {timeout_secs}s"),
+		);
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	};
 
-    let mut stream = match res {
- 			Ok(s) => s,
- 			Err(e) => {
- 				log(
- 					LogLevel::Error,
- 					&format!("✗ Failed to connect to unix socket {path}: {e}"),
- 				);
- 				return Ok(MiddlewareOutput {
- 					branch: "failure".into(),
- 					store: None,
- 				});
- 			}
- 		};
+	let mut stream = match res {
+		Ok(s) => s,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to connect to unix socket {path}: {e}"),
+			);
+			return Ok(MiddlewareOutput {
+				branch: "failure".into(),
+				store: None,
+			});
+		}
+	};
 
 	// 2. Serialize Payload
 	let body_bytes = serde_json::to_vec(&inputs)?;
@@ -117,15 +113,15 @@ pub async fn execute(path: &str, name: &str, inputs: ResolvedInputs) -> Result<M
 
 	let _headers_part = parts.next();
 	let Some(body_part) = parts.next() else {
- 			log(
- 				LogLevel::Error,
- 				"✗ HTTP response body missing from unix socket.",
- 			);
- 			return Ok(MiddlewareOutput {
- 				branch: "failure".into(),
- 				store: None,
- 			});
- 		};
+		log(
+			LogLevel::Error,
+			"✗ HTTP response body missing from unix socket.",
+		);
+		return Ok(MiddlewareOutput {
+			branch: "failure".into(),
+			store: None,
+		});
+	};
 
 	// 7. Parse Body as ExternalApiResponse
 	let api_response: ExternalApiResponse<MiddlewareOutput> = match serde_json::from_str(body_part) {
@@ -144,20 +140,16 @@ pub async fn execute(path: &str, name: &str, inputs: ResolvedInputs) -> Result<M
 
 	// 8. Check Logic Status
 	if api_response.status == "success" {
-		api_response.data.ok_or_else(|| {
-			anyhow!(
-				"External API for '{name}' returned success but 'data' is missing."
-			)
-		})
+		api_response
+			.data
+			.ok_or_else(|| anyhow!("External API for '{name}' returned success but 'data' is missing."))
 	} else {
 		let msg = api_response
 			.message
 			.unwrap_or_else(|| "Unknown error".to_owned());
 		log(
 			LogLevel::Warn,
-			&format!(
-				"⚠ External API for '{name}' returned error status: {msg}"
-			),
+			&format!("⚠ External API for '{name}' returned error status: {msg}"),
 		);
 		Ok(MiddlewareOutput {
 			branch: "failure".into(),

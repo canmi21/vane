@@ -38,9 +38,9 @@ impl Service<Name> for VaneResolver {
 			let ips = crate::layers::l4::resolver::resolve_domain_to_ips(&host).await;
 
 			if ips.is_empty() {
-				return Err(std::io::Error::other(
-					format!("Vane DNS lookup returned no IPs for {host}"),
-				));
+				return Err(std::io::Error::other(format!(
+					"Vane DNS lookup returned no IPs for {host}"
+				)));
 			}
 
 			// Hyper expects SocketAddr (IP + Port).

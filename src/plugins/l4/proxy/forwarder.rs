@@ -33,9 +33,7 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ Proxying TCP connection from {peer_addr} to {target_str}"
-		),
+		&format!("➜ Proxying TCP connection from {peer_addr} to {target_str}"),
 	);
 
 	match timeout(
@@ -62,9 +60,7 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 		Ok(Err(e)) => {
 			log(
 				LogLevel::Error,
-				&format!(
-					"✗ Failed to connect to upstream target {target_str}: {e}"
-				),
+				&format!("✗ Failed to connect to upstream target {target_str}: {e}"),
 			);
 			health::mark_tcp_target_unhealthy(&target);
 			Err(anyhow::Error::new(e))
@@ -142,19 +138,21 @@ fn spawn_reply_handler(
 		let mut buf = [0; 65535];
 		if let Ok(local_addr) = upstream_socket.local_addr() {
 			loop {
-				if let Ok(Ok((len, _))) = tokio::time::timeout(timeout, upstream_socket.recv_from(&mut buf)).await {
-    						if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr)
-    							&& main_socket
-    								.send_to(&buf[..len], *client_addr)
-    								.await
-    								.is_err()
-    							{
-    								break;
-    							}
-    					} else {
-    						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {}
-    						break;
-    					}
+				if let Ok(Ok((len, _))) =
+					tokio::time::timeout(timeout, upstream_socket.recv_from(&mut buf)).await
+				{
+					if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr)
+						&& main_socket
+							.send_to(&buf[..len], *client_addr)
+							.await
+							.is_err()
+					{
+						break;
+					}
+				} else {
+					if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {}
+					break;
+				}
 			}
 		}
 	});
@@ -202,8 +200,8 @@ pub async fn proxy_udp_direct(
 			}
 			return Ok(());
 		} else if let Ok(addr) = session.upstream_socket.local_addr() {
-  				REVERSE_SESSIONS.remove(&addr);
-  			}
+			REVERSE_SESSIONS.remove(&addr);
+		}
 	}
 
 	let target_ip = target.ip.parse::<IpAddr>().context("Invalid target IP")?;
@@ -212,20 +210,21 @@ pub async fn proxy_udp_direct(
 		.context("Failed to bind upstream socket")?;
 	let upstream_arc = Arc::new(upstream_socket);
 
-				if let Ok(local_addr) = upstream_arc.local_addr() {
-					// Apply Connection Rate Limits
-					let Some(guard) = crate::ingress::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) else {
-	  				log(
-	  					LogLevel::Debug,
-	  					&format!(
-	  						"⚙ Rate limited UDP Flow session from {} to {}:{}",
-	  						client_addr, target.ip, target.port
-	  					),
-	  				);
-	  				return Err(anyhow::anyhow!("Rate limited"));
-	  			};
-	
-			let new_session = Arc::new(Session {			target: target.clone(),
+	if let Ok(local_addr) = upstream_arc.local_addr() {
+		// Apply Connection Rate Limits
+		let Some(guard) = crate::ingress::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) else {
+			log(
+				LogLevel::Debug,
+				&format!(
+					"⚙ Rate limited UDP Flow session from {} to {}:{}",
+					client_addr, target.ip, target.port
+				),
+			);
+			return Err(anyhow::anyhow!("Rate limited"));
+		};
+
+		let new_session = Arc::new(Session {
+			target: target.clone(),
 			upstream_socket: upstream_arc.clone(),
 			// FIX: Use tokio::time::Instant explicitly
 			last_seen: tokio::time::Instant::now(),
@@ -254,9 +253,7 @@ pub async fn proxy_udp_direct(
 
 		log(
 			LogLevel::Debug,
-			&format!(
-				"➜ Established UDP NAT mapping: {client_addr} <-> {nat_key}"
-			),
+			&format!("➜ Established UDP NAT mapping: {client_addr} <-> {nat_key}"),
 		);
 		return Ok(());
 	}
@@ -279,14 +276,16 @@ fn spawn_quic_reply_handler(
 
 		if let Ok(local_addr) = upstream_socket.local_addr() {
 			loop {
-				if let Ok(Ok((len, _))) = timeout(timeout_duration, upstream_socket.recv_from(&mut buf)).await {
-    						if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr) {
-    							let _ = listener_socket.send_to(&buf[..len], *client_addr).await;
-    						}
-    					} else {
-    						if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {}
-    						break;
-    					}
+				if let Ok(Ok((len, _))) =
+					timeout(timeout_duration, upstream_socket.recv_from(&mut buf)).await
+				{
+					if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr) {
+						let _ = listener_socket.send_to(&buf[..len], *client_addr).await;
+					}
+				} else {
+					if let Some((_, _client_addr)) = REVERSE_SESSIONS.remove(&local_addr) {}
+					break;
+				}
 			}
 		}
 	});
@@ -349,8 +348,8 @@ pub async fn proxy_quic_association(
 			}
 			return Ok(());
 		} else if let Ok(addr) = session.upstream_socket.local_addr() {
-  				REVERSE_SESSIONS.remove(&addr);
-  			}
+			REVERSE_SESSIONS.remove(&addr);
+		}
 	}
 
 	// 2. New Session Logic
@@ -368,15 +367,15 @@ pub async fn proxy_quic_association(
 	if let Ok(local_addr) = upstream_arc.local_addr() {
 		// Apply Connection Rate Limits
 		let Some(guard) = crate::ingress::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) else {
-  				log(
-  					LogLevel::Debug,
-  					&format!(
-  						"⚙ Rate limited QUIC Flow session from {} to {}:{}",
-  						client_addr, target.ip, target.port
-  					),
-  				);
-  				return Err(anyhow::anyhow!("Rate limited"));
-  			};
+			log(
+				LogLevel::Debug,
+				&format!(
+					"⚙ Rate limited QUIC Flow session from {} to {}:{}",
+					client_addr, target.ip, target.port
+				),
+			);
+			return Err(anyhow::anyhow!("Rate limited"));
+		};
 
 		// Register UDP Session
 		let new_session = Arc::new(Session {
@@ -483,9 +482,7 @@ pub async fn proxy_quic_association(
 
 		log(
 			LogLevel::Debug,
-			&format!(
-				"➜ Established QUIC NAT mapping: {client_addr} <-> {nat_key}"
-			),
+			&format!("➜ Established QUIC NAT mapping: {client_addr} <-> {nat_key}"),
 		);
 	}
 

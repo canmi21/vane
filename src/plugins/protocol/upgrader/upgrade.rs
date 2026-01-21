@@ -65,17 +65,13 @@ impl Terminator for UpgradePlugin {
 				ConnectionObject::Tcp(_) | ConnectionObject::Udp { .. } => {
 					log(
 						LogLevel::Warn,
-						&format!(
-							"⚠ Ignored 'cert' parameter for L4 -> L4+ upgrade to '{protocol}'."
-						),
+						&format!("⚠ Ignored 'cert' parameter for L4 -> L4+ upgrade to '{protocol}'."),
 					);
 				}
 				ConnectionObject::Stream(_) => {
 					log(
 						LogLevel::Debug,
-						&format!(
-							"⚙ Upgrade requested with explicit cert override: {cert_sni}"
-						),
+						&format!("⚙ Upgrade requested with explicit cert override: {cert_sni}"),
 					);
 					kv.insert("tls.termination.cert_sni".to_owned(), cert_sni.to_owned());
 				}
@@ -94,9 +90,7 @@ impl Terminator for UpgradePlugin {
 			(ConnectionObject::Virtual(_), _) => {
 				log(
 					LogLevel::Warn,
-					&format!(
-						"⚠ Attempting upgrade on Virtual connection to '{protocol}'."
-					),
+					&format!("⚠ Attempting upgrade on Virtual connection to '{protocol}'."),
 				);
 			}
 			_ => log(

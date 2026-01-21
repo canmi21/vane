@@ -36,17 +36,17 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	let parse_len = std::cmp::min(datagram.len(), max_len);
 
 	let Ok(parsed_packet) = parser::parse_initial_packet(&datagram[..parse_len]) else {
- 			// If parsing fails (Short Header/Handshake), check IP:PORT sticky map.
- 			if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
- 				// Blind forward to sticky target using correct source port
- 				log(
- 					LogLevel::Debug,
- 					&format!("➜ Sticky Forward: {client_addr} -> {target}"),
- 				);
- 				let _ = upstream_socket.send_to(&datagram, target).await;
- 			}
- 			return Ok(());
- 		};
+		// If parsing fails (Short Header/Handshake), check IP:PORT sticky map.
+		if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
+			// Blind forward to sticky target using correct source port
+			log(
+				LogLevel::Debug,
+				&format!("➜ Sticky Forward: {client_addr} -> {target}"),
+			);
+			let _ = upstream_socket.send_to(&datagram, target).await;
+		}
+		return Ok(());
+	};
 
 	let dcid_bytes = hex::decode(&parsed_packet.dcid).unwrap_or_default();
 	if dcid_bytes.is_empty() {
@@ -74,17 +74,17 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		} else {
 			// Apply Connection Rate Limits
 			let Some(guard) = GLOBAL_TRACKER.acquire(client_addr.ip()) else {
-   					log(
-   						LogLevel::Debug,
-   						&format!(
-   							"⚙ Rate limited QUIC session from {} (DCID {})",
-   							client_addr, parsed_packet.dcid
-   						),
-   					);
-   					// Release bytes since we aren't storing
-   					session::release_global_bytes(datagram.len());
-   					return Ok(());
-   				};
+				log(
+					LogLevel::Debug,
+					&format!(
+						"⚙ Rate limited QUIC session from {} (DCID {})",
+						client_addr, parsed_packet.dcid
+					),
+				);
+				// Release bytes since we aren't storing
+				session::release_global_bytes(datagram.len());
+				return Ok(());
+			};
 
 			session::PENDING_INITIALS
 				.entry(dcid_bytes.clone())

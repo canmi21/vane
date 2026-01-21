@@ -81,10 +81,7 @@ pub async fn run(
 		}
 		Ok(_) => { /* Empty stream */ }
 		Err(e) => {
-			log(
-				LogLevel::Warn,
-				&format!("⚠ Failed to peek TCP stream: {e}"),
-			);
+			log(LogLevel::Warn, &format!("⚠ Failed to peek TCP stream: {e}"));
 		}
 	}
 

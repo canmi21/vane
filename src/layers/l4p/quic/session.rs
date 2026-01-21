@@ -143,41 +143,41 @@ pub fn get_session(cid: &[u8]) -> Option<SessionAction> {
 	CID_REGISTRY.get(cid).map(|r| r.value().clone())
 }
 
-	pub fn touch_session(cid: &[u8]) {
-		if let Some(mut entry) = CID_REGISTRY.get_mut(cid) {
-			match entry.value_mut() {
-				SessionAction::Forward { last_seen, .. }
-				| SessionAction::Terminate { last_seen, .. } => *last_seen = Instant::now(),
+pub fn touch_session(cid: &[u8]) {
+	if let Some(mut entry) = CID_REGISTRY.get_mut(cid) {
+		match entry.value_mut() {
+			SessionAction::Forward { last_seen, .. } | SessionAction::Terminate { last_seen, .. } => {
+				*last_seen = Instant::now()
 			}
 		}
 	}
+}
 
-	#[must_use] 
-	pub fn check_session_limit(current: usize, add: usize) -> bool {
-		let limit = get_session_byte_limit();
-		if current + add > limit {
-			log(
-				LogLevel::Warn,
-				&format!(
-					"⚠ QUIC Session Buffer Limit Exceeded! Dropping (Current: {current}/{limit})"
-				),
-			);
-			return false;
-		}
-		true
+#[must_use]
+pub fn check_session_limit(current: usize, add: usize) -> bool {
+	let limit = get_session_byte_limit();
+	if current + add > limit {
+		log(
+			LogLevel::Warn,
+			&format!("⚠ QUIC Session Buffer Limit Exceeded! Dropping (Current: {current}/{limit})"),
+		);
+		return false;
 	}
+	true
+}
 
-	pub fn cleanup_sessions(timeout_secs: u64) {
-		let now = Instant::now();
+pub fn cleanup_sessions(timeout_secs: u64) {
+	let now = Instant::now();
 
-		// Cleanup CID Sessions
-		CID_REGISTRY.retain(|_, action| {
-			let last = match action {
-				SessionAction::Forward { last_seen, .. }
-				| SessionAction::Terminate { last_seen, .. } => last_seen,
-			};
-			now.duration_since(*last).as_secs() < timeout_secs
-		});
+	// Cleanup CID Sessions
+	CID_REGISTRY.retain(|_, action| {
+		let last = match action {
+			SessionAction::Forward { last_seen, .. } | SessionAction::Terminate { last_seen, .. } => {
+				last_seen
+			}
+		};
+		now.duration_since(*last).as_secs() < timeout_secs
+	});
 	// Cleanup Pending Initials (Strict 10s)
 	// Removal triggers Drop -> release_global_bytes
 	PENDING_INITIALS.retain(|_, state| now.duration_since(state.last_seen).as_secs() < 10);

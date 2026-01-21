@@ -49,7 +49,11 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 
 	log(
 		LogLevel::Debug,
-		&format!("⚙ CGI Request: method={}, body_size={} bytes", config.method, body_bytes.len()),
+		&format!(
+			"⚙ CGI Request: method={}, body_size={} bytes",
+			config.method,
+			body_bytes.len()
+		),
 	);
 
 	let mut envs = HashMap::new();
@@ -139,7 +143,10 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 				store: None,
 			});
 		}
-		log(LogLevel::Debug, &format!("✓ CGI stdin written: {} bytes", body_bytes.len()));
+		log(
+			LogLevel::Debug,
+			&format!("✓ CGI stdin written: {} bytes", body_bytes.len()),
+		);
 	}
 	drop(stdin); // Close stdin to signal EOF to CGI
 
@@ -188,7 +195,11 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	let headers_str = String::from_utf8_lossy(&header_buffer);
 	log(
 		LogLevel::Debug,
-		&format!("⚙ CGI Headers Parsed ({} bytes):\n{}", header_buffer.len(), headers_str),
+		&format!(
+			"⚙ CGI Headers Parsed ({} bytes):\n{}",
+			header_buffer.len(),
+			headers_str
+		),
 	);
 
 	for line in headers_str.lines() {

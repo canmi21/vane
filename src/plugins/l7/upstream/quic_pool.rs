@@ -56,9 +56,7 @@ async fn get_global_endpoint() -> Result<&'static Endpoint> {
 
 			log(
 				LogLevel::Debug,
-				&format!(
-					"➜ QUIC Global Endpoint Initialized (0.0.0.0:0) | IdleTimeout: {idle_timeout_s}s"
-				),
+				&format!("➜ QUIC Global Endpoint Initialized (0.0.0.0:0) | IdleTimeout: {idle_timeout_s}s"),
 			);
 			Ok(endpoint)
 		})
@@ -89,9 +87,7 @@ pub async fn get_or_create_connection(
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ FetchUpstream H3 Establishing new QUIC connection to {host}:{port}"
-		),
+		&format!("➜ FetchUpstream H3 Establishing new QUIC connection to {host}:{port}"),
 	);
 	let sender = connect_internal(host, port, skip_verify).await?;
 	pool.insert(key, sender.clone());

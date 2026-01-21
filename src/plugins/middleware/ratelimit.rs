@@ -164,16 +164,16 @@ impl GenericMiddleware for KeywordRateLimitSecPlugin {
 		let pool = &*SEC_POOL;
 
 		let current_count = if let Some(mut entry) = pool.get_mut(key) {
-  				*entry += 1;
-  				*entry
-  			} else {
-  				// Ensure space exists (evicting if necessary) before inserting
-  				ensure_space(pool, &SEC_POOL_USAGE);
-  				let entry_size = ENTRY_OVERHEAD + key.len();
-  				SEC_POOL_USAGE.fetch_add(entry_size, Ordering::Relaxed);
-  				pool.insert(key.to_owned(), 1);
-  				1
-  			};
+			*entry += 1;
+			*entry
+		} else {
+			// Ensure space exists (evicting if necessary) before inserting
+			ensure_space(pool, &SEC_POOL_USAGE);
+			let entry_size = ENTRY_OVERHEAD + key.len();
+			SEC_POOL_USAGE.fetch_add(entry_size, Ordering::Relaxed);
+			pool.insert(key.to_owned(), 1);
+			1
+		};
 
 		let branch = if current_count <= limit {
 			"true"
@@ -262,15 +262,15 @@ impl GenericMiddleware for KeywordRateLimitMinPlugin {
 		let pool = &*MIN_POOL;
 
 		let current_count = if let Some(mut entry) = pool.get_mut(key) {
-  				*entry += 1;
-  				*entry
-  			} else {
-  				ensure_space(pool, &MIN_POOL_USAGE);
-  				let entry_size = ENTRY_OVERHEAD + key.len();
-  				MIN_POOL_USAGE.fetch_add(entry_size, Ordering::Relaxed);
-  				pool.insert(key.to_owned(), 1);
-  				1
-  			};
+			*entry += 1;
+			*entry
+		} else {
+			ensure_space(pool, &MIN_POOL_USAGE);
+			let entry_size = ENTRY_OVERHEAD + key.len();
+			MIN_POOL_USAGE.fetch_add(entry_size, Ordering::Relaxed);
+			pool.insert(key.to_owned(), 1);
+			1
+		};
 
 		let branch = if current_count <= limit {
 			"true"

@@ -5,7 +5,7 @@ use std::process::Command;
 
 /// Returns the free memory of the system in bytes.
 /// Supported platforms: Linux, macOS, FreeBSD.
-#[must_use] 
+#[must_use]
 pub fn get_free_memory() -> Option<u64> {
 	#[cfg(target_os = "linux")]
 	{
@@ -57,7 +57,7 @@ fn execute_sysctl(query: &str) -> Option<u64> {
 }
 
 /// Validates if the current platform supports adaptive memory management.
-#[must_use] 
+#[must_use]
 pub fn is_adaptive_supported() -> bool {
 	get_free_memory().is_some()
 }

@@ -145,11 +145,12 @@ pub async fn start() -> Option<ConsoleHandles> {
 			})
 		}
 		Err(err_msg) => {
-			            log(LogLevel::Error, &format!("✗ {err_msg}"));
-			            #[allow(clippy::exit)]
-			            std::process::exit(1);
-			        }
-			    }}
+			log(LogLevel::Error, &format!("✗ {err_msg}"));
+			#[allow(clippy::exit)]
+			std::process::exit(1);
+		}
+	}
+}
 
 /// Performs cleanup and graceful shutdown of the console servers.
 pub async fn stop(handles: ConsoleHandles) {

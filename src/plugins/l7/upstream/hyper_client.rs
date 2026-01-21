@@ -77,10 +77,7 @@ pub async fn execute_hyper_request(
 	match client.request(req).await {
 		Ok(mut res) => {
 			let status = res.status();
-			log(
-				LogLevel::Debug,
-				&format!("✓ Upstream Responded: {status}"),
-			);
+			log(LogLevel::Debug, &format!("✓ Upstream Responded: {status}"));
 
 			// Update KV for Status
 			container
@@ -96,10 +93,7 @@ pub async fn execute_hyper_request(
 			Ok(())
 		}
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Upstream Request Failed: {e}"),
-			);
+			log(LogLevel::Error, &format!("✗ Upstream Request Failed: {e}"));
 			Err(Error::System(format!("Upstream error: {e}")))
 		}
 	}

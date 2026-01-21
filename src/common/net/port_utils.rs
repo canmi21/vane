@@ -1,7 +1,7 @@
 /* src/common/net/port_utils.rs */
 
 /// Checks if a number is a valid port number (1-65535).
-#[must_use] 
+#[must_use]
 pub fn is_valid_port(port: u16) -> bool {
 	port > 0
 }

@@ -40,15 +40,16 @@ async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 		Ok(Ok(_)) => {
 			let latency = start.elapsed();
 			if let Some(existing) = TARGET_HEALTH_REGISTRY.get_mut(&target)
-				&& !existing.available {
-					log(
-						LogLevel::Info,
-						&format!(
-							"✓ TCP target {}:{} has recovered and is back online (latency: {:?}).",
-							target.ip, target.port, latency
-						),
-					);
-				}
+				&& !existing.available
+			{
+				log(
+					LogLevel::Info,
+					&format!(
+						"✓ TCP target {}:{} has recovered and is back online (latency: {:?}).",
+						target.ip, target.port, latency
+					),
+				);
+			}
 			TargetHealth {
 				available: true,
 				latency,
@@ -69,18 +70,19 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 
 	for port_status in config_guard.iter() {
 		if let Some(tcp_config) = &port_status.tcp_config
-			&& let TcpConfig::Legacy(legacy_config) = &**tcp_config {
-				for rule in &legacy_config.rules {
-					if let TcpDestination::Forward { forward } = &rule.destination {
-						for rt in resolver::resolve_targets(&forward.targets).await {
-							unique_targets.insert(rt);
-						}
-						for rt in resolver::resolve_targets(&forward.fallbacks).await {
-							unique_targets.insert(rt);
-						}
+			&& let TcpConfig::Legacy(legacy_config) = &**tcp_config
+		{
+			for rule in &legacy_config.rules {
+				if let TcpDestination::Forward { forward } = &rule.destination {
+					for rt in resolver::resolve_targets(&forward.targets).await {
+						unique_targets.insert(rt);
+					}
+					for rt in resolver::resolve_targets(&forward.fallbacks).await {
+						unique_targets.insert(rt);
 					}
 				}
 			}
+		}
 	}
 	unique_targets
 		.into_iter()

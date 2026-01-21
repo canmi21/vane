@@ -17,9 +17,10 @@ pub async fn determine_mime_type(path: &Path, file: &mut File) -> String {
 	let mime_guess = mime_guess::from_path(path).first();
 
 	if let Some(mime) = mime_guess
-		&& (mime.type_() != "application" || mime.subtype() != "octet-stream") {
-			return mime.to_string();
-		}
+		&& (mime.type_() != "application" || mime.subtype() != "octet-stream")
+	{
+		return mime.to_string();
+	}
 
 	// 2. Magic Bytes Sniffing (Fallback)
 	let sniff_len_str = env_loader::get_env("STATIC_MIME_SNIFF_BYTES", "512".to_owned());
@@ -52,7 +53,7 @@ pub async fn determine_mime_type(path: &Path, file: &mut File) -> String {
 
 /// Generates a weak ETag based on file metadata.
 /// Format: W/"<mtime_nanos>-<size>"
-#[must_use] 
+#[must_use]
 pub fn generate_etag(modified: std::time::SystemTime, size: u64) -> String {
 	let duration = modified
 		.duration_since(std::time::UNIX_EPOCH)

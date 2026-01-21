@@ -46,10 +46,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for IdleWatchdog<S> {
 	) -> Poll<io::Result<()>> {
 		let before = buf.filled().len();
 		let p = Pin::new(&mut self.inner).poll_read(cx, buf);
-		if matches!(p, Poll::Ready(Ok(())))
-			&& buf.filled().len() > before {
-				self.update_activity();
-			}
+		if matches!(p, Poll::Ready(Ok(()))) && buf.filled().len() > before {
+			self.update_activity();
+		}
 		p
 	}
 }
@@ -62,9 +61,10 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for IdleWatchdog<S> {
 	) -> Poll<io::Result<usize>> {
 		let p = Pin::new(&mut self.inner).poll_write(cx, buf);
 		if let Poll::Ready(Ok(n)) = p
-			&& n > 0 {
-				self.update_activity();
-			}
+			&& n > 0
+		{
+			self.update_activity();
+		}
 		p
 	}
 

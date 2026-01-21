@@ -56,9 +56,10 @@ pub fn start_session_cleanup_task() {
 
 			for key in expired_keys {
 				if let Some((_, session)) = SESSIONS.remove(&key)
-					&& let Ok(addr) = session.upstream_socket.local_addr() {
-						REVERSE_SESSIONS.remove(&addr);
-					}
+					&& let Ok(addr) = session.upstream_socket.local_addr()
+				{
+					REVERSE_SESSIONS.remove(&addr);
+				}
 			}
 
 			// Memory limit enforcement logic remains the same.
@@ -79,9 +80,10 @@ pub fn start_session_cleanup_task() {
 				let to_prune_count = (SESSIONS.len() as f64 * 0.1).ceil() as usize;
 				for (key, _) in all_sessions.iter().take(to_prune_count) {
 					if let Some((_, session)) = SESSIONS.remove(key)
-						&& let Ok(addr) = session.upstream_socket.local_addr() {
-							REVERSE_SESSIONS.remove(&addr);
-						}
+						&& let Ok(addr) = session.upstream_socket.local_addr()
+					{
+						REVERSE_SESSIONS.remove(&addr);
+					}
 				}
 			}
 		}

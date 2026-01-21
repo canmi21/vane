@@ -25,9 +25,7 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 		match h3::server::Connection::new(h3_quinn_conn).await {
 			Ok(driver) => driver,
 			Err(e) => {
-				return Err(Error::System(format!(
-					"H3 Protocol Handshake failed: {e}"
-				)));
+				return Err(Error::System(format!("H3 Protocol Handshake failed: {e}")));
 			}
 		};
 
@@ -99,9 +97,10 @@ where
 		.headers
 		.get("host")
 		.or_else(|| parts.headers.get(":authority"))
-		&& let Ok(h) = host.to_str() {
-			kv.insert("req.host".to_owned(), h.to_owned());
-		}
+		&& let Ok(h) = host.to_str()
+	{
+		kv.insert("req.host".to_owned(), h.to_owned());
+	}
 
 	let request_headers = std::mem::take(&mut parts.headers);
 	let response_headers = HeaderMap::new();
@@ -183,29 +182,29 @@ where
 			// Branch B: Wait for Response Headers
 			res_signal = &mut res_rx, if response_body_stream.is_none() && !response_finished => {
 				if let Ok(response) = res_signal {
-    						if let Err(e) = stream.send_response(response).await {
-    							log(LogLevel::Error, &format!("✗ Failed to send H3 headers: {e}"));
-    							response_finished = true;
-    						}
+								if let Err(e) = stream.send_response(response).await {
+									log(LogLevel::Error, &format!("✗ Failed to send H3 headers: {e}"));
+									response_finished = true;
+								}
 
-    						// Take ownership of the task handle
-    						if let Some(task) = flow_task.take() {
-    							if let Ok(Some(body)) = task.await {
-    								response_body_stream = Some(body);
-    							} else {
-    								response_finished = true;
-    								let _ = stream.finish().await;
-    							}
-    						} else {
-    							// Should not happen if logic flows correctly
-    							response_finished = true;
-    							let _ = stream.finish().await;
-    						}
-    					} else {
-    						// Flow failed or dropped sender
-    						response_finished = true;
-    						let _ = stream.finish().await;
-    					}
+								// Take ownership of the task handle
+								if let Some(task) = flow_task.take() {
+									if let Ok(Some(body)) = task.await {
+										response_body_stream = Some(body);
+									} else {
+										response_finished = true;
+										let _ = stream.finish().await;
+									}
+								} else {
+									// Should not happen if logic flows correctly
+									response_finished = true;
+									let _ = stream.finish().await;
+								}
+							} else {
+								// Flow failed or dropped sender
+								response_finished = true;
+								let _ = stream.finish().await;
+							}
 			}
 
 			// Branch C: Pump Response Body (Stream -> H3)

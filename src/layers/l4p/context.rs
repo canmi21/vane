@@ -49,10 +49,7 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 	kv.insert("tls.version.legacy".to_owned(), data.legacy_version);
 	kv.insert("tls.session_id".to_owned(), data.session_id);
 
-	kv.insert(
-		"tls.cipher_suites".to_owned(),
-		data.cipher_suites.join(","),
-	);
+	kv.insert("tls.cipher_suites".to_owned(), data.cipher_suites.join(","));
 	kv.insert(
 		"tls.compression".to_owned(),
 		data.compression_methods.join(","),

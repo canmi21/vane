@@ -36,11 +36,9 @@ pub async fn validate_command_path(program: &str) -> Result<PathBuf> {
 			.map_err(|e| anyhow!("Failed to resolve absolute path '{program}': {e}"))?
 	} else {
 		let joined = bin_root.join(program_path);
-		fs::canonicalize(&joined).await.map_err(|e| {
-			anyhow!(
-				"Program '{program}' not found in trusted bin directory: {e}"
-			)
-		})?
+		fs::canonicalize(&joined)
+			.await
+			.map_err(|e| anyhow!("Program '{program}' not found in trusted bin directory: {e}"))?
 	};
 
 	if !absolute_path.starts_with(&bin_root) {
@@ -61,7 +59,7 @@ pub async fn validate_command_path(program: &str) -> Result<PathBuf> {
 }
 
 impl ExternalPlugin {
-	#[must_use] 
+	#[must_use]
 	pub fn new(config: ExternalPluginConfig) -> Self {
 		Self { config }
 	}

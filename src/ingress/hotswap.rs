@@ -40,59 +40,61 @@ pub async fn scan_ports_config(current_state: &[PortStatus]) -> Vec<PortStatus> 
 			}
 
 			if let Some(name) = entry.file_name().to_str()
-				&& name.starts_with('[') && name.ends_with(']')
-					&& let Ok(port) = name[1..name.len() - 1].parse::<u16>() {
-						let port_path = entry.path();
-						let new_tcp = loader::load_config::<TcpConfig>("tcp", &port_path.join("tcp")).await;
-						let new_udp = loader::load_config::<UdpConfig>("udp", &port_path.join("udp")).await;
-						let old_status = current_map.get(&port);
+				&& name.starts_with('[')
+				&& name.ends_with(']')
+				&& let Ok(port) = name[1..name.len() - 1].parse::<u16>()
+			{
+				let port_path = entry.path();
+				let new_tcp = loader::load_config::<TcpConfig>("tcp", &port_path.join("tcp")).await;
+				let new_udp = loader::load_config::<UdpConfig>("udp", &port_path.join("udp")).await;
+				let old_status = current_map.get(&port);
 
-						let tcp_config = match new_tcp {
-							LoadResult::Ok(cfg) => Some(Arc::new(cfg)),
-							LoadResult::NotFound => None,
-							LoadResult::Invalid => {
-								if let Some(old) = old_status {
-									if old.tcp_config.is_some() {
-										log(
-											LogLevel::Warn,
-											&format!(
-												"⚠ New TCP config for port {port} is invalid. Keeping last known good version."
-											),
-										);
-									}
-									old.tcp_config.clone()
-								} else {
-									None
-								}
+				let tcp_config = match new_tcp {
+					LoadResult::Ok(cfg) => Some(Arc::new(cfg)),
+					LoadResult::NotFound => None,
+					LoadResult::Invalid => {
+						if let Some(old) = old_status {
+							if old.tcp_config.is_some() {
+								log(
+									LogLevel::Warn,
+									&format!(
+										"⚠ New TCP config for port {port} is invalid. Keeping last known good version."
+									),
+								);
 							}
-						};
-						let udp_config = match new_udp {
-							LoadResult::Ok(cfg) => Some(Arc::new(cfg)),
-							LoadResult::NotFound => None,
-							LoadResult::Invalid => {
-								if let Some(old) = old_status {
-									if old.udp_config.is_some() {
-										log(
-											LogLevel::Warn,
-											&format!(
-												"⚠ New UDP config for port {port} is invalid. Keeping last known good version."
-											),
-										);
-									}
-									old.udp_config.clone()
-								} else {
-									None
-								}
-							}
-						};
-
-						statuses.push(PortStatus {
-							port,
-							active: tcp_config.is_some() || udp_config.is_some(),
-							tcp_config,
-							udp_config,
-						});
+							old.tcp_config.clone()
+						} else {
+							None
+						}
 					}
+				};
+				let udp_config = match new_udp {
+					LoadResult::Ok(cfg) => Some(Arc::new(cfg)),
+					LoadResult::NotFound => None,
+					LoadResult::Invalid => {
+						if let Some(old) = old_status {
+							if old.udp_config.is_some() {
+								log(
+									LogLevel::Warn,
+									&format!(
+										"⚠ New UDP config for port {port} is invalid. Keeping last known good version."
+									),
+								);
+							}
+							old.udp_config.clone()
+						} else {
+							None
+						}
+					}
+				};
+
+				statuses.push(PortStatus {
+					port,
+					active: tcp_config.is_some() || udp_config.is_some(),
+					tcp_config,
+					udp_config,
+				});
+			}
 		}
 	}
 	statuses
@@ -135,9 +137,7 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 						if nt != ot {
 							log(
 								LogLevel::Info,
-								&format!(
-									"↻ {ip_version_str} PORT {port} TCP RELOAD (Config Changed)"
-								),
+								&format!("↻ {ip_version_str} PORT {port} TCP RELOAD (Config Changed)"),
 							);
 							listener::stop_listener(*port, Protocol::Tcp);
 							listener::start_listener(*port, Protocol::Tcp);
@@ -163,9 +163,7 @@ pub async fn listen_for_updates(rx: mpsc::Receiver<()>) {
 						if nu != ou {
 							log(
 								LogLevel::Info,
-								&format!(
-									"↻ {ip_version_str} PORT {port} UDP RELOAD (Config Changed)"
-								),
+								&format!("↻ {ip_version_str} PORT {port} UDP RELOAD (Config Changed)"),
 							);
 							listener::stop_listener(*port, Protocol::Udp);
 							listener::start_listener(*port, Protocol::Udp);

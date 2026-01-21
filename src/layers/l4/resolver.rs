@@ -120,9 +120,7 @@ pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 					);
 					log(
 						LogLevel::Warn,
-						&format!(
-							"✗ Node '{node}' with port {port} not found in nodes configuration."
-						),
+						&format!("✗ Node '{node}' with port {port} not found in nodes configuration."),
 					);
 				}
 			}

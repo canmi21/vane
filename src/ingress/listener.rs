@@ -41,9 +41,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 							if i == 4 {
 								log(
 									LogLevel::Error,
-									&format!(
-										"✗ TCP bind failed on {addr}: {e} (giving up after 5 retries)"
-									),
+									&format!("✗ TCP bind failed on {addr}: {e} (giving up after 5 retries)"),
 								);
 							} else {
 								// Retry shortly, allowing old listener time to release port
@@ -66,9 +64,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 							if i == 4 {
 								log(
 									LogLevel::Error,
-									&format!(
-										"✗ UDP bind failed on {addr}: {e} (giving up after 5 retries)"
-									),
+									&format!("✗ UDP bind failed on {addr}: {e} (giving up after 5 retries)"),
 								);
 							} else {
 								tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -124,16 +120,12 @@ async fn is_listener_still_required(port: u16, protocol: &Protocol) -> bool {
 pub async fn handle_listener_error(port: u16, protocol: Protocol, error: std::io::Error) {
 	log(
 		LogLevel::Warn,
-		&format!(
-			"⚠ Listener error on port {port} {protocol:?}: {error}"
-		),
+		&format!("⚠ Listener error on port {port} {protocol:?}: {error}"),
 	);
 	if is_listener_still_required(port, &protocol).await {
 		log(
 			LogLevel::Info,
-			&format!(
-				"↻ Retrying {protocol:?} listener on port {port} in 5s..."
-			),
+			&format!("↻ Retrying {protocol:?} listener on port {port} in 5s..."),
 		);
 		tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 		start_listener(port, protocol);

@@ -104,9 +104,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 			} else {
 				log(
 					LogLevel::Warn,
-					&format!(
-						"✗ UDP listener started on port {port}, but no config found."
-					),
+					&format!("✗ UDP listener started on port {port}, but no config found."),
 				);
 			}
 		}

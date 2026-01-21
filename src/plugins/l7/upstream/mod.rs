@@ -181,13 +181,13 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 				.unwrap_or(&raw_path);
 			(p.to_owned(), q.to_owned())
 		} else if let Some((p, q)) = raw_path.split_once('?') {
-  				(p.to_owned(), q.to_owned())
-  			} else if path_input.is_none() {
-     					let q = container.kv.get("req.query").cloned().unwrap_or_default();
-     					(raw_path, q)
-     				} else {
-     					(raw_path, String::new())
-     				};
+			(p.to_owned(), q.to_owned())
+		} else if path_input.is_none() {
+			let q = container.kv.get("req.query").cloned().unwrap_or_default();
+			(raw_path, q)
+		} else {
+			(raw_path, String::new())
+		};
 
 		let path_normalized = clean_path.trim_start_matches('/');
 

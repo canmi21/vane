@@ -88,7 +88,7 @@ pub static EXTERNAL_PLUGIN_STATUS: Lazy<DashMap<String, Result<(), String>>> =
 pub static EXTERNAL_PLUGIN_FAILURES: Lazy<DashMap<String, std::time::Instant>> =
 	Lazy::new(DashMap::new);
 
-#[must_use] 
+#[must_use]
 pub fn get_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
 	get_internal_plugin(name).or_else(|| get_external_plugin(name))
 }

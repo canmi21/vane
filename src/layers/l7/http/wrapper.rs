@@ -11,8 +11,7 @@ use tokio::sync::mpsc;
 
 /// A unified Body enum that bridges Hyper (H1/H2), H3 (Quinn), and Buffered data.
 /// It implements `http_body::Body`, allowing zero-copy streaming to upstream clients.
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub enum VaneBody {
 	/// Native Hyper Body (HTTP/1.1, HTTP/2)
 	Hyper(Incoming),
@@ -28,9 +27,8 @@ pub enum VaneBody {
 
 	/// Empty Body
 	#[default]
- Empty,
+	Empty,
 }
-
 
 impl Body for VaneBody {
 	type Data = Bytes;
@@ -92,7 +90,7 @@ pub struct H3BodyAdapter {
 }
 
 impl H3BodyAdapter {
-	#[must_use] 
+	#[must_use]
 	pub fn new(rx: mpsc::Receiver<Result<Bytes, Error>>) -> Self {
 		Self { rx }
 	}

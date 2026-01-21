@@ -9,7 +9,7 @@ pub fn get_env<T: AsRef<OsStr>>(key: T, default: String) -> String {
 }
 
 /// Converts a string to lowercase.
-#[must_use] 
+#[must_use]
 pub fn to_lowercase(s: &str) -> String {
 	s.to_lowercase()
 }

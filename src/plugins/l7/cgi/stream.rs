@@ -38,7 +38,7 @@ pub struct CgiResponseBody {
 }
 
 impl CgiResponseBody {
-	#[must_use] 
+	#[must_use]
 	pub fn new(rx: mpsc::Receiver<VaneResult<QuotaBytes>>) -> Self {
 		Self { rx }
 	}

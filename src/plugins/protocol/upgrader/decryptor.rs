@@ -35,14 +35,10 @@ pub async fn terminate_and_handover(
 			if cert_lookup_key != "default" {
 				log(
 					LogLevel::Warn,
-					&format!(
-						"⚠ Certificate '{cert_lookup_key}' not found. Falling back to 'default'."
-					),
+					&format!("⚠ Certificate '{cert_lookup_key}' not found. Falling back to 'default'."),
 				);
 				certs::arcswap::get_certificate("default").ok_or_else(|| {
-					anyhow!(
-						"CRITICAL: Neither '{cert_lookup_key}' nor 'default' certificate found."
-					)
+					anyhow!("CRITICAL: Neither '{cert_lookup_key}' nor 'default' certificate found.")
 				})?
 			} else {
 				return Err(anyhow!("CRITICAL: Default certificate not found."));
@@ -52,9 +48,7 @@ pub async fn terminate_and_handover(
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"⚙ Terminating TLS using certificate for: '{cert_lookup_key}'"
-		),
+		&format!("⚙ Terminating TLS using certificate for: '{cert_lookup_key}'"),
 	);
 
 	// 4. Configure ALPN

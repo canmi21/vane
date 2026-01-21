@@ -26,9 +26,7 @@ pub async fn dispatch_tcp_connection(
 		TcpConfig::Flow(flow_config) => {
 			log(
 				LogLevel::Debug,
-				&format!(
-					"⚙ Entering Flow Engine path for connection from {peer_addr}."
-				),
+				&format!("⚙ Entering Flow Engine path for connection from {peer_addr}."),
 			);
 
 			match context::populate_tcp_context(&mut socket, &mut kv_store).await {

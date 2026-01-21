@@ -130,7 +130,8 @@ impl HttpMiddleware for CgiPlugin {
 			inputs
 				.get(key)
 				.and_then(Value::as_str)
-				.unwrap_or("").to_owned()
+				.unwrap_or("")
+				.to_owned()
 		};
 
 		// 1. Mandatory Fields
@@ -181,7 +182,8 @@ impl HttpMiddleware for CgiPlugin {
 			method: inputs
 				.get("method")
 				.and_then(Value::as_str)
-				.unwrap_or("GET").to_owned(),
+				.unwrap_or("GET")
+				.to_owned(),
 			uri: final_uri,
 			query: final_query,
 			remote_addr: get_str("remote_addr"),

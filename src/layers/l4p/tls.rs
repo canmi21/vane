@@ -130,12 +130,10 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 					error_code.unwrap_or("unknown")
 				),
 			);
-			return Err(Error::System(
-				format!(
-					"TLS inspection failed: {}.",
-					error_code.unwrap_or("unknown")
-				),
-			));
+			return Err(Error::System(format!(
+				"TLS inspection failed: {}.",
+				error_code.unwrap_or("unknown")
+			)));
 		}
 	}
 
@@ -176,22 +174,22 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 		} => {
 			// Connects L4+ to L7.
 			if protocol.as_str() == "httpx" {
-   					log(
-   						LogLevel::Info,
-   						&format!("➜ Handing over to Decryptor for L7 protocol: {protocol}"),
-   					);
-   					decryptor::terminate_and_handover(conn, kv, protocol)
-   						.await
-   						.map_err(|e| Error::System(format!("TLS Termination Error: {e:#}")))
-   				} else {
-   					log(
-   						LogLevel::Error,
-   						&format!("✗ Unsupported L4+ Upgrade Target: {protocol}"),
-   					);
-   					Err(Error::Configuration(format!(
-   						"Unknown/Unsupported protocol upgrade: {protocol}"
-   					)))
-   				}
+				log(
+					LogLevel::Info,
+					&format!("➜ Handing over to Decryptor for L7 protocol: {protocol}"),
+				);
+				decryptor::terminate_and_handover(conn, kv, protocol)
+					.await
+					.map_err(|e| Error::System(format!("TLS Termination Error: {e:#}")))
+			} else {
+				log(
+					LogLevel::Error,
+					&format!("✗ Unsupported L4+ Upgrade Target: {protocol}"),
+				);
+				Err(Error::Configuration(format!(
+					"Unknown/Unsupported protocol upgrade: {protocol}"
+				)))
+			}
 		}
 	}
 }

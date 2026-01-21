@@ -97,9 +97,7 @@ impl QuicMuxer {
 	fn new(port: u16, cert_sni: &str, physical_socket: Arc<UdpSocket>) -> Self {
 		log(
 			LogLevel::Info,
-			&format!(
-				"➜ Initializing QUIC Muxer (Virtual Socket) for port {port}"
-			),
+			&format!("➜ Initializing QUIC Muxer (Virtual Socket) for port {port}"),
 		);
 
 		let channel_cap_str = env_loader::get_env("QUIC_VIRTUAL_CHANNEL_CAPACITY", "1024".to_owned());
@@ -212,11 +210,9 @@ impl QuicMuxer {
 		// Drop packet if channel is full
 		match self.tx.try_send(packet) {
 			Ok(_) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
-			Err(mpsc::error::TrySendError::Closed(_)) => {
-				Err(crate::common::sys::lifecycle::Error::System(
-					"QUIC Muxer channel closed".to_owned(),
-				))
-			}
+			Err(mpsc::error::TrySendError::Closed(_)) => Err(
+				crate::common::sys::lifecycle::Error::System("QUIC Muxer channel closed".to_owned()),
+			),
 		}
 	}
 }
