@@ -1,0 +1,38 @@
+# Maintainer: Vane Project
+pkgname=vane
+pkgver=%VERSION%
+pkgrel=1
+pkgdesc="A flow-based reverse proxy with multi-layer routing and programmable pipelines"
+arch=('%ARCH%')
+url="https://vaneproxy.com"
+license=('MIT')
+depends=('glibc')
+backup=('etc/vane/.env')
+source=("vane"
+        "vane.service"
+        "LICENSE")
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+package() {
+    # Binary
+    install -Dm755 "$srcdir/vane" "$pkgdir/usr/bin/vane"
+
+    # Systemd service
+    install -Dm644 "$srcdir/vane.service" "$pkgdir/usr/lib/systemd/system/vane.service"
+
+    # License
+    install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+    # Config directory and files
+    install -dm755 "$pkgdir/etc/vane"
+    if [ -d "$srcdir/config" ]; then
+        cp -r "$srcdir/config"/* "$pkgdir/etc/vane/"
+    fi
+}
+
+post_install() {
+    echo ":: Vane has been installed."
+    echo ":: Configuration directory: /etc/vane"
+    echo ":: To start: systemctl start vane"
+    echo ":: To enable on boot: systemctl enable vane"
+}

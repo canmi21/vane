@@ -1,0 +1,6 @@
+#!/bin/sh
+
+echo "Vane has been installed."
+echo "Configuration directory: /etc/vane"
+echo "To start: rc-service vane start"
+echo "To enable on boot: rc-update add vane"

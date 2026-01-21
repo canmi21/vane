@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=vane
-PKG_VERSION:=0.8.14
+PKG_VERSION:=%VERSION%
 PKG_RELEASE:=1
 
 PKG_LICENSE:=MIT
@@ -42,9 +42,11 @@ define Package/vane/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_DIR) $(1)/etc/vane
+	$(INSTALL_DIR) $(1)/usr/share/licenses/vane
 
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/vane $(1)/usr/bin/
 	$(INSTALL_BIN) ./vane.init $(1)/etc/init.d/vane
+	$(INSTALL_DATA) ./LICENSE $(1)/usr/share/licenses/vane/LICENSE
 
 	if [ -d "./config" ]; then \
 		$(CP) ./config/* $(1)/etc/vane/; \

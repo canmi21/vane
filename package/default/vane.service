@@ -1,0 +1,18 @@
+[Unit]
+Description=Vane - Flow-based reverse proxy
+Documentation=https://vaneproxy.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vane
+WorkingDirectory=/etc/vane
+EnvironmentFile=-/etc/vane/.env
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+LimitCORE=infinity
+
+[Install]
+WantedBy=multi-user.target
