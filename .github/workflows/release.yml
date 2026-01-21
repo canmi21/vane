@@ -45,6 +45,14 @@ jobs:
     with:
       ref: ${{ github.event.inputs.tag || github.ref_name }}
 
+  publish-aur:
+    needs: [package-archlinux]
+    uses: ./.github/workflows/registry-aur.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+    secrets:
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+
   package-alpine:
     needs: [build-linux]
     uses: ./.github/workflows/package-alpine.yml

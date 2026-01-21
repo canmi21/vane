@@ -1,9 +1,14 @@
 name: Publish to AUR
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+    secrets:
+      SSH_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       tag:
@@ -19,12 +24,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: repo
+          ref: ${{ inputs.ref || inputs.tag || github.ref_name }}
 
       - name: Extract Version
         id: version
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
+            TAG="${{ inputs.tag }}"
+          elif [ "${{ github.event_name }}" == "workflow_call" ]; then
+            TAG="${{ inputs.ref }}"
           else
             TAG="${{ github.ref_name }}"
           fi
