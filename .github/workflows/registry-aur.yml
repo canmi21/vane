@@ -12,7 +12,7 @@ on:
         type: string
 
 jobs:
-  aur-publish:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -78,11 +78,14 @@ jobs:
         with:
           args: /bin/bash -c "cd aur_repo && chown -R nobody . && sudo -u nobody makepkg --printsrcinfo > .SRCINFO"
 
+      - name: Fix Permissions
+        run: sudo chown -R $USER:$USER aur_repo
+
       - name: Commit and Push
         working-directory: aur_repo
         run: |
           git add .
-          
+
           # Check if there are changes
           if git diff --staged --quiet; then
             echo "No changes to commit."
