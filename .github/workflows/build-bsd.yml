@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
@@ -62,7 +62,7 @@ jobs:
           tar -czvf ../${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz *
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz

@@ -24,7 +24,7 @@ jobs:
         run: apk add --no-cache alpine-sdk sudo git
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
@@ -41,7 +41,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download pre-built binary (musl)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-linux-musl-${{ matrix.arch }}
           path: build
@@ -92,7 +92,7 @@ jobs:
           cp "$APK_FILE" "$FINAL_NAME"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-alpine-${{ matrix.arch }}
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-alpine-${{ matrix.arch }}.apk
