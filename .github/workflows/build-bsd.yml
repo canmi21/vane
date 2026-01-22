@@ -7,6 +7,11 @@ on:
         required: true
         type: string
         description: 'Git ref to checkout (tag or branch)'
+      skip_release:
+        required: false
+        type: boolean
+        default: false
+        description: 'Skip packaging and uploading artifacts'
 
 jobs:
   build:
@@ -25,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
 
@@ -54,6 +59,7 @@ jobs:
         run: cross build --profile minimum --target ${{ matrix.target }} ${{ matrix.features }}
 
       - name: Package
+        if: ${{ !inputs.skip_release }}
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/minimum/${{ steps.pkg.outputs.bin_name }} dist/
@@ -62,7 +68,8 @@ jobs:
           tar -czvf ../${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz *
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        if: ${{ !inputs.skip_release }}
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz

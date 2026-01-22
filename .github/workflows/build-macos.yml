@@ -7,13 +7,18 @@ on:
         required: true
         type: string
         description: 'Git ref to checkout (tag or branch)'
+      skip_release:
+        required: false
+        type: boolean
+        default: false
+        description: 'Skip packaging and uploading artifacts'
 
 jobs:
   build:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
 
@@ -39,6 +44,7 @@ jobs:
         run: cargo build --profile minimum --target aarch64-apple-darwin
 
       - name: Package tar.gz
+        if: ${{ !inputs.skip_release }}
         run: |
           mkdir -p dist
           cp target/aarch64-apple-darwin/minimum/${{ steps.pkg.outputs.bin_name }} dist/
@@ -47,19 +53,22 @@ jobs:
           tar -czvf ../${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-macos-aarch64.tar.gz *
 
       - name: Package zip
+        if: ${{ !inputs.skip_release }}
         run: |
           cd dist
           zip -r ../${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-macos-aarch64.zip *
 
       - name: Upload tar.gz artifact
-        uses: actions/upload-artifact@v6
+        if: ${{ !inputs.skip_release }}
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-macos-aarch64-tar
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-macos-aarch64.tar.gz
           retention-days: 1
 
       - name: Upload zip artifact
-        uses: actions/upload-artifact@v6
+        if: ${{ !inputs.skip_release }}
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-macos-aarch64-zip
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-macos-aarch64.zip
