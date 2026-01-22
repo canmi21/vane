@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # Required for Trusted Publishing
+      id-token: write
 
     steps:
       - name: Checkout
@@ -32,11 +32,13 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake clang
 
-      - name: Authenticate with crates.io
+      - name: Authenticate with crates.io via OIDC
         uses: rust-lang/crates-io-auth-action@v1
+        id: auth
 
-      - name: Publish to Crates.io
+      - name: Publish
         env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
           CC: clang
           CXX: clang++
         run: cargo publish
