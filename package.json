@@ -3,7 +3,7 @@
 	"version": "1.0.0",
 	"private": true,
 	"scripts": {
-		"build": "pnpm fmt && next build",
+		"build": "next build",
 		"check": "cargo fmt --check && cargo clippy -- -D warnings && pnpm lint && cd integration && gofmt -l .",
 		"fmt": "prettier --write . && chore . && cargo fmt --all && cd integration && gofmt -w .",
 		"dev": "next dev",
