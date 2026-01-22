@@ -65,6 +65,7 @@ aws-lc-rs = [
   "tokio-rustls?/aws-lc-rs",
   "hyper-rustls?/aws-lc-rs",
   "quinn?/aws-lc-rs",
+  "reqwest?/rustls",
 ]
 ring = [
   "rustls?/ring",
@@ -100,7 +101,7 @@ anyhow = "1"
 ahash = "0.8"
 hex = "0.4"
 async-trait = "0.1"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["json"], optional = true }
 hickory-resolver = { version = "0.25", optional = true }
 tls-parser = { version = "0.12", optional = true }
 x509-parser = { version = "0.18", optional = true }
