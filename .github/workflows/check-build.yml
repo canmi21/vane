@@ -22,9 +22,3 @@ jobs:
     with:
       ref: ${{ github.event.inputs.ref || github.ref }}
       skip_release: true
-
-  build-bsd:
-    uses: ./.github/workflows/build-bsd.yml
-    with:
-      ref: ${{ github.event.inputs.ref || github.ref }}
-      skip_release: true
