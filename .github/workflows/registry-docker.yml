@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref || inputs.tag || github.ref_name }}
 
@@ -66,7 +66,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
@@ -78,7 +78,7 @@ jobs:
             PROXY_URL=
 
       - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@v5
         with:
           username: canmi
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
