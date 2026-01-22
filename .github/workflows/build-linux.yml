@@ -98,7 +98,7 @@ jobs:
       - name: Install UPX
         if: ${{ matrix.libc == 'musl' && (matrix.arch == 'x86_64' || matrix.arch == 'aarch64') }}
         run: |
-          UPX_VERSION="4.2.4"
+          UPX_VERSION="5.0.2"
           curl -Lo upx.tar.xz "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-amd64_linux.tar.xz"
           tar -xf upx.tar.xz
           sudo mv upx-${UPX_VERSION}-amd64_linux/upx /usr/local/bin/
