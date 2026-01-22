@@ -27,7 +27,7 @@ jobs:
         run: dnf install -y rpm-build rpmdevtools git
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
@@ -44,7 +44,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download pre-built binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-linux-gnu-${{ matrix.arch }}
           path: build
@@ -87,7 +87,7 @@ jobs:
           cp "$RPM_FILE" "$FINAL_NAME"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-rhel-${{ matrix.arch }}
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-rhel-${{ matrix.arch }}.rpm
