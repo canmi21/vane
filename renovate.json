@@ -1,10 +1,6 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": [
-		"config:recommended",
-		":preserveSemverRanges",
-		"group:allNonMajor"
-	],
+	"extends": ["config:recommended", ":preserveSemverRanges", "group:allNonMajor"],
 	"baseBranchPatterns": ["latest"],
 	"ignoreDeps": [
 		"@types/react",

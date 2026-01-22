@@ -2,20 +2,17 @@ FROM rustlang/rust:nightly-slim AS builder
 
 ARG TARGETARCH
 ARG UPX_VERSION=5.0.2
+ARG PROXY_URL="http://host.docker.internal:7890"
 
 WORKDIR /app
 
 # Install Dependencies & Tools
-RUN export http_proxy="http://host.docker.internal:7890" \
-    && export https_proxy="http://host.docker.internal:7890" \
-    && export all_proxy="socks5://host.docker.internal:7890" \
+RUN if [ -n "$PROXY_URL" ]; then export http_proxy="$PROXY_URL" https_proxy="$PROXY_URL" all_proxy="socks5://${PROXY_URL#*//}"; fi \
     && apt-get update && apt-get install -y musl-tools pkg-config libssl-dev curl xz-utils cmake clang git \
     && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
 
 # Install UPX
-RUN export http_proxy="http://host.docker.internal:7890" \
-    && export https_proxy="http://host.docker.internal:7890" \
-    && export all_proxy="socks5://host.docker.internal:7890" \
+RUN if [ -n "$PROXY_URL" ]; then export http_proxy="$PROXY_URL" https_proxy="$PROXY_URL" all_proxy="socks5://${PROXY_URL#*//}"; fi \
     && case "$TARGETARCH" in \
         "amd64") UPX_ARCH="amd64" ;; \
         "arm64") UPX_ARCH="arm64" ;; \
@@ -30,9 +27,7 @@ RUN export http_proxy="http://host.docker.internal:7890" \
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 # Build dependencies only
-RUN export http_proxy="http://host.docker.internal:7890" \
-    && export https_proxy="http://host.docker.internal:7890" \
-    && export all_proxy="socks5://host.docker.internal:7890" \
+RUN if [ -n "$PROXY_URL" ]; then export http_proxy="$PROXY_URL" https_proxy="$PROXY_URL" all_proxy="socks5://${PROXY_URL#*//}"; fi \
     && case "$TARGETARCH" in \
         "amd64") cargo build --release --target x86_64-unknown-linux-musl ;; \
         "arm64") cargo build --release --target aarch64-unknown-linux-musl ;; \
@@ -41,9 +36,7 @@ RUN export http_proxy="http://host.docker.internal:7890" \
 COPY . .
 # Touch main.rs to force cargo to rebuild the binary
 RUN touch src/main.rs \
-    && export http_proxy="http://host.docker.internal:7890" \
-    && export https_proxy="http://host.docker.internal:7890" \
-    && export all_proxy="socks5://host.docker.internal:7890" \
+    && if [ -n "$PROXY_URL" ]; then export http_proxy="$PROXY_URL" https_proxy="$PROXY_URL" all_proxy="socks5://${PROXY_URL#*//}"; fi \
 		&& export CC_x86_64_unknown_linux_musl=musl-gcc \
     && export CC_aarch64_unknown_linux_musl=musl-gcc \
     && case "$TARGETARCH" in \

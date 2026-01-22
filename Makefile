@@ -1,14 +1,19 @@
-IMAGE=canmi/vane
-TAG=$(shell git rev-parse --short HEAD)
+IMAGE ?= canmi/vane
+TAG ?= $(shell git rev-parse --short HEAD)
+
+.PHONY: build push pushrm clean
 
 build:
-	docker buildx build \
-	--platform linux/amd64,linux/arm64 \
-	-t $(IMAGE):$(TAG) \
-	-t $(IMAGE):latest \
-	-f Dockerfile . --push
+	docker build -t $(IMAGE):$(TAG) -t $(IMAGE):latest -f Dockerfile .
 
-push: build
+push:
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		-t $(IMAGE):$(TAG) \
+		-t $(IMAGE):latest \
+		-f Dockerfile . --push
+
+pushrm:
 	docker pushrm $(IMAGE)
 
 clean:
