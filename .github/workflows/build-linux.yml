@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
@@ -123,7 +123,7 @@ jobs:
 
       - name: Upload artifact
         if: ${{ !inputs.skip_release }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.pkg.outputs.bin_name }}-linux-${{ matrix.libc }}-${{ matrix.arch }}
           path: ${{ steps.pkg.outputs.bin_name }}-v${{ steps.pkg.outputs.version }}-linux-${{ matrix.libc }}-${{ matrix.arch }}.tar.gz
@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload binary for OpenWrt
         if: ${{ !inputs.skip_release && matrix.for_openwrt }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: bin-linux-${{ matrix.arch }}
           path: target/${{ matrix.target }}/minimum/${{ steps.pkg.outputs.bin_name }}
