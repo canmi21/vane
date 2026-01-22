@@ -3,17 +3,18 @@ services:
     image: canmi/vane:latest
     container_name: vane
     networks:
-      - internal
+      - vaneproxy
     env_file:
       - ./.env
     ports:
       - '80:80/tcp'
       - '443:443/tcp'
       - '443:443/udp'
+			- '127.0.0.1:3333:3333/tcp'
     volumes:
       - /opt/vane:/root/vane
     restart: unless-stopped
 
 networks:
-  internal:
+  vaneproxy:
     driver: bridge

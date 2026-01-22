@@ -1,22 +1,71 @@
 FROM rustlang/rust:nightly-slim AS builder
 
 ARG TARGETARCH
-WORKDIR /app
-COPY . .
+ARG UPX_VERSION=5.0.2
 
-RUN unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy \
-  && apt-get update && apt-get install -y musl-tools pkg-config libssl-dev \
-  && case "$TARGETARCH" in \
-        "amd64") rustup target add x86_64-unknown-linux-musl \
-                && cargo build --release --target x86_64-unknown-linux-musl \
-                && cp target/x86_64-unknown-linux-musl/release/vane /app/vane ;; \
-        "arm64") rustup target add aarch64-unknown-linux-musl \
-                && cargo build --release --target aarch64-unknown-linux-musl \
-                && cp target/aarch64-unknown-linux-musl/release/vane /app/vane ;; \
-      esac
+WORKDIR /app
+
+# Install Dependencies & Tools
+RUN export http_proxy="http://host.docker.internal:7890" \
+    && export https_proxy="http://host.docker.internal:7890" \
+    && export all_proxy="socks5://host.docker.internal:7890" \
+    && apt-get update && apt-get install -y musl-tools pkg-config libssl-dev curl xz-utils cmake clang git \
+    && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+
+# Install UPX
+RUN export http_proxy="http://host.docker.internal:7890" \
+    && export https_proxy="http://host.docker.internal:7890" \
+    && export all_proxy="socks5://host.docker.internal:7890" \
+    && case "$TARGETARCH" in \
+        "amd64") UPX_ARCH="amd64" ;; \
+        "arm64") UPX_ARCH="arm64" ;; \
+        *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac \
+    && curl -Lo upx.tar.xz "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-${UPX_ARCH}_linux.tar.xz" \
+    && tar -xf upx.tar.xz \
+    && mv upx-${UPX_VERSION}-${UPX_ARCH}_linux/upx /usr/local/bin/ \
+    && rm -rf upx.tar.xz upx-${UPX_VERSION}-${UPX_ARCH}_linux
+
+# Cache Rust Dependencies
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Build dependencies only
+RUN export http_proxy="http://host.docker.internal:7890" \
+    && export https_proxy="http://host.docker.internal:7890" \
+    && export all_proxy="socks5://host.docker.internal:7890" \
+    && case "$TARGETARCH" in \
+        "amd64") cargo build --release --target x86_64-unknown-linux-musl ;; \
+        "arm64") cargo build --release --target aarch64-unknown-linux-musl ;; \
+    esac
+
+COPY . .
+# Touch main.rs to force cargo to rebuild the binary
+RUN touch src/main.rs \
+    && export http_proxy="http://host.docker.internal:7890" \
+    && export https_proxy="http://host.docker.internal:7890" \
+    && export all_proxy="socks5://host.docker.internal:7890" \
+		&& export CC_x86_64_unknown_linux_musl=musl-gcc \
+    && export CC_aarch64_unknown_linux_musl=musl-gcc \
+    && case "$TARGETARCH" in \
+        "amd64") \
+						export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
+            && cargo build --release --target x86_64-unknown-linux-musl \
+            && upx --best --lzma target/x86_64-unknown-linux-musl/release/vane \
+            && cp target/x86_64-unknown-linux-musl/release/vane /app/vane ;; \
+        "arm64") \
+						export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
+            && cargo build --release --target aarch64-unknown-linux-musl \
+            && upx --best --lzma target/aarch64-unknown-linux-musl/release/vane \
+            && cp target/aarch64-unknown-linux-musl/release/vane /app/vane ;; \
+    esac
 
 FROM scratch
+
 WORKDIR /app
 COPY --from=builder /app/vane ./vane
 
+WORKDIR /root/vane
+COPY --from=builder /app/LICENSE /app/README.md /app/CHANGELOG.md /app/SECURITY.md ./
+
+WORKDIR /app
 CMD ["./vane"]

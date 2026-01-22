@@ -1,5 +1,7 @@
 node_modules
 dist
 build
+target
 .next
 .out
+docker-compose.yml
