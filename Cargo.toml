@@ -72,6 +72,8 @@ ring = [
   "tokio-rustls?/ring",
   "hyper-rustls?/ring",
   "quinn?/ring",
+  "reqwest?/rustls-no-provider",
+  "reqwest?/rustls-native-certs",
 ]
 
 [dependencies]
