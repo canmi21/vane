@@ -135,6 +135,9 @@ func TestConsoleUds(ctx context.Context, s *env.Sandbox) error {
 func TestConsoleNoToken(ctx context.Context, s *env.Sandbox) error {
 	debug, _ := ctx.Value(env.DebugKey).(bool)
 
+	// Ensure clean slate
+	delete(s.Env, "ACCESS_TOKEN")
+
 	// 1. Start Vane without token
 
 	proc, err := s.StartVaneWithoutToken(ctx, debug)

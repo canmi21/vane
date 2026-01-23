@@ -22,6 +22,9 @@ import (
 func TestNoConsole(ctx context.Context, s *env.Sandbox) error {
 	debugMode, _ := ctx.Value(env.DebugKey).(bool)
 
+	// Ensure clean slate
+	delete(s.Env, "ACCESS_TOKEN")
+
 	// 1. Setup upstream mock echo server
 	upstream, err := mock.NewTcpEchoServer()
 	if err != nil {

@@ -77,7 +77,18 @@ func (s *Sandbox) startVaneInternal(ctx context.Context, debugMode bool, withTok
 		envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	cmd.Env = append(os.Environ(), envVars...)
+	// Filter out ACCESS_TOKEN from parent environment to ensure isolation
+	var baseEnv []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "ACCESS_TOKEN=") {
+			baseEnv = append(baseEnv, e)
+		}
+	}
+
+	cmd.Env = append(baseEnv, envVars...)
+
+	// Set working directory to sandbox root to prevent loading .env from project root
+	cmd.Dir = s.RootDir
 
 	// FIXED: Always initialize buffer to allow WaitForLog to work
 	logBuf := &bytes.Buffer{}
