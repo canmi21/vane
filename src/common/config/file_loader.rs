@@ -5,10 +5,16 @@ use fancy_log::{LogLevel, log};
 use std::path::PathBuf;
 use tokio::fs;
 
+#[cfg(not(windows))]
+const DEFAULT_CONFIG_DIR: &str = "/etc/vane/";
+
+#[cfg(windows)]
+const DEFAULT_CONFIG_DIR: &str = r"C:\ProgramData\Vane\";
+
 /// Retrieves the configuration directory path.
 #[must_use]
 pub fn get_config_dir() -> PathBuf {
-	let path_str = env_loader::get_env("CONFIG_DIR", "~/vane/".to_owned());
+	let path_str = env_loader::get_env("CONFIG_DIR", DEFAULT_CONFIG_DIR.to_owned());
 	let expanded_path = shellexpand::tilde(&path_str).to_string();
 	PathBuf::from(expanded_path)
 }
