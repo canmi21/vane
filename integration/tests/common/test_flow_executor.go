@@ -197,7 +197,7 @@ func registerExecutorPlugin(consolePort int, token, bin, mode string) error {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{}).Do(req)
-	if err != nil || resp.StatusCode != 200 {
+	if err != nil || (resp.StatusCode != 200 && resp.StatusCode != 201) {
 		return fmt.Errorf("plugin registration failed")
 	}
 	resp.Body.Close()
