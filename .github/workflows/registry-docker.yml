@@ -54,6 +54,41 @@ jobs:
           username: canmi21
           password: ${{ secrets.GHCR_PACKAGE_TOKEN }}
 
+      - name: Download x86_64 binary
+        uses: actions/download-artifact@v6
+        with:
+          name: bin-linux-x86_64
+          path: dist/amd64
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v6
+        with:
+          name: bin-linux-aarch64
+          path: dist/arm64
+
+      - name: Prepare binaries
+        run: |
+          mv dist/amd64/vane dist/vane-amd64
+          mv dist/arm64/vane dist/vane-arm64
+          chmod +x dist/vane-*
+          ls -l dist/
+
+      - name: Generate Dockerfile.ci
+        run: |
+          cat <<EOF > Dockerfile.ci
+          FROM scratch
+          ARG TARGETARCH
+
+          WORKDIR /app
+          COPY dist/vane-\$TARGETARCH /app/vane
+
+          WORKDIR /root/vane
+          COPY LICENSE README.md CHANGELOG.md SECURITY.md ./
+
+          WORKDIR /app
+          CMD ["./vane"]
+          EOF
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -69,7 +104,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.ci
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
