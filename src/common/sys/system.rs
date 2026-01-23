@@ -1,6 +1,6 @@
 /* src/common/sys/system.rs */
 
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "windows"))]
 use std::process::Command;
 
 /// Returns the free memory of the system in bytes.
@@ -33,6 +33,31 @@ pub fn get_free_memory() -> Option<u64> {
 		Some(page_free * page_size)
 	}
 
+	#[cfg(target_os = "windows")]
+	{
+		// Windows: wmic OS get FreePhysicalMemory /Value
+		// Output format:
+		//
+		// FreePhysicalMemory=1234567
+		//
+		let output = Command::new("wmic")
+			.args(["OS", "get", "FreePhysicalMemory", "/Value"])
+			.output()
+			.ok()?;
+
+		if output.status.success() {
+			let content = String::from_utf8_lossy(&output.stdout);
+			for line in content.lines() {
+				if let Some(val_str) = line.trim().strip_prefix("FreePhysicalMemory=") {
+					if let Ok(kb) = val_str.parse::<u64>() {
+						return Some(kb * 1024);
+					}
+				}
+			}
+		}
+		None
+	}
+
 	#[cfg(target_os = "freebsd")]
 	{
 		// FreeBSD: vm.stats.vm.v_free_count * hw.pagesize
@@ -41,7 +66,12 @@ pub fn get_free_memory() -> Option<u64> {
 		Some(page_free * page_size)
 	}
 
-	#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "freebsd")))]
+	#[cfg(not(any(
+		target_os = "linux",
+		target_os = "macos",
+		target_os = "freebsd",
+		target_os = "windows"
+	)))]
 	None
 }
 

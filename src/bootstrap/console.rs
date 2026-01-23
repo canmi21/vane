@@ -10,6 +10,7 @@ use tokio::task::JoinHandle;
 
 use crate::api::middleware::auth;
 use crate::api::router;
+#[cfg(unix)]
 use crate::bootstrap::socket;
 use crate::common::{config::env_loader, net::port_utils};
 use crate::ingress::state;
@@ -33,22 +34,18 @@ pub async fn start() -> Option<ConsoleHandles> {
 		Ok(Some(_token)) => {
 			log(LogLevel::Info, "✓ Access token configured");
 
+			#[cfg(all(feature = "console", unix))]
 			let unix_socket_listener = {
-				#[cfg(feature = "console")]
-				{
-					match socket::bind_unix_socket().await {
-						Ok(listener) => Some(listener),
-						Err(e) => {
-							log(
-								LogLevel::Error,
-								&format!("✗ Failed to bind unix socket: {e}"),
-							);
-							None
-						}
+				match socket::bind_unix_socket().await {
+					Ok(listener) => Some(listener),
+					Err(e) => {
+						log(
+							LogLevel::Error,
+							&format!("✗ Failed to bind unix socket: {e}"),
+						);
+						None
 					}
 				}
-				#[cfg(not(feature = "console"))]
-				None
 			};
 
 			let requested_port = env_loader::get_env("PORT", "3333".to_owned())
@@ -117,7 +114,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 			#[cfg(not(feature = "console"))]
 			let tcp_handle = tokio::spawn(async {});
 
-			#[cfg(feature = "console")]
+			#[cfg(all(feature = "console", unix))]
 			let unix_handle = if let Some(listener) = unix_socket_listener {
 				let unix_notifier = shutdown_notifier.clone();
 				let unix_server = serve(listener, app.with_state(state::CONFIG_STATE.clone()))
@@ -135,7 +132,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 			} else {
 				None
 			};
-			#[cfg(not(feature = "console"))]
+			#[cfg(not(all(feature = "console", unix)))]
 			let unix_handle = None;
 
 			Some(ConsoleHandles {
@@ -154,6 +151,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 
 /// Performs cleanup and graceful shutdown of the console servers.
 pub async fn stop(handles: ConsoleHandles) {
+	#[cfg(unix)]
 	socket::cleanup_unix_socket().await;
 	handles.shutdown_notifier.notify_waiters();
 

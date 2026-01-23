@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- **Breaking:** Changed the default configuration directory on Unix-like systems from `~/vane/` to `/etc/vane/` to align with production standards. Windows now defaults to `C:\ProgramData\Vane\`.
+- **Added:** Implemented initial support for the Windows platform, including adaptive memory management via `wmic`.
+- **Fixed:** Resolved cross-platform compatibility issues by gating Unix-specific paths and socket IPC logic, ensuring successful compilation and execution on Windows.
+- **Changed:** Refactored global path handling to use platform-specific separators and standard system directories.
+
 ## 0.8.15 (22. Jan, 2026)
 
 - **Added:** Implemented comprehensive CI/CD pipelines for automated publishing to Docker Hub, GitHub Container Registry (GHCR), AUR, and Crates.io using Trusted Publishing.

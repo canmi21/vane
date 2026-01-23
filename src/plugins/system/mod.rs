@@ -2,6 +2,7 @@
 
 pub mod exec;
 pub mod httpx;
+#[cfg(unix)]
 pub mod unix;
 
 use crate::engine::interfaces::{ExternalPluginDriver, MiddlewareOutput, ResolvedInputs};
@@ -15,7 +16,15 @@ pub async fn execute_driver(
 ) -> Result<MiddlewareOutput> {
 	match driver {
 		ExternalPluginDriver::Http { url } => httpx::execute(url, name, inputs).await,
+		#[cfg(unix)]
 		ExternalPluginDriver::Unix { path } => unix::execute(path, name, inputs).await,
+		#[cfg(not(unix))]
+		ExternalPluginDriver::Unix { .. } => {
+			anyhow::bail!(
+				"Unix socket ipc call are not supported on windows platform (requested by plugin: {})",
+				name
+			)
+		}
 		ExternalPluginDriver::Command { program, args, env } => {
 			exec::execute(program, args, env, inputs).await
 		}

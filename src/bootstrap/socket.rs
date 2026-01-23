@@ -1,5 +1,7 @@
 /* src/bootstrap/socket.rs */
 
+#![cfg(unix)]
+
 use crate::common::config::env_loader;
 use fancy_log::{LogLevel, log};
 use std::path::{Path, PathBuf};
