@@ -12,9 +12,12 @@ Vane uses a **structured file-based** configuration system. Instead of a single 
 
 ## Environment Variables
 
-<Callout type="info">It is recommended to set it to `/etc/vane` or `/opt/vane` on Linux.</Callout>
+<Callout type="info">
+	For versions **0.8.15+**, the default location is `/etc/vane` on Unix-like systems and
+	`C:\ProgramData\Vane` on Windows. Older versions default to `~/vane`.
+</Callout>
 
-By default, Vane looks for configuration in the current working directory under `~/vane`. You can override this location using the `CONFIG_DIR` environment variable.
+By default, Vane looks for configuration in the system-standard directory (e.g., `/etc/vane`). You can override this location using the `CONFIG_DIR` environment variable.
 
 ## Directory Layout
 
@@ -26,7 +29,7 @@ By default, Vane looks for configuration in the current working directory under 
 The configuration directory follows a strict naming convention. Vane expects the following structure:
 
 <Files>
-	<Folder name="~/vane" defaultOpen>
+	<Folder name="/etc/vane" defaultOpen>
 		<Folder name="applications" defaultOpen>
 			<File name="httpx.yaml" />
 		</Folder>
@@ -62,7 +65,7 @@ All user-facing configuration files support `YAML`, `JSON`, and `TOML` formats. 
 ### Parallel configuration
 
 <Files>
-	<Folder name="~/vane" defaultOpen>
+	<Folder name="/etc/vane" defaultOpen>
 		<Folder name="resolvers" defaultOpen>
 			<File name="tls.yaml" />
 			<File name="tls.json" />

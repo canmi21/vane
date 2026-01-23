@@ -44,10 +44,10 @@ We'll build the traffic pipeline from the ground up, progressing through three l
 
 First, we need to open a TCP port. By default, Vane receives raw bytes. We'll tell it to upgrade this traffic to the `http` protocol resolver.
 
-Create the file at `~/vane/listener/[80]/tcp.yaml`:
+Create the file at `/etc/vane/listener/[80]/tcp.yaml`:
 
 <Files>
-	<Folder name="~/vane" defaultOpen>
+	<Folder name="/etc/vane" defaultOpen>
 		<Folder name="listener" defaultOpen>
 			<Folder name="[80]" defaultOpen>
 				<File name="tcp.yaml" />
@@ -58,7 +58,7 @@ Create the file at `~/vane/listener/[80]/tcp.yaml`:
 
 Add the following configuration to unconditionally upgrade all traffic on this port:
 
-```yaml title="~/vane/listener/[80]/tcp.yaml"
+```yaml title="/etc/vane/listener/[80]/tcp.yaml"
 connection:
   internal.transport.upgrade:
     input:
@@ -77,10 +77,10 @@ connection:
 
 Now that Vane identifies traffic as `http`, it needs a resolver configuration. In production, you might route based on the Host header here. For this tutorial, we'll keep it simple and unconditionally upgrade the connection to the `httpx` application layer.
 
-Create `~/vane/resolvers/http.yaml`:
+Create `/etc/vane/resolvers/http.yaml`:
 
 <Files>
-	<Folder name="~/vane" defaultOpen>
+	<Folder name="/etc/vane" defaultOpen>
 		<Folder name="resolvers" defaultOpen>
 			<File name="http.yaml" />
 		</Folder>
@@ -89,7 +89,7 @@ Create `~/vane/resolvers/http.yaml`:
 
 Add the upgrade configuration:
 
-```yaml title="~/vane/resolvers/http.yaml"
+```yaml title="/etc/vane/resolvers/http.yaml"
 connection:
   internal.transport.upgrade:
     input:
@@ -103,10 +103,10 @@ connection:
 
 Finally, the traffic reaches Layer 7 where we define the request handling logic. Instead of forwarding to a backend server, we'll use the `response` terminator to serve a static page directly.
 
-Create `~/vane/applications/httpx.yaml`:
+Create `/etc/vane/applications/httpx.yaml`:
 
 <Files>
-	<Folder name="~/vane" defaultOpen>
+	<Folder name="/etc/vane" defaultOpen>
 		<Folder name="applications" defaultOpen>
 			<File name="httpx.yaml" />
 		</Folder>
@@ -115,7 +115,7 @@ Create `~/vane/applications/httpx.yaml`:
 
 Add the response handler:
 
-```yaml title="~/vane/applications/httpx.yaml"
+```yaml title="/etc/vane/applications/httpx.yaml"
 pipeline:
   internal.terminator.response:
     input:
