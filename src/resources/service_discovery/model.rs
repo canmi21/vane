@@ -6,6 +6,8 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashSet;
+#[cfg(feature = "console")]
+use utoipa::ToSchema;
 use validator::{Validate, ValidationError, ValidationErrors, ValidationErrorsKind};
 
 lazy_static! {
@@ -16,12 +18,14 @@ lazy_static! {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "console", derive(ToSchema))]
 pub enum IpType {
 	Ipv4,
 	Ipv6,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "console", derive(ToSchema))]
 pub struct IpConfig {
 	#[validate(ip)]
 	pub address: String,
@@ -32,6 +36,7 @@ pub struct IpConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "console", derive(ToSchema))]
 pub struct Node {
 	#[validate(regex(path = *NAME_REGEX, message = "can only contain lowercase letters, numbers, and hyphens"))]
 	pub name: String,

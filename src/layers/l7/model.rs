@@ -7,18 +7,21 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+#[cfg(feature = "console")]
+use utoipa::ToSchema;
 use validator::{Validate, ValidationErrors};
 
 /// Represents the configuration for a specific L7 application protocol (e.g., "httpx").
 ///
 /// L7 protocols handle the request/response lifecycle after TLS/QUIC termination.
 /// The `pipeline` defines the middleware chain (Request -> Upstream -> Response).
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
 pub struct ApplicationConfig {
 	// The middleware pipeline for this protocol.
 	// In Vane's L7 model, "Fetch Upstream" is just another middleware in this chain.
 	pub pipeline: ProcessingStep,
 	#[serde(skip)]
+	#[schema(ignore)]
 	pub protocol: String,
 }
 

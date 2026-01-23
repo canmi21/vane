@@ -9,11 +9,17 @@ use std::{any::Any, borrow::Cow, collections::HashMap, fmt, net::SocketAddr, syn
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpStream, UdpSocket};
 
+#[cfg(feature = "console")]
+use utoipa::ToSchema;
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "console", derive(ToSchema))]
 pub struct PluginInstance {
 	#[serde(default)]
+	#[cfg_attr(feature = "console", schema(value_type = Object))]
 	pub input: HashMap<String, Value>,
 	#[serde(default)]
+	#[cfg_attr(feature = "console", schema(value_type = Object))]
 	pub output: HashMap<String, ProcessingStep>,
 }
 
@@ -22,6 +28,7 @@ pub type ProcessingStep = HashMap<String, PluginInstance>;
 // --- External Plugin Models ---
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", tag = "type")]
+#[cfg_attr(feature = "console", derive(ToSchema))]
 pub enum ExternalPluginDriver {
 	Http {
 		url: String,
@@ -34,18 +41,21 @@ pub enum ExternalPluginDriver {
 		#[serde(default)]
 		args: Vec<String>,
 		#[serde(default)]
+		#[cfg_attr(feature = "console", schema(value_type = Object))]
 		env: HashMap<String, String>,
 	},
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "console", derive(ToSchema))]
 pub enum PluginRole {
 	Middleware,
 	Terminator,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "console", derive(ToSchema))]
 pub struct ExternalPluginConfig {
 	pub name: String,
 	pub role: PluginRole,
@@ -57,6 +67,7 @@ pub struct ExternalPluginConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "console", derive(ToSchema))]
 pub struct ExternalParamDef {
 	pub name: String,
 	pub required: bool,

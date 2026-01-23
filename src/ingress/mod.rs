@@ -1,6 +1,6 @@
 /* src/ingress/mod.rs */
 
-pub mod api;
+// pub mod api; // Moved to src/api/handlers/ports.rs
 pub mod hotswap;
 pub mod listener;
 pub mod state;

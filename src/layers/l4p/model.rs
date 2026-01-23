@@ -7,17 +7,20 @@ use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+#[cfg(feature = "console")]
+use utoipa::ToSchema;
 use validator::{Validate, ValidationErrors};
 
 /// Represents the configuration for a specific L4+ protocol resolver (e.g., "tls", "http").
 ///
 /// Unlike L4 listeners which are bound to ports, resolvers are bound to protocol names.
 /// They define the flow logic that handles a connection *after* it has been upgraded.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema)]
 pub struct ResolverConfig {
 	// The main flow logic for this protocol
 	pub connection: ProcessingStep,
 	#[serde(skip)]
+	#[schema(ignore)]
 	pub protocol: String,
 }
 

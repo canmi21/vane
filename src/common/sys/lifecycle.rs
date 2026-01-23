@@ -3,6 +3,10 @@
 use crate::common::config::file_loader;
 use crate::layers::l4::{health, session};
 use crate::layers::l4p::quic::session as quic_session;
+use once_cell::sync::Lazy;
+use std::time::Instant;
+
+pub static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

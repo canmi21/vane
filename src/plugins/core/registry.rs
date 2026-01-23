@@ -114,6 +114,13 @@ pub fn list_external_plugins() -> Vec<Arc<dyn Plugin>> {
 		.collect()
 }
 
+pub fn list_internal_plugins() -> Vec<Arc<dyn Plugin>> {
+	INTERNAL_PLUGIN_REGISTRY
+		.iter()
+		.map(|entry| entry.value().clone())
+		.collect()
+}
+
 pub fn load_external_plugins(new_plugins: DashMap<String, Arc<dyn Plugin>>) {
 	EXTERNAL_PLUGIN_REGISTRY.store(Arc::new(new_plugins));
 }
