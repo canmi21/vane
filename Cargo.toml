@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.9.0"
+version = "0.9.1"
 categories = ["network-programming", "web-programming", "asynchronous"]
 description = "A flow-based reverse proxy with multi-layer routing and programmable pipelines."
 edition = "2024"
