@@ -20,7 +20,7 @@ use utoipa::OpenApi;
 #[openapi(
     info(
         title = "Vane API",
-        version = "0.8.15",
+        version = env!("CARGO_PKG_VERSION"),
         description = "Vane Reverse Proxy Management API",
         license(name = "MIT", url = "https://opensource.org/licenses/MIT"),
         contact(name = "Canmi", email = "t@canmi.icu")

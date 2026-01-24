@@ -1,18 +1,19 @@
 /* src/api/router.rs */
 
-use crate::{
-	api::{
-		handlers::applications, handlers::certs, handlers::config, handlers::flow, handlers::nodes,
-		handlers::plugins, handlers::ports, handlers::resolvers, handlers::system, middleware::auth,
-		middleware::logger, openapi,
-	},
-	ingress::state::PortState,
+use crate::api::handlers::{
+	applications, certs, config, flow, nodes, plugins, ports, resolvers, system,
 };
-use axum::{
-	Router, middleware,
-	response::Redirect,
-	routing::{get, post},
-};
+use crate::api::middleware::{auth, logger};
+#[cfg(feature = "swagger-ui")]
+use crate::api::openapi;
+use crate::ingress::state::PortState;
+
+#[cfg(feature = "swagger-ui")]
+use axum::response::Redirect;
+use axum::routing::{get, post};
+use axum::{Router, middleware};
+
+#[cfg(feature = "swagger-ui")]
 use utoipa::OpenApi;
 #[cfg(feature = "swagger-ui")]
 use utoipa_swagger_ui::SwaggerUi;
@@ -23,7 +24,9 @@ pub fn create_router() -> Router<PortState> {
 
 	#[cfg(feature = "swagger-ui")]
 	let router = router
-		.merge(SwaggerUi::new("/swagger-ui").url("/.well-known/openapi.json", openapi::ApiDoc::openapi()))
+		.merge(
+			SwaggerUi::new("/swagger-ui").url("/.well-known/openapi.json", openapi::ApiDoc::openapi()),
+		)
 		.route("/", get(|| async { Redirect::temporary("/swagger-ui") }));
 
 	#[cfg(not(feature = "swagger-ui"))]
