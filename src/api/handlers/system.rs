@@ -21,7 +21,7 @@ use tokio::fs;
 /// Get system information
 #[utoipa::path(
     get,
-    path = "/",
+    path = "/system",
     responses(
         (status = 200, description = "System information", body = SystemInfoResponse)
     ),

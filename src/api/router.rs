@@ -10,6 +10,7 @@ use crate::{
 };
 use axum::{
 	Router, middleware,
+	response::Redirect,
 	routing::{get, post},
 };
 use utoipa::OpenApi;
@@ -18,8 +19,9 @@ use utoipa_swagger_ui::SwaggerUi;
 #[cfg(feature = "console")]
 pub fn create_router() -> Router<PortState> {
 	Router::new()
-		.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi::ApiDoc::openapi()))
-		.route("/", get(system::root_handler))
+		.merge(SwaggerUi::new("/swagger-ui").url("/.well-known/openapi.json", openapi::ApiDoc::openapi()))
+		.route("/", get(|| async { Redirect::temporary("/swagger-ui") }))
+		.route("/system", get(system::root_handler))
 		.route("/health", get(system::health_handler))
 		.merge(
 			Router::new()

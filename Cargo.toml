@@ -135,12 +135,12 @@ mime_guess = { version = "2", optional = true }
 percent-encoding = "2"
 tokio-util = "0.7"
 futures-util = "0.3"
-utoipa = { version = "5.4.0", features = ["axum_extras"] }
-utoipa-axum = "0.2.0"
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
-sha2 = "0.10.9"
-tar = "0.4.44"
-flate2 = "1.1.8"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+sha2 = "0.10"
+tar = "0.4"
+flate2 = "1"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }

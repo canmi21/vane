@@ -30,9 +30,9 @@ func TestConsoleHttp(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer proc.Stop()
 
-	// 2. Request the root endpoint
+	// 2. Request the system info endpoint
 
-	url := fmt.Sprintf("http://127.0.0.1:%d/", s.ConsolePort)
+	url := fmt.Sprintf("http://127.0.0.1:%d/system", s.ConsolePort)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -103,7 +103,7 @@ func TestConsoleUds(ctx context.Context, s *env.Sandbox) error {
 	}
 	defer conn.Close()
 
-	request := fmt.Sprintf("GET / HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer %s\r\nConnection: close\r\n\r\n", token)
+	request := fmt.Sprintf("GET /system HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer %s\r\nConnection: close\r\n\r\n", token)
 	if _, err := conn.Write([]byte(request)); err != nil {
 		return term.FormatFailure("Failed to write to UDS", term.NewNode(err.Error()))
 	}

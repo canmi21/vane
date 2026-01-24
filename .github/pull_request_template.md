@@ -14,6 +14,7 @@ Select all that apply:
 - [ ] Bug fix
 - [ ] New feature
 - [ ] Refactor
+- [ ] Typo
 - [ ] Documentation
 - [ ] Test-related
 - [ ] Other (explain below)
@@ -31,7 +32,7 @@ If this is a large change, explain how it is split and why.
 
 ## Checklist
 
-By submitting this PR, I confirm that:
+By submitting code PR, I confirm that:
 
 - [ ] All code passes the language’s default lint / check tools
 - [ ] All code is formatted using the language’s default formatter
