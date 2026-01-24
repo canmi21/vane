@@ -33,6 +33,7 @@ full = [
 	"ratelimit",
 	"domain-target",
 	"console",
+	"swagger-ui",
 ]
 
 # Core Transport (L4)
@@ -48,6 +49,7 @@ httpx = ["dep:hyper", "dep:hyper-util", "dep:http-body", "dep:http-body-util", "
 
 # Console / Management API
 console = ["dep:axum"]
+swagger-ui = ["dep:utoipa-swagger-ui"]
 
 # Upstream Capabilities
 h2upstream = ["dep:reqwest"]
@@ -137,7 +139,7 @@ tokio-util = "0.7"
 futures-util = "0.3"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"], optional = true }
 sha2 = "0.10"
 tar = "0.4"
 flate2 = "1"

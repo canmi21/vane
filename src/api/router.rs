@@ -14,13 +14,22 @@ use axum::{
 	routing::{get, post},
 };
 use utoipa::OpenApi;
+#[cfg(feature = "swagger-ui")]
 use utoipa_swagger_ui::SwaggerUi;
 
 #[cfg(feature = "console")]
 pub fn create_router() -> Router<PortState> {
-	Router::new()
+	let router = Router::new();
+
+	#[cfg(feature = "swagger-ui")]
+	let router = router
 		.merge(SwaggerUi::new("/swagger-ui").url("/.well-known/openapi.json", openapi::ApiDoc::openapi()))
-		.route("/", get(|| async { Redirect::temporary("/swagger-ui") }))
+		.route("/", get(|| async { Redirect::temporary("/swagger-ui") }));
+
+	#[cfg(not(feature = "swagger-ui"))]
+	let router = router.route("/", get(system::root_handler));
+
+	router
 		.route("/system", get(system::root_handler))
 		.route("/health", get(system::health_handler))
 		.merge(
