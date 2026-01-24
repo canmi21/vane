@@ -89,6 +89,10 @@ jobs:
           CMD ["./vane"]
           EOF
 
+          # Allow 'dist/' and 'Dockerfile.ci' in .dockerignore (fix for whitelist mode)
+          echo "!dist/" >> .dockerignore
+          echo "!Dockerfile.ci" >> .dockerignore
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
