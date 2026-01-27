@@ -6,13 +6,15 @@ use crate::layers::l4::dispatcher;
 
 use crate::resources::kv;
 use fancy_log::{LogLevel, log};
-use tokio::{net::TcpListener, sync::oneshot};
+use sigterm::{Shutdown, ShutdownHandle};
+use tokio::net::TcpListener;
 
 /// Spawns a dedicated Tokio task to listen for TCP connections on a given port.
-pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sender<()> {
-	let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> ShutdownHandle {
+	let (shutdown, handle) = Shutdown::new();
 	let key = (port, Protocol::Tcp);
 	tokio::spawn(async move {
+		let mut shutdown_fut = std::pin::pin!(shutdown.recv());
 		loop {
 			tokio::select! {
 				Ok((socket, addr)) = listener.accept() => {
@@ -51,8 +53,10 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 							log(LogLevel::Warn, &format!("✗ TCP listener is active on port {port}, but no config found. Dropping connection from {addr}."));
 						}
 					}
-												}
-																		_ = &mut shutdown_rx => {				                    log(LogLevel::Debug, &format!("⚙ TCP listener on port {port} received shutdown signal."));					break;
+				}
+				_ = &mut shutdown_fut => {
+					log(LogLevel::Debug, &format!("⚙ TCP listener on port {port} received shutdown signal."));
+					break;
 				}
 			}
 		}
@@ -62,5 +66,5 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> oneshot::Sen
 			&format!("⚙ TCP listener on port {port} has shut down."),
 		);
 	});
-	shutdown_tx
+	handle
 }

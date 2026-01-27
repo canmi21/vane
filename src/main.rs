@@ -8,6 +8,7 @@ pub mod common;
 pub mod engine;
 pub mod ingress;
 pub mod layers;
+pub mod lazycert;
 pub mod plugins;
 pub mod resources;
 

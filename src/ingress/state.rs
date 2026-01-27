@@ -5,8 +5,9 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use serde::Serialize;
+use sigterm::ShutdownHandle;
 use std::sync::Arc;
-use tokio::{sync::oneshot, time::Instant};
+use tokio::time::Instant;
 
 /// Represents the network protocol a port is listening on.
 #[derive(Serialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -43,7 +44,7 @@ pub enum ListenerState {
 /// A handle to a running tokio task that is listening on a port.
 pub struct RunningListener {
 	pub state: Arc<tokio::sync::Mutex<ListenerState>>,
-	pub shutdown_tx: oneshot::Sender<()>,
+	pub shutdown: ShutdownHandle,
 }
 
 /// The global, thread-safe registry of all active and draining listener tasks.

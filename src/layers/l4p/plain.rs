@@ -10,6 +10,9 @@ use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
 use tokio::net::TcpStream;
 
+#[cfg(feature = "lazycert")]
+use crate::lazycert::registry::CHALLENGE_REGISTRY;
+
 /// Entry point for Plaintext L4+ flows (HTTP).
 ///
 /// Workflow:
@@ -85,6 +88,15 @@ pub async fn run(
 		}
 	}
 
+	// Check for ACME HTTP-01 challenge BEFORE normal flow
+	#[cfg(feature = "lazycert")]
+	if let Some(path) = kv.get("http.path")
+		&& let Some(token) = path.strip_prefix("/.well-known/acme-challenge/")
+		&& !token.is_empty()
+	{
+		return handle_acme_challenge(stream, token).await;
+	}
+
 	let conn = ConnectionObject::Stream(Box::new(stream));
 	context::inject_common(kv, protocol);
 
@@ -144,4 +156,46 @@ async fn handle_plain_handover(conn: ConnectionObject, target_protocol: String) 
 	httpx::handle_connection(conn, target_protocol)
 		.await
 		.map_err(|e| anyhow!("L7 Engine Error: {e}"))
+}
+
+/// Handle ACME HTTP-01 challenge response
+#[cfg(feature = "lazycert")]
+async fn handle_acme_challenge(mut stream: TcpStream, token: &str) -> Result<()> {
+	use tokio::io::AsyncWriteExt;
+
+	let response = if let Some(entry) = CHALLENGE_REGISTRY.get(token) {
+		let body = &entry.key_authorization;
+		format!(
+			"HTTP/1.1 200 OK\r\n\
+                 Content-Type: text/plain\r\n\
+                 Content-Length: {}\r\n\
+                 Connection: close\r\n\
+                 \r\n\
+                 {}",
+			body.len(),
+			body
+		)
+	} else {
+		let body = "Challenge not found";
+		format!(
+			"HTTP/1.1 404 Not Found\r\n\
+                 Content-Type: text/plain\r\n\
+                 Content-Length: {}\r\n\
+                 Connection: close\r\n\
+                 \r\n\
+                 {}",
+			body.len(),
+			body
+		)
+	};
+
+	stream.write_all(response.as_bytes()).await?;
+	stream.shutdown().await?;
+
+	log(
+		LogLevel::Debug,
+		&format!("ACME HTTP-01 challenge response for token: {token}"),
+	);
+
+	Ok(())
 }

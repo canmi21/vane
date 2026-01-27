@@ -7,16 +7,18 @@ use crate::layers::l4p::quic::{muxer::QuicMuxer, session};
 use crate::plugins::protocol::quic::parser;
 use crate::resources::kv;
 use fancy_log::{LogLevel, log};
+use sigterm::{Shutdown, ShutdownHandle};
 use std::sync::Arc;
-use tokio::{net::UdpSocket, sync::oneshot};
+use tokio::net::UdpSocket;
 
 /// Spawns a dedicated Tokio task to handle UDP datagrams on a given port.
-pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<()> {
-	let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> ShutdownHandle {
+	let (shutdown, handle) = Shutdown::new();
 	let key = (port, Protocol::Udp);
 	let socket_arc = Arc::new(socket);
 
 	tokio::spawn(async move {
+		let mut shutdown_fut = std::pin::pin!(shutdown.recv());
 		let config_guard = CONFIG_STATE.load();
 		let port_status = config_guard.iter().find(|s| s.port == port).cloned();
 
@@ -95,7 +97,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 								udp::dispatch_udp_datagram(socket_clone, port, config_clone, datagram, client_addr, kv_store).await;
 							});
 						}
-						_ = &mut shutdown_rx => {
+						_ = &mut shutdown_fut => {
 							log(LogLevel::Debug, &format!("⚙ UDP listener on port {port} received shutdown signal."));
 							break;
 						}
@@ -116,5 +118,5 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> oneshot::Sender<
 		);
 	});
 
-	shutdown_tx
+	handle
 }

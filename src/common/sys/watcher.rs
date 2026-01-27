@@ -15,6 +15,7 @@ pub struct ConfigChangeReceivers {
 	pub resolvers: mpsc::Receiver<()>,
 	pub certs: mpsc::Receiver<()>,
 	pub applications: mpsc::Receiver<()>,
+	pub lazycert: mpsc::Receiver<()>,
 }
 
 /// Starts the filesystem watchers for configuration directories.
@@ -25,11 +26,13 @@ pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 	let (r_tx, r_rx) = mpsc::channel(1);
 	let (c_tx, c_rx) = mpsc::channel(1);
 	let (a_tx, a_rx) = mpsc::channel(1);
+	let (lz_tx, lz_rx) = mpsc::channel(1);
 	let (pr_tx, mut pr_rx) = mpsc::channel(32);
 	let (nr_tx, mut nr_rx) = mpsc::channel(32);
 	let (rr_tx, mut rr_rx) = mpsc::channel(32);
 	let (cr_tx, mut cr_rx) = mpsc::channel(32);
 	let (ar_tx, mut ar_rx) = mpsc::channel(32);
+	let (lzr_tx, mut lzr_rx) = mpsc::channel(32);
 
 	macro_rules! spawn_debouncer {
 		($rx:ident, $tx:expr) => {
@@ -50,6 +53,7 @@ pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 	spawn_debouncer!(rr_rx, r_tx);
 	spawn_debouncer!(cr_rx, c_tx);
 	spawn_debouncer!(ar_rx, a_tx);
+	spawn_debouncer!(lzr_rx, lz_tx);
 
 	tokio::spawn(async move {
 		let (event_tx, mut event_rx) = mpsc::channel::<Event>(32);
@@ -102,6 +106,12 @@ pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 				let _ = cr_tx.try_send(());
 			} else if event.paths.iter().any(|p| p.starts_with(&a_dir)) {
 				let _ = ar_tx.try_send(());
+			} else if event
+				.paths
+				.iter()
+				.any(|p| p.file_stem() == Some(OsStr::new("lazycert")))
+			{
+				let _ = lzr_tx.try_send(());
 			}
 		}
 	});
@@ -112,5 +122,6 @@ pub fn start_config_watchers_only() -> ConfigChangeReceivers {
 		resolvers: r_rx,
 		certs: c_rx,
 		applications: a_rx,
+		lazycert: lz_rx,
 	}
 }

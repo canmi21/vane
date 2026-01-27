@@ -2,10 +2,9 @@
 
 use axum::serve;
 use fancy_log::{LogLevel, log};
+use sigterm::Broadcast;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use crate::api::middleware::auth;
@@ -18,7 +17,7 @@ use crate::ingress::state;
 pub struct ConsoleHandles {
 	pub tcp_task: JoinHandle<()>,
 	pub unix_task: Option<JoinHandle<()>>,
-	pub shutdown_notifier: Arc<Notify>,
+	pub shutdown: Broadcast,
 }
 
 /// Initializes and starts the management console if ACCESS_TOKEN is configured.
@@ -67,14 +66,14 @@ pub async fn start() -> Option<ConsoleHandles> {
 				([0; 4], port).into()
 			};
 
-			let shutdown_notifier = Arc::new(Notify::new());
+			let shutdown = Broadcast::new();
 
 			#[cfg(feature = "console")]
 			let app = router::create_router();
 
 			#[cfg(feature = "console")]
 			let tcp_handle = {
-				let tcp_notifier = shutdown_notifier.clone();
+				let tcp_shutdown = shutdown.subscribe();
 				let tcp_listener = match TcpListener::bind(addr).await {
 					Ok(l) => l,
 					Err(e) => {
@@ -102,7 +101,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 					app.clone().with_state(state::CONFIG_STATE.clone()),
 				)
 				.with_graceful_shutdown(async move {
-					tcp_notifier.notified().await;
+					let _ = tcp_shutdown.recv().await;
 				});
 
 				tokio::spawn(async move {
@@ -116,10 +115,10 @@ pub async fn start() -> Option<ConsoleHandles> {
 
 			#[cfg(all(feature = "console", unix))]
 			let unix_handle = if let Some(listener) = unix_socket_listener {
-				let unix_notifier = shutdown_notifier.clone();
+				let unix_shutdown = shutdown.subscribe();
 				let unix_server = serve(listener, app.with_state(state::CONFIG_STATE.clone()))
 					.with_graceful_shutdown(async move {
-						unix_notifier.notified().await;
+						let _ = unix_shutdown.recv().await;
 					});
 				Some(tokio::spawn(async move {
 					if let Err(e) = unix_server.await {
@@ -138,7 +137,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 			Some(ConsoleHandles {
 				tcp_task: tcp_handle,
 				unix_task: unix_handle,
-				shutdown_notifier,
+				shutdown,
 			})
 		}
 		Err(err_msg) => {
@@ -153,7 +152,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 pub async fn stop(handles: ConsoleHandles) {
 	#[cfg(unix)]
 	socket::cleanup_unix_socket().await;
-	handles.shutdown_notifier.notify_waiters();
+	handles.shutdown.shutdown();
 
 	if let Some(handle) = handles.unix_task {
 		let _ = tokio::join!(handles.tcp_task, handle);

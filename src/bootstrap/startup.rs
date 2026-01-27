@@ -2,8 +2,8 @@
 
 use dotenvy::dotenv;
 use fancy_log::{LogLevel, log};
+use sigterm;
 use std::sync::Arc;
-use tokio::signal;
 
 use crate::bootstrap::{console, logging, monitor};
 use crate::common::{
@@ -36,6 +36,9 @@ pub async fn start() {
 
 	// 3. Load Certificates (TLS)
 	certs::loader::initialize().await;
+
+	// 3.5 Initialize LazyCert integration (if configured)
+	crate::lazycert::initialize().await;
 
 	// 4. Load Port Configurations (L4 Listeners)
 	let initial_ports: Vec<crate::ingress::state::PortStatus> = hotswap::scan_ports_config(&[]).await;
@@ -85,7 +88,7 @@ pub async fn start() {
 	let console_handles = console::start().await;
 
 	// 12. Run until Shutdown Signal
-	wait_for_shutdown_signal().await;
+	sigterm::wait().await;
 	log(LogLevel::Info, "➜ Signal received, shutdown now...");
 
 	// 13. Graceful Shutdown Cleanup
@@ -146,22 +149,6 @@ async fn spawn_hotswap_tasks(receivers: watcher::ConfigChangeReceivers) {
 	tokio::spawn(resolver_hotswap::listen_for_updates(receivers.resolvers));
 	tokio::spawn(certs::loader::listen_for_updates(receivers.certs));
 	tokio::spawn(app_hotswap::listen_for_updates(receivers.applications));
-}
-
-async fn wait_for_shutdown_signal() {
-	let ctrl_c = async {
-		signal::ctrl_c()
-			.await
-			.expect("failed to install Ctrl+C handler");
-	};
-	#[cfg(unix)]
-	let terminate = async {
-		signal::unix::signal(signal::unix::SignalKind::terminate())
-			.expect("failed to install signal handler")
-			.recv()
-			.await;
-	};
-	#[cfg(not(unix))]
-	let terminate = std::future::pending::<()>();
-	tokio::select! { _ = ctrl_c => {}, _ = terminate => {}, }
+	#[cfg(feature = "lazycert")]
+	tokio::spawn(crate::lazycert::listen_for_updates(receivers.lazycert));
 }

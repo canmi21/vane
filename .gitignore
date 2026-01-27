@@ -12,6 +12,7 @@ lerna-debug.log*
 /cypress/screenshots/
 
 # Project
+reference
 node_modules
 out
 dist

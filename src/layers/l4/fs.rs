@@ -49,24 +49,22 @@ mod tests {
 	use serial_test::serial;
 	use tempfile::tempdir;
 
-	#[tokio::test]
+	#[test]
 	#[serial]
-	async fn test_listener_file_lifecycle() {
+	fn test_listener_file_lifecycle() {
 		let temp_dir = tempdir().unwrap();
 		let config_path = temp_dir.path();
 		let port = 8080;
-		let _port_dir = config_path.join(format!("[{}]", port));
+		let _port_dir = config_path.join(format!("[{port}]"));
 
-		temp_env::with_var(
-			"CONFIG_DIR",
-			Some(config_path.to_str().unwrap()),
-			|| async move {
+		temp_env::with_var("CONFIG_DIR", Some(config_path.to_str().unwrap()), || {
+			let rt = tokio::runtime::Runtime::new().unwrap();
+			rt.block_on(async move {
 				assert!(create_protocol_listener(port, &Protocol::Tcp).await.is_ok());
 				assert!(create_protocol_listener(port, &Protocol::Udp).await.is_ok());
 				assert!(delete_protocol_listener(port, &Protocol::Tcp).await.is_ok());
 				assert!(delete_protocol_listener(port, &Protocol::Udp).await.is_ok());
-			},
-		)
-		.await;
+			});
+		});
 	}
 }

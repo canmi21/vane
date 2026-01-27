@@ -28,7 +28,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 			&format!("⚙ Binding {protocol:?} listener on {addr}..."),
 		);
 
-		let shutdown_tx = match protocol {
+		let shutdown_handle = match protocol {
 			Protocol::Tcp => {
 				let mut listener = None;
 				for i in 0..5 {
@@ -76,12 +76,12 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 			}
 		};
 
-		if let Some(tx) = shutdown_tx {
+		if let Some(handle) = shutdown_handle {
 			TASK_REGISTRY.insert(
 				key,
 				RunningListener {
 					state: Arc::new(Mutex::new(ListenerState::Active)),
-					shutdown_tx: tx,
+					shutdown: handle,
 				},
 			);
 			log(
@@ -94,7 +94,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 
 pub fn stop_listener(port: u16, protocol: Protocol) {
 	if let Some((_, task)) = TASK_REGISTRY.remove(&(port, protocol)) {
-		let _ = task.shutdown_tx.send(());
+		task.shutdown.shutdown();
 	}
 }
 
