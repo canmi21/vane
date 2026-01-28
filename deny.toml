@@ -16,6 +16,7 @@ allow = [
 	"MPL-2.0",
 	"Unicode-3.0",
 	"CDLA-Permissive-2.0",
+	"Zlib",
 	# Pull by rustls ecosystem aws-lc-sys
 	# Vane is full rustls stack and has nothing to do with OpenSSL
 	"OpenSSL",
@@ -28,6 +29,8 @@ skip-tree = [
 	# syn 1.0/2.0 is common during macro transitions
 	{ name = "syn" },
 	# Version duplications confirmed during audit (mostly transitive)
+	{ name = "thiserror" },
+	{ name = "thiserror-impl" },
 	{ name = "bitflags" },
 	{ name = "core-foundation" },
 	{ name = "getrandom" },
