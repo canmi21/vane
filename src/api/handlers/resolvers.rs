@@ -146,7 +146,7 @@ pub async fn post_resolver_handler(
 
 	// Validate (manually set protocol since it's transient)
 	let mut config_to_validate = config.clone();
-	crate::layers::l4::loader::PreProcess::set_context(&mut config_to_validate, &protocol);
+	config_to_validate.protocol = protocol.clone();
 
 	if let Err(e) = config_to_validate.validate() {
 		return response::error(StatusCode::BAD_REQUEST, format!("Validation failed: {e}"));
@@ -195,7 +195,7 @@ pub async fn put_resolver_handler(
 	}
 
 	let mut config_to_validate = config.clone();
-	crate::layers::l4::loader::PreProcess::set_context(&mut config_to_validate, &protocol);
+	config_to_validate.protocol = protocol.clone();
 
 	if let Err(e) = config_to_validate.validate() {
 		return response::error(StatusCode::BAD_REQUEST, format!("Validation failed: {e}"));

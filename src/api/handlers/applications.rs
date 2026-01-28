@@ -145,7 +145,7 @@ pub async fn post_application_handler(
 	}
 
 	let mut config_to_validate = config.clone();
-	crate::layers::l4::loader::PreProcess::set_context(&mut config_to_validate, &protocol);
+	config_to_validate.protocol = protocol.clone();
 
 	if let Err(e) = config_to_validate.validate() {
 		return response::error(StatusCode::BAD_REQUEST, format!("Validation failed: {e}"));
@@ -194,7 +194,7 @@ pub async fn put_application_handler(
 	}
 
 	let mut config_to_validate = config.clone();
-	crate::layers::l4::loader::PreProcess::set_context(&mut config_to_validate, &protocol);
+	config_to_validate.protocol = protocol.clone();
 
 	if let Err(e) = config_to_validate.validate() {
 		return response::error(StatusCode::BAD_REQUEST, format!("Validation failed: {e}"));

@@ -7,13 +7,9 @@ use crate::api::schemas::ports::{
 };
 use crate::api::utils::config_file;
 use crate::common::{config::file_loader, net::port_utils};
-use crate::ingress::state::{PortState, Protocol};
+use crate::ingress::state::Protocol;
 use crate::layers::l4::fs as transport_fs;
-use axum::{
-	extract::{Path, State},
-	http::StatusCode,
-	response::IntoResponse,
-};
+use axum::{extract::Path, http::StatusCode, response::IntoResponse};
 use tokio::fs;
 
 // --- Handlers ---
@@ -28,9 +24,13 @@ use tokio::fs;
     tag = "ports",
     security(("bearer_auth" = []))
 )]
-pub async fn list_ports_handler(State(state): State<PortState>) -> impl IntoResponse {
+pub async fn list_ports_handler() -> impl IntoResponse {
 	let config_dir = file_loader::get_config_dir();
 	let mut ports = Vec::new();
+
+	let config = crate::config::get();
+	let tcp_map = config.listeners.tcp.snapshot().await;
+	let udp_map = config.listeners.udp.snapshot().await;
 
 	// Read from filesystem (source of truth for configuration)
 	let mut entries = match fs::read_dir(&config_dir).await {
@@ -58,9 +58,8 @@ pub async fn list_ports_handler(State(state): State<PortState>) -> impl IntoResp
 			&& let Ok(port_num) = name[1..name.len() - 1].parse::<u16>()
 		{
 			// Check active state from runtime memory
-			let state_guard = state.load();
-			let status = state_guard.iter().find(|p| p.port == port_num);
-			let active = status.is_some();
+			let port_str = port_num.to_string();
+			let active = tcp_map.contains_key(&port_str) || udp_map.contains_key(&port_str);
 
 			let mut protocols = Vec::new();
 			let tcp_dir = config_dir.join(name).join("tcp");
@@ -98,18 +97,15 @@ pub async fn list_ports_handler(State(state): State<PortState>) -> impl IntoResp
     tag = "ports",
     security(("bearer_auth" = []))
 )]
-pub async fn get_port_handler(
-	State(state): State<PortState>,
-	Path(port): Path<u16>,
-) -> impl IntoResponse {
+pub async fn get_port_handler(Path(port): Path<u16>) -> impl IntoResponse {
 	let port_dir = file_loader::get_config_dir().join(format!("[{port}]"));
 	if fs::metadata(&port_dir).await.is_err() {
 		return response::error(StatusCode::NOT_FOUND, format!("Port {port} not configured"));
 	}
 
 	// Runtime status
-	let state_guard = state.load();
-	let runtime_status = state_guard.iter().find(|p| p.port == port);
+	let config = crate::config::get();
+	let port_str = port.to_string();
 
 	// TCP Info
 	let tcp_path = port_dir.join("tcp");
@@ -120,9 +116,7 @@ pub async fn get_port_handler(
 			_ => None,
 		};
 
-		let active = runtime_status
-			.map(|s| s.tcp_config.is_some())
-			.unwrap_or(false);
+		let active = config.listeners.get_tcp(&port_str).is_some();
 
 		Some(ProtocolStatus {
 			active,
@@ -141,9 +135,7 @@ pub async fn get_port_handler(
 			_ => None,
 		};
 
-		let active = runtime_status
-			.map(|s| s.udp_config.is_some())
-			.unwrap_or(false);
+		let active = config.listeners.get_udp(&port_str).is_some();
 
 		Some(ProtocolStatus {
 			active,

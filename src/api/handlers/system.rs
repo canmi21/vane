@@ -5,16 +5,11 @@ use crate::api::schemas::system::{
 	BuildInfo, HealthStatus, HealthStatusResponse, PackageInfo, RuntimeInfo, SystemInfo,
 	SystemInfoResponse, SystemStatusDetails, SystemStatusResponse,
 };
-use crate::common::config::file_loader;
 use crate::common::sys::lifecycle;
-use crate::ingress::state::PortState;
 use crate::plugins::core::registry;
 use crate::resources::certs::arcswap as cert_registry;
-use crate::resources::service_discovery::model::NODES_STATE;
-use axum::extract::State;
 use axum::response::IntoResponse;
 use std::env;
-use tokio::fs;
 
 // --- Handlers ---
 
@@ -94,19 +89,22 @@ pub async fn health_handler() -> impl IntoResponse {
     ),
     tag = "system"
 )]
-pub async fn status_handler(State(state): State<PortState>) -> impl IntoResponse {
+pub async fn status_handler() -> impl IntoResponse {
+	let config = crate::config::get();
+
 	// 1. Listeners
-	let state_guard = state.load();
-	let mut tcp_ports = Vec::new();
-	let mut udp_ports = Vec::new();
-	for p in state_guard.iter() {
-		if p.tcp_config.is_some() {
-			tcp_ports.push(p.port);
-		}
-		if p.udp_config.is_some() {
-			udp_ports.push(p.port);
-		}
-	}
+	let tcp_map = config.listeners.tcp.snapshot().await;
+	let udp_map = config.listeners.udp.snapshot().await;
+
+	let mut tcp_ports: Vec<u16> = tcp_map.keys().filter_map(|k| k.parse().ok()).collect();
+	let mut udp_ports: Vec<u16> = udp_map.keys().filter_map(|k| k.parse().ok()).collect();
+
+	tcp_ports.sort();
+	udp_ports.sort();
+
+	let mut unique_ports = std::collections::HashSet::<u16>::new();
+	unique_ports.extend(tcp_ports.iter());
+	unique_ports.extend(udp_ports.iter());
 
 	// 2. Plugins
 	let internal_count = registry::list_internal_plugins().len();
@@ -117,26 +115,21 @@ pub async fn status_handler(State(state): State<PortState>) -> impl IntoResponse
 		.count();
 
 	// 3. Resources
-	let nodes_count = NODES_STATE.load().nodes.len();
-	let certs_count = cert_registry::CERT_REGISTRY.load().len();
+	// Nodes
+	let nodes_count = config.nodes.get().map(|n| n.nodes.len()).unwrap_or(0);
 
-	let config_dir = file_loader::get_config_dir();
-	let mut resolvers_count = 0;
-	if let Ok(mut entries) = fs::read_dir(config_dir.join("resolvers")).await {
-		while let Ok(Some(_)) = entries.next_entry().await {
-			resolvers_count += 1;
-		}
-	}
-	let mut apps_count = 0;
-	if let Ok(mut entries) = fs::read_dir(config_dir.join("applications")).await {
-		while let Ok(Some(_)) = entries.next_entry().await {
-			apps_count += 1;
-		}
-	}
+	// Certs (Legacy for now)
+	let certs_count = cert_registry::CERT_REGISTRY.len();
+
+	// Resolvers (from memory)
+	let resolvers_count = config.resolvers.len().await;
+
+	// Applications (from memory)
+	let apps_count = config.applications.len().await;
 
 	response::success(SystemStatusDetails {
 		listeners: serde_json::json!({
-			"active": state_guard.len(),
+			"active": unique_ports.len(),
 			"tcp": tcp_ports,
 			"udp": udp_ports
 		}),

@@ -6,7 +6,6 @@ use crate::api::handlers::{
 use crate::api::middleware::{auth, logger};
 #[cfg(feature = "swagger-ui")]
 use crate::api::openapi;
-use crate::ingress::state::PortState;
 
 #[cfg(feature = "swagger-ui")]
 use axum::response::Redirect;
@@ -19,7 +18,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 #[cfg(feature = "console")]
-pub fn create_router() -> Router<PortState> {
+pub fn create_router() -> Router {
 	let router = Router::new();
 
 	#[cfg(feature = "swagger-ui")]

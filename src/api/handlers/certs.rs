@@ -90,12 +90,12 @@ fn parse_cert_detail(id: &str, der: &[u8]) -> Option<CertDetail> {
     security(("bearer_auth" = []))
 )]
 pub async fn list_certs_handler() -> impl IntoResponse {
-	let registry = arcswap::CERT_REGISTRY.load();
+	let snapshot = arcswap::CERT_REGISTRY.snapshot();
 	let mut certs = Vec::new();
 
-	for (id, loaded) in registry.iter() {
-		if let Some(first_der) = loaded.certs.first()
-			&& let Some(summary) = parse_cert_summary(id, first_der.as_ref())
+	for (id, entry) in snapshot.iter() {
+		if let Some(first_der) = entry.value.certs.first()
+			&& let Some(summary) = parse_cert_summary(id, first_der)
 		{
 			certs.push(summary);
 		}
@@ -120,10 +120,9 @@ pub async fn list_certs_handler() -> impl IntoResponse {
     security(("bearer_auth" = []))
 )]
 pub async fn get_cert_handler(Path(id): Path<String>) -> impl IntoResponse {
-	let registry = arcswap::CERT_REGISTRY.load();
-	if let Some(loaded) = registry.get(&id)
+	if let Some(loaded) = arcswap::CERT_REGISTRY.get(&id)
 		&& let Some(first_der) = loaded.certs.first()
-		&& let Some(detail) = parse_cert_detail(&id, first_der.as_ref())
+		&& let Some(detail) = parse_cert_detail(&id, first_der)
 	{
 		return response::success(detail);
 	}
