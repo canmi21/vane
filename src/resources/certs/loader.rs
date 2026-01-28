@@ -8,6 +8,7 @@ use crate::resources::certs::{arcswap, format};
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tokio::sync::mpsc;
@@ -79,8 +80,11 @@ pub async fn scan_and_load_certs() {
 	if fs::metadata(&config_dir).await.is_err() {
 		return;
 	}
-	let current_state = arcswap::CERT_REGISTRY.load();
-	let mut new_state = current_state.as_ref().clone();
+	let snapshot = arcswap::CERT_REGISTRY.snapshot();
+	let mut new_state: HashMap<String, Arc<arcswap::LoadedCert>> = snapshot
+		.iter()
+		.map(|(k, v)| (k.clone(), Arc::clone(&v.value)))
+		.collect();
 	let Ok(mut entries) = fs::read_dir(&config_dir).await else {
 		return;
 	};

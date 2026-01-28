@@ -1,7 +1,5 @@
 /* src/resources/service_discovery/model.rs */
 
-use crate::layers::l4::loader::PreProcess;
-use arc_swap::ArcSwap;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -11,7 +9,6 @@ use utoipa::ToSchema;
 use validator::{Validate, ValidationError, ValidationErrors, ValidationErrorsKind};
 
 lazy_static! {
-	pub static ref NODES_STATE: ArcSwap<NodesConfig> = ArcSwap::default();
 	static ref NAME_REGEX: regex::Regex =
 		regex::Regex::new(r"^[a-z0-9-]+$").expect("Failed to compile NAME_REGEX");
 }
@@ -105,28 +102,10 @@ impl Validate for NodesConfig {
 	}
 }
 
-impl PreProcess for NodesConfig {
-	fn pre_process(&mut self) {
-		let mut processed_list = Vec::new();
-		for node in &self.nodes {
-			for ip_config in &node.ips {
-				for &port in &ip_config.ports {
-					processed_list.push(ProcessedNode {
-						node_name: node.name.clone(),
-						address: ip_config.address.clone(),
-						port,
-						ip_type: ip_config.r#type.clone(),
-					});
-				}
-			}
-		}
-		self.processed = processed_list;
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use live::loader::PreProcess;
 
 	// --- Test Helpers to create valid default structs ---
 
