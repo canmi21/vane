@@ -6,7 +6,7 @@ use crate::engine::interfaces::{
 	TerminatorResult,
 };
 use crate::layers::l4::model::ResolvedTarget;
-use crate::resources::{kv::KvStore, service_discovery::model::NODES_STATE};
+use crate::resources::kv::KvStore;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -68,7 +68,11 @@ impl Terminator for ProxyNodePlugin {
 			.map(|p| p as u16)
 			.ok_or_else(|| anyhow!("Resolved input 'target.port' is missing or not an integer"))?;
 
-		let nodes_config = NODES_STATE.load();
+		let config_manager = crate::config::get();
+		let nodes_config = config_manager
+			.nodes
+			.get()
+			.unwrap_or_else(|| std::sync::Arc::new(crate::config::NodesConfig::default()));
 		let candidates: Vec<&String> = nodes_config
 			.processed
 			.iter()

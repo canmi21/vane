@@ -17,8 +17,8 @@ use crate::plugins::{
 	},
 	protocol::upgrader::upgrade::UpgradePlugin,
 };
-use arc_swap::ArcSwap;
 use dashmap::DashMap;
+use live::holder::{Store, UnloadPolicy};
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 
@@ -73,8 +73,7 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 	registry
 });
 
-static EXTERNAL_PLUGIN_REGISTRY: Lazy<ArcSwap<DashMap<String, Arc<dyn Plugin>>>> =
-	Lazy::new(|| ArcSwap::new(Arc::new(DashMap::new())));
+static EXTERNAL_PLUGIN_REGISTRY: Lazy<Store<Arc<dyn Plugin>>> = Lazy::new(Store::new);
 
 /// Stores the health status of external plugins.
 /// Key: Plugin Name
@@ -100,17 +99,16 @@ pub fn get_internal_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
 }
 
 pub fn get_external_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
-	let external_plugins = EXTERNAL_PLUGIN_REGISTRY.load();
-	external_plugins
+	EXTERNAL_PLUGIN_REGISTRY
 		.get(name)
-		.map(|plugin| plugin.value().clone())
+		.map(|entry| (*entry).clone())
 }
 
 pub fn list_external_plugins() -> Vec<Arc<dyn Plugin>> {
-	let external_plugins = EXTERNAL_PLUGIN_REGISTRY.load();
-	external_plugins
-		.iter()
-		.map(|entry| entry.value().clone())
+	let snapshot = EXTERNAL_PLUGIN_REGISTRY.snapshot();
+	snapshot
+		.values()
+		.map(|entry| (*entry.value).clone())
 		.collect()
 }
 
@@ -122,9 +120,24 @@ pub fn list_internal_plugins() -> Vec<Arc<dyn Plugin>> {
 }
 
 pub fn load_external_plugins(new_plugins: DashMap<String, Arc<dyn Plugin>>) {
-	EXTERNAL_PLUGIN_REGISTRY.store(Arc::new(new_plugins));
+	for entry in new_plugins {
+		EXTERNAL_PLUGIN_REGISTRY.insert(
+			entry.0,
+			entry.1,
+			std::path::PathBuf::from("memory"),
+			UnloadPolicy::Removable,
+		);
+	}
 }
 
 pub fn clear_external_plugins() {
-	EXTERNAL_PLUGIN_REGISTRY.store(Arc::new(DashMap::new()));
+	// Store doesn't have clear(), we could implement it in atomhold, but for now:
+	let keys = EXTERNAL_PLUGIN_REGISTRY
+		.snapshot()
+		.keys()
+		.cloned()
+		.collect::<Vec<_>>();
+	for key in keys {
+		let _ = EXTERNAL_PLUGIN_REGISTRY.remove(&key);
+	}
 }
