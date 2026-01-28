@@ -2,7 +2,6 @@
 
 use super::model::{ResolvedTarget, Target};
 use crate::common::config::env_loader;
-use crate::resources::service_discovery::model::NODES_STATE;
 use fancy_log::{LogLevel, log};
 #[cfg(feature = "domain-target")]
 use hickory_resolver::{
@@ -14,6 +13,7 @@ use hickory_resolver::{
 use once_cell::sync::Lazy;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[cfg(feature = "domain-target")]
 static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
@@ -66,7 +66,11 @@ pub async fn resolve_domain_to_ips(domain: &str) -> Vec<IpAddr> {
 
 pub async fn resolve_targets(targets: &[Target]) -> Vec<ResolvedTarget> {
 	let mut resolved = Vec::new();
-	let nodes_config = NODES_STATE.load();
+	let config_manager = crate::config::get();
+	let nodes_config = config_manager
+		.nodes
+		.get()
+		.unwrap_or_else(|| Arc::new(crate::config::NodesConfig::default()));
 
 	for target in targets {
 		match target {

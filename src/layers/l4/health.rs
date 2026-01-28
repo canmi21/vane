@@ -1,7 +1,7 @@
 /* src/layers/l4/health.rs */
 
 use super::{legacy::tcp::TcpDestination, model::ResolvedTarget, resolver, tcp::TcpConfig};
-use crate::{common::config::env_loader, ingress::state::CONFIG_STATE};
+use crate::common::config::env_loader;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
@@ -62,16 +62,14 @@ async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 
 async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 	let mut unique_targets = HashSet::new();
-	let config_guard = CONFIG_STATE.load();
+	let tcp_map = crate::config::get().listeners.tcp.snapshot().await;
 
 	let connect_timeout_ms = env_loader::get_env("HEALTH_TCP_CONNECT_TIMEOUT_MS", "2000".to_owned())
 		.parse::<u64>()
 		.unwrap_or(2000);
 
-	for port_status in config_guard.iter() {
-		if let Some(tcp_config) = &port_status.tcp_config
-			&& let TcpConfig::Legacy(legacy_config) = &**tcp_config
-		{
+	for (_, tcp_config) in tcp_map {
+		if let TcpConfig::Legacy(legacy_config) = &*tcp_config {
 			for rule in &legacy_config.rules {
 				if let TcpDestination::Forward { forward } = &rule.destination {
 					for rt in resolver::resolve_targets(&forward.targets).await {
