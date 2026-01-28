@@ -1,8 +1,7 @@
 /* src/ingress/listener.rs */
 
-use super::state::{CONFIG_STATE, ListenerState, Protocol, RunningListener, TASK_REGISTRY};
+use super::state::{ListenerState, Protocol, RunningListener, TASK_REGISTRY};
 use crate::common::config::env_loader;
-use crate::ingress::hotswap::scan_ports_config;
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::net::{TcpListener, UdpSocket};
@@ -98,23 +97,20 @@ pub fn stop_listener(port: u16, protocol: Protocol) {
 	}
 }
 
-pub async fn is_port_active(port: u16) -> bool {
-	let state: Vec<crate::ingress::state::PortStatus> = scan_ports_config(&[]).await;
-	state.iter().any(|s| s.port == port && s.active)
+#[must_use]
+pub fn is_port_active(port: u16) -> bool {
+	let config = crate::config::get();
+	let port_str = port.to_string();
+	config.listeners.get_tcp(&port_str).is_some() || config.listeners.get_udp(&port_str).is_some()
 }
 
 async fn is_listener_still_required(port: u16, protocol: &Protocol) -> bool {
-	let current_state = CONFIG_STATE.load();
-	let state: Vec<crate::ingress::state::PortStatus> = scan_ports_config(&current_state).await;
-	state.iter().any(|s| {
-		if s.port != port {
-			return false;
-		}
-		match protocol {
-			Protocol::Tcp => s.tcp_config.is_some(),
-			Protocol::Udp => s.udp_config.is_some(),
-		}
-	})
+	let config = crate::config::get();
+	let port_str = port.to_string();
+	match protocol {
+		Protocol::Tcp => config.listeners.get_tcp(&port_str).is_some(),
+		Protocol::Udp => config.listeners.get_udp(&port_str).is_some(),
+	}
 }
 
 pub async fn handle_listener_error(port: u16, protocol: Protocol, error: std::io::Error) {
