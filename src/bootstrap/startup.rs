@@ -1,20 +1,14 @@
-/* src/bootstrap/startup.rs */
-
 use dotenvy::dotenv;
 use fancy_log::{LogLevel, log};
+use live::signal::Config as WatcherConfig;
 use sigterm;
-use std::sync::Arc;
 
 use crate::bootstrap::{console, logging, monitor};
-use crate::common::{
-	config::env_loader,
-	sys::{lifecycle, watcher},
-};
+use crate::common::sys::lifecycle;
+use crate::config::{self, ConfigManager};
 use crate::ingress::{hotswap, listener, state};
-use crate::layers::l4p::{hotswap as resolver_hotswap, model as resolver_model};
-use crate::layers::l7::{hotswap as app_hotswap, model as app_model};
 use crate::plugins::core::loader as plugin_loader;
-use crate::resources::{certs, service_discovery as nodes};
+use crate::resources::certs;
 
 /// Entry point for the Vane bootstrap sequence.
 pub async fn start() {
@@ -29,69 +23,107 @@ pub async fn start() {
 	// 1. Infrastructure Readiness
 	lifecycle::ensure_config_files_exist().await;
 
-	// 2. Load Service Discovery (Nodes)
-	if let Some(initial_nodes) = nodes::hotswap::scan_nodes_config().await {
-		nodes::model::NODES_STATE.store(Arc::new(initial_nodes));
+	// 2. Initialize Config Manager
+	let config_dir_path = crate::common::config::file_loader::get_config_dir();
+	let config_dir_str = config_dir_path
+		.to_str()
+		.expect("Config dir path is not valid UTF-8");
+
+	let mut config = match ConfigManager::init(config_dir_str).await {
+		Ok(c) => c,
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("Failed to initialize config: {e}"),
+			);
+			return;
+		}
+	};
+
+	// 3. Load Configurations
+	if let Err(e) = config.listeners.load().await {
+		log(LogLevel::Error, &format!("Failed to load listeners: {e}"));
+	}
+	if let Err(e) = config.resolvers.load().await {
+		log(LogLevel::Error, &format!("Failed to load resolvers: {e}"));
+	}
+	if let Err(e) = config.applications.load().await {
+		log(
+			LogLevel::Error,
+			&format!("Failed to load applications: {e}"),
+		);
+	}
+	// Nodes - suppress error if file not found (default behavior)
+	match config.nodes.load().await {
+		Ok(_) => log(LogLevel::Debug, "⚙ Loaded nodes configuration."),
+		Err(live::controller::LiveError::Load(live::loader::FmtError::NotFound)) => {
+			log(
+				LogLevel::Debug,
+				"⚙ Nodes configuration file not found. Using default.",
+			);
+		}
+		Err(e) => log(LogLevel::Error, &format!("Failed to load nodes: {e}")),
 	}
 
-	// 3. Load Certificates (TLS)
+	// 3.5 LazyCert (Hybrid)
+	if let Some(lc) = &config.lazycert {
+		// Try load, ignore not found
+		let _ = lc.load().await;
+	}
+
+	// 4. Start Configuration Hotswap System (Before moving config)
+	let watch_config = WatcherConfig::default();
+
+	// Start watchers for Live components
+	let _ = config.listeners.start_watching(watch_config.clone()).await;
+	let _ = config.resolvers.start_watching(watch_config.clone()).await;
+	let _ = config
+		.applications
+		.start_watching(watch_config.clone())
+		.await;
+	let _ = config.nodes.start_watching(watch_config.clone()).await;
+	if let Some(lc) = &mut config.lazycert {
+		let _ = lc.start_watching(watch_config.clone()).await;
+	}
+
+	// 5. Set Global Config
+	if config::CONFIG.set(config).is_err() {
+		panic!("Config already initialized");
+	}
+	let config = config::get();
+
+	// 6. Load Certificates (TLS) - Legacy/Custom for now
 	certs::loader::initialize().await;
 
-	// 3.5 Initialize LazyCert integration (if configured)
+	// 7. Initialize LazyCert integration (after config set)
 	crate::lazycert::initialize().await;
 
-	// 4. Load Port Configurations (L4 Listeners)
-	let initial_ports: Vec<crate::ingress::state::PortStatus> = hotswap::scan_ports_config(&[]).await;
-	state::CONFIG_STATE.store(Arc::new(initial_ports.clone()));
-
-	// 5. Load L4+ Resolvers
-	let initial_resolvers =
-		resolver_hotswap::scan_resolver_config(&resolver_model::RESOLVER_REGISTRY.load()).await;
-	resolver_model::RESOLVER_REGISTRY.store(Arc::new(initial_resolvers));
-	log(
-		LogLevel::Info,
-		&format!(
-			"✓ Loaded {} resolver protocols.",
-			resolver_model::RESOLVER_REGISTRY.load().len()
-		),
-	);
-
-	// 6. Load Applications (L7 Protocols)
-	let initial_apps =
-		app_hotswap::scan_application_config(&app_model::APPLICATION_REGISTRY.load()).await;
-	app_model::APPLICATION_REGISTRY.store(Arc::new(initial_apps));
-	log(
-		LogLevel::Info,
-		&format!(
-			"✓ Loaded {} application protocols.",
-			app_model::APPLICATION_REGISTRY.load().len()
-		),
-	);
-
-	// 7. Start Background Maintenance Tasks
+	// 8. Start Background Maintenance Tasks
 	lifecycle::start_background_tasks().await;
 
-	// 8. Initialize Plugin System
+	// 9. Initialize Plugin System
 	plugin_loader::initialize().await;
 
-	// 8.5 Initialize Adaptive Resource Management
+	// 10. Initialize Adaptive Resource Management
 	monitor::start_l7_memory_monitor().await;
 
-	// 9. Activate Listeners
-	start_initial_listeners(&initial_ports).await;
+	// 11. Activate Listeners
+	start_initial_listeners(config).await;
 
-	// 10. Start Configuration Hotswap System
-	let receivers = watcher::start_config_watchers_only();
-	spawn_hotswap_tasks(receivers).await;
+	// 12. Spawn listener event loop
+	tokio::spawn(hotswap::start_listener_event_loop(config));
 
-	// 11. Start Management Plane (Console)
+	// 13. Custom watcher for Certs
+	start_certs_watcher(config_dir_path.join("certs")).await;
+
+	// 14. Start Management Plane (Console)
 	let console_handles = console::start().await;
 
-	// 12. Run until Shutdown Signal
+	// 15. Run until Shutdown Signal
 	sigterm::wait().await;
 	log(LogLevel::Info, "➜ Signal received, shutdown now...");
 
-	// 13. Graceful Shutdown Cleanup
+	// 16. Graceful Shutdown Cleanup
 	if let Some(handles) = console_handles {
 		console::stop(handles).await;
 	}
@@ -113,42 +145,55 @@ fn setup_crypto() {
 	}
 }
 
-async fn start_initial_listeners(ports: &[state::PortStatus]) {
+async fn start_initial_listeners(config: &ConfigManager) {
 	log(
 		LogLevel::Info,
 		"⚙ Initializing listeners from existing config...",
 	);
-	let ip_version =
-		if env_loader::get_env("LISTEN_IPV6", "false".to_owned()).to_lowercase() == "true" {
-			"IPv4 + IPv6"
-		} else {
-			"IPv4"
-		};
 
-	for status in ports {
-		if status.tcp_config.is_some() {
-			log(
-				LogLevel::Info,
-				&format!("↑ {} PORT {} TCP UP", ip_version, status.port),
-			);
-			listener::start_listener(status.port, state::Protocol::Tcp);
+	// TCP
+	let tcp_map = config.listeners.tcp.snapshot().await;
+	for (port_str, _) in tcp_map {
+		if let Ok(port) = port_str.parse::<u16>() {
+			log(LogLevel::Info, &format!("↑ PORT {port} TCP UP"));
+			listener::start_listener(port, state::Protocol::Tcp);
 		}
-		if status.udp_config.is_some() {
-			log(
-				LogLevel::Info,
-				&format!("↑ {} PORT {} UDP UP", ip_version, status.port),
-			);
-			listener::start_listener(status.port, state::Protocol::Udp);
+	}
+
+	// UDP
+	let udp_map = config.listeners.udp.snapshot().await;
+	for (port_str, _) in udp_map {
+		if let Ok(port) = port_str.parse::<u16>() {
+			log(LogLevel::Info, &format!("↑ PORT {port} UDP UP"));
+			listener::start_listener(port, state::Protocol::Udp);
 		}
 	}
 }
 
-async fn spawn_hotswap_tasks(receivers: watcher::ConfigChangeReceivers) {
-	tokio::spawn(hotswap::listen_for_updates(receivers.ports));
-	tokio::spawn(nodes::hotswap::listen_for_updates(receivers.nodes));
-	tokio::spawn(resolver_hotswap::listen_for_updates(receivers.resolvers));
-	tokio::spawn(certs::loader::listen_for_updates(receivers.certs));
-	tokio::spawn(app_hotswap::listen_for_updates(receivers.applications));
-	#[cfg(feature = "lazycert")]
-	tokio::spawn(crate::lazycert::listen_for_updates(receivers.lazycert));
+async fn start_certs_watcher(cert_dir: std::path::PathBuf) {
+	use live::signal::{Config as WatcherConfig, Target, Watcher};
+
+	let target = Target::Filtered {
+		path: cert_dir,
+		include: vec!["*.pem".to_owned(), "*.crt".to_owned(), "*.key".to_owned()],
+		exclude: vec!["*.bak".to_owned()],
+	};
+
+	match Watcher::new(target, WatcherConfig::default()) {
+		Ok(watcher) => {
+			tokio::spawn(async move {
+				let _watcher = watcher; // Keep alive
+				let mut rx = _watcher.subscribe();
+				while rx.recv().await.is_ok() {
+					crate::resources::certs::loader::scan_and_load_certs().await;
+				}
+			});
+		}
+		Err(e) => {
+			log(
+				LogLevel::Error,
+				&format!("✗ Failed to start certs watcher: {e}"),
+			);
+		}
+	}
 }

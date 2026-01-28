@@ -12,7 +12,6 @@ use crate::api::router;
 #[cfg(unix)]
 use crate::bootstrap::socket;
 use crate::common::{config::env_loader, net::port_utils};
-use crate::ingress::state;
 
 pub struct ConsoleHandles {
 	pub tcp_task: JoinHandle<()>,
@@ -96,11 +95,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 					&format!("✓ Listening on http://127.0.0.1:{port}"),
 				);
 
-				let tcp_server = serve(
-					tcp_listener,
-					app.clone().with_state(state::CONFIG_STATE.clone()),
-				)
-				.with_graceful_shutdown(async move {
+				let tcp_server = serve(tcp_listener, app.clone()).with_graceful_shutdown(async move {
 					let _ = tcp_shutdown.recv().await;
 				});
 
@@ -116,10 +111,9 @@ pub async fn start() -> Option<ConsoleHandles> {
 			#[cfg(all(feature = "console", unix))]
 			let unix_handle = if let Some(listener) = unix_socket_listener {
 				let unix_shutdown = shutdown.subscribe();
-				let unix_server = serve(listener, app.with_state(state::CONFIG_STATE.clone()))
-					.with_graceful_shutdown(async move {
-						let _ = unix_shutdown.recv().await;
-					});
+				let unix_server = serve(listener, app).with_graceful_shutdown(async move {
+					let _ = unix_shutdown.recv().await;
+				});
 				Some(tokio::spawn(async move {
 					if let Err(e) = unix_server.await {
 						log(
