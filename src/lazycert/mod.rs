@@ -5,8 +5,6 @@ pub mod client;
 #[cfg(feature = "lazycert")]
 pub mod config;
 #[cfg(feature = "lazycert")]
-pub mod hotswap;
-#[cfg(feature = "lazycert")]
 pub mod registry;
 #[cfg(feature = "lazycert")]
 pub mod sync;
@@ -32,15 +30,6 @@ pub static LAZYCERT_CONFIG: OnceCell<Arc<RwLock<Option<LazyCertConfig>>>> = Once
 #[cfg(feature = "lazycert")]
 pub static LAZYCERT_CLIENT: OnceCell<Arc<RwLock<Option<Arc<LazyCertClient>>>>> = OnceCell::new();
 
-/// Listen for configuration updates
-#[cfg(feature = "lazycert")]
-pub async fn listen_for_updates(rx: tokio::sync::mpsc::Receiver<()>) {
-	crate::common::sys::hotswap::watch_loop(rx, "LazyCert", || async {
-		reload_config().await;
-	})
-	.await;
-}
-
 /// Initialize LazyCert integration
 pub async fn initialize() {
 	#[cfg(feature = "lazycert")]
@@ -49,16 +38,32 @@ pub async fn initialize() {
 		let _ = LAZYCERT_CONFIG.set(Arc::new(RwLock::new(None)));
 		let _ = LAZYCERT_CLIENT.set(Arc::new(RwLock::new(None)));
 
-		// Load initial config
-		reload_config().await;
+		// Initial setup from global config
+		update_from_config().await;
+
+		// Start watching for changes
+		tokio::spawn(async {
+			let config_manager = crate::config::get();
+			if let Some(lc) = &config_manager.lazycert {
+				let mut rx = lc.subscribe();
+				while let Ok(_event) = rx.recv().await {
+					update_from_config().await;
+				}
+			}
+		});
 	}
 }
 
-/// Reload configuration (called on hot-reload)
-pub async fn reload_config() {
+/// Update internal state from global configuration
+pub async fn update_from_config() {
 	#[cfg(feature = "lazycert")]
 	{
-		let new_config = hotswap::scan_lazycert_config().await;
+		let config_manager = crate::config::get();
+		let new_config = config_manager
+			.lazycert
+			.as_ref()
+			.and_then(|lc| lc.get())
+			.map(|arc| (*arc).clone());
 
 		// Update global config
 		if let Some(config_lock) = LAZYCERT_CONFIG.get() {

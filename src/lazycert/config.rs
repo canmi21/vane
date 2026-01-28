@@ -34,10 +34,3 @@ fn default_poll_interval() -> u64 {
 fn default_public_ip() -> String {
 	"auto".to_owned()
 }
-
-impl crate::common::config::loader::PreProcess for LazyCertConfig {
-	fn pre_process(&mut self) {
-		// Normalize URL by removing trailing slashes
-		self.url = self.url.trim_end_matches('/').to_owned();
-	}
-}
