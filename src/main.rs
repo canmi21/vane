@@ -5,6 +5,7 @@ use std::env;
 pub mod api;
 pub mod bootstrap;
 pub mod common;
+pub mod config;
 pub mod engine;
 pub mod ingress;
 pub mod layers;
