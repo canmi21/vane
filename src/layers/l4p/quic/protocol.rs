@@ -5,7 +5,6 @@ use super::session::{self, PendingState, SessionAction};
 use crate::common::config::env_loader;
 use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
 use crate::ingress::tasks::GLOBAL_TRACKER;
-use crate::layers::l4p::model::RESOLVER_REGISTRY;
 use crate::layers::l4p::{context, flow};
 use crate::plugins::protocol::quic::parser;
 use crate::resources::kv::KvStore;
@@ -206,8 +205,9 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		},
 	);
 
-	let registry = RESOLVER_REGISTRY.load();
-	let config = registry
+	let config_manager = crate::config::get();
+	let config = config_manager
+		.resolvers
 		.get("quic")
 		.ok_or_else(|| anyhow!("No resolver config found for 'quic'"))?;
 

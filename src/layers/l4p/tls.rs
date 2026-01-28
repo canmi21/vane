@@ -4,7 +4,6 @@ use super::{context, flow};
 use crate::common::config::env_loader;
 use crate::common::sys::lifecycle::{Error, Result};
 use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
-use crate::layers::l4p::model::RESOLVER_REGISTRY;
 use crate::plugins::protocol::tls::clienthello;
 use crate::plugins::protocol::upgrader::decryptor;
 use crate::resources::kv::KvStore;
@@ -141,8 +140,9 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 	let conn = ConnectionObject::Stream(Box::new(stream));
 	context::inject_common(kv, "tls");
 
-	let registry = RESOLVER_REGISTRY.load();
-	let config = registry
+	let config_manager = crate::config::get();
+	let config = config_manager
+		.resolvers
 		.get("tls")
 		.ok_or_else(|| anyhow!("No resolver config found for 'tls'"))?;
 

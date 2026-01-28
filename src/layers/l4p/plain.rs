@@ -3,7 +3,6 @@
 use super::{context, flow};
 use crate::common::config::env_loader;
 use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
-use crate::layers::l4p::model::RESOLVER_REGISTRY;
 use crate::layers::l7::http::httpx;
 use crate::resources::kv::KvStore;
 use anyhow::{Result, anyhow};
@@ -101,8 +100,9 @@ pub async fn run(
 	context::inject_common(kv, protocol);
 
 	// 3. Load & Execute L4+ Flow
-	let registry = RESOLVER_REGISTRY.load();
-	let config = registry
+	let config_manager = crate::config::get();
+	let config = config_manager
+		.resolvers
 		.get(protocol)
 		.ok_or_else(|| anyhow!("No resolver config found for '{protocol}'"))?;
 

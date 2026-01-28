@@ -2,7 +2,6 @@
 
 pub mod context;
 pub mod flow;
-pub mod hotswap;
 pub mod model;
 pub mod plain;
 #[cfg(feature = "quic")]
