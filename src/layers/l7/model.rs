@@ -1,12 +1,7 @@
 /* src/layers/l7/model.rs */
 
 use crate::engine::interfaces::{Layer, ProcessingStep};
-use crate::layers::l4::loader::PreProcess;
-use arc_swap::ArcSwap;
-use dashmap::DashMap;
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 #[cfg(feature = "console")]
 use utoipa::ToSchema;
 use validator::{Validate, ValidationErrors};
@@ -27,27 +22,14 @@ pub struct ApplicationConfig {
 
 impl Validate for ApplicationConfig {
 	fn validate(&self) -> Result<(), ValidationErrors> {
+		if self.protocol.is_empty() {
+			return Ok(());
+		}
 		use crate::layers::l4::validator;
 		// Validate with L7 context to enable HTTP-specific plugin checks
 		validator::validate_flow_config(&self.pipeline, Layer::L7, &self.protocol)
 	}
 }
-
-impl PreProcess for ApplicationConfig {
-	fn pre_process(&mut self) {
-		// Future proofing: Lowercase keys or normalize inputs if needed.
-	}
-
-	fn set_context(&mut self, context: &str) {
-		self.protocol = context.to_owned();
-	}
-}
-
-/// A global, thread-safe registry of active application configurations.
-/// Key: Protocol Name (e.g., "httpx")
-/// Value: The parsed configuration
-pub static APPLICATION_REGISTRY: Lazy<ArcSwap<DashMap<String, Arc<ApplicationConfig>>>> =
-	Lazy::new(|| ArcSwap::new(Arc::new(DashMap::new())));
 
 /// Defines the hardcoded list of supported L7 protocols.
 pub const SUPPORTED_APP_PROTOCOLS: &[&str] = &["httpx"];

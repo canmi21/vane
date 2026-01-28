@@ -6,7 +6,6 @@ use crate::engine::interfaces::ConnectionObject;
 use crate::layers::l7::{
 	container::{Container, PayloadState},
 	flow,
-	model::APPLICATION_REGISTRY,
 };
 use crate::resources::kv::KvStore;
 use bytes::Bytes;
@@ -145,9 +144,9 @@ async fn serve_request(
 	}
 
 	let config = {
-		let registry = APPLICATION_REGISTRY.load();
-		if let Some(c) = registry.get(&protocol_id) {
-			c.value().clone()
+		let config_manager = crate::config::get();
+		if let Some(c) = config_manager.applications.get(&protocol_id) {
+			c.clone()
 		} else {
 			log(
 				LogLevel::Error,

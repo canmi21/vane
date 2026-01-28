@@ -5,7 +5,6 @@ use crate::common::sys::lifecycle::{Error, Result};
 use crate::layers::l7::{
 	container::{Container, PayloadState},
 	flow,
-	model::APPLICATION_REGISTRY,
 };
 use crate::resources::kv::KvStore;
 use fancy_log::{LogLevel, log};
@@ -115,11 +114,11 @@ where
 	);
 
 	let config = {
-		let registry = APPLICATION_REGISTRY.load();
-		registry
+		let config_manager = crate::config::get();
+		config_manager
+			.applications
 			.get("h3")
-			.or_else(|| registry.get("httpx"))
-			.map(|entry| entry.value().clone())
+			.or_else(|| config_manager.applications.get("httpx"))
 			.ok_or_else(|| anyhow::anyhow!("No application config found for 'h3' or 'httpx'"))?
 	};
 
