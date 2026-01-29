@@ -1,3 +1,5 @@
+/* src/config/types.rs */
+
 use live::loader::PreProcess;
 
 // Re-export existing config types
