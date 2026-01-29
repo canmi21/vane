@@ -43,17 +43,89 @@ pub async fn start() {
 	};
 
 	// 3. Load Configurations
-	if let Err(e) = config.listeners.load().await {
-		log(LogLevel::Error, &format!("Failed to load listeners: {e}"));
+	match config.listeners.tcp.load().await {
+		Ok(result) => {
+			for (key, error) in &result.failed {
+				if error.to_lowercase().contains("validation") {
+					log(
+						LogLevel::Error,
+						&format!("✗ Validation failed for TCP listener [{key}]: {error}"),
+					);
+				} else {
+					log(
+						LogLevel::Error,
+						&format!("✗ Failed to parse config file for TCP listener [{key}]: {error}"),
+					);
+				}
+			}
+		}
+		Err(e) => log(
+			LogLevel::Error,
+			&format!("Failed to load TCP listeners: {e}"),
+		),
 	}
-	if let Err(e) = config.resolvers.load().await {
-		log(LogLevel::Error, &format!("Failed to load resolvers: {e}"));
+
+	match config.listeners.udp.load().await {
+		Ok(result) => {
+			for (key, error) in &result.failed {
+				if error.to_lowercase().contains("validation") {
+					log(
+						LogLevel::Error,
+						&format!("✗ Validation failed for UDP listener [{key}]: {error}"),
+					);
+				} else {
+					log(
+						LogLevel::Error,
+						&format!("✗ Failed to parse config file for UDP listener [{key}]: {error}"),
+					);
+				}
+			}
+		}
+		Err(e) => log(
+			LogLevel::Error,
+			&format!("Failed to load UDP listeners: {e}"),
+		),
 	}
-	if let Err(e) = config.applications.load().await {
-		log(
+
+	match config.resolvers.load().await {
+		Ok(result) => {
+			for (key, error) in &result.failed {
+				if error.to_lowercase().contains("validation") {
+					log(
+						LogLevel::Error,
+						&format!("✗ Validation failed for resolver [{key}]: {error}"),
+					);
+				} else {
+					log(
+						LogLevel::Error,
+						&format!("✗ Failed to parse config file for resolver [{key}]: {error}"),
+					);
+				}
+			}
+		}
+		Err(e) => log(LogLevel::Error, &format!("Failed to load resolvers: {e}")),
+	}
+
+	match config.applications.load().await {
+		Ok(result) => {
+			for (key, error) in &result.failed {
+				if error.to_lowercase().contains("validation") {
+					log(
+						LogLevel::Error,
+						&format!("✗ Validation failed for application [{key}]: {error}"),
+					);
+				} else {
+					log(
+						LogLevel::Error,
+						&format!("✗ Failed to parse config file for application [{key}]: {error}"),
+					);
+				}
+			}
+		}
+		Err(e) => log(
 			LogLevel::Error,
 			&format!("Failed to load applications: {e}"),
-		);
+		),
 	}
 	// Nodes - suppress error if file not found (default behavior)
 	match config.nodes.load().await {
