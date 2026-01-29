@@ -723,9 +723,9 @@ dependencies = [
 
 [[package]]
 name = "fmtstruct"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b85eee00b66c773f43b1a9dfc84830a5604995d194390de95add6006eb03073"
+checksum = "65e8e1b5330f1d44ced3be7d1f6a3212fe0cf787b4e18021cff66c6dec824937"
 dependencies = [
  "async-trait",
  "serde",
@@ -1483,9 +1483,9 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "live"
-version = "0.4.0"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d3c4d0ba3280e324013ddb1183a93f9877471a242cb878ef8c3913d30ad1cdc"
+checksum = "68ca1c1038f573cab93cb8373474f9f2873cea9354d31d46a67a0d64d1be890e"
 dependencies = [
  "atomhold",
  "fmtstruct",
