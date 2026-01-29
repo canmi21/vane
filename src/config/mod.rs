@@ -1,5 +1,8 @@
 /* src/config/mod.rs */
 
+//! Unified configuration management using live crate.
+
+use fancy_log::{LogLevel, log};
 use live::controller::{KeyPattern, Live, LiveDir, LiveError, ScanMode};
 use live::holder::Store;
 use live::loader::{DynLoader, FileSource, format::AnyFormat};
@@ -50,6 +53,12 @@ impl ListenerManager {
 			.scan_mode(ScanMode::Subdirs {
 				config_file: "tcp".to_owned(),
 			})
+			.on_error(|e| {
+				log(
+					LogLevel::Warn,
+					&format!("✗ New TCP config is invalid. Keeping last known good version. Error: {e}"),
+				);
+			})
 			.build()?;
 
 		// UDP configs: listener/[port]/udp.toml
@@ -60,6 +69,12 @@ impl ListenerManager {
 			.pattern(KeyPattern::Bracketed)
 			.scan_mode(ScanMode::Subdirs {
 				config_file: "udp".to_owned(),
+			})
+			.on_error(|e| {
+				log(
+					LogLevel::Warn,
+					&format!("✗ New UDP config is invalid. Keeping last known good version. Error: {e}"),
+				);
 			})
 			.build()?;
 
@@ -130,6 +145,12 @@ impl ConfigManager {
 			.path(&resolver_path)
 			.pattern(KeyPattern::Identity)
 			.scan_mode(ScanMode::Files)
+			.on_error(|e| {
+				log(
+					LogLevel::Warn,
+					&format!("✗ Resolver config reload failed. Keeping last known good version. Error: {e}"),
+				);
+			})
 			.build()?;
 
 		// Applications
@@ -148,6 +169,14 @@ impl ConfigManager {
 			.path(&application_path)
 			.pattern(KeyPattern::Identity)
 			.scan_mode(ScanMode::Files)
+			.on_error(|e| {
+				log(
+					LogLevel::Warn,
+					&format!(
+						"✗ Application config reload failed. Keeping last known good version. Error: {e}"
+					),
+				);
+			})
 			.build()?;
 		// Nodes
 		let nodes = Live::new(Arc::new(Store::new()), build_loader()?, "nodes");
