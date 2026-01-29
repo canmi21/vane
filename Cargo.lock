@@ -1483,9 +1483,9 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "live"
-version = "0.3.6"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7096b6d9bed98a74936955256e33d0f809bddaabbed6bcc5e9066f7db5473fa"
+checksum = "6d3c4d0ba3280e324013ddb1183a93f9877471a242cb878ef8c3913d30ad1cdc"
 dependencies = [
  "atomhold",
  "fmtstruct",
