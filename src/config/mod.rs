@@ -1,4 +1,4 @@
-//! Unified configuration management using live crate.
+/* src/config/mod.rs */
 
 use live::controller::{KeyPattern, Live, LiveDir, LiveError, ScanMode};
 use live::holder::Store;
@@ -33,7 +33,7 @@ impl ListenerManager {
 		// Helper to build a loader
 		let build_loader = || {
 			DynLoader::builder()
-				.source(FileSource::new(config_dir.to_str().unwrap()))
+				.source(FileSource::new(listener_path.to_str().unwrap()))
 				.format(AnyFormat::Toml)
 				.format(AnyFormat::Yaml)
 				.format(AnyFormat::Json)
@@ -115,19 +115,37 @@ impl ConfigManager {
 		let listeners = ListenerManager::init(config_dir).await?;
 
 		// Resolvers
+		let resolver_path = config_dir.join("resolver");
 		let resolvers = LiveDir::builder()
 			.store(Arc::new(Store::new()))
-			.loader(build_loader()?)
-			.path(config_dir.join("resolver"))
+			.loader(
+				DynLoader::builder()
+					.source(FileSource::new(resolver_path.to_str().unwrap()))
+					.format(AnyFormat::Toml)
+					.format(AnyFormat::Yaml)
+					.format(AnyFormat::Json)
+					.build()
+					.map_err(|e| LiveError::Builder(e.to_owned()))?,
+			)
+			.path(&resolver_path)
 			.pattern(KeyPattern::Identity)
 			.scan_mode(ScanMode::Files)
 			.build()?;
 
 		// Applications
+		let application_path = config_dir.join("application");
 		let applications = LiveDir::builder()
 			.store(Arc::new(Store::new()))
-			.loader(build_loader()?)
-			.path(config_dir.join("application"))
+			.loader(
+				DynLoader::builder()
+					.source(FileSource::new(application_path.to_str().unwrap()))
+					.format(AnyFormat::Toml)
+					.format(AnyFormat::Yaml)
+					.format(AnyFormat::Json)
+					.build()
+					.map_err(|e| LiveError::Builder(e.to_owned()))?,
+			)
+			.path(&application_path)
 			.pattern(KeyPattern::Identity)
 			.scan_mode(ScanMode::Files)
 			.build()?;
