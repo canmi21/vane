@@ -68,13 +68,23 @@ func TestFlowTimeout(ctx context.Context, s *env.Sandbox) error {
 		return err
 	}
 
+	// Wait for all components to reload
+	proc.WaitForLog("Config change signal received for Application", 5*time.Second)
+	proc.WaitForLog("Config change signal received for Resolver", 5*time.Second)
+	proc.WaitForLog("Config change signal received for TCP Listener", 5*time.Second)
+
 	if err := proc.WaitForTcpPort(vanePort, 5*time.Second); err != nil {
 		return err
 	}
 
 	// 5. Test Timeout
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/", vanePort))
+	testUrl := fmt.Sprintf("http://127.0.0.1:%d/", vanePort)
+
+	// We already waited for logs, so we assume it's ready.
+	// waitForHttpReady is removed because it might misinterpret connection resets as "not ready".
+
+	resp, err := client.Get(testUrl)
 	if err != nil {
 		// Connection reset is expected if Vane aborts
 		return nil
@@ -126,10 +136,18 @@ func TestExternalCircuitBreaker(ctx context.Context, s *env.Sandbox) error {
 	if err := writeExecutorFlow(s, vanePort); err != nil {
 		return err
 	}
+
+	// Wait for all components to reload
+	proc.WaitForLog("Config change signal received for Application", 5*time.Second)
+	proc.WaitForLog("Config change signal received for Resolver", 5*time.Second)
+	proc.WaitForLog("Config change signal received for TCP Listener", 5*time.Second)
+
 	proc.WaitForTcpPort(vanePort, 5*time.Second)
 
 	client := &http.Client{Timeout: 2 * time.Second}
 	url := fmt.Sprintf("http://127.0.0.1:%d/", vanePort)
+
+	// We already waited for logs, so we assume it's ready.
 
 	// Req 1: Triggers real execution and failure
 	resp1, _ := client.Get(url)
@@ -202,6 +220,24 @@ func registerExecutorPlugin(consolePort int, token, bin, mode string) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// waitForHttpReady retries HTTP GET until a non-502/503 response or timeout.
+// This accounts for independent config watchers needing time to reload after listener comes UP.
+func waitForHttpReady(client *http.Client, url string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			// Any response that isn't "no resolver" (502) means configs are loaded
+			if resp.StatusCode != 502 {
+				return nil
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("listener did not become ready within %v", timeout)
 }
 
 func writeExecutorFlow(s *env.Sandbox, vanePort int) error {
