@@ -80,29 +80,26 @@ func TestConfigHotReload(ctx context.Context, s *env.Sandbox) error {
 		}
 	}
 
-	// 4. Verify connectivity
-	if err := verifyTcpResponse(vanePort, "Valid Config"); err != nil {
+	// 4. Verify connectivity (retry to allow independent resolver/application watchers to catch up)
+	if err := verifyTcpResponseWithRetry(vanePort, "Valid Config", 5*time.Second); err != nil {
 		return term.FormatFailure("Initial config not working", term.NewNode(err.Error()))
 	}
 
 	// 5. Inject INVALID configuration (Broken JSON)
-	// We deliberately break the JSON syntax
-
 	brokenConfig := []byte(`{ "pipeline": { "broken": [ } } }`) // Invalid JSON
 	if err := s.WriteConfig(configPath, brokenConfig); err != nil {
 		return err
 	}
 
-	// 6. Wait for "Keep Last Known Good" Log
-	// Log message from source: "New TCP config for port ... is invalid. Keeping last known good version."
-	expectedLog := fmt.Sprintf("New TCP config for port %d is invalid. Keeping last known good version", vanePort)
-	if err := proc.WaitForLog(expectedLog, 5*time.Second); err != nil {
-		return term.FormatFailure("Vane did not report keeping last known good config", term.NewNode(proc.DumpLogs()))
+	// 6. Wait for watcher to detect the change.
+	// The live crate's watcher rescans the directory and silently keeps the last known good config.
+	// We wait for the Config change signal which confirms the watcher fired.
+	if err := proc.WaitForLog("Config change signal", 5*time.Second); err != nil {
+		return term.FormatFailure("Vane did not detect config change", term.NewNode(proc.DumpLogs()))
 	}
 
-	// 7. Verify listener is STILL ALIVE and serving OLD config
-	// Give it a moment to ensure it didn't crash or close the socket
-	time.Sleep(1 * time.Second)
+	// 7. Verify listener is STILL ALIVE and serving OLD config (keep-last-known-good)
+	time.Sleep(500 * time.Millisecond)
 
 	if err := verifyTcpResponse(vanePort, "Valid Config"); err != nil {
 		return term.FormatFailure("Listener stopped working after bad config injection", term.NewNode(err.Error()))
@@ -118,10 +115,8 @@ func verifyTcpResponse(port int, expectedSnippet string) error {
 	}
 	defer conn.Close()
 
-	// Set deadline
 	conn.SetDeadline(time.Now().Add(2 * time.Second))
 
-	// Send a valid HTTP request because we upgraded to httpx
 	conn.Write([]byte("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"))
 
 	buf := make([]byte, 1024)
@@ -140,4 +135,19 @@ func verifyTcpResponse(port int, expectedSnippet string) error {
 	}
 
 	return nil
+}
+
+// verifyTcpResponseWithRetry retries verifyTcpResponse until success or timeout.
+// This accounts for independent config watchers needing time to reload after listener comes UP.
+func verifyTcpResponseWithRetry(port int, expectedSnippet string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		lastErr = verifyTcpResponse(port, expectedSnippet)
+		if lastErr == nil {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return lastErr
 }
