@@ -1,3 +1,5 @@
+/* src/bootstrap/startup.rs */
+
 use dotenvy::dotenv;
 use fancy_log::{LogLevel, log};
 use live::signal::Config as WatcherConfig;
