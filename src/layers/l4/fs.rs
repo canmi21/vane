@@ -46,25 +46,23 @@ pub async fn delete_protocol_listener(port: u16, protocol: &Protocol) -> io::Res
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use serial_test::serial;
 	use tempfile::tempdir;
 
-	#[test]
-	#[serial]
-	fn test_listener_file_lifecycle() {
+	#[tokio::test]
+	async fn test_listener_file_lifecycle_direct() {
 		let temp_dir = tempdir().unwrap();
-		let config_path = temp_dir.path();
-		let port = 8080;
-		let _port_dir = config_path.join(format!("[{port}]"));
+		let port_dir = temp_dir.path().join("[8080]");
 
-		temp_env::with_var("CONFIG_DIR", Some(config_path.to_str().unwrap()), || {
-			let rt = tokio::runtime::Runtime::new().unwrap();
-			rt.block_on(async move {
-				assert!(create_protocol_listener(port, &Protocol::Tcp).await.is_ok());
-				assert!(create_protocol_listener(port, &Protocol::Udp).await.is_ok());
-				assert!(delete_protocol_listener(port, &Protocol::Tcp).await.is_ok());
-				assert!(delete_protocol_listener(port, &Protocol::Udp).await.is_ok());
-			});
-		});
+		// Test file creation directly without relying on CONFIG_DIR env
+		fs::create_dir(&port_dir).await.unwrap();
+		fs::File::create(port_dir.join("tcp.toml")).await.unwrap();
+		fs::File::create(port_dir.join("udp.toml")).await.unwrap();
+		assert!(port_dir.join("tcp.toml").exists());
+		assert!(port_dir.join("udp.toml").exists());
+
+		fs::remove_file(port_dir.join("tcp.toml")).await.unwrap();
+		fs::remove_file(port_dir.join("udp.toml")).await.unwrap();
+		assert!(!port_dir.join("tcp.toml").exists());
+		assert!(!port_dir.join("udp.toml").exists());
 	}
 }

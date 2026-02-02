@@ -1,6 +1,5 @@
 /* src/plugins/l7/static_files/inspect.rs */
 
-use crate::common::config::env_loader;
 use std::path::Path;
 use tokio::{
 	fs::File,
@@ -23,8 +22,7 @@ pub async fn determine_mime_type(path: &Path, file: &mut File) -> String {
 	}
 
 	// 2. Magic Bytes Sniffing (Fallback)
-	let sniff_len_str = env_loader::get_env("STATIC_MIME_SNIFF_BYTES", "512".to_owned());
-	let sniff_len: usize = sniff_len_str.parse().unwrap_or(512);
+	let sniff_len = envflag::get::<usize>("STATIC_MIME_SNIFF_BYTES", 512);
 
 	let mut buf = vec![0u8; sniff_len];
 
@@ -66,8 +64,13 @@ mod tests {
 	use super::*;
 	use tempfile::NamedTempFile;
 
+	fn init() {
+		envflag::init().ok();
+	}
+
 	#[tokio::test]
 	async fn test_mime_by_extension() {
+		init();
 		// 1. HTML
 		let f = NamedTempFile::new_in(".").unwrap();
 		let path = Path::new("index.html"); // We only need the path for extension guess
@@ -88,6 +91,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_mime_by_sniffing() {
+		init();
 		// Create a file with NO extension but PNG content
 		let tmp = NamedTempFile::new().unwrap();
 		// PNG Magic Bytes: 89 50 4E 47 0D 0A 1A 0A
@@ -102,6 +106,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_mime_fallback_text() {
+		init();
 		let tmp = NamedTempFile::new().unwrap();
 		std::fs::write(tmp.path(), b"Just some plain text content").unwrap();
 
@@ -113,6 +118,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_mime_fallback_octet_stream() {
+		init();
 		let tmp = NamedTempFile::new().unwrap();
 		// Random binary data that doesn't match any magic bytes
 		let binary_data = [0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE];

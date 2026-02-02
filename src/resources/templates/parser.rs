@@ -1,6 +1,5 @@
 /* src/resources/templates/parser.rs */
 
-use crate::common::config::env_loader;
 use anyhow::{Context, Result, anyhow};
 
 /// Template AST node
@@ -18,12 +17,8 @@ pub enum TemplateNode {
 
 /// Parse template string into AST
 pub fn parse_template(input: &str) -> Result<Vec<TemplateNode>> {
-	let max_depth = env_loader::get_env("MAX_TEMPLATE_PARSE_DEPTH", "5".to_owned())
-		.parse()
-		.unwrap_or(5);
-	let max_nodes = env_loader::get_env("MAX_TEMPLATE_PARSE_NODES", "50".to_owned())
-		.parse()
-		.unwrap_or(50);
+	let max_depth = envflag::get::<usize>("MAX_TEMPLATE_PARSE_DEPTH", 5);
+	let max_nodes = envflag::get::<usize>("MAX_TEMPLATE_PARSE_NODES", 50);
 
 	let mut node_count = 0;
 	parse_recursive(input, 0, max_depth, &mut node_count, max_nodes)
@@ -141,9 +136,14 @@ fn parse_variable_content(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) 
 mod tests {
 	use super::*;
 
+	fn init() {
+		envflag::init().ok();
+	}
+
 	/// Tests parsing plain text without variables.
 	#[test]
 	fn test_parse_plain_text() {
+		init();
 		let result = parse_template("plain text").unwrap();
 		assert_eq!(result, vec![TemplateNode::Text("plain text".to_string())]);
 	}
@@ -151,6 +151,7 @@ mod tests {
 	/// Tests parsing simple variable.
 	#[test]
 	fn test_parse_simple_variable() {
+		init();
 		let result = parse_template("{{key}}").unwrap();
 		assert_eq!(
 			result,
@@ -163,6 +164,7 @@ mod tests {
 	/// Tests parsing mixed text and variables.
 	#[test]
 	fn test_parse_mixed() {
+		init();
 		let result = parse_template("before {{key}} after").unwrap();
 		assert_eq!(result.len(), 3);
 		assert_eq!(result[0], TemplateNode::Text("before ".to_string()));
@@ -173,6 +175,7 @@ mod tests {
 	/// Tests parsing concatenated variables.
 	#[test]
 	fn test_parse_concatenation() {
+		init();
 		let result = parse_template("{{a}}:{{b}}").unwrap();
 		assert_eq!(result.len(), 3);
 		assert!(matches!(result[0], TemplateNode::Variable { .. }));
@@ -183,6 +186,7 @@ mod tests {
 	/// Tests parsing nested variables.
 	#[test]
 	fn test_parse_nested() {
+		init();
 		let result = parse_template("{{kv.{{proto}}_backend}}").unwrap();
 		assert_eq!(result.len(), 1);
 
@@ -199,6 +203,7 @@ mod tests {
 	/// Tests parsing empty template.
 	#[test]
 	fn test_parse_empty() {
+		init();
 		let result = parse_template("").unwrap();
 		assert_eq!(result, vec![]);
 	}
@@ -206,6 +211,7 @@ mod tests {
 	/// Tests unclosed variable error.
 	#[test]
 	fn test_parse_unclosed_variable() {
+		init();
 		let result = parse_template("{{key");
 		assert!(result.is_err());
 	}
@@ -213,6 +219,7 @@ mod tests {
 	/// Tests single brace is treated as text.
 	#[test]
 	fn test_parse_single_brace() {
+		init();
 		let result = parse_template("single { brace").unwrap();
 		assert_eq!(
 			result,
@@ -223,6 +230,7 @@ mod tests {
 	/// Tests recursion limit for parsing.
 	#[test]
 	fn test_parse_recursion_limit() {
+		init();
 		// 6 levels deep (default limit 5)
 		let deep = "{{{{{{{{{{{{key}}}}}}}}}}}}";
 		let result = parse_template(deep);
@@ -233,6 +241,7 @@ mod tests {
 	/// Tests node count limit for parsing.
 	#[test]
 	fn test_parse_node_limit() {
+		init();
 		// 26 variables -> 26 Variable nodes + 26 Text nodes = 52 nodes (default limit 50)
 		let mut long = String::new();
 		for i in 0..26 {

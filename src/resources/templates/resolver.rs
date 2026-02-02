@@ -95,9 +95,14 @@ mod tests {
 	use crate::resources::templates::context::SimpleContext;
 	use crate::resources::templates::parser::parse_template;
 
+	fn init() {
+		envflag::init().ok();
+	}
+
 	/// Tests resolving simple variable.
 	#[tokio::test]
 	async fn test_resolve_simple() {
+		init();
 		let mut kv = KvStore::new();
 		kv.insert("key".to_string(), "value".to_string());
 
@@ -114,6 +119,7 @@ mod tests {
 	/// Tests resolving concatenated variables.
 	#[tokio::test]
 	async fn test_resolve_concatenation() {
+		init();
 		let mut kv = KvStore::new();
 		kv.insert("conn.ip".to_string(), "1.2.3.4".to_string());
 		kv.insert("conn.port".to_string(), "8080".to_string());
@@ -131,6 +137,7 @@ mod tests {
 	/// Tests resolving nested variables.
 	#[tokio::test]
 	async fn test_resolve_nested() {
+		init();
 		let mut kv = KvStore::new();
 		kv.insert("conn.protocol".to_string(), "http".to_string());
 		kv.insert("kv.http_backend".to_string(), "backend-01".to_string());
@@ -148,6 +155,7 @@ mod tests {
 	/// Tests resolving complex nested template.
 	#[tokio::test]
 	async fn test_resolve_complex() {
+		init();
 		let mut kv = KvStore::new();
 		kv.insert("geo.country".to_string(), "US".to_string());
 		kv.insert("kv.US_domain".to_string(), "api.example.com".to_string());
@@ -165,6 +173,7 @@ mod tests {
 	/// Tests that missing keys return original template.
 	#[tokio::test]
 	async fn test_resolve_missing_key() {
+		init();
 		let mut kv = KvStore::new();
 		let mut context = SimpleContext {
 			kv: &mut kv,
@@ -179,6 +188,7 @@ mod tests {
 	/// Tests empty AST.
 	#[tokio::test]
 	async fn test_resolve_empty() {
+		init();
 		let mut kv = KvStore::new();
 		let mut context = SimpleContext {
 			kv: &mut kv,
@@ -192,6 +202,7 @@ mod tests {
 	/// Tests plain text without variables.
 	#[tokio::test]
 	async fn test_resolve_plain_text() {
+		init();
 		let mut kv = KvStore::new();
 		let mut context = SimpleContext {
 			kv: &mut kv,
@@ -206,6 +217,7 @@ mod tests {
 	/// Tests protection against template injection in key names.
 	#[tokio::test]
 	async fn test_resolve_injection_attempt() {
+		init();
 		let mut kv = KvStore::new();
 		// Injected value that looks like a template
 		kv.insert("user_input".to_string(), "{{system.token}}".to_string());
