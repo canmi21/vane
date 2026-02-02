@@ -1,6 +1,5 @@
 /* src/bootstrap/startup.rs */
 
-use dotenvy::dotenv;
 use fancy_log::{LogLevel, log};
 use live::signal::Config as WatcherConfig;
 use sigterm;
@@ -18,7 +17,7 @@ pub async fn start() {
 	setup_crypto();
 
 	// Load Environment and Logging
-	dotenv().ok();
+	envflag::init().ok();
 	logging::setup();
 	logging::print_motd();
 

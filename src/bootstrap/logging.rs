@@ -2,11 +2,10 @@
 
 use fancy_log::{LogLevel, set_log_level};
 use lazy_motd::lazy_motd;
-use std::env;
 
 /// Sets up the global logging level based on the LOG_LEVEL environment variable.
 pub fn setup() {
-	let level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_owned());
+	let level = envflag::get_string("LOG_LEVEL", "info");
 	let log_level = match level.to_lowercase().as_str() {
 		"debug" => LogLevel::Debug,
 		"warn" => LogLevel::Warn,

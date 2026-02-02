@@ -87,7 +87,7 @@ tokio = { version = "1", features = ["full", "signal"] }
 axum = { version = "0.8", features = ["macros", "multipart"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-dotenvy = "0.15"
+envflag = "0.1"
 fancy-log = "0.1"
 shellexpand = "3"
 lazy-motd = "1"
@@ -152,9 +152,7 @@ live = { version = "0.4", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
-serial_test = "3"
 tempfile = "3"
-temp-env = "0.3"
 dirs = "6"
 tower = "0.5"
 axum = { version = "0.8", features = ["macros"] }
@@ -192,7 +190,7 @@ unreachable_pub = "warn"
 type_complexity = "allow"
 await_holding_lock = "warn"
 dbg_macro = "warn"
-empty_enum = "warn"
+empty_enums = "warn"
 enum_glob_use = "warn"
 equatable_if_let = "warn"
 exit = "warn"
