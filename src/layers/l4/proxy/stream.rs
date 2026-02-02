@@ -1,7 +1,6 @@
 /* src/layers/l4/proxy/stream.rs */
 
 use super::IdleWatchdog;
-use crate::common::config::env_loader;
 use crate::layers::l4::{health, model::ResolvedTarget};
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
@@ -70,9 +69,7 @@ pub async fn proxy_generic_stream(
 			.as_secs(),
 	));
 
-	let timeout_secs = env_loader::get_env("STREAM_IDLE_TIMEOUT_SECS", "10".to_owned())
-		.parse::<u64>()
-		.unwrap_or(10);
+	let timeout_secs = envflag::get::<u64>("STREAM_IDLE_TIMEOUT_SECS", 10);
 
 	let mut client_wrapped = IdleWatchdog::new(client_stream, last_activity.clone());
 	let mut upstream_wrapped = IdleWatchdog::new(upstream_stream, last_activity.clone());

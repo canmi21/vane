@@ -2,7 +2,6 @@
 
 use super::muxer::QuicMuxer;
 use super::session::{self, PendingState, SessionAction};
-use crate::common::config::env_loader;
 use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
 use crate::ingress::tasks::GLOBAL_TRACKER;
 use crate::layers::l4p::{context, flow};
@@ -30,8 +29,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	context::inject_common(kv, "quic");
 
 	// Initial Lightweight Parse to get DCID and Crypto Frames
-	let limit_str = env_loader::get_env("QUIC_LONG_HEADER_BUFFER_SIZE", "4096".to_owned());
-	let max_len = limit_str.parse::<usize>().unwrap_or(4096);
+	let max_len = envflag::get::<usize>("QUIC_LONG_HEADER_BUFFER_SIZE", 4096);
 	let parse_len = std::cmp::min(datagram.len(), max_len);
 
 	let Ok(parsed_packet) = parser::parse_initial_packet(&datagram[..parse_len]) else {
@@ -56,9 +54,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	let mut sni_found = parsed_packet.sni_hint.clone();
 	let mut should_proceed = false;
 
-	let max_pending_packets = env_loader::get_env("QUIC_MAX_PENDING_PACKETS", "5".to_owned())
-		.parse::<usize>()
-		.unwrap_or(5);
+	let max_pending_packets = envflag::get::<usize>("QUIC_MAX_PENDING_PACKETS", 5);
 
 	// Critical: Lock the pending map to update state
 	// Scope the entry to ensure the shard lock is released before any .await

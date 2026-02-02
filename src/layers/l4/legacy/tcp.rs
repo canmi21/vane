@@ -1,6 +1,5 @@
 /* src/layers/l4/legacy/tcp.rs */
 
-use crate::common::config::env_loader;
 use crate::layers::l4::model::{Detect, DetectMethod, Forward};
 use crate::layers::l4::{balancer, proxy};
 use crate::resources::kv::KvStore;
@@ -82,8 +81,7 @@ pub async fn dispatch_legacy_tcp(
 	let mut rules = config.rules.clone();
 	rules.sort_by_key(|r| r.priority);
 
-	let limit_str = env_loader::get_env("TCP_DETECT_LIMIT", "64".to_owned());
-	let limit = limit_str.parse::<usize>().unwrap_or(64);
+	let limit = envflag::get::<usize>("TCP_DETECT_LIMIT", 64);
 	const MAX_DETECT_LIMIT: usize = 8192;
 	let final_limit = limit.min(MAX_DETECT_LIMIT);
 	let mut buf = vec![0u8; final_limit];

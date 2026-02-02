@@ -1,6 +1,5 @@
 /* src/api/middleware/auth.rs */
 
-use crate::common::config::env_loader;
 use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 use fancy_log::{LogLevel, log};
 
@@ -12,7 +11,7 @@ use fancy_log::{LogLevel, log};
 /// Note: This middleware should only be called when ACCESS_TOKEN is configured.
 /// If ACCESS_TOKEN is not set, the management console should not be started at all.
 pub async fn require_access_token(req: Request, next: Next) -> Result<Response, StatusCode> {
-	let expected_token = env_loader::get_env("ACCESS_TOKEN", String::new());
+	let expected_token = envflag::get_string("ACCESS_TOKEN", "");
 
 	// Defensive check: This should never happen if bootstrap logic is correct
 	if expected_token.is_empty() {
@@ -59,7 +58,7 @@ pub async fn require_access_token(req: Request, next: Next) -> Result<Response, 
 /// Returns Ok(None) if token is not set (empty)
 /// Returns Err(message) if token is set but invalid (wrong length)
 pub fn validate_access_token() -> Result<Option<String>, String> {
-	let token = env_loader::get_env("ACCESS_TOKEN", String::new());
+	let token = envflag::get_string("ACCESS_TOKEN", "");
 
 	if token.is_empty() {
 		return Ok(None);

@@ -1,6 +1,6 @@
 /* src/plugins/core/loader.rs */
 
-use crate::common::config::{env_loader, file_loader};
+use crate::common::config::file_loader;
 use crate::engine::interfaces::{ExternalPluginConfig, Plugin};
 use crate::plugins::core::external::ExternalPlugin;
 use crate::plugins::core::registry;
@@ -52,9 +52,7 @@ pub async fn initialize() -> usize {
 
 fn start_background_health_check() {
 	tokio::spawn(async move {
-		let mins = env_loader::get_env("EXTERNAL_PLUGIN_CHECK_INTERVAL_MINS", "15".into())
-			.parse::<u64>()
-			.unwrap_or(15);
+		let mins = envflag::get::<u64>("EXTERNAL_PLUGIN_CHECK_INTERVAL_MINS", 15);
 		let mut interval = tokio::time::interval(Duration::from_secs(mins * 60));
 		loop {
 			interval.tick().await;

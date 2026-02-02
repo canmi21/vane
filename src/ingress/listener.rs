@@ -1,7 +1,6 @@
 /* src/ingress/listener.rs */
 
 use super::state::{ListenerState, Protocol, RunningListener, TASK_REGISTRY};
-use crate::common::config::env_loader;
 use fancy_log::{LogLevel, log};
 use std::sync::Arc;
 use tokio::net::{TcpListener, UdpSocket};
@@ -14,8 +13,7 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 	}
 
 	tokio::spawn(async move {
-		let listen_ipv6 =
-			env_loader::get_env("LISTEN_IPV6", "false".to_owned()).to_lowercase() == "true";
+		let listen_ipv6 = envflag::get::<bool>("LISTEN_IPV6", false);
 		let addr: std::net::SocketAddr = if listen_ipv6 {
 			([0; 8], port).into()
 		} else {

@@ -2,7 +2,7 @@
 
 use crate::layers::l4p::quic::session::{self, SessionAction};
 use crate::{
-	common::{config::env_loader, net::ip},
+	common::net::ip,
 	layers::l4::{
 		health,
 		model::ResolvedTarget,
@@ -234,12 +234,11 @@ pub async fn proxy_udp_direct(
 		SESSIONS.insert(session_key, new_session.clone());
 		REVERSE_SESSIONS.insert(local_addr, client_addr);
 
-		let timeout_ms_str = if ip::is_private_ip(&target_ip) {
-			env_loader::get_env("UDP_TIMEOUT_LOCAL", "500".to_owned())
+		let timeout_ms = if ip::is_private_ip(&target_ip) {
+			envflag::get::<u64>("UDP_TIMEOUT_LOCAL", 500)
 		} else {
-			env_loader::get_env("UDP_TIMEOUT_REMOTE", "5000".to_owned())
+			envflag::get::<u64>("UDP_TIMEOUT_REMOTE", 5000)
 		};
-		let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(5000);
 
 		spawn_reply_handler(
 			upstream_arc.clone(),
@@ -268,8 +267,7 @@ fn spawn_quic_reply_handler(
 	listener_socket: Arc<UdpSocket>,
 	timeout_duration: Duration,
 ) {
-	let buf_size_str = env_loader::get_env("QUIC_RECV_BUFFER_SIZE", "65535".to_owned());
-	let buf_size = buf_size_str.parse::<usize>().unwrap_or(65535);
+	let buf_size = envflag::get::<usize>("QUIC_RECV_BUFFER_SIZE", 65535);
 
 	tokio::spawn(async move {
 		let mut buf = vec![0u8; buf_size];
@@ -397,12 +395,11 @@ pub async fn proxy_quic_association(
 			}
 		});
 
-		let timeout_ms_str = if ip::is_private_ip(&target_ip_parsed) {
-			env_loader::get_env("QUIC_TIMEOUT_LOCAL", "1000".to_owned())
+		let timeout_ms = if ip::is_private_ip(&target_ip_parsed) {
+			envflag::get::<u64>("QUIC_TIMEOUT_LOCAL", 1000)
 		} else {
-			env_loader::get_env("QUIC_TIMEOUT_REMOTE", "10000".to_owned())
+			envflag::get::<u64>("QUIC_TIMEOUT_REMOTE", 10000)
 		};
-		let timeout_ms = timeout_ms_str.parse::<u64>().unwrap_or(10000);
 
 		// Start background reply handler
 		spawn_quic_reply_handler(

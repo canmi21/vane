@@ -1,6 +1,5 @@
 /* src/layers/l4p/quic/session.rs */
 
-use crate::common::config::env_loader;
 use crate::ingress::tasks::ConnectionGuard;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
@@ -19,16 +18,12 @@ static GLOBAL_PENDING_BYTES: AtomicUsize = AtomicUsize::new(0);
 
 // Default: 64MB global limit
 fn get_global_byte_limit() -> usize {
-	env_loader::get_env("QUIC_GLOBAL_PENDING_BYTES_LIMIT", "67108864".to_owned())
-		.parse()
-		.unwrap_or(67_108_864)
+	envflag::get::<usize>("QUIC_GLOBAL_PENDING_BYTES_LIMIT", 67_108_864)
 }
 
 // Default: 64KB per session limit (enough for massive fragmented ClientHello)
 fn get_session_byte_limit() -> usize {
-	env_loader::get_env("QUIC_SESSION_BUFFER_LIMIT", "65536".to_owned())
-		.parse()
-		.unwrap_or(65_536)
+	envflag::get::<usize>("QUIC_SESSION_BUFFER_LIMIT", 65_536)
 }
 
 /// Tries to reserve global bytes. Returns true if successful.
@@ -184,8 +179,7 @@ pub fn cleanup_sessions(timeout_secs: u64) {
 
 	// Cleanup Sticky Sessions
 	// Default: 60 seconds (generous for NAT rebinding/migration)
-	let sticky_timeout_str = env_loader::get_env("QUIC_STICKY_SESSION_TTL", "60".to_owned());
-	let sticky_timeout = sticky_timeout_str.parse::<u64>().unwrap_or(60);
+	let sticky_timeout = envflag::get::<u64>("QUIC_STICKY_SESSION_TTL", 60);
 
 	IP_STICKY_MAP.retain(|_, (_, _, last, _)| now.duration_since(*last).as_secs() < sticky_timeout);
 }
@@ -197,8 +191,7 @@ pub fn start_cleanup_task() {
 	log(LogLevel::Debug, "⚙ Starting QUIC session cleanup task...");
 
 	tokio::spawn(async move {
-		let ttl_str = env_loader::get_env("QUIC_SESSION_TTL_SECS", "300".to_owned());
-		let ttl = ttl_str.parse::<u64>().unwrap_or(300);
+		let ttl = envflag::get::<u64>("QUIC_SESSION_TTL_SECS", 300);
 		let check_interval = Duration::from_secs(ttl / 2);
 
 		loop {

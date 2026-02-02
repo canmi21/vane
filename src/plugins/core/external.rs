@@ -1,6 +1,5 @@
 /* src/plugins/core/external.rs */
 
-use crate::common::config::env_loader;
 use crate::engine::interfaces::ConnectionObject;
 use crate::engine::interfaces::{
 	ExternalPluginConfig, ExternalPluginDriver, Layer, Middleware, MiddlewareOutput, ParamDef,
@@ -69,10 +68,7 @@ impl ExternalPlugin {
 			return Err(anyhow!("External plugins cannot be Terminators."));
 		}
 
-		let skip_validation = env_loader::to_lowercase(&env_loader::get_env(
-			"SKIP_VALIDATE_CONNECTIVITY",
-			"false".to_owned(),
-		)) == "true";
+		let skip_validation = envflag::get::<bool>("SKIP_VALIDATE_CONNECTIVITY", false);
 
 		match &self.config.driver {
 			ExternalPluginDriver::Http { url } => {

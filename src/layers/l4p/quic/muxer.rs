@@ -2,7 +2,6 @@
 
 use super::session::{self, SessionAction};
 use super::virtual_socket::{VirtualPacket, VirtualUdpSocket};
-use crate::common::config::env_loader;
 use crate::common::sys::lifecycle::{Error, Result};
 use crate::layers::l7::http::h3;
 use crate::resources::certs;
@@ -100,8 +99,7 @@ impl QuicMuxer {
 			&format!("➜ Initializing QUIC Muxer (Virtual Socket) for port {port}"),
 		);
 
-		let channel_cap_str = env_loader::get_env("QUIC_VIRTUAL_CHANNEL_CAPACITY", "1024".to_owned());
-		let channel_cap = channel_cap_str.parse::<usize>().unwrap_or(1024);
+		let channel_cap = envflag::get::<usize>("QUIC_VIRTUAL_CHANNEL_CAPACITY", 1024);
 
 		let (tx, rx) = mpsc::channel::<VirtualPacket>(channel_cap);
 		let cert_id = cert_sni.to_owned();

@@ -10,10 +10,7 @@ use http_body_util::BodyExt;
 use hyper::upgrade::OnUpgrade;
 use tokio::sync::oneshot;
 
-use crate::common::{
-	config::env_loader,
-	sys::lifecycle::{Error, Result},
-};
+use crate::common::sys::lifecycle::{Error, Result};
 use crate::layers::l7::{
 	http::{protocol_data::HttpProtocolData, wrapper::VaneBody},
 	protocol_data::ProtocolData,
@@ -109,8 +106,7 @@ impl PayloadState {
 
 	/// Internal helper to buffer the current state into memory.
 	async fn force_buffer(&mut self) -> Result<&Bytes> {
-		let max_len_str = env_loader::get_env("L7_MAX_BUFFER_SIZE", "10485760".to_owned()); // Default 10MB
-		let max_len = max_len_str.parse::<usize>().unwrap_or(10485760);
+		let max_len = envflag::get::<usize>("L7_MAX_BUFFER_SIZE", 10_485_760); // Default 10MB
 
 		// Temporarily take ownership of self to perform transition
 		// We use Empty as a placeholder during the async collect()

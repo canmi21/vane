@@ -11,7 +11,7 @@ use crate::api::middleware::auth;
 use crate::api::router;
 #[cfg(unix)]
 use crate::bootstrap::socket;
-use crate::common::{config::env_loader, net::port_utils};
+use crate::common::net::port_utils;
 
 pub struct ConsoleHandles {
 	pub tcp_task: JoinHandle<()>,
@@ -46,19 +46,14 @@ pub async fn start() -> Option<ConsoleHandles> {
 				}
 			};
 
-			let requested_port = env_loader::get_env("PORT", "3333".to_owned())
-				.parse::<u16>()
-				.unwrap_or(3333);
+			let requested_port = envflag::get::<u16>("PORT", 3333);
 			let port = if port_utils::is_valid_port(requested_port) {
 				requested_port
 			} else {
 				3333
 			};
 
-			let listen_ipv6 = env_loader::to_lowercase(&env_loader::get_env(
-				"CONSOLE_LISTEN_IPV6",
-				"false".to_owned(),
-			)) == "true";
+			let listen_ipv6 = envflag::get::<bool>("CONSOLE_LISTEN_IPV6", false);
 			let addr: SocketAddr = if listen_ipv6 {
 				([0; 8], port).into()
 			} else {

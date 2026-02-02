@@ -1,9 +1,6 @@
 /* src/plugins/system/httpx.rs */
 
-use crate::{
-	common::config::env_loader,
-	engine::interfaces::{ExternalApiResponse, MiddlewareOutput, ResolvedInputs},
-};
+use crate::engine::interfaces::{ExternalApiResponse, MiddlewareOutput, ResolvedInputs};
 use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
 use std::time::Duration;
@@ -15,10 +12,7 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 	);
 
 	// 1. Check Env for TLS Verification Skip
-	let skip_tls = env_loader::to_lowercase(&env_loader::get_env(
-		"EXTERNAL_HTTPS_CALL_SKIP_TLS_VERIFY",
-		"false".to_owned(),
-	)) == "true";
+	let skip_tls = envflag::get::<bool>("EXTERNAL_HTTPS_CALL_SKIP_TLS_VERIFY", false);
 
 	if skip_tls {
 		log(
@@ -30,9 +24,7 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 	}
 
 	// 2. Build Client
-	let timeout_secs = env_loader::get_env("FLOW_EXECUTION_TIMEOUT_SECS", "10".to_owned())
-		.parse::<u64>()
-		.unwrap_or(10);
+	let timeout_secs = envflag::get::<u64>("FLOW_EXECUTION_TIMEOUT_SECS", 10);
 
 	let client = reqwest::Client::builder()
 		.timeout(Duration::from_secs(timeout_secs)) // Runtime timeout

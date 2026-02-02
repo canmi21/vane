@@ -1,21 +1,15 @@
 /* src/bootstrap/monitor.rs */
 
-use crate::common::{config::env_loader, sys::system};
+use crate::common::sys::system;
 use crate::layers::l7::container;
 use fancy_log::{LogLevel, log};
 use tokio::time::{Duration, sleep};
 
 /// Starts the background L7 memory monitor.
 pub async fn start_l7_memory_monitor() {
-	let adaptive_enabled =
-		env_loader::get_env("L7_ADAPTIVE_MEMORY_LIMIT", "true".to_owned()).to_lowercase() == "true";
-	let ratio = env_loader::get_env("L7_ADAPTIVE_MEMORY_RATIO", "85".to_owned())
-		.parse::<u64>()
-		.unwrap_or(85)
-		.min(95);
-	let fallback_limit = env_loader::get_env("L7_GLOBAL_BUFFER_LIMIT", "536870912".to_owned())
-		.parse::<usize>()
-		.unwrap_or(536_870_912);
+	let adaptive_enabled = envflag::get::<bool>("L7_ADAPTIVE_MEMORY_LIMIT", true);
+	let ratio = envflag::get::<u64>("L7_ADAPTIVE_MEMORY_RATIO", 85).min(95);
+	let fallback_limit = envflag::get::<usize>("L7_GLOBAL_BUFFER_LIMIT", 536_870_912);
 
 	if !adaptive_enabled {
 		log(

@@ -1,7 +1,6 @@
 /* src/layers/l4/resolver.rs */
 
 use super::model::{ResolvedTarget, Target};
-use crate::common::config::env_loader;
 use fancy_log::{LogLevel, log};
 #[cfg(feature = "domain-target")]
 use hickory_resolver::{
@@ -17,15 +16,15 @@ use std::sync::Arc;
 
 #[cfg(feature = "domain-target")]
 static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
-	let ns1_str = env_loader::get_env("NAMESERVER1", "1.1.1.1".to_owned());
-	let ns1_port_str = env_loader::get_env("NAMESERVER1_PORT", "53".to_owned());
-	let ns2_str = env_loader::get_env("NAMESERVER2", "8.8.8.8".to_owned());
-	let ns2_port_str = env_loader::get_env("NAMESERVER2_PORT", "53".to_owned());
+	let ns1_str = envflag::get_string("NAMESERVER1", "1.1.1.1");
+	let ns1_port = envflag::get::<u16>("NAMESERVER1_PORT", 53);
+	let ns2_str = envflag::get_string("NAMESERVER2", "8.8.8.8");
+	let ns2_port = envflag::get::<u16>("NAMESERVER2_PORT", 53);
 
 	let mut config = ResolverConfig::new();
 
-	if let (Ok(ip1), Ok(port1)) = (Ipv4Addr::from_str(&ns1_str), ns1_port_str.parse::<u16>()) {
-		let sock_addr = SocketAddr::new(IpAddr::V4(ip1), port1);
+	if let Ok(ip1) = Ipv4Addr::from_str(&ns1_str) {
+		let sock_addr = SocketAddr::new(IpAddr::V4(ip1), ns1_port);
 		config.add_name_server(NameServerConfig::new(sock_addr, Protocol::Udp));
 	} else {
 		log(
@@ -34,8 +33,8 @@ static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 		);
 	}
 
-	if let (Ok(ip2), Ok(port2)) = (Ipv4Addr::from_str(&ns2_str), ns2_port_str.parse::<u16>()) {
-		let sock_addr = SocketAddr::new(IpAddr::V4(ip2), port2);
+	if let Ok(ip2) = Ipv4Addr::from_str(&ns2_str) {
+		let sock_addr = SocketAddr::new(IpAddr::V4(ip2), ns2_port);
 		config.add_name_server(NameServerConfig::new(sock_addr, Protocol::Udp));
 	} else {
 		log(

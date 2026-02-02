@@ -1,7 +1,6 @@
 /* src/layers/l4p/plain.rs */
 
 use super::{context, flow};
-use crate::common::config::env_loader;
 use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
 use crate::layers::l7::http::httpx;
 use crate::resources::kv::KvStore;
@@ -32,8 +31,7 @@ pub async fn run(
 	);
 
 	// 1. Configurable Peek Buffer
-	let peek_limit_str = env_loader::get_env("HTTP_PLAIN_HEADER_BUFFER_SIZE", "4096".to_owned());
-	let peek_limit = peek_limit_str.parse::<usize>().unwrap_or(4096);
+	let peek_limit = envflag::get::<usize>("HTTP_PLAIN_HEADER_BUFFER_SIZE", 4096);
 	let mut buf = vec![0u8; peek_limit];
 
 	// 2. Peek & Parse
