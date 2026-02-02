@@ -107,10 +107,21 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
 
+      - name: Get package info
+        id: pkg
+        run: |
+          BIN_NAME=$(grep -A1 '^\[\[bin\]\]' Cargo.toml | grep '^name' | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' || true)
+          if [ -z "$BIN_NAME" ]; then
+            BIN_NAME=$(grep '^name' Cargo.toml | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
+          fi
+          echo "bin_name=$BIN_NAME" >> $GITHUB_OUTPUT
+
       - name: Download all artifacts
         uses: actions/download-artifact@v7
         with:
+          pattern: ${{ steps.pkg.outputs.bin_name }}-*
           path: artifacts
+          merge-multiple: true
 
       - name: Collect release assets
         run: |
