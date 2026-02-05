@@ -219,7 +219,22 @@ impl Container {
 			protocol_data: None,
 		}
 	}
+}
 
+impl Default for Container {
+	fn default() -> Self {
+		Self::new(
+			KvStore::new(),
+			HeaderMap::new(),
+			PayloadState::Empty,
+			HeaderMap::new(),
+			PayloadState::Empty,
+			None,
+		)
+	}
+}
+
+impl Container {
 	/// Creates a new Container with HTTP protocol data (for WebSocket support).
 	pub fn new_with_http(
 		kv: KvStore,
