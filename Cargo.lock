@@ -1611,6 +1611,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mst-parser"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e93b405e8fe3442f32a82f8ea948bd52fd0606605428ac0b4fe0c45f837865f1"
+dependencies = [
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "multer"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1749,6 +1759,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "nvr"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cce0b82ddc2be4500eacf0b3f70954745af4eadce4acd00c801d3a926c84953b"
+dependencies = [
+ "mst-parser",
+ "thiserror 2.0.18",
+ "varchain",
 ]
 
 [[package]]
@@ -2481,6 +2502,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_resolve"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab3414928e94c290c4616becd217d140b2f0c84ce428e5e1852a9b491119a215"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3024,7 +3055,19 @@ checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
  "log",
  "pin-project-lite",
+ "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
 ]
 
 [[package]]
@@ -3223,6 +3266,7 @@ dependencies = [
  "lazy_static",
  "live",
  "mime_guess",
+ "nvr",
  "once_cell",
  "oneshot",
  "percent-encoding",
@@ -3238,6 +3282,7 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "serde_resolve",
  "serde_yaml",
  "sha2",
  "shellexpand",
@@ -3257,7 +3302,17 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "validator",
+ "varchain",
  "x509-parser",
+]
+
+[[package]]
+name = "varchain"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3e16b422fd2728cd26351b9fd82bf9d203c17e1de818bf31baf84c292ba7b81"
+dependencies = [
+ "ahash",
 ]
 
 [[package]]
