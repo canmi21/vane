@@ -3,13 +3,15 @@
 use bytes::Bytes;
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use tokio::sync::RwLock;
 
 use crate::layers::l7::container::Container;
 use crate::resources::kv::KvStore;
-use crate::resources::templates::{context::L7Context, context::SimpleContext, resolve_inputs};
+use crate::resources::templates::{build_l4_scope, build_l7_scope, resolve_inputs};
 
 /// Execution context abstraction for flow engine.
 ///
@@ -22,9 +24,6 @@ pub trait ExecutionContext: Send {
 	fn kv_mut(&mut self) -> &mut KvStore;
 
 	/// Resolve template inputs using layer-specific logic
-	///
-	/// L4/L4+: SimpleContext (KV lookup only)
-	/// L7: L7Context (hijacking support for {{req.body}}, {{res.header.*}}, etc.)
 	async fn resolve_inputs(&mut self, inputs: &HashMap<String, Value>) -> HashMap<String, Value>;
 
 	/// Get type-erased context for plugins that need it
@@ -50,12 +49,27 @@ impl<'a> ExecutionContext for TransportContext<'a> {
 	}
 
 	async fn resolve_inputs(&mut self, inputs: &HashMap<String, Value>) -> HashMap<String, Value> {
-		// Use SimpleContext with payloads support
-		let mut simple_ctx = SimpleContext {
-			kv: self.kv,
-			payloads: Some(&self.payloads),
+		// Temporary take ownership to wrap in Arc<RwLock> for varchain scope
+		let original_kv = std::mem::take(self.kv);
+		let kv_arc = Arc::new(RwLock::new(original_kv));
+		let payloads_arc = Arc::new(self.payloads.clone());
+
+		// Scope must be dropped before Arc::try_unwrap to release references
+		let resolved = {
+			let scope = build_l4_scope(kv_arc.clone(), Some(payloads_arc));
+			resolve_inputs(inputs, &scope).await
 		};
-		resolve_inputs(inputs, &mut simple_ctx).await
+
+		// Restore KV - scope is dropped, so try_unwrap should succeed
+		match Arc::try_unwrap(kv_arc) {
+			Ok(kv_lock) => *self.kv = kv_lock.into_inner(),
+			Err(_) => {
+				// This should never happen if scope is properly dropped
+				panic!("BUG: KV Arc has lingering references after scope drop");
+			}
+		}
+
+		resolved
 	}
 
 	fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
@@ -81,11 +95,26 @@ impl<'a> ExecutionContext for ApplicationContext<'a> {
 	}
 
 	async fn resolve_inputs(&mut self, inputs: &HashMap<String, Value>) -> HashMap<String, Value> {
-		// Use L7Context (supports hijacking)
-		let mut l7_ctx = L7Context {
-			container: self.container,
+		// Temporary take ownership to wrap in Arc<RwLock> for varchain scope
+		let original_container = std::mem::take(self.container);
+		let container_arc = Arc::new(RwLock::new(original_container));
+
+		// Scope must be dropped before Arc::try_unwrap to release references
+		let resolved = {
+			let scope = build_l7_scope(container_arc.clone());
+			resolve_inputs(inputs, &scope).await
 		};
-		resolve_inputs(inputs, &mut l7_ctx).await
+
+		// Restore Container - scope is dropped, so try_unwrap should succeed
+		match Arc::try_unwrap(container_arc) {
+			Ok(container_lock) => *self.container = container_lock.into_inner(),
+			Err(_) => {
+				// This should never happen if scope is properly dropped
+				panic!("BUG: Container Arc has lingering references after scope drop");
+			}
+		}
+
+		resolved
 	}
 
 	fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {

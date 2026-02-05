@@ -32,8 +32,7 @@ pub async fn execute<C: ExecutionContext>(
 	conn: ConnectionObject,
 	flow_path: String,
 ) -> Result<TerminatorResult> {
-	let timeout_secs =
-		envflag::get::<u64>("FLOW_EXECUTION_TIMEOUT_SECS", 10);
+	let timeout_secs = envflag::get::<u64>("FLOW_EXECUTION_TIMEOUT_SECS", 10);
 
 	if let Ok(result) = tokio::time::timeout(
 		std::time::Duration::from_secs(timeout_secs),
