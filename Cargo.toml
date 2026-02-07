@@ -150,6 +150,7 @@ tar = "0.4"
 flate2 = "1"
 sigterm = { version = "0.3", features = ["full"] }
 live = { version = "0.4", features = ["full"] }
+guess = { version = "0.1", features = ["http", "tls", "dns", "quic"] }
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }

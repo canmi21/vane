@@ -5,77 +5,20 @@ use crate::engine::interfaces::{
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use guess::{DetectionStatus, Protocol};
 use serde_json::Value;
 use std::{any::Any, borrow::Cow};
 
-/// Core detection logic. This is a pure, stateless function.
+/// Core detection logic. Delegates to the `guess` crate for protocol matching.
 fn detect(payload: &[u8], method: &str) -> bool {
-	if payload.is_empty() {
-		return false;
-	}
-	match method {
-		"http" => {
-			payload.starts_with(b"GET ")
-				|| payload.starts_with(b"POST ")
-				|| payload.starts_with(b"PUT ")
-				|| payload.starts_with(b"DELETE ")
-				|| payload.starts_with(b"HEAD ")
-				|| payload.starts_with(b"OPTIONS ")
-				|| payload.starts_with(b"PATCH ")
-		}
-		"tls" => payload.starts_with(&[0x16, 0x03]) && payload.len() > 3,
-		"dns" => {
-			// Strict DNS Query Heuristic
-			// Header: [ID: 2] [Flags: 2] [QDCOUNT: 2] ...
-			if payload.len() < 12 {
-				return false;
-			}
-
-			// Flags (Bytes 2-3)
-			// Byte 2: [QR(1)] [Opcode(4)] [AA(1)] [TC(1)] [RD(1)]
-			// QR must be 0 (Query)
-			// Opcode should usually be 0 (Standard Query) for common traffic
-			let flag_byte_1 = payload[2];
-
-			// Check QR bit (0x80) is 0
-			// Check Opcode bits (0x78) are 0
-			if (flag_byte_1 & 0xF8) != 0 {
-				return false;
-			}
-
-			// QDCOUNT (Bytes 4-5) must be > 0. A query with 0 questions is invalid.
-			let qdcount = u16::from_be_bytes([payload[4], payload[5]]);
-			qdcount > 0
-		}
-		"quic" => {
-			// Strict QUIC v1 Initial Packet Heuristic (RFC 9000)
-
-			// 1. Length Check
-			// Client Initial packets are almost always padded to 1200 bytes.
-			// However, to be safe against non-compliant or specialized clients,
-			// we check for a minimal viable header size (Header + Version + CIDs).
-			if payload.len() < 20 {
-				return false;
-			}
-
-			// 2. Header Form Check (Byte 0)
-			// Must be Long Header (0x80) AND Fixed Bit (0x40)
-			// Pattern: 11xxxxxx (0xC0 mask)
-			if (payload[0] & 0xC0) != 0xC0 {
-				return false;
-			}
-
-			// 3. Version Check (Bytes 1-4)
-			// This is the strongest check to prevent collision with random DNS IDs.
-			// DNS ID (random) + Flags (0x0100 typically) is extremely unlikely to match
-			// QUIC version 0x00000001.
-			let version = u32::from_be_bytes([payload[1], payload[2], payload[3], payload[4]]);
-
-			// Support v1 (1) and v2 (2)
-			version == 1 || version == 2
-		}
-		_ => false,
-	}
+	let protocol = match method {
+		"http" => Protocol::Http,
+		"tls" => Protocol::Tls,
+		"dns" => Protocol::Dns,
+		"quic" => Protocol::Quic,
+		_ => return false,
+	};
+	matches!(protocol.probe(payload), DetectionStatus::Match)
 }
 
 /// A built-in Middleware plugin for basic L4 protocol detection.
@@ -175,18 +118,19 @@ mod tests {
 		);
 
 		// 2. DNS Response (QR bit set)
-		// Flags=0x8180 (QR=1, RD, RA)
+		// Flags=0x8180 (QR=1, RD, RA) — guess correctly identifies DNS responses too.
 		let mut response = valid_dns.clone();
 		response[2] = 0x81;
-		assert!(!detect(&response, "dns"), "DNS response should be rejected");
+		response[7] = 0x01; // ANCOUNT=1 for a valid response
+		assert!(detect(&response, "dns"), "DNS response should be detected");
 
-		// 3. Invalid Opcode (Opcode=1, IQUERY - obsolete but testing the bitmask)
-		// Flags=0x0900 (QR=0, Opcode=1, RD)
+		// 3. Invalid Opcode (Opcode=3, undefined)
+		// Flags byte: 00011001 (QR=0, Opcode=3, RD=1)
 		let mut bad_opcode = valid_dns.clone();
-		bad_opcode[2] = 0x09;
+		bad_opcode[2] = 0x19;
 		assert!(
 			!detect(&bad_opcode, "dns"),
-			"Non-standard Opcode should be rejected"
+			"Invalid Opcode should be rejected"
 		);
 
 		// 4. Zero QDCOUNT
@@ -239,8 +183,9 @@ mod tests {
 
 		assert!(detect(&quic_initial, "quic"));
 
-		// QUIC v2 (Version 2)
-		let mut quic_v2 = vec![0xC0, 0x00, 0x00, 0x00, 0x02];
+		// QUIC v2 (RFC 9369: version 0x6b3343cf)
+		let v2_bytes = 0x6b3343cfu32.to_be_bytes();
+		let mut quic_v2 = vec![0xC0, v2_bytes[0], v2_bytes[1], v2_bytes[2], v2_bytes[3]];
 		quic_v2.extend_from_slice(&[0x00; 20]);
 		assert!(detect(&quic_v2, "quic"));
 
@@ -249,9 +194,9 @@ mod tests {
 		short_header.extend_from_slice(&[0x00; 20]);
 		assert!(!detect(&short_header, "quic"), "Short header rejected");
 
-		// Wrong Version
-		let mut bad_version = vec![0xC0, 0x00, 0x00, 0x00, 0x00]; // Version negotiation / 0
+		// Wrong Version (arbitrary non-QUIC value)
+		let mut bad_version = vec![0xC0, 0x00, 0x00, 0x00, 0x03];
 		bad_version.extend_from_slice(&[0x00; 20]);
-		assert!(!detect(&bad_version, "quic"), "Version 0 rejected");
+		assert!(!detect(&bad_version, "quic"), "Invalid version rejected");
 	}
 }
