@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [latest]
+  pull_request:
+    branches: [latest]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - uses: extractions/setup-just@v3
+
+      - name: Install chore-cli
+        run: cargo install chore-cli
+
+      - name: Format check
+        run: just fmt-check
+
+      - name: Lint (oxlint + Go + links)
+        run: just lint-check
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - uses: extractions/setup-just@v3
+
+      - name: Clippy
+        run: just lint-clippy
+
+      - name: Cargo Deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+
+      - name: Rust unit tests
+        run: just test-rs
+
+      - name: Install Vane
+        run: just inst
+
+      - name: Go integration tests
+        working-directory: integration
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          go mod download
+          go run main.go
