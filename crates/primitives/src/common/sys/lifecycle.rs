@@ -1,8 +1,6 @@
 /* src/common/sys/lifecycle.rs */
 
 use crate::common::config::file_loader;
-use crate::layers::l4::{health, session};
-use crate::layers::l4p::quic::session as quic_session;
 use once_cell::sync::Lazy;
 use std::time::Instant;
 
@@ -31,12 +29,4 @@ pub async fn ensure_config_files_exist() {
 	file_loader::init_config_dirs(vec!["listener", "resolver", "certs", "application", "bin"]).await;
 	file_loader::init_config_files(vec!["listener/unixsocket.yml", "nodes.yml", "plugins.json"])
 		.await;
-}
-
-/// Spawns essential background maintenance tasks.
-pub async fn start_background_tasks() {
-	health::initial_health_check().await;
-	health::start_periodic_health_checkers();
-	session::start_session_cleanup_task();
-	quic_session::start_cleanup_task();
 }

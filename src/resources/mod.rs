@@ -1,6 +1,2 @@
-/* src/resources/mod.rs */
-
-pub mod certs;
-pub mod kv;
-pub mod service_discovery;
+pub use vane_primitives::{certs, kv, service_discovery};
 pub mod templates;

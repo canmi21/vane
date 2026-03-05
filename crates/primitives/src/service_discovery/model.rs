@@ -102,6 +102,25 @@ impl Validate for NodesConfig {
 	}
 }
 
+impl live::loader::PreProcess for NodesConfig {
+	fn pre_process(&mut self) {
+		let mut processed_list = Vec::new();
+		for node in &self.nodes {
+			for ip_config in &node.ips {
+				for &port in &ip_config.ports {
+					processed_list.push(ProcessedNode {
+						node_name: node.name.clone(),
+						address: ip_config.address.clone(),
+						port,
+						ip_type: ip_config.r#type.clone(),
+					});
+				}
+			}
+		}
+		self.processed = processed_list;
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

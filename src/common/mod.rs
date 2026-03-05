@@ -1,5 +1,1 @@
-/* src/common/mod.rs */
-
-pub mod config;
-pub mod net;
-pub mod sys;
+pub use vane_primitives::common::{config, net, sys};

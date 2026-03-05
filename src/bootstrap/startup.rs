@@ -172,7 +172,7 @@ pub async fn start() {
 	crate::lazycert::initialize().await;
 
 	// 8. Start Background Maintenance Tasks
-	lifecycle::start_background_tasks().await;
+	start_background_tasks().await;
 
 	// 9. Register Internal Plugins + Load External Plugins
 	crate::plugins::core::registry::register_builtin_plugins();
@@ -270,4 +270,15 @@ async fn start_certs_watcher(cert_dir: std::path::PathBuf) {
 			);
 		}
 	}
+}
+
+/// Spawns essential background maintenance tasks (moved from lifecycle).
+async fn start_background_tasks() {
+	use crate::layers::l4::{health, session};
+	use crate::layers::l4p::quic::session as quic_session;
+
+	health::initial_health_check().await;
+	health::start_periodic_health_checkers();
+	session::start_session_cleanup_task();
+	quic_session::start_cleanup_task();
 }

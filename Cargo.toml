@@ -52,13 +52,13 @@ httpx = ["dep:hyper", "dep:hyper-util", "dep:http-body", "dep:http-body-util", "
 lazycert = ["dep:reqwest"]
 
 # Console / Management API
-console = ["dep:axum"]
+console = ["dep:axum", "vane-primitives/console"]
 swagger-ui = ["dep:utoipa-swagger-ui"]
 
 # Upstream Capabilities
 h2upstream = ["dep:reqwest"]
 h3upstream = ["quic", "dep:h3", "dep:h3-quinn"]
-domain-target = ["dep:hickory-resolver"]
+domain-target = ["dep:hickory-resolver", "vane-primitives/domain-target"]
 
 # Plugin Flags
 cgi = ["dep:base64"]
@@ -83,6 +83,7 @@ ring = [
 ]
 
 [dependencies]
+vane-primitives = { path = "crates/primitives" }
 tokio = { version = "1", features = ["full", "signal"] }
 axum = { version = "0.8", features = ["macros", "multipart"], optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -179,7 +180,7 @@ workspace = true
 
 [workspace]
 resolver = "3"
-members = ["."]
+members = [".", "crates/primitives"]
 
 [workspace.package]
 rust-version = "1.93"

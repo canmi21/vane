@@ -7,31 +7,8 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use validator::{ValidationError, ValidationErrors};
 
-use super::model::Target;
+use super::model::{FlowValidationError, Target, validate_target};
 use crate::layers::l4::legacy::{tcp::TcpProtocolRule, udp::UdpProtocolRule};
-
-/// Internal error type for flow validation that doesn't require &'static str.
-#[derive(Debug)]
-pub struct FlowValidationError {
-	pub path: String,
-	pub message: String,
-}
-
-#[must_use]
-pub fn validate_target(target: &Target, path: &str) -> Vec<FlowValidationError> {
-	let mut errors = Vec::new();
-	if let Target::Domain { domain, .. } = target
-		&& !cfg!(feature = "domain-target")
-	{
-		errors.push(FlowValidationError {
- 					path: path.to_owned(),
- 					message: format!(
- 						"Domain target '{domain}' is disabled in this build. Please recompile with 'domain-target' feature enabled."
- 					),
- 				});
-	}
-	errors
-}
 
 /// Recursively validates a flow-based configuration tree.
 /// This internal version uses dynamic Strings to avoid memory leaks.
