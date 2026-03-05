@@ -66,10 +66,8 @@ pub fn start_session_cleanup_task() {
 						"⚠ UDP session buffer limit exceeded ({current_size} > {buffer_limit}). Pruning oldest sessions."
 					),
 				);
-				let mut all_sessions: Vec<_> = SESSIONS
-					.iter()
-					.map(|e| (e.key().clone(), e.value().last_seen))
-					.collect();
+				let mut all_sessions: Vec<_> =
+					SESSIONS.iter().map(|e| (e.key().clone(), e.value().last_seen)).collect();
 				all_sessions.sort_by_key(|a| a.1);
 				let to_prune_count = (SESSIONS.len() as f64 * 0.1).ceil() as usize;
 				for (key, _) in all_sessions.iter().take(to_prune_count) {

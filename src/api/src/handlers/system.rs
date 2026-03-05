@@ -44,12 +44,7 @@ pub async fn root_handler() -> impl IntoResponse {
 			license,
 			repository,
 		},
-		build: BuildInfo {
-			rust_version: rustc_version,
-			cargo_version,
-			build_date,
-			git_commit,
-		},
+		build: BuildInfo { rust_version: rustc_version, cargo_version, build_date, git_commit },
 		runtime: RuntimeInfo { arch, platform: os },
 	};
 
@@ -66,14 +61,9 @@ pub async fn root_handler() -> impl IntoResponse {
     tag = "system"
 )]
 pub async fn health_handler() -> impl IntoResponse {
-	let uptime = std::time::Instant::now()
-		.duration_since(*lifecycle::START_TIME)
-		.as_secs();
+	let uptime = std::time::Instant::now().duration_since(*lifecycle::START_TIME).as_secs();
 
-	response::success(HealthStatus {
-		healthy: true,
-		uptime_secs: uptime,
-	})
+	response::success(HealthStatus { healthy: true, uptime_secs: uptime })
 }
 
 /// Detailed system status
@@ -109,10 +99,8 @@ pub async fn status_handler() -> impl IntoResponse {
 	// 2. Plugins
 	let internal_count = registry::list_internal_plugins().len();
 	let external_count = registry::list_external_plugins().len();
-	let healthy_external = registry::EXTERNAL_PLUGIN_STATUS
-		.iter()
-		.filter(|r| r.value().is_ok())
-		.count();
+	let healthy_external =
+		registry::EXTERNAL_PLUGIN_STATUS.iter().filter(|r| r.value().is_ok()).count();
 
 	// 3. Resources
 	// Nodes

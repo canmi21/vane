@@ -36,10 +36,7 @@ pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 	let (_rem, record) = result;
 
 	// We only care about the first record, which should be Handshake
-	let msg = record
-		.msg
-		.first()
-		.ok_or_else(|| anyhow!("Empty TLS record"))?;
+	let msg = record.msg.first().ok_or_else(|| anyhow!("Empty TLS record"))?;
 
 	log(LogLevel::Debug, &format!("⚙ TLS Message type: {msg:?}"));
 

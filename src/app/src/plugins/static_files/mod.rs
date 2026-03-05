@@ -32,41 +32,17 @@ impl Plugin for StaticPlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: Cow::Borrowed("root"),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: Cow::Borrowed("uri"),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: Cow::Borrowed("index"),
-				required: false,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: Cow::Borrowed("spa"),
-				required: false,
-				param_type: ParamType::Boolean,
-			},
-			ParamDef {
-				name: Cow::Borrowed("browse"),
-				required: false,
-				param_type: ParamType::Boolean,
-			},
+			ParamDef { name: Cow::Borrowed("root"), required: true, param_type: ParamType::String },
+			ParamDef { name: Cow::Borrowed("uri"), required: true, param_type: ParamType::String },
+			ParamDef { name: Cow::Borrowed("index"), required: false, param_type: ParamType::String },
+			ParamDef { name: Cow::Borrowed("spa"), required: false, param_type: ParamType::Boolean },
+			ParamDef { name: Cow::Borrowed("browse"), required: false, param_type: ParamType::Boolean },
 			ParamDef {
 				name: Cow::Borrowed("precompress"),
 				required: false,
 				param_type: ParamType::Boolean,
 			},
-			ParamDef {
-				name: Cow::Borrowed("symlink"),
-				required: false,
-				param_type: ParamType::Boolean,
-			},
+			ParamDef { name: Cow::Borrowed("symlink"), required: false, param_type: ParamType::Boolean },
 		]
 	}
 
@@ -90,11 +66,7 @@ impl Plugin for StaticPlugin {
 #[async_trait]
 impl HttpMiddleware for StaticPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
-		vec![
-			Cow::Borrowed("success"),
-			Cow::Borrowed("not_found"),
-			Cow::Borrowed("failure"),
-		]
+		vec![Cow::Borrowed("success"), Cow::Borrowed("not_found"), Cow::Borrowed("failure")]
 	}
 
 	async fn execute(
@@ -107,37 +79,21 @@ impl HttpMiddleware for StaticPlugin {
 			.ok_or_else(|| anyhow::anyhow!("Context is not a Container"))?;
 
 		// 1. Resolve Inputs
-		let root = inputs
-			.get("root")
-			.and_then(Value::as_str)
-			.ok_or_else(|| anyhow::anyhow!("Missing root"))?;
+		let root =
+			inputs.get("root").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("Missing root"))?;
 
 		// Explicit URI input required (No implicit fallback to req.path)
-		let request_path = inputs
-			.get("uri")
-			.and_then(Value::as_str)
-			.ok_or_else(|| anyhow::anyhow!("Missing uri"))?;
+		let request_path =
+			inputs.get("uri").and_then(Value::as_str).ok_or_else(|| anyhow::anyhow!("Missing uri"))?;
 
 		// Remove query string if present in URI input (basic sanitization)
 		let uri_path = request_path.split('?').next().unwrap_or("/");
 
-		let index_file = inputs
-			.get("index")
-			.and_then(Value::as_str)
-			.unwrap_or("index.html");
+		let index_file = inputs.get("index").and_then(Value::as_str).unwrap_or("index.html");
 		let spa_mode = inputs.get("spa").and_then(Value::as_bool).unwrap_or(false);
-		let browse_enabled = inputs
-			.get("browse")
-			.and_then(Value::as_bool)
-			.unwrap_or(false);
-		let precompress = inputs
-			.get("precompress")
-			.and_then(Value::as_bool)
-			.unwrap_or(false);
-		let allow_symlinks = inputs
-			.get("symlink")
-			.and_then(Value::as_bool)
-			.unwrap_or(false);
+		let browse_enabled = inputs.get("browse").and_then(Value::as_bool).unwrap_or(false);
+		let precompress = inputs.get("precompress").and_then(Value::as_bool).unwrap_or(false);
+		let allow_symlinks = inputs.get("symlink").and_then(Value::as_bool).unwrap_or(false);
 
 		// 2. Resolve Path
 		let mut fs_path = match router::resolve_path(root, uri_path, allow_symlinks) {
@@ -145,10 +101,7 @@ impl HttpMiddleware for StaticPlugin {
 			Err(e) => {
 				// Path traversal attempt or invalid root
 				container.kv.insert("res.error".to_owned(), e.to_string());
-				return Ok(MiddlewareOutput {
-					branch: Cow::Borrowed("failure"),
-					store: None,
-				});
+				return Ok(MiddlewareOutput { branch: Cow::Borrowed("failure"), store: None });
 			}
 		};
 
@@ -165,22 +118,13 @@ impl HttpMiddleware for StaticPlugin {
 							fs_path = fallback;
 							m
 						} else {
-							return Ok(MiddlewareOutput {
-								branch: Cow::Borrowed("not_found"),
-								store: None,
-							});
+							return Ok(MiddlewareOutput { branch: Cow::Borrowed("not_found"), store: None });
 						}
 					} else {
-						return Ok(MiddlewareOutput {
-							branch: Cow::Borrowed("not_found"),
-							store: None,
-						});
+						return Ok(MiddlewareOutput { branch: Cow::Borrowed("not_found"), store: None });
 					}
 				} else {
-					return Ok(MiddlewareOutput {
-						branch: Cow::Borrowed("not_found"),
-						store: None,
-					});
+					return Ok(MiddlewareOutput { branch: Cow::Borrowed("not_found"), store: None });
 				}
 			}
 		};
@@ -195,20 +139,13 @@ impl HttpMiddleware for StaticPlugin {
 			} else if browse_enabled {
 				// Browse Directory
 				let html = browse::generate_listing(&fs_path, uri_path).await?;
-				container.response_headers.insert(
-					http::header::CONTENT_TYPE,
-					HeaderValue::from_static("text/html; charset=utf-8"),
-				);
+				container
+					.response_headers
+					.insert(http::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 				container.response_body = PayloadState::new_buffered(html)?;
-				return Ok(MiddlewareOutput {
-					branch: Cow::Borrowed("success"),
-					store: None,
-				});
+				return Ok(MiddlewareOutput { branch: Cow::Borrowed("success"), store: None });
 			} else {
-				return Ok(MiddlewareOutput {
-					branch: Cow::Borrowed("not_found"),
-					store: None,
-				});
+				return Ok(MiddlewareOutput { branch: Cow::Borrowed("not_found"), store: None });
 			}
 		}
 
@@ -218,10 +155,8 @@ impl HttpMiddleware for StaticPlugin {
 		let mut content_encoding = None;
 
 		// 6. Range Request Detection
-		let range_header = container
-			.request_headers
-			.get(http::header::RANGE)
-			.and_then(|h| h.to_str().ok());
+		let range_header =
+			container.request_headers.get(http::header::RANGE).and_then(|h| h.to_str().ok());
 
 		let mut range = None;
 		if let Some(rh) = range_header {
@@ -264,10 +199,7 @@ impl HttpMiddleware for StaticPlugin {
 		headers.insert(http::header::CONTENT_TYPE, ct_val);
 
 		if let Some(enc) = content_encoding {
-			headers.insert(
-				http::header::CONTENT_ENCODING,
-				HeaderValue::from_static(enc),
-			);
+			headers.insert(http::header::CONTENT_ENCODING, HeaderValue::from_static(enc));
 		}
 
 		let last_modified = inspect::generate_etag(
@@ -287,31 +219,18 @@ impl HttpMiddleware for StaticPlugin {
 			// Range Response
 
 			if (file.seek(SeekFrom::Start(r.start)).await).is_err() {
-				container
-					.kv
-					.insert("res.status".to_owned(), "500".to_owned());
+				container.kv.insert("res.status".to_owned(), "500".to_owned());
 
-				return Ok(MiddlewareOutput {
-					branch: Cow::Borrowed("failure"),
-
-					store: None,
-				});
+				return Ok(MiddlewareOutput { branch: Cow::Borrowed("failure"), store: None });
 			}
 
 			length = r.length;
 
 			// 206 Partial Content
 
-			container
-				.kv
-				.insert("res.status".to_owned(), "206".to_owned());
+			container.kv.insert("res.status".to_owned(), "206".to_owned());
 
-			let range_val = format!(
-				"bytes {}-{}/{}",
-				r.start,
-				r.start + r.length - 1,
-				metadata.len()
-			);
+			let range_val = format!("bytes {}-{}/{}", r.start, r.start + r.length - 1, metadata.len());
 
 			let cr_val = HeaderValue::from_str(&range_val)
 				.map_err(|e| anyhow!("Invalid content-range generated: {e}"))?;
@@ -320,9 +239,7 @@ impl HttpMiddleware for StaticPlugin {
 		} else if range_header.is_some() && range.is_none() {
 			// 416 Range Not Satisfiable
 
-			container
-				.kv
-				.insert("res.status".to_owned(), "416".to_owned());
+			container.kv.insert("res.status".to_owned(), "416".to_owned());
 
 			let range_val = format!("bytes */{}", metadata.len());
 
@@ -335,17 +252,10 @@ impl HttpMiddleware for StaticPlugin {
 
 			container.response_body = PayloadState::Empty;
 
-			return Ok(MiddlewareOutput {
-				branch: Cow::Borrowed("success"),
-
-				store: None,
-			});
+			return Ok(MiddlewareOutput { branch: Cow::Borrowed("success"), store: None });
 		} else {
 			// 200 OK
-			headers.insert(
-				http::header::ACCEPT_RANGES,
-				HeaderValue::from_static("bytes"),
-			);
+			headers.insert(http::header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
 		}
 
 		headers.insert(http::header::CONTENT_LENGTH, HeaderValue::from(length));
@@ -363,10 +273,7 @@ impl HttpMiddleware for StaticPlugin {
 		let boxed_body = BodyExt::boxed(StreamBody::new(body_stream));
 		container.response_body = PayloadState::Http(VaneBody::Generic(boxed_body));
 
-		Ok(MiddlewareOutput {
-			branch: Cow::Borrowed("success"),
-			store: None,
-		})
+		Ok(MiddlewareOutput { branch: Cow::Borrowed("success"), store: None })
 	}
 }
 

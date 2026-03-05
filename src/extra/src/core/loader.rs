@@ -33,18 +33,12 @@ pub async fn initialize() -> usize {
 	let registry_map = DashMap::new();
 	let mut count = 0;
 	for (name, config) in configs {
-		registry_map.insert(
-			name,
-			Arc::new(ExternalPlugin::new(config)) as Arc<dyn Plugin>,
-		);
+		registry_map.insert(name, Arc::new(ExternalPlugin::new(config)) as Arc<dyn Plugin>);
 		count += 1;
 	}
 	registry::load_external_plugins(registry_map);
 	if count > 0 {
-		log(
-			LogLevel::Info,
-			&format!("✓ Loaded {count} external plugins."),
-		);
+		log(LogLevel::Info, &format!("✓ Loaded {count} external plugins."));
 		start_background_health_check();
 	}
 	count
@@ -80,9 +74,7 @@ pub async fn register_plugin(config: ExternalPluginConfig) -> Result<()> {
 	let plugin = ExternalPlugin::new(config.clone());
 	plugin.validate_connectivity().await?;
 	let path = file_loader::get_config_dir().join(PLUGINS_CONFIG_FILE);
-	let content = fs::read_to_string(&path)
-		.await
-		.unwrap_or_else(|_| "{}".to_owned());
+	let content = fs::read_to_string(&path).await.unwrap_or_else(|_| "{}".to_owned());
 	let mut configs: HashMap<String, ExternalPluginConfig> =
 		serde_json::from_str(&content).unwrap_or_default();
 	configs.insert(config.name.clone(), config);
@@ -93,9 +85,7 @@ pub async fn register_plugin(config: ExternalPluginConfig) -> Result<()> {
 
 pub async fn delete_plugin(name: &str) -> Result<()> {
 	let path = file_loader::get_config_dir().join(PLUGINS_CONFIG_FILE);
-	let content = fs::read_to_string(&path)
-		.await
-		.unwrap_or_else(|_| "{}".to_owned());
+	let content = fs::read_to_string(&path).await.unwrap_or_else(|_| "{}".to_owned());
 	let mut configs: HashMap<String, ExternalPluginConfig> =
 		serde_json::from_str(&content).unwrap_or_default();
 	if configs.remove(name).is_none() {

@@ -58,10 +58,7 @@ pub fn spawn_tcp_listener_task(port: u16, listener: TcpListener) -> ShutdownHand
 			}
 		}
 		TASK_REGISTRY.remove(&key);
-		log(
-			LogLevel::Debug,
-			&format!("⚙ TCP listener on port {port} has shut down."),
-		);
+		log(LogLevel::Debug, &format!("⚙ TCP listener on port {port} has shut down."));
 	});
 	handle
 }

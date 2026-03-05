@@ -9,14 +9,8 @@ const EXTENSIONS: &[&str] = &["json", "yaml", "yml", "toml"];
 #[derive(Debug)]
 pub enum ConfigFileResult<T> {
 	NotFound,
-	Single {
-		path: PathBuf,
-		format: String,
-		content: T,
-	},
-	Ambiguous {
-		found: Vec<String>,
-	},
+	Single { path: PathBuf, format: String, content: T },
+	Ambiguous { found: Vec<String> },
 	Error(String),
 }
 
@@ -46,9 +40,7 @@ where
 	}
 
 	if found_paths.len() > 1 {
-		return ConfigFileResult::Ambiguous {
-			found: found_formats,
-		};
+		return ConfigFileResult::Ambiguous { found: found_formats };
 	}
 
 	let path = found_paths.remove(0);
@@ -75,11 +67,7 @@ where
 		_ => return ConfigFileResult::Error("Unsupported format".to_owned()),
 	};
 
-	ConfigFileResult::Single {
-		path,
-		format,
-		content,
-	}
+	ConfigFileResult::Single { path, format, content }
 }
 
 /// Deletes all config files with any supported extension at the given base path.
@@ -132,21 +120,14 @@ mod tests {
 	async fn test_write_and_find_json() {
 		let dir = tempdir().unwrap();
 		let base_path = dir.path().join("test");
-		let config = TestConfig {
-			name: "foo".into(),
-			value: 42,
-		};
+		let config = TestConfig { name: "foo".into(), value: 42 };
 
 		let written_path = write_json(&base_path, &config).await.unwrap();
 		assert!(written_path.ends_with("test.json"));
 
 		let result: ConfigFileResult<TestConfig> = find_config(&base_path).await;
 		match result {
-			ConfigFileResult::Single {
-				path,
-				format,
-				content,
-			} => {
+			ConfigFileResult::Single { path, format, content } => {
 				assert_eq!(path, written_path);
 				assert_eq!(format, "json");
 				assert_eq!(content, config);
@@ -160,12 +141,8 @@ mod tests {
 		let dir = tempdir().unwrap();
 		let base_path = dir.path().join("test");
 
-		fs::write(base_path.with_extension("json"), "{}")
-			.await
-			.unwrap();
-		fs::write(base_path.with_extension("yaml"), "")
-			.await
-			.unwrap();
+		fs::write(base_path.with_extension("json"), "{}").await.unwrap();
+		fs::write(base_path.with_extension("yaml"), "").await.unwrap();
 
 		let result: ConfigFileResult<TestConfig> = find_config(&base_path).await;
 		match result {
@@ -182,12 +159,8 @@ mod tests {
 		let dir = tempdir().unwrap();
 		let base_path = dir.path().join("test");
 
-		fs::write(base_path.with_extension("json"), "{}")
-			.await
-			.unwrap();
-		fs::write(base_path.with_extension("yaml"), "")
-			.await
-			.unwrap();
+		fs::write(base_path.with_extension("json"), "{}").await.unwrap();
+		fs::write(base_path.with_extension("yaml"), "").await.unwrap();
 
 		let deleted = delete_all_formats(&base_path).await.unwrap();
 		assert!(deleted);

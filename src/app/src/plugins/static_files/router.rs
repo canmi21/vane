@@ -37,9 +37,7 @@ pub fn resolve_path(root: &str, uri_path: &str, allow_symlinks: bool) -> Result<
 			Ok(canonical_final) => {
 				// File exists and was resolved. Check containment.
 				if !canonical_final.starts_with(&root_path) {
-					return Err(anyhow!(
-						"Forbidden: Path traversal attempt detected via symlink"
-					));
+					return Err(anyhow!("Forbidden: Path traversal attempt detected via symlink"));
 				}
 				return Ok(canonical_final);
 			}
@@ -156,12 +154,7 @@ mod tests {
 		// Attempt to resolve the link with allow_symlinks=false
 		let res = resolve_path(root, "/malicious_link", false);
 		assert!(res.is_err(), "Symlink traversal should be blocked");
-		assert!(
-			res
-				.unwrap_err()
-				.to_string()
-				.contains("Path traversal attempt detected")
-		);
+		assert!(res.unwrap_err().to_string().contains("Path traversal attempt detected"));
 
 		// Should succeed if explicitly allowed
 		let res_allowed = resolve_path(root, "/malicious_link", true);

@@ -23,19 +23,12 @@ pub fn parse_range_header(header_val: &str, total_size: u64) -> Option<ByteRange
 			return None;
 		}
 		let start = total_size.saturating_sub(suffix_len);
-		return Some(ByteRange {
-			start,
-			length: total_size - start,
-		});
+		return Some(ByteRange { start, length: total_size - start });
 	}
 
 	// Normal or Open-ended range
 	let start = start_str.parse::<u64>().ok()?;
-	let end = if end_str.is_empty() {
-		total_size - 1
-	} else {
-		end_str.parse::<u64>().ok()?
-	};
+	let end = if end_str.is_empty() { total_size - 1 } else { end_str.parse::<u64>().ok()? };
 
 	if start > end || start >= total_size {
 		return None; // Unsatisfiable
@@ -44,10 +37,7 @@ pub fn parse_range_header(header_val: &str, total_size: u64) -> Option<ByteRange
 	// Cap end at EOF
 	let final_end = std::cmp::min(end, total_size - 1);
 
-	Some(ByteRange {
-		start,
-		length: final_end - start + 1,
-	})
+	Some(ByteRange { start, length: final_end - start + 1 })
 }
 
 #[cfg(test)]

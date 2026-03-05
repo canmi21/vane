@@ -42,19 +42,12 @@ pub async fn list_applications_handler() -> impl IntoResponse {
 			_ => (false, None),
 		};
 
-		applications.push(ApplicationSummary {
-			protocol: protocol.to_string(),
-			active,
-			source_format,
-		});
+		applications.push(ApplicationSummary { protocol: protocol.to_string(), active, source_format });
 	}
 
 	response::success(ApplicationListData {
 		applications,
-		supported_protocols: SUPPORTED_APP_PROTOCOLS
-			.iter()
-			.map(|s| s.to_string())
-			.collect(),
+		supported_protocols: SUPPORTED_APP_PROTOCOLS.iter().map(|s| s.to_string()).collect(),
 	})
 }
 
@@ -78,17 +71,13 @@ pub async fn get_application_handler(Path(protocol): Path<String>) -> impl IntoR
 		return response::error(StatusCode::BAD_REQUEST, "Invalid protocol".into());
 	}
 
-	let base_path = file_loader::get_config_dir()
-		.join("applications")
-		.join(&protocol);
+	let base_path = file_loader::get_config_dir().join("applications").join(&protocol);
 
 	match config_file::find_config::<ApplicationConfig>(&base_path).await {
 		ConfigFileResult::NotFound => {
 			response::error(StatusCode::NOT_FOUND, format!("No config for {protocol}"))
 		}
-		ConfigFileResult::Single {
-			format, content, ..
-		} => response::success(ApplicationDetail {
+		ConfigFileResult::Single { format, content, .. } => response::success(ApplicationDetail {
 			protocol,
 			source_format: format,
 			pipeline: content.pipeline,
@@ -100,10 +89,9 @@ pub async fn get_application_handler(Path(protocol): Path<String>) -> impl IntoR
 				found.join(", ")
 			),
 		),
-		ConfigFileResult::Error(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Read error: {e}"),
-		),
+		ConfigFileResult::Error(e) => {
+			response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"))
+		}
 	}
 }
 
@@ -161,10 +149,7 @@ pub async fn post_application_handler(
 				converted_from: None,
 			})
 		}
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Write error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 	}
 }
 
@@ -215,9 +200,7 @@ pub async fn put_application_handler(
 	}
 	let base_path = base_dir.join(&protocol);
 
-	let deleted = config_file::delete_all_formats(&base_path)
-		.await
-		.unwrap_or(false);
+	let deleted = config_file::delete_all_formats(&base_path).await.unwrap_or(false);
 
 	match config_file::write_json(&base_path, &config).await {
 		Ok(path) => {
@@ -226,17 +209,10 @@ pub async fn put_application_handler(
 				port: 0,
 				protocol,
 				written_to: filename,
-				converted_from: if deleted {
-					Some("unknown".into())
-				} else {
-					None
-				},
+				converted_from: if deleted { Some("unknown".into()) } else { None },
 			})
 		}
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Write error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 	}
 }
 
@@ -259,16 +235,11 @@ pub async fn delete_application_handler(Path(protocol): Path<String>) -> impl In
 		return response::error(StatusCode::BAD_REQUEST, "Invalid protocol".into());
 	}
 
-	let base_path = file_loader::get_config_dir()
-		.join("applications")
-		.join(protocol);
+	let base_path = file_loader::get_config_dir().join("applications").join(protocol);
 
 	match config_file::delete_all_formats(&base_path).await {
 		Ok(true) => StatusCode::NO_CONTENT.into_response(),
 		Ok(false) => response::error(StatusCode::NOT_FOUND, "Config not found".into()),
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Delete error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Delete error: {e}")),
 	}
 }

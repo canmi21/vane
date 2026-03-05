@@ -29,17 +29,12 @@ pub async fn start() {
 
 	// 3. Initialize Config Manager
 	let config_dir_path = vane_primitives::common::config::file_loader::get_config_dir();
-	let config_dir_str = config_dir_path
-		.to_str()
-		.expect("Config dir path is not valid UTF-8");
+	let config_dir_str = config_dir_path.to_str().expect("Config dir path is not valid UTF-8");
 
 	let mut config = match ConfigManager::init(config_dir_str).await {
 		Ok(c) => c,
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("Failed to initialize config: {e}"),
-			);
+			log(LogLevel::Error, &format!("Failed to initialize config: {e}"));
 			return;
 		}
 	};
@@ -49,10 +44,7 @@ pub async fn start() {
 		Ok(result) => {
 			for (key, error) in &result.failed {
 				if error.to_lowercase().contains("validation") {
-					log(
-						LogLevel::Error,
-						&format!("✗ Validation failed for TCP listener [{key}]: {error}"),
-					);
+					log(LogLevel::Error, &format!("✗ Validation failed for TCP listener [{key}]: {error}"));
 				} else {
 					log(
 						LogLevel::Error,
@@ -61,20 +53,14 @@ pub async fn start() {
 				}
 			}
 		}
-		Err(e) => log(
-			LogLevel::Error,
-			&format!("Failed to load TCP listeners: {e}"),
-		),
+		Err(e) => log(LogLevel::Error, &format!("Failed to load TCP listeners: {e}")),
 	}
 
 	match config.listeners.udp.load().await {
 		Ok(result) => {
 			for (key, error) in &result.failed {
 				if error.to_lowercase().contains("validation") {
-					log(
-						LogLevel::Error,
-						&format!("✗ Validation failed for UDP listener [{key}]: {error}"),
-					);
+					log(LogLevel::Error, &format!("✗ Validation failed for UDP listener [{key}]: {error}"));
 				} else {
 					log(
 						LogLevel::Error,
@@ -83,20 +69,14 @@ pub async fn start() {
 				}
 			}
 		}
-		Err(e) => log(
-			LogLevel::Error,
-			&format!("Failed to load UDP listeners: {e}"),
-		),
+		Err(e) => log(LogLevel::Error, &format!("Failed to load UDP listeners: {e}")),
 	}
 
 	match config.resolvers.load().await {
 		Ok(result) => {
 			for (key, error) in &result.failed {
 				if error.to_lowercase().contains("validation") {
-					log(
-						LogLevel::Error,
-						&format!("✗ Validation failed for resolver [{key}]: {error}"),
-					);
+					log(LogLevel::Error, &format!("✗ Validation failed for resolver [{key}]: {error}"));
 				} else {
 					log(
 						LogLevel::Error,
@@ -112,10 +92,7 @@ pub async fn start() {
 		Ok(result) => {
 			for (key, error) in &result.failed {
 				if error.to_lowercase().contains("validation") {
-					log(
-						LogLevel::Error,
-						&format!("✗ Validation failed for application [{key}]: {error}"),
-					);
+					log(LogLevel::Error, &format!("✗ Validation failed for application [{key}]: {error}"));
 				} else {
 					log(
 						LogLevel::Error,
@@ -124,19 +101,13 @@ pub async fn start() {
 				}
 			}
 		}
-		Err(e) => log(
-			LogLevel::Error,
-			&format!("Failed to load applications: {e}"),
-		),
+		Err(e) => log(LogLevel::Error, &format!("Failed to load applications: {e}")),
 	}
 	// Nodes - suppress error if file not found (default behavior)
 	match config.nodes.load().await {
 		Ok(_) => log(LogLevel::Debug, "⚙ Loaded nodes configuration."),
 		Err(live::controller::LiveError::Load(live::loader::FmtError::NotFound)) => {
-			log(
-				LogLevel::Debug,
-				"⚙ Nodes configuration file not found. Using default.",
-			);
+			log(LogLevel::Debug, "⚙ Nodes configuration file not found. Using default.");
 		}
 		Err(e) => log(LogLevel::Error, &format!("Failed to load nodes: {e}")),
 	}
@@ -153,10 +124,7 @@ pub async fn start() {
 	// Start watchers for Live components
 	let _ = config.listeners.start_watching(watch_config.clone()).await;
 	let _ = config.resolvers.start_watching(watch_config.clone()).await;
-	let _ = config
-		.applications
-		.start_watching(watch_config.clone())
-		.await;
+	let _ = config.applications.start_watching(watch_config.clone()).await;
 	let _ = config.nodes.start_watching(watch_config.clone()).await;
 	if let Some(lc) = &mut config.lazycert {
 		let _ = lc.start_watching(watch_config.clone()).await;
@@ -222,10 +190,7 @@ fn setup_crypto() {
 }
 
 async fn start_initial_listeners(config: &ConfigManager) {
-	log(
-		LogLevel::Info,
-		"⚙ Initializing listeners from existing config...",
-	);
+	log(LogLevel::Info, "⚙ Initializing listeners from existing config...");
 
 	// TCP
 	let tcp_map = config.listeners.tcp.snapshot().await;
@@ -266,10 +231,7 @@ async fn start_certs_watcher(cert_dir: std::path::PathBuf) {
 			});
 		}
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Failed to start certs watcher: {e}"),
-			);
+			log(LogLevel::Error, &format!("✗ Failed to start certs watcher: {e}"));
 		}
 	}
 }

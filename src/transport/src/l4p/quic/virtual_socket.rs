@@ -40,27 +40,19 @@ impl VirtualUdpSocket {
 		physical_socket: Arc<UdpSocket>,
 		local_addr: SocketAddr,
 	) -> Self {
-		Self {
-			rx: Mutex::new(rx),
-			physical_socket,
-			local_addr,
-		}
+		Self { rx: Mutex::new(rx), physical_socket, local_addr }
 	}
 }
 
 impl AsyncUdpSocket for VirtualUdpSocket {
 	fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
 		// Poller mainly handles sending readiness for the OS socket
-		Box::pin(VirtualPoller {
-			socket: self.physical_socket.clone(),
-		})
+		Box::pin(VirtualPoller { socket: self.physical_socket.clone() })
 	}
 
 	fn try_send(&self, transmit: &Transmit<'_>) -> io::Result<()> {
 		// Direct non-blocking send via physical socket
-		self
-			.physical_socket
-			.try_send_to(transmit.contents, transmit.destination)?;
+		self.physical_socket.try_send_to(transmit.contents, transmit.destination)?;
 		Ok(())
 	}
 

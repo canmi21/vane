@@ -45,10 +45,7 @@ fn parse_cert_detail(id: &str, der: &[u8]) -> Option<CertDetail> {
 	let not_after_dt = x509.validity().not_after;
 	let not_after = not_after_dt.to_string();
 
-	let now = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.unwrap_or_default()
-		.as_secs() as i64;
+	let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 	let expires_in_days = (not_after_dt.timestamp() - now) / 86400;
 
 	let mut hasher = Sha256::new();
@@ -127,10 +124,7 @@ pub async fn get_cert_handler(Path(id): Path<String>) -> impl IntoResponse {
 		return response::success(detail);
 	}
 
-	response::error(
-		StatusCode::NOT_FOUND,
-		format!("Certificate '{id}' not found"),
-	)
+	response::error(StatusCode::NOT_FOUND, format!("Certificate '{id}' not found"))
 }
 
 /// Upload certificate
@@ -173,10 +167,7 @@ pub async fn upload_cert_handler(
 		);
 	}
 	if let Err(e) = fs::write(&key_path, &req.key_pem).await {
-		return response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Failed to write key: {e}"),
-		);
+		return response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write key: {e}"));
 	}
 
 	// 3. Try to parse metadata for response
@@ -197,12 +188,7 @@ pub async fn upload_cert_handler(
 		}
 	}
 
-	response::created(CertOperationResult {
-		id,
-		created: true,
-		subject,
-		not_after,
-	})
+	response::created(CertOperationResult { id, created: true, subject, not_after })
 }
 
 /// Delete certificate
@@ -222,10 +208,7 @@ pub async fn upload_cert_handler(
 )]
 pub async fn delete_cert_handler(Path(id): Path<String>) -> impl IntoResponse {
 	if id == "default" {
-		return response::error(
-			StatusCode::BAD_REQUEST,
-			"Cannot delete default certificate".into(),
-		);
+		return response::error(StatusCode::BAD_REQUEST, "Cannot delete default certificate".into());
 	}
 
 	let certs_dir = file_loader::get_config_dir().join("certs");
@@ -248,16 +231,8 @@ pub async fn delete_cert_handler(Path(id): Path<String>) -> impl IntoResponse {
 	}
 
 	if !found {
-		return response::error(
-			StatusCode::NOT_FOUND,
-			format!("Certificate '{id}' not found"),
-		);
+		return response::error(StatusCode::NOT_FOUND, format!("Certificate '{id}' not found"));
 	}
 
-	response::success(CertOperationResult {
-		id,
-		created: false,
-		subject: None,
-		not_after: None,
-	})
+	response::success(CertOperationResult { id, created: false, subject: None, not_after: None })
 }

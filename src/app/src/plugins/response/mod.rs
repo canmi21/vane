@@ -26,21 +26,9 @@ impl Plugin for SendResponsePlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "status".into(),
-				required: false,
-				param_type: ParamType::Integer,
-			},
-			ParamDef {
-				name: "headers".into(),
-				required: false,
-				param_type: ParamType::Map,
-			},
-			ParamDef {
-				name: "body".into(),
-				required: false,
-				param_type: ParamType::Any,
-			},
+			ParamDef { name: "status".into(), required: false, param_type: ParamType::Integer },
+			ParamDef { name: "headers".into(), required: false, param_type: ParamType::Map },
+			ParamDef { name: "body".into(), required: false, param_type: ParamType::Any },
 		]
 	}
 
@@ -64,23 +52,15 @@ impl L7Terminator for SendResponsePlugin {
 		context: &mut (dyn Any + Send),
 		inputs: ResolvedInputs,
 	) -> Result<TerminatorResult> {
-		let container = context
-			.downcast_mut::<Container>()
-			.ok_or_else(|| anyhow!("Context is not a Container"))?;
+		let container =
+			context.downcast_mut::<Container>().ok_or_else(|| anyhow!("Context is not a Container"))?;
 
 		// Check if this is a WebSocket upgrade (both handles present)
 		if let (Some(client_upgrade), Some(upstream_upgrade)) = (
-			container
-				.http_data_mut()
-				.and_then(|d| d.client_upgrade.take()),
-			container
-				.http_data_mut()
-				.and_then(|d| d.upstream_upgrade.take()),
+			container.http_data_mut().and_then(|d| d.client_upgrade.take()),
+			container.http_data_mut().and_then(|d| d.upstream_upgrade.take()),
 		) {
-			log(
-				LogLevel::Debug,
-				"➜ Establishing WebSocket bidirectional tunnel...",
-			);
+			log(LogLevel::Debug, "➜ Establishing WebSocket bidirectional tunnel...");
 
 			// Construct 101 Switching Protocols response
 			let mut response = Response::builder()
@@ -115,10 +95,7 @@ impl L7Terminator for SendResponsePlugin {
 						let mut client_io = hyper_util::rt::TokioIo::new(client_io);
 						let mut upstream_io = hyper_util::rt::TokioIo::new(upstream_io);
 
-						log(
-							LogLevel::Debug,
-							"✓ WebSocket tunnel established, starting bidirectional copy",
-						);
+						log(LogLevel::Debug, "✓ WebSocket tunnel established, starting bidirectional copy");
 
 						match tokio::io::copy_bidirectional(&mut client_io, &mut upstream_io).await {
 							Ok((client_to_upstream, upstream_to_client)) => {
@@ -130,10 +107,7 @@ impl L7Terminator for SendResponsePlugin {
 								);
 							}
 							Err(e) => {
-								log(
-									LogLevel::Warn,
-									&format!("⚠ WebSocket tunnel I/O error: {e}"),
-								);
+								log(LogLevel::Warn, &format!("⚠ WebSocket tunnel I/O error: {e}"));
 							}
 						}
 					}
@@ -152,11 +126,7 @@ impl L7Terminator for SendResponsePlugin {
 		// 1. Determine Status Code (Priority: Input > KV > 200)
 		let status_code = if let Some(s) = inputs.get("status").and_then(Value::as_u64) {
 			StatusCode::from_u16(s as u16).unwrap_or(StatusCode::OK)
-		} else if let Some(s) = container
-			.kv
-			.get("res.status")
-			.and_then(|s| s.parse::<u16>().ok())
-		{
+		} else if let Some(s) = container.kv.get("res.status").and_then(|s| s.parse::<u16>().ok()) {
 			StatusCode::from_u16(s).unwrap_or(StatusCode::OK)
 		} else {
 			StatusCode::OK
@@ -237,10 +207,7 @@ impl L7Terminator for SendResponsePlugin {
 		if let Some(tx) = container.response_tx.take() {
 			let _ = tx.send(response);
 		} else {
-			log(
-				LogLevel::Warn,
-				"⚠ SendResponse called but response channel is missing.",
-			);
+			log(LogLevel::Warn, "⚠ SendResponse called but response channel is missing.");
 		}
 
 		Ok(TerminatorResult::Finished)
@@ -257,17 +224,13 @@ fn parse_body_input(input: &Value) -> Result<Bytes> {
 				.and_then(Value::as_str)
 				.ok_or_else(|| anyhow!("Structured body missing 'content' field"))?;
 
-			let encoding = map
-				.get("encoding")
-				.and_then(Value::as_str)
-				.unwrap_or("text");
+			let encoding = map.get("encoding").and_then(Value::as_str).unwrap_or("text");
 
 			match encoding {
 				"base64" => {
 					use base64::prelude::*;
-					let decoded = BASE64_STANDARD
-						.decode(content)
-						.map_err(|e| anyhow!("Base64 decode failed: {e}"))?;
+					let decoded =
+						BASE64_STANDARD.decode(content).map_err(|e| anyhow!("Base64 decode failed: {e}"))?;
 					Ok(Bytes::from(decoded))
 				}
 				"hex" => {

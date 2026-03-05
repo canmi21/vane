@@ -18,16 +18,8 @@ impl Plugin for UpgradePlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "protocol".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "cert".into(),
-				required: false,
-				param_type: ParamType::String,
-			},
+			ParamDef { name: "protocol".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "cert".into(), required: false, param_type: ParamType::String },
 		]
 	}
 
@@ -91,16 +83,10 @@ impl Terminator for UpgradePlugin {
 					&format!("⚠ Attempting upgrade on Virtual connection to '{protocol}'."),
 				);
 			}
-			_ => log(
-				LogLevel::Warn,
-				&format!("⚠ Allowing unchecked upgrade to '{protocol}'."),
-			),
+			_ => log(LogLevel::Warn, &format!("⚠ Allowing unchecked upgrade to '{protocol}'.")),
 		}
 
-		log(
-			LogLevel::Debug,
-			&format!("➜ Signal upgrade to protocol: {protocol}"),
-		);
+		log(LogLevel::Debug, &format!("➜ Signal upgrade to protocol: {protocol}"));
 
 		Ok(TerminatorResult::Upgrade {
 			protocol: protocol.to_owned(),

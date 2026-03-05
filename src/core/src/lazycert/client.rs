@@ -50,11 +50,7 @@ impl LazyCertClient {
 			.build()
 			.expect("Failed to create HTTP client");
 
-		Self {
-			base_url: base_url.trim_end_matches('/').to_owned(),
-			token,
-			client,
-		}
+		Self { base_url: base_url.trim_end_matches('/').to_owned(), token, client }
 	}
 	/// Check if LazyCert is reachable
 	pub async fn health(&self) -> Result<bool> {
@@ -66,14 +62,8 @@ impl LazyCertClient {
 	/// Get pending HTTP-01 challenges
 	pub async fn get_challenges(&self) -> Result<Vec<ChallengeInfo>> {
 		let url = format!("{}/challenges", self.base_url);
-		let resp: ApiResponse<ChallengesResponse> = self
-			.client
-			.get(&url)
-			.bearer_auth(&self.token)
-			.send()
-			.await?
-			.json()
-			.await?;
+		let resp: ApiResponse<ChallengesResponse> =
+			self.client.get(&url).bearer_auth(&self.token).send().await?.json().await?;
 
 		if resp.status != "success" {
 			return Err(anyhow!("Failed to get challenges: {:?}", resp.message));
@@ -85,19 +75,11 @@ impl LazyCertClient {
 	/// Mark challenge as solved (Vane has prepared the response)
 	pub async fn mark_challenge_solved(&self, challenge_id: &str) -> Result<()> {
 		let url = format!("{}/challenges/{}/solved", self.base_url, challenge_id);
-		let resp = self
-			.client
-			.post(&url)
-			.bearer_auth(&self.token)
-			.json(&serde_json::json!({}))
-			.send()
-			.await?;
+		let resp =
+			self.client.post(&url).bearer_auth(&self.token).json(&serde_json::json!({})).send().await?;
 
 		if !resp.status().is_success() {
-			return Err(anyhow!(
-				"Failed to mark challenge solved: {}",
-				resp.status()
-			));
+			return Err(anyhow!("Failed to mark challenge solved: {}", resp.status()));
 		}
 
 		Ok(())
@@ -123,21 +105,9 @@ impl LazyCertClient {
 			mode: Option<String>,
 		}
 
-		let req = Request {
-			id: id.to_owned(),
-			domains,
-			client_ip,
-			mode,
-		};
-		let resp: ApiResponse<CertificateResponse> = self
-			.client
-			.post(&url)
-			.bearer_auth(&self.token)
-			.json(&req)
-			.send()
-			.await?
-			.json()
-			.await?;
+		let req = Request { id: id.to_owned(), domains, client_ip, mode };
+		let resp: ApiResponse<CertificateResponse> =
+			self.client.post(&url).bearer_auth(&self.token).json(&req).send().await?.json().await?;
 
 		resp.data.ok_or_else(|| anyhow!("No data in response"))
 	}

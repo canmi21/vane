@@ -85,33 +85,20 @@ async fn sync_challenges(client: &LazyCertClient) -> Result<()> {
 		}
 
 		// Register challenge
-		log(
-			LogLevel::Info,
-			&format!("Registering HTTP-01 challenge for domain: {}", ch.domain),
-		);
+		log(LogLevel::Info, &format!("Registering HTTP-01 challenge for domain: {}", ch.domain));
 
 		CHALLENGE_REGISTRY.insert(
 			ch.token.clone(),
-			ChallengeEntry::new(
-				ch.key_authorization.clone(),
-				ch.domain.clone(),
-				ch.id.clone(),
-			),
+			ChallengeEntry::new(ch.key_authorization.clone(), ch.domain.clone(), ch.id.clone()),
 		);
 
 		// Notify LazyCert that challenge is ready
 		if let Err(e) = client.mark_challenge_solved(&ch.id).await {
-			log(
-				LogLevel::Error,
-				&format!("Failed to mark challenge solved: {e}"),
-			);
+			log(LogLevel::Error, &format!("Failed to mark challenge solved: {e}"));
 			// Remove from registry since LazyCert doesn't know we're ready
 			CHALLENGE_REGISTRY.remove(&ch.token);
 		} else {
-			log(
-				LogLevel::Info,
-				&format!("Challenge ready for domain: {}", ch.domain),
-			);
+			log(LogLevel::Info, &format!("Challenge ready for domain: {}", ch.domain));
 		}
 	}
 
@@ -144,10 +131,7 @@ pub async fn save_certificate_from_response(
 	fs::rename(&cert_temp, &cert_path).await?;
 	fs::rename(&key_temp, &key_path).await?;
 
-	log(
-		LogLevel::Info,
-		&format!("Saved certificate '{cert_id}' to certs/"),
-	);
+	log(LogLevel::Info, &format!("Saved certificate '{cert_id}' to certs/"));
 
 	// Trigger hot-reload
 	scan_and_load_certs().await;

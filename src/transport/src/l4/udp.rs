@@ -28,38 +28,21 @@ pub async fn dispatch_udp_datagram(
 
 		// 2. FLOW MODE
 		UdpConfig::Flow(flow_config) => {
-			log(
-				LogLevel::Debug,
-				&format!("⚙ Entering Flow Engine path for UDP from {client_addr}."),
-			);
+			log(LogLevel::Debug, &format!("⚙ Entering Flow Engine path for UDP from {client_addr}."));
 
 			context::populate_udp_context(&datagram, &mut kv_store);
 
-			let conn_object = ConnectionObject::Udp {
-				socket: socket.clone(),
-				datagram: datagram.clone(),
-				client_addr,
-			};
-			let result = flow::execute(
-				&flow_config.connection,
-				&mut kv_store,
-				conn_object,
-				ahash::AHashMap::new(),
-			)
-			.await;
+			let conn_object =
+				ConnectionObject::Udp { socket: socket.clone(), datagram: datagram.clone(), client_addr };
+			let result =
+				flow::execute(&flow_config.connection, &mut kv_store, conn_object, ahash::AHashMap::new())
+					.await;
 			match result {
 				Ok(TerminatorResult::Finished) => {
 					log(LogLevel::Debug, "✓ UDP Flow handled at L4.");
 				}
-				Ok(TerminatorResult::Upgrade {
-					protocol,
-					conn,
-					parent_path,
-				}) => {
-					log(
-						LogLevel::Info,
-						&format!("➜ Upgrading UDP flow to: {protocol}"),
-					);
+				Ok(TerminatorResult::Upgrade { protocol, conn, parent_path }) => {
+					log(LogLevel::Info, &format!("➜ Upgrading UDP flow to: {protocol}"));
 
 					match (protocol.as_str(), conn) {
 						#[cfg(feature = "quic")]
@@ -75,18 +58,12 @@ pub async fn dispatch_udp_datagram(
 							log(LogLevel::Error, "✗ QUIC support is disabled in this build.");
 						}
 						(p, _) => {
-							log(
-								LogLevel::Error,
-								&format!("✗ Unsupported upgrade protocol '{p}' for UDP flow."),
-							);
+							log(LogLevel::Error, &format!("✗ Unsupported upgrade protocol '{p}' for UDP flow."));
 						}
 					}
 				}
 				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ UDP Flow execution failed for {client_addr}: {e:#}"),
-					);
+					log(LogLevel::Error, &format!("✗ UDP Flow execution failed for {client_addr}: {e:#}"));
 				}
 			}
 		}

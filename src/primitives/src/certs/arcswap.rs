@@ -21,9 +21,7 @@ impl Clone for LoadedCert {
 	fn clone(&self) -> Self {
 		Self {
 			certs: self.certs.clone(),
-			key: self
-				.key_clone()
-				.expect("failed to clone key in LoadedCert::clone"),
+			key: self.key_clone().expect("failed to clone key in LoadedCert::clone"),
 		}
 	}
 }
@@ -32,15 +30,15 @@ impl LoadedCert {
 	/// Manually clones the PrivateKeyDer.
 	pub fn key_clone(&self) -> Result<PrivateKeyDer<'static>> {
 		match &self.key {
-			PrivateKeyDer::Pkcs8(k) => Ok(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
-				k.secret_pkcs8_der().to_vec(),
-			))),
-			PrivateKeyDer::Pkcs1(k) => Ok(PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(
-				k.secret_pkcs1_der().to_vec(),
-			))),
-			PrivateKeyDer::Sec1(k) => Ok(PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(
-				k.secret_sec1_der().to_vec(),
-			))),
+			PrivateKeyDer::Pkcs8(k) => {
+				Ok(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(k.secret_pkcs8_der().to_vec())))
+			}
+			PrivateKeyDer::Pkcs1(k) => {
+				Ok(PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(k.secret_pkcs1_der().to_vec())))
+			}
+			PrivateKeyDer::Sec1(k) => {
+				Ok(PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(k.secret_sec1_der().to_vec())))
+			}
 			_ => Err(Error::Tls("Unsupported key format in registry".into())),
 		}
 	}

@@ -42,11 +42,7 @@ impl ConnectionIdGenerator for VaneCidGenerator {
 
 		session::register_session(
 			bytes.to_vec(),
-			SessionAction::Terminate {
-				muxer_port: self.port,
-				last_seen: Instant::now(),
-				_guard: None,
-			},
+			SessionAction::Terminate { muxer_port: self.port, last_seen: Instant::now(), _guard: None },
 		);
 
 		cid
@@ -94,10 +90,7 @@ impl QuicMuxer {
 	}
 
 	fn new(port: u16, cert_sni: &str, physical_socket: Arc<UdpSocket>) -> Self {
-		log(
-			LogLevel::Info,
-			&format!("➜ Initializing QUIC Muxer (Virtual Socket) for port {port}"),
-		);
+		log(LogLevel::Info, &format!("➜ Initializing QUIC Muxer (Virtual Socket) for port {port}"));
 
 		let channel_cap = envflag::get::<usize>("QUIC_VIRTUAL_CHANNEL_CAPACITY", 1024);
 
@@ -111,10 +104,7 @@ impl QuicMuxer {
 			let server_config = match Self::build_server_config(&cert_id) {
 				Ok(c) => c,
 				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ Failed to build QUIC config: {e}"),
-					);
+					log(LogLevel::Error, &format!("✗ Failed to build QUIC config: {e}"));
 					return;
 				}
 			};
@@ -130,18 +120,12 @@ impl QuicMuxer {
 			) {
 				Ok(e) => e,
 				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ Failed to create QUIC endpoint: {e}"),
-					);
+					log(LogLevel::Error, &format!("✗ Failed to create QUIC endpoint: {e}"));
 					return;
 				}
 			};
 
-			log(
-				LogLevel::Info,
-				&format!("✓ QUIC Endpoint initialized (port {port})"),
-			);
+			log(LogLevel::Info, &format!("✓ QUIC Endpoint initialized (port {port})"));
 
 			while let Some(incoming) = endpoint.accept().await {
 				tokio::spawn(async move {
@@ -157,10 +141,7 @@ impl QuicMuxer {
 			}
 		});
 
-		Self {
-			tx,
-			last_active: Mutex::new(Instant::now()),
-		}
+		Self { tx, last_active: Mutex::new(Instant::now()) }
 	}
 
 	fn build_server_config(cert_id: &str) -> Result<quinn::ServerConfig> {
@@ -181,11 +162,7 @@ impl QuicMuxer {
 
 		let mut transport = quinn::TransportConfig::default();
 		transport.max_idle_timeout(
-			std::time::Duration::from_secs(30)
-				.try_into()
-				.ok()
-				.map(Some)
-				.unwrap_or(None),
+			std::time::Duration::from_secs(30).try_into().ok().map(Some).unwrap_or(None),
 		);
 		transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
 		server_config.transport_config(Arc::new(transport));
@@ -199,11 +176,7 @@ impl QuicMuxer {
 		src_addr: SocketAddr,
 		dst_addr: SocketAddr,
 	) -> Result<()> {
-		let packet = VirtualPacket {
-			data,
-			src_addr,
-			dst_addr,
-		};
+		let packet = VirtualPacket { data, src_addr, dst_addr };
 
 		// Drop packet if channel is full
 		match self.tx.try_send(packet) {

@@ -51,9 +51,7 @@ pub async fn determine_mime_type(path: &Path, file: &mut File) -> String {
 /// Format: W/"<mtime_nanos>-<size>"
 #[must_use]
 pub fn generate_etag(modified: std::time::SystemTime, size: u64) -> String {
-	let duration = modified
-		.duration_since(std::time::UNIX_EPOCH)
-		.unwrap_or_default();
+	let duration = modified.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
 	format!("W/\"{:x}-{:x}\"", duration.as_nanos(), size)
 }
 
@@ -77,10 +75,7 @@ mod tests {
 
 		// 2. JSON
 		let path = Path::new("data.json");
-		assert_eq!(
-			determine_mime_type(path, &mut file).await,
-			"application/json"
-		);
+		assert_eq!(determine_mime_type(path, &mut file).await, "application/json");
 
 		// 3. Image (Case Insensitive)
 		let path = Path::new("PHOTO.JPG");
@@ -125,10 +120,7 @@ mod tests {
 		let mut file = File::open(tmp.path()).await.unwrap();
 		let path = Path::new("binary.data");
 
-		assert_eq!(
-			determine_mime_type(path, &mut file).await,
-			"application/octet-stream"
-		);
+		assert_eq!(determine_mime_type(path, &mut file).await, "application/octet-stream");
 	}
 
 	#[test]

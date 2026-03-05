@@ -25,10 +25,7 @@ pub async fn run(
 	parent_path: String,
 	protocol: &str,
 ) -> Result<()> {
-	log(
-		LogLevel::Debug,
-		&format!("➜ Entering Plaintext L4+ Resolver ({protocol})"),
-	);
+	log(LogLevel::Debug, &format!("➜ Entering Plaintext L4+ Resolver ({protocol})"));
 
 	// 1. Configurable Peek Buffer
 	let peek_limit = envflag::get::<usize>("HTTP_PLAIN_HEADER_BUFFER_SIZE", 4096);
@@ -72,10 +69,7 @@ pub async fn run(
 					);
 				}
 				Err(_) => {
-					log(
-						LogLevel::Debug,
-						"⚙ Failed to parse HTTP headers in L4+ peek (Non-HTTP traffic?)",
-					);
+					log(LogLevel::Debug, "⚙ Failed to parse HTTP headers in L4+ peek (Non-HTTP traffic?)");
 				}
 			}
 		}
@@ -104,14 +98,8 @@ pub async fn run(
 		.get(protocol)
 		.ok_or_else(|| anyhow!("No resolver config found for '{protocol}'"))?;
 
-	let execution_result = flow::execute(
-		&config.connection,
-		kv,
-		conn,
-		parent_path,
-		ahash::AHashMap::new(),
-	)
-	.await;
+	let execution_result =
+		flow::execute(&config.connection, kv, conn, parent_path, ahash::AHashMap::new()).await;
 
 	// 4. Handle Outcome
 	match execution_result {
@@ -119,26 +107,17 @@ pub async fn run(
 			// Connection handled at L4+ layer (e.g., L4 Proxy, Deny, etc.)
 			Ok(())
 		}
-		Ok(TerminatorResult::Upgrade {
-			protocol: target_proto,
-			conn,
-			parent_path: _,
-		}) => {
+		Ok(TerminatorResult::Upgrade { protocol: target_proto, conn, parent_path: _ }) => {
 			// 5. Upgrade to L7 (httpx)
 			// Valid targets: httpx, h1, h2, http/1.1
 			if matches!(target_proto.as_str(), "httpx" | "http/1.1" | "h1" | "h2") {
 				handle_plain_handover(conn, target_proto).await
 			} else {
-				Err(anyhow!(
-					"Unsupported L7 upgrade protocol from Plaintext: {target_proto}"
-				))
+				Err(anyhow!("Unsupported L7 upgrade protocol from Plaintext: {target_proto}"))
 			}
 		}
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Plain Flow execution failed: {e:#}"),
-			);
+			log(LogLevel::Error, &format!("✗ Plain Flow execution failed: {e:#}"));
 			Err(e)
 		}
 	}
@@ -146,14 +125,9 @@ pub async fn run(
 
 /// Hands over the TCP stream to the L7 Engine.
 async fn handle_plain_handover(conn: ConnectionObject, target_protocol: String) -> Result<()> {
-	log(
-		LogLevel::Debug,
-		&format!("➜ Handing over to L7 Engine ({target_protocol})..."),
-	);
+	log(LogLevel::Debug, &format!("➜ Handing over to L7 Engine ({target_protocol})..."));
 
-	httpx::handle_connection(conn, target_protocol)
-		.await
-		.map_err(|e| anyhow!("L7 Engine Error: {e}"))
+	httpx::handle_connection(conn, target_protocol).await.map_err(|e| anyhow!("L7 Engine Error: {e}"))
 }
 
 /// Handle ACME HTTP-01 challenge response
@@ -190,10 +164,7 @@ async fn handle_acme_challenge(mut stream: TcpStream, token: &str) -> Result<()>
 	stream.write_all(response.as_bytes()).await?;
 	stream.shutdown().await?;
 
-	log(
-		LogLevel::Debug,
-		&format!("ACME HTTP-01 challenge response for token: {token}"),
-	);
+	log(LogLevel::Debug, &format!("ACME HTTP-01 challenge response for token: {token}"));
 
 	Ok(())
 }

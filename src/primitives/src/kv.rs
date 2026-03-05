@@ -37,10 +37,7 @@ pub fn new(peer_addr: &SocketAddr, server_addr: &SocketAddr, protocol: &str) -> 
 	kv.insert("conn.ip".to_owned(), peer_addr.ip().to_string());
 	kv.insert("conn.port".to_owned(), peer_addr.port().to_string());
 	kv.insert("conn.proto".to_owned(), protocol.to_lowercase());
-	kv.insert(
-		"conn.timestamp".to_owned(),
-		Utc::now().timestamp().to_string(),
-	);
+	kv.insert("conn.timestamp".to_owned(), Utc::now().timestamp().to_string());
 	kv.insert("server.ip".to_owned(), server_addr.ip().to_string());
 	kv.insert("server.port".to_owned(), server_addr.port().to_string());
 

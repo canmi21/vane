@@ -18,17 +18,12 @@ use vane_primitives::kv::KvStore;
 
 /// Entry point for Httpx Protocol (L7).
 pub async fn handle_connection(conn: ConnectionObject, protocol_id: String) -> Result<()> {
-	log(
-		LogLevel::Debug,
-		&format!("➜ Starting L7 Httpx Engine (Proto: {protocol_id})..."),
-	);
+	log(LogLevel::Debug, &format!("➜ Starting L7 Httpx Engine (Proto: {protocol_id})..."));
 
 	let io = match conn {
 		ConnectionObject::Stream(boxed_stream) => TokioIo::new(boxed_stream),
 		_ => {
-			return Err(Error::System(
-				"Httpx engine requires a Stream connection.".into(),
-			));
+			return Err(Error::System("Httpx engine requires a Stream connection.".into()));
 		}
 	};
 
@@ -85,11 +80,8 @@ async fn serve_request(
 			.unwrap_or(false);
 
 	// Capture client upgrade handle before destructuring request
-	let client_upgrade = if is_h1_websocket_upgrade {
-		Some(hyper::upgrade::on(&mut req))
-	} else {
-		None
-	};
+	let client_upgrade =
+		if is_h1_websocket_upgrade { Some(hyper::upgrade::on(&mut req)) } else { None };
 
 	// Now safe to destructure request
 	let (mut parts, body) = req.into_parts();
@@ -146,19 +138,13 @@ async fn serve_request(
 		if let Some(c) = config_manager.applications.get(&protocol_id) {
 			c.clone()
 		} else {
-			log(
-				LogLevel::Error,
-				&format!("✗ No config for app protocol: {protocol_id}"),
-			);
+			log(LogLevel::Error, &format!("✗ No config for app protocol: {protocol_id}"));
 			return response_error(500, "Configuration Error");
 		}
 	};
 
 	if let Err(e) = flow::execute_l7(&config.pipeline, &mut container, "".to_owned()).await {
-		log(
-			LogLevel::Error,
-			&format!("✗ L7 Flow Execution Failed: {e:#}"),
-		);
+		log(LogLevel::Error, &format!("✗ L7 Flow Execution Failed: {e:#}"));
 		return response_error(502, "Bad Gateway (Flow Error)");
 	}
 
@@ -172,10 +158,7 @@ async fn serve_request(
 
 		Ok(Response::from_parts(parts, final_body))
 	} else {
-		log(
-			LogLevel::Warn,
-			"⚠ Flow finished but no response signal received.",
-		);
+		log(LogLevel::Warn, "⚠ Flow finished but no response signal received.");
 		Ok(response_error(502, "Bad Gateway (No Response Signal)")?)
 	}
 }
@@ -196,9 +179,7 @@ pub(super) fn extract_response_body_from_container(
 }
 
 fn response_error(status: u16, msg: &str) -> Result<Response<BoxBody<Bytes, Error>>> {
-	let body = Full::new(Bytes::from(msg.to_owned()))
-		.map_err(|e| match e {})
-		.boxed();
+	let body = Full::new(Bytes::from(msg.to_owned())).map_err(|e| match e {}).boxed();
 	Response::builder()
 		.status(status)
 		.body(body)

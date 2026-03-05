@@ -34,8 +34,5 @@ fn get_command_output(cmd: &str, args: &[&str]) -> String {
 		.output()
 		.unwrap_or_else(|e| panic!("Failed to execute command '{cmd}': {e}"));
 
-	str::from_utf8(&output.stdout)
-		.unwrap_or("unknown")
-		.trim()
-		.to_owned()
+	str::from_utf8(&output.stdout).unwrap_or("unknown").trim().to_owned()
 }

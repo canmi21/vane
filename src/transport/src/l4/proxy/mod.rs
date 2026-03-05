@@ -23,10 +23,7 @@ pub struct IdleWatchdog<S> {
 
 impl<S> IdleWatchdog<S> {
 	pub fn new(inner: S, last_activity: Arc<AtomicU64>) -> Self {
-		Self {
-			inner,
-			last_activity,
-		}
+		Self { inner, last_activity }
 	}
 
 	fn update_activity(&self) {

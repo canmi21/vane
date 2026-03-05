@@ -22,22 +22,13 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 // TCP Logic
 pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarget) -> Result<()> {
-	let peer_addr = client_stream
-		.peer_addr()
-		.map_or_else(|_| "unknown".to_owned(), |a| a.to_string());
+	let peer_addr =
+		client_stream.peer_addr().map_or_else(|_| "unknown".to_owned(), |a| a.to_string());
 	let target_str = format!("{}:{}", target.ip, target.port);
 
-	log(
-		LogLevel::Debug,
-		&format!("➜ Proxying TCP connection from {peer_addr} to {target_str}"),
-	);
+	log(LogLevel::Debug, &format!("➜ Proxying TCP connection from {peer_addr} to {target_str}"));
 
-	match timeout(
-		CONNECT_TIMEOUT,
-		TcpStream::connect((target.ip.as_str(), target.port)),
-	)
-	.await
-	{
+	match timeout(CONNECT_TIMEOUT, TcpStream::connect((target.ip.as_str(), target.port))).await {
 		Ok(Ok(mut upstream_stream)) => {
 			let _ = client_stream.set_nodelay(true);
 			let _ = upstream_stream.set_nodelay(true);
@@ -54,18 +45,12 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 			}
 		}
 		Ok(Err(e)) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Failed to connect to upstream target {target_str}: {e}"),
-			);
+			log(LogLevel::Error, &format!("✗ Failed to connect to upstream target {target_str}: {e}"));
 			health::mark_tcp_target_unhealthy(&target);
 			Err(anyhow::Error::new(e))
 		}
 		Err(_) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Timeout connecting to upstream target {target_str}"),
-			);
+			log(LogLevel::Error, &format!("✗ Timeout connecting to upstream target {target_str}"));
 			health::mark_tcp_target_unhealthy(&target);
 			Err(anyhow::anyhow!("Connection timed out"))
 		}
@@ -78,17 +63,10 @@ pub async fn proxy_generic_stream(
 ) -> Result<()> {
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ Generic Stream Proxy to upstream: {}:{}",
-			target.ip, target.port
-		),
+		&format!("➜ Generic Stream Proxy to upstream: {}:{}", target.ip, target.port),
 	);
 
-	match timeout(
-		CONNECT_TIMEOUT,
-		TcpStream::connect(format!("{}:{}", target.ip, target.port)),
-	)
-	.await
+	match timeout(CONNECT_TIMEOUT, TcpStream::connect(format!("{}:{}", target.ip, target.port))).await
 	{
 		Ok(Ok(mut upstream_stream)) => {
 			let _ = upstream_stream.set_nodelay(true);
@@ -117,11 +95,8 @@ pub async fn proxy_generic_stream(
 
 // UDP Logic
 async fn bind_upstream_socket(target_ip: &IpAddr) -> Result<UdpSocket, std::io::Error> {
-	let bind_addr: SocketAddr = if target_ip.is_ipv6() {
-		([0; 16], 0).into()
-	} else {
-		([0; 4], 0).into()
-	};
+	let bind_addr: SocketAddr =
+		if target_ip.is_ipv6() { ([0; 16], 0).into() } else { ([0; 4], 0).into() };
 	UdpSocket::bind(bind_addr).await
 }
 
@@ -138,10 +113,7 @@ fn spawn_reply_handler(
 					tokio::time::timeout(timeout, upstream_socket.recv_from(&mut buf)).await
 				{
 					if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr)
-						&& main_socket
-							.send_to(&buf[..len], *client_addr)
-							.await
-							.is_err()
+						&& main_socket.send_to(&buf[..len], *client_addr).await.is_err()
 					{
 						break;
 					}
@@ -174,14 +146,8 @@ pub async fn proxy_udp_direct(
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
-			let target_addr = format!(
-				"{}:{}",
-				updated_session.target.ip, updated_session.target.port
-			);
-			let send_result = updated_session
-				.upstream_socket
-				.send_to(datagram, &target_addr)
-				.await;
+			let target_addr = format!("{}:{}", updated_session.target.ip, updated_session.target.port);
+			let send_result = updated_session.upstream_socket.send_to(datagram, &target_addr).await;
 
 			if send_result.is_err() {
 				health::mark_udp_target_unhealthy(&updated_session.target);
@@ -201,9 +167,8 @@ pub async fn proxy_udp_direct(
 	}
 
 	let target_ip = target.ip.parse::<IpAddr>().context("Invalid target IP")?;
-	let upstream_socket = bind_upstream_socket(&target_ip)
-		.await
-		.context("Failed to bind upstream socket")?;
+	let upstream_socket =
+		bind_upstream_socket(&target_ip).await.context("Failed to bind upstream socket")?;
 	let upstream_arc = Arc::new(upstream_socket);
 
 	if let Ok(local_addr) = upstream_arc.local_addr() {
@@ -236,20 +201,13 @@ pub async fn proxy_udp_direct(
 			envflag::get::<u64>("UDP_TIMEOUT_REMOTE", 5000)
 		};
 
-		spawn_reply_handler(
-			upstream_arc.clone(),
-			main_socket,
-			Duration::from_millis(timeout_ms),
-		);
+		spawn_reply_handler(upstream_arc.clone(), main_socket, Duration::from_millis(timeout_ms));
 
 		let target_addr = format!("{}:{}", target.ip, target.port);
 		let send_result = upstream_arc.send_to(datagram, &target_addr).await;
 		send_result.context("Failed to forward initial UDP packet")?;
 
-		log(
-			LogLevel::Debug,
-			&format!("➜ Established UDP NAT mapping: {client_addr} <-> {nat_key}"),
-		);
+		log(LogLevel::Debug, &format!("➜ Established UDP NAT mapping: {client_addr} <-> {nat_key}"));
 		return Ok(());
 	}
 
@@ -308,16 +266,10 @@ pub async fn proxy_quic_association(
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
-			let target_addr = format!(
-				"{}:{}",
-				updated_session.target.ip, updated_session.target.port
-			);
+			let target_addr = format!("{}:{}", updated_session.target.ip, updated_session.target.port);
 
 			// Forward current packet
-			let send_result = updated_session
-				.upstream_socket
-				.send_to(datagram, &target_addr)
-				.await;
+			let send_result = updated_session.upstream_socket.send_to(datagram, &target_addr).await;
 
 			// --- FIX: Refresh Sticky Session (Keepalive) ---
 			// Ensure L4 fallback keeps working using the correct upstream socket
@@ -347,15 +299,11 @@ pub async fn proxy_quic_association(
 	}
 
 	// 2. New Session Logic
-	let bind_addr: SocketAddr = if target.ip.contains(':') {
-		([0; 16], 0).into()
-	} else {
-		([0; 4], 0).into()
-	};
+	let bind_addr: SocketAddr =
+		if target.ip.contains(':') { ([0; 16], 0).into() } else { ([0; 4], 0).into() };
 
-	let upstream_socket = UdpSocket::bind(bind_addr)
-		.await
-		.context("Failed to bind ephemeral socket for QUIC")?;
+	let upstream_socket =
+		UdpSocket::bind(bind_addr).await.context("Failed to bind ephemeral socket for QUIC")?;
 	let upstream_arc = Arc::new(upstream_socket);
 
 	if let Ok(local_addr) = upstream_arc.local_addr() {
@@ -405,9 +353,8 @@ pub async fn proxy_quic_association(
 		);
 
 		let target_addr_str = format!("{}:{}", target.ip, target.port);
-		let target_socket_addr = target_addr_str
-			.parse::<SocketAddr>()
-			.context("Invalid Target Addr")?;
+		let target_socket_addr =
+			target_addr_str.parse::<SocketAddr>().context("Invalid Target Addr")?;
 
 		// --- INTEGRATION: Register L4+ Session (Fast Path + Sticky) ---
 		if let Some(dcid) = parser::peek_long_header_dcid(datagram) {
@@ -433,10 +380,7 @@ pub async fn proxy_quic_association(
 
 			log(
 				LogLevel::Debug,
-				&format!(
-					"⚙ Registered QUIC Forward Session for DCID len={}",
-					dcid.len()
-				),
+				&format!("⚙ Registered QUIC Forward Session for DCID len={}", dcid.len()),
 			);
 
 			// 3. Flush Queue
@@ -444,10 +388,7 @@ pub async fn proxy_quic_association(
 				let packets = state.drain_queue();
 				log(
 					LogLevel::Debug,
-					&format!(
-						"➜ Flushing {} buffered packets to Upstream Proxy",
-						packets.len()
-					),
+					&format!("➜ Flushing {} buffered packets to Upstream Proxy", packets.len()),
 				);
 
 				for (pkt, _, _) in packets {
@@ -473,10 +414,7 @@ pub async fn proxy_quic_association(
 
 		send_result.context("Failed to forward initial QUIC packet")?;
 
-		log(
-			LogLevel::Debug,
-			&format!("➜ Established QUIC NAT mapping: {client_addr} <-> {nat_key}"),
-		);
+		log(LogLevel::Debug, &format!("➜ Established QUIC NAT mapping: {client_addr} <-> {nat_key}"));
 	}
 
 	Ok(())

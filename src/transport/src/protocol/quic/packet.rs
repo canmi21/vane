@@ -47,12 +47,8 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 		return Err(anyhow!("Truncated Version"));
 	}
 	let version_bytes = &payload[cursor..cursor + 4];
-	let version_val = u32::from_be_bytes([
-		version_bytes[0],
-		version_bytes[1],
-		version_bytes[2],
-		version_bytes[3],
-	]);
+	let version_val =
+		u32::from_be_bytes([version_bytes[0], version_bytes[1], version_bytes[2], version_bytes[3]]);
 	let version = format!("0x{version_val:08x}");
 	cursor += 4;
 
@@ -121,14 +117,7 @@ pub fn parse_initial_packet(payload: &[u8]) -> Result<QuicInitialData> {
 	)
 	.unwrap_or((None, BTreeMap::new()));
 
-	Ok(QuicInitialData {
-		version,
-		dcid,
-		scid,
-		token,
-		sni_hint,
-		crypto_frames,
-	})
+	Ok(QuicInitialData { version, dcid, scid, token, sni_hint, crypto_frames })
 }
 
 // Helpers for L4 Fast Path
@@ -184,19 +173,15 @@ mod tests {
 		assert_eq!(read_varint(&[0x40, 0x40]).unwrap(), (64, 2));
 		assert_eq!(read_varint(&[0x7b, 0xbd]).unwrap(), (15293, 2));
 		// 4-byte
-		assert_eq!(
-			read_varint(&[0x9d, 0x7f, 0x3e, 0x7d]).unwrap(),
-			(494878333, 4)
-		);
+		assert_eq!(read_varint(&[0x9d, 0x7f, 0x3e, 0x7d]).unwrap(), (494878333, 4));
 	}
 
 	#[test]
 	fn test_peek_long_header_dcid() {
 		// Long Header: [First(1)] [Version(4)] [DCIDLen(1)] [DCID(N)]
 		// DCIDLen = 8, DCID = 0102030405060708
-		let packet = vec![
-			0xc0, 0x00, 0x00, 0x00, 0x01, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-		];
+		let packet =
+			vec![0xc0, 0x00, 0x00, 0x00, 0x01, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 		let dcid = peek_long_header_dcid(&packet).unwrap();
 		assert_eq!(dcid, vec![1, 2, 3, 4, 5, 6, 7, 8]);
 

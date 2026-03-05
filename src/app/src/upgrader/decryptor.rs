@@ -15,9 +15,7 @@ pub async fn terminate_and_handover(
 ) -> Result<()> {
 	// 1. Unwrap the L4+ Stream
 	let ConnectionObject::Stream(stream) = conn else {
-		return Err(anyhow!(
-			"Cannot terminate TLS on non-stream connection object"
-		));
+		return Err(anyhow!("Cannot terminate TLS on non-stream connection object"));
 	};
 
 	// 2. Determine Certificate Strategy
@@ -45,10 +43,7 @@ pub async fn terminate_and_handover(
 		}
 	};
 
-	log(
-		LogLevel::Debug,
-		&format!("⚙ Terminating TLS using certificate for: '{cert_lookup_key}'"),
-	);
+	log(LogLevel::Debug, &format!("⚙ Terminating TLS using certificate for: '{cert_lookup_key}'"));
 
 	// 4. Configure ALPN
 	let mut server_config = rustls::ServerConfig::builder()
@@ -67,10 +62,7 @@ pub async fn terminate_and_handover(
 	// 5. Handshake
 	match acceptor.accept(stream).await {
 		Ok(tls_stream) => {
-			log(
-				LogLevel::Debug,
-				"✓ TLS Handshake successful. Upgrading to L7.",
-			);
+			log(LogLevel::Debug, "✓ TLS Handshake successful. Upgrading to L7.");
 
 			// Re-wrap as ConnectionObject::Stream (now decrypted)
 			let l7_conn = ConnectionObject::Stream(Box::new(tls_stream));

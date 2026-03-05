@@ -36,10 +36,7 @@ pub async fn execute<C: ExecutionContext>(
 	{
 		result
 	} else {
-		log(
-			LogLevel::Error,
-			&format!("✗ Flow execution timed out after {timeout_secs}s"),
-		);
+		log(LogLevel::Error, &format!("✗ Flow execution timed out after {timeout_secs}s"));
 		Err(anyhow!("Flow execution timeout"))
 	}
 }
@@ -53,16 +50,11 @@ async fn execute_recursive<C: ExecutionContext>(
 ) -> Result<TerminatorResult> {
 	// 1. Parse step (exactly one plugin per step)
 	if step.len() != 1 {
-		return Err(anyhow!(
-			"Invalid step: expected exactly 1 plugin, found {}",
-			step.len()
-		));
+		return Err(anyhow!("Invalid step: expected exactly 1 plugin, found {}", step.len()));
 	}
 
-	let (plugin_name, instance) = step
-		.iter()
-		.next()
-		.ok_or_else(|| anyhow!("Empty processing step"))?;
+	let (plugin_name, instance) =
+		step.iter().next().ok_or_else(|| anyhow!("Empty processing step"))?;
 
 	// 2. Resolve template inputs (delegated to context)
 	let resolved_inputs = context.resolve_inputs(&instance.input).await;
@@ -71,10 +63,7 @@ async fn execute_recursive<C: ExecutionContext>(
 	let plugin = registry::get_plugin(plugin_name)
 		.ok_or_else(|| anyhow!("Plugin '{plugin_name}' not found in registry"))?;
 
-	log(
-		LogLevel::Debug,
-		&format!("➜ Executing plugin: {plugin_name} (Path: '{flow_path}')"),
-	);
+	log(LogLevel::Debug, &format!("➜ Executing plugin: {plugin_name} (Path: '{flow_path}')"));
 
 	// --- Passive Circuit Breaker (for External Plugins) ---
 	let is_external = registry::get_external_plugin(plugin_name).is_some();
@@ -140,17 +129,12 @@ async fn execute_recursive<C: ExecutionContext>(
 				.await
 				.with_context(|| format!("Error executing terminator '{plugin_name}'"))?
 		} else {
-			return Err(anyhow!(
-				"Plugin '{plugin_name}' is neither Middleware nor Terminator"
-			));
+			return Err(anyhow!("Plugin '{plugin_name}' is neither Middleware nor Terminator"));
 		};
 
 		match &terminator_result {
 			TerminatorResult::Finished => {
-				log(
-					LogLevel::Debug,
-					&format!("✓ Flow terminated successfully by '{plugin_name}'"),
-				);
+				log(LogLevel::Debug, &format!("✓ Flow terminated successfully by '{plugin_name}'"));
 			}
 			TerminatorResult::Upgrade { protocol, .. } => {
 				log(
@@ -205,10 +189,7 @@ async fn handle_middleware_output<C: ExecutionContext>(
 ) -> Result<TerminatorResult> {
 	log(
 		LogLevel::Debug,
-		&format!(
-			"✓ Middleware '{}' returned branch: '{}'",
-			plugin_name, output.branch
-		),
+		&format!("✓ Middleware '{}' returned branch: '{}'", plugin_name, output.branch),
 	);
 
 	// Store KV updates with scoped keys
@@ -227,10 +208,7 @@ async fn handle_middleware_output<C: ExecutionContext>(
 			}
 
 			let scoped_key = key_scoping::format_scoped_key(flow_path, plugin_name, &raw_key);
-			log(
-				LogLevel::Debug,
-				&format!("⚙ KV Update: {scoped_key} = {value}"),
-			);
+			log(LogLevel::Debug, &format!("⚙ KV Update: {scoped_key} = {value}"));
 			kv.insert(scoped_key, value);
 		}
 	}

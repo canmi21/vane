@@ -14,10 +14,7 @@ pub async fn execute_proxy(
 	kv: &KvStore,
 	conn: ConnectionObject,
 ) -> Result<()> {
-	let protocol = kv
-		.get("conn.proto")
-		.map(|s| s.as_str())
-		.unwrap_or("unknown");
+	let protocol = kv.get("conn.proto").map(|s| s.as_str()).unwrap_or("unknown");
 
 	match conn {
 		ConnectionObject::Tcp(stream) => {
@@ -26,22 +23,12 @@ pub async fn execute_proxy(
 		ConnectionObject::Stream(stream) => {
 			log(
 				LogLevel::Debug,
-				&format!(
-					"➜ Proxying L4+ Stream ({}) to {}:{}",
-					protocol, target.ip, target.port
-				),
+				&format!("➜ Proxying L4+ Stream ({}) to {}:{}", protocol, target.ip, target.port),
 			);
 			forwarder::proxy_generic_stream(stream, target).await?;
 		}
-		ConnectionObject::Udp {
-			socket,
-			datagram,
-			client_addr,
-		} => {
-			let is_quic = kv
-				.get("conn.proto.carrier")
-				.map(|p| p == "quic")
-				.unwrap_or(false);
+		ConnectionObject::Udp { socket, datagram, client_addr } => {
+			let is_quic = kv.get("conn.proto.carrier").map(|p| p == "quic").unwrap_or(false);
 			if is_quic {
 				forwarder::proxy_quic_association(socket, &datagram, client_addr, target).await?;
 			} else {
@@ -49,9 +36,7 @@ pub async fn execute_proxy(
 			}
 		}
 		ConnectionObject::Virtual(desc) => {
-			return Err(anyhow!(
-				"Cannot transport-proxy a Virtual connection: {desc}"
-			));
+			return Err(anyhow!("Cannot transport-proxy a Virtual connection: {desc}"));
 		}
 	}
 

@@ -17,9 +17,7 @@ pub async fn dispatch_legacy_tcp(
 	config: &LegacyTcpConfig,
 	_kv_store: KvStore,
 ) {
-	let peer_addr = socket
-		.peer_addr()
-		.map_or_else(|_| "unknown".to_owned(), |a| a.to_string());
+	let peer_addr = socket.peer_addr().map_or_else(|_| "unknown".to_owned(), |a| a.to_string());
 	let mut rules = config.rules.clone();
 	rules.sort_by_key(|r| r.priority);
 
@@ -31,10 +29,7 @@ pub async fn dispatch_legacy_tcp(
 	let n = match socket.peek(&mut buf).await {
 		Ok(n) => n,
 		Err(e) => {
-			log(
-				LogLevel::Warn,
-				&format!("⚠ Failed to peek initial data from {peer_addr}: {e}"),
-			);
+			log(LogLevel::Warn, &format!("⚠ Failed to peek initial data from {peer_addr}: {e}"));
 			return;
 		}
 	};
@@ -56,9 +51,7 @@ pub async fn dispatch_legacy_tcp(
 			}
 			DetectMethod::Prefix => {
 				let pattern_bytes = rule.detect.pattern.as_bytes();
-				incoming_data
-					.windows(pattern_bytes.len())
-					.any(|window| window == pattern_bytes)
+				incoming_data.windows(pattern_bytes.len()).any(|window| window == pattern_bytes)
 			}
 			DetectMethod::Regex => {
 				#[cfg(any(feature = "tcp", feature = "udp"))]

@@ -94,11 +94,7 @@ impl Validate for NodesConfig {
 			validation_errors.add("nodes", e);
 		}
 
-		if validation_errors.is_empty() {
-			Ok(())
-		} else {
-			Err(validation_errors)
-		}
+		if validation_errors.is_empty() { Ok(()) } else { Err(validation_errors) }
 	}
 }
 
@@ -129,26 +125,15 @@ mod tests {
 	// --- Test Helpers to create valid default structs ---
 
 	fn valid_ip_config_v4() -> IpConfig {
-		IpConfig {
-			address: "192.168.1.1".to_string(),
-			ports: vec![80, 443],
-			r#type: IpType::Ipv4,
-		}
+		IpConfig { address: "192.168.1.1".to_string(), ports: vec![80, 443], r#type: IpType::Ipv4 }
 	}
 
 	fn valid_ip_config_v6() -> IpConfig {
-		IpConfig {
-			address: "2001:db8::1".to_string(),
-			ports: vec![8080],
-			r#type: IpType::Ipv6,
-		}
+		IpConfig { address: "2001:db8::1".to_string(), ports: vec![8080], r#type: IpType::Ipv6 }
 	}
 
 	fn valid_node() -> Node {
-		Node {
-			name: "my-web-server".to_string(),
-			ips: vec![valid_ip_config_v4()],
-		}
+		Node { name: "my-web-server".to_string(), ips: vec![valid_ip_config_v4()] }
 	}
 
 	/// Tests the validation logic for the IpConfig struct.
@@ -197,10 +182,7 @@ mod tests {
 		let mut config = NodesConfig {
 			nodes: vec![
 				valid_node(),
-				Node {
-					name: "my-db-server".to_string(),
-					ips: vec![valid_ip_config_v6()],
-				},
+				Node { name: "my-db-server".to_string(), ips: vec![valid_ip_config_v6()] },
 			],
 			..Default::default()
 		};
@@ -224,16 +206,8 @@ mod tests {
 				Node {
 					name: "node-a".to_string(),
 					ips: vec![
-						IpConfig {
-							address: "10.0.0.1".to_string(),
-							ports: vec![80, 81],
-							r#type: IpType::Ipv4,
-						},
-						IpConfig {
-							address: "10.0.0.2".to_string(),
-							ports: vec![90],
-							r#type: IpType::Ipv4,
-						},
+						IpConfig { address: "10.0.0.1".to_string(), ports: vec![80, 81], r#type: IpType::Ipv4 },
+						IpConfig { address: "10.0.0.2".to_string(), ports: vec![90], r#type: IpType::Ipv4 },
 					],
 				},
 				Node {

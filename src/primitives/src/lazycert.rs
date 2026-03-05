@@ -15,10 +15,6 @@ pub struct ChallengeEntry {
 impl ChallengeEntry {
 	#[must_use]
 	pub fn new(key_authorization: String, domain: String, challenge_id: String) -> Self {
-		Self {
-			key_authorization,
-			domain,
-			challenge_id,
-		}
+		Self { key_authorization, domain, challenge_id }
 	}
 }

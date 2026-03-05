@@ -20,9 +20,7 @@ pub fn print_motd() {
 	lazy_motd!(
 		environment = "None",
 		build = "Nightly",
-		copyright = &[
-			"Copyright (c) 2025 Canmi and contributors",
-			"Github OSS Released under the MIT License."
-		]
+		copyright =
+			&["Copyright (c) 2025 Canmi and contributors", "Github OSS Released under the MIT License."]
 	);
 }

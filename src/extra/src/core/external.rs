@@ -46,11 +46,7 @@ pub async fn validate_command_path(program: &str) -> Result<PathBuf> {
 		));
 	}
 
-	if !fs::metadata(&absolute_path)
-		.await
-		.map(|m| m.is_file())
-		.unwrap_or(false)
-	{
+	if !fs::metadata(&absolute_path).await.map(|m| m.is_file()).unwrap_or(false) {
 		return Err(anyhow!("Path '{program}' is not a file."));
 	}
 
@@ -75,9 +71,7 @@ impl ExternalPlugin {
 				if skip_validation {
 					return Ok(());
 				}
-				let client = reqwest::Client::builder()
-					.timeout(Duration::from_secs(3))
-					.build()?;
+				let client = reqwest::Client::builder().timeout(Duration::from_secs(3)).build()?;
 				let response = client.request(reqwest::Method::OPTIONS, url).send().await?;
 				if !response.status().is_success() {
 					return Err(anyhow!("Endpoint returned error: {}.", response.status()));
@@ -121,20 +115,12 @@ impl Plugin for ExternalPlugin {
 		self
 	}
 	fn as_middleware(&self) -> Option<&dyn Middleware> {
-		if self.config.role == PluginRole::Middleware {
-			Some(self)
-		} else {
-			None
-		}
+		if self.config.role == PluginRole::Middleware { Some(self) } else { None }
 	}
 	fn as_generic_middleware(
 		&self,
 	) -> Option<&dyn vane_engine::engine::interfaces::GenericMiddleware> {
-		if self.config.role == PluginRole::Middleware {
-			Some(self)
-		} else {
-			None
-		}
+		if self.config.role == PluginRole::Middleware { Some(self) } else { None }
 	}
 	fn as_terminator(&self) -> Option<&dyn Terminator> {
 		None
@@ -147,12 +133,7 @@ impl vane_engine::engine::interfaces::GenericMiddleware for ExternalPlugin {
 		if self.config.output.is_empty() {
 			vec!["success".into(), "failure".into()]
 		} else {
-			self
-				.config
-				.output
-				.iter()
-				.map(|s| Cow::Owned(s.clone()))
-				.collect()
+			self.config.output.iter().map(|s| Cow::Owned(s.clone())).collect()
 		}
 	}
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
@@ -166,12 +147,7 @@ impl Middleware for ExternalPlugin {
 		if self.config.output.is_empty() {
 			vec!["success".into(), "failure".into()]
 		} else {
-			self
-				.config
-				.output
-				.iter()
-				.map(|s| Cow::Owned(s.clone()))
-				.collect()
+			self.config.output.iter().map(|s| Cow::Owned(s.clone())).collect()
 		}
 	}
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {

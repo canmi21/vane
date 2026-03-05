@@ -21,28 +21,19 @@ pub async fn proxy_generic_stream(
 ) -> Result<()> {
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ Generic Stream Proxy to upstream: {}:{}",
-			target.ip, target.port
-		),
+		&format!("➜ Generic Stream Proxy to upstream: {}:{}", target.ip, target.port),
 	);
 
 	// FIX: Same fix applied here for Generic/L4+ streams
-	let connect_result = timeout(
-		CONNECT_TIMEOUT,
-		TcpStream::connect(format!("{}:{}", target.ip, target.port)),
-	)
-	.await;
+	let connect_result =
+		timeout(CONNECT_TIMEOUT, TcpStream::connect(format!("{}:{}", target.ip, target.port))).await;
 
 	let upstream_stream = match connect_result {
 		Ok(Ok(stream)) => stream,
 		Ok(Err(e)) => {
 			log(
 				LogLevel::Error,
-				&format!(
-					"✗ Failed to connect to upstream {}:{}: {}",
-					target.ip, target.port, e
-				),
+				&format!("✗ Failed to connect to upstream {}:{}: {}", target.ip, target.port, e),
 			);
 			health::mark_tcp_target_unhealthy(&target);
 			return Err(anyhow::Error::new(e).context("Failed to connect to upstream"));
@@ -50,10 +41,7 @@ pub async fn proxy_generic_stream(
 		Err(_) => {
 			log(
 				LogLevel::Error,
-				&format!(
-					"✗ Timeout connecting to upstream {}:{}",
-					target.ip, target.port
-				),
+				&format!("✗ Timeout connecting to upstream {}:{}", target.ip, target.port),
 			);
 			health::mark_tcp_target_unhealthy(&target);
 			return Err(anyhow::anyhow!("Connection timed out"));

@@ -15,11 +15,7 @@ use vane_primitives::tasks::GLOBAL_TRACKER;
 pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) -> Result<()> {
 	// Extract UDP socket info
 	let (socket_arc, client_addr, dst_addr, datagram) = match &conn {
-		ConnectionObject::Udp {
-			socket,
-			client_addr,
-			datagram,
-		} => {
+		ConnectionObject::Udp { socket, client_addr, datagram } => {
 			let dst_addr = socket.local_addr()?;
 			(socket.clone(), *client_addr, dst_addr, datagram.clone())
 		}
@@ -36,10 +32,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		// If parsing fails (Short Header/Handshake), check IP:PORT sticky map.
 		if let Some((target, upstream_socket)) = session::get_sticky(&client_addr) {
 			// Blind forward to sticky target using correct source port
-			log(
-				LogLevel::Debug,
-				&format!("➜ Sticky Forward: {client_addr} -> {target}"),
-			);
+			log(LogLevel::Debug, &format!("➜ Sticky Forward: {client_addr} -> {target}"));
 			let _ = upstream_socket.send_to(&datagram, target).await;
 		}
 		return Ok(());
@@ -81,16 +74,14 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 				return Ok(());
 			};
 
-			session::PENDING_INITIALS
-				.entry(dcid_bytes.clone())
-				.or_insert(PendingState {
-					crypto_stream: BTreeMap::new(),
-					queued_packets: Vec::new(),
-					last_seen: Instant::now(),
-					processing: false,
-					_guard: guard,
-					total_bytes: 0,
-				})
+			session::PENDING_INITIALS.entry(dcid_bytes.clone()).or_insert(PendingState {
+				crypto_stream: BTreeMap::new(),
+				queued_packets: Vec::new(),
+				last_seen: Instant::now(),
+				processing: false,
+				_guard: guard,
+				total_bytes: 0,
+			})
 		};
 
 		// 1. Check Session Limits
@@ -103,17 +94,13 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		// 2. If already being processed by another task, buffer and return
 		if entry.processing {
 			entry.total_bytes += datagram.len();
-			entry
-				.queued_packets
-				.push((datagram.clone(), client_addr, dst_addr));
+			entry.queued_packets.push((datagram.clone(), client_addr, dst_addr));
 			return Ok(());
 		}
 
 		// Update stats and queue
 		entry.total_bytes += datagram.len();
-		entry
-			.queued_packets
-			.push((datagram.clone(), client_addr, dst_addr));
+		entry.queued_packets.push((datagram.clone(), client_addr, dst_addr));
 		entry.last_seen = Instant::now();
 
 		entry.crypto_stream.extend(parsed_packet.crypto_frames);
@@ -184,10 +171,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 
 	let mut initial_payloads = ahash::AHashMap::new();
 	// LAZY: Store raw datagram for {{quic.initial}} hijacking
-	initial_payloads.insert(
-		"quic.initial".to_owned(),
-		bytes::Bytes::copy_from_slice(&datagram),
-	);
+	initial_payloads.insert("quic.initial".to_owned(), bytes::Bytes::copy_from_slice(&datagram));
 
 	context::inject_quic_data(
 		kv,
@@ -214,29 +198,20 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 	match execution_result {
 		Ok(TerminatorResult::Finished) => {
 			if let Some((_, _state)) = session::PENDING_INITIALS.remove(&dcid_bytes) {
-				log(
-					LogLevel::Debug,
-					"⚙ Forwarding flow finished. (Pending queue flushed/dropped)",
-				);
+				log(LogLevel::Debug, "⚙ Forwarding flow finished. (Pending queue flushed/dropped)");
 			}
 			Ok(())
 		}
 		Ok(TerminatorResult::Upgrade { protocol, .. }) => {
 			if protocol == "httpx" {
-				let cert_sni = kv
-					.get("tls.termination.cert_sni")
-					.map(|s| s.as_str())
-					.unwrap_or("default");
+				let cert_sni = kv.get("tls.termination.cert_sni").map(|s| s.as_str()).unwrap_or("default");
 
 				let local_port = socket_arc.local_addr()?.port();
 				let muxer = QuicMuxer::get_or_create(local_port, cert_sni, socket_arc.clone());
 
 				log(
 					LogLevel::Debug,
-					&format!(
-						"⚙ Registering QUIC Session (Terminator) for DCID len={}",
-						dcid_bytes.len()
-					),
+					&format!("⚙ Registering QUIC Session (Terminator) for DCID len={}", dcid_bytes.len()),
 				);
 
 				// 1. Retrieve guard from Pending state (Clone it to keep pending entry valid for now)

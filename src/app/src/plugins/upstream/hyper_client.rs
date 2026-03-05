@@ -23,18 +23,11 @@ pub async fn execute_hyper_request(
 	let method = if let Some(m) = method_str {
 		Method::from_str(m).unwrap_or(Method::GET)
 	} else {
-		container
-			.kv
-			.get("req.method")
-			.and_then(|m| Method::from_str(m).ok())
-			.unwrap_or(Method::GET)
+		container.kv.get("req.method").and_then(|m| Method::from_str(m).ok()).unwrap_or(Method::GET)
 	};
 
 	if let Some(v) = version_hint {
-		log(
-			LogLevel::Debug,
-			&format!("⚙ Upstream Version Hint: {v} (Hyper Auto Selected)"),
-		);
+		log(LogLevel::Debug, &format!("⚙ Upstream Version Hint: {v} (Hyper Auto Selected)"));
 	}
 
 	// Extract Request Body (Memory Move -> Zero-Copy)
@@ -61,16 +54,9 @@ pub async fn execute_hyper_request(
 		.body(body)
 		.map_err(|e| Error::System(format!("Failed to build upstream request: {e}")))?;
 
-	let client = if skip_verify {
-		&*GLOBAL_INSECURE_CLIENT
-	} else {
-		&*GLOBAL_SECURE_CLIENT
-	};
+	let client = if skip_verify { &*GLOBAL_INSECURE_CLIENT } else { &*GLOBAL_SECURE_CLIENT };
 
-	log(
-		LogLevel::Debug,
-		&format!("➜ Fetching Upstream Hyper: {} {}", req.method(), req.uri()),
-	);
+	log(LogLevel::Debug, &format!("➜ Fetching Upstream Hyper: {} {}", req.method(), req.uri()));
 
 	match client.request(req).await {
 		Ok(mut res) => {
@@ -78,9 +64,7 @@ pub async fn execute_hyper_request(
 			log(LogLevel::Debug, &format!("✓ Upstream Responded: {status}"));
 
 			// Update KV for Status
-			container
-				.kv
-				.insert("res.status".to_owned(), status.as_u16().to_string());
+			container.kv.insert("res.status".to_owned(), status.as_u16().to_string());
 
 			// Propagate Response Headers (Upstream -> Client)
 			container.response_headers = std::mem::take(res.headers_mut());
@@ -123,10 +107,7 @@ pub async fn execute_h1_websocket_request(
 		PayloadState::Empty | PayloadState::Generic => BoxBody::default(),
 	};
 
-	let mut req_builder = Request::builder()
-		.method(method)
-		.uri(uri)
-		.version(http::Version::HTTP_11); // Force H1.1
+	let mut req_builder = Request::builder().method(method).uri(uri).version(http::Version::HTTP_11); // Force H1.1
 
 	// Propagate Request Headers (including Upgrade, Sec-WebSocket-* headers)
 	if let Some(headers) = req_builder.headers_mut() {
@@ -140,29 +121,16 @@ pub async fn execute_h1_websocket_request(
 		.body(body)
 		.map_err(|e| Error::System(format!("Failed to build WebSocket request: {e}")))?;
 
-	let client = if skip_verify {
-		&*GLOBAL_INSECURE_CLIENT
-	} else {
-		&*GLOBAL_SECURE_CLIENT
-	};
+	let client = if skip_verify { &*GLOBAL_INSECURE_CLIENT } else { &*GLOBAL_SECURE_CLIENT };
 
-	log(
-		LogLevel::Debug,
-		&format!(
-			"➜ WebSocket Upgrade Request: {} {}",
-			req.method(),
-			req.uri()
-		),
-	);
+	log(LogLevel::Debug, &format!("➜ WebSocket Upgrade Request: {} {}", req.method(), req.uri()));
 
 	match client.request(req).await {
 		Ok(mut res) => {
 			let status = res.status();
 			log(LogLevel::Debug, &format!("✓ Backend Responded: {status}"));
 
-			container
-				.kv
-				.insert("res.status".to_owned(), status.as_u16().to_string());
+			container.kv.insert("res.status".to_owned(), status.as_u16().to_string());
 
 			// Propagate Response Headers
 			container.response_headers = std::mem::take(res.headers_mut());
@@ -180,10 +148,7 @@ pub async fn execute_h1_websocket_request(
 				container.response_body = PayloadState::Empty;
 			} else {
 				// Backend rejected upgrade, treat as normal HTTP response
-				log(
-					LogLevel::Debug,
-					&format!("⚠ Backend rejected WebSocket upgrade (status: {status})"),
-				);
+				log(LogLevel::Debug, &format!("⚠ Backend rejected WebSocket upgrade (status: {status})"));
 
 				let incoming = res.into_body();
 				container.response_body = PayloadState::Http(VaneBody::Hyper(incoming));
@@ -192,10 +157,7 @@ pub async fn execute_h1_websocket_request(
 			Ok(())
 		}
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ WebSocket Upgrade Request Failed: {e}"),
-			);
+			log(LogLevel::Error, &format!("✗ WebSocket Upgrade Request Failed: {e}"));
 			Err(Error::System(format!("WebSocket request error: {e}")))
 		}
 	}

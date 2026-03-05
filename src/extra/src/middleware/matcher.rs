@@ -24,21 +24,9 @@ impl Plugin for CommonMatchPlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "left".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "right".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "operator".into(),
-				required: false,
-				param_type: ParamType::String,
-			},
+			ParamDef { name: "left".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "right".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "operator".into(), required: false, param_type: ParamType::String },
 		]
 	}
 
@@ -73,11 +61,7 @@ impl GenericMiddleware for CommonMatchPlugin {
 			.ok_or_else(|| anyhow!("Input 'right' missing or not a string"))?;
 
 		// Normalize operator to lowercase for robust matching
-		let operator = inputs
-			.get("operator")
-			.and_then(Value::as_str)
-			.unwrap_or("==")
-			.to_lowercase();
+		let operator = inputs.get("operator").and_then(Value::as_str).unwrap_or("==").to_lowercase();
 
 		log(
 			LogLevel::Debug,
@@ -97,10 +81,7 @@ impl GenericMiddleware for CommonMatchPlugin {
 			"regex" | "re" | "match" => match regex::Regex::new(right) {
 				Ok(re) => re.is_match(left),
 				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("✗ Invalid regex pattern '{right}': {e}"),
-					);
+					log(LogLevel::Error, &format!("✗ Invalid regex pattern '{right}': {e}"));
 					false
 				}
 			},
@@ -108,11 +89,7 @@ impl GenericMiddleware for CommonMatchPlugin {
 		};
 
 		Ok(MiddlewareOutput {
-			branch: if result {
-				"true".into()
-			} else {
-				"false".into()
-			},
+			branch: if result { "true".into() } else { "false".into() },
 			store: None,
 		})
 	}

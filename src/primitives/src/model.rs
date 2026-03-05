@@ -76,11 +76,7 @@ impl Validate for Target {
 				}
 			}
 		}
-		if errors.is_empty() {
-			Ok(())
-		} else {
-			Err(errors)
-		}
+		if errors.is_empty() { Ok(()) } else { Err(errors) }
 	}
 }
 
@@ -174,11 +170,7 @@ impl Validate for Forward {
 			}
 		}
 
-		if errors.is_empty() {
-			Ok(())
-		} else {
-			Err(errors)
-		}
+		if errors.is_empty() { Ok(()) } else { Err(errors) }
 	}
 }
 

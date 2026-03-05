@@ -74,11 +74,8 @@ fn ensure_space(map: &DashMap<String, u32>, usage_counter: &AtomicUsize) {
 
 		// Prune ~10% of the keys to prevent OOM while keeping the service alive.
 		let items_to_remove = (map.len() as f64 * 0.1).ceil() as usize;
-		let keys_to_remove: Vec<String> = map
-			.iter()
-			.take(items_to_remove)
-			.map(|kv| kv.key().clone())
-			.collect();
+		let keys_to_remove: Vec<String> =
+			map.iter().take(items_to_remove).map(|kv| kv.key().clone()).collect();
 
 		for k in keys_to_remove {
 			if map.remove(&k).is_some() {
@@ -106,16 +103,8 @@ impl Plugin for KeywordRateLimitSecPlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "key".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "limit".into(),
-				required: true,
-				param_type: ParamType::Integer,
-			},
+			ParamDef { name: "key".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "limit".into(), required: true, param_type: ParamType::Integer },
 		]
 	}
 
@@ -139,21 +128,15 @@ impl GenericMiddleware for KeywordRateLimitSecPlugin {
 	}
 
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
-		let key = inputs
-			.get("key")
-			.and_then(Value::as_str)
-			.ok_or_else(|| anyhow!("Input 'key' missing"))?;
+		let key =
+			inputs.get("key").and_then(Value::as_str).ok_or_else(|| anyhow!("Input 'key' missing"))?;
 
-		let limit = inputs
-			.get("limit")
-			.and_then(Value::as_u64)
-			.ok_or_else(|| anyhow!("Input 'limit' missing"))? as u32;
+		let limit =
+			inputs.get("limit").and_then(Value::as_u64).ok_or_else(|| anyhow!("Input 'limit' missing"))?
+				as u32;
 
 		if !check_key_length(key) {
-			return Ok(MiddlewareOutput {
-				branch: "false".into(),
-				store: None,
-			});
+			return Ok(MiddlewareOutput { branch: "false".into(), store: None });
 		}
 
 		let pool = &*SEC_POOL;
@@ -170,16 +153,9 @@ impl GenericMiddleware for KeywordRateLimitSecPlugin {
 			1
 		};
 
-		let branch = if current_count <= limit {
-			"true"
-		} else {
-			"false"
-		};
+		let branch = if current_count <= limit { "true" } else { "false" };
 
-		Ok(MiddlewareOutput {
-			branch: branch.into(),
-			store: None,
-		})
+		Ok(MiddlewareOutput { branch: branch.into(), store: None })
 	}
 }
 
@@ -204,16 +180,8 @@ impl Plugin for KeywordRateLimitMinPlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "key".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "limit".into(),
-				required: true,
-				param_type: ParamType::Integer,
-			},
+			ParamDef { name: "key".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "limit".into(), required: true, param_type: ParamType::Integer },
 		]
 	}
 
@@ -237,21 +205,15 @@ impl GenericMiddleware for KeywordRateLimitMinPlugin {
 	}
 
 	async fn execute(&self, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
-		let key = inputs
-			.get("key")
-			.and_then(Value::as_str)
-			.ok_or_else(|| anyhow!("Input 'key' missing"))?;
+		let key =
+			inputs.get("key").and_then(Value::as_str).ok_or_else(|| anyhow!("Input 'key' missing"))?;
 
-		let limit = inputs
-			.get("limit")
-			.and_then(Value::as_u64)
-			.ok_or_else(|| anyhow!("Input 'limit' missing"))? as u32;
+		let limit =
+			inputs.get("limit").and_then(Value::as_u64).ok_or_else(|| anyhow!("Input 'limit' missing"))?
+				as u32;
 
 		if !check_key_length(key) {
-			return Ok(MiddlewareOutput {
-				branch: "false".into(),
-				store: None,
-			});
+			return Ok(MiddlewareOutput { branch: "false".into(), store: None });
 		}
 
 		let pool = &*MIN_POOL;
@@ -267,16 +229,9 @@ impl GenericMiddleware for KeywordRateLimitMinPlugin {
 			1
 		};
 
-		let branch = if current_count <= limit {
-			"true"
-		} else {
-			"false"
-		};
+		let branch = if current_count <= limit { "true" } else { "false" };
 
-		Ok(MiddlewareOutput {
-			branch: branch.into(),
-			store: None,
-		})
+		Ok(MiddlewareOutput { branch: branch.into(), store: None })
 	}
 }
 

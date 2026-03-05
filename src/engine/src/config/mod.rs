@@ -48,9 +48,7 @@ impl ListenerManager {
 			.loader(build_loader()?)
 			.path(&listener_path)
 			.pattern(KeyPattern::Bracketed)
-			.scan_mode(ScanMode::Subdirs {
-				config_file: "tcp".to_owned(),
-			})
+			.scan_mode(ScanMode::Subdirs { config_file: "tcp".to_owned() })
 			.on_error(|e| {
 				log(
 					LogLevel::Warn,
@@ -65,9 +63,7 @@ impl ListenerManager {
 			.loader(build_loader()?)
 			.path(&listener_path)
 			.pattern(KeyPattern::Bracketed)
-			.scan_mode(ScanMode::Subdirs {
-				config_file: "udp".to_owned(),
-			})
+			.scan_mode(ScanMode::Subdirs { config_file: "udp".to_owned() })
 			.on_error(|e| {
 				log(
 					LogLevel::Warn,
@@ -182,12 +178,6 @@ impl ConfigManager {
 		// LazyCert (optional)
 		let lazycert_live = Live::new(Arc::new(Store::new()), build_loader()?, "lazycert");
 
-		Ok(Self {
-			listeners,
-			resolvers,
-			applications,
-			nodes,
-			lazycert: Some(lazycert_live),
-		})
+		Ok(Self { listeners, resolvers, applications, nodes, lazycert: Some(lazycert_live) })
 	}
 }

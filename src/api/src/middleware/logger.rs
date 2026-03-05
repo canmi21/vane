@@ -52,15 +52,9 @@ mod tests {
 	/// This implicitly verifies that the DEBUG log path is taken without panicking.
 	#[tokio::test]
 	async fn test_logs_non_mutating_request() {
-		let app = Router::new()
-			.route("/", get(handler))
-			.layer(middleware::from_fn(log_requests));
+		let app = Router::new().route("/", get(handler)).layer(middleware::from_fn(log_requests));
 
-		let request = Request::builder()
-			.method(Method::GET)
-			.uri("/")
-			.body(Body::empty())
-			.unwrap();
+		let request = Request::builder().method(Method::GET).uri("/").body(Body::empty()).unwrap();
 
 		let response = app.oneshot(request).await.unwrap();
 
@@ -71,15 +65,9 @@ mod tests {
 	/// This implicitly verifies that the INFO log path is taken without panicking.
 	#[tokio::test]
 	async fn test_logs_mutating_request() {
-		let app = Router::new()
-			.route("/", post(handler))
-			.layer(middleware::from_fn(log_requests));
+		let app = Router::new().route("/", post(handler)).layer(middleware::from_fn(log_requests));
 
-		let request = Request::builder()
-			.method(Method::POST)
-			.uri("/")
-			.body(Body::empty())
-			.unwrap();
+		let request = Request::builder().method(Method::POST).uri("/").body(Body::empty()).unwrap();
 
 		let response = app.oneshot(request).await.unwrap();
 

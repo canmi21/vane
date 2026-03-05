@@ -26,11 +26,8 @@ pub fn validate_flow_recursive(
 	}
 
 	let (plugin_name, instance) = step.iter().next().unwrap();
-	let current_path = if path.is_empty() {
-		plugin_name.clone()
-	} else {
-		format!("{path} -> {plugin_name}")
-	};
+	let current_path =
+		if path.is_empty() { plugin_name.clone() } else { format!("{path} -> {plugin_name}") };
 
 	// 1. Cycle Detection (based on instance path, not plugin name)
 	if ancestors.contains(&current_path) {
@@ -82,9 +79,7 @@ pub fn validate_flow_recursive(
 	if !is_generic && is_http_specific {
 		let current_proto = protocol.to_lowercase();
 
-		let supports_current = supported_protocols
-			.iter()
-			.any(|p| p.to_lowercase() == current_proto);
+		let supports_current = supported_protocols.iter().any(|p| p.to_lowercase() == current_proto);
 
 		if !supports_current {
 			errors.push(FlowValidationError {
@@ -121,13 +116,7 @@ pub fn validate_flow_recursive(
 		ancestors.push(current_path.clone());
 		for (branch, next_step) in &instance.output {
 			let branch_path = format!("{current_path}.{branch}");
-			errors.extend(validate_flow_recursive(
-				next_step,
-				layer,
-				protocol,
-				branch_path,
-				ancestors,
-			));
+			errors.extend(validate_flow_recursive(next_step, layer, protocol, branch_path, ancestors));
 		}
 		ancestors.pop();
 	}
@@ -143,10 +132,7 @@ fn validate_plugin_inputs_internal(
 	errors: &mut Vec<FlowValidationError>,
 ) {
 	for input_name in inputs.keys() {
-		if !param_defs
-			.iter()
-			.any(|p| p.name.as_ref() == input_name.as_str())
-		{
+		if !param_defs.iter().any(|p| p.name.as_ref() == input_name.as_str()) {
 			errors.push(FlowValidationError {
 				path: format!("{current_path}.input.{input_name}"),
 				message: format!("Plugin '{plugin_name}' does not accept parameter '{input_name}'."),
@@ -175,10 +161,7 @@ fn validate_plugin_inputs_internal(
 				if !is_valid_type {
 					errors.push(FlowValidationError {
 						path: format!("{}.input.{}", current_path, def.name),
-						message: format!(
-							"Parameter '{}' must be of type {:?}.",
-							def.name, def.param_type
-						),
+						message: format!("Parameter '{}' must be of type {:?}.", def.name, def.param_type),
 					});
 				}
 
@@ -186,10 +169,7 @@ fn validate_plugin_inputs_internal(
 				if (def.param_type == ParamType::Any || def.param_type == ParamType::Map)
 					&& let Ok(target) = serde_json::from_value::<Target>(value.clone())
 				{
-					errors.extend(validate_target(
-						&target,
-						&format!("{}.input.{}", current_path, def.name),
-					));
+					errors.extend(validate_target(&target, &format!("{}.input.{}", current_path, def.name)));
 				}
 			}
 			None => {

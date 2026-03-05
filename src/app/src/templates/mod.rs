@@ -24,8 +24,6 @@ impl Source for AsyncContainerKvSource {
 /// Build scope for L7 HTTP
 pub fn build_l7_scope(container: Arc<RwLock<Container>>) -> Scope {
 	Scope::new()
-		.push(HttpSource {
-			container: container.clone(),
-		})
+		.push(HttpSource { container: container.clone() })
 		.push(AsyncContainerKvSource { container })
 }

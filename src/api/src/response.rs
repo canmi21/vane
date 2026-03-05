@@ -18,31 +18,19 @@ pub struct ApiResponse<T: Serialize> {
 
 /// Creates a successful (200 OK) API response.
 pub fn success<T: Serialize>(data: T) -> Response {
-	let response = ApiResponse {
-		status: "success",
-		data: Some(data),
-		message: None,
-	};
+	let response = ApiResponse { status: "success", data: Some(data), message: None };
 	(StatusCode::OK, Json(response)).into_response()
 }
 
 /// Creates a created (201 Created) API response.
 pub fn created<T: Serialize>(data: T) -> Response {
-	let response = ApiResponse {
-		status: "success",
-		data: Some(data),
-		message: None,
-	};
+	let response = ApiResponse { status: "success", data: Some(data), message: None };
 	(StatusCode::CREATED, Json(response)).into_response()
 }
 
 /// Creates an error API response.
 #[must_use]
 pub fn error(status_code: StatusCode, message: String) -> Response {
-	let response = ApiResponse::<()> {
-		status: "error",
-		data: None,
-		message: Some(message),
-	};
+	let response = ApiResponse::<()> { status: "error", data: None, message: Some(message) };
 	(status_code, Json(response)).into_response()
 }

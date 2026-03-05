@@ -27,11 +27,7 @@ pub async fn init_config_files(files_to_check: Vec<&str>) {
 	{
 		log(
 			LogLevel::Error,
-			&format!(
-				"✗ Failed to create main config directory {}: {}",
-				config_dir.display(),
-				e
-			),
+			&format!("✗ Failed to create main config directory {}: {}", config_dir.display(), e),
 		);
 		return;
 	}
@@ -49,27 +45,18 @@ pub async fn init_config_files(files_to_check: Vec<&str>) {
 		{
 			log(
 				LogLevel::Error,
-				&format!(
-					"✗ Failed to create config subdirectory {}: {}",
-					parent_dir.display(),
-					e
-				),
+				&format!("✗ Failed to create config subdirectory {}: {}", parent_dir.display(), e),
 			);
 			continue;
 		}
 
 		match fs::File::create(&full_path).await {
-			Ok(_) => log(
-				LogLevel::Debug,
-				&format!("⚙ Created default config file at: {}", full_path.display()),
-			),
+			Ok(_) => {
+				log(LogLevel::Debug, &format!("⚙ Created default config file at: {}", full_path.display()))
+			}
 			Err(e) => log(
 				LogLevel::Error,
-				&format!(
-					"✗ Failed to create config file {}: {}",
-					full_path.display(),
-					e
-				),
+				&format!("✗ Failed to create config file {}: {}", full_path.display(), e),
 			),
 		}
 	}
@@ -85,10 +72,7 @@ pub async fn init_config_dirs(dir_names: Vec<&str>) {
 			if !metadata.is_dir() {
 				log(
 					LogLevel::Error,
-					&format!(
-						"✗ Path {} exists but is not a directory.",
-						full_path.display()
-					),
+					&format!("✗ Path {} exists but is not a directory.", full_path.display()),
 				);
 			}
 			continue;
@@ -97,18 +81,11 @@ pub async fn init_config_dirs(dir_names: Vec<&str>) {
 		match fs::create_dir_all(&full_path).await {
 			Ok(_) => log(
 				LogLevel::Debug,
-				&format!(
-					"⚙ Created default config directory at: {}",
-					full_path.display()
-				),
+				&format!("⚙ Created default config directory at: {}", full_path.display()),
 			),
 			Err(e) => log(
 				LogLevel::Error,
-				&format!(
-					"✗ Failed to create config directory {}: {}",
-					full_path.display(),
-					e
-				),
+				&format!("✗ Failed to create config directory {}: {}", full_path.display(), e),
 			),
 		}
 	}

@@ -41,19 +41,14 @@ pub async fn select_udp_target(
 	forward_config: &Forward,
 ) -> Option<ResolvedTarget> {
 	let resolved_targets = resolver::resolve_targets(&forward_config.targets).await;
-	let available_targets: Vec<ResolvedTarget> = resolved_targets
-		.into_iter()
-		.filter(is_udp_target_healthy)
-		.collect();
+	let available_targets: Vec<ResolvedTarget> =
+		resolved_targets.into_iter().filter(is_udp_target_healthy).collect();
 
 	let chosen_pool = if !available_targets.is_empty() {
 		available_targets
 	} else {
 		let resolved_fallbacks = resolver::resolve_targets(&forward_config.fallbacks).await;
-		resolved_fallbacks
-			.into_iter()
-			.filter(is_udp_target_healthy)
-			.collect()
+		resolved_fallbacks.into_iter().filter(is_udp_target_healthy).collect()
 	};
 	choose_from_pool(port, rule_name, &forward_config.strategy, chosen_pool)
 }
@@ -74,9 +69,7 @@ fn choose_from_pool(
 			pool.choose(&mut rng).cloned()
 		}
 		Strategy::Fastest => pool.into_iter().min_by_key(|t| {
-			TARGET_HEALTH_REGISTRY
-				.get(t)
-				.map_or(std::time::Duration::MAX, |h| h.latency)
+			TARGET_HEALTH_REGISTRY.get(t).map_or(std::time::Duration::MAX, |h| h.latency)
 		}),
 		Strategy::Serial => {
 			let key = (port, rule_name.to_owned());

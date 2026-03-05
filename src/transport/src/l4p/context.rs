@@ -5,10 +5,7 @@ use fancy_log::{LogLevel, log};
 use vane_primitives::kv::KvStore;
 
 pub fn inject_common(kv: &mut KvStore, protocol: &str) {
-	log(
-		LogLevel::Debug,
-		&format!("⚙ Injecting L4+ Context for protocol: {protocol}"),
-	);
+	log(LogLevel::Debug, &format!("⚙ Injecting L4+ Context for protocol: {protocol}"));
 
 	kv.insert("conn.layer".to_owned(), "l4p".to_owned());
 	kv.insert("conn.proto.carrier".to_owned(), protocol.to_owned());
@@ -27,17 +24,11 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 		// Normalization: Lowercase + Character filtering
 		let sanitized = sanitize_sni(&sni);
 		if sanitized != sni {
-			log(
-				LogLevel::Debug,
-				&format!("⚙ SNI Normalized: '{sni}' -> '{sanitized}'"),
-			);
+			log(LogLevel::Debug, &format!("⚙ SNI Normalized: '{sni}' -> '{sanitized}'"));
 		}
 		kv.insert("tls.sni".to_owned(), sanitized);
 	} else {
-		log(
-			LogLevel::Debug,
-			"⚙ Warning: SNI field is empty in parsed data.",
-		);
+		log(LogLevel::Debug, "⚙ Warning: SNI field is empty in parsed data.");
 	}
 
 	if !data.alpn.is_empty() {
@@ -48,35 +39,14 @@ pub fn inject_tls_data(kv: &mut KvStore, data: TlsClientHelloData) {
 	kv.insert("tls.session_id".to_owned(), data.session_id);
 
 	kv.insert("tls.cipher_suites".to_owned(), data.cipher_suites.join(","));
-	kv.insert(
-		"tls.compression".to_owned(),
-		data.compression_methods.join(","),
-	);
-	kv.insert(
-		"tls.supported_versions".to_owned(),
-		data.supported_versions.join(","),
-	);
-	kv.insert(
-		"tls.supported_groups".to_owned(),
-		data.supported_groups.join(","),
-	);
-	kv.insert(
-		"tls.signature_algorithms".to_owned(),
-		data.signature_algorithms.join(","),
-	);
-	kv.insert(
-		"tls.key_share_groups".to_owned(),
-		data.key_share_groups.join(","),
-	);
-	kv.insert(
-		"tls.psk_modes".to_owned(),
-		data.psk_key_exchange_modes.join(","),
-	);
+	kv.insert("tls.compression".to_owned(), data.compression_methods.join(","));
+	kv.insert("tls.supported_versions".to_owned(), data.supported_versions.join(","));
+	kv.insert("tls.supported_groups".to_owned(), data.supported_groups.join(","));
+	kv.insert("tls.signature_algorithms".to_owned(), data.signature_algorithms.join(","));
+	kv.insert("tls.key_share_groups".to_owned(), data.key_share_groups.join(","));
+	kv.insert("tls.psk_modes".to_owned(), data.psk_key_exchange_modes.join(","));
 
-	kv.insert(
-		"tls.has_renegotiation_info".to_owned(),
-		data.has_renegotiation_info.to_string(),
-	);
+	kv.insert("tls.has_renegotiation_info".to_owned(), data.has_renegotiation_info.to_string());
 	kv.insert("tls.has_grease".to_owned(), data.has_grease.to_string());
 }
 

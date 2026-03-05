@@ -20,18 +20,9 @@ pub fn extract_decrypted_content(
 		return Err(anyhow!("Unsupported QUIC version"));
 	}
 
-	match decrypt_payload(
-		full_packet,
-		header_start,
-		protected_payload_start,
-		remaining_len,
-		dcid,
-	) {
+	match decrypt_payload(full_packet, header_start, protected_payload_start, remaining_len, dcid) {
 		Ok(decrypted) => {
-			log(
-				LogLevel::Debug,
-				&format!("✓ Decrypted QUIC payload ({} bytes)", decrypted.len()),
-			);
+			log(LogLevel::Debug, &format!("✓ Decrypted QUIC payload ({} bytes)", decrypted.len()));
 			// Delegate to frame parser
 			frame::parse_crypto_frames_for_sni(&decrypted)
 		}

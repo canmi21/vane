@@ -23,16 +23,8 @@ impl Plugin for ProxyNodePlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "target.node".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "target.port".into(),
-				required: true,
-				param_type: ParamType::Integer,
-			},
+			ParamDef { name: "target.node".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "target.port".into(), required: true, param_type: ParamType::Integer },
 		]
 	}
 
@@ -89,18 +81,12 @@ impl Terminator for ProxyNodePlugin {
 		let selected_ip = if candidates.len() == 1 {
 			candidates[0]
 		} else {
-			let nanos = SystemTime::now()
-				.duration_since(UNIX_EPOCH)
-				.unwrap_or_default()
-				.subsec_nanos();
+			let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
 			let index = (nanos as usize) % candidates.len();
 			candidates[index]
 		};
 
-		let target = ResolvedTarget {
-			ip: selected_ip.clone(),
-			port: target_port,
-		};
+		let target = ResolvedTarget { ip: selected_ip.clone(), port: target_port };
 
 		execute_proxy(target, kv, conn).await?;
 		Ok(TerminatorResult::Finished)

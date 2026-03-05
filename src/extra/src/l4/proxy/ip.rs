@@ -23,16 +23,8 @@ impl Plugin for TransparentProxyPlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "target.ip".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "target.port".into(),
-				required: true,
-				param_type: ParamType::Integer,
-			},
+			ParamDef { name: "target.ip".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "target.port".into(), required: true, param_type: ParamType::Integer },
 		]
 	}
 
@@ -72,10 +64,7 @@ impl Terminator for TransparentProxyPlugin {
 			.map(|p| p as u16)
 			.ok_or_else(|| anyhow!("Resolved input 'target.port' is missing or not an integer"))?;
 
-		let target = ResolvedTarget {
-			ip: target_ip.to_owned(),
-			port: target_port,
-		};
+		let target = ResolvedTarget { ip: target_ip.to_owned(), port: target_port };
 
 		execute_proxy(target, kv, conn).await?;
 		Ok(TerminatorResult::Finished)

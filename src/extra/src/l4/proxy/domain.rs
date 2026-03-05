@@ -24,16 +24,8 @@ impl Plugin for ProxyDomainPlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "target.domain".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "target.port".into(),
-				required: true,
-				param_type: ParamType::Integer,
-			},
+			ParamDef { name: "target.domain".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "target.port".into(), required: true, param_type: ParamType::Integer },
 		]
 	}
 
@@ -72,26 +64,18 @@ impl Terminator for ProxyDomainPlugin {
 		let ips = resolver::resolve_domain_to_ips(target_domain).await;
 
 		if ips.is_empty() {
-			return Err(anyhow!(
-				"DNS resolution failed: No IPs found for domain '{target_domain}'"
-			));
+			return Err(anyhow!("DNS resolution failed: No IPs found for domain '{target_domain}'"));
 		}
 
 		let selected_ip = if ips.len() == 1 {
 			ips[0]
 		} else {
-			let nanos = SystemTime::now()
-				.duration_since(UNIX_EPOCH)
-				.unwrap_or_default()
-				.subsec_nanos();
+			let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
 			let index = (nanos as usize) % ips.len();
 			ips[index]
 		};
 
-		let target = ResolvedTarget {
-			ip: selected_ip.to_string(),
-			port: target_port,
-		};
+		let target = ResolvedTarget { ip: selected_ip.to_string(), port: target_port };
 
 		execute_proxy(target, kv, conn).await?;
 		Ok(TerminatorResult::Finished)

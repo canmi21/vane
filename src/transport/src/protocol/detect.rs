@@ -31,16 +31,8 @@ impl Plugin for ProtocolDetectPlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "method".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "payload".into(),
-				required: true,
-				param_type: ParamType::Bytes,
-			},
+			ParamDef { name: "method".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "payload".into(), required: true, param_type: ParamType::Bytes },
 		]
 	}
 
@@ -78,10 +70,7 @@ impl GenericMiddleware for ProtocolDetectPlugin {
 		let result = detect(&payload, method);
 		let branch = if result { "true" } else { "false" };
 
-		Ok(MiddlewareOutput {
-			branch: branch.into(),
-			store: None,
-		})
+		Ok(MiddlewareOutput { branch: branch.into(), store: None })
 	}
 }
 
@@ -104,18 +93,14 @@ mod tests {
 	fn test_dns_detection() {
 		// 1. Valid DNS Query
 		// ID=1234, Flags=0x0100 (RD), QD=1, AN=0, NS=0, AR=0
-		let mut valid_dns = vec![
-			0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		];
+		let mut valid_dns =
+			vec![0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 		// Append "example.com" (7example3com0) type A class IN
 		valid_dns.extend_from_slice(&[
 			0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01,
 			0x00, 0x01,
 		]);
-		assert!(
-			detect(&valid_dns, "dns"),
-			"Valid DNS query should be detected"
-		);
+		assert!(detect(&valid_dns, "dns"), "Valid DNS query should be detected");
 
 		// 2. DNS Response (QR bit set)
 		// Flags=0x8180 (QR=1, RD, RA) — guess correctly identifies DNS responses too.
@@ -128,19 +113,13 @@ mod tests {
 		// Flags byte: 00011001 (QR=0, Opcode=3, RD=1)
 		let mut bad_opcode = valid_dns.clone();
 		bad_opcode[2] = 0x19;
-		assert!(
-			!detect(&bad_opcode, "dns"),
-			"Invalid Opcode should be rejected"
-		);
+		assert!(!detect(&bad_opcode, "dns"), "Invalid Opcode should be rejected");
 
 		// 4. Zero QDCOUNT
 		let mut zero_questions = valid_dns.clone();
 		zero_questions[4] = 0x00;
 		zero_questions[5] = 0x00;
-		assert!(
-			!detect(&zero_questions, "dns"),
-			"QDCOUNT=0 should be rejected"
-		);
+		assert!(!detect(&zero_questions, "dns"), "QDCOUNT=0 should be rejected");
 
 		// 5. Truncated Header
 		assert!(!detect(&valid_dns[..10], "dns"), "Truncated header");

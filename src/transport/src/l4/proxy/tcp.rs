@@ -18,27 +18,18 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub async fn proxy_tcp_stream(client_stream: TcpStream, target: ResolvedTarget) -> Result<()> {
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ TCP Proxy connecting to upstream: {}:{}",
-			target.ip, target.port
-		),
+		&format!("➜ TCP Proxy connecting to upstream: {}:{}", target.ip, target.port),
 	);
 
-	let connect_result = timeout(
-		CONNECT_TIMEOUT,
-		TcpStream::connect(format!("{}:{}", target.ip, target.port)),
-	)
-	.await;
+	let connect_result =
+		timeout(CONNECT_TIMEOUT, TcpStream::connect(format!("{}:{}", target.ip, target.port))).await;
 
 	let upstream_stream = match connect_result {
 		Ok(Ok(stream)) => stream,
 		Ok(Err(e)) => {
 			log(
 				LogLevel::Error,
-				&format!(
-					"✗ Failed to connect to upstream target {}:{}: {}",
-					target.ip, target.port, e
-				),
+				&format!("✗ Failed to connect to upstream target {}:{}: {}", target.ip, target.port, e),
 			);
 			health::mark_tcp_target_unhealthy(&target);
 			return Err(anyhow::Error::new(e).context("Failed to connect to upstream"));
@@ -46,10 +37,7 @@ pub async fn proxy_tcp_stream(client_stream: TcpStream, target: ResolvedTarget) 
 		Err(_) => {
 			log(
 				LogLevel::Error,
-				&format!(
-					"✗ Timeout connecting to upstream target {}:{}",
-					target.ip, target.port
-				),
+				&format!("✗ Timeout connecting to upstream target {}:{}", target.ip, target.port),
 			);
 			health::mark_tcp_target_unhealthy(&target);
 			return Err(anyhow::anyhow!("Connection timed out"));

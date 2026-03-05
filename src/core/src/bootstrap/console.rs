@@ -23,10 +23,7 @@ pub struct ConsoleHandles {
 pub async fn start() -> Option<ConsoleHandles> {
 	match auth::validate_access_token() {
 		Ok(None) => {
-			log(
-				LogLevel::Info,
-				"⚙ Access token not set, management API disabled",
-			);
+			log(LogLevel::Info, "⚙ Access token not set, management API disabled");
 			None
 		}
 		Ok(Some(_token)) => {
@@ -37,28 +34,18 @@ pub async fn start() -> Option<ConsoleHandles> {
 				match socket::bind_unix_socket().await {
 					Ok(listener) => Some(listener),
 					Err(e) => {
-						log(
-							LogLevel::Error,
-							&format!("✗ Failed to bind unix socket: {e}"),
-						);
+						log(LogLevel::Error, &format!("✗ Failed to bind unix socket: {e}"));
 						None
 					}
 				}
 			};
 
 			let requested_port = envflag::get::<u16>("PORT", 3333);
-			let port = if port_utils::is_valid_port(requested_port) {
-				requested_port
-			} else {
-				3333
-			};
+			let port = if port_utils::is_valid_port(requested_port) { requested_port } else { 3333 };
 
 			let listen_ipv6 = envflag::get::<bool>("CONSOLE_LISTEN_IPV6", false);
-			let addr: SocketAddr = if listen_ipv6 {
-				([0; 8], port).into()
-			} else {
-				([0; 4], port).into()
-			};
+			let addr: SocketAddr =
+				if listen_ipv6 { ([0; 8], port).into() } else { ([0; 4], port).into() };
 
 			let shutdown = Broadcast::new();
 
@@ -71,24 +58,15 @@ pub async fn start() -> Option<ConsoleHandles> {
 				let tcp_listener = match TcpListener::bind(addr).await {
 					Ok(l) => l,
 					Err(e) => {
-						log(
-							LogLevel::Error,
-							&format!("✗ Failed to bind TCP console: {e}"),
-						);
+						log(LogLevel::Error, &format!("✗ Failed to bind TCP console: {e}"));
 						// Fallback if TCP fails but we want to return something?
 						// Better to return None or exit. Bootstrap handles the exit.
 						return None;
 					}
 				};
 				log(LogLevel::Info, &format!("✓ TCP console bound to {addr}"));
-				log(
-					LogLevel::Info,
-					&format!("✓ Listening on http://localhost:{port}"),
-				);
-				log(
-					LogLevel::Info,
-					&format!("✓ Listening on http://127.0.0.1:{port}"),
-				);
+				log(LogLevel::Info, &format!("✓ Listening on http://localhost:{port}"));
+				log(LogLevel::Info, &format!("✓ Listening on http://127.0.0.1:{port}"));
 
 				let tcp_server = serve(tcp_listener, app.clone()).with_graceful_shutdown(async move {
 					let _ = tcp_shutdown.recv().await;
@@ -111,10 +89,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 				});
 				Some(tokio::spawn(async move {
 					if let Err(e) = unix_server.await {
-						log(
-							LogLevel::Error,
-							&format!("✗ Unix socket console error: {e}"),
-						);
+						log(LogLevel::Error, &format!("✗ Unix socket console error: {e}"));
 					}
 				}))
 			} else {
@@ -123,11 +98,7 @@ pub async fn start() -> Option<ConsoleHandles> {
 			#[cfg(not(all(feature = "console", unix)))]
 			let unix_handle = None;
 
-			Some(ConsoleHandles {
-				tcp_task: tcp_handle,
-				unix_task: unix_handle,
-				shutdown,
-			})
+			Some(ConsoleHandles { tcp_task: tcp_handle, unix_task: unix_handle, shutdown })
 		}
 		Err(err_msg) => {
 			log(LogLevel::Error, &format!("✗ {err_msg}"));

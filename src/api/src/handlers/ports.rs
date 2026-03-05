@@ -71,11 +71,7 @@ pub async fn list_ports_handler() -> impl IntoResponse {
 				protocols.push("udp".to_owned());
 			}
 
-			ports.push(PortInfo {
-				port: port_num,
-				protocols,
-				active,
-			});
+			ports.push(PortInfo { port: port_num, protocols, active });
 		}
 	}
 
@@ -118,10 +114,7 @@ pub async fn get_port_handler(Path(port): Path<u16>) -> impl IntoResponse {
 
 		let active = config.listeners.get_tcp(&port_str).is_some();
 
-		Some(ProtocolStatus {
-			active,
-			source_format,
-		})
+		Some(ProtocolStatus { active, source_format })
 	} else {
 		None
 	};
@@ -137,10 +130,7 @@ pub async fn get_port_handler(Path(port): Path<u16>) -> impl IntoResponse {
 
 		let active = config.listeners.get_udp(&port_str).is_some();
 
-		Some(ProtocolStatus {
-			active,
-			source_format,
-		})
+		Some(ProtocolStatus { active, source_format })
 	} else {
 		None
 	};
@@ -172,10 +162,7 @@ pub async fn create_port_handler(Path(port): Path<u16>) -> impl IntoResponse {
 		return response::error(StatusCode::CONFLICT, format!("Port {port} already exists"));
 	}
 	match fs::create_dir(&port_dir).await {
-		Ok(_) => response::created(PortCreated {
-			port,
-			created: true,
-		}),
+		Ok(_) => response::created(PortCreated { port, created: true }),
 		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
 	}
 }

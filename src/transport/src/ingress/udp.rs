@@ -19,9 +19,7 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> ShutdownHandle {
 
 	tokio::spawn(async move {
 		let mut shutdown_fut = std::pin::pin!(shutdown.recv());
-		let udp_config = vane_engine::config::get()
-			.listeners
-			.get_udp(&port.to_string());
+		let udp_config = vane_engine::config::get().listeners.get_udp(&port.to_string());
 
 		if let Some(udp_config) = udp_config {
 			let mut buf = vec![0u8; 65535];
@@ -104,17 +102,11 @@ pub fn spawn_udp_listener_task(port: u16, socket: UdpSocket) -> ShutdownHandle {
 				}
 			}
 		} else {
-			log(
-				LogLevel::Warn,
-				&format!("✗ UDP listener started on port {port}, but no config found."),
-			);
+			log(LogLevel::Warn, &format!("✗ UDP listener started on port {port}, but no config found."));
 		}
 
 		TASK_REGISTRY.remove(&key);
-		log(
-			LogLevel::Debug,
-			&format!("⚙ UDP listener on port {port} has shut down."),
-		);
+		log(LogLevel::Debug, &format!("⚙ UDP listener on port {port} has shut down."));
 	});
 
 	handle

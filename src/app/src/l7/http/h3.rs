@@ -38,10 +38,7 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 							}
 						}
 						Err(e) => {
-							log(
-								LogLevel::Error,
-								&format!("✗ Failed to resolve request: {e}"),
-							);
+							log(LogLevel::Error, &format!("✗ Failed to resolve request: {e}"));
 						}
 					}
 				});
@@ -90,10 +87,7 @@ where
 		kv.insert("req.query".to_owned(), q.to_owned());
 	}
 
-	if let Some(host) = parts
-		.headers
-		.get("host")
-		.or_else(|| parts.headers.get(":authority"))
+	if let Some(host) = parts.headers.get("host").or_else(|| parts.headers.get(":authority"))
 		&& let Ok(h) = host.to_str()
 	{
 		kv.insert("req.host".to_owned(), h.to_owned());

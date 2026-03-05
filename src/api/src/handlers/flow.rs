@@ -41,24 +41,17 @@ pub async fn get_flow_handler(Path((port, protocol)): Path<(u16, String)>) -> im
 
 	let base_path = file_loader::get_config_dir().join(format!("[{port}]/{protocol}"));
 
-	if tokio::fs::metadata(file_loader::get_config_dir().join(format!("[{port}]")))
-		.await
-		.is_err()
-	{
+	if tokio::fs::metadata(file_loader::get_config_dir().join(format!("[{port}]"))).await.is_err() {
 		return response::error(StatusCode::NOT_FOUND, format!("Port {port} not found"));
 	}
 
 	match config_file::find_config::<FlowConfig>(&base_path).await {
-		ConfigFileResult::NotFound => response::error(
-			StatusCode::NOT_FOUND,
-			format!("No flow config for port {port} {protocol}"),
-		),
-		ConfigFileResult::Single {
-			format, content, ..
-		} => response::success(FlowConfigData {
-			source_format: format,
-			content,
-		}),
+		ConfigFileResult::NotFound => {
+			response::error(StatusCode::NOT_FOUND, format!("No flow config for port {port} {protocol}"))
+		}
+		ConfigFileResult::Single { format, content, .. } => {
+			response::success(FlowConfigData { source_format: format, content })
+		}
 		ConfigFileResult::Ambiguous { found } => response::error(
 			StatusCode::CONFLICT,
 			format!(
@@ -66,10 +59,9 @@ pub async fn get_flow_handler(Path((port, protocol)): Path<(u16, String)>) -> im
 				found.join(", ")
 			),
 		),
-		ConfigFileResult::Error(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Read error: {e}"),
-		),
+		ConfigFileResult::Error(e) => {
+			response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"))
+		}
 	}
 }
 
@@ -126,10 +118,7 @@ pub async fn post_flow_handler(
 				converted_from: None,
 			})
 		}
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Write error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 	}
 }
 
@@ -179,9 +168,7 @@ pub async fn put_flow_handler(
 		return response::error(StatusCode::NOT_FOUND, format!("Port {port} not found"));
 	}
 
-	let deleted = config_file::delete_all_formats(&base_path)
-		.await
-		.unwrap_or(false);
+	let deleted = config_file::delete_all_formats(&base_path).await.unwrap_or(false);
 
 	match config_file::write_json(&base_path, &config).await {
 		Ok(path) => {
@@ -190,17 +177,10 @@ pub async fn put_flow_handler(
 				port,
 				protocol,
 				written_to: filename,
-				converted_from: if deleted {
-					Some("unknown".into())
-				} else {
-					None
-				},
+				converted_from: if deleted { Some("unknown".into()) } else { None },
 			})
 		}
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Write error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 	}
 }
 
@@ -229,10 +209,7 @@ pub async fn delete_flow_handler(Path((port, protocol)): Path<(u16, String)>) ->
 	match config_file::delete_all_formats(&base_path).await {
 		Ok(true) => StatusCode::NO_CONTENT.into_response(),
 		Ok(false) => response::error(StatusCode::NOT_FOUND, "Flow config not found".into()),
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Delete error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Delete error: {e}")),
 	}
 }
 
@@ -257,11 +234,9 @@ pub async fn validate_flow_handler(
 	Json(config): Json<FlowConfig>,
 ) -> impl IntoResponse {
 	match validator::validate_flow_config(&config.connection, Layer::L4, &protocol) {
-		Ok(_) => response::success(ValidationResult {
-			valid: true,
-			plugins_used: vec![],
-			warnings: vec![],
-		}),
+		Ok(_) => {
+			response::success(ValidationResult { valid: true, plugins_used: vec![], warnings: vec![] })
+		}
 		Err(e) => response::error(StatusCode::BAD_REQUEST, format!("Validation failed: {e}")),
 	}
 }

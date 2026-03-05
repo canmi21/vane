@@ -14,11 +14,8 @@ use vane_primitives::common::net::ip;
 use vane_primitives::model::ResolvedTarget;
 
 pub async fn bind_upstream_socket(target_ip: &IpAddr) -> io::Result<UdpSocket> {
-	let bind_addr: SocketAddr = if target_ip.is_ipv6() {
-		([0; 16], 0).into()
-	} else {
-		([0; 4], 0).into()
-	};
+	let bind_addr: SocketAddr =
+		if target_ip.is_ipv6() { ([0; 16], 0).into() } else { ([0; 4], 0).into() };
 	UdpSocket::bind(bind_addr).await
 }
 
@@ -35,10 +32,7 @@ pub fn spawn_reply_handler(
 					tokio::time::timeout(timeout, upstream_socket.recv_from(&mut buf)).await
 				{
 					if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr)
-						&& main_socket
-							.send_to(&buf[..len], *client_addr)
-							.await
-							.is_err()
+						&& main_socket.send_to(&buf[..len], *client_addr).await.is_err()
 					{
 						break;
 					}
@@ -71,25 +65,14 @@ pub async fn proxy_udp_direct(
 			});
 			SESSIONS.insert(session_key.clone(), updated_session.clone());
 
-			let target_addr = (
-				updated_session.target.ip.as_str(),
-				updated_session.target.port,
-			);
-			if updated_session
-				.upstream_socket
-				.send_to(datagram, target_addr)
-				.await
-				.is_err()
-			{
+			let target_addr = (updated_session.target.ip.as_str(), updated_session.target.port);
+			if updated_session.upstream_socket.send_to(datagram, target_addr).await.is_err() {
 				health::mark_udp_target_unhealthy(&updated_session.target);
 				if let Ok(addr) = updated_session.upstream_socket.local_addr() {
 					REVERSE_SESSIONS.remove(&addr);
 				}
 				SESSIONS.remove(&session_key);
-				return Err(io::Error::new(
-					io::ErrorKind::ConnectionReset,
-					"Failed to send to upstream",
-				));
+				return Err(io::Error::new(io::ErrorKind::ConnectionReset, "Failed to send to upstream"));
 			}
 			return Ok(());
 		} else if let Ok(addr) = session.upstream_socket.local_addr() {
@@ -131,21 +114,14 @@ pub async fn proxy_udp_direct(
 				envflag::get::<u64>("UDP_TIMEOUT_REMOTE", 5000)
 			};
 
-			spawn_reply_handler(
-				upstream_arc.clone(),
-				main_socket,
-				Duration::from_millis(timeout_ms),
-			);
+			spawn_reply_handler(upstream_arc.clone(), main_socket, Duration::from_millis(timeout_ms));
 
 			let target_addr = (target.ip.as_str(), target.port);
 
 			if let Err(e) = upstream_arc.send_to(datagram, target_addr).await {
 				log(
 					LogLevel::Error,
-					&format!(
-						"✗ Failed to send initial UDP packet to {}: {}",
-						target_addr.0, e
-					),
+					&format!("✗ Failed to send initial UDP packet to {}: {}", target_addr.0, e),
 				);
 				health::mark_udp_target_unhealthy(&target);
 				// Cleanup
@@ -154,10 +130,7 @@ pub async fn proxy_udp_direct(
 				return Err(e);
 			}
 
-			log(
-				LogLevel::Debug,
-				&format!("➜ Established UDP NAT mapping: {client_addr} <-> {nat_key}"),
-			);
+			log(LogLevel::Debug, &format!("➜ Established UDP NAT mapping: {client_addr} <-> {nat_key}"));
 			return Ok(());
 		}
 	}

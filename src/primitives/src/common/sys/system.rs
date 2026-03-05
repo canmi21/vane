@@ -40,10 +40,8 @@ pub fn get_free_memory() -> Option<u64> {
 		//
 		// FreePhysicalMemory=1234567
 		//
-		let output = Command::new("wmic")
-			.args(["OS", "get", "FreePhysicalMemory", "/Value"])
-			.output()
-			.ok()?;
+		let output =
+			Command::new("wmic").args(["OS", "get", "FreePhysicalMemory", "/Value"]).output().ok()?;
 
 		if output.status.success() {
 			let content = String::from_utf8_lossy(&output.stdout);

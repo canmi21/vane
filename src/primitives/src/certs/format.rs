@@ -18,9 +18,7 @@ pub async fn load_and_validate_pair(cert_path: &Path, key_path: &Path) -> Result
 		.map_err(|e| Error::Tls(format!("Invalid PEM in {cert_path:?}: {e}")))?;
 
 	if certs.is_empty() {
-		return Err(Error::Tls(format!(
-			"No certificates found in {cert_path:?}"
-		)));
+		return Err(Error::Tls(format!("No certificates found in {cert_path:?}")));
 	}
 
 	let key_data = tokio::fs::read(key_path)

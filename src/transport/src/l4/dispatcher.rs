@@ -15,9 +15,7 @@ pub async fn dispatch_tcp_connection(
 	config: Arc<TcpConfig>,
 	mut kv_store: KvStore,
 ) {
-	let peer_addr = socket
-		.peer_addr()
-		.map_or_else(|_| "unknown".to_owned(), |a| a.to_string());
+	let peer_addr = socket.peer_addr().map_or_else(|_| "unknown".to_owned(), |a| a.to_string());
 
 	match &*config {
 		TcpConfig::Legacy(legacy_config) => {
@@ -45,15 +43,8 @@ pub async fn dispatch_tcp_connection(
 							Ok(TerminatorResult::Finished) => {
 								log(LogLevel::Debug, "✓ Connection handled at L4.");
 							}
-							Ok(TerminatorResult::Upgrade {
-								protocol,
-								conn,
-								parent_path,
-							}) => {
-								log(
-									LogLevel::Info,
-									&format!("➜ Upgrading connection to: {protocol}"),
-								);
+							Ok(TerminatorResult::Upgrade { protocol, conn, parent_path }) => {
+								log(LogLevel::Info, &format!("➜ Upgrading connection to: {protocol}"));
 								match (protocol.as_str(), conn) {
 									#[cfg(feature = "tls")]
 									("tls", ConnectionObject::Tcp(stream)) => {

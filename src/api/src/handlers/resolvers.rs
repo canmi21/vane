@@ -42,19 +42,12 @@ pub async fn list_resolvers_handler() -> impl IntoResponse {
 			_ => (false, None),
 		};
 
-		resolvers.push(ResolverSummary {
-			protocol: protocol.to_string(),
-			active,
-			source_format,
-		});
+		resolvers.push(ResolverSummary { protocol: protocol.to_string(), active, source_format });
 	}
 
 	response::success(ResolverListData {
 		resolvers,
-		supported_protocols: SUPPORTED_UPGRADE_PROTOCOLS
-			.iter()
-			.map(|s| s.to_string())
-			.collect(),
+		supported_protocols: SUPPORTED_UPGRADE_PROTOCOLS.iter().map(|s| s.to_string()).collect(),
 	})
 }
 
@@ -78,17 +71,13 @@ pub async fn get_resolver_handler(Path(protocol): Path<String>) -> impl IntoResp
 		return response::error(StatusCode::BAD_REQUEST, "Invalid protocol".into());
 	}
 
-	let base_path = file_loader::get_config_dir()
-		.join("resolvers")
-		.join(&protocol);
+	let base_path = file_loader::get_config_dir().join("resolvers").join(&protocol);
 
 	match config_file::find_config::<ResolverConfig>(&base_path).await {
 		ConfigFileResult::NotFound => {
 			response::error(StatusCode::NOT_FOUND, format!("No config for {protocol}"))
 		}
-		ConfigFileResult::Single {
-			format, content, ..
-		} => response::success(ResolverDetail {
+		ConfigFileResult::Single { format, content, .. } => response::success(ResolverDetail {
 			protocol,
 			source_format: format,
 			connection: content.connection,
@@ -100,10 +89,9 @@ pub async fn get_resolver_handler(Path(protocol): Path<String>) -> impl IntoResp
 				found.join(", ")
 			),
 		),
-		ConfigFileResult::Error(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Read error: {e}"),
-		),
+		ConfigFileResult::Error(e) => {
+			response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"))
+		}
 	}
 }
 
@@ -162,10 +150,7 @@ pub async fn post_resolver_handler(
 				converted_from: None,
 			})
 		}
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Write error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 	}
 }
 
@@ -216,9 +201,7 @@ pub async fn put_resolver_handler(
 	}
 	let base_path = base_dir.join(&protocol);
 
-	let deleted = config_file::delete_all_formats(&base_path)
-		.await
-		.unwrap_or(false);
+	let deleted = config_file::delete_all_formats(&base_path).await.unwrap_or(false);
 
 	match config_file::write_json(&base_path, &config).await {
 		Ok(path) => {
@@ -227,17 +210,10 @@ pub async fn put_resolver_handler(
 				port: 0,
 				protocol,
 				written_to: filename,
-				converted_from: if deleted {
-					Some("unknown".into())
-				} else {
-					None
-				},
+				converted_from: if deleted { Some("unknown".into()) } else { None },
 			})
 		}
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Write error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 	}
 }
 
@@ -260,16 +236,11 @@ pub async fn delete_resolver_handler(Path(protocol): Path<String>) -> impl IntoR
 		return response::error(StatusCode::BAD_REQUEST, "Invalid protocol".into());
 	}
 
-	let base_path = file_loader::get_config_dir()
-		.join("resolvers")
-		.join(protocol);
+	let base_path = file_loader::get_config_dir().join("resolvers").join(protocol);
 
 	match config_file::delete_all_formats(&base_path).await {
 		Ok(true) => StatusCode::NO_CONTENT.into_response(),
 		Ok(false) => response::error(StatusCode::NOT_FOUND, "Config not found".into()),
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Delete error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Delete error: {e}")),
 	}
 }

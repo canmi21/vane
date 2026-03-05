@@ -17,11 +17,8 @@ use vane_primitives::model::DetectMethod;
 use vane_primitives::tasks::GLOBAL_TRACKER;
 
 async fn bind_upstream_socket(target_ip: &IpAddr) -> Result<UdpSocket, std::io::Error> {
-	let bind_addr: SocketAddr = if target_ip.is_ipv6() {
-		([0; 16], 0).into()
-	} else {
-		([0; 4], 0).into()
-	};
+	let bind_addr: SocketAddr =
+		if target_ip.is_ipv6() { ([0; 16], 0).into() } else { ([0; 4], 0).into() };
 	UdpSocket::bind(bind_addr).await
 }
 
@@ -38,10 +35,7 @@ fn spawn_reply_handler(
 					tokio::time::timeout(timeout, upstream_socket.recv_from(&mut buf)).await
 				{
 					if let Some(client_addr) = REVERSE_SESSIONS.get(&local_addr)
-						&& main_socket
-							.send_to(&buf[..len], *client_addr)
-							.await
-							.is_err()
+						&& main_socket.send_to(&buf[..len], *client_addr).await.is_err()
 					{
 						break;
 					}
@@ -75,9 +69,7 @@ pub async fn dispatch_legacy_udp(
 			}
 			DetectMethod::Prefix => {
 				let pattern_bytes = rule.detect.pattern.as_bytes();
-				datagram
-					.windows(pattern_bytes.len())
-					.any(|window| window == pattern_bytes)
+				datagram.windows(pattern_bytes.len()).any(|window| window == pattern_bytes)
 			}
 			DetectMethod::Regex => {
 				#[cfg(any(feature = "tcp", feature = "udp"))]
@@ -136,10 +128,7 @@ pub async fn dispatch_legacy_udp(
 					let Some(guard) = GLOBAL_TRACKER.acquire(client_addr.ip()) else {
 						log(
 							LogLevel::Debug,
-							&format!(
-								"⚙ Rate limited UDP session from {} for rule {}",
-								client_addr, rule.name
-							),
+							&format!("⚙ Rate limited UDP session from {} for rule {}", client_addr, rule.name),
 						);
 						continue;
 					};
@@ -159,11 +148,7 @@ pub async fn dispatch_legacy_udp(
 						envflag::get::<u64>("UDP_TIMEOUT_REMOTE", 5000)
 					};
 
-					spawn_reply_handler(
-						upstream_arc,
-						socket.clone(),
-						Duration::from_millis(timeout_ms),
-					);
+					spawn_reply_handler(upstream_arc, socket.clone(), Duration::from_millis(timeout_ms));
 
 					log(
 						LogLevel::Debug,
@@ -180,12 +165,7 @@ pub async fn dispatch_legacy_udp(
 			// 3. Send Data
 			if let Some(session) = current_session {
 				let target_addr = (session.target.ip.as_str(), session.target.port);
-				if session
-					.upstream_socket
-					.send_to(datagram, target_addr)
-					.await
-					.is_err()
-				{
+				if session.upstream_socket.send_to(datagram, target_addr).await.is_err() {
 					health::mark_udp_target_unhealthy(&session.target);
 					if let Ok(addr) = session.upstream_socket.local_addr() {
 						REVERSE_SESSIONS.remove(&addr);

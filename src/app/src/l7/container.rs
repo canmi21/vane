@@ -95,9 +95,7 @@ impl PayloadState {
 	pub fn new_buffered(bytes: Bytes) -> Result<Self> {
 		let len = bytes.len();
 		if !try_reserve_buffer_memory(len) {
-			return Err(Error::System(
-				"Global L7 memory limit exceeded. Buffering denied.".to_owned(),
-			));
+			return Err(Error::System("Global L7 memory limit exceeded. Buffering denied.".to_owned()));
 		}
 		Ok(Self::Buffered(bytes, BufferGuard::new(len)))
 	}
@@ -242,14 +240,8 @@ impl Container {
 		response_body: PayloadState,
 		response_tx: Option<oneshot::Sender<Response<()>>>,
 	) -> Self {
-		let mut container = Self::new(
-			kv,
-			request_headers,
-			request_body,
-			response_headers,
-			response_body,
-			response_tx,
-		);
+		let mut container =
+			Self::new(kv, request_headers, request_body, response_headers, response_body, response_tx);
 		container.protocol_data = Some(Box::new(HttpProtocolData::new()));
 		container
 	}
@@ -258,22 +250,14 @@ impl Container {
 	///
 	/// Returns None if Container was not created with HTTP protocol support.
 	pub fn http_data(&self) -> Option<&HttpProtocolData> {
-		self
-			.protocol_data
-			.as_ref()?
-			.as_any()
-			.downcast_ref::<HttpProtocolData>()
+		self.protocol_data.as_ref()?.as_any().downcast_ref::<HttpProtocolData>()
 	}
 
 	/// Gets a mutable reference to HTTP protocol data (if present).
 	///
 	/// Returns None if Container was not created with HTTP protocol support.
 	pub fn http_data_mut(&mut self) -> Option<&mut HttpProtocolData> {
-		self
-			.protocol_data
-			.as_mut()?
-			.as_any_mut()
-			.downcast_mut::<HttpProtocolData>()
+		self.protocol_data.as_mut()?.as_any_mut().downcast_mut::<HttpProtocolData>()
 	}
 
 	/// Deprecated: Access via `container.http_data()?.client_upgrade` instead.

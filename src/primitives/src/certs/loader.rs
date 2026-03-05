@@ -21,11 +21,7 @@ struct CertCandidate {
 }
 impl CertCandidate {
 	fn new() -> Self {
-		Self {
-			crt: None,
-			pem: None,
-			key: None,
-		}
+		Self { crt: None, pem: None, key: None }
 	}
 }
 
@@ -59,10 +55,7 @@ async fn check_cert_expiration(cert_path: &Path) -> Result<bool> {
 	let (_, x509) = x509_parser::certificate::X509Certificate::from_der(&pem.contents)
 		.map_err(|e| crate::common::sys::lifecycle::Error::Tls(format!("X509 error: {e}")))?;
 	let not_after = x509.validity.not_after.timestamp();
-	let now = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.unwrap_or_default()
-		.as_secs() as i64;
+	let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 	Ok(not_after - now < 7 * 24 * 60 * 60)
 }
 
@@ -81,10 +74,8 @@ pub async fn scan_and_load_certs() {
 		return;
 	}
 	let snapshot = arcswap::CERT_REGISTRY.snapshot();
-	let mut new_state: HashMap<String, Arc<arcswap::LoadedCert>> = snapshot
-		.iter()
-		.map(|(k, v)| (k.clone(), Arc::clone(&v.value)))
-		.collect();
+	let mut new_state: HashMap<String, Arc<arcswap::LoadedCert>> =
+		snapshot.iter().map(|(k, v)| (k.clone(), Arc::clone(&v.value))).collect();
 	let Ok(mut entries) = fs::read_dir(&config_dir).await else {
 		return;
 	};

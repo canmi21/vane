@@ -47,10 +47,7 @@ pub fn build_l4_scope(
 
 	// 1. L4+ hijacking source (highest priority)
 	if let Some(payloads) = payloads {
-		scope = scope.push(L4PlusSource {
-			kv: kv.clone(),
-			payloads,
-		});
+		scope = scope.push(L4PlusSource { kv: kv.clone(), payloads });
 	}
 
 	// 2. Standard KV source
@@ -90,10 +87,7 @@ pub async fn resolve_inputs(
 		not_found: NotFound::ReturnOriginal,
 	};
 
-	let serde_config = SerdeConfig {
-		max_depth: 32,
-		resolve_keys: false,
-	};
+	let serde_config = SerdeConfig { max_depth: 32, resolve_keys: false };
 
 	let mut resolved = std::collections::HashMap::with_capacity(inputs.len());
 
@@ -200,9 +194,6 @@ mod tests {
 		let scope = build_l4_scope(kv, None);
 		let resolved = resolve_inputs(&inputs, &scope).await;
 
-		assert_eq!(
-			resolved["url"],
-			serde_json::json!("https://example.com:443")
-		);
+		assert_eq!(resolved["url"], serde_json::json!("https://example.com:443"));
 	}
 }

@@ -24,9 +24,7 @@ pub async fn execute_quinn_request(
 	let uri =
 		Uri::from_str(url_str).map_err(|e| Error::Configuration(format!("Invalid URL: {e}")))?;
 
-	let host = uri
-		.host()
-		.ok_or_else(|| Error::Configuration("URL missing host".into()))?;
+	let host = uri.host().ok_or_else(|| Error::Configuration("URL missing host".into()))?;
 	let port = uri.port_u16().unwrap_or(443);
 
 	// 1. Get Connection
@@ -109,15 +107,10 @@ pub async fn execute_quinn_request(
 	};
 
 	let status = response.status();
-	log(
-		LogLevel::Debug,
-		&format!("✓ H3 Upstream Responded: {status}"),
-	);
+	log(LogLevel::Debug, &format!("✓ H3 Upstream Responded: {status}"));
 
 	// 7. Update Container Headers
-	container
-		.kv
-		.insert("res.status".to_owned(), status.as_u16().to_string());
+	container.kv.insert("res.status".to_owned(), status.as_u16().to_string());
 	container.response_headers = response.headers().clone();
 
 	// 8. SPAWN DOWNLOAD TASK (Upstream -> Channel -> Response Body)

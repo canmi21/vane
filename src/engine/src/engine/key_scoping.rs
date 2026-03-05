@@ -79,10 +79,7 @@ mod tests {
 		assert_eq!(path, "internal_protocol_detect.true");
 
 		let key = format_scoped_key(&path, "internal.common.ratelimit.sec", "count");
-		assert_eq!(
-			key,
-			"plugin.internal_protocol_detect.true.internal_common_ratelimit_sec.count"
-		);
+		assert_eq!(key, "plugin.internal_protocol_detect.true.internal_common_ratelimit_sec.count");
 	}
 
 	/// Tests deeply nested path generation.

@@ -12,10 +12,7 @@ pub async fn start_l7_memory_monitor() {
 	let fallback_limit = envflag::get::<usize>("L7_GLOBAL_BUFFER_LIMIT", 536_870_912);
 
 	if !adaptive_enabled {
-		log(
-			LogLevel::Info,
-			&format!("⚙ L7 Memory Limit: Fixed ({fallback_limit} bytes)"),
-		);
+		log(LogLevel::Info, &format!("⚙ L7 Memory Limit: Fixed ({fallback_limit} bytes)"));
 		container::update_memory_limit(fallback_limit);
 		return;
 	}

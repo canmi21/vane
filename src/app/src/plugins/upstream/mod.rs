@@ -26,41 +26,13 @@ impl Plugin for FetchUpstreamPlugin {
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
-			ParamDef {
-				name: "url_prefix".into(),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "path".into(),
-				required: false,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "query".into(),
-				required: false,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "method".into(),
-				required: false,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "version".into(),
-				required: false,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: "skip_verify".into(),
-				required: false,
-				param_type: ParamType::Boolean,
-			},
-			ParamDef {
-				name: "websocket".into(),
-				required: false,
-				param_type: ParamType::Boolean,
-			},
+			ParamDef { name: "url_prefix".into(), required: true, param_type: ParamType::String },
+			ParamDef { name: "path".into(), required: false, param_type: ParamType::String },
+			ParamDef { name: "query".into(), required: false, param_type: ParamType::String },
+			ParamDef { name: "method".into(), required: false, param_type: ParamType::String },
+			ParamDef { name: "version".into(), required: false, param_type: ParamType::String },
+			ParamDef { name: "skip_verify".into(), required: false, param_type: ParamType::Boolean },
+			ParamDef { name: "websocket".into(), required: false, param_type: ParamType::Boolean },
 		]
 	}
 
@@ -92,32 +64,21 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 		context: &mut (dyn Any + Send),
 		inputs: ResolvedInputs,
 	) -> Result<MiddlewareOutput> {
-		let container = context
-			.downcast_mut::<Container>()
-			.ok_or_else(|| anyhow!("Context is not a Container"))?;
+		let container =
+			context.downcast_mut::<Container>().ok_or_else(|| anyhow!("Context is not a Container"))?;
 
-		let is_client_ws_upgrade = container
-			.http_data()
-			.and_then(|d| d.client_upgrade.as_ref())
-			.is_some();
-		let websocket_enabled = inputs
-			.get("websocket")
-			.and_then(Value::as_bool)
-			.unwrap_or(false);
+		let is_client_ws_upgrade =
+			container.http_data().and_then(|d| d.client_upgrade.as_ref()).is_some();
+		let websocket_enabled = inputs.get("websocket").and_then(Value::as_bool).unwrap_or(false);
 
 		// Handle WebSocket Upgrade requests
 		if is_client_ws_upgrade {
 			if !websocket_enabled {
 				// Client wants WebSocket but config disallows it
 				// Generate 405 response internally and return success
-				log(
-					LogLevel::Warn,
-					"⚠ WebSocket upgrade requested but not allowed by config.",
-				);
+				log(LogLevel::Warn, "⚠ WebSocket upgrade requested but not allowed by config.");
 
-				container
-					.kv
-					.insert("res.status".to_owned(), "405".to_owned());
+				container.kv.insert("res.status".to_owned(), "405".to_owned());
 				container.kv.insert(
 					"res.body".to_owned(),
 					"Method Not Allowed: WebSocket upgrade is disabled".to_owned(),
@@ -145,10 +106,7 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 			}
 
 			// WebSocket upgrade allowed, proceed with H1.1 request
-			log(
-				LogLevel::Debug,
-				"⚙ WebSocket upgrade detected, forcing HTTP/1.1",
-			);
+			log(LogLevel::Debug, "⚙ WebSocket upgrade detected, forcing HTTP/1.1");
 		}
 
 		// 1. Resolve URL Prefix
@@ -165,18 +123,11 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 		let raw_path = if let Some(p) = path_input {
 			p.to_owned()
 		} else {
-			container
-				.kv
-				.get("req.path")
-				.cloned()
-				.unwrap_or_else(|| "/".to_owned())
+			container.kv.get("req.path").cloned().unwrap_or_else(|| "/".to_owned())
 		};
 
 		let (clean_path, final_query) = if let Some(q) = query_input {
-			let p = raw_path
-				.split_once('?')
-				.map(|(pre, _)| pre)
-				.unwrap_or(&raw_path);
+			let p = raw_path.split_once('?').map(|(pre, _)| pre).unwrap_or(&raw_path);
 			(p.to_owned(), q.to_owned())
 		} else if let Some((p, q)) = raw_path.split_once('?') {
 			(p.to_owned(), q.to_owned())
@@ -198,15 +149,9 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 
 		let method = inputs.get("method").and_then(Value::as_str);
 
-		let version = inputs
-			.get("version")
-			.and_then(Value::as_str)
-			.unwrap_or("auto");
+		let version = inputs.get("version").and_then(Value::as_str).unwrap_or("auto");
 
-		let skip_verify = inputs
-			.get("skip_verify")
-			.and_then(Value::as_bool)
-			.unwrap_or(false);
+		let skip_verify = inputs.get("skip_verify").and_then(Value::as_bool).unwrap_or(false);
 
 		log(LogLevel::Debug, &format!("➜ Upstream Target: {full_url}"));
 
@@ -230,15 +175,10 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 				"h3" => quinn_client::execute_quinn_request(container, &full_url, method, skip_verify).await,
 				#[cfg(not(feature = "h3upstream"))]
 				"h3" => {
-					return Err(anyhow!(
-						"HTTP/3 upstream support is disabled in this build."
-					));
+					return Err(anyhow!("HTTP/3 upstream support is disabled in this build."));
 				}
 				_ => {
-					log(
-						LogLevel::Warn,
-						&format!("⚠ Unknown version '{version}', falling back to auto."),
-					);
+					log(LogLevel::Warn, &format!("⚠ Unknown version '{version}', falling back to auto."));
 					hyper_client::execute_hyper_request(
 						container,
 						&full_url,
@@ -252,18 +192,12 @@ impl HttpMiddleware for FetchUpstreamPlugin {
 		};
 
 		match result {
-			Ok(_) => Ok(MiddlewareOutput {
-				branch: "success".into(),
-				store: None,
-			}),
+			Ok(_) => Ok(MiddlewareOutput { branch: "success".into(), store: None }),
 			Err(e) => {
 				log(LogLevel::Error, &format!("✗ FetchUpstream Failed: {e}"));
 				Ok(MiddlewareOutput {
 					branch: "failure".into(),
-					store: Some(std::collections::HashMap::from([(
-						"error".to_owned(),
-						e.to_string(),
-					)])),
+					store: Some(std::collections::HashMap::from([("error".to_owned(), e.to_string())])),
 				})
 			}
 		}

@@ -14,16 +14,10 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 
 	tokio::spawn(async move {
 		let listen_ipv6 = envflag::get::<bool>("LISTEN_IPV6", false);
-		let addr: std::net::SocketAddr = if listen_ipv6 {
-			([0; 8], port).into()
-		} else {
-			([0; 4], port).into()
-		};
+		let addr: std::net::SocketAddr =
+			if listen_ipv6 { ([0; 8], port).into() } else { ([0; 4], port).into() };
 
-		log(
-			LogLevel::Info,
-			&format!("⚙ Binding {protocol:?} listener on {addr}..."),
-		);
+		log(LogLevel::Info, &format!("⚙ Binding {protocol:?} listener on {addr}..."));
 
 		let shutdown_handle = match protocol {
 			Protocol::Tcp => {
@@ -76,15 +70,9 @@ pub fn start_listener(port: u16, protocol: Protocol) {
 		if let Some(handle) = shutdown_handle {
 			TASK_REGISTRY.insert(
 				key,
-				RunningListener {
-					state: Arc::new(Mutex::new(ListenerState::Active)),
-					shutdown: handle,
-				},
+				RunningListener { state: Arc::new(Mutex::new(ListenerState::Active)), shutdown: handle },
 			);
-			log(
-				LogLevel::Info,
-				&format!("✓ {protocol:?} listener on port {port} is UP"),
-			);
+			log(LogLevel::Info, &format!("✓ {protocol:?} listener on port {port} is UP"));
 		}
 	});
 }
@@ -112,15 +100,9 @@ async fn is_listener_still_required(port: u16, protocol: &Protocol) -> bool {
 }
 
 pub async fn handle_listener_error(port: u16, protocol: Protocol, error: std::io::Error) {
-	log(
-		LogLevel::Warn,
-		&format!("⚠ Listener error on port {port} {protocol:?}: {error}"),
-	);
+	log(LogLevel::Warn, &format!("⚠ Listener error on port {port} {protocol:?}: {error}"));
 	if is_listener_still_required(port, &protocol).await {
-		log(
-			LogLevel::Info,
-			&format!("↻ Retrying {protocol:?} listener on port {port} in 5s..."),
-		);
+		log(LogLevel::Info, &format!("↻ Retrying {protocol:?} listener on port {port} in 5s..."));
 		tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 		start_listener(port, protocol);
 	}

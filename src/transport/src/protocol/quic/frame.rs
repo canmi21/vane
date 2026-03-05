@@ -29,10 +29,7 @@ pub fn parse_crypto_frames_for_sni(
 				}
 				let data = payload[cursor..cursor + length].to_vec();
 
-				log(
-					LogLevel::Debug,
-					&format!("⚙ Found CRYPTO frame: off={offset}, len={length}"),
-				);
+				log(LogLevel::Debug, &format!("⚙ Found CRYPTO frame: off={offset}, len={length}"));
 				crypto_map.insert(offset, data);
 
 				cursor += length;
@@ -54,11 +51,7 @@ pub fn parse_crypto_frames_for_sni(
 		}
 	}
 
-	let sni = if !stream.is_empty() {
-		parse_tls_client_hello_sni(&stream).ok()
-	} else {
-		None
-	};
+	let sni = if !stream.is_empty() { parse_tls_client_hello_sni(&stream).ok() } else { None };
 
 	Ok((sni, crypto_map))
 }

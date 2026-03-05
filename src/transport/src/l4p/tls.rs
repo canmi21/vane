@@ -64,17 +64,11 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 
 	match peek_result {
 		Ok(Ok(n)) => {
-			log(
-				LogLevel::Debug,
-				&format!("⚙ Socket peek returned full record ({n} bytes)."),
-			);
+			log(LogLevel::Debug, &format!("⚙ Socket peek returned full record ({n} bytes)."));
 			let payload = &buf[..n];
 
 			// LAZY: Store raw bytes instead of eager hex encode
-			initial_payloads.insert(
-				"tls.clienthello".to_owned(),
-				bytes::Bytes::copy_from_slice(payload),
-			);
+			initial_payloads.insert("tls.clienthello".to_owned(), bytes::Bytes::copy_from_slice(payload));
 
 			match clienthello::parse_client_hello(payload) {
 				Ok(data) => {
@@ -82,10 +76,7 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 					parse_success = true;
 				}
 				Err(e) => {
-					log(
-						LogLevel::Warn,
-						&format!("⚠ Failed to parse ClientHello: {e:#}"),
-					);
+					log(LogLevel::Warn, &format!("⚠ Failed to parse ClientHello: {e:#}"));
 					error_code = Some("malformed");
 				}
 			}
@@ -95,10 +86,7 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 			error_code = Some(code);
 		}
 		Err(_) => {
-			log(
-				LogLevel::Warn,
-				"⚠ TLS Peek timed out waiting for handshake.",
-			);
+			log(LogLevel::Warn, "⚠ TLS Peek timed out waiting for handshake.");
 			error_code = Some("timeout");
 		}
 	}
@@ -144,44 +132,26 @@ pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Re
 	let result = flow::execute(&config.connection, kv, conn, parent_path, initial_payloads)
 		.await
 		.map_err(|e| {
-			log(
-				LogLevel::Error,
-				&format!("✗ TLS Flow execution failed: {e:#}"),
-			);
+			log(LogLevel::Error, &format!("✗ TLS Flow execution failed: {e:#}"));
 			e
 		})?;
 
 	// 4. Handle Flow Result
 	match result {
 		TerminatorResult::Finished => {
-			log(
-				LogLevel::Debug,
-				"✓ TLS L4+ Flow finished (Connection Closed).",
-			);
+			log(LogLevel::Debug, "✓ TLS L4+ Flow finished (Connection Closed).");
 			Ok(())
 		}
-		TerminatorResult::Upgrade {
-			protocol,
-			conn,
-			parent_path: _,
-		} => {
+		TerminatorResult::Upgrade { protocol, conn, parent_path: _ } => {
 			// Connects L4+ to L7.
 			if protocol.as_str() == "httpx" {
-				log(
-					LogLevel::Info,
-					&format!("➜ Handing over to Decryptor for L7 protocol: {protocol}"),
-				);
+				log(LogLevel::Info, &format!("➜ Handing over to Decryptor for L7 protocol: {protocol}"));
 				decryptor::terminate_and_handover(conn, kv, protocol)
 					.await
 					.map_err(|e| Error::System(format!("TLS Termination Error: {e:#}")))
 			} else {
-				log(
-					LogLevel::Error,
-					&format!("✗ Unsupported L4+ Upgrade Target: {protocol}"),
-				);
-				Err(Error::Configuration(format!(
-					"Unknown/Unsupported protocol upgrade: {protocol}"
-				)))
+				log(LogLevel::Error, &format!("✗ Unsupported L4+ Upgrade Target: {protocol}"));
+				Err(Error::Configuration(format!("Unknown/Unsupported protocol upgrade: {protocol}")))
 			}
 		}
 	}

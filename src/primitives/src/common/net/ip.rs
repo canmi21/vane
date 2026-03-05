@@ -74,14 +74,10 @@ mod tests {
 		assert!(is_private_ipv6(&Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))); // Loopback (::1)
 		assert!(is_private_ipv6(&Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 1))); // Unique-local
 		assert!(is_private_ipv6(&Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1))); // Link-local
-		assert!(is_private_ipv6(&Ipv6Addr::new(
-			0x2001, 0x0db8, 0, 0, 0, 0, 0, 1
-		))); // Documentation
+		assert!(is_private_ipv6(&Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1))); // Documentation
 
 		// Public address
-		assert!(!is_private_ipv6(&Ipv6Addr::new(
-			0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888
-		)));
+		assert!(!is_private_ipv6(&Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888)));
 	}
 
 	/// Tests the main dispatcher function `is_private_ip` for both v4 and v6.

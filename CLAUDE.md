@@ -90,14 +90,14 @@
 
 ## Running Tests
 
-| Command                 | Scope                                             |
-| ----------------------- | ------------------------------------------------- |
-| `just test-rs`          | Rust unit tests (`cargo test --workspace`)        |
-| `just test-integration` | Go integration tests (`integration/`)             |
-| `just test`             | All tests (Rust + Go integration)                 |
-| `just lint`             | All linters (oxlint + clippy + Go + lint-length)  |
-| `just lint-check`       | CI check linters (oxlint + Go + links, no build)  |
-| `just verify`           | Full pipeline: format + lint + build + all tests  |
+| Command                 | Scope                                            |
+| ----------------------- | ------------------------------------------------ |
+| `just test-rs`          | Rust unit tests (`cargo test --workspace`)       |
+| `just test-integration` | Go integration tests (`integration/`)            |
+| `just test`             | All tests (Rust + Go integration)                |
+| `just lint`             | All linters (oxlint + clippy + Go + lint-length) |
+| `just lint-check`       | CI check linters (oxlint + Go + links, no build) |
+| `just verify`           | Full pipeline: format + lint + build + all tests |
 
 ## CLI Binary
 

@@ -6,10 +6,7 @@ use std::time::Duration;
 use vane_engine::engine::interfaces::{ExternalApiResponse, MiddlewareOutput, ResolvedInputs};
 
 pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
-	log(
-		LogLevel::Debug,
-		&format!("➜ Executing external HTTP middleware: {name}"),
-	);
+	log(LogLevel::Debug, &format!("➜ Executing external HTTP middleware: {name}"));
 
 	// 1. Check Env for TLS Verification Skip
 	let skip_tls = envflag::get::<bool>("EXTERNAL_HTTPS_CALL_SKIP_TLS_VERIFY", false);
@@ -36,14 +33,8 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 	let response = match client.post(url).json(&inputs).send().await {
 		Ok(r) => r,
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ External HTTP request failed for '{name}': {e}"),
-			);
-			return Ok(MiddlewareOutput {
-				branch: "failure".into(),
-				store: None,
-			});
+			log(LogLevel::Error, &format!("✗ External HTTP request failed for '{name}': {e}"));
+			return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 		}
 	};
 
@@ -51,16 +42,9 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 	if !response.status().is_success() {
 		log(
 			LogLevel::Error,
-			&format!(
-				"✗ External plugin '{}' returned HTTP error: {}",
-				name,
-				response.status()
-			),
+			&format!("✗ External plugin '{}' returned HTTP error: {}", name, response.status()),
 		);
-		return Ok(MiddlewareOutput {
-			branch: "failure".into(),
-			store: None,
-		});
+		return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 	}
 
 	// 5. Parse Response Wrapper (ExternalApiResponse)
@@ -71,10 +55,7 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 				LogLevel::Error,
 				&format!("✗ Failed to parse external API response JSON for '{name}': {e}"),
 			);
-			return Ok(MiddlewareOutput {
-				branch: "failure".into(),
-				store: None,
-			});
+			return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 		}
 	};
 
@@ -84,16 +65,8 @@ pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<Mi
 			.data
 			.ok_or_else(|| anyhow!("External API for '{name}' returned success but 'data' is missing."))
 	} else {
-		let msg = api_response
-			.message
-			.unwrap_or_else(|| "Unknown error".to_owned());
-		log(
-			LogLevel::Warn,
-			&format!("⚠ External API for '{name}' returned error status: {msg}"),
-		);
-		Ok(MiddlewareOutput {
-			branch: "failure".into(),
-			store: None,
-		})
+		let msg = api_response.message.unwrap_or_else(|| "Unknown error".to_owned());
+		log(LogLevel::Warn, &format!("⚠ External API for '{name}' returned error status: {msg}"));
+		Ok(MiddlewareOutput { branch: "failure".into(), store: None })
 	}
 }

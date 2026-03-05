@@ -46,11 +46,7 @@ async fn main() {
 		#[cfg(feature = "ratelimit")]
 		features.push("ratelimit");
 
-		let features_str = if features.is_empty() {
-			"none".to_owned()
-		} else {
-			features.join(", ")
-		};
+		let features_str = if features.is_empty() { "none".to_owned() } else { features.join(", ") };
 		println!("features: [{features_str}]");
 
 		return; // Exit after printing version.

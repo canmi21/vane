@@ -21,37 +21,13 @@ impl Plugin for CgiPlugin {
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
 			// Execution
-			ParamDef {
-				name: Cow::Borrowed("command"),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: Cow::Borrowed("script"),
-				required: false,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: Cow::Borrowed("timeout"),
-				required: false,
-				param_type: ParamType::Integer,
-			},
+			ParamDef { name: Cow::Borrowed("command"), required: true, param_type: ParamType::String },
+			ParamDef { name: Cow::Borrowed("script"), required: false, param_type: ParamType::String },
+			ParamDef { name: Cow::Borrowed("timeout"), required: false, param_type: ParamType::Integer },
 			// Metadata Inputs (Template Injection Targets)
-			ParamDef {
-				name: Cow::Borrowed("method"),
-				required: false,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: Cow::Borrowed("uri"),
-				required: true,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: Cow::Borrowed("query"),
-				required: false,
-				param_type: ParamType::String,
-			},
+			ParamDef { name: Cow::Borrowed("method"), required: false, param_type: ParamType::String },
+			ParamDef { name: Cow::Borrowed("uri"), required: true, param_type: ParamType::String },
+			ParamDef { name: Cow::Borrowed("query"), required: false, param_type: ParamType::String },
 			ParamDef {
 				name: Cow::Borrowed("remote_addr"),
 				required: false,
@@ -73,16 +49,8 @@ impl Plugin for CgiPlugin {
 				param_type: ParamType::String,
 			},
 			// Context
-			ParamDef {
-				name: Cow::Borrowed("doc_root"),
-				required: false,
-				param_type: ParamType::String,
-			},
-			ParamDef {
-				name: Cow::Borrowed("path_info"),
-				required: false,
-				param_type: ParamType::String,
-			},
+			ParamDef { name: Cow::Borrowed("doc_root"), required: false, param_type: ParamType::String },
+			ParamDef { name: Cow::Borrowed("path_info"), required: false, param_type: ParamType::String },
 			ParamDef {
 				name: Cow::Borrowed("script_name"),
 				required: false,
@@ -124,13 +92,8 @@ impl HttpMiddleware for CgiPlugin {
 			.ok_or_else(|| anyhow::anyhow!("Context is not a Container"))?;
 
 		// Helper closure for resolving optional strings
-		let get_str = |key: &str| -> String {
-			inputs
-				.get(key)
-				.and_then(Value::as_str)
-				.unwrap_or("")
-				.to_owned()
-		};
+		let get_str =
+			|key: &str| -> String { inputs.get(key).and_then(Value::as_str).unwrap_or("").to_owned() };
 
 		// 1. Mandatory Fields
 		let command = get_str("command");
@@ -177,11 +140,7 @@ impl HttpMiddleware for CgiPlugin {
 			timeout: inputs.get("timeout").and_then(Value::as_u64).unwrap_or(30),
 
 			// Metadata resolution
-			method: inputs
-				.get("method")
-				.and_then(Value::as_str)
-				.unwrap_or("GET")
-				.to_owned(),
+			method: inputs.get("method").and_then(Value::as_str).unwrap_or("GET").to_owned(),
 			uri: final_uri,
 			query: final_query,
 			remote_addr: get_str("remote_addr"),
@@ -273,10 +232,7 @@ fn derive_path_info(uri: &str, script_name: &str) -> (String, String) {
 		} else if match_base == "/" {
 			// Root match
 
-			return (
-				"/".to_owned(),
-				format!("/{}", remainder.trim_start_matches('/')),
-			);
+			return ("/".to_owned(), format!("/{}", remainder.trim_start_matches('/')));
 		}
 	}
 
@@ -313,22 +269,13 @@ mod tests {
 		);
 
 		// 4. Root script name
-		assert_eq!(
-			derive_path_info("/foo/bar", "/"),
-			("/".to_string(), "/foo/bar".to_string())
-		);
+		assert_eq!(derive_path_info("/foo/bar", "/"), ("/".to_string(), "/foo/bar".to_string()));
 
 		// 5. Empty script name
-		assert_eq!(
-			derive_path_info("/foo/bar", ""),
-			("".to_string(), "/foo/bar".to_string())
-		);
+		assert_eq!(derive_path_info("/foo/bar", ""), ("".to_string(), "/foo/bar".to_string()));
 
 		// 6. Non-matching paths
-		assert_eq!(
-			derive_path_info("/api/v1", "/cgi"),
-			("".to_string(), "/api/v1".to_string())
-		);
+		assert_eq!(derive_path_info("/api/v1", "/cgi"), ("".to_string(), "/api/v1".to_string()));
 
 		// 7. Redundant slashes
 		assert_eq!(

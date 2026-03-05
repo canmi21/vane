@@ -39,30 +39,20 @@ pub fn get_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
 }
 
 pub fn get_internal_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
-	INTERNAL_PLUGIN_REGISTRY
-		.get(name)
-		.map(|entry| entry.value().clone())
+	INTERNAL_PLUGIN_REGISTRY.get(name).map(|entry| entry.value().clone())
 }
 
 pub fn get_external_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
-	EXTERNAL_PLUGIN_REGISTRY
-		.get(name)
-		.map(|entry| (*entry).clone())
+	EXTERNAL_PLUGIN_REGISTRY.get(name).map(|entry| (*entry).clone())
 }
 
 pub fn list_external_plugins() -> Vec<Arc<dyn Plugin>> {
 	let snapshot = EXTERNAL_PLUGIN_REGISTRY.snapshot();
-	snapshot
-		.values()
-		.map(|entry| (*entry.value).clone())
-		.collect()
+	snapshot.values().map(|entry| (*entry.value).clone()).collect()
 }
 
 pub fn list_internal_plugins() -> Vec<Arc<dyn Plugin>> {
-	INTERNAL_PLUGIN_REGISTRY
-		.iter()
-		.map(|entry| entry.value().clone())
-		.collect()
+	INTERNAL_PLUGIN_REGISTRY.iter().map(|entry| entry.value().clone()).collect()
 }
 
 pub fn load_external_plugins(new_plugins: DashMap<String, Arc<dyn Plugin>>) {
@@ -77,11 +67,7 @@ pub fn load_external_plugins(new_plugins: DashMap<String, Arc<dyn Plugin>>) {
 }
 
 pub fn clear_external_plugins() {
-	let keys = EXTERNAL_PLUGIN_REGISTRY
-		.snapshot()
-		.keys()
-		.cloned()
-		.collect::<Vec<_>>();
+	let keys = EXTERNAL_PLUGIN_REGISTRY.snapshot().keys().cloned().collect::<Vec<_>>();
 	for key in keys {
 		let _ = EXTERNAL_PLUGIN_REGISTRY.remove(&key);
 	}

@@ -15,10 +15,7 @@ pub struct TargetHealth {
 
 impl TargetHealth {
 	fn unhealthy() -> Self {
-		Self {
-			available: false,
-			latency: Duration::MAX,
-		}
+		Self { available: false, latency: Duration::MAX }
 	}
 }
 
@@ -29,11 +26,8 @@ static UNHEALTHY_UDP_TARGETS: Lazy<DashMap<ResolvedTarget, Instant>> = Lazy::new
 async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 	let start = Instant::now();
 	let timeout = Duration::from_millis(timeout_ms);
-	let check_result = tokio::time::timeout(
-		timeout,
-		TcpStream::connect((target.ip.as_str(), target.port)),
-	)
-	.await;
+	let check_result =
+		tokio::time::timeout(timeout, TcpStream::connect((target.ip.as_str(), target.port))).await;
 
 	let health_status = match check_result {
 		Ok(Ok(_)) => {
@@ -49,10 +43,7 @@ async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 					),
 				);
 			}
-			TargetHealth {
-				available: true,
-				latency,
-			}
+			TargetHealth { available: true, latency }
 		}
 		_ => TargetHealth::unhealthy(),
 	};
@@ -86,10 +77,7 @@ async fn run_health_check_cycle() -> Vec<JoinHandle<()>> {
 }
 
 pub fn mark_tcp_target_unhealthy(target: &ResolvedTarget) {
-	if TARGET_HEALTH_REGISTRY
-		.get(target)
-		.is_none_or(|h| h.available)
-	{
+	if TARGET_HEALTH_REGISTRY.get(target).is_none_or(|h| h.available) {
 		log(
 			LogLevel::Warn,
 			&format!(
@@ -110,10 +98,7 @@ pub fn is_udp_target_healthy(target: &ResolvedTarget) -> bool {
 }
 
 pub async fn initial_health_check() {
-	log(
-		LogLevel::Debug,
-		"⚙ Performing initial health check for TCP targets...",
-	);
+	log(LogLevel::Debug, "⚙ Performing initial health check for TCP targets...");
 	let handles = run_health_check_cycle().await;
 	for handle in handles {
 		let _ = handle.await;

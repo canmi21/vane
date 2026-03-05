@@ -26,12 +26,7 @@ fn map_plugin_summary(plugin: &Arc<dyn Plugin>, is_internal: bool) -> PluginSumm
 	};
 
 	let healthy = if !is_internal {
-		Some(
-			registry::EXTERNAL_PLUGIN_STATUS
-				.get(plugin.name())
-				.map(|r| r.is_ok())
-				.unwrap_or(true),
-		)
+		Some(registry::EXTERNAL_PLUGIN_STATUS.get(plugin.name()).map(|r| r.is_ok()).unwrap_or(true))
 	} else {
 		None
 	};
@@ -61,19 +56,11 @@ fn map_plugin_detail(plugin: &Arc<dyn Plugin>, is_internal: bool) -> PluginDetai
 		})
 		.collect();
 
-	let supported_protocols = plugin
-		.supported_protocols()
-		.into_iter()
-		.map(|p| p.to_string())
-		.collect();
+	let supported_protocols =
+		plugin.supported_protocols().into_iter().map(|p| p.to_string()).collect();
 
 	let healthy = if !is_internal {
-		Some(
-			registry::EXTERNAL_PLUGIN_STATUS
-				.get(plugin.name())
-				.map(|r| r.is_ok())
-				.unwrap_or(true),
-		)
+		Some(registry::EXTERNAL_PLUGIN_STATUS.get(plugin.name()).map(|r| r.is_ok()).unwrap_or(true))
 	} else {
 		None
 	};
@@ -107,19 +94,13 @@ pub async fn list_plugins_handler(Query(query): Query<ListPluginsQuery>) -> impl
 	let show_external = matches!(query.type_name.as_deref(), None | Some("all" | "external"));
 
 	let internal = if show_internal {
-		registry::list_internal_plugins()
-			.iter()
-			.map(|p| map_plugin_summary(p, true))
-			.collect()
+		registry::list_internal_plugins().iter().map(|p| map_plugin_summary(p, true)).collect()
 	} else {
 		vec![]
 	};
 
 	let external = if show_external {
-		registry::list_external_plugins()
-			.iter()
-			.map(|p| map_plugin_summary(p, false))
-			.collect()
+		registry::list_external_plugins().iter().map(|p| map_plugin_summary(p, false)).collect()
 	} else {
 		vec![]
 	};
@@ -181,21 +162,12 @@ pub async fn create_plugin_handler(
 	}
 
 	if registry::get_plugin(&name).is_some() {
-		return response::error(
-			StatusCode::CONFLICT,
-			format!("Plugin '{name}' already exists."),
-		);
+		return response::error(StatusCode::CONFLICT, format!("Plugin '{name}' already exists."));
 	}
 
 	match loader::register_plugin(config).await {
-		Ok(_) => response::created(PluginOperationResult {
-			status: "created".into(),
-			name,
-		}),
-		Err(e) => response::error(
-			StatusCode::BAD_REQUEST,
-			format!("Failed to register plugin: {e}"),
-		),
+		Ok(_) => response::created(PluginOperationResult { status: "created".into(), name }),
+		Err(e) => response::error(StatusCode::BAD_REQUEST, format!("Failed to register plugin: {e}")),
 	}
 }
 
@@ -226,21 +198,12 @@ pub async fn update_plugin_handler(
 	}
 
 	if registry::get_external_plugin(&name).is_none() {
-		return response::error(
-			StatusCode::NOT_FOUND,
-			format!("External plugin '{name}' not found."),
-		);
+		return response::error(StatusCode::NOT_FOUND, format!("External plugin '{name}' not found."));
 	}
 
 	match loader::register_plugin(config).await {
-		Ok(_) => response::success(PluginOperationResult {
-			status: "updated".into(),
-			name,
-		}),
-		Err(e) => response::error(
-			StatusCode::BAD_REQUEST,
-			format!("Failed to update plugin: {e}"),
-		),
+		Ok(_) => response::success(PluginOperationResult { status: "updated".into(), name }),
+		Err(e) => response::error(StatusCode::BAD_REQUEST, format!("Failed to update plugin: {e}")),
 	}
 }
 
@@ -260,20 +223,13 @@ pub async fn update_plugin_handler(
 )]
 pub async fn delete_plugin_handler(Path(name): Path<String>) -> impl IntoResponse {
 	if registry::get_external_plugin(&name).is_none() {
-		return response::error(
-			StatusCode::NOT_FOUND,
-			format!("External plugin '{name}' not found."),
-		);
+		return response::error(StatusCode::NOT_FOUND, format!("External plugin '{name}' not found."));
 	}
 
 	match loader::delete_plugin(&name).await {
-		Ok(_) => response::success(PluginOperationResult {
-			status: "deleted".into(),
-			name,
-		}),
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Failed to delete plugin: {e}"),
-		),
+		Ok(_) => response::success(PluginOperationResult { status: "deleted".into(), name }),
+		Err(e) => {
+			response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete plugin: {e}"))
+		}
 	}
 }

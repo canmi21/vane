@@ -115,11 +115,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + Sync> ByteStream for T {}
 
 pub enum ConnectionObject {
 	Tcp(TcpStream),
-	Udp {
-		socket: Arc<UdpSocket>,
-		datagram: bytes::Bytes,
-		client_addr: SocketAddr,
-	},
+	Udp { socket: Arc<UdpSocket>, datagram: bytes::Bytes, client_addr: SocketAddr },
 	Stream(Box<dyn ByteStream>),
 	Virtual(String),
 }
@@ -131,18 +127,15 @@ impl fmt::Debug for ConnectionObject {
 				.debug_struct("ConnectionObject::Tcp")
 				.field("peer_addr", &stream.peer_addr().ok())
 				.finish(),
-			Self::Udp { client_addr, .. } => f
-				.debug_struct("ConnectionObject::Udp")
-				.field("client_addr", client_addr)
-				.finish(),
-			Self::Stream(_) => f
-				.debug_struct("ConnectionObject::Stream")
-				.field("type", &"Box<dyn ByteStream>")
-				.finish(),
-			Self::Virtual(desc) => f
-				.debug_struct("ConnectionObject::Virtual")
-				.field("desc", desc)
-				.finish(),
+			Self::Udp { client_addr, .. } => {
+				f.debug_struct("ConnectionObject::Udp").field("client_addr", client_addr).finish()
+			}
+			Self::Stream(_) => {
+				f.debug_struct("ConnectionObject::Stream").field("type", &"Box<dyn ByteStream>").finish()
+			}
+			Self::Virtual(desc) => {
+				f.debug_struct("ConnectionObject::Virtual").field("desc", desc).finish()
+			}
 		}
 	}
 }
@@ -157,11 +150,7 @@ pub enum Layer {
 #[derive(Debug)]
 pub enum TerminatorResult {
 	Finished,
-	Upgrade {
-		protocol: String,
-		conn: ConnectionObject,
-		parent_path: String,
-	},
+	Upgrade { protocol: String, conn: ConnectionObject, parent_path: String },
 }
 
 pub trait Plugin: Send + Sync + Any {

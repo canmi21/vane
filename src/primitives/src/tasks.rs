@@ -53,10 +53,7 @@ impl ConnectionTracker {
 		}
 
 		// 2. Check IP limit
-		let ip_entry = self
-			.ip_counts
-			.entry(ip)
-			.or_insert_with(|| AtomicUsize::new(0));
+		let ip_entry = self.ip_counts.entry(ip).or_insert_with(|| AtomicUsize::new(0));
 		let current_ip = ip_entry.load(Ordering::Relaxed);
 		if current_ip >= self.max_connections_per_ip {
 			return None;
@@ -66,10 +63,7 @@ impl ConnectionTracker {
 		self.global_count.fetch_add(1, Ordering::Relaxed);
 		ip_entry.fetch_add(1, Ordering::Relaxed);
 
-		Some(ConnectionGuard(Arc::new(InternalGuard {
-			tracker: self.clone(),
-			ip,
-		})))
+		Some(ConnectionGuard(Arc::new(InternalGuard { tracker: self.clone(), ip })))
 	}
 
 	fn release(&self, ip: IpAddr) {
@@ -79,9 +73,7 @@ impl ConnectionTracker {
 			if prev == 1 {
 				// Count dropped to 0, clean up the entry to save memory
 				drop(ip_count);
-				self
-					.ip_counts
-					.remove_if(&ip, |_, count| count.load(Ordering::Relaxed) == 0);
+				self.ip_counts.remove_if(&ip, |_, count| count.load(Ordering::Relaxed) == 0);
 			}
 		}
 	}

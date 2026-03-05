@@ -68,9 +68,7 @@ pub async fn reload_config_handler(Json(req): Json<Option<ReloadRequest>>) -> im
 	let _ = fs::write(&reload_marker, &timestamp).await;
 
 	response::success(ReloadResult {
-		reloaded: req
-			.map(|r| r.components.unwrap_or_default())
-			.unwrap_or_else(|| vec!["all".into()]),
+		reloaded: req.map(|r| r.components.unwrap_or_default()).unwrap_or_else(|| vec!["all".into()]),
 		timestamp,
 	})
 }
@@ -93,10 +91,7 @@ pub async fn export_config_handler() -> impl IntoResponse {
 	let mut tar_builder = tar::Builder::new(Vec::new());
 
 	if let Err(e) = tar_builder.append_dir_all(".", &config_dir) {
-		log(
-			LogLevel::Error,
-			&format!("Failed to build config archive: {e}"),
-		);
+		log(LogLevel::Error, &format!("Failed to build config archive: {e}"));
 		return response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
 			format!("Failed to build archive: {e}"),
@@ -106,10 +101,7 @@ pub async fn export_config_handler() -> impl IntoResponse {
 	let tar_data = match tar_builder.into_inner() {
 		Ok(d) => d,
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("Failed to finish config archive: {e}"),
-			);
+			log(LogLevel::Error, &format!("Failed to finish config archive: {e}"));
 			return response::error(
 				StatusCode::INTERNAL_SERVER_ERROR,
 				format!("Failed to finish archive: {e}"),
@@ -120,19 +112,13 @@ pub async fn export_config_handler() -> impl IntoResponse {
 	let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
 	if let Err(e) = std::io::Write::write_all(&mut encoder, &tar_data) {
 		log(LogLevel::Error, &format!("Config compression failed: {e}"));
-		return response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Compression failed: {e}"),
-		);
+		return response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Compression failed: {e}"));
 	}
 
 	let compressed_data = match encoder.finish() {
 		Ok(d) => d,
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("Config compression finish failed: {e}"),
-			);
+			log(LogLevel::Error, &format!("Config compression finish failed: {e}"));
 			return response::error(
 				StatusCode::INTERNAL_SERVER_ERROR,
 				format!("Compression finish failed: {e}"),
@@ -143,10 +129,7 @@ pub async fn export_config_handler() -> impl IntoResponse {
 	let filename = format!("vane-config-{}.tar.gz", Utc::now().format("%Y%m%d-%H%M%S"));
 
 	let mut headers = HeaderMap::new();
-	headers.insert(
-		axum::http::header::CONTENT_TYPE,
-		HeaderValue::from_static("application/gzip"),
-	);
+	headers.insert(axum::http::header::CONTENT_TYPE, HeaderValue::from_static("application/gzip"));
 	headers.insert(
 		axum::http::header::CONTENT_DISPOSITION,
 		HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"",)).unwrap(),
@@ -182,10 +165,7 @@ pub async fn import_config_handler(mut multipart: Multipart) -> impl IntoRespons
 					break;
 				}
 				Err(e) => {
-					log(
-						LogLevel::Error,
-						&format!("Failed to read uploaded file bytes: {e}"),
-					);
+					log(LogLevel::Error, &format!("Failed to read uploaded file bytes: {e}"));
 					return response::error(StatusCode::BAD_REQUEST, format!("Failed to read file: {e}"));
 				}
 			}
@@ -200,23 +180,14 @@ pub async fn import_config_handler(mut multipart: Multipart) -> impl IntoRespons
 	let mut decoder = flate2::read::GzDecoder::new(&data[..]);
 	let mut tar_data = Vec::new();
 	if let Err(e) = decoder.read_to_end(&mut tar_data) {
-		log(
-			LogLevel::Error,
-			&format!("Gzip decompression failed during import: {e}"),
-		);
-		return response::error(
-			StatusCode::BAD_REQUEST,
-			format!("Failed to decompress Gzip: {e}"),
-		);
+		log(LogLevel::Error, &format!("Gzip decompression failed during import: {e}"));
+		return response::error(StatusCode::BAD_REQUEST, format!("Failed to decompress Gzip: {e}"));
 	}
 
 	// 2. Clean existing config (Restore mode)
 	let config_dir = file_loader::get_config_dir();
 	if let Err(e) = clean_existing_config(&config_dir).await {
-		log(
-			LogLevel::Error,
-			&format!("Failed to clean existing config: {e}"),
-		);
+		log(LogLevel::Error, &format!("Failed to clean existing config: {e}"));
 		return response::error(
 			StatusCode::INTERNAL_SERVER_ERROR,
 			format!("Failed to clean existing config: {e}"),
@@ -245,10 +216,7 @@ pub async fn import_config_handler(mut multipart: Multipart) -> impl IntoRespons
 		};
 
 		if let Err(e) = entry.unpack_in(&config_dir) {
-			log(
-				LogLevel::Error,
-				&format!("Failed to unpack file from archive: {e}"),
-			);
+			log(LogLevel::Error, &format!("Failed to unpack file from archive: {e}"));
 			// We continue unpacking other files, but log the error.
 			// Alternatively, we could return early. For bulk import, continuing is often better,
 			// but for config integrity, maybe failing is safer?
@@ -265,12 +233,7 @@ pub async fn import_config_handler(mut multipart: Multipart) -> impl IntoRespons
 	let reload_marker = config_dir.join(".reload");
 	let _ = fs::write(&reload_marker, Utc::now().to_rfc3339()).await;
 
-	log(
-		LogLevel::Info,
-		&format!("Config imported successfully. {file_count} files restored.",),
-	);
+	log(LogLevel::Info, &format!("Config imported successfully. {file_count} files restored.",));
 
-	response::success(ImportResult {
-		imported: HashMap::from([("config_files".into(), file_count)]),
-	})
+	response::success(ImportResult { imported: HashMap::from([("config_files".into(), file_count)]) })
 }

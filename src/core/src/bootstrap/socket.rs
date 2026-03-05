@@ -21,24 +21,12 @@ pub async fn bind_unix_socket() -> Result<UnixListener, std::io::Error> {
 		fs::create_dir_all(parent_dir).await?;
 	}
 	if fs::metadata(&socket_path).await.is_ok() {
-		log(
-			LogLevel::Warn,
-			&format!(
-				"✗ Socket {} exists. Replacing in 5s.",
-				socket_path.display()
-			),
-		);
+		log(LogLevel::Warn, &format!("✗ Socket {} exists. Replacing in 5s.", socket_path.display()));
 		sleep(Duration::from_secs(5)).await;
 		let _ = fs::remove_file(&socket_path).await;
 	}
 	let listener = UnixListener::bind(&socket_path)?;
-	log(
-		LogLevel::Info,
-		&format!(
-			"✓ Management console listening on unix:{}",
-			socket_path.display()
-		),
-	);
+	log(LogLevel::Info, &format!("✓ Management console listening on unix:{}", socket_path.display()));
 	Ok(listener)
 }
 

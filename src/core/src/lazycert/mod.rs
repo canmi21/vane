@@ -55,11 +55,8 @@ pub async fn update_from_config() {
 	#[cfg(feature = "lazycert")]
 	{
 		let config_manager = vane_engine::config::get();
-		let new_config = config_manager
-			.lazycert
-			.as_ref()
-			.and_then(|lc| lc.get())
-			.map(|arc| (*arc).clone());
+		let new_config =
+			config_manager.lazycert.as_ref().and_then(|lc| lc.get()).map(|arc| (*arc).clone());
 
 		// Update global config
 		if let Some(config_lock) = LAZYCERT_CONFIG.get() {
@@ -79,16 +76,10 @@ pub async fn update_from_config() {
 			// Check connectivity
 			match client.health().await {
 				Ok(true) => {
-					log(
-						LogLevel::Info,
-						&format!("Connected to LazyCert at {}", cfg.url),
-					);
+					log(LogLevel::Info, &format!("Connected to LazyCert at {}", cfg.url));
 				}
 				_ => {
-					log(
-						LogLevel::Warn,
-						&format!("Cannot reach LazyCert at {}, will retry", cfg.url),
-					);
+					log(LogLevel::Warn, &format!("Cannot reach LazyCert at {}, will retry", cfg.url));
 				}
 			}
 
@@ -103,10 +94,7 @@ pub async fn update_from_config() {
 
 			log(
 				LogLevel::Info,
-				&format!(
-					"LazyCert sync started (poll interval: {}s)",
-					cfg.poll_interval
-				),
+				&format!("LazyCert sync started (poll interval: {}s)", cfg.poll_interval),
 			);
 		} else {
 			stop_sync().await;

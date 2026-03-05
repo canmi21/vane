@@ -26,16 +26,12 @@ pub async fn list_nodes_handler() -> impl IntoResponse {
 	let base_path = file_loader::get_config_dir().join("nodes");
 
 	match config_file::find_config::<NodesConfig>(&base_path).await {
-		ConfigFileResult::NotFound => response::success(NodeListData {
-			source_format: "none".into(),
-			nodes: vec![],
-		}),
-		ConfigFileResult::Single {
-			format, content, ..
-		} => response::success(NodeListData {
-			source_format: format,
-			nodes: content.nodes,
-		}),
+		ConfigFileResult::NotFound => {
+			response::success(NodeListData { source_format: "none".into(), nodes: vec![] })
+		}
+		ConfigFileResult::Single { format, content, .. } => {
+			response::success(NodeListData { source_format: format, nodes: content.nodes })
+		}
 		ConfigFileResult::Ambiguous { found } => response::error(
 			StatusCode::CONFLICT,
 			format!(
@@ -43,10 +39,9 @@ pub async fn list_nodes_handler() -> impl IntoResponse {
 				found.join(", ")
 			),
 		),
-		ConfigFileResult::Error(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Read error: {e}"),
-		),
+		ConfigFileResult::Error(e) => {
+			response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"))
+		}
 	}
 }
 
@@ -108,18 +103,12 @@ pub async fn create_node_handler(Json(node): Json<Node>) -> impl IntoResponse {
 			);
 		}
 		ConfigFileResult::Error(e) => {
-			return response::error(
-				StatusCode::INTERNAL_SERVER_ERROR,
-				format!("Read error: {e}"),
-			);
+			return response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"));
 		}
 	};
 
 	if config.nodes.iter().any(|n| n.name == node.name) {
-		return response::error(
-			StatusCode::CONFLICT,
-			format!("Node '{}' already exists", node.name),
-		);
+		return response::error(StatusCode::CONFLICT, format!("Node '{}' already exists", node.name));
 	}
 
 	config.nodes.push(node.clone());
@@ -127,10 +116,7 @@ pub async fn create_node_handler(Json(node): Json<Node>) -> impl IntoResponse {
 	// Write back
 	match config_file::write_json(&base_path, &config).await {
 		Ok(_) => response::created(NodeOperationResult { name: node.name }),
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Write error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 	}
 }
 
@@ -155,10 +141,7 @@ pub async fn update_node_handler(
 	Json(node): Json<Node>,
 ) -> impl IntoResponse {
 	if name != node.name {
-		return response::error(
-			StatusCode::BAD_REQUEST,
-			"Path name and body name mismatch".into(),
-		);
+		return response::error(StatusCode::BAD_REQUEST, "Path name and body name mismatch".into());
 	}
 
 	if let Err(e) = node.validate() {
@@ -178,10 +161,7 @@ pub async fn update_node_handler(
 			);
 		}
 		ConfigFileResult::Error(e) => {
-			return response::error(
-				StatusCode::INTERNAL_SERVER_ERROR,
-				format!("Read error: {e}"),
-			);
+			return response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"));
 		}
 	};
 
@@ -202,15 +182,9 @@ pub async fn update_node_handler(
 	match config_file::delete_all_formats(&base_path).await {
 		Ok(_) => match config_file::write_json(&base_path, &config).await {
 			Ok(_) => response::success(NodeOperationResult { name }),
-			Err(e) => response::error(
-				StatusCode::INTERNAL_SERVER_ERROR,
-				format!("Write error: {e}"),
-			),
+			Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 		},
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Delete error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Delete error: {e}")),
 	}
 }
 
@@ -242,10 +216,7 @@ pub async fn delete_node_handler(Path(name): Path<String>) -> impl IntoResponse 
 			);
 		}
 		ConfigFileResult::Error(e) => {
-			return response::error(
-				StatusCode::INTERNAL_SERVER_ERROR,
-				format!("Read error: {e}"),
-			);
+			return response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"));
 		}
 	};
 
@@ -260,14 +231,8 @@ pub async fn delete_node_handler(Path(name): Path<String>) -> impl IntoResponse 
 	match config_file::delete_all_formats(&base_path).await {
 		Ok(_) => match config_file::write_json(&base_path, &config).await {
 			Ok(_) => response::success(NodeOperationResult { name }),
-			Err(e) => response::error(
-				StatusCode::INTERNAL_SERVER_ERROR,
-				format!("Write error: {e}"),
-			),
+			Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")),
 		},
-		Err(e) => response::error(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			format!("Delete error: {e}"),
-		),
+		Err(e) => response::error(StatusCode::INTERNAL_SERVER_ERROR, format!("Delete error: {e}")),
 	}
 }

@@ -21,14 +21,8 @@ pub async fn execute(
 	let resolved_program = match external::validate_command_path(program).await {
 		Ok(p) => p,
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Security violation during plugin execution: {e}"),
-			);
-			return Ok(MiddlewareOutput {
-				branch: "failure".into(),
-				store: None,
-			});
+			log(LogLevel::Error, &format!("✗ Security violation during plugin execution: {e}"));
+			return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 		}
 	};
 
@@ -149,14 +143,8 @@ pub async fn execute(
 	let mut child = match cmd.spawn() {
 		Ok(c) => c,
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Failed to spawn plugin process '{program}': {e}"),
-			);
-			return Ok(MiddlewareOutput {
-				branch: "failure".into(),
-				store: None,
-			});
+			log(LogLevel::Error, &format!("✗ Failed to spawn plugin process '{program}': {e}"));
+			return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 		}
 	};
 
@@ -167,40 +155,22 @@ pub async fn execute(
 	if let Some(mut stdin) = child.stdin.take()
 		&& let Err(e) = stdin.write_all(&input_payload).await
 	{
-		log(
-			LogLevel::Error,
-			&format!("✗ Failed to write to plugin stdin: {e}"),
-		);
+		log(LogLevel::Error, &format!("✗ Failed to write to plugin stdin: {e}"));
 		let _ = child.kill().await;
-		return Ok(MiddlewareOutput {
-			branch: "failure".into(),
-			store: None,
-		});
+		return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 	}
 
 	// Wait for output (captures stdout and stderr) with timeout
 	// We handle this manually because wait_with_output consumes the child object.
 	let Some(stdout) = child.stdout.take() else {
-		log(
-			LogLevel::Error,
-			&format!("✗ Failed to take stdout from plugin process '{program}'"),
-		);
+		log(LogLevel::Error, &format!("✗ Failed to take stdout from plugin process '{program}'"));
 		let _ = child.kill().await;
-		return Ok(MiddlewareOutput {
-			branch: "failure".into(),
-			store: None,
-		});
+		return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 	};
 	let Some(stderr) = child.stderr.take() else {
-		log(
-			LogLevel::Error,
-			&format!("✗ Failed to take stderr from plugin process '{program}'"),
-		);
+		log(LogLevel::Error, &format!("✗ Failed to take stderr from plugin process '{program}'"));
 		let _ = child.kill().await;
-		return Ok(MiddlewareOutput {
-			branch: "failure".into(),
-			store: None,
-		});
+		return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 	};
 
 	let mut stdout_res = Vec::new();
@@ -224,23 +194,14 @@ pub async fn execute(
 			&format!("✗ Plugin process '{program}' timed out after {timeout_secs}s. Killing child."),
 		);
 		let _ = child.kill().await;
-		return Ok(MiddlewareOutput {
-			branch: "failure".into(),
-			store: None,
-		});
+		return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 	};
 
 	let exit_status = match res {
 		Ok(s) => s,
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Plugin process '{program}' failed: {e}"),
-			);
-			return Ok(MiddlewareOutput {
-				branch: "failure".into(),
-				store: None,
-			});
+			log(LogLevel::Error, &format!("✗ Plugin process '{program}' failed: {e}"));
+			return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 		}
 	};
 
@@ -259,24 +220,15 @@ pub async fn execute(
 			LogLevel::Error,
 			&format!("✗ Plugin process '{program}' exited with error status: {exit_status}"),
 		);
-		return Ok(MiddlewareOutput {
-			branch: "failure".into(),
-			store: None,
-		});
+		return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 	}
 
 	// Parse Stdout as MiddlewareOutput
 	let result: MiddlewareOutput = match serde_json::from_slice(&stdout_res) {
 		Ok(r) => r,
 		Err(e) => {
-			log(
-				LogLevel::Error,
-				&format!("✗ Failed to parse output JSON from plugin '{program}': {e}"),
-			);
-			return Ok(MiddlewareOutput {
-				branch: "failure".into(),
-				store: None,
-			});
+			log(LogLevel::Error, &format!("✗ Failed to parse output JSON from plugin '{program}': {e}"));
+			return Ok(MiddlewareOutput { branch: "failure".into(), store: None });
 		}
 	};
 

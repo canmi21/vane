@@ -125,10 +125,7 @@ async fn connect_internal(host: &str, port: u16, skip_verify: bool) -> Result<Qu
 		let e = driver.wait_idle().await;
 		log(
 			LogLevel::Warn,
-			&format!(
-				"⚠ QUIC Connection lost for {}:{}: {}",
-				key_clone.0, key_clone.1, e
-			),
+			&format!("⚠ QUIC Connection lost for {}:{}: {}", key_clone.0, key_clone.1, e),
 		);
 		let mut pool = CONNECTION_POOL.write().await;
 		pool.remove(&key_clone);
@@ -151,32 +148,21 @@ fn build_rustls_config(skip_verify: bool) -> Result<rustls::ClientConfig> {
 		if !result.errors.is_empty() {
 			log(
 				LogLevel::Warn,
-				&format!(
-					"⚠ Encountered {} errors loading system certs.",
-					result.errors.len()
-				),
+				&format!("⚠ Encountered {} errors loading system certs.", result.errors.len()),
 			);
 		}
 
 		if result.certs.is_empty() {
-			log(
-				LogLevel::Warn,
-				"⚠ No system certificates found. HTTPS might fail.",
-			);
+			log(LogLevel::Warn, "⚠ No system certificates found. HTTPS might fail.");
 		}
 
 		for cert in result.certs {
 			if let Err(e) = roots.add(cert) {
-				log(
-					LogLevel::Warn,
-					&format!("⚠ Failed to add a system root cert: {e}"),
-				);
+				log(LogLevel::Warn, &format!("⚠ Failed to add a system root cert: {e}"));
 			}
 		}
 
-		rustls::ClientConfig::builder()
-			.with_root_certificates(roots)
-			.with_no_client_auth()
+		rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth()
 	};
 
 	config.alpn_protocols = vec![b"h3".to_vec()];

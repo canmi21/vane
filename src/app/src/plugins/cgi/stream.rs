@@ -24,10 +24,7 @@ impl QuotaBytes {
 				"Global L7 memory limit exceeded for CGI stream buffering.".into(),
 			));
 		}
-		Ok(Self {
-			data,
-			_guard: BufferGuard::new(len),
-		})
+		Ok(Self { data, _guard: BufferGuard::new(len) })
 	}
 }
 
@@ -95,19 +92,14 @@ pub async fn pump_stdout(
 		let read_future = stdout.read(&mut buf);
 		match timeout(Duration::from_secs(timeout_sec), read_future).await {
 			Ok(Ok(0)) => {
-				log(
-					LogLevel::Debug,
-					&format!("✓ CGI Body Pump EOF. Total: {total_bytes} bytes"),
-				);
+				log(LogLevel::Debug, &format!("✓ CGI Body Pump EOF. Total: {total_bytes} bytes"));
 				break;
 			}
 			Ok(Ok(n)) => {
 				total_bytes += n;
 				if total_bytes > max_size {
 					log(LogLevel::Error, "✗ CGI Body Exceeded Max Size.");
-					let _ = tx
-						.send(Err(Error::System("CGI Body Exceeded Max Size".into())))
-						.await;
+					let _ = tx.send(Err(Error::System("CGI Body Exceeded Max Size".into()))).await;
 					return;
 				}
 
@@ -131,9 +123,7 @@ pub async fn pump_stdout(
 			}
 			Err(_) => {
 				log(LogLevel::Error, "✗ CGI Body Idle Timeout.");
-				let _ = tx
-					.send(Err(Error::System("CGI Body Idle Timeout".into())))
-					.await;
+				let _ = tx.send(Err(Error::System("CGI Body Idle Timeout".into()))).await;
 				return;
 			}
 		}

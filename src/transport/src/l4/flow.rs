@@ -18,9 +18,6 @@ pub async fn execute(
 ) -> Result<TerminatorResult> {
 	kv.insert("conn.layer".to_owned(), "l4".to_owned());
 
-	let mut context = TransportContext {
-		kv,
-		payloads: initial_payloads,
-	};
+	let mut context = TransportContext { kv, payloads: initial_payloads };
 	executor::execute(step, &mut context, conn, String::new()).await
 }

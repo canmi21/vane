@@ -43,19 +43,12 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"⚙ CGI Request: method={}, body_size={} bytes",
-			config.method,
-			body_bytes.len()
-		),
+		&format!("⚙ CGI Request: method={}, body_size={} bytes", config.method, body_bytes.len()),
 	);
 
 	let mut envs = HashMap::new();
 	envs.insert("GATEWAY_INTERFACE".to_owned(), "CGI/1.1".to_owned());
-	envs.insert(
-		"SERVER_SOFTWARE".to_owned(),
-		format!("Vane/{}", env!("CARGO_PKG_VERSION")),
-	);
+	envs.insert("SERVER_SOFTWARE".to_owned(), format!("Vane/{}", env!("CARGO_PKG_VERSION")));
 	envs.insert("REDIRECT_STATUS".to_owned(), "200".to_owned());
 	envs.insert("SERVER_PROTOCOL".to_owned(), "HTTP/1.1".to_owned());
 	envs.insert("SCRIPT_FILENAME".to_owned(), config.script.clone());
@@ -64,11 +57,7 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	envs.insert("PATH_INFO".to_owned(), config.path_info.clone());
 
 	if !config.doc_root.is_empty() && !config.path_info.is_empty() {
-		let translated = format!(
-			"{}{}",
-			config.doc_root.trim_end_matches('/'),
-			config.path_info
-		);
+		let translated = format!("{}{}", config.doc_root.trim_end_matches('/'), config.path_info);
 		envs.insert("PATH_TRANSLATED".to_owned(), translated);
 	}
 
@@ -93,11 +82,7 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	}
 
 	let mut child = Command::new(&config.command)
-		.args(if !config.script.is_empty() {
-			vec![&config.script]
-		} else {
-			vec![]
-		})
+		.args(if !config.script.is_empty() { vec![&config.script] } else { vec![] })
 		.envs(&envs)
 		.stdin(Stdio::piped())
 		.stdout(Stdio::piped())
@@ -132,15 +117,9 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 		if let Err(e) = stdin.write_all(&body_bytes).await {
 			log(LogLevel::Warn, &format!("⚠ CGI stdin write failed: {e}"));
 			let _ = child.kill().await;
-			return Ok(MiddlewareOutput {
-				branch: Cow::Borrowed("failure"),
-				store: None,
-			});
+			return Ok(MiddlewareOutput { branch: Cow::Borrowed("failure"), store: None });
 		}
-		log(
-			LogLevel::Debug,
-			&format!("✓ CGI stdin written: {} bytes", body_bytes.len()),
-		);
+		log(LogLevel::Debug, &format!("✓ CGI stdin written: {} bytes", body_bytes.len()));
 	}
 	drop(stdin); // Close stdin to signal EOF to CGI
 
@@ -151,10 +130,7 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 
 	let read_result = timeout(Duration::from_secs(config.timeout), async {
 		loop {
-			let n = stdout
-				.read(&mut buf_chunk)
-				.await
-				.map_err(|e| Error::System(e.to_string()))?;
+			let n = stdout.read(&mut buf_chunk).await.map_err(|e| Error::System(e.to_string()))?;
 			if n == 0 {
 				break;
 			}
@@ -180,20 +156,13 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 	if read_result.is_err() || !header_parsed {
 		let _ = child.kill().await;
 		log(LogLevel::Warn, "⚠ CGI failed to parse headers or timed out");
-		return Ok(MiddlewareOutput {
-			branch: Cow::Borrowed("failure"),
-			store: None,
-		});
+		return Ok(MiddlewareOutput { branch: Cow::Borrowed("failure"), store: None });
 	}
 
 	let headers_str = String::from_utf8_lossy(&header_buffer);
 	log(
 		LogLevel::Debug,
-		&format!(
-			"⚙ CGI Headers Parsed ({} bytes):\n{}",
-			header_buffer.len(),
-			headers_str
-		),
+		&format!("⚙ CGI Headers Parsed ({} bytes):\n{}", header_buffer.len(), headers_str),
 	);
 
 	for line in headers_str.lines() {
@@ -204,13 +173,10 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 			if key.eq_ignore_ascii_case("Status") {
 				// Extract numeric status code from "302 Found" -> "302"
 				let status_code = val.split_whitespace().next().unwrap_or("200");
-				container
-					.kv
-					.insert("res.status".to_owned(), status_code.to_owned());
-			} else if let (Ok(h_name), Ok(h_val)) = (
-				HeaderName::from_bytes(key.as_bytes()),
-				HeaderValue::from_str(val),
-			) {
+				container.kv.insert("res.status".to_owned(), status_code.to_owned());
+			} else if let (Ok(h_name), Ok(h_val)) =
+				(HeaderName::from_bytes(key.as_bytes()), HeaderValue::from_str(val))
+			{
 				container.response_headers.insert(h_name, h_val);
 			}
 		}
@@ -221,32 +187,18 @@ pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<Mid
 
 	log(
 		LogLevel::Debug,
-		&format!(
-			"➜ Starting CGI Body Pump (Initial chunk: {} bytes)",
-			initial_bytes.len()
-		),
+		&format!("➜ Starting CGI Body Pump (Initial chunk: {} bytes)", initial_bytes.len()),
 	);
 
 	tokio::spawn(async move {
-		pump_stdout(
-			stdout,
-			body_tx,
-			initial_bytes,
-			max_body_size,
-			body_timeout_sec,
-		)
-		.await;
+		pump_stdout(stdout, body_tx, initial_bytes, max_body_size, body_timeout_sec).await;
 		let _ = child.wait().await;
 	});
 
-	container.response_body = PayloadState::Http(VaneBody::Generic(BoxBody::new(
-		CgiResponseBody::new(body_rx),
-	)));
+	container.response_body =
+		PayloadState::Http(VaneBody::Generic(BoxBody::new(CgiResponseBody::new(body_rx))));
 
-	Ok(MiddlewareOutput {
-		branch: Cow::Borrowed("success"),
-		store: None,
-	})
+	Ok(MiddlewareOutput { branch: Cow::Borrowed("success"), store: None })
 }
 
 fn find_double_newline(data: &[u8]) -> Option<usize> {

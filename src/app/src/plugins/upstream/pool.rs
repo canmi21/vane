@@ -35,9 +35,7 @@ impl Service<Name> for VaneResolver {
 			let ips = vane_engine::shared::resolver::resolve_domain_to_ips(&host).await;
 
 			if ips.is_empty() {
-				return Err(std::io::Error::other(format!(
-					"Vane DNS lookup returned no IPs for {host}"
-				)));
+				return Err(std::io::Error::other(format!("Vane DNS lookup returned no IPs for {host}")));
 			}
 
 			// Hyper expects SocketAddr (IP + Port).
@@ -74,9 +72,7 @@ fn build_client(skip_verify: bool) -> HttpClient {
 			.with_root_certificates(rustls::RootCertStore::empty())
 			.with_no_client_auth();
 
-		config
-			.dangerous()
-			.set_certificate_verifier(Arc::new(NoVerifier));
+		config.dangerous().set_certificate_verifier(Arc::new(NoVerifier));
 
 		hyper_rustls::HttpsConnectorBuilder::new()
 			.with_tls_config(config)
