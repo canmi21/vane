@@ -1,9 +1,8 @@
 name: Docs Check
 
 on:
-  # Temporarily disabled during workspace restructure
-  # pull_request:
-  #   branches: ['latest']
+  pull_request:
+    branches: ['latest']
   workflow_dispatch:
 
 jobs:
@@ -13,25 +12,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '25'
-          cache: 'pnpm'
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Lint
-        run: pnpm lint
+        working-directory: docs
+        run: bun run lint
 
       - name: Check Formatting
         run: npx prettier --check .
 
       - name: Build
-        run: pnpm build
+        working-directory: docs
+        run: bun run build

@@ -3,5 +3,6 @@ dist
 build
 target
 .next
-.out
+out
+.source
 docker-compose.yml

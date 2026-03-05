@@ -14,7 +14,7 @@
   "packageRules": [
     {
       "matchManagers": ["npm"],
-      "groupName": "pnpm dependencies",
+      "groupName": "npm dependencies",
       "prTitle": "chore(deps): update npm registry dependencies"
     },
     {
