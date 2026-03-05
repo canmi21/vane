@@ -40,7 +40,6 @@ Example:
 
 ```text
 // src/module/example.rs
-
 ```
 
 ---

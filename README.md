@@ -88,6 +88,3 @@ Unlike proxies that treat UDP as a second-class citizen, Vane features a dedicat
 ## License
 
 MIT License © 2025 [Canmi](https://github.com/canmi21)
-
-**✦** **`Polygon`** / **`Ethereum`**: `0x35D143d9DC624feC921a3925Fa84dea9d1DfDCAe`
-If you found this project helpful, consider supporting domain & server maintenance.

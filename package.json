@@ -1,41 +1,44 @@
 {
-	"name": "vane-docs",
-	"version": "1.0.0",
-	"private": true,
-	"scripts": {
-		"build": "next build",
-		"check": "cargo fmt --check && cargo clippy -- -D warnings && pnpm lint && cd integration && gofmt -l .",
-		"fmt": "prettier --write . && chore . && cargo fmt --all && cd integration && gofmt -w .",
-		"dev": "next dev",
-		"start": "serve out",
-		"types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
-		"postinstall": "fumadocs-mdx",
-		"lint": "eslint"
-	},
-	"dependencies": {
-		"@orama/orama": "^3.1.18",
-		"fumadocs-core": "16.4.7",
-		"fumadocs-mdx": "14.2.6",
-		"fumadocs-ui": "16.4.7",
-		"lucide-react": "^0.562.0",
-		"mermaid": "^11.12.2",
-		"next": "16.1.4",
-		"next-themes": "^0.4.6",
-		"react": "^19.2.3",
-		"react-dom": "^19.2.3"
-	},
-	"devDependencies": {
-		"@tailwindcss/postcss": "^4.1.18",
-		"@types/mdx": "^2.0.13",
-		"@types/node": "^24.10.2",
-		"@types/react": "^19.2.7",
-		"@types/react-dom": "^19.2.3",
-		"eslint": "^9.39.2",
-		"eslint-config-next": "16.1.4",
-		"postcss": "^8.5.6",
-		"prettier": "^3.7.4",
-		"serve": "^14.2.5",
-		"tailwindcss": "^4.1.18",
-		"typescript": "^5.9.3"
-	}
+  "name": "vane-docs",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "check": "pnpm lint && cargo fmt --check && cargo clippy -- -D warnings && cd integration && gofmt -l .",
+    "fmt": "oxfmt --write app components && dprint fmt && cargo fmt --all && cd integration && gofmt -w .",
+    "dev": "next dev",
+    "start": "serve out",
+    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
+    "postinstall": "fumadocs-mdx",
+    "lint": "oxlint && eslint"
+  },
+  "dependencies": {
+    "@orama/orama": "^3.1.18",
+    "fumadocs-core": "16.4.7",
+    "fumadocs-mdx": "14.2.6",
+    "fumadocs-ui": "16.4.7",
+    "lucide-react": "^0.562.0",
+    "mermaid": "^11.12.2",
+    "next": "16.1.4",
+    "next-themes": "^0.4.6",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^24.10.2",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "16.1.4",
+    "eslint-plugin-oxlint": "^1.51.0",
+    "oxfmt": "^0.36.0",
+    "oxlint": "^1.51.0",
+    "postcss": "^8.5.6",
+    "prettier": "^3.7.4",
+    "serve": "^14.2.5",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3"
+  }
 }
