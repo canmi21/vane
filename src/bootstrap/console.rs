@@ -7,11 +7,11 @@ use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use crate::api::middleware::auth;
-use crate::api::router;
 #[cfg(unix)]
 use crate::bootstrap::socket;
-use crate::common::net::port_utils;
+use vane_api::middleware::auth;
+use vane_api::router;
+use vane_primitives::common::net::port_utils;
 
 pub struct ConsoleHandles {
 	pub tcp_task: JoinHandle<()>,

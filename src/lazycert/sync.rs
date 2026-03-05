@@ -2,9 +2,6 @@
 
 use super::LAZYCERT_CLIENT;
 use super::client::LazyCertClient;
-use super::registry::{CHALLENGE_REGISTRY, ChallengeEntry};
-use crate::common::config::file_loader;
-use crate::resources::certs::loader::scan_and_load_certs;
 use anyhow::Result;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;
@@ -13,6 +10,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs;
 use tokio::sync::RwLock;
+use vane_primitives::certs::loader::scan_and_load_certs;
+use vane_primitives::common::config::file_loader;
+use vane_primitives::lazycert::{CHALLENGE_REGISTRY, ChallengeEntry};
 
 /// Global cancellation token for sync task
 static SYNC_CANCEL: Lazy<RwLock<Option<CancellationToken>>> = Lazy::new(|| RwLock::new(None));

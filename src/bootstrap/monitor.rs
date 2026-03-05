@@ -1,9 +1,9 @@
 /* src/bootstrap/monitor.rs */
 
-use crate::common::sys::system;
-use crate::layers::l7::container;
 use fancy_log::{LogLevel, log};
 use tokio::time::{Duration, sleep};
+use vane_app::l7::container;
+use vane_primitives::common::sys::system;
 
 /// Starts the background L7 memory monitor.
 pub async fn start_l7_memory_monitor() {

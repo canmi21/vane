@@ -4,12 +4,12 @@ use fancy_log::{LogLevel, log};
 use live::signal::Config as WatcherConfig;
 use sigterm;
 
-use crate::bootstrap::{console, logging, monitor};
-use crate::common::sys::lifecycle;
-use crate::config::{self, ConfigManager};
-use crate::ingress::{hotswap, listener, state};
-use crate::plugins::core::loader as plugin_loader;
-use crate::resources::certs;
+use crate::bootstrap::{console, logging, monitor, plugins};
+use vane_engine::config::{self, ConfigManager};
+use vane_extra::core::loader as plugin_loader;
+use vane_primitives::certs;
+use vane_primitives::common::sys::lifecycle;
+use vane_transport::ingress::{hotswap, listener, state};
 
 /// Entry point for the Vane bootstrap sequence.
 pub async fn start() {
@@ -25,7 +25,7 @@ pub async fn start() {
 	lifecycle::ensure_config_files_exist().await;
 
 	// 2. Initialize Config Manager
-	let config_dir_path = crate::common::config::file_loader::get_config_dir();
+	let config_dir_path = vane_primitives::common::config::file_loader::get_config_dir();
 	let config_dir_str = config_dir_path
 		.to_str()
 		.expect("Config dir path is not valid UTF-8");
@@ -175,7 +175,7 @@ pub async fn start() {
 	start_background_tasks().await;
 
 	// 9. Register Internal Plugins + Load External Plugins
-	crate::plugins::core::registry::register_builtin_plugins();
+	plugins::register_builtin_plugins();
 	plugin_loader::initialize().await;
 
 	// 10. Initialize Adaptive Resource Management
@@ -259,7 +259,7 @@ async fn start_certs_watcher(cert_dir: std::path::PathBuf) {
 				let _watcher = watcher; // Keep alive
 				let mut rx = _watcher.subscribe();
 				while rx.recv().await.is_ok() {
-					crate::resources::certs::loader::scan_and_load_certs().await;
+					vane_primitives::certs::loader::scan_and_load_certs().await;
 				}
 			});
 		}
@@ -274,8 +274,8 @@ async fn start_certs_watcher(cert_dir: std::path::PathBuf) {
 
 /// Spawns essential background maintenance tasks (moved from lifecycle).
 async fn start_background_tasks() {
-	use crate::layers::l4::{health, session};
-	use crate::layers::l4p::quic::session as quic_session;
+	use vane_engine::shared::{health, session};
+	use vane_transport::l4p::quic::session as quic_session;
 
 	health::initial_health_check().await;
 	health::start_periodic_health_checkers();

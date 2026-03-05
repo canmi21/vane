@@ -1,28 +1,20 @@
-// Re-export registry data structures and functions from engine crate
-pub use vane_engine::registry::*;
+/* src/bootstrap/plugins.rs */
 
-// register_builtin_plugins stays here (references main-crate plugin types)
-use crate::engine::interfaces::Plugin;
-use crate::plugins::l4::{
-	abort::AbortConnectionPlugin,
-	proxy::{domain::ProxyDomainPlugin, ip::TransparentProxyPlugin, node::ProxyNodePlugin},
-};
-use crate::plugins::l7::response::SendResponsePlugin;
-use crate::plugins::l7::{
-	cgi::CgiPlugin, static_files::StaticPlugin, upstream::FetchUpstreamPlugin,
-};
-use crate::plugins::protocol::detect::ProtocolDetectPlugin;
-use crate::plugins::{
-	middleware::{
-		matcher::CommonMatchPlugin,
-		ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin},
-	},
-	protocol::upgrader::upgrade::UpgradePlugin,
-};
 use std::sync::Arc;
+use vane_engine::engine::interfaces::Plugin;
+use vane_engine::registry::{register_plugin, register_plugins};
 
 /// Populate the built-in plugin set. Called once during startup.
 pub fn register_builtin_plugins() {
+	use vane_app::plugins::upstream::FetchUpstreamPlugin;
+	use vane_app::upgrader::upgrade::UpgradePlugin;
+	use vane_extra::l4::abort::AbortConnectionPlugin;
+	use vane_extra::l4::proxy::domain::ProxyDomainPlugin;
+	use vane_extra::l4::proxy::ip::TransparentProxyPlugin;
+	use vane_extra::l4::proxy::node::ProxyNodePlugin;
+	use vane_extra::middleware::matcher::CommonMatchPlugin;
+	use vane_transport::protocol::detect::ProtocolDetectPlugin;
+
 	let transparent_proxy = Arc::new(TransparentProxyPlugin);
 
 	let mut plugins: Vec<Arc<dyn Plugin>> = vec![
@@ -39,24 +31,26 @@ pub fn register_builtin_plugins() {
 		// Drivers (L7)
 		#[cfg(any(feature = "h2upstream", feature = "h3upstream"))]
 		Arc::new(FetchUpstreamPlugin),
-		Arc::new(CgiPlugin),
 		// Terminators (L7)
-		Arc::new(SendResponsePlugin),
+		Arc::new(vane_app::plugins::response::SendResponsePlugin),
 	];
 
 	#[cfg(feature = "ratelimit")]
 	{
+		use vane_extra::middleware::ratelimit::{KeywordRateLimitMinPlugin, KeywordRateLimitSecPlugin};
 		plugins.push(Arc::new(KeywordRateLimitSecPlugin));
 		plugins.push(Arc::new(KeywordRateLimitMinPlugin));
 	}
 
 	#[cfg(feature = "cgi")]
 	{
+		use vane_app::plugins::cgi::CgiPlugin;
 		plugins.push(Arc::new(CgiPlugin));
 	}
 
 	#[cfg(feature = "static")]
 	{
+		use vane_app::plugins::static_files::StaticPlugin;
 		plugins.push(Arc::new(StaticPlugin));
 	}
 

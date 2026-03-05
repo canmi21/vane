@@ -2,16 +2,8 @@
 
 use std::env;
 
-pub mod api;
 pub mod bootstrap;
-pub mod common;
-pub mod config;
-pub mod engine;
-pub mod ingress;
-pub mod layers;
 pub mod lazycert;
-pub mod plugins;
-pub mod resources;
 
 #[tokio::main]
 #[allow(clippy::vec_init_then_push)]

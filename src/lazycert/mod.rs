@@ -3,16 +3,10 @@
 #[cfg(feature = "lazycert")]
 pub mod client;
 #[cfg(feature = "lazycert")]
-pub mod config;
-#[cfg(feature = "lazycert")]
-pub mod registry;
-#[cfg(feature = "lazycert")]
 pub mod sync;
 
 #[cfg(feature = "lazycert")]
 use client::LazyCertClient;
-#[cfg(feature = "lazycert")]
-use config::LazyCertConfig;
 #[cfg(feature = "lazycert")]
 use fancy_log::{LogLevel, log};
 #[cfg(feature = "lazycert")]
@@ -21,6 +15,8 @@ use once_cell::sync::OnceCell;
 use std::sync::Arc;
 #[cfg(feature = "lazycert")]
 use tokio::sync::RwLock;
+#[cfg(feature = "lazycert")]
+use vane_engine::config::LazyCertConfig;
 
 /// Global LazyCert configuration (supports hot-reload)
 #[cfg(feature = "lazycert")]
@@ -43,7 +39,7 @@ pub async fn initialize() {
 
 		// Start watching for changes
 		tokio::spawn(async {
-			let config_manager = crate::config::get();
+			let config_manager = vane_engine::config::get();
 			if let Some(lc) = &config_manager.lazycert {
 				let mut rx = lc.subscribe();
 				while let Ok(_event) = rx.recv().await {
@@ -58,7 +54,7 @@ pub async fn initialize() {
 pub async fn update_from_config() {
 	#[cfg(feature = "lazycert")]
 	{
-		let config_manager = crate::config::get();
+		let config_manager = vane_engine::config::get();
 		let new_config = config_manager
 			.lazycert
 			.as_ref()
