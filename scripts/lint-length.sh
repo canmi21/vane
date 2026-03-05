@@ -10,7 +10,8 @@ count=0
 skip_ext='png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot|otf|wasm|lock|map|min\.js|min\.css'
 
 while IFS= read -r file; do
-  # skip binary/image extensions
+  # skip deleted or binary/image files
+  [[ -f "$file" ]] || continue
   if [[ "$file" =~ \.($skip_ext)$ ]]; then
     continue
   fi
