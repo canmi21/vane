@@ -1,12 +1,10 @@
 /* src/api/handlers/plugins.rs */
 
-use crate::api::response;
-use crate::api::schemas::plugins::{
+use crate::response;
+use crate::schemas::plugins::{
 	ListPluginsQuery, ParamDefResponse, PluginDetail, PluginDetailResponse, PluginList,
 	PluginListResponse, PluginOperationResponse, PluginOperationResult, PluginSummary,
 };
-use crate::engine::interfaces::{ExternalPluginConfig, Plugin};
-use crate::plugins::core::{loader, registry};
 use axum::{
 	Json,
 	extract::{Path, Query},
@@ -14,6 +12,9 @@ use axum::{
 	response::IntoResponse,
 };
 use std::sync::Arc;
+use vane_engine::engine::interfaces::{ExternalPluginConfig, Plugin};
+use vane_engine::registry;
+use vane_extra::core::loader;
 
 // --- Helpers ---
 

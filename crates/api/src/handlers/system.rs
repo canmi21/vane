@@ -1,15 +1,15 @@
 /* src/api/handlers/system.rs */
 
-use crate::api::response;
-use crate::api::schemas::system::{
+use crate::response;
+use crate::schemas::system::{
 	BuildInfo, HealthStatus, HealthStatusResponse, PackageInfo, RuntimeInfo, SystemInfo,
 	SystemInfoResponse, SystemStatusDetails, SystemStatusResponse,
 };
-use crate::common::sys::lifecycle;
-use crate::plugins::core::registry;
-use crate::resources::certs::arcswap as cert_registry;
 use axum::response::IntoResponse;
 use std::env;
+use vane_engine::registry;
+use vane_primitives::certs::arcswap as cert_registry;
+use vane_primitives::common::sys::lifecycle;
 
 // --- Handlers ---
 
@@ -90,7 +90,7 @@ pub async fn health_handler() -> impl IntoResponse {
     tag = "system"
 )]
 pub async fn status_handler() -> impl IntoResponse {
-	let config = crate::config::get();
+	let config = vane_engine::config::get();
 
 	// 1. Listeners
 	let tcp_map = config.listeners.tcp.snapshot().await;

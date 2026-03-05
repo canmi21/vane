@@ -1,14 +1,11 @@
-/* src/api/handlers/applications.rs */
+/* src/api/handlers/resolvers.rs */
 
-use crate::api::response;
-use crate::api::schemas::applications::{
-	ApplicationDetail, ApplicationDetailResponse, ApplicationListData, ApplicationListResponse,
-	ApplicationSummary,
+use crate::response;
+use crate::schemas::flow::{FlowConfigWritten, FlowConfigWrittenResponse, ValidateQuery};
+use crate::schemas::resolvers::{
+	ResolverDetail, ResolverDetailResponse, ResolverListData, ResolverListResponse, ResolverSummary,
 };
-use crate::api::schemas::flow::{FlowConfigWritten, FlowConfigWrittenResponse, ValidateQuery};
-use crate::api::utils::config_file::{self, ConfigFileResult};
-use crate::common::config::file_loader;
-use crate::layers::l7::model::{ApplicationConfig, SUPPORTED_APP_PROTOCOLS};
+use crate::utils::config_file::{self, ConfigFileResult};
 use axum::{
 	Json,
 	extract::{Path, Query},
@@ -16,25 +13,28 @@ use axum::{
 	response::IntoResponse,
 };
 use validator::Validate;
+use vane_engine::config::{ResolverConfig, SUPPORTED_UPGRADE_PROTOCOLS};
+use vane_primitives::common::config::file_loader;
 
 // --- Handlers ---
 
-/// List all applications
+/// List all resolvers
 #[utoipa::path(
     get,
-    path = "/applications",
+    path = "/resolvers",
     responses(
-        (status = 200, description = "List of applications", body = ApplicationListResponse)
+        (status = 200, description = "List of resolvers", body = ResolverListResponse)
     ),
-    tag = "applications",
+    tag = "resolvers",
     security(("bearer_auth" = []))
 )]
-pub async fn list_applications_handler() -> impl IntoResponse {
-	let base_dir = file_loader::get_config_dir().join("applications");
-	let mut applications = Vec::new();
+pub async fn list_resolvers_handler() -> impl IntoResponse {
+	let base_dir = file_loader::get_config_dir().join("resolvers");
+	let mut resolvers = Vec::new();
 
-	for protocol in SUPPORTED_APP_PROTOCOLS {
+	for protocol in SUPPORTED_UPGRADE_PROTOCOLS {
 		let path = base_dir.join(protocol);
+		// Check for any config format
 		let config_res = config_file::find_config::<serde_json::Value>(&path).await;
 
 		let (active, source_format) = match config_res {
@@ -42,56 +42,56 @@ pub async fn list_applications_handler() -> impl IntoResponse {
 			_ => (false, None),
 		};
 
-		applications.push(ApplicationSummary {
+		resolvers.push(ResolverSummary {
 			protocol: protocol.to_string(),
 			active,
 			source_format,
 		});
 	}
 
-	response::success(ApplicationListData {
-		applications,
-		supported_protocols: SUPPORTED_APP_PROTOCOLS
+	response::success(ResolverListData {
+		resolvers,
+		supported_protocols: SUPPORTED_UPGRADE_PROTOCOLS
 			.iter()
 			.map(|s| s.to_string())
 			.collect(),
 	})
 }
 
-/// Get application configuration
+/// Get resolver configuration
 #[utoipa::path(
     get,
-    path = "/applications/{protocol}",
+    path = "/resolvers/{protocol}",
     params(
-        ("protocol" = String, Path, description = "Protocol (httpx)")
+        ("protocol" = String, Path, description = "Protocol (tls, http, quic)")
     ),
     responses(
-        (status = 200, description = "Application configuration", body = ApplicationDetailResponse),
+        (status = 200, description = "Resolver configuration", body = ResolverDetailResponse),
         (status = 404, description = "Config not found"),
         (status = 409, description = "Multiple config formats found")
     ),
-    tag = "applications",
+    tag = "resolvers",
     security(("bearer_auth" = []))
 )]
-pub async fn get_application_handler(Path(protocol): Path<String>) -> impl IntoResponse {
-	if !SUPPORTED_APP_PROTOCOLS.contains(&protocol.as_str()) {
+pub async fn get_resolver_handler(Path(protocol): Path<String>) -> impl IntoResponse {
+	if !SUPPORTED_UPGRADE_PROTOCOLS.contains(&protocol.as_str()) {
 		return response::error(StatusCode::BAD_REQUEST, "Invalid protocol".into());
 	}
 
 	let base_path = file_loader::get_config_dir()
-		.join("applications")
+		.join("resolvers")
 		.join(&protocol);
 
-	match config_file::find_config::<ApplicationConfig>(&base_path).await {
+	match config_file::find_config::<ResolverConfig>(&base_path).await {
 		ConfigFileResult::NotFound => {
 			response::error(StatusCode::NOT_FOUND, format!("No config for {protocol}"))
 		}
 		ConfigFileResult::Single {
 			format, content, ..
-		} => response::success(ApplicationDetail {
+		} => response::success(ResolverDetail {
 			protocol,
 			source_format: format,
-			pipeline: content.pipeline,
+			connection: content.connection,
 		}),
 		ConfigFileResult::Ambiguous { found } => response::error(
 			StatusCode::CONFLICT,
@@ -107,31 +107,31 @@ pub async fn get_application_handler(Path(protocol): Path<String>) -> impl IntoR
 	}
 }
 
-/// Create application configuration
+/// Create resolver configuration
 #[utoipa::path(
     post,
-    path = "/applications/{protocol}",
+    path = "/resolvers/{protocol}",
     params(
         ("protocol" = String, Path, description = "Protocol name")
     ),
-    request_body = ApplicationConfig,
+    request_body = ResolverConfig,
     responses(
         (status = 201, description = "Config created", body = FlowConfigWrittenResponse),
         (status = 400, description = "Validation failed"),
         (status = 409, description = "Config already exists")
     ),
-    tag = "applications",
+    tag = "resolvers",
     security(("bearer_auth" = []))
 )]
-pub async fn post_application_handler(
+pub async fn post_resolver_handler(
 	Path(protocol): Path<String>,
-	Json(config): Json<ApplicationConfig>,
+	Json(config): Json<ResolverConfig>,
 ) -> impl IntoResponse {
-	if !SUPPORTED_APP_PROTOCOLS.contains(&protocol.as_str()) {
+	if !SUPPORTED_UPGRADE_PROTOCOLS.contains(&protocol.as_str()) {
 		return response::error(StatusCode::BAD_REQUEST, "Invalid protocol".into());
 	}
 
-	let base_dir = file_loader::get_config_dir().join("applications");
+	let base_dir = file_loader::get_config_dir().join("resolvers");
 	if tokio::fs::metadata(&base_dir).await.is_err() {
 		let _ = tokio::fs::create_dir_all(&base_dir).await;
 	}
@@ -144,6 +144,7 @@ pub async fn post_application_handler(
 		return response::error(StatusCode::CONFLICT, "Config already exists".into());
 	}
 
+	// Validate (manually set protocol since it's transient)
 	let mut config_to_validate = config.clone();
 	config_to_validate.protocol = protocol.clone();
 
@@ -155,7 +156,7 @@ pub async fn post_application_handler(
 		Ok(path) => {
 			let filename = path.file_name().unwrap().to_str().unwrap().to_owned();
 			response::created(FlowConfigWritten {
-				port: 0,
+				port: 0, // Not applicable
 				protocol,
 				written_to: filename,
 				converted_from: None,
@@ -168,28 +169,28 @@ pub async fn post_application_handler(
 	}
 }
 
-/// Update application configuration
+/// Update resolver configuration
 #[utoipa::path(
     put,
-    path = "/applications/{protocol}",
+    path = "/resolvers/{protocol}",
     params(
         ("protocol" = String, Path, description = "Protocol name"),
         ValidateQuery
     ),
-    request_body = ApplicationConfig,
+    request_body = ResolverConfig,
     responses(
         (status = 200, description = "Config updated", body = FlowConfigWrittenResponse),
         (status = 400, description = "Validation failed")
     ),
-    tag = "applications",
+    tag = "resolvers",
     security(("bearer_auth" = []))
 )]
-pub async fn put_application_handler(
+pub async fn put_resolver_handler(
 	Path(protocol): Path<String>,
 	Query(query): Query<ValidateQuery>,
-	Json(config): Json<ApplicationConfig>,
+	Json(config): Json<ResolverConfig>,
 ) -> impl IntoResponse {
-	if !SUPPORTED_APP_PROTOCOLS.contains(&protocol.as_str()) {
+	if !SUPPORTED_UPGRADE_PROTOCOLS.contains(&protocol.as_str()) {
 		return response::error(StatusCode::BAD_REQUEST, "Invalid protocol".into());
 	}
 
@@ -209,7 +210,7 @@ pub async fn put_application_handler(
 		});
 	}
 
-	let base_dir = file_loader::get_config_dir().join("applications");
+	let base_dir = file_loader::get_config_dir().join("resolvers");
 	if tokio::fs::metadata(&base_dir).await.is_err() {
 		let _ = tokio::fs::create_dir_all(&base_dir).await;
 	}
@@ -240,10 +241,10 @@ pub async fn put_application_handler(
 	}
 }
 
-/// Delete application configuration
+/// Delete resolver configuration
 #[utoipa::path(
     delete,
-    path = "/applications/{protocol}",
+    path = "/resolvers/{protocol}",
     params(
         ("protocol" = String, Path, description = "Protocol name")
     ),
@@ -251,16 +252,16 @@ pub async fn put_application_handler(
         (status = 204, description = "Config deleted"),
         (status = 404, description = "Config not found")
     ),
-    tag = "applications",
+    tag = "resolvers",
     security(("bearer_auth" = []))
 )]
-pub async fn delete_application_handler(Path(protocol): Path<String>) -> impl IntoResponse {
-	if !SUPPORTED_APP_PROTOCOLS.contains(&protocol.as_str()) {
+pub async fn delete_resolver_handler(Path(protocol): Path<String>) -> impl IntoResponse {
+	if !SUPPORTED_UPGRADE_PROTOCOLS.contains(&protocol.as_str()) {
 		return response::error(StatusCode::BAD_REQUEST, "Invalid protocol".into());
 	}
 
 	let base_path = file_loader::get_config_dir()
-		.join("applications")
+		.join("resolvers")
 		.join(protocol);
 
 	match config_file::delete_all_formats(&base_path).await {

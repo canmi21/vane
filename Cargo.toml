@@ -52,8 +52,8 @@ httpx = ["dep:hyper", "dep:hyper-util", "dep:http-body", "dep:http-body-util", "
 lazycert = ["dep:reqwest", "vane-transport/lazycert"]
 
 # Console / Management API
-console = ["dep:axum", "vane-primitives/console", "vane-engine/console", "vane-app/console"]
-swagger-ui = ["dep:utoipa-swagger-ui"]
+console = ["dep:axum", "vane-primitives/console", "vane-engine/console", "vane-app/console", "vane-api/console"]
+swagger-ui = ["dep:utoipa-swagger-ui", "vane-api/swagger-ui"]
 
 # Upstream Capabilities
 h2upstream = ["dep:reqwest"]
@@ -92,6 +92,7 @@ vane-engine = { path = "crates/engine" }
 vane-app = { path = "crates/app" }
 vane-transport = { path = "crates/transport" }
 vane-extra = { path = "crates/extra" }
+vane-api = { path = "crates/api" }
 tokio = { version = "1", features = ["full", "signal"] }
 axum = { version = "0.8", features = ["macros", "multipart"], optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -188,7 +189,7 @@ workspace = true
 
 [workspace]
 resolver = "3"
-members = [".", "crates/primitives", "crates/engine", "crates/app", "crates/transport", "crates/extra"]
+members = [".", "crates/primitives", "crates/engine", "crates/app", "crates/transport", "crates/extra", "crates/api"]
 
 [workspace.package]
 rust-version = "1.93"

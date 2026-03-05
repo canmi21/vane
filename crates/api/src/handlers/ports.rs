@@ -1,16 +1,16 @@
 /* src/api/handlers/ports.rs */
 
-use crate::api::response;
-use crate::api::schemas::ports::{
+use crate::response;
+use crate::schemas::ports::{
 	PortCreated, PortCreatedResponse, PortDetail, PortDetailResponse, PortInfo, PortListResponse,
 	ProtocolStatus,
 };
-use crate::api::utils::config_file;
-use crate::common::{config::file_loader, net::port_utils};
-use crate::ingress::state::Protocol;
-use crate::layers::l4::fs as transport_fs;
+use crate::utils::config_file;
 use axum::{extract::Path, http::StatusCode, response::IntoResponse};
 use tokio::fs;
+use vane_primitives::common::{config::file_loader, net::port_utils};
+use vane_transport::ingress::state::Protocol;
+use vane_transport::l4::fs as transport_fs;
 
 // --- Handlers ---
 
@@ -28,7 +28,7 @@ pub async fn list_ports_handler() -> impl IntoResponse {
 	let config_dir = file_loader::get_config_dir();
 	let mut ports = Vec::new();
 
-	let config = crate::config::get();
+	let config = vane_engine::config::get();
 	let tcp_map = config.listeners.tcp.snapshot().await;
 	let udp_map = config.listeners.udp.snapshot().await;
 
@@ -104,7 +104,7 @@ pub async fn get_port_handler(Path(port): Path<u16>) -> impl IntoResponse {
 	}
 
 	// Runtime status
-	let config = crate::config::get();
+	let config = vane_engine::config::get();
 	let port_str = port.to_string();
 
 	// TCP Info

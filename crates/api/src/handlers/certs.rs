@@ -1,16 +1,16 @@
 /* src/api/handlers/certs.rs */
 
-use crate::api::response;
-use crate::api::schemas::certs::{
+use crate::response;
+use crate::schemas::certs::{
 	CertDetail, CertDetailResponse, CertListResponse, CertOperationResponse, CertOperationResult,
 	CertSummary, CertUploadRequest,
 };
-use crate::common::config::file_loader;
-use crate::resources::certs::arcswap;
 use axum::{Json, extract::Path, http::StatusCode, response::IntoResponse};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
+use vane_primitives::certs::arcswap;
+use vane_primitives::common::config::file_loader;
 use x509_parser::prelude::*;
 
 // --- Helpers ---

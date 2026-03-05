@@ -1,8 +1,8 @@
 /* src/api/schemas/nodes.rs */
 
-use crate::resources::service_discovery::model::Node;
 use serde::Serialize;
 use utoipa::ToSchema;
+use vane_primitives::service_discovery::model::Node;
 
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]

@@ -23,7 +23,7 @@ pub struct ResolverListData {
 pub struct ResolverDetail {
 	pub protocol: String,
 	pub source_format: String,
-	pub connection: crate::engine::interfaces::ProcessingStep,
+	pub connection: vane_engine::engine::interfaces::ProcessingStep,
 }
 
 // --- Response Schemas ---

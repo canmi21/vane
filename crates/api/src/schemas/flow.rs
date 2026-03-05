@@ -1,8 +1,8 @@
 /* src/api/schemas/flow.rs */
 
-use crate::engine::interfaces::ProcessingStep;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
+use vane_engine::engine::interfaces::ProcessingStep;
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct FlowConfig {

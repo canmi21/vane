@@ -1,14 +1,14 @@
 /* src/api/handlers/nodes.rs */
 
-use crate::api::response;
-use crate::api::schemas::nodes::{
+use crate::response;
+use crate::schemas::nodes::{
 	NodeDetailResponse, NodeListData, NodeListResponse, NodeOperationResponse, NodeOperationResult,
 };
-use crate::api::utils::config_file::{self, ConfigFileResult};
-use crate::common::config::file_loader;
-use crate::resources::service_discovery::model::{Node, NodesConfig};
+use crate::utils::config_file::{self, ConfigFileResult};
 use axum::{Json, extract::Path, http::StatusCode, response::IntoResponse};
 use validator::Validate;
+use vane_primitives::common::config::file_loader;
+use vane_primitives::service_discovery::model::{Node, NodesConfig};
 
 // --- Handlers ---
 

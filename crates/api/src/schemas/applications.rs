@@ -23,7 +23,7 @@ pub struct ApplicationListData {
 pub struct ApplicationDetail {
 	pub protocol: String,
 	pub source_format: String,
-	pub pipeline: crate::engine::interfaces::ProcessingStep,
+	pub pipeline: vane_engine::engine::interfaces::ProcessingStep,
 }
 
 // --- Response Schemas ---

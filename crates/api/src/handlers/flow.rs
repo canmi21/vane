@@ -1,20 +1,20 @@
 /* src/api/handlers/flow.rs */
 
-use crate::api::response;
-use crate::api::schemas::flow::{
+use crate::response;
+use crate::schemas::flow::{
 	FlowConfig, FlowConfigData, FlowConfigResponse, FlowConfigWritten, FlowConfigWrittenResponse,
 	ValidateQuery, ValidationResult, ValidationResultResponse,
 };
-use crate::api::utils::config_file::{self, ConfigFileResult};
-use crate::common::config::file_loader;
-use crate::engine::interfaces::Layer;
-use crate::layers::l4::validator;
+use crate::utils::config_file::{self, ConfigFileResult};
 use axum::{
 	Json,
 	extract::{Path, Query},
 	http::StatusCode,
 	response::IntoResponse,
 };
+use vane_engine::engine::interfaces::Layer;
+use vane_engine::shared::validator;
+use vane_primitives::common::config::file_loader;
 
 // --- Handlers ---
 

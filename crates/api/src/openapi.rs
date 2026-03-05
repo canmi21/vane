@@ -1,20 +1,20 @@
 /* src/api/openapi.rs */
 
-use crate::api::handlers::{
+use crate::handlers::{
 	applications, certs, config, flow, nodes, plugins, ports, resolvers, system,
 };
-use crate::api::schemas::{
+use crate::schemas::{
 	applications as app_schemas, certs as cert_schemas, config as config_schemas,
 	flow as flow_schemas, nodes as node_schemas, plugins as plugin_schemas, ports as port_schemas,
 	resolvers as res_schemas, system as system_schemas,
 };
-use crate::engine::interfaces::{
+use utoipa::OpenApi;
+use vane_engine::config::ApplicationConfig;
+use vane_engine::config::ResolverConfig;
+use vane_engine::engine::interfaces::{
 	ExternalParamDef, ExternalPluginConfig, ExternalPluginDriver, PluginInstance, PluginRole,
 };
-use crate::layers::l4p::model::ResolverConfig;
-use crate::layers::l7::model::ApplicationConfig;
-use crate::resources::service_discovery::model::{IpConfig, IpType, Node};
-use utoipa::OpenApi;
+use vane_primitives::service_discovery::model::{IpConfig, IpType, Node};
 
 #[derive(OpenApi)]
 #[openapi(

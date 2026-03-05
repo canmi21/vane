@@ -1,10 +1,9 @@
 /* src/api/handlers/config.rs */
 
-use crate::api::response;
-use crate::api::schemas::config::{
+use crate::response;
+use crate::schemas::config::{
 	ImportResponse, ImportResult, ReloadRequest, ReloadResponse, ReloadResult,
 };
-use crate::common::config::file_loader;
 use axum::{
 	Json,
 	body::Body,
@@ -17,6 +16,7 @@ use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
 use std::io::Read;
 use tokio::fs;
+use vane_primitives::common::config::file_loader;
 
 // --- Helpers ---
 

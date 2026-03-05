@@ -1,11 +1,11 @@
 /* src/api/router.rs */
 
-use crate::api::handlers::{
+use crate::handlers::{
 	applications, certs, config, flow, nodes, plugins, ports, resolvers, system,
 };
-use crate::api::middleware::{auth, logger};
+use crate::middleware::{auth, logger};
 #[cfg(feature = "swagger-ui")]
-use crate::api::openapi;
+use crate::openapi;
 
 #[cfg(feature = "swagger-ui")]
 use axum::response::Redirect;
