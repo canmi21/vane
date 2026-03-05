@@ -1,15 +1,2 @@
-/* src/layers/l7/flow.rs */
-
-use anyhow::Result;
-
-use crate::engine::executor;
-use crate::engine::interfaces::{ProcessingStep, TerminatorResult};
-use crate::layers::l7::container::Container;
-
-pub async fn execute_l7(
-	step: &ProcessingStep,
-	container: &mut Container,
-	parent_path: String,
-) -> Result<TerminatorResult> {
-	executor::execute_l7(step, container, parent_path).await
-}
+// L7 flow now lives in vane-app
+pub use vane_app::l7::flow::*;

@@ -1,8 +1,4 @@
-/* src/plugins/l7/upstream/quic_pool.rs */
-
 use super::tls_verifier::NoVerifier;
-use crate::common::sys::lifecycle::{Error, Result};
-use crate::layers::l4::resolver;
 use fancy_log::{LogLevel, log};
 use h3::client::SendRequest;
 use h3_quinn::{
@@ -12,6 +8,8 @@ use h3_quinn::{
 use once_cell::sync::Lazy;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, RwLock};
+use vane_engine::shared::resolver;
+use vane_primitives::common::sys::lifecycle::{Error, Result};
 
 pub type QuicSender = SendRequest<OpenStreams, bytes::Bytes>;
 

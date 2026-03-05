@@ -1,7 +1,4 @@
-/* src/plugins/l7/cgi/stream.rs */
-
-use crate::common::sys::lifecycle::{Error, Result as VaneResult};
-use crate::layers::l7::container::{self, BufferGuard};
+use crate::l7::container::{self, BufferGuard};
 use bytes::Bytes;
 use fancy_log::{LogLevel, log};
 use http_body::{Body, Frame, SizeHint};
@@ -11,6 +8,7 @@ use std::{
 	time::Duration,
 };
 use tokio::{io::AsyncReadExt, process::ChildStdout, sync::mpsc, time::timeout};
+use vane_primitives::common::sys::lifecycle::{Error, Result as VaneResult};
 
 /// A wrapper for Bytes that carries a memory quota guard.
 pub struct QuotaBytes {

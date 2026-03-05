@@ -42,27 +42,27 @@ tcp = ["dep:fancy-regex"]
 udp = ["dep:fancy-regex"]
 
 # Carrier Layer (L4+)
-tls = ["dep:rustls", "dep:tokio-rustls", "dep:rcgen", "dep:hyper-rustls", "dep:tls-parser", "dep:x509-parser", "dep:rustls-pemfile", "dep:rustls-native-certs"]
-quic = ["dep:quinn", "dep:aes"]
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:rcgen", "dep:hyper-rustls", "dep:tls-parser", "dep:x509-parser", "dep:rustls-pemfile", "dep:rustls-native-certs", "vane-app/tls"]
+quic = ["dep:quinn", "dep:aes", "vane-app/quic"]
 
 # Application Layer (L7)
-httpx = ["dep:hyper", "dep:hyper-util", "dep:http-body", "dep:http-body-util", "dep:tower-service", "dep:axum"]
+httpx = ["dep:hyper", "dep:hyper-util", "dep:http-body", "dep:http-body-util", "dep:tower-service", "dep:axum", "vane-app/httpx"]
 
 # LazyCert Integration
 lazycert = ["dep:reqwest"]
 
 # Console / Management API
-console = ["dep:axum", "vane-primitives/console", "vane-engine/console"]
+console = ["dep:axum", "vane-primitives/console", "vane-engine/console", "vane-app/console"]
 swagger-ui = ["dep:utoipa-swagger-ui"]
 
 # Upstream Capabilities
 h2upstream = ["dep:reqwest"]
-h3upstream = ["quic", "dep:h3", "dep:h3-quinn"]
-domain-target = ["dep:hickory-resolver", "vane-primitives/domain-target", "vane-engine/domain-target"]
+h3upstream = ["quic", "dep:h3", "dep:h3-quinn", "vane-app/h3upstream"]
+domain-target = ["dep:hickory-resolver", "vane-primitives/domain-target", "vane-engine/domain-target", "vane-app/domain-target"]
 
 # Plugin Flags
-cgi = ["dep:base64"]
-static = ["dep:infer", "dep:mime_guess"]
+cgi = ["dep:base64", "vane-app/cgi"]
+static = ["dep:infer", "dep:mime_guess", "vane-app/static"]
 ratelimit = []
 
 # Crypto Backends
@@ -72,6 +72,7 @@ aws-lc-rs = [
   "hyper-rustls?/aws-lc-rs",
   "quinn?/aws-lc-rs",
   "reqwest?/rustls",
+  "vane-app/aws-lc-rs",
 ]
 ring = [
   "rustls?/ring",
@@ -80,11 +81,13 @@ ring = [
   "quinn?/ring",
   "reqwest?/rustls-no-provider",
   "reqwest?/rustls-native-certs",
+  "vane-app/ring",
 ]
 
 [dependencies]
 vane-primitives = { path = "crates/primitives" }
 vane-engine = { path = "crates/engine" }
+vane-app = { path = "crates/app" }
 tokio = { version = "1", features = ["full", "signal"] }
 axum = { version = "0.8", features = ["macros", "multipart"], optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -181,7 +184,7 @@ workspace = true
 
 [workspace]
 resolver = "3"
-members = [".", "crates/primitives", "crates/engine"]
+members = [".", "crates/primitives", "crates/engine", "crates/app"]
 
 [workspace.package]
 rust-version = "1.93"

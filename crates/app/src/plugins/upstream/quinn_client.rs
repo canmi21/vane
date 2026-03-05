@@ -1,8 +1,5 @@
-/* src/plugins/l7/upstream/quinn_client.rs */
-
 use super::quic_pool;
-use crate::common::sys::lifecycle::{Error, Result};
-use crate::layers::l7::{
+use crate::l7::{
 	container::{Container, PayloadState},
 	http::wrapper::{H3BodyAdapter, VaneBody},
 };
@@ -12,6 +9,7 @@ use http::{Request, Uri};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use std::str::FromStr;
 use tokio::sync::mpsc;
+use vane_primitives::common::sys::lifecycle::{Error, Result};
 
 /// H3 Upstream Client Driver (Fully Async & Non-Blocking)
 ///

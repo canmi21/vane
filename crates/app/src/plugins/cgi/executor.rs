@@ -1,9 +1,5 @@
-/* src/plugins/l7/cgi/executor.rs */
-
 use super::stream::{CgiResponseBody, pump_stdout};
-use crate::common::sys::lifecycle::Error;
-use crate::engine::interfaces::MiddlewareOutput;
-use crate::layers::l7::{
+use crate::l7::{
 	container::{Container, PayloadState},
 	http::wrapper::VaneBody,
 };
@@ -19,6 +15,8 @@ use tokio::{
 	sync::mpsc,
 	time::timeout,
 };
+use vane_engine::engine::interfaces::MiddlewareOutput;
+use vane_primitives::common::sys::lifecycle::Error;
 
 pub struct CgiConfig {
 	pub command: String,

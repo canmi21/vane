@@ -1,8 +1,5 @@
-/* src/plugins/l7/upstream/hyper_client.rs */
-
 use super::pool::{GLOBAL_INSECURE_CLIENT, GLOBAL_SECURE_CLIENT};
-use crate::common::sys::lifecycle::{Error, Result};
-use crate::layers::l7::{
+use crate::l7::{
 	container::{Container, PayloadState},
 	http::wrapper::VaneBody,
 };
@@ -11,6 +8,7 @@ use fancy_log::{LogLevel, log};
 use http::{Method, Request, StatusCode, Uri};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use std::str::FromStr;
+use vane_primitives::common::sys::lifecycle::{Error, Result};
 
 pub async fn execute_hyper_request(
 	container: &mut Container,

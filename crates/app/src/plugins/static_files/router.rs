@@ -1,5 +1,3 @@
-/* src/plugins/l7/static_files/router.rs */
-
 use anyhow::{Result, anyhow};
 use std::path::{Component, Path, PathBuf};
 

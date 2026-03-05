@@ -1,5 +1,3 @@
-/* src/plugins/l7/static_files/inspect.rs */
-
 use std::path::Path;
 use tokio::{
 	fs::File,

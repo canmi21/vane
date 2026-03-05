@@ -1,10 +1,9 @@
-/* src/plugins/l7/response/content_type.rs */
-
 use bytes::Bytes;
 use serde_json::Value;
 
 pub fn guess_mime(bytes: &Bytes) -> &'static str {
 	// Try to detect via magic bytes (covers images, archives, etc.)
+	#[cfg(feature = "static")]
 	if let Some(kind) = infer::get(bytes) {
 		return kind.mime_type();
 	}

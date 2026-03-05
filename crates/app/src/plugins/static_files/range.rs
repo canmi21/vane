@@ -1,5 +1,3 @@
-/* src/plugins/l7/static_files/range.rs */
-
 /// Represents a requested byte range.
 #[derive(Debug, Clone, Copy)]
 pub struct ByteRange {

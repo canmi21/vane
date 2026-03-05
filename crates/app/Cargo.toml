@@ -1,0 +1,83 @@
+[package]
+name = "vane-app"
+version = "0.9.2"
+edition = "2024"
+rust-version = { workspace = true }
+description = "L7 application layer, HTTP adapters, and L7 plugins for Vane."
+license = "MIT"
+
+[features]
+httpx = []
+tls = [
+	"dep:rustls",
+	"dep:tokio-rustls",
+	"dep:hyper-rustls",
+	"dep:rustls-native-certs",
+	"dep:tower-service",
+	"dep:once_cell",
+]
+quic = ["dep:h3", "dep:h3-quinn"]
+h3upstream = ["quic", "dep:quinn"]
+cgi = []
+static = ["dep:infer", "dep:mime_guess", "dep:futures-util"]
+console = ["dep:utoipa"]
+domain-target = ["vane-engine/domain-target"]
+
+# Crypto backends (forwarded from binary)
+aws-lc-rs = [
+	"rustls?/aws-lc-rs",
+	"tokio-rustls?/aws-lc-rs",
+	"hyper-rustls?/aws-lc-rs",
+	"quinn?/aws-lc-rs",
+]
+ring = [
+	"rustls?/ring",
+	"tokio-rustls?/ring",
+	"hyper-rustls?/ring",
+	"quinn?/ring",
+]
+
+[dependencies]
+vane-primitives = { path = "../primitives" }
+vane-engine = { path = "../engine" }
+
+tokio = { version = "1", features = ["full", "signal"] }
+bytes = "1"
+http = "1"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body = "1"
+http-body-util = "0.1"
+anyhow = "1"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+fancy-log = "0.1"
+envflag = "0.1"
+hex = "0.4"
+varchain = { version = "0.1", features = ["ahash"] }
+oneshot = "0.1"
+base64 = "0.22"
+tokio-util = "0.7"
+
+# Optional
+rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"], optional = true }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http2", "native-tokio", "logging", "tls12"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+tower-service = { version = "0.3", optional = true }
+once_cell = { version = "1", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls"], optional = true }
+percent-encoding = "2"
+infer = { version = "0.19", optional = true }
+mime_guess = { version = "2", optional = true }
+futures-util = { version = "0.3", optional = true }
+utoipa = { version = "5", features = ["axum_extras"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

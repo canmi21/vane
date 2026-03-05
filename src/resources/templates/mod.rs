@@ -1,42 +1,18 @@
 pub mod source;
 
-// L4 generic parts now live in vane-engine
+// L4 generic parts live in vane-engine
 pub use source::{HttpSource, L4PlusSource};
 pub use vane_engine::templates::{build_l4_scope, resolve_inputs, resolve_template};
 
-// L7-specific parts stay here (will move to vane-app in Step 4)
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use varchain::{Scope, Source, SourceFuture};
-
-use crate::layers::l7::container::Container;
-
-/// Helper struct for Container KV source with Arc
-struct AsyncContainerKvSource {
-	container: Arc<RwLock<Container>>,
-}
-
-impl Source for AsyncContainerKvSource {
-	fn get(&self, key: &str) -> SourceFuture<'_, String> {
-		let key = key.to_owned();
-		let container = self.container.clone();
-		Box::pin(async move { container.read().await.kv.get(&key).cloned().into() })
-	}
-}
-
-/// Build scope for L7 HTTP
-pub fn build_l7_scope(container: Arc<RwLock<Container>>) -> Scope {
-	Scope::new()
-		.push(HttpSource {
-			container: container.clone(),
-		})
-		.push(AsyncContainerKvSource { container })
-}
+// L7-specific parts now live in vane-app
+pub use vane_app::templates::build_l7_scope;
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::resources::kv::KvStore;
+	use std::sync::Arc;
+	use tokio::sync::RwLock;
+	use vane_primitives::kv::KvStore;
 
 	fn init() {
 		envflag::init().ok();

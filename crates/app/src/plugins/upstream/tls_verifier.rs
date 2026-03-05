@@ -1,5 +1,3 @@
-/* src/plugins/l7/upstream/tls_verifier.rs */
-
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::{
 	DigitallySignedStruct,

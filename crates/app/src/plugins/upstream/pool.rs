@@ -1,7 +1,4 @@
-/* src/plugins/l7/upstream/pool.rs */
-
 use super::tls_verifier::NoVerifier;
-use crate::common::sys::lifecycle::Error;
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use hyper_rustls::HttpsConnector;
@@ -17,6 +14,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tower_service::Service;
+use vane_primitives::common::sys::lifecycle::Error;
 
 #[derive(Clone)]
 pub struct VaneResolver;
@@ -34,7 +32,7 @@ impl Service<Name> for VaneResolver {
 		let host = name.as_str().to_owned();
 		Box::pin(async move {
 			// Call Global Resolver
-			let ips = crate::layers::l4::resolver::resolve_domain_to_ips(&host).await;
+			let ips = vane_engine::shared::resolver::resolve_domain_to_ips(&host).await;
 
 			if ips.is_empty() {
 				return Err(std::io::Error::other(format!(

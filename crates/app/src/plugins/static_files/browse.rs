@@ -1,5 +1,3 @@
-/* src/plugins/l7/static_files/browse.rs */
-
 use anyhow::Result;
 use bytes::Bytes;
 use std::fmt::Write;
