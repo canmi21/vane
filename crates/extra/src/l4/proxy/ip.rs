@@ -1,17 +1,17 @@
 /* src/plugins/l4/proxy/ip.rs */
 
 use super::execute_proxy;
-use crate::engine::interfaces::{
-	ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
-	TerminatorResult,
-};
-use crate::layers::l4::model::ResolvedTarget;
-use crate::resources::kv::KvStore;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::any::Any;
 use std::borrow::Cow;
+use vane_engine::engine::interfaces::{
+	ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
+	TerminatorResult,
+};
+use vane_primitives::kv::KvStore;
+use vane_primitives::model::ResolvedTarget;
 
 /// A built-in Terminator plugin to proxy a connection transparently using explicit IP and Port.
 pub struct TransparentProxyPlugin;

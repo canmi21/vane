@@ -1,30 +1,31 @@
-/* src/plugins/l4/proxy/node.rs */
+/* src/plugins/l4/proxy/domain.rs */
 
 use super::execute_proxy;
-use crate::engine::interfaces::{
-	ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
-	TerminatorResult,
-};
-use crate::layers::l4::model::ResolvedTarget;
-use crate::resources::kv::KvStore;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::any::Any;
 use std::time::{SystemTime, UNIX_EPOCH};
+use vane_engine::engine::interfaces::{
+	ConnectionObject, Layer, ParamDef, ParamType, Plugin, ResolvedInputs, Terminator,
+	TerminatorResult,
+};
+use vane_engine::shared::resolver;
+use vane_primitives::kv::KvStore;
+use vane_primitives::model::ResolvedTarget;
 
-/// A built-in Terminator plugin to proxy a connection to a specific Node.
-pub struct ProxyNodePlugin;
+/// A built-in Terminator plugin to proxy a connection to a domain.
+pub struct ProxyDomainPlugin;
 
-impl Plugin for ProxyNodePlugin {
+impl Plugin for ProxyDomainPlugin {
 	fn name(&self) -> &'static str {
-		"internal.transport.proxy.node"
+		"internal.transport.proxy.domain"
 	}
 
 	fn params(&self) -> Vec<ParamDef> {
 		vec![
 			ParamDef {
-				name: "target.node".into(),
+				name: "target.domain".into(),
 				required: true,
 				param_type: ParamType::String,
 			},
@@ -46,7 +47,7 @@ impl Plugin for ProxyNodePlugin {
 }
 
 #[async_trait]
-impl Terminator for ProxyNodePlugin {
+impl Terminator for ProxyDomainPlugin {
 	fn supported_layers(&self) -> Vec<Layer> {
 		vec![Layer::L4, Layer::L4Plus]
 	}
@@ -57,10 +58,10 @@ impl Terminator for ProxyNodePlugin {
 		kv: &mut KvStore,
 		conn: ConnectionObject,
 	) -> Result<TerminatorResult> {
-		let target_node_name = inputs
-			.get("target.node")
+		let target_domain = inputs
+			.get("target.domain")
 			.and_then(Value::as_str)
-			.ok_or_else(|| anyhow!("Resolved input 'target.node' is missing or not a string"))?;
+			.ok_or_else(|| anyhow!("Resolved input 'target.domain' is missing or not a string"))?;
 
 		let target_port = inputs
 			.get("target.port")
@@ -68,37 +69,27 @@ impl Terminator for ProxyNodePlugin {
 			.map(|p| p as u16)
 			.ok_or_else(|| anyhow!("Resolved input 'target.port' is missing or not an integer"))?;
 
-		let config_manager = crate::config::get();
-		let nodes_config = config_manager
-			.nodes
-			.get()
-			.unwrap_or_else(|| std::sync::Arc::new(crate::config::NodesConfig::default()));
-		let candidates: Vec<&String> = nodes_config
-			.processed
-			.iter()
-			.filter(|n| n.node_name == target_node_name && n.port == target_port)
-			.map(|n| &n.address)
-			.collect();
+		let ips = resolver::resolve_domain_to_ips(target_domain).await;
 
-		if candidates.is_empty() {
+		if ips.is_empty() {
 			return Err(anyhow!(
-				"No available IP addresses found for node '{target_node_name}' on port {target_port}"
+				"DNS resolution failed: No IPs found for domain '{target_domain}'"
 			));
 		}
 
-		let selected_ip = if candidates.len() == 1 {
-			candidates[0]
+		let selected_ip = if ips.len() == 1 {
+			ips[0]
 		} else {
 			let nanos = SystemTime::now()
 				.duration_since(UNIX_EPOCH)
 				.unwrap_or_default()
 				.subsec_nanos();
-			let index = (nanos as usize) % candidates.len();
-			candidates[index]
+			let index = (nanos as usize) % ips.len();
+			ips[index]
 		};
 
 		let target = ResolvedTarget {
-			ip: selected_ip.clone(),
+			ip: selected_ip.to_string(),
 			port: target_port,
 		};
 

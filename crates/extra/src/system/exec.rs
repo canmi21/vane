@@ -1,7 +1,6 @@
 /* src/plugins/system/exec.rs */
 
-use crate::engine::interfaces::{MiddlewareOutput, ResolvedInputs};
-use crate::plugins::core::external;
+use crate::core::external;
 use anyhow::Result;
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
@@ -10,6 +9,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::timeout;
+use vane_engine::engine::interfaces::{MiddlewareOutput, ResolvedInputs};
 
 pub async fn execute(
 	program: &str,

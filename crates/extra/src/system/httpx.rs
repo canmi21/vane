@@ -1,9 +1,9 @@
 /* src/plugins/system/httpx.rs */
 
-use crate::engine::interfaces::{ExternalApiResponse, MiddlewareOutput, ResolvedInputs};
 use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};
 use std::time::Duration;
+use vane_engine::engine::interfaces::{ExternalApiResponse, MiddlewareOutput, ResolvedInputs};
 
 pub async fn execute(url: &str, name: &str, inputs: ResolvedInputs) -> Result<MiddlewareOutput> {
 	log(

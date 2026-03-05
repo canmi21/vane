@@ -1,15 +1,5 @@
 /* src/plugins/l4/proxy/forwarder.rs */
 
-use crate::layers::l4p::quic::session::{self, SessionAction};
-use crate::{
-	common::net::ip,
-	layers::l4::{
-		health,
-		model::ResolvedTarget,
-		session::{REVERSE_SESSIONS, SESSIONS, Session},
-	},
-	plugins::protocol::quic::parser,
-};
 use anyhow::{Context, Result};
 use fancy_log::{LogLevel, log};
 use std::net::{IpAddr, SocketAddr};
@@ -20,6 +10,12 @@ use tokio::{
 	// Here we use Std::Instant, so do not import tokio one to avoid ambiguity
 	time::{Duration, timeout},
 };
+use vane_engine::shared::health;
+use vane_engine::shared::session::{REVERSE_SESSIONS, SESSIONS, Session};
+use vane_primitives::common::net::ip;
+use vane_primitives::model::ResolvedTarget;
+use vane_transport::l4p::quic::session::{self, SessionAction};
+use vane_transport::protocol::quic::parser;
 
 // Constants
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -77,7 +73,7 @@ pub async fn proxy_tcp_stream(mut client_stream: TcpStream, target: ResolvedTarg
 }
 
 pub async fn proxy_generic_stream(
-	client_stream: Box<dyn crate::engine::interfaces::ByteStream>,
+	client_stream: Box<dyn vane_engine::engine::interfaces::ByteStream>,
 	target: ResolvedTarget,
 ) -> Result<()> {
 	log(
@@ -212,7 +208,7 @@ pub async fn proxy_udp_direct(
 
 	if let Ok(local_addr) = upstream_arc.local_addr() {
 		// Apply Connection Rate Limits
-		let Some(guard) = crate::ingress::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) else {
+		let Some(guard) = vane_primitives::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) else {
 			log(
 				LogLevel::Debug,
 				&format!(
@@ -364,7 +360,7 @@ pub async fn proxy_quic_association(
 
 	if let Ok(local_addr) = upstream_arc.local_addr() {
 		// Apply Connection Rate Limits
-		let Some(guard) = crate::ingress::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) else {
+		let Some(guard) = vane_primitives::tasks::GLOBAL_TRACKER.acquire(client_addr.ip()) else {
 			log(
 				LogLevel::Debug,
 				&format!(

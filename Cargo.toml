@@ -63,7 +63,7 @@ domain-target = ["dep:hickory-resolver", "vane-primitives/domain-target", "vane-
 # Plugin Flags
 cgi = ["dep:base64", "vane-app/cgi"]
 static = ["dep:infer", "dep:mime_guess", "vane-app/static"]
-ratelimit = []
+ratelimit = ["vane-extra/ratelimit"]
 
 # Crypto Backends
 aws-lc-rs = [
@@ -91,6 +91,7 @@ vane-primitives = { path = "crates/primitives" }
 vane-engine = { path = "crates/engine" }
 vane-app = { path = "crates/app" }
 vane-transport = { path = "crates/transport" }
+vane-extra = { path = "crates/extra" }
 tokio = { version = "1", features = ["full", "signal"] }
 axum = { version = "0.8", features = ["macros", "multipart"], optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -187,7 +188,7 @@ workspace = true
 
 [workspace]
 resolver = "3"
-members = [".", "crates/primitives", "crates/engine", "crates/app", "crates/transport"]
+members = [".", "crates/primitives", "crates/engine", "crates/app", "crates/transport", "crates/extra"]
 
 [workspace.package]
 rust-version = "1.93"
