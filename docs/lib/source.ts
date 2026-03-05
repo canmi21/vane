@@ -1,4 +1,4 @@
-/* lib/source.ts */
+/* docs/lib/source.ts */
 
 import { docs } from 'fumadocs-mdx:collections/server'
 import { type InferPageType, loader } from 'fumadocs-core/source'

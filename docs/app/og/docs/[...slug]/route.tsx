@@ -1,4 +1,4 @@
-/* app/og/docs/[...slug]/route.tsx */
+/* docs/app/og/docs/[...slug]/route.tsx */
 
 import { getPageImage, source } from '@/lib/source'
 import { notFound } from 'next/navigation'

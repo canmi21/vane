@@ -1,3 +1,3 @@
-/* global.d.ts */
+/* docs/global.d.ts */
 
 declare module '*.css'

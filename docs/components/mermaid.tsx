@@ -1,4 +1,4 @@
-/* components/mermaid.tsx */
+/* docs/components/mermaid.tsx */
 
 'use client'
 import { type MermaidConfig, default as mermaid } from 'mermaid'

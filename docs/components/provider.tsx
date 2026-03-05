@@ -1,4 +1,4 @@
-/* components/provider.tsx */
+/* docs/components/provider.tsx */
 
 'use client'
 import SearchDialog from '@/components/search'

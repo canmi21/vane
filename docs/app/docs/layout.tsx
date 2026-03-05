@@ -1,4 +1,4 @@
-/* app/docs/layout.tsx */
+/* docs/app/docs/layout.tsx */
 
 import { source } from '@/lib/source'
 import { DocsLayout } from 'fumadocs-ui/layouts/docs'

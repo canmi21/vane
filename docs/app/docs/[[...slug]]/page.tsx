@@ -1,4 +1,4 @@
-/* app/docs/[[...slug]]/page.tsx */
+/* docs/app/docs/[[...slug]]/page.tsx */
 
 import { getPageImage, source } from '@/lib/source'
 import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page'
@@ -21,7 +21,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
       <DocsBody>
         <MDX
           components={getMDXComponents({
-            // this allows you to link to other pages with relative file paths
+            // @ts-expect-error fumadocs-mdx defineDocs produces a narrower generic than createRelativeLink expects
             a: createRelativeLink(source, page),
           })}
         />

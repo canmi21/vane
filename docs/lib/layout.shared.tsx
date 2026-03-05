@@ -1,4 +1,4 @@
-/* lib/layout.shared.tsx */
+/* docs/lib/layout.shared.tsx */
 
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared'
 

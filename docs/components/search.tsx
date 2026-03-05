@@ -1,4 +1,4 @@
-/* components/search.tsx */
+/* docs/components/search.tsx */
 
 'use client'
 import {

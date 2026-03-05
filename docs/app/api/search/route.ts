@@ -1,4 +1,4 @@
-/* app/api/search/route.ts */
+/* docs/app/api/search/route.ts */
 
 import { source } from '@/lib/source'
 import { createFromSource } from 'fumadocs-core/search/server'

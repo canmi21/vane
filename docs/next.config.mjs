@@ -1,4 +1,4 @@
-/* next.config.mjs */
+/* docs/next.config.mjs */
 
 import { createMDX } from 'fumadocs-mdx/next'
 

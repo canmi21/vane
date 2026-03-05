@@ -1,4 +1,4 @@
-/* app/(home)/layout.tsx */
+/* docs/app/(home)/layout.tsx */
 
 import { HomeLayout } from 'fumadocs-ui/layouts/home'
 import { baseOptions } from '@/lib/layout.shared'

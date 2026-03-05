@@ -1,4 +1,4 @@
-/* app/(home)/page.tsx */
+/* docs/app/(home)/page.tsx */
 
 'use client'
 

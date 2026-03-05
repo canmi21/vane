@@ -1,4 +1,4 @@
-/* app/llms-full.txt/route.ts */
+/* docs/app/llms-full.txt/route.ts */
 
 import { getLLMText, source } from '@/lib/source'
 

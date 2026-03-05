@@ -1,4 +1,4 @@
-/* mdx-components.tsx */
+/* docs/mdx-components.tsx */
 
 import defaultMdxComponents from 'fumadocs-ui/mdx'
 import type { MDXComponents } from 'mdx/types'
