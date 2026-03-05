@@ -1,10 +1,10 @@
 /* src/resources/certs/loader.rs */
 
+use crate::certs::{arcswap, format};
 use crate::common::{
 	config::file_loader,
 	sys::{hotswap::watch_loop, lifecycle::Result},
 };
-use crate::certs::{arcswap, format};
 use fancy_log::{LogLevel, log};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

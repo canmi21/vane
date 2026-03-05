@@ -1,73 +1,14 @@
-/* src/layers/l4/legacy/tcp.rs */
+// Legacy type definitions now live in vane-engine
+pub use vane_engine::config::{
+	LegacyTcpConfig, TcpDestination, TcpProtocolRule, TcpSession, validate_tcp_rules,
+};
 
-use crate::layers::l4::model::{Detect, DetectMethod, Forward};
+// Dispatch function stays here (will move to vane-transport in Step 5)
+use crate::layers::l4::model::DetectMethod;
 use crate::layers::l4::{balancer, proxy};
-use crate::resources::kv::KvStore;
 use fancy_log::{LogLevel, log};
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
-use validator::{Validate, ValidationError, ValidationErrors};
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct TcpSession {
-	pub keepalive: bool,
-	pub timeout: u64,
-}
-
-impl Validate for TcpSession {
-	fn validate(&self) -> Result<(), ValidationErrors> {
-		if self.timeout == 0 {
-			let mut errors = ValidationErrors::new();
-			let mut err = ValidationError::new("range");
-			err.message = Some("timeout must be greater than 0".into());
-			errors.add("timeout", err);
-			return Err(errors);
-		}
-		Ok(())
-	}
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum TcpDestination {
-	Resolver { resolver: String },
-	Forward { forward: Forward },
-}
-
-impl Validate for TcpDestination {
-	fn validate(&self) -> Result<(), ValidationErrors> {
-		match self {
-			Self::Resolver { .. } => Ok(()),
-			Self::Forward { forward } => forward.validate(),
-		}
-	}
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
-pub struct TcpProtocolRule {
-	#[validate(regex(
-        path = *crate::layers::l4::model::NAME_REGEX,
-        message = "can only contain lowercase letters, numbers, underscores and hyphens"
-    ))]
-	pub name: String,
-	#[validate(range(min = 1))]
-	pub priority: u32,
-	#[validate(nested)]
-	pub detect: Detect,
-	#[serde(default)]
-	#[validate(nested)]
-	pub session: Option<TcpSession>,
-	#[validate(nested)]
-	pub destination: TcpDestination,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Validate)]
-pub struct LegacyTcpConfig {
-	#[serde(rename = "protocols")]
-	#[validate(nested)]
-	pub rules: Vec<TcpProtocolRule>,
-}
+use vane_primitives::kv::KvStore;
 
 pub async fn dispatch_legacy_tcp(
 	mut socket: TcpStream,
@@ -147,7 +88,6 @@ pub async fn dispatch_legacy_tcp(
 			match rule.destination {
 				TcpDestination::Resolver { resolver } => {
 					log(LogLevel::Debug, &format!("⚙ Legacy Resolver: {resolver}"));
-					// legacy resolver placeholder
 					return;
 				}
 				TcpDestination::Forward { ref forward } => {
@@ -162,16 +102,4 @@ pub async fn dispatch_legacy_tcp(
 		}
 	}
 	let _ = socket.shutdown().await;
-}
-
-pub fn validate_tcp_rules(rules: &[TcpProtocolRule]) -> Result<(), ValidationError> {
-	let mut priorities = HashSet::new();
-	for rule in rules {
-		if !priorities.insert(rule.priority) {
-			let mut err = ValidationError::new("unique_priorities");
-			err.message = Some("Priorities must be unique within a listener config.".into());
-			return Err(err);
-		}
-	}
-	Ok(())
 }

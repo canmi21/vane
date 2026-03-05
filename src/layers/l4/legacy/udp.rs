@@ -1,56 +1,19 @@
-/* src/layers/l4/legacy/udp.rs */
+// Legacy type definitions now live in vane-engine
+pub use vane_engine::config::{
+	LegacyUdpConfig, UdpDestination, UdpProtocolRule, validate_udp_rules,
+};
 
+// Dispatch function stays here (will move to vane-transport in Step 5)
 use crate::common::net::ip;
 use crate::ingress::tasks::GLOBAL_TRACKER;
-use crate::layers::l4::model::{DetectMethod, Forward};
+use crate::layers::l4::model::DetectMethod;
 use crate::layers::l4::session::{REVERSE_SESSIONS, SESSIONS, Session};
 use crate::layers::l4::{balancer, health};
 use fancy_log::{LogLevel, log};
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::time::{Duration, Instant};
-use validator::{Validate, ValidationError, ValidationErrors};
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum UdpDestination {
-	Resolver { resolver: String },
-	Forward { forward: Forward },
-}
-
-impl Validate for UdpDestination {
-	fn validate(&self) -> Result<(), ValidationErrors> {
-		match self {
-			Self::Resolver { .. } => Ok(()),
-			Self::Forward { forward } => forward.validate(),
-		}
-	}
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Validate, PartialEq, Eq)]
-pub struct UdpProtocolRule {
-	#[validate(regex(
-        path = *crate::layers::l4::model::NAME_REGEX,
-        message = "can only contain lowercase letters, numbers, underscores and hyphens"
-    ))]
-	pub name: String,
-	#[validate(range(min = 1))]
-	pub priority: u32,
-	#[validate(nested)]
-	pub detect: crate::layers::l4::model::Detect,
-	#[validate(nested)]
-	pub destination: UdpDestination,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Validate)]
-pub struct LegacyUdpConfig {
-	#[serde(rename = "protocols")]
-	#[validate(nested)]
-	pub rules: Vec<UdpProtocolRule>,
-}
 
 async fn bind_upstream_socket(target_ip: &IpAddr) -> Result<UdpSocket, std::io::Error> {
 	let bind_addr: SocketAddr = if target_ip.is_ipv6() {
@@ -232,16 +195,4 @@ pub async fn dispatch_legacy_udp(
 			return;
 		}
 	}
-}
-
-pub fn validate_udp_rules(rules: &[UdpProtocolRule]) -> Result<(), ValidationError> {
-	let mut priorities = HashSet::new();
-	for rule in rules {
-		if !priorities.insert(rule.priority) {
-			let mut err = ValidationError::new("unique_priorities");
-			err.message = Some("Priorities must be unique within a listener config.".into());
-			return Err(err);
-		}
-	}
-	Ok(())
 }

@@ -1,62 +1,16 @@
-/* src/layers/l4/udp.rs */
+// Config types now live in vane-engine
+pub use vane_engine::config::{UdpConfig, UdpFlowConfig as FlowConfig};
 
+// Dispatch function stays here (will move to vane-transport in Step 5)
 use super::{context, flow, legacy};
-use crate::engine::interfaces::{ConnectionObject, Layer, ProcessingStep, TerminatorResult};
+use crate::engine::interfaces::{ConnectionObject, TerminatorResult};
 
 use crate::layers::l4p::quic;
-use crate::resources::kv::KvStore;
 use fancy_log::{LogLevel, log};
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
-use validator::{Validate, ValidationErrors};
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct FlowConfig {
-	pub connection: ProcessingStep,
-}
-
-impl Validate for FlowConfig {
-	fn validate(&self) -> Result<(), ValidationErrors> {
-		super::validator::validate_flow_config(&self.connection, Layer::L4, "udp")
-	}
-}
-
-// --- Unified Configuration Enum ---
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum UdpConfig {
-	Flow(FlowConfig),
-	Legacy(legacy::LegacyUdpConfig),
-}
-
-impl Validate for UdpConfig {
-	fn validate(&self) -> Result<(), ValidationErrors> {
-		match self {
-			Self::Legacy(config) => {
-				let mut result = config.validate();
-				if let Err(e) = legacy::validate_udp_rules(&config.rules) {
-					match result {
-						Ok(()) => {
-							let mut errors = ValidationErrors::new();
-							errors.add("rules", e);
-							result = Err(errors);
-						}
-						Err(ref mut errors) => {
-							errors.add("rules", e);
-						}
-					}
-				}
-				result
-			}
-			Self::Flow(config) => config.validate(),
-		}
-	}
-}
-
-// --- Main Dispatcher ---
+use vane_primitives::kv::KvStore;
 
 pub async fn dispatch_udp_datagram(
 	socket: Arc<UdpSocket>,

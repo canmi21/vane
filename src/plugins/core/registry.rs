@@ -1,5 +1,7 @@
-/* src/plugins/core/registry.rs */
+// Re-export registry data structures and functions from engine crate
+pub use vane_engine::registry::*;
 
+// register_builtin_plugins stays here (references main-crate plugin types)
 use crate::engine::interfaces::Plugin;
 use crate::plugins::l4::{
 	abort::AbortConnectionPlugin,
@@ -17,25 +19,7 @@ use crate::plugins::{
 	},
 	protocol::upgrader::upgrade::UpgradePlugin,
 };
-use dashmap::DashMap;
-use live::holder::{Store, UnloadPolicy};
-use once_cell::sync::Lazy;
 use std::sync::Arc;
-
-static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::new(DashMap::new);
-
-/// Register an internal plugin by name. Used by bootstrap to populate the
-/// registry after all crate-level types are available.
-pub fn register_plugin(name: impl Into<String>, plugin: Arc<dyn Plugin>) {
-	INTERNAL_PLUGIN_REGISTRY.insert(name.into(), plugin);
-}
-
-/// Batch-register plugins, keying each by `Plugin::name()`.
-pub fn register_plugins(plugins: Vec<Arc<dyn Plugin>>) {
-	for plugin in plugins {
-		INTERNAL_PLUGIN_REGISTRY.insert(plugin.name().to_owned(), plugin);
-	}
-}
 
 /// Populate the built-in plugin set. Called once during startup.
 pub fn register_builtin_plugins() {
@@ -77,77 +61,5 @@ pub fn register_builtin_plugins() {
 	}
 
 	register_plugins(plugins);
-	register_plugin(
-		"internal.transport.proxy.transparent",
-		transparent_proxy,
-	);
-}
-
-static EXTERNAL_PLUGIN_REGISTRY: Lazy<Store<Arc<dyn Plugin>>> = Lazy::new(Store::new);
-
-/// Stores the health status of external plugins.
-/// Key: Plugin Name
-/// Value: Result<(), ErrorMessage>
-pub static EXTERNAL_PLUGIN_STATUS: Lazy<DashMap<String, Result<(), String>>> =
-	Lazy::new(DashMap::new);
-
-/// Tracks the last runtime failure (IO error) of external plugins.
-/// Key: Plugin Name
-/// Value: Instant of last failure
-pub static EXTERNAL_PLUGIN_FAILURES: Lazy<DashMap<String, std::time::Instant>> =
-	Lazy::new(DashMap::new);
-
-#[must_use]
-pub fn get_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
-	get_internal_plugin(name).or_else(|| get_external_plugin(name))
-}
-
-pub fn get_internal_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
-	INTERNAL_PLUGIN_REGISTRY
-		.get(name)
-		.map(|entry| entry.value().clone())
-}
-
-pub fn get_external_plugin(name: &str) -> Option<Arc<dyn Plugin>> {
-	EXTERNAL_PLUGIN_REGISTRY
-		.get(name)
-		.map(|entry| (*entry).clone())
-}
-
-pub fn list_external_plugins() -> Vec<Arc<dyn Plugin>> {
-	let snapshot = EXTERNAL_PLUGIN_REGISTRY.snapshot();
-	snapshot
-		.values()
-		.map(|entry| (*entry.value).clone())
-		.collect()
-}
-
-pub fn list_internal_plugins() -> Vec<Arc<dyn Plugin>> {
-	INTERNAL_PLUGIN_REGISTRY
-		.iter()
-		.map(|entry| entry.value().clone())
-		.collect()
-}
-
-pub fn load_external_plugins(new_plugins: DashMap<String, Arc<dyn Plugin>>) {
-	for entry in new_plugins {
-		EXTERNAL_PLUGIN_REGISTRY.insert(
-			entry.0,
-			entry.1,
-			std::path::PathBuf::from("memory"),
-			UnloadPolicy::Removable,
-		);
-	}
-}
-
-pub fn clear_external_plugins() {
-	// Store doesn't have clear(), we could implement it in atomhold, but for now:
-	let keys = EXTERNAL_PLUGIN_REGISTRY
-		.snapshot()
-		.keys()
-		.cloned()
-		.collect::<Vec<_>>();
-	for key in keys {
-		let _ = EXTERNAL_PLUGIN_REGISTRY.remove(&key);
-	}
+	register_plugin("internal.transport.proxy.transparent", transparent_proxy);
 }
