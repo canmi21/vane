@@ -25,6 +25,7 @@ coverage
 *.tsbuildinfo
 .report
 .next
+next-env.d.ts
 .source
 
 # rust
