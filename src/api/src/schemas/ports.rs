@@ -1,4 +1,4 @@
-/* src/api/schemas/ports.rs */
+/* src/api/src/schemas/ports.rs */
 
 use serde::Serialize;
 use utoipa::ToSchema;

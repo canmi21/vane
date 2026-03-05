@@ -27,7 +27,7 @@ The `KvStore` follows the strict lifecycle of the network connection it is attac
 A new store is initialized in the `ingress` layer immediately after a TCP or UDP connection is accepted.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Socket[Accept Socket] --> Init[Init KvStore]
     Init --> Fill[Populate conn.ip, uuid...]
@@ -43,7 +43,7 @@ graph LR
 The `KvStore` is owned by the connection task. As the connection traverses layers, metadata is added incrementally.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     L4[L4 Layer] -->|conn.proto| KV[(KvStore)]
     L4P[L4+ Layer] -->|tls.sni| KV
@@ -59,7 +59,7 @@ graph LR
 When the connection terminates, the task ends and the `KvStore` is automatically dropped.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Close[Connection Close] --> Drop[Drop KvStore]
     Drop --> Free[Free Memory]
@@ -91,6 +91,6 @@ To prevent collisions, Vane follows a strict dot-notated naming convention:
 - **`plugin.<path>.<name>.*`**: Scoped keys added by specific plugins.
 
 <Callout type="info" title="Performance Tip">
-  Avoid storing large blobs of data (like full request bodies) as keys. Use the store for metadata
-  and rely on the execution context for payload access.
+	Avoid storing large blobs of data (like full request bodies) as keys. Use the store for metadata
+	and rely on the execution context for payload access.
 </Callout>

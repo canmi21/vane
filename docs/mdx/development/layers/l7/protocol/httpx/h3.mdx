@@ -13,7 +13,7 @@ import { Step, Steps } from 'fumadocs-ui/components/steps'
 HTTP/3 runs over QUIC and requires a dedicated driver loop due to the complexity of ownership management in the `h3` crate.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Quic[QUIC Stream] <--> Driver[Driver Loop]
     Driver -->|Push Chunk| Chan[MPSC Channel]

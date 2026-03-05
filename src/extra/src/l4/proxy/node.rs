@@ -1,4 +1,4 @@
-/* src/plugins/l4/proxy/node.rs */
+/* src/extra/src/l4/proxy/node.rs */
 
 use super::execute_proxy;
 use anyhow::{Result, anyhow};

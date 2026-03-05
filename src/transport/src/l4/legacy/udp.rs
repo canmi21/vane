@@ -1,3 +1,5 @@
+/* src/transport/src/l4/legacy/udp.rs */
+
 // Legacy type definitions now live in vane-engine
 pub use vane_engine::config::{
 	LegacyUdpConfig, UdpDestination, UdpProtocolRule, validate_udp_rules,

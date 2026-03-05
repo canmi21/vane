@@ -22,7 +22,7 @@ At the heart of L7 is the `Container`. It is the universal envelope for all requ
 The Container is organized into three distinct logical planes to separate metadata, content, and protocol-specific extensions.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     subgraph Container
         KV[Control Plane: KV Store]
@@ -44,7 +44,7 @@ graph LR
 Vane uses a lazy state machine for request and response bodies to achieve zero-copy performance.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Incoming[Socket Bytes] --> Http[PayloadState::Http]
     Http -->|Middleware Access| Transition{Force Buffer?}
@@ -64,7 +64,7 @@ graph LR
 To prevent resource exhaustion (OOM), every buffering operation is guarded by a two-tier verification system.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Req[Buffer Request] --> PerReq{Per-Request Limit?}
     PerReq -- Exceeded --> Fail([System Error])

@@ -33,7 +33,7 @@ pub struct TransportContext {
 The `kv` store is populated with core metadata (`conn.ip`, `conn.port`, `conn.uuid`), and the `conn.layer` is set to `l4`.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     In[New Conn] --> KV[Populate KV]
     KV --> Layer[Set layer=l4]
@@ -49,7 +49,7 @@ graph LR
 The `engine::executor` traverses the plugin tree defined in the port configuration.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Context --> Exec[Flow Executor]
     Exec --> Node1[Plugin A]
@@ -66,7 +66,7 @@ graph LR
 The flow continues until a Terminator returns a final result.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Exec --> Term{Terminator}
     Term -- Finished --> Done([End Flow])

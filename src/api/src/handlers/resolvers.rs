@@ -1,4 +1,4 @@
-/* src/api/handlers/resolvers.rs */
+/* src/api/src/handlers/resolvers.rs */
 
 use crate::response;
 use crate::schemas::flow::{FlowConfigWritten, FlowConfigWrittenResponse, ValidateQuery};

@@ -24,7 +24,7 @@ The process begins by establishing the runtime environment.
 - **Readiness Check**: Ensures that critical configuration directories exist, creating them if they are missing.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Main[main.rs] -->|start| Crypto[Init Crypto]
     Crypto --> Env[Load .env]
@@ -44,7 +44,7 @@ graph LR
 Vane uses atomic `ArcSwap` registries for lock-free state management. These are populated sequentially from disk.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Loader[File Loader] --> Nodes[nodes.json]
     Loader --> Certs[certs/]
@@ -68,7 +68,7 @@ graph LR
 Before opening ports, internal subsystems are spun up to support the traffic flow.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Init[Init Subsystems] --> Tasks[Spawn Background Tasks]
     Init --> Plugins[Load Plugins]
@@ -87,7 +87,7 @@ graph LR
 With the state fully loaded, Vane interacts with the outside world by binding ports and starting the management interface.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Bind[Bind Listeners] --> TCP[TCP Loops]
     Bind --> UDP[UDP Loops]
@@ -107,7 +107,7 @@ graph LR
 The main thread enters a signal wait state. Upon receiving a termination signal, the graceful shutdown sequence triggers.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Wait[Wait for Signal] -->|SIGINT/TERM| Shutdown
     
@@ -120,7 +120,7 @@ graph LR
 </Steps>
 
 <Callout type="info" title="Resilient Startup">
-  Vane is designed to be resilient. If configuration files are missing or invalid during startup, it
-  will typically log an error and continue with an empty or default state rather than crashing. This
-  ensures the process remains alive and can be corrected via hot-reloading.
+	Vane is designed to be resilient. If configuration files are missing or invalid during startup, it
+	will typically log an error and continue with an empty or default state rather than crashing. This
+	ensures the process remains alive and can be corrected via hot-reloading.
 </Callout>

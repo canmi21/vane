@@ -1,3 +1,5 @@
+/* src/engine/src/shared/resolver.rs */
+
 use fancy_log::{LogLevel, log};
 #[cfg(feature = "domain-target")]
 use hickory_resolver::{

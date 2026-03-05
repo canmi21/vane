@@ -1,13 +1,13 @@
 [workspace]
 resolver = "3"
 members = [
-  "src/core",
-  "src/primitives",
-  "src/engine",
-  "src/app",
-  "src/transport",
-  "src/extra",
-  "src/api",
+	"src/core",
+	"src/primitives",
+	"src/engine",
+	"src/app",
+	"src/transport",
+	"src/extra",
+	"src/api",
 ]
 
 [workspace.package]

@@ -1,4 +1,4 @@
-/* src/layers/l4/proxy/tcp.rs */
+/* src/transport/src/l4/proxy/tcp.rs */
 
 use super::IdleWatchdog;
 use anyhow::{Context, Result};

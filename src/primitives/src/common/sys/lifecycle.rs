@@ -1,4 +1,4 @@
-/* src/common/sys/lifecycle.rs */
+/* src/primitives/src/common/sys/lifecycle.rs */
 
 use crate::common::config::file_loader;
 use once_cell::sync::Lazy;

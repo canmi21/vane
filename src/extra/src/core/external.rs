@@ -1,4 +1,4 @@
-/* src/plugins/core/external.rs */
+/* src/extra/src/core/external.rs */
 
 use crate::system as drivers;
 use anyhow::{Result, anyhow};

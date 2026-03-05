@@ -1,4 +1,4 @@
-/* src/api/handlers/plugins.rs */
+/* src/api/src/handlers/plugins.rs */
 
 use crate::response;
 use crate::schemas::plugins::{

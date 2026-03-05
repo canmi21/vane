@@ -1,4 +1,4 @@
-/* src/api/schemas/resolvers.rs */
+/* src/api/src/schemas/resolvers.rs */
 
 use serde::Serialize;
 use utoipa::ToSchema;

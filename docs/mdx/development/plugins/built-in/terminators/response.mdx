@@ -14,7 +14,7 @@ icon: Send
 This plugin acts as the **Second Phase** (The Terminator) of Vane's L7 Two-Phase Dispatch. It takes the state of the `Container` (which may have been populated by [Upstream](../middleware/upstream) or [Static](../middleware/static-files)) and flushes it to the client.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Input[Container State] --> WebSocket{Upgrade?}
     WebSocket -- Yes --> Tunnel[Bi-directional Tunnel]

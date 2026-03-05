@@ -1,4 +1,4 @@
-/* src/resources/kv.rs */
+/* src/primitives/src/kv.rs */
 
 use ahash::AHashMap;
 use chrono::Utc;

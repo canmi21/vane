@@ -1,4 +1,4 @@
-/* src/layers/l4p/quic/muxer.rs */
+/* src/transport/src/l4p/quic/muxer.rs */
 
 use super::session::{self, SessionAction};
 use super::virtual_socket::{VirtualPacket, VirtualUdpSocket};

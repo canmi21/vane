@@ -1,3 +1,5 @@
+/* src/app/src/plugins/static_files/router.rs */
+
 use anyhow::{Result, anyhow};
 use std::path::{Component, Path, PathBuf};
 

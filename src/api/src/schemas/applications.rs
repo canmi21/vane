@@ -1,4 +1,4 @@
-/* src/api/schemas/applications.rs */
+/* src/api/src/schemas/applications.rs */
 
 use serde::Serialize;
 use utoipa::ToSchema;

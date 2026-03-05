@@ -1,4 +1,4 @@
-/* src/common/net/port_utils.rs */
+/* src/primitives/src/common/net/port_utils.rs */
 
 /// Checks if a number is a valid port number (1-65535).
 #[must_use]

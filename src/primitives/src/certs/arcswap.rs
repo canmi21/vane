@@ -1,4 +1,4 @@
-/* src/resources/certs/arcswap.rs */
+/* src/primitives/src/certs/arcswap.rs */
 
 use live::holder::{Store, UnloadPolicy};
 use once_cell::sync::Lazy;

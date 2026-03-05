@@ -35,11 +35,11 @@ Compiled directly into the Vane binary. These are high-performance implementatio
 Loaded at runtime via `plugins.json`. These rely on the **System Drivers** located in `src/plugins/system/` to communicate with external processes over HTTP, Unix Domain Sockets, or StdIO.
 
 <Callout type="info" title="Registry Lifecycle">
-  Internal plugins are registered during the binary's static initialization, while external plugins
-  are loaded and validated during the [Bootstrap Sequence](./bootstrap/startup-sequence).
+	Internal plugins are registered during the binary's static initialization, while external plugins
+	are loaded and validated during the [Bootstrap Sequence](./bootstrap/startup-sequence).
 </Callout>
 
 <Callout type="idea">
-  Explore the [Plugin Architecture](./plugins/architecture) for a deep dive into the loading logic,
-  or [Plugin Types](./plugins/types) to understand the trait specializations.
+	Explore the [Plugin Architecture](./plugins/architecture) for a deep dive into the loading logic,
+	or [Plugin Types](./plugins/types) to understand the trait specializations.
 </Callout>

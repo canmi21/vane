@@ -18,7 +18,7 @@ L4+ uses a specific flow management strategy called **Resolvers**. Unlike L4 Lis
 Resolvers are stored in a global, thread-safe registry powered by `ArcSwap`. This allows lock-free reads during high-concurrency traffic.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Reg[RESOLVER_REGISTRY] -->|Atomic Load| Map{DashMap}
     Map -- tls --> TLS_Flow[TLS Config]
@@ -35,7 +35,7 @@ graph LR
 When a configuration file changes in `resolver/`, the Hotswap system triggers a reload.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Watcher[File Watcher] -->|Event| Hotswap[Hotswap Task]
     Hotswap -->|Scan| Disk[Load All Resolvers]
@@ -53,7 +53,7 @@ graph LR
 When a flow starts, the L4+ engine initializes a specialized `TransportContext`.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Init[Initialize Context] --> KV[Set conn.layer = l4p]
     Init --> Payloads[Inject Payloads]

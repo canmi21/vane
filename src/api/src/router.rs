@@ -1,4 +1,4 @@
-/* src/api/router.rs */
+/* src/api/src/router.rs */
 
 use crate::handlers::{
 	applications, certs, config, flow, nodes, plugins, ports, resolvers, system,

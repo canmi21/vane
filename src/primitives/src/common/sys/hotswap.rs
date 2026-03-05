@@ -1,4 +1,4 @@
-/* src/common/sys/hotswap.rs */
+/* src/primitives/src/common/sys/hotswap.rs */
 
 use fancy_log::{LogLevel, log};
 use std::future::Future;

@@ -15,7 +15,7 @@ Resolves a local file and **attaches** it to the response container as a stream.
 It does **not** send the bytes to the client immediately; a Terminator (like `SendResponse`) is required to flush the stream.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Path[Resolve Path] --> Check{Exists?}
     Check -- Yes --> MIME[Detect Type]

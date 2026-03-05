@@ -1,4 +1,0 @@
-connection:
-  internal.transport.upgrade:
-    input:
-      protocol: 'httpx'

@@ -1,4 +1,4 @@
-/* src/api/handlers/config.rs */
+/* src/api/src/handlers/config.rs */
 
 use crate::response;
 use crate::schemas::config::{

@@ -1,3 +1,5 @@
+/* src/app/src/plugins/cgi/stream.rs */
+
 use crate::l7::container::{self, BufferGuard};
 use bytes::Bytes;
 use fancy_log::{LogLevel, log};

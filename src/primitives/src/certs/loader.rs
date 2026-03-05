@@ -1,4 +1,4 @@
-/* src/resources/certs/loader.rs */
+/* src/primitives/src/certs/loader.rs */
 
 use crate::certs::{arcswap, format};
 use crate::common::{

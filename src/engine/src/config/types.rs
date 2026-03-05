@@ -1,3 +1,5 @@
+/* src/engine/src/config/types.rs */
+
 use crate::engine::interfaces::{Layer, ProcessingStep};
 use live::loader::PreProcess;
 use serde::{Deserialize, Serialize};

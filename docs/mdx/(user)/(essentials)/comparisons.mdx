@@ -25,9 +25,9 @@ If you just want to serve a **React SPA** or **WordPress** site with automatic S
 </Accordion>
 
 <Accordion title="Simple, High-Performance Static Load Balancing">
-  If you have a fixed set of backends and need raw, kernel-optimized throughput with static rules,
-  use **[Nginx](https://nginx.org/)** or **[HAProxy](https://www.haproxy.org/)**. They are
-  battle-hardened standards.
+	If you have a fixed set of backends and need raw, kernel-optimized throughput with static rules,
+	use **[Nginx](https://nginx.org/)** or **[HAProxy](https://www.haproxy.org/)**. They are
+	battle-hardened standards.
 </Accordion>
 
 <Accordion title="Container Ingress Controller">
@@ -49,26 +49,26 @@ Vane runs exceptionally well on constrained hardware such as IoT gateways, OpenW
 </Accordion>
 
 <Accordion title="Personal and Small VPS Deployments">
-  On a personal or small VPS 1-2 **vCPU**, 512MB–1GB **RAM**, Vane avoids the common inefficiency
-  where a generic reverse proxy consumes a disproportionate share of memory for a narrow role.
-  Instead of allocating hundreds of megabytes to an unrelated "infrastructure" component, Vane
-  provides full L4/L7 proxying, TLS, and routing logic while remaining lightweight enough to leave
-  resources to actual workloads.
+	On a personal or small VPS 1-2 **vCPU**, 512MB–1GB **RAM**, Vane avoids the common inefficiency
+	where a generic reverse proxy consumes a disproportionate share of memory for a narrow role.
+	Instead of allocating hundreds of megabytes to an unrelated "infrastructure" component, Vane
+	provides full L4/L7 proxying, TLS, and routing logic while remaining lightweight enough to leave
+	resources to actual workloads.
 </Accordion>
 
 <Accordion title="OpenWrt and Network Stack Consolidation">
-  Vane can replace a fragmented proxy stack composed of tools such as `uhttpd` for WebUI, `socat`
-  for L4 forwarding, and multiple single-purpose proxies. A single Vane instance can act as the
-  unified ingress for an entire home or office network, handling WebUI exposure, service routing,
-  protocol upgrades, and traffic control through one consistent, programmable model.
+	Vane can replace a fragmented proxy stack composed of tools such as `uhttpd` for WebUI, `socat`
+	for L4 forwarding, and multiple single-purpose proxies. A single Vane instance can act as the
+	unified ingress for an entire home or office network, handling WebUI exposure, service routing,
+	protocol upgrades, and traffic control through one consistent, programmable model.
 </Accordion>
 
 <Accordion title="Cloud-Grade Control in Self-Hosted or Private Cloud Environments">
-  Vane is suitable not only for local deployments, but also for building self-hosted cloud proxies
-  or private traffic clusters. It can operate as the control point for a single server, a small
-  fleet, or a horizontally scaled setup. The same primitives used for local routing apply to
-  multi-node or cloud deployments, enabling you to build your own Cloudflare-like or ALB-like
-  traffic layer without relying on managed platforms.
+	Vane is suitable not only for local deployments, but also for building self-hosted cloud proxies
+	or private traffic clusters. It can operate as the control point for a single server, a small
+	fleet, or a horizontally scaled setup. The same primitives used for local routing apply to
+	multi-node or cloud deployments, enabling you to build your own Cloudflare-like or ALB-like
+	traffic layer without relying on managed platforms.
 </Accordion>
 
 <Accordion title="Scale-Up Proxy with Resource Efficiency as a Side Effect">
@@ -127,7 +127,7 @@ However, Vane allow connection starts at **L4**, Can peek at TLS headers **L4+**
 ### Caddy
 
 <Callout type="warn">
-  Vane's native cert manager for automatic TLS current under development.
+	Vane's native cert manager for automatic TLS current under development.
 </Callout>
 
 | Feature             | Caddy                   | Vane                            |

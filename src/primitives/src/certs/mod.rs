@@ -1,4 +1,4 @@
-/* src/resources/certs/mod.rs */
+/* src/primitives/src/certs/mod.rs */
 
 pub mod arcswap;
 pub mod format;

@@ -1,4 +1,4 @@
-/* src/engine/key_scoping.rs */
+/* src/engine/src/engine/key_scoping.rs */
 
 /// Internal helper to push a sanitized plugin name (dots replaced with underscores)
 /// directly into a buffer, avoiding intermediate String allocations.

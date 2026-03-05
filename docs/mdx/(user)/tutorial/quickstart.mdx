@@ -20,8 +20,8 @@ By the end of this quickstart, you'll have configured Vane to:
 - Serve a static HTML response directly from the engine, no upstream backend required
 
 <Callout type="info" title="Hot Reload">
-  Vane watches for configuration changes in real-time. Simply save your files and the engine will
-  reload atomically. **No restarts needed!**
+	Vane watches for configuration changes in real-time. Simply save your files and the engine will
+	reload atomically. **No restarts needed!**
 </Callout>
 
 ## Prerequisites
@@ -47,13 +47,13 @@ First, we need to open a TCP port. By default, Vane receives raw bytes. We'll te
 Create the file at `/etc/vane/listener/[80]/tcp.yaml`:
 
 <Files>
-  <Folder name="/etc/vane" defaultOpen>
-    <Folder name="listener" defaultOpen>
-      <Folder name="[80]" defaultOpen>
-        <File name="tcp.yaml" />
-      </Folder>
-    </Folder>
-  </Folder>
+	<Folder name="/etc/vane" defaultOpen>
+		<Folder name="listener" defaultOpen>
+			<Folder name="[80]" defaultOpen>
+				<File name="tcp.yaml" />
+			</Folder>
+		</Folder>
+	</Folder>
 </Files>
 
 Add the following configuration to unconditionally upgrade all traffic on this port:
@@ -66,8 +66,8 @@ connection:
 ```
 
 <Callout type="tip">
-  The `[80]` directory name indicates the port number. Vane uses this file-based convention for
-  clean, declarative configuration.
+	The `[80]` directory name indicates the port number. Vane uses this file-based convention for
+	clean, declarative configuration.
 </Callout>
 
 </Step>
@@ -80,11 +80,11 @@ Now that Vane identifies traffic as `http`, it needs a resolver configuration. I
 Create `/etc/vane/resolvers/http.yaml`:
 
 <Files>
-  <Folder name="/etc/vane" defaultOpen>
-    <Folder name="resolvers" defaultOpen>
-      <File name="http.yaml" />
-    </Folder>
-  </Folder>
+	<Folder name="/etc/vane" defaultOpen>
+		<Folder name="resolvers" defaultOpen>
+			<File name="http.yaml" />
+		</Folder>
+	</Folder>
 </Files>
 
 Add the upgrade configuration:
@@ -106,11 +106,11 @@ Finally, the traffic reaches Layer 7 where we define the request handling logic.
 Create `/etc/vane/applications/httpx.yaml`:
 
 <Files>
-  <Folder name="/etc/vane" defaultOpen>
-    <Folder name="applications" defaultOpen>
-      <File name="httpx.yaml" />
-    </Folder>
-  </Folder>
+	<Folder name="/etc/vane" defaultOpen>
+		<Folder name="applications" defaultOpen>
+			<File name="httpx.yaml" />
+		</Folder>
+	</Folder>
 </Files>
 
 Add the response handler:
@@ -177,14 +177,14 @@ Vane should have automatically detected your new configuration files and reloade
 <Tab value="Browser">
 
 <Steps>
-  <Step>
-    Open your web browser and navigate to [http://localhost](http://localhost) or your server's
-    public IP address.
-  </Step>
-  <Step>
-    You should see the **"Vane is Ready to Proxy"** welcome screen with a clean, dark-themed
-    interface.
-  </Step>
+	<Step>
+		Open your web browser and navigate to [http://localhost](http://localhost) or your server's
+		public IP address.
+	</Step>
+	<Step>
+		You should see the **"Vane is Ready to Proxy"** welcome screen with a clean, dark-themed
+		interface.
+	</Step>
 </Steps>
 
 </Tab>

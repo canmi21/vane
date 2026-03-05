@@ -1,3 +1,5 @@
+/* src/app/src/templates/mod.rs */
+
 pub mod source;
 
 pub use source::http::HttpSource;

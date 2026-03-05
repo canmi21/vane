@@ -1,4 +1,4 @@
-/* src/common/config/file_loader.rs */
+/* src/primitives/src/common/config/file_loader.rs */
 
 use fancy_log::{LogLevel, log};
 use std::path::PathBuf;

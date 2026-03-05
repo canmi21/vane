@@ -1,3 +1,5 @@
+/* src/engine/src/shared/session.rs */
+
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
 use once_cell::sync::Lazy;

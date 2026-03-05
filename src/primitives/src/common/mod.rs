@@ -1,4 +1,4 @@
-/* src/common/mod.rs */
+/* src/primitives/src/common/mod.rs */
 
 pub mod config;
 pub mod net;

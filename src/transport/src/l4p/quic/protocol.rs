@@ -1,4 +1,4 @@
-/* src/layers/l4p/quic/protocol.rs */
+/* src/transport/src/l4p/quic/protocol.rs */
 
 use super::muxer::QuicMuxer;
 use super::session::{self, PendingState, SessionAction};

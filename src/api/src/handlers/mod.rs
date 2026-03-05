@@ -1,4 +1,4 @@
-/* src/api/handlers/mod.rs */
+/* src/api/src/handlers/mod.rs */
 
 pub mod applications;
 pub mod certs;

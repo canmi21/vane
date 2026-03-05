@@ -1,7 +1,7 @@
 {
-  "title": "User Manual",
-  "description": "Usage and configuration",
-  "icon": "BookOpen",
-  "root": true,
-  "pages": ["(essentials)", "tutorial", "concepts", "reference", "operations", "recipe"]
+	"title": "User Manual",
+	"description": "Usage and configuration",
+	"icon": "BookOpen",
+	"root": true,
+	"pages": ["(essentials)", "tutorial", "concepts", "reference", "operations", "recipe"]
 }

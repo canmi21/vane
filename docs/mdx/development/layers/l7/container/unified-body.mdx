@@ -22,7 +22,7 @@ To support multiple protocols (H1, H2, H3) and lazy buffering without excessive 
 Requests arrive via different transports. `VaneBody` unifies them into a single type.
 
 <Mermaid
-  chart="
+	chart="
 graph TB
     H1[H1 Stream] --> Enum{VaneBody}
     H2[H2 Stream] --> Enum
@@ -39,7 +39,7 @@ graph TB
 Middleware can consume the body in two ways: streaming or buffering.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Enum -->|poll_frame| Stream[Zero-Copy Stream]
     Enum -->|collect| Buffer[In-Memory Buffer]

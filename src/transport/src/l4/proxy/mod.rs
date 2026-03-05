@@ -1,4 +1,4 @@
-/* src/layers/l4/proxy/mod.rs */
+/* src/transport/src/l4/proxy/mod.rs */
 
 pub mod stream;
 pub mod tcp;

@@ -1,4 +1,4 @@
-/* src/plugins/system/httpx.rs */
+/* src/extra/src/system/httpx.rs */
 
 use anyhow::{Result, anyhow};
 use fancy_log::{LogLevel, log};

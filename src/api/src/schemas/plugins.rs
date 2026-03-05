@@ -1,4 +1,4 @@
-/* src/api/schemas/plugins.rs */
+/* src/api/src/schemas/plugins.rs */
 
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};

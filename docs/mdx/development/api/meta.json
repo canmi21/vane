@@ -1,6 +1,6 @@
 {
-  "title": "API Console",
-  "description": "Management API",
-  "icon": "Webhook",
-  "pages": ["index", "management-api"]
+	"title": "API Console",
+	"description": "Management API",
+	"icon": "Webhook",
+	"pages": ["index", "management-api"]
 }

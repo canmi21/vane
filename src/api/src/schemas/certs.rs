@@ -1,4 +1,4 @@
-/* src/api/schemas/certs.rs */
+/* src/api/src/schemas/certs.rs */
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

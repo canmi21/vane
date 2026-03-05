@@ -24,7 +24,7 @@ When the Flow Executor requests a plugin by name, Vane checks the **Internal Reg
 ## Loading Pipeline
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Boot[Bootstrap] --> Init[loader::initialize];
     Init --> Read[Read plugins.json];
@@ -70,7 +70,7 @@ To ensure stability, a background task runs periodically (default every 15 minut
 - This status is exposed via the Management API, allowing operators to detect broken integrations proactively.
 
 <Callout type="info" title="External Limitations">
-  Currently, external plugins can only function as **Middleware**. They cannot be **Terminators**
-  (i.e., they cannot perform the final proxying or connection upgrade actions). This restriction
-  ensures that the connection termination logic remains within the verified, memory-safe Rust core.
+	Currently, external plugins can only function as **Middleware**. They cannot be **Terminators**
+	(i.e., they cannot perform the final proxying or connection upgrade actions). This restriction
+	ensures that the connection termination logic remains within the verified, memory-safe Rust core.
 </Callout>

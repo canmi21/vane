@@ -1,4 +1,5 @@
-/// Represents a requested byte range.
+/* src/app/src/plugins/static_files/range.rs */
+
 #[derive(Debug, Clone, Copy)]
 pub struct ByteRange {
 	pub start: u64,

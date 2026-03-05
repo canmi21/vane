@@ -1,3 +1,5 @@
+/* src/engine/src/config/mod.rs */
+
 //! Unified configuration management using live crate.
 
 use fancy_log::{LogLevel, log};

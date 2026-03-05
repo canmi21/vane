@@ -1,4 +1,4 @@
-/* src/api/schemas/mod.rs */
+/* src/api/src/schemas/mod.rs */
 
 pub mod applications;
 pub mod certs;

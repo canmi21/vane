@@ -20,7 +20,7 @@ The Proxy system is responsible for resolving logical targets into physical netw
 Vane resolves the logical destination into a list of possible IP addresses.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Input[Target Input] --> Type{Type?}
     Type -- IP --> Static[IP Address]
@@ -38,7 +38,7 @@ graph LR
 The resolved list is filtered against the `TARGET_HEALTH_REGISTRY` to remove unhealthy backends.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     List[Target List] --> Health{Check Health}
     Health -->|Healthy| Pool[Available Pool]
@@ -54,7 +54,7 @@ graph LR
 Vane applies the configured load-balancing strategy to select a single target from the pool.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Pool[Available Pool] --> Strategy{Strategy?}
     Strategy -- Random --> Rand[Pick Random]
@@ -72,7 +72,7 @@ graph LR
 Finally, the connection is handed over to the protocol-specific forwarder for bidirectional data copying.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Choice[Target] --> Connect[Connect]
     Connect --> Pipe[Bi-Di Copy]

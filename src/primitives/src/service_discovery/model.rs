@@ -1,4 +1,4 @@
-/* src/resources/service_discovery/model.rs */
+/* src/primitives/src/service_discovery/model.rs */
 
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};

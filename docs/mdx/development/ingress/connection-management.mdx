@@ -90,12 +90,12 @@ The following environment variables control the behavior of the connection manag
 | `MAX_CONNECTIONS_PER_IP` | `50`    | Maximum connections allowed from a single client IP. |
 
 <Callout type="warn" title="IP Count Cleanup">
-  To prevent memory leaks from a large number of unique client IPs, Vane automatically removes an
-  IP's entry from the tracker map once its active connection count drops to zero.
+	To prevent memory leaks from a large number of unique client IPs, Vane automatically removes an
+	IP's entry from the tracker map once its active connection count drops to zero.
 </Callout>
 
 <Callout type="info" title="Draining State">
-  When a listener is stopped, it may enter a `Draining` state. In this state, the listener no longer
-  accepts new connections but remains in the registry until all existing `ConnectionGuards`
-  associated with its tasks are released.
+	When a listener is stopped, it may enter a `Draining` state. In this state, the listener no longer
+	accepts new connections but remains in the registry until all existing `ConnectionGuards`
+	associated with its tasks are released.
 </Callout>

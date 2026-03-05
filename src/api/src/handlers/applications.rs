@@ -1,4 +1,4 @@
-/* src/api/handlers/applications.rs */
+/* src/api/src/handlers/applications.rs */
 
 use crate::response;
 use crate::schemas::applications::{

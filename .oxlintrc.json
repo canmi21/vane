@@ -1,18 +1,18 @@
 {
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "rules": {
-    "no-unused-vars": "warn",
-    "no-console": "off",
-    "eqeqeq": "error",
-    "typescript/no-explicit-any": "error",
-    "no-debugger": "error",
-    "no-constant-binary-expression": "error",
-    "no-self-compare": "error",
-    "no-template-curly-in-string": "warn",
-    "no-promise-executor-return": "warn",
-    "prefer-const": "warn",
-    "typescript/no-non-null-assertion": "warn",
-    "typescript/consistent-type-imports": "warn"
-  },
-  "ignorePatterns": [".next", "out", "build", ".source", "target", ".dist", "node_modules"]
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"rules": {
+		"no-unused-vars": "warn",
+		"no-console": "off",
+		"eqeqeq": "error",
+		"typescript/no-explicit-any": "error",
+		"no-debugger": "error",
+		"no-constant-binary-expression": "error",
+		"no-self-compare": "error",
+		"no-template-curly-in-string": "warn",
+		"no-promise-executor-return": "warn",
+		"prefer-const": "warn",
+		"typescript/no-non-null-assertion": "warn",
+		"typescript/consistent-type-imports": "warn"
+	},
+	"ignorePatterns": [".next", "out", "build", ".source", "target", ".dist", "node_modules"]
 }

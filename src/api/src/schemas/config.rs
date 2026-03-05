@@ -1,4 +1,4 @@
-/* src/api/schemas/config.rs */
+/* src/api/src/schemas/config.rs */
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

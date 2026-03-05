@@ -1,4 +1,4 @@
-/* src/plugins/protocol/quic/crypto.rs */
+/* src/transport/src/protocol/quic/crypto.rs */
 
 use super::frame;
 use anyhow::{Result, anyhow};

@@ -17,7 +17,7 @@ icon: Waypoints
 Proxies the connection to a static, explicitly defined IP and Port.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Input[Target IP] --> Connect[Connect]
     Connect --> Pipe[Bi-directional Copy]
@@ -44,7 +44,7 @@ graph LR
 Proxies to a dynamic node from the [Service Discovery](../../resources/service-discovery) registry.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Input[Node Name] --> LB{Load Balance}
     LB --> Select[Select IP]

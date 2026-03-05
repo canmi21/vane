@@ -11,7 +11,7 @@ import { Step, Steps } from 'fumadocs-ui/components/steps'
 Since UDP is connectionless, Vane creates **Virtual Sessions** to maintain stateful flows (e.g., for NAT-like behavior).
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Client -->|Packet A| Vane
     Vane -- Create Session --> Upstream

@@ -1,4 +1,4 @@
-/* src/api/utils/config_file.rs */
+/* src/api/src/utils/config_file.rs */
 
 use serde::{Serialize, de::DeserializeOwned};
 use std::path::{Path, PathBuf};

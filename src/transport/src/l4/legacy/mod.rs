@@ -1,3 +1,5 @@
+/* src/transport/src/l4/legacy/mod.rs */
+
 //! Legacy L4 Transport Configuration System (Preserved Feature)
 //!
 //! Type definitions live in vane-engine; dispatch functions stay here

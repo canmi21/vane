@@ -1,4 +1,4 @@
-/* src/common/net/ip.rs */
+/* src/primitives/src/common/net/ip.rs */
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 

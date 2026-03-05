@@ -1,4 +1,4 @@
-/* src/layers/l4/proxy/stream.rs */
+/* src/transport/src/l4/proxy/stream.rs */
 
 use super::IdleWatchdog;
 use anyhow::{Context, Result};

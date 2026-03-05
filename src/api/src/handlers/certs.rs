@@ -1,4 +1,4 @@
-/* src/api/handlers/certs.rs */
+/* src/api/src/handlers/certs.rs */
 
 use crate::response;
 use crate::schemas::certs::{

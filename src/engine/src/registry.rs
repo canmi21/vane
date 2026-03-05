@@ -1,3 +1,5 @@
+/* src/engine/src/registry.rs */
+
 use crate::engine::interfaces::Plugin;
 use dashmap::DashMap;
 use live::holder::{Store, UnloadPolicy};

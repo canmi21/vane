@@ -1,4 +1,4 @@
-/* src/plugins/protocol/quic/mod.rs */
+/* src/transport/src/protocol/quic/mod.rs */
 
 pub mod crypto;
 pub mod frame;

@@ -1,6 +1,6 @@
 {
-  "title": "Built-in Reference",
-  "description": "Source guide for internal Rust plugins",
-  "icon": "Package",
-  "pages": ["index", "middleware", "terminators"]
+	"title": "Built-in Reference",
+	"description": "Source guide for internal Rust plugins",
+	"icon": "Package",
+	"pages": ["index", "middleware", "terminators"]
 }

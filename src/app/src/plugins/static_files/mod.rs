@@ -1,3 +1,5 @@
+/* src/app/src/plugins/static_files/mod.rs */
+
 pub mod browse;
 pub mod inspect;
 pub mod range;

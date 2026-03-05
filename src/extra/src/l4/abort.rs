@@ -1,4 +1,4 @@
-/* src/plugins/l4/abort.rs */
+/* src/extra/src/l4/abort.rs */
 
 use anyhow::Result;
 use async_trait::async_trait;

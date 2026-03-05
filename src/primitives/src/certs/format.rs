@@ -1,4 +1,4 @@
-/* src/resources/certs/format.rs */
+/* src/primitives/src/certs/format.rs */
 
 use super::arcswap::LoadedCert;
 use crate::common::sys::lifecycle::{Error, Result};

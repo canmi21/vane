@@ -1,7 +1,7 @@
 ---
 name: Question
 about: Ask a usage or clarification question
-title: ''
+title: 'faq:'
 labels: question
 assignees: ''
 ---

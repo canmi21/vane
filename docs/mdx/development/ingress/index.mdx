@@ -69,8 +69,8 @@ listener/
 ```
 
 <Callout type="info" title="Why Brackets?">
-  The `[PORT]` naming convention is strictly enforced by the scanner. This prevents accidental
-  loading of temporary directories or backup folders that don't match the pattern.
+	The `[PORT]` naming convention is strictly enforced by the scanner. This prevents accidental
+	loading of temporary directories or backup folders that don't match the pattern.
 </Callout>
 
 ## Zero-Downtime Diffing
@@ -78,7 +78,7 @@ listener/
 The `hotswap` module implements a smart "diffing" engine for listeners. When the `listener/` directory changes:
 
 <Mermaid
-  chart='
+	chart='
 graph LR
     subgraph Input
         New[New Scan]
@@ -102,6 +102,6 @@ graph LR
     - **Modified Config**: Restarts the listener with the new configuration (`RELOAD`).
 
 <Callout type="idea">
-  Deep dive into [Listeners Implementation](./ingress/listeners) or [Connection
-  Management](./ingress/connection-management).
+	Deep dive into [Listeners Implementation](./ingress/listeners) or [Connection
+	Management](./ingress/connection-management).
 </Callout>

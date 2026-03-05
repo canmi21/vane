@@ -1,3 +1,5 @@
+/* src/app/src/plugins/response/mod.rs */
+
 pub mod content_type;
 
 use crate::l7::{

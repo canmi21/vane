@@ -1,4 +1,4 @@
-/* src/layers/l4/model.rs */
+/* src/primitives/src/model.rs */
 
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;

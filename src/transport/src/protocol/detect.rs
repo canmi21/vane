@@ -1,4 +1,4 @@
-/* src/plugins/protocol/detect.rs */
+/* src/transport/src/protocol/detect.rs */
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;

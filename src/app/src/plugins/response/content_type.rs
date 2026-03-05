@@ -1,3 +1,5 @@
+/* src/app/src/plugins/response/content_type.rs */
+
 use bytes::Bytes;
 use serde_json::Value;
 

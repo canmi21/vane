@@ -1,6 +1,6 @@
 {
-  "title": "Resources",
-  "description": "Shared resources and utilities",
-  "icon": "FolderTree",
-  "pages": ["index", "kv-store", "templates", "service-discovery", "certificates"]
+	"title": "Resources",
+	"description": "Shared resources and utilities",
+	"icon": "FolderTree",
+	"pages": ["index", "kv-store", "templates", "service-discovery", "certificates"]
 }

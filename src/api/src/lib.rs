@@ -1,3 +1,5 @@
+/* src/api/src/lib.rs */
+
 #[cfg(feature = "console")]
 pub mod handlers;
 #[cfg(feature = "console")]

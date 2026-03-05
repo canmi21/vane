@@ -49,7 +49,7 @@ The loader resolves the absolute path of the target file.
 **Crucially**, it verifies that the resolved path is strictly within the `CONFIG_DIR`.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Input[Input Path] --> Resolve[Abs Path]
     Resolve --> Check{Inside CONFIG_DIR?}
@@ -66,7 +66,7 @@ graph LR
 The file extension determines the parser (`serde_json`, `serde_yaml`, or `toml`). The content is deserialized into the generic type `T`.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     File[File Content] --> Ext{Extension?}
     Ext -- .toml --> TOML[Toml Parser]
@@ -84,7 +84,7 @@ graph LR
 If type `T` implements the `PreProcess` trait, the `pre_process()` hook is called. This allows configurations to mutate themselves immediately after loading (e.g., injecting context like the filename).
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Struct[Struct T] --> Hook[pre_process]
     Hook --> Mutated[Mutated T]
@@ -99,7 +99,7 @@ graph LR
 Finally, the `validate()` method (from the `validator` crate) is executed. If validation fails, the loader returns `None` and logs a detailed error.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Mutated[Mutated T] --> Valid{validate}
     Valid -- Ok --> Result[Return Some<T>]
@@ -112,9 +112,9 @@ graph LR
 </Steps>
 
 <Callout type="warn" title="Conflict Detection">
-  If multiple files with the same base name exist (e.g., `nodes.toml` and `nodes.json`), the loader
-  will detect this ambiguity, log a warning, and ignore the duplicates to prevent deterministic
-  confusion.
+	If multiple files with the same base name exist (e.g., `nodes.toml` and `nodes.json`), the loader
+	will detect this ambiguity, log a warning, and ignore the duplicates to prevent deterministic
+	confusion.
 </Callout>
 
 ## Initialization

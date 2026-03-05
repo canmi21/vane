@@ -1,4 +1,4 @@
-/* src/plugins/system/exec.rs */
+/* src/extra/src/system/exec.rs */
 
 use crate::core::external;
 use anyhow::Result;

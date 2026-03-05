@@ -1,4 +1,4 @@
-/* src/api/openapi.rs */
+/* src/api/src/openapi.rs */
 
 use crate::handlers::{
 	applications, certs, config, flow, nodes, plugins, ports, resolvers, system,

@@ -1,3 +1,5 @@
+/* src/transport/src/l4/legacy/tcp.rs */
+
 // Legacy type definitions now live in vane-engine
 pub use vane_engine::config::{
 	LegacyTcpConfig, TcpDestination, TcpProtocolRule, TcpSession, validate_tcp_rules,

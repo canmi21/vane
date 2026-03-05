@@ -1,4 +1,4 @@
-/* src/plugins/core/loader.rs */
+/* src/extra/src/core/loader.rs */
 
 use crate::core::external::ExternalPlugin;
 use anyhow::{Result, anyhow};

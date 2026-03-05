@@ -1,4 +1,4 @@
-/* src/api/schemas/flow.rs */
+/* src/api/src/schemas/flow.rs */
 
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};

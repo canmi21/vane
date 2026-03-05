@@ -15,7 +15,7 @@ Executes an external script, capturing its output into the response container.
 This is a **Driver** middleware: it generates the response body but leaves the final transmission to a Terminator.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Input --> Spawn[Subprocess]
     Spawn --> Pipe[StdIO]

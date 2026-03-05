@@ -1,4 +1,4 @@
-/* src/common/sys/system.rs */
+/* src/primitives/src/common/sys/system.rs */
 
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "windows"))]
 use std::process::Command;

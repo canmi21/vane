@@ -26,21 +26,21 @@ A new connection `TCP`/`UDP` is established on a configured listener. At this mo
 </Step>
 
 <Step>
-  **Context Initialization** To track this connection's journey, an execution **Context** is
-  immediately initialized. This mutable container will hold all `state`, `metadata`, `variables`,
-  and `buffers` as the connection progresses.
+	**Context Initialization** To track this connection's journey, an execution **Context** is
+	immediately initialized. This mutable container will hold all `state`, `metadata`, `variables`,
+	and `buffers` as the connection progresses.
 </Step>
 
 <Step>
-  **Flow Entry** The connection is then handed over to a **Flow** which is the user-defined decision
-  graph specific to this port. From here on, the engine follows your instructions, not a hardcoded
-  path.
+	**Flow Entry** The connection is then handed over to a **Flow** which is the user-defined decision
+	graph specific to this port. From here on, the engine follows your instructions, not a hardcoded
+	path.
 </Step>
 
 <Step>
-  **Plugin Execution** Plugins execute sequentially against the Context. As each plugin runs, it
-  inspects the state, potentially modifies it, and **decides** which branch of the graph the
-  connection should traverse next.
+	**Plugin Execution** Plugins execute sequentially against the Context. As each plugin runs, it
+	inspects the state, potentially modifies it, and **decides** which branch of the graph the
+	connection should traverse next.
 </Step>
 
 <Step>
@@ -52,8 +52,8 @@ This loop of inspection and decision-making continues until a terminal action is
 ## Routing is Optional
 
 <Callout type="warn">
-  It is critical to understand that **routing to an upstream is just one possible outcome** of a
-  Flow.
+	It is critical to understand that **routing to an upstream is just one possible outcome** of a
+	Flow.
 </Callout>
 
 Vane is not fundamentally a "router". It is an engine for executing logic. Depending on the path taken through your Flow, a connection might:
@@ -96,9 +96,9 @@ The level of abstraction at which the engine is currently operating:
 </Accordion>
 
 <Accordion title="Upgrade: Moving Between Layers">
-  The mechanism for moving a connection from a lower layer to a higher layer. An upgrade preserves
-  the physical connection but replaces the execution Context with one capable of understanding the
-  new protocol.
+	The mechanism for moving a connection from a lower layer to a higher layer. An upgrade preserves
+	the physical connection but replaces the execution Context with one capable of understanding the
+	new protocol.
 </Accordion>
 
 <Accordion title="Context: The Corss-Layer KV Store">

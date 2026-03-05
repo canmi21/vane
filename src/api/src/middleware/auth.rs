@@ -1,4 +1,4 @@
-/* src/api/middleware/auth.rs */
+/* src/api/src/middleware/auth.rs */
 
 use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 use fancy_log::{LogLevel, log};

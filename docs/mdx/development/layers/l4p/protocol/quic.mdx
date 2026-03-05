@@ -18,7 +18,7 @@ QUIC requires specialized handling due to its connectionless nature (UDP) but st
 Vane tracks QUIC sessions primarily using the **Connection ID (CID)** to support connection migration.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Packet[UDP Packet] --> Extract[Extract DCID]
     Extract --> Lookup{CID Registry}
@@ -35,7 +35,7 @@ graph LR
 If CID lookup fails (e.g., during server-initiated CID migration or transparent proxying where CIDs change), Vane falls back to IP-based stickiness.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Lookup -- Miss --> Sticky{Check Sticky Map}
     Sticky -- Hit --> Forward[Forward to Upstream]
@@ -51,7 +51,7 @@ graph LR
 To prevent amplification attacks or memory exhaustion, Vane enforces strict limits on pending QUIC packets before they are accepted by a flow.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Packet --> Global{Global Limit?}
     Global -- OK --> Session{Session Limit?}

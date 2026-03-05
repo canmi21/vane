@@ -51,7 +51,7 @@ The `port_utils.rs` module provides basic validation for network ports.
 - **`is_valid_port(port: u16)`**: Ensures the port is within the valid network range (1-65535). A port value of `0` is considered invalid as it is reserved in most transport layer protocols for system assignment.
 
 <Callout type="info" title="Why Manual IPv6 Checks?">
-  Vane maintains high stability and avoids nightly Rust features. The manual bit-masking in
-  `is_private_ipv6` ensures that IP scope detection is accurate and reliable across all supported
-  platforms without depending on unstable library APIs.
+	Vane maintains high stability and avoids nightly Rust features. The manual bit-masking in
+	`is_private_ipv6` ensures that IP scope detection is accurate and reliable across all supported
+	platforms without depending on unstable library APIs.
 </Callout>

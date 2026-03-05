@@ -1,3 +1,5 @@
+/* src/engine/src/templates/mod.rs */
+
 pub mod source;
 
 use ahash::AHashMap;

@@ -1,7 +1,7 @@
 ---
 name: Bug Report
 about: Report a reproducible bug
-title: ''
+title: 'bug:'
 labels: bug
 assignees: ''
 ---

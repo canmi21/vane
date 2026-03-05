@@ -14,7 +14,7 @@ icon: CircleFadingArrowUp
 Signals the engine to "upgrade" the current connection (e.g., from raw TCP to TLS, or UDP to QUIC). This stops the current L4 flow and starts a new flow in the higher layer.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Exec --> Signal[Return Upgrade]
     Signal --> Engine[Switch Layer]

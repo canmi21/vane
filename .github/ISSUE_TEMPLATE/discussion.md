@@ -1,7 +1,7 @@
 ---
 name: Discussion / Proposal
 about: Open-ended discussion or idea exploration
-title: ''
+title: 'disc:'
 labels: discussion
 assignees: ''
 ---

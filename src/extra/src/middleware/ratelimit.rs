@@ -1,4 +1,4 @@
-/* src/plugins/middleware/ratelimit.rs */
+/* src/extra/src/middleware/ratelimit.rs */
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;

@@ -20,7 +20,7 @@ The executor operates recursively through the flow tree. At each step, it perfor
 Before a plugin is executed, its `input` parameters are passed through the Template System. This replaces double-brace variables with real-time metadata.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Input[JSON Input] --> Tpl[Template Engine]
     KV[(KV Store)] --> Tpl
@@ -36,7 +36,7 @@ graph LR
 The engine looks up the plugin in the registry and invokes it. Vane follows a strict priority order based on the implemented Traits.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Params[Resolved Params] --> Registry{Lookup Plugin}
     Registry --> Http[HttpMiddleware]
@@ -53,7 +53,7 @@ graph LR
 The outcome of the plugin determines whether the engine recurses into a deeper branch or finishes the current flow.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Result{Plugin Result}
     Result -- Branch Name --> Next[Recurse: Next Step]
@@ -70,7 +70,7 @@ graph LR
 To protect the engine from slow or failing external plugins (HTTP/Unix/Command), the executor implements a passive circuit breaker.
 
 <Mermaid
-  chart="
+	chart="
 graph LR
     Exec[Execute Plugin] --> Check{In Quiet Period?}
     Check -- Yes --> Skip[Skip IO / Return failure]
@@ -106,6 +106,6 @@ If a plugin named `auth` is executed after a `detect` branch, its output `user` 
 | `EXTERNAL_PLUGIN_QUIET_PERIOD_SECS` | `3s`    | Duration to wait before retrying a failing external plugin. |
 
 <Callout type="warn" title="Key Name Validation">
-  The executor strictly validates all key names added by plugins. Any attempt to store a key
-  containing `{` or `}` is rejected to prevent template injection vulnerabilities.
+	The executor strictly validates all key names added by plugins. Any attempt to store a key
+	containing `{` or `}` is rejected to prevent template injection vulnerabilities.
 </Callout>
