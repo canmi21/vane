@@ -144,15 +144,14 @@ mod tests {
 
 		for (left, right, op, expected) in cases {
 			let mut inputs = HashMap::new();
-			inputs.insert("left".to_string(), Value::String(left.to_string()));
-			inputs.insert("right".to_string(), Value::String(right.to_string()));
-			inputs.insert("operator".to_string(), Value::String(op.to_string()));
+			inputs.insert("left".to_owned(), Value::String(left.to_owned()));
+			inputs.insert("right".to_owned(), Value::String(right.to_owned()));
+			inputs.insert("operator".to_owned(), Value::String(op.to_owned()));
 
 			let out = GenericMiddleware::execute(&plugin, inputs).await.unwrap();
 			assert_eq!(
 				out.branch, expected,
-				"Failed match: '{}' {} '{}' should be {}",
-				left, op, right, expected
+				"Failed match: '{left}' {op} '{right}' should be {expected}"
 			);
 		}
 	}
@@ -162,8 +161,8 @@ mod tests {
 	async fn test_default_operator() {
 		let plugin = CommonMatchPlugin;
 		let mut inputs = HashMap::new();
-		inputs.insert("left".to_string(), Value::String("a".to_string()));
-		inputs.insert("right".to_string(), Value::String("a".to_string()));
+		inputs.insert("left".to_owned(), Value::String("a".to_owned()));
+		inputs.insert("right".to_owned(), Value::String("a".to_owned()));
 		// No operator provided
 
 		let out = GenericMiddleware::execute(&plugin, inputs).await.unwrap();

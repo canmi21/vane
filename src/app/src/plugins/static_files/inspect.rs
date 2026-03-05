@@ -89,7 +89,7 @@ mod tests {
 		let tmp = NamedTempFile::new().unwrap();
 		// PNG Magic Bytes: 89 50 4E 47 0D 0A 1A 0A
 		let png_data = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-		std::fs::write(tmp.path(), &png_data).unwrap();
+		std::fs::write(tmp.path(), png_data).unwrap();
 
 		let mut file = File::open(tmp.path()).await.unwrap();
 		let path = Path::new("unknown_file");
@@ -115,7 +115,7 @@ mod tests {
 		let tmp = NamedTempFile::new().unwrap();
 		// Random binary data that doesn't match any magic bytes
 		let binary_data = [0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE];
-		std::fs::write(tmp.path(), &binary_data).unwrap();
+		std::fs::write(tmp.path(), binary_data).unwrap();
 
 		let mut file = File::open(tmp.path()).await.unwrap();
 		let path = Path::new("binary.data");

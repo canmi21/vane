@@ -125,15 +125,15 @@ mod tests {
 	// --- Test Helpers to create valid default structs ---
 
 	fn valid_ip_config_v4() -> IpConfig {
-		IpConfig { address: "192.168.1.1".to_string(), ports: vec![80, 443], r#type: IpType::Ipv4 }
+		IpConfig { address: "192.168.1.1".to_owned(), ports: vec![80, 443], r#type: IpType::Ipv4 }
 	}
 
 	fn valid_ip_config_v6() -> IpConfig {
-		IpConfig { address: "2001:db8::1".to_string(), ports: vec![8080], r#type: IpType::Ipv6 }
+		IpConfig { address: "2001:db8::1".to_owned(), ports: vec![8080], r#type: IpType::Ipv6 }
 	}
 
 	fn valid_node() -> Node {
-		Node { name: "my-web-server".to_string(), ips: vec![valid_ip_config_v4()] }
+		Node { name: "my-web-server".to_owned(), ips: vec![valid_ip_config_v4()] }
 	}
 
 	/// Tests the validation logic for the IpConfig struct.
@@ -144,9 +144,9 @@ mod tests {
 		assert!(config.validate().is_ok());
 
 		// Invalid IP address should fail.
-		config.address = "not-an-ip".to_string();
+		config.address = "not-an-ip".to_owned();
 		assert!(config.validate().is_err());
-		config.address = "192.168.1.1".to_string(); // Reset
+		config.address = "192.168.1.1".to_owned(); // Reset
 
 		// Empty ports list should fail.
 		config.ports = vec![];
@@ -161,9 +161,9 @@ mod tests {
 		assert!(node.validate().is_ok());
 
 		// Invalid name (uppercase) should fail.
-		node.name = "MyWebServer".to_string();
+		node.name = "MyWebServer".to_owned();
 		assert!(node.validate().is_err());
-		node.name = "my-web-server".to_string(); // Reset
+		node.name = "my-web-server".to_owned(); // Reset
 
 		// Empty ips list should fail.
 		node.ips = vec![];
@@ -171,7 +171,7 @@ mod tests {
 		node.ips = vec![valid_ip_config_v4()]; // Reset
 
 		// Nested validation: an invalid IpConfig should make the Node invalid.
-		node.ips[0].address = "invalid".to_string();
+		node.ips[0].address = "invalid".to_owned();
 		assert!(node.validate().is_err());
 	}
 
@@ -182,19 +182,19 @@ mod tests {
 		let mut config = NodesConfig {
 			nodes: vec![
 				valid_node(),
-				Node { name: "my-db-server".to_string(), ips: vec![valid_ip_config_v6()] },
+				Node { name: "my-db-server".to_owned(), ips: vec![valid_ip_config_v6()] },
 			],
 			..Default::default()
 		};
 		assert!(config.validate().is_ok());
 
 		// Duplicate node names should fail.
-		config.nodes[1].name = "my-web-server".to_string();
+		config.nodes[1].name = "my-web-server".to_owned();
 		assert!(config.validate().is_err());
-		config.nodes[1].name = "my-db-server".to_string(); // Reset
+		config.nodes[1].name = "my-db-server".to_owned(); // Reset
 
 		// Nested validation: an invalid Node should make the NodesConfig invalid.
-		config.nodes[0].name = "INVALID_NAME".to_string();
+		config.nodes[0].name = "INVALID_NAME".to_owned();
 		assert!(config.validate().is_err());
 	}
 
@@ -204,19 +204,15 @@ mod tests {
 		let mut config = NodesConfig {
 			nodes: vec![
 				Node {
-					name: "node-a".to_string(),
+					name: "node-a".to_owned(),
 					ips: vec![
-						IpConfig { address: "10.0.0.1".to_string(), ports: vec![80, 81], r#type: IpType::Ipv4 },
-						IpConfig { address: "10.0.0.2".to_string(), ports: vec![90], r#type: IpType::Ipv4 },
+						IpConfig { address: "10.0.0.1".to_owned(), ports: vec![80, 81], r#type: IpType::Ipv4 },
+						IpConfig { address: "10.0.0.2".to_owned(), ports: vec![90], r#type: IpType::Ipv4 },
 					],
 				},
 				Node {
-					name: "node-b".to_string(),
-					ips: vec![IpConfig {
-						address: "::1".to_string(),
-						ports: vec![100],
-						r#type: IpType::Ipv6,
-					}],
+					name: "node-b".to_owned(),
+					ips: vec![IpConfig { address: "::1".to_owned(), ports: vec![100], r#type: IpType::Ipv6 }],
 				},
 			],
 			..Default::default()
@@ -235,26 +231,26 @@ mod tests {
 		// Verify the contents of the processed list.
 		let expected_processed = vec![
 			ProcessedNode {
-				node_name: "node-a".to_string(),
-				address: "10.0.0.1".to_string(),
+				node_name: "node-a".to_owned(),
+				address: "10.0.0.1".to_owned(),
 				port: 80,
 				ip_type: IpType::Ipv4,
 			},
 			ProcessedNode {
-				node_name: "node-a".to_string(),
-				address: "10.0.0.1".to_string(),
+				node_name: "node-a".to_owned(),
+				address: "10.0.0.1".to_owned(),
 				port: 81,
 				ip_type: IpType::Ipv4,
 			},
 			ProcessedNode {
-				node_name: "node-a".to_string(),
-				address: "10.0.0.2".to_string(),
+				node_name: "node-a".to_owned(),
+				address: "10.0.0.2".to_owned(),
 				port: 90,
 				ip_type: IpType::Ipv4,
 			},
 			ProcessedNode {
-				node_name: "node-b".to_string(),
-				address: "::1".to_string(),
+				node_name: "node-b".to_owned(),
+				address: "::1".to_owned(),
 				port: 100,
 				ip_type: IpType::Ipv6,
 			},

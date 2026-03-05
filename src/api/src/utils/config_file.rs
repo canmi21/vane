@@ -147,8 +147,8 @@ mod tests {
 		let result: ConfigFileResult<TestConfig> = find_config(&base_path).await;
 		match result {
 			ConfigFileResult::Ambiguous { found } => {
-				assert!(found.contains(&"json".to_string()));
-				assert!(found.contains(&"yaml".to_string()));
+				assert!(found.contains(&"json".to_owned()));
+				assert!(found.contains(&"yaml".to_owned()));
 			}
 			_ => panic!("Expected Ambiguous result"),
 		}

@@ -251,13 +251,13 @@ mod tests {
 		// 1. Exact match
 		assert_eq!(
 			derive_path_info("/cgi-bin/script", "/cgi-bin/script"),
-			("/cgi-bin/script".to_string(), "".to_string())
+			("/cgi-bin/script".to_owned(), "".to_owned())
 		);
 
 		// 2. Segment match
 		assert_eq!(
 			derive_path_info("/cgi-bin/script/foo/bar", "/cgi-bin/script"),
-			("/cgi-bin/script".to_string(), "/foo/bar".to_string())
+			("/cgi-bin/script".to_owned(), "/foo/bar".to_owned())
 		);
 
 		// 3. Partial prefix match (should NOT match)
@@ -265,22 +265,22 @@ mod tests {
 		// Fixed behavior: should not split unless at / boundary
 		assert_eq!(
 			derive_path_info("/cgi-bin/script", "/cgi"),
-			("".to_string(), "/cgi-bin/script".to_string())
+			("".to_owned(), "/cgi-bin/script".to_owned())
 		);
 
 		// 4. Root script name
-		assert_eq!(derive_path_info("/foo/bar", "/"), ("/".to_string(), "/foo/bar".to_string()));
+		assert_eq!(derive_path_info("/foo/bar", "/"), ("/".to_owned(), "/foo/bar".to_owned()));
 
 		// 5. Empty script name
-		assert_eq!(derive_path_info("/foo/bar", ""), ("".to_string(), "/foo/bar".to_string()));
+		assert_eq!(derive_path_info("/foo/bar", ""), ("".to_owned(), "/foo/bar".to_owned()));
 
 		// 6. Non-matching paths
-		assert_eq!(derive_path_info("/api/v1", "/cgi"), ("".to_string(), "/api/v1".to_string()));
+		assert_eq!(derive_path_info("/api/v1", "/cgi"), ("".to_owned(), "/api/v1".to_owned()));
 
 		// 7. Redundant slashes
 		assert_eq!(
 			derive_path_info("//cgi-bin//script", "/cgi-bin"),
-			("/cgi-bin".to_string(), "/script".to_string())
+			("/cgi-bin".to_owned(), "/script".to_owned())
 		);
 	}
 }

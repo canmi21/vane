@@ -199,7 +199,7 @@ mod tests {
 		assert!(res.is_ok(), "Should parse valid hex: {:?}", res.err());
 		let data = res.unwrap();
 
-		assert_eq!(data.sni, Some("google".to_string()));
+		assert_eq!(data.sni, Some("google".to_owned()));
 		assert_eq!(data.legacy_version, "0303");
 	}
 
@@ -234,6 +234,6 @@ mod tests {
 		let res = parse_client_hello(&payload).unwrap();
 		assert!(res.has_grease);
 		// GREASE should be filtered out from cipher_suites vector
-		assert!(!res.cipher_suites.contains(&"0a0a".to_string()));
+		assert!(!res.cipher_suites.contains(&"0a0a".to_owned()));
 	}
 }
