@@ -6,9 +6,10 @@ permissions:
   id-token: write
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # Temporarily disabled during workspace restructure
+  # push:
+  #   tags:
+  #     - 'v*'
   workflow_dispatch:
     inputs:
       tag:

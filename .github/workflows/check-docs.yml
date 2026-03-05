@@ -1,8 +1,9 @@
 name: Docs Check
 
 on:
-  pull_request:
-    branches: ['latest']
+  # Temporarily disabled during workspace restructure
+  # pull_request:
+  #   branches: ['latest']
   workflow_dispatch:
 
 jobs:
