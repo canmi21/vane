@@ -29,6 +29,7 @@ fn is_grease(val: u16) -> bool {
 }
 
 /// Main entry point to parse a raw ClientHello buffer using tls-parser.
+#[allow(clippy::too_many_lines)]
 pub fn parse_client_hello(payload: &[u8]) -> Result<TlsClientHelloData> {
 	// Parse the TLS Record Layer
 	let result = parse_tls_plaintext(payload).map_err(|e| anyhow!("TLS parse failed: {e:?}"))?;

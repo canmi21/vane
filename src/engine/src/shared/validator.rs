@@ -27,7 +27,8 @@ pub fn validate_flow_recursive(
 		return errors;
 	}
 
-	let (plugin_name, instance) = step.iter().next().unwrap();
+	let (plugin_name, instance) =
+		step.iter().next().expect("step validated to have exactly one entry");
 	let current_path =
 		if path.is_empty() { plugin_name.clone() } else { format!("{path} -> {plugin_name}") };
 
@@ -102,7 +103,7 @@ pub fn validate_flow_recursive(
 		} else if let Some(m) = plugin.as_middleware() {
 			Some(m.output())
 		} else {
-			plugin.as_l7_middleware().map(|m| m.output())
+			plugin.as_l7_middleware().map(crate::engine::interfaces::L7Middleware::output)
 		};
 
 		if let Some(branches) = expected_branches {
@@ -193,7 +194,7 @@ fn validate_middleware_outputs_internal(
 	current_path: &str,
 	errors: &mut Vec<FlowValidationError>,
 ) {
-	let expected_set: HashSet<&str> = expected_branches.iter().map(|s| s.as_ref()).collect();
+	let expected_set: HashSet<&str> = expected_branches.iter().map(AsRef::as_ref).collect();
 	for branch_name in outputs.keys() {
 		if !expected_set.contains(branch_name.as_str()) {
 			errors.push(FlowValidationError {

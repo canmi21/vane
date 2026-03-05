@@ -12,6 +12,7 @@ use vane_engine::engine::interfaces::{ConnectionObject, TerminatorResult};
 use vane_primitives::kv::KvStore;
 use vane_primitives::tasks::GLOBAL_TRACKER;
 
+#[allow(clippy::too_many_lines)]
 pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) -> Result<()> {
 	// Extract UDP socket info
 	let (socket_arc, client_addr, dst_addr, datagram) = match &conn {
@@ -204,7 +205,7 @@ pub async fn run(conn: ConnectionObject, kv: &mut KvStore, parent_path: String) 
 		}
 		Ok(TerminatorResult::Upgrade { protocol, .. }) => {
 			if protocol == "httpx" {
-				let cert_sni = kv.get("tls.termination.cert_sni").map(|s| s.as_str()).unwrap_or("default");
+				let cert_sni = kv.get("tls.termination.cert_sni").map(String::as_str).unwrap_or("default");
 
 				let local_port = socket_arc.local_addr()?.port();
 				let muxer = QuicMuxer::get_or_create(local_port, cert_sni, socket_arc.clone());

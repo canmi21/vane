@@ -14,6 +14,7 @@ use vane_primitives::kv::KvStore;
 
 /// Entry point for TLS L4+ flows.
 /// Handles ClientHello parsing, L4+ routing, and L7 Handover.
+#[allow(clippy::too_many_lines)]
 pub async fn run(stream: TcpStream, kv: &mut KvStore, parent_path: String) -> Result<()> {
 	log(LogLevel::Debug, "➜ Entering TLS L4+ Resolver...");
 

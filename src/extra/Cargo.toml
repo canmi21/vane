@@ -1,9 +1,11 @@
 [package]
 name = "vane-extra"
-version = "0.9.2"
-edition = "2024"
-rust-version = { workspace = true }
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "Standalone plugins for vane: L4 proxy, middleware, external plugin system"
 
 [features]

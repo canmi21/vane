@@ -100,7 +100,7 @@ async fn connect_internal(host: &str, port: u16, skip_verify: bool) -> Result<Qu
 
 	let addr = SocketAddr::new(*ip, port);
 
-	let crypto = build_rustls_config(skip_verify)?;
+	let crypto = build_rustls_config(skip_verify);
 	let quic_crypto = quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
 		.map_err(|e| Error::System(format!("TLS Config Error: {e}")))?;
 
@@ -136,7 +136,7 @@ async fn connect_internal(host: &str, port: u16, skip_verify: bool) -> Result<Qu
 	Ok(send_request)
 }
 
-fn build_rustls_config(skip_verify: bool) -> Result<rustls::ClientConfig> {
+fn build_rustls_config(skip_verify: bool) -> rustls::ClientConfig {
 	let mut config = if skip_verify {
 		let mut c = rustls::ClientConfig::builder()
 			.with_root_certificates(rustls::RootCertStore::empty())
@@ -168,5 +168,5 @@ fn build_rustls_config(skip_verify: bool) -> Result<rustls::ClientConfig> {
 	};
 
 	config.alpn_protocols = vec![b"h3".to_vec()];
-	Ok(config)
+	config
 }

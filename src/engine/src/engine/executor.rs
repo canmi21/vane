@@ -44,6 +44,7 @@ pub async fn execute<C: ExecutionContext>(
 }
 
 /// Recursive flow execution (internal)
+#[allow(clippy::too_many_lines)]
 async fn execute_recursive<C: ExecutionContext>(
 	step: &ProcessingStep,
 	context: &mut C,

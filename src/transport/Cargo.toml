@@ -1,10 +1,12 @@
 [package]
 name = "vane-transport"
-version = "0.9.2"
-edition = "2024"
-rust-version = { workspace = true }
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "L4/L4+ transport layers, ingress listeners, and protocol parsing for Vane."
-license = "MIT"
 
 [features]
 tcp = ["dep:fancy-regex"]

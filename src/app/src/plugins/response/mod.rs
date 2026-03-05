@@ -48,6 +48,7 @@ impl Plugin for SendResponsePlugin {
 }
 
 #[async_trait]
+#[allow(clippy::too_many_lines)]
 impl L7Terminator for SendResponsePlugin {
 	async fn execute_l7(
 		&self,

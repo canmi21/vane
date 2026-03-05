@@ -66,6 +66,7 @@ impl Plugin for StaticPlugin {
 }
 
 #[async_trait]
+#[allow(clippy::too_many_lines)]
 impl HttpMiddleware for StaticPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec![Cow::Borrowed("success"), Cow::Borrowed("not_found"), Cow::Borrowed("failure")]

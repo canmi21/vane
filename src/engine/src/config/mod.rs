@@ -36,7 +36,7 @@ impl ListenerManager {
 		// Helper to build a loader
 		let build_loader = || {
 			DynLoader::builder()
-				.source(FileSource::new(listener_path.to_str().unwrap()))
+				.source(FileSource::new(listener_path.to_str().expect("listener path is valid UTF-8")))
 				.format(AnyFormat::Toml)
 				.format(AnyFormat::Yaml)
 				.format(AnyFormat::Json)
@@ -131,7 +131,7 @@ impl ConfigManager {
 			.store(Arc::new(Store::new()))
 			.loader(
 				DynLoader::builder()
-					.source(FileSource::new(resolver_path.to_str().unwrap()))
+					.source(FileSource::new(resolver_path.to_str().expect("resolver path is valid UTF-8")))
 					.format(AnyFormat::Toml)
 					.format(AnyFormat::Yaml)
 					.format(AnyFormat::Json)
@@ -155,7 +155,9 @@ impl ConfigManager {
 			.store(Arc::new(Store::new()))
 			.loader(
 				DynLoader::builder()
-					.source(FileSource::new(application_path.to_str().unwrap()))
+					.source(FileSource::new(
+						application_path.to_str().expect("application path is valid UTF-8"),
+					))
 					.format(AnyFormat::Toml)
 					.format(AnyFormat::Yaml)
 					.format(AnyFormat::Json)

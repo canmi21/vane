@@ -58,7 +58,7 @@ lint-ox:
 
 # Lint Rust (clippy)
 lint-clippy:
-    cargo clippy --workspace --all-features --all-targets -- -D warnings
+    cargo clippy --workspace --all-features --all-targets -- -D warnings -A clippy::unwrap_used -A clippy::print_stdout -A clippy::print_stderr
 
 # Lint Go (gofmt check)
 lint-go:

@@ -36,6 +36,7 @@ pub struct CgiConfig {
 	pub script_name: String,
 }
 
+#[allow(clippy::too_many_lines)]
 pub async fn execute(container: &mut Container, config: CgiConfig) -> Result<MiddlewareOutput> {
 	let body_timeout_sec = envflag::get::<u64>("CGI_BODY_TIMEOUT_SEC", 30);
 	let max_body_size = envflag::get::<usize>("CGI_BODY_MAX_SIZE_BYTE", 10_485_760);

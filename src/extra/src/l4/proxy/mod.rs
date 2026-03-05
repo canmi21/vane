@@ -16,7 +16,7 @@ pub async fn execute_proxy(
 	kv: &KvStore,
 	conn: ConnectionObject,
 ) -> Result<()> {
-	let protocol = kv.get("conn.proto").map(|s| s.as_str()).unwrap_or("unknown");
+	let protocol = kv.get("conn.proto").map(String::as_str).unwrap_or("unknown");
 
 	match conn {
 		ConnectionObject::Tcp(stream) => {

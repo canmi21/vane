@@ -50,6 +50,7 @@ fn spawn_reply_handler(
 	});
 }
 
+#[allow(clippy::too_many_lines)]
 pub async fn dispatch_legacy_udp(
 	socket: Arc<UdpSocket>,
 	port: u16,

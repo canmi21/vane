@@ -56,6 +56,7 @@ impl Plugin for FetchUpstreamPlugin {
 }
 
 #[async_trait]
+#[allow(clippy::too_many_lines)]
 impl HttpMiddleware for FetchUpstreamPlugin {
 	fn output(&self) -> Vec<Cow<'static, str>> {
 		vec!["success".into(), "failure".into()]

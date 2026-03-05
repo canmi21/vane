@@ -12,6 +12,7 @@ use vane_primitives::common::sys::lifecycle;
 use vane_transport::ingress::{hotswap, listener, state};
 
 /// Entry point for the Vane bootstrap sequence.
+#[allow(clippy::too_many_lines)]
 pub async fn start() {
 	// Initialize Crypto Backends
 	setup_crypto();

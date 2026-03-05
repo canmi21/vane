@@ -11,6 +11,11 @@ members = [
 ]
 
 [workspace.package]
+version = "0.9.2"
+edition = "2024"
+license = "MIT"
+authors = ["Canmi(Canmi21) <t@canmi.icu>"]
+repository = "https://github.com/canmi21/vane"
 rust-version = "1.93"
 
 [workspace.lints.rust]
@@ -23,11 +28,13 @@ unreachable_pub = "warn"
 [workspace.lints.clippy]
 type_complexity = "allow"
 await_holding_lock = "warn"
-dbg_macro = "warn"
+cloned_instead_of_copied = "warn"
+dbg_macro = "deny"
 empty_enums = "warn"
 enum_glob_use = "warn"
 equatable_if_let = "warn"
 exit = "warn"
+explicit_iter_loop = "warn"
 filter_map_next = "warn"
 fn_params_excessive_bools = "warn"
 if_let_mutex = "warn"
@@ -47,17 +54,23 @@ needless_continue = "warn"
 needless_pass_by_ref_mut = "warn"
 needless_pass_by_value = "warn"
 option_option = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
 redundant_clone = "warn"
+redundant_closure_for_method_calls = "warn"
 ref_option = "warn"
 rest_pat_in_fully_bound_structs = "warn"
 return_self_not_must_use = "warn"
 single_match_else = "warn"
 str_to_string = "warn"
 suboptimal_flops = "warn"
+too_many_lines = "warn"
 todo = "warn"
 trivially_copy_pass_by_ref = "warn"
 uninlined_format_args = "warn"
+unnecessary_wraps = "warn"
 unnested_or_patterns = "warn"
+unwrap_used = "warn"
 unused_self = "warn"
 use_self = "warn"
 verbose_file_reads = "warn"
@@ -72,11 +85,5 @@ OnFailedUpdgrade = "OnFailedUpdgrade"
 lto = true
 codegen-units = 1
 opt-level = "z"
-
-[profile.minimum]
-inherits = "release"
-lto = true
-codegen-units = 1
 strip = true
-opt-level = "z"
 panic = "abort"

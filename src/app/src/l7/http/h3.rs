@@ -57,6 +57,7 @@ pub async fn handle_connection(quic_conn: Connection) -> Result<()> {
 }
 
 // Removed generic B, hardcoded to bytes::Bytes.
+#[allow(clippy::too_many_lines)]
 async fn serve_h3_request<T>(
 	req: Request<()>,
 	mut stream: RequestStream<T, bytes::Bytes>,

@@ -244,6 +244,7 @@ fn spawn_quic_reply_handler(
 }
 
 /// Handles QUIC packet forwarding using the global L4 Session table.
+#[allow(clippy::too_many_lines)]
 pub async fn proxy_quic_association(
 	listener_socket: Arc<UdpSocket>,
 	datagram: &bytes::Bytes,

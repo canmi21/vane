@@ -1,8 +1,11 @@
 [package]
 name = "vane-primitives"
-version = "0.9.2"
-edition = "2024"
-rust-version = { workspace = true }
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 ahash = "0.8"

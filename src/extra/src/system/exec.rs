@@ -11,6 +11,7 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use vane_engine::engine::interfaces::{MiddlewareOutput, ResolvedInputs};
 
+#[allow(clippy::too_many_lines)]
 pub async fn execute(
 	program: &str,
 	args: &[String],

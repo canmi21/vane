@@ -47,7 +47,7 @@ pub async fn list_applications_handler() -> impl IntoResponse {
 
 	response::success(ApplicationListData {
 		applications,
-		supported_protocols: SUPPORTED_APP_PROTOCOLS.iter().map(|s| s.to_string()).collect(),
+		supported_protocols: SUPPORTED_APP_PROTOCOLS.iter().map(ToString::to_string).collect(),
 	})
 }
 

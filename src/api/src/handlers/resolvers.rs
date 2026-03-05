@@ -47,7 +47,7 @@ pub async fn list_resolvers_handler() -> impl IntoResponse {
 
 	response::success(ResolverListData {
 		resolvers,
-		supported_protocols: SUPPORTED_UPGRADE_PROTOCOLS.iter().map(|s| s.to_string()).collect(),
+		supported_protocols: SUPPORTED_UPGRADE_PROTOCOLS.iter().map(ToString::to_string).collect(),
 	})
 }
 
