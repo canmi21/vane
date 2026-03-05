@@ -4,6 +4,6 @@
 		"lineWidth": 100
 	},
 	"includes": ["**/*.md"],
-	"excludes": ["**/node_modules", "**/target", "**/dist", "**/.next", "**/out", "**/.source"],
+	"excludes": ["**/node_modules", "**/target", "**/dist"],
 	"plugins": ["https://plugins.dprint.dev/markdown-0.20.0.wasm"]
 }

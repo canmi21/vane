@@ -1,9 +1,6 @@
 * text=auto eol=lf
-*.c linguist-language=C
 *.rs linguist-language=Rust
 *.go linguist-language=Go
 *.sh linguist-language=Shell
-*.py linguist-language=Python
-*.lua linguist-language=Lua
 *.md linguist-detectable=false
 *.html linguist-detectable=false

@@ -1,10 +1,10 @@
 {
 	"name": "vane",
-	"version": "0.0.0",
 	"private": true,
 	"workspaces": [
 		"docs"
 	],
+	"type": "module",
 	"scripts": {
 		"fmt:ts": "oxfmt --write .",
 		"fmt:ts:check": "oxfmt --check .",

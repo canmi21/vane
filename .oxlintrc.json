@@ -13,6 +13,5 @@
 		"prefer-const": "warn",
 		"typescript/no-non-null-assertion": "warn",
 		"typescript/consistent-type-imports": "warn"
-	},
-	"ignorePatterns": [".next", "out", "build", ".source", "target", ".dist", "node_modules"]
+	}
 }

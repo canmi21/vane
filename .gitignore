@@ -17,22 +17,12 @@ coverage/
 
 # Editor
 .idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
 
 # Project
 .next/
 .source/
 next-env.d.ts
-reference/
-
-# Python
-.venv/
-__pycache__/
-.ruff_cache/
 
 # Logs
 *.log

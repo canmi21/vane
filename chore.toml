@@ -10,5 +10,5 @@ enabled = true
 ".tsx" = "/* $path$file */"
 
 [path_comment.exclude]
-dirs = ["node_modules", "target", "dist", "out", ".next", ".source", "build"]
+dirs = ["node_modules", "target", "dist"]
 patterns = ["next-env.d.ts"]
