@@ -1,8 +1,0 @@
-node_modules
-dist
-build
-target
-.next
-out
-.source
-docker-compose.yml

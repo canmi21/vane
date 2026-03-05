@@ -6,13 +6,16 @@
     "docs"
   ],
   "scripts": {
-    "check": "bun run lint && cargo fmt --check && cargo clippy -- -D warnings && cd integration && gofmt -l .",
-    "fmt": "oxfmt --write . && dprint fmt && cargo fmt --all && cd integration && gofmt -w .",
-    "lint": "oxlint"
+    "fmt:ts": "oxfmt --write .",
+    "fmt:ts:check": "oxfmt --check .",
+    "fmt:md": "dprint fmt",
+    "fmt:md:check": "dprint check",
+    "lint:ox": "oxlint",
+    "lint:ox:fix": "oxlint --fix"
   },
   "devDependencies": {
+    "dprint": "^0.52.0",
     "oxfmt": "^0.36.0",
-    "oxlint": "^1.51.0",
-    "prettier": "^3.8.1"
+    "oxlint": "^1.51.0"
   }
 }
