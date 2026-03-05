@@ -2,17 +2,13 @@
 enabled = true
 
 [path_comment.formats]
-".c" = "/* $path$file */"
-".css" = "/* $path$file */"
 ".go" = "/* $path$file */"
 ".js" = "/* $path$file */"
 ".mjs" = "/* $path$file */"
-".py" = "# $path$file"
 ".rs" = "/* $path$file */"
-".sh" = "# $path$file"
 ".ts" = "/* $path$file */"
 ".tsx" = "/* $path$file */"
 
 [path_comment.exclude]
-dirs = [".next", ".venv", ".source", "node_modules", "target"]
-patterns = []
+dirs = ["node_modules", "target", "dist", "out", ".next", ".source", "build"]
+patterns = ["next-env.d.ts"]

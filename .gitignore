@@ -1,58 +1,42 @@
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Dependencies
+node_modules/
+target/
+
+# Build output
+dist/
+out/
+coverage/
+*.tsbuildinfo
+
+# Environment
+.env
+*.local
 
 # OS
 .DS_Store
-/cypress/videos/
-/cypress/screenshots/
 
-# Project
-reference
-node_modules
-out
-dist
-dist/*
-dist-ssr
-coverage
-*.local
-.env
-.venv
-*.tsbuildinfo
-.report
-.next
-next-env.d.ts
-.source
-
-# rust
-target
-
-# python
-.venv
-__pycache__
-.ruff_cache
-
-# Editor directories and files
-!.vscode/extensions.json
-.idea
+# Editor
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 
-# Added by cargo
+# Project
+.next/
+.source/
+next-env.d.ts
+reference/
 
-/target
+# Python
+.venv/
+__pycache__/
+.ruff_cache/
 
-# Test Build Bins
-test_c_template
-test_rust_template
-test_zig_template
-test_go_template
-test_cpp_template
-test_java_template.class
+# Logs
+*.log
+
+# Claude / worktrees
+.claude
+.worktrees/
