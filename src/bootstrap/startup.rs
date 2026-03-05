@@ -174,7 +174,8 @@ pub async fn start() {
 	// 8. Start Background Maintenance Tasks
 	lifecycle::start_background_tasks().await;
 
-	// 9. Initialize Plugin System
+	// 9. Register Internal Plugins + Load External Plugins
+	crate::plugins::core::registry::register_builtin_plugins();
 	plugin_loader::initialize().await;
 
 	// 10. Initialize Adaptive Resource Management

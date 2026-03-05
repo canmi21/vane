@@ -22,8 +22,23 @@ use live::holder::{Store, UnloadPolicy};
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 
-static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::new(|| {
-	let registry = DashMap::new();
+static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::new(DashMap::new);
+
+/// Register an internal plugin by name. Used by bootstrap to populate the
+/// registry after all crate-level types are available.
+pub fn register_plugin(name: impl Into<String>, plugin: Arc<dyn Plugin>) {
+	INTERNAL_PLUGIN_REGISTRY.insert(name.into(), plugin);
+}
+
+/// Batch-register plugins, keying each by `Plugin::name()`.
+pub fn register_plugins(plugins: Vec<Arc<dyn Plugin>>) {
+	for plugin in plugins {
+		INTERNAL_PLUGIN_REGISTRY.insert(plugin.name().to_owned(), plugin);
+	}
+}
+
+/// Populate the built-in plugin set. Called once during startup.
+pub fn register_builtin_plugins() {
 	let transparent_proxy = Arc::new(TransparentProxyPlugin);
 
 	let mut plugins: Vec<Arc<dyn Plugin>> = vec![
@@ -61,17 +76,12 @@ static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::
 		plugins.push(Arc::new(StaticPlugin));
 	}
 
-	for plugin in plugins {
-		registry.insert(plugin.name().to_owned(), plugin);
-	}
-
-	registry.insert(
-		"internal.transport.proxy.transparent".to_owned(),
+	register_plugins(plugins);
+	register_plugin(
+		"internal.transport.proxy.transparent",
 		transparent_proxy,
 	);
-
-	registry
-});
+}
 
 static EXTERNAL_PLUGIN_REGISTRY: Lazy<Store<Arc<dyn Plugin>>> = Lazy::new(Store::new);
 
