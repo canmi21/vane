@@ -25,7 +25,16 @@ RUN if [ -n "$PROXY_URL" ]; then export http_proxy="$PROXY_URL" https_proxy="$PR
 
 # Cache Rust Dependencies
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+COPY src/core/Cargo.toml src/core/Cargo.toml
+COPY src/primitives/Cargo.toml src/primitives/Cargo.toml
+COPY src/engine/Cargo.toml src/engine/Cargo.toml
+COPY src/app/Cargo.toml src/app/Cargo.toml
+COPY src/transport/Cargo.toml src/transport/Cargo.toml
+COPY src/extra/Cargo.toml src/extra/Cargo.toml
+COPY src/api/Cargo.toml src/api/Cargo.toml
+RUN mkdir -p src/core/src && echo "fn main() {}" > src/core/src/main.rs \
+    && for d in primitives engine app transport extra api; do \
+       mkdir -p src/$d/src && touch src/$d/src/lib.rs; done
 # Build dependencies only
 RUN if [ -n "$PROXY_URL" ]; then export http_proxy="$PROXY_URL" https_proxy="$PROXY_URL" all_proxy="socks5://${PROXY_URL#*//}"; fi \
     && case "$TARGETARCH" in \
@@ -35,7 +44,7 @@ RUN if [ -n "$PROXY_URL" ]; then export http_proxy="$PROXY_URL" https_proxy="$PR
 
 COPY . .
 # Touch main.rs to force cargo to rebuild the binary
-RUN touch src/main.rs \
+RUN touch src/core/src/main.rs \
     && if [ -n "$PROXY_URL" ]; then export http_proxy="$PROXY_URL" https_proxy="$PROXY_URL" all_proxy="socks5://${PROXY_URL#*//}"; fi \
 		&& export CC_x86_64_unknown_linux_musl=musl-gcc \
     && export CC_aarch64_unknown_linux_musl=musl-gcc \

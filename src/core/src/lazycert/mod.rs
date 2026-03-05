@@ -1,4 +1,4 @@
-/* src/lazycert/mod.rs */
+/* src/core/src/lazycert/mod.rs */
 
 #[cfg(feature = "lazycert")]
 pub mod client;

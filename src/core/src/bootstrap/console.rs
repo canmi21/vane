@@ -1,4 +1,4 @@
-/* src/bootstrap/console.rs */
+/* src/core/src/bootstrap/console.rs */
 
 use axum::serve;
 use fancy_log::{LogLevel, log};

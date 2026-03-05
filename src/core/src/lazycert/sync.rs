@@ -1,4 +1,4 @@
-/* src/lazycert/sync.rs */
+/* src/core/src/lazycert/sync.rs */
 
 use super::LAZYCERT_CLIENT;
 use super::client::LazyCertClient;

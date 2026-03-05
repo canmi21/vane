@@ -1,4 +1,4 @@
-/* build.rs */
+/* src/core/build.rs */
 
 //! Build script to capture git hash, rustc version, and build date.
 
@@ -24,7 +24,7 @@ fn main() {
 	println!("cargo:rustc-env=BUILD_DATE={build_date}");
 
 	// Rerun if git HEAD changes.
-	println!("cargo:rerun-if-changed=.git/HEAD");
+	println!("cargo:rerun-if-changed=../../.git/HEAD");
 }
 
 /// Helper to execute a command and return its trimmed stdout.

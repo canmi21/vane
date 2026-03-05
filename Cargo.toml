@@ -1,150 +1,13 @@
-[package]
-name = "vane"
-license = "MIT"
-version = "0.9.2"
-edition = "2024"
-rust-version = { workspace = true }
-categories = ["network-programming", "web-programming", "asynchronous"]
-description = "A flow-based reverse proxy with multi-layer routing and programmable pipelines."
-keywords = ["network", "server", "web", "vane", "proxy"]
-readme = "README.md"
-homepage = "https://vaneproxy.com"
-repository = "https://github.com/canmi21/vane.git"
-
-[package.metadata.docs.rs]
-all-features = true
-
-[[bin]]
-name = "vane"
-path = "src/main.rs"
-
-[features]
-default = ["full", "aws-lc-rs"]
-full = [
-  "tcp",
-  "udp",
-  "tls",
-  "quic",
-  "httpx",
-  "h2upstream",
-  "h3upstream",
-  "cgi",
-  "static",
-  "ratelimit",
-  "domain-target",
-  "console",
-  "swagger-ui",
-  "lazycert",
-]
-
-# Core Transport (L4)
-tcp = ["vane-transport/tcp"]
-udp = ["vane-transport/udp"]
-
-# Carrier Layer (L4+)
-tls = ["dep:rustls", "vane-app/tls", "vane-transport/tls"]
-quic = ["vane-app/quic", "vane-transport/quic"]
-
-# Application Layer (L7)
-httpx = ["dep:axum", "vane-app/httpx"]
-
-# LazyCert Integration
-lazycert = ["dep:reqwest", "vane-transport/lazycert"]
-
-# Console / Management API
-console = [
-  "dep:axum",
-  "vane-primitives/console",
-  "vane-engine/console",
-  "vane-app/console",
-  "vane-api/console",
-]
-swagger-ui = ["vane-api/swagger-ui"]
-
-# Upstream Capabilities
-h2upstream = []
-h3upstream = ["quic", "vane-app/h3upstream"]
-domain-target = [
-  "vane-primitives/domain-target",
-  "vane-engine/domain-target",
-  "vane-app/domain-target",
-  "vane-transport/domain-target",
-]
-
-# Plugin Flags
-cgi = ["vane-app/cgi"]
-static = ["vane-app/static"]
-ratelimit = ["vane-extra/ratelimit"]
-
-# Crypto Backends
-aws-lc-rs = [
-  "rustls?/aws-lc-rs",
-  "reqwest?/rustls",
-  "vane-app/aws-lc-rs",
-  "vane-transport/aws-lc-rs",
-]
-ring = [
-  "rustls?/ring",
-  "reqwest?/rustls-no-provider",
-  "reqwest?/rustls-native-certs",
-  "vane-app/ring",
-  "vane-transport/ring",
-]
-
-[dependencies]
-vane-primitives = { path = "crates/primitives" }
-vane-engine = { path = "crates/engine" }
-vane-app = { path = "crates/app" }
-vane-transport = { path = "crates/transport" }
-vane-extra = { path = "crates/extra" }
-vane-api = { path = "crates/api" }
-tokio = { version = "1", features = ["full", "signal"] }
-axum = { version = "0.8", features = ["macros", "multipart"], optional = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-envflag = "0.1"
-fancy-log = "0.1"
-lazy-motd = "1"
-once_cell = "1"
-anyhow = "1"
-sigterm = { version = "0.3", features = ["full"] }
-live = { version = "0.4", features = ["full"] }
-reqwest = { version = "0.13", default-features = false, features = ["json"], optional = true }
-rustls = { version = "0.23", default-features = false, features = [
-  "logging",
-  "std",
-  "tls12",
-], optional = true }
-
-[build-dependencies]
-chrono = { version = "0.4", features = ["serde"] }
-
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = "z"
-
-[profile.minimum]
-inherits = "release"
-lto = true
-codegen-units = 1
-strip = true
-opt-level = "z"
-panic = "abort"
-
-[lints]
-workspace = true
-
 [workspace]
 resolver = "3"
 members = [
-  ".",
-  "crates/primitives",
-  "crates/engine",
-  "crates/app",
-  "crates/transport",
-  "crates/extra",
-  "crates/api",
+  "src/core",
+  "src/primitives",
+  "src/engine",
+  "src/app",
+  "src/transport",
+  "src/extra",
+  "src/api",
 ]
 
 [workspace.package]
@@ -204,3 +67,16 @@ verbose_file_reads = "warn"
 # These have been fixed in the past, but are still present in the changelog.
 DefaultOnFailedUpdgrade = "DefaultOnFailedUpdgrade"
 OnFailedUpdgrade = "OnFailedUpdgrade"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+
+[profile.minimum]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"
+panic = "abort"

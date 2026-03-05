@@ -1,4 +1,4 @@
-/* src/main.rs */
+/* src/core/src/main.rs */
 
 use std::env;
 

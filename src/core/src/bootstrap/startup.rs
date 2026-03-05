@@ -1,4 +1,4 @@
-/* src/bootstrap/startup.rs */
+/* src/core/src/bootstrap/startup.rs */
 
 use fancy_log::{LogLevel, log};
 use live::signal::Config as WatcherConfig;

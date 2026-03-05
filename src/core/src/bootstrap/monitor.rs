@@ -1,4 +1,4 @@
-/* src/bootstrap/monitor.rs */
+/* src/core/src/bootstrap/monitor.rs */
 
 use fancy_log::{LogLevel, log};
 use tokio::time::{Duration, sleep};

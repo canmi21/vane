@@ -32,7 +32,7 @@ jobs:
         run: cargo test
 
       - name: Install Vane
-        run: cargo install --path .
+        run: cargo install --path src/core
 
       - name: Setup Go
         uses: actions/setup-go@v6

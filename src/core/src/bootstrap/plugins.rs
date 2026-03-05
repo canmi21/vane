@@ -1,4 +1,4 @@
-/* src/bootstrap/plugins.rs */
+/* src/core/src/bootstrap/plugins.rs */
 
 use std::sync::Arc;
 use vane_engine::engine::interfaces::Plugin;

@@ -1,4 +1,4 @@
-/* src/bootstrap/logging.rs */
+/* src/core/src/bootstrap/logging.rs */
 
 use fancy_log::{LogLevel, set_log_level};
 use lazy_motd::lazy_motd;
