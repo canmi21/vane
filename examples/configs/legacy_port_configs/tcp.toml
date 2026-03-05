@@ -3,9 +3,9 @@ name = "http"
 priority = 2
 detect = { method = "regex", pattern = "^[A-Z]+ /.* HTTP/1\\.[01]" }
 destination = { type = "forward", forward = { strategy = "serial", targets = [
-    { ip = "127.0.0.1", port = 8080 },
-    { ip = "127.0.0.1", port = 8081 },
+  { ip = "127.0.0.1", port = 8080 },
+  { ip = "127.0.0.1", port = 8081 },
 ], fallbacks = [
-    { ip = "127.0.0.1", port = 8082 },
-    { ip = "127.0.0.1", port = 8083 },
+  { ip = "127.0.0.1", port = 8082 },
+  { ip = "127.0.0.1", port = 8083 },
 ] } }

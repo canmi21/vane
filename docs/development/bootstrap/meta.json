@@ -1,6 +1,6 @@
 {
-	"title": "Bootstrap",
-	"description": "System initialization and startup",
-	"icon": "CircleDot",
-	"pages": ["index", "startup-sequence", "monitoring"]
+  "title": "Bootstrap",
+  "description": "System initialization and startup",
+  "icon": "CircleDot",
+  "pages": ["index", "startup-sequence", "monitoring"]
 }

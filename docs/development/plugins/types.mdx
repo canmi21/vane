@@ -4,7 +4,7 @@ description: Detailed implementation of internal plugins and external system dri
 icon: Component
 ---
 
-import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 Vane categorizes plugins based on their implementation source and operational logic. This guide covers the high-performance internal components and the drivers that power external extensions.
 
@@ -13,7 +13,7 @@ Vane categorizes plugins based on their implementation source and operational lo
 Built-in plugins are compiled directly into the Vane binary for maximum performance.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Engine[Flow Engine] --> Internal{Type?}
     Internal -- Middleware --> Matcher[Matcher/RateLimit]
@@ -42,7 +42,7 @@ Responsible for the final action of a flow:
 External plugins are executed by Vane via specialized drivers.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Engine --> Driver{Driver Type}
     Driver -- HTTP --> Remote[Remote Service]
@@ -70,7 +70,7 @@ The `command` driver executes a binary or script.
 The program must exist within the **Trusted Bin Root** to prevent unauthorized execution.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Input[Program Path] --> Check{In Trusted Root?}
     Check -- Yes --> Safe[Proceed]
@@ -86,7 +86,7 @@ graph LR
 To prevent privilege escalation, Vane filters dangerous environment variables.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Env[Input Env] --> Filter{Filter}
     Filter -- Drop --> Unsafe[LD_PRELOAD / PYTHONPATH]
@@ -103,7 +103,7 @@ graph LR
 Vane pipes inputs to `stdin` and captures `stdout` for results. `stderr` is redirected to Vane's debug logs.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Vane -->|JSON| Stdin[Subprocess STDIN]
     Stdout[Subprocess STDOUT] -->|JSON| Vane
@@ -120,17 +120,17 @@ All external drivers expect the following JSON response structure:
 
 ```json
 {
-	"status": "success",
-	"data": {
-		"branch": "success",
-		"store": { "user_id": "12345" }
-	},
-	"message": "Optional error or info message"
+  "status": "success",
+  "data": {
+    "branch": "success",
+    "store": { "user_id": "12345" }
+  },
+  "message": "Optional error or info message"
 }
 ```
 
 <Callout type="warn" title="Driver Failures">
-	If an external driver encounters an I/O error (e.g., connection refused or process crash), it
-	automatically triggers the [Passive Circuit
-	Breaker](../engine/flow-executor#passive-circuit-breaker) to prevent performance degradation.
+  If an external driver encounters an I/O error (e.g., connection refused or process crash), it
+  automatically triggers the [Passive Circuit
+  Breaker](../engine/flow-executor#passive-circuit-breaker) to prevent performance degradation.
 </Callout>

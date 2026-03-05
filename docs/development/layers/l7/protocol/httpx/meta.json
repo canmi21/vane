@@ -1,6 +1,6 @@
 {
-	"title": "HTTPX",
-	"description": " ",
-	"icon": "AppWindow",
-	"pages": ["h1", "h2", "h3", "websocket", "cgi"]
+  "title": "HTTPX",
+  "description": " ",
+  "icon": "AppWindow",
+  "pages": ["h1", "h2", "h3", "websocket", "cgi"]
 }

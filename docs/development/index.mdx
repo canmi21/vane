@@ -4,8 +4,8 @@ description: Guidelines for contributing to Vane core.
 icon: BookOpen
 ---
 
-import { Cards, Card } from 'fumadocs-ui/components/card';
-import { FileText, Github, Shield, Scale, HeartHandshake, History } from 'lucide-react';
+import { Cards, Card } from 'fumadocs-ui/components/card'
+import { FileText, Github, Shield, Scale, HeartHandshake, History } from 'lucide-react'
 
 This section covers the internal architecture and implementation details of Vane. It is intended for core contributors and plugin developers.
 
@@ -14,40 +14,40 @@ This section covers the internal architecture and implementation details of Vane
 For legal information, contribution workflows, and community standards, please refer to the project root documentation:
 
 <Cards>
-	<Card href="https://github.com/canmi21/vane" title="Repository" icon={<Github />}>
-		Source code, issue tracking, and development discussions.
-	</Card>
-	<Card
-		href="https://github.com/canmi21/vane/blob/main/CONTRIBUTING.md"
-		title="Contributing"
-		icon={<FileText />}
-	>
-		How to submit PRs, report issues, and follow coding standards.
-	</Card>
-	<Card
-		href="https://github.com/canmi21/vane/blob/main/CHANGELOG.md"
-		title="Changelog"
-		icon={<History />}
-	>
-		Version history and detailed change logs.
-	</Card>
-	<Card
-		href="https://github.com/canmi21/vane/blob/main/CODE_OF_CONDUCT.md"
-		title="Code of Conduct"
-		icon={<HeartHandshake />}
-	>
-		Community guidelines and behavior expectations.
-	</Card>
-	<Card
-		href="https://github.com/canmi21/vane/blob/main/SECURITY.md"
-		title="Security"
-		icon={<Shield />}
-	>
-		Vulnerability reporting policy and security contacts.
-	</Card>
-	<Card href="https://github.com/canmi21/vane/blob/main/LICENSE" title="License" icon={<Scale />}>
-		Open source licensing details (MIT).
-	</Card>
+  <Card href="https://github.com/canmi21/vane" title="Repository" icon={<Github />}>
+    Source code, issue tracking, and development discussions.
+  </Card>
+  <Card
+    href="https://github.com/canmi21/vane/blob/main/CONTRIBUTING.md"
+    title="Contributing"
+    icon={<FileText />}
+  >
+    How to submit PRs, report issues, and follow coding standards.
+  </Card>
+  <Card
+    href="https://github.com/canmi21/vane/blob/main/CHANGELOG.md"
+    title="Changelog"
+    icon={<History />}
+  >
+    Version history and detailed change logs.
+  </Card>
+  <Card
+    href="https://github.com/canmi21/vane/blob/main/CODE_OF_CONDUCT.md"
+    title="Code of Conduct"
+    icon={<HeartHandshake />}
+  >
+    Community guidelines and behavior expectations.
+  </Card>
+  <Card
+    href="https://github.com/canmi21/vane/blob/main/SECURITY.md"
+    title="Security"
+    icon={<Shield />}
+  >
+    Vulnerability reporting policy and security contacts.
+  </Card>
+  <Card href="https://github.com/canmi21/vane/blob/main/LICENSE" title="License" icon={<Scale />}>
+    Open source licensing details (MIT).
+  </Card>
 </Cards>
 
 ## Module Documentation
@@ -55,22 +55,22 @@ For legal information, contribution workflows, and community standards, please r
 Detailed implementation guides for each subsystem:
 
 <Cards>
-	<Card href="./development/bootstrap" title="Bootstrap" icon={<FileText />}>
-		Startup sequence and initialization.
-	</Card>
-	<Card href="./development/ingress" title="Ingress" icon={<FileText />}>
-		Listeners and connection acceptance.
-	</Card>
-	<Card href="./development/engine" title="Engine" icon={<FileText />}>
-		The Flow Executor and Plugin System.
-	</Card>
-	<Card href="./development/layers" title="Layers" icon={<FileText />}>
-		L4, L4+, and L7 protocol handling.
-	</Card>
-	<Card href="./development/resources" title="Resources" icon={<FileText />}>
-		Shared state (KV, Certs, Nodes).
-	</Card>
-	<Card href="./development/api" title="API Endpoints" icon={<FileText />}>
-		RESTful API endpoints and handlers.
-	</Card>
+  <Card href="./development/bootstrap" title="Bootstrap" icon={<FileText />}>
+    Startup sequence and initialization.
+  </Card>
+  <Card href="./development/ingress" title="Ingress" icon={<FileText />}>
+    Listeners and connection acceptance.
+  </Card>
+  <Card href="./development/engine" title="Engine" icon={<FileText />}>
+    The Flow Executor and Plugin System.
+  </Card>
+  <Card href="./development/layers" title="Layers" icon={<FileText />}>
+    L4, L4+, and L7 protocol handling.
+  </Card>
+  <Card href="./development/resources" title="Resources" icon={<FileText />}>
+    Shared state (KV, Certs, Nodes).
+  </Card>
+  <Card href="./development/api" title="API Endpoints" icon={<FileText />}>
+    RESTful API endpoints and handlers.
+  </Card>
 </Cards>

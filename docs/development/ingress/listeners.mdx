@@ -4,7 +4,7 @@ description: Detailed implementation of TCP/UDP listener orchestration and error
 icon: ArrowDownUp
 ---
 
-import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 The `src/ingress/listener.rs` module acts as the orchestrator for all network entry points in Vane. It abstracts the differences between TCP and UDP sockets and provides a unified interface for starting, stopping, and recovering listeners.
 
@@ -68,7 +68,7 @@ The resulting shutdown handle is stored back in the `TASK_REGISTRY`.
 TCP listeners operate on a stream-oriented "Accept" loop.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Accept[Accept Socket] --> Guard{GLOBAL_TRACKER}
     Guard -- Deny --> Close[Drop Socket]
@@ -82,7 +82,7 @@ graph LR
 UDP listeners operate on a packet-oriented "Recv" loop.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Recv[Recv Datagram] --> Guard{GLOBAL_TRACKER}
     Guard -- Deny --> Drop[Discard Packet]
@@ -108,13 +108,13 @@ Listeners honor the `LISTEN_IPV6` environment variable:
 - **`false`**: Binds to `0.0.0.0:port` (IPv4 only).
 
 <Callout type="warn" title="Port Conflicts">
-	If all 5 bind retries fail (e.g., another process has locked the port permanently), Vane will log
-	a `LogLevel::Error`. In the bootstrap phase, this will cause the entire engine to halt to prevent
-	a partially-running state.
+  If all 5 bind retries fail (e.g., another process has locked the port permanently), Vane will log
+  a `LogLevel::Error`. In the bootstrap phase, this will cause the entire engine to halt to prevent
+  a partially-running state.
 </Callout>
 
 <Callout type="info" title="Hotswap Integration">
-	The `stop_listener` function gracefully shuts down the listener by sending a signal through the
-	stored channel. This ensures that the socket is properly closed before a new configuration
-	attempts to re-bind the same port.
+  The `stop_listener` function gracefully shuts down the listener by sending a signal through the
+  stored channel. This ensures that the socket is properly closed before a new configuration
+  attempts to re-bind the same port.
 </Callout>

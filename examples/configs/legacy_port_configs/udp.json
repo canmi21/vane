@@ -1,50 +1,50 @@
 {
-	"protocols": [
-		{
-			"name": "quic",
-			"priority": 1,
-			"detect": {
-				"method": "magic",
-				"pattern": "0xc3"
-			},
-			"destination": {
-				"type": "resolver",
-				"resolver": "quic"
-			}
-		},
-		{
-			"name": "dns",
-			"priority": 2,
-			"detect": {
-				"method": "prefix",
-				"pattern": "\u0000\u0001"
-			},
-			"destination": {
-				"type": "forward",
-				"forward": {
-					"strategy": "random",
-					"targets": [
-						{
-							"ip": "127.0.0.1",
-							"port": 5353
-						},
-						{
-							"ip": "127.0.0.1",
-							"port": 5354
-						}
-					],
-					"fallbacks": [
-						{
-							"ip": "127.0.0.1",
-							"port": 5355
-						},
-						{
-							"ip": "127.0.0.1",
-							"port": 5356
-						}
-					]
-				}
-			}
-		}
-	]
+  "protocols": [
+    {
+      "name": "quic",
+      "priority": 1,
+      "detect": {
+        "method": "magic",
+        "pattern": "0xc3"
+      },
+      "destination": {
+        "type": "resolver",
+        "resolver": "quic"
+      }
+    },
+    {
+      "name": "dns",
+      "priority": 2,
+      "detect": {
+        "method": "prefix",
+        "pattern": "\u0000\u0001"
+      },
+      "destination": {
+        "type": "forward",
+        "forward": {
+          "strategy": "random",
+          "targets": [
+            {
+              "ip": "127.0.0.1",
+              "port": 5353
+            },
+            {
+              "ip": "127.0.0.1",
+              "port": 5354
+            }
+          ],
+          "fallbacks": [
+            {
+              "ip": "127.0.0.1",
+              "port": 5355
+            },
+            {
+              "ip": "127.0.0.1",
+              "port": 5356
+            }
+          ]
+        }
+      }
+    }
+  ]
 }

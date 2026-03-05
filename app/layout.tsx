@@ -1,15 +1,15 @@
 /* app/layout.tsx */
 
-import { Inter } from "next/font/google";
-import Script from "next/script";
-import { Provider } from "@/components/provider";
-import "./style.css";
+import { Inter } from 'next/font/google'
+import Script from 'next/script'
+import { Provider } from '@/components/provider'
+import './style.css'
 
 const inter = Inter({
-  subsets: ["latin"],
-});
+  subsets: ['latin'],
+})
 
-export default function Layout({ children }: LayoutProps<"/">) {
+export default function Layout({ children }: LayoutProps<'/'>) {
   return (
     <html lang="en" className={inter.className} suppressHydrationWarning>
       <head>
@@ -30,5 +30,5 @@ export default function Layout({ children }: LayoutProps<"/">) {
         <Provider>{children}</Provider>
       </body>
     </html>
-  );
+  )
 }

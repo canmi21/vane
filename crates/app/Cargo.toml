@@ -9,13 +9,13 @@ license = "MIT"
 [features]
 httpx = []
 tls = [
-	"httpx",
-	"dep:rustls",
-	"dep:tokio-rustls",
-	"dep:hyper-rustls",
-	"dep:rustls-native-certs",
-	"dep:tower-service",
-	"dep:once_cell",
+  "httpx",
+  "dep:rustls",
+  "dep:tokio-rustls",
+  "dep:hyper-rustls",
+  "dep:rustls-native-certs",
+  "dep:tower-service",
+  "dep:once_cell",
 ]
 quic = ["httpx", "dep:h3", "dep:h3-quinn"]
 h3upstream = ["quic", "dep:quinn"]
@@ -26,17 +26,12 @@ domain-target = ["vane-engine/domain-target"]
 
 # Crypto backends (forwarded from binary)
 aws-lc-rs = [
-	"rustls?/aws-lc-rs",
-	"tokio-rustls?/aws-lc-rs",
-	"hyper-rustls?/aws-lc-rs",
-	"quinn?/aws-lc-rs",
+  "rustls?/aws-lc-rs",
+  "tokio-rustls?/aws-lc-rs",
+  "hyper-rustls?/aws-lc-rs",
+  "quinn?/aws-lc-rs",
 ]
-ring = [
-	"rustls?/ring",
-	"tokio-rustls?/ring",
-	"hyper-rustls?/ring",
-	"quinn?/ring",
-]
+ring = ["rustls?/ring", "tokio-rustls?/ring", "hyper-rustls?/ring", "quinn?/ring"]
 
 [dependencies]
 vane-primitives = { path = "../primitives" }
@@ -62,15 +57,30 @@ base64 = "0.22"
 tokio-util = "0.7"
 
 # Optional
-rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12"], optional = true }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"], optional = true }
-hyper-rustls = { version = "0.27", default-features = false, features = ["http2", "native-tokio", "logging", "tls12"], optional = true }
+rustls = { version = "0.23", default-features = false, features = [
+  "logging",
+  "std",
+  "tls12",
+], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+  "logging",
+  "tls12",
+], optional = true }
+hyper-rustls = { version = "0.27", default-features = false, features = [
+  "http2",
+  "native-tokio",
+  "logging",
+  "tls12",
+], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 tower-service = { version = "0.3", optional = true }
 once_cell = { version = "1", optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls"], optional = true }
+quinn = { version = "0.11", default-features = false, features = [
+  "runtime-tokio",
+  "rustls",
+], optional = true }
 percent-encoding = "2"
 infer = { version = "0.19", optional = true }
 mime_guess = { version = "2", optional = true }

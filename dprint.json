@@ -1,17 +1,7 @@
 {
   "includes": ["**/*.md"],
-  "excludes": [
-    "node_modules",
-    ".next",
-    "out",
-    "build",
-    "target",
-    ".dist",
-    ".source"
-  ],
-  "plugins": [
-    "https://plugins.dprint.dev/markdown-0.17.8.wasm"
-  ],
+  "excludes": ["node_modules", ".next", "out", "build", "target", ".dist", ".source"],
+  "plugins": ["https://plugins.dprint.dev/markdown-0.17.8.wasm"],
   "markdown": {
     "lineWidth": 100
   }

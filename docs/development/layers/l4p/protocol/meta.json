@@ -1,6 +1,6 @@
 {
-	"title": "Protocols",
-	"description": " ",
-	"icon": "Shuffle",
-	"pages": ["tls", "dtls", "quic"]
+  "title": "Protocols",
+  "description": " ",
+  "icon": "Shuffle",
+  "pages": ["tls", "dtls", "quic"]
 }

@@ -1,6 +1,6 @@
 {
-	"title": "Middleware",
-	"description": "Logic units and Drivers",
-	"icon": "Route",
-	"pages": ["index", "matcher", "rate-limit", "upstream", "static-files", "cgi"]
+  "title": "Middleware",
+  "description": "Logic units and Drivers",
+  "icon": "Route",
+  "pages": ["index", "matcher", "rate-limit", "upstream", "static-files", "cgi"]
 }

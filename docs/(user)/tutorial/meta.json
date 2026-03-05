@@ -1,6 +1,6 @@
 {
-	"title": "Getting Started",
-	"description": "Step-by-step intro guides for beginner",
-	"icon": "BookMarked",
-	"pages": ["index", "configuration-structure", "quickstart"]
+  "title": "Getting Started",
+  "description": "Step-by-step intro guides for beginner",
+  "icon": "BookMarked",
+  "pages": ["index", "configuration-structure", "quickstart"]
 }

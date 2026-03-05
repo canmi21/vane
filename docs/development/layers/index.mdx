@@ -4,7 +4,7 @@ description: Understanding Vane's multi-tier packet processing architecture.
 icon: Layers
 ---
 
-import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Step, Steps } from 'fumadocs-ui/components/steps'
 
 Vane operates on a strictly tiered architecture, processing connections at different levels of the OSI model depending on the required depth of inspection.
 
@@ -67,7 +67,7 @@ Connections move up the stack via an **Upgrade** mechanism. This is triggered by
 A TCP connection arrives. The **L4 Flow** peeks at the first few bytes. The `detect.tls` plugin identifies a TLS ClientHello.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Socket[New Socket] --> Peek{Peek Bytes}
     Peek -- 0x16 --> Detect[Detect TLS]
@@ -83,7 +83,7 @@ graph LR
 The L4 flow executes an **Upgrade Terminator** (e.g., `upgrade "tls"`). The engine suspends L4 processing and wraps the stream in a TLS parser.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Term --> Signal[Signal: Upgrade TLS]
     Signal --> Engine[Engine Switch]
@@ -100,7 +100,7 @@ graph LR
 The **L4+ Flow** (`tls.json`) parses the SNI (e.g., `example.com`). It decides this domain requires WAF processing.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     L4P --> Parse[Parse ClientHello]
     Parse --> SNI[Extract SNI]
@@ -117,7 +117,7 @@ graph LR
 The L4+ flow executes `upgrade "httpx"`. The engine performs the TLS handshake (using the cert for `example.com`), decrypts the traffic, and hands the plaintext stream to the **L7 Engine**.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Next --> Handshake[TLS Handshake]
     Handshake --> Decrypt[Decrypt Stream]

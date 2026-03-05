@@ -4,7 +4,7 @@ description: Protocol inspection and carrier logic.
 icon: Radio
 ---
 
-import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Step, Steps } from 'fumadocs-ui/components/steps'
 
 Layer 4+ (L4+) acts as the **Carrier Layer**. It bridges the gap between raw packets and full application logic.
 
@@ -43,9 +43,9 @@ The L4+ flow (`tls.json`) determines that the request for `api.example.com` need
 </Step>
 
 <Step>
-	### Termination The flow executes `upgrade "httpx"`. - **TLS**: Vane loads the certificate for
-	`api.example.com`, completes the TLS Handshake (Decrypts), and produces a plaintext stream. -
-	**Plain**: The stream is passed directly.
+  ### Termination The flow executes `upgrade "httpx"`. - **TLS**: Vane loads the certificate for
+  `api.example.com`, completes the TLS Handshake (Decrypts), and produces a plaintext stream. -
+  **Plain**: The stream is passed directly.
 </Step>
 
 <Step>

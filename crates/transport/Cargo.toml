@@ -10,38 +10,26 @@ license = "MIT"
 tcp = ["dep:fancy-regex"]
 udp = ["dep:fancy-regex"]
 tls = [
-	"dep:rustls",
-	"dep:tokio-rustls",
-	"dep:tls-parser",
-	"dep:x509-parser",
-	"dep:rustls-pemfile",
-	"vane-app/tls",
+  "dep:rustls",
+  "dep:tokio-rustls",
+  "dep:tls-parser",
+  "dep:x509-parser",
+  "dep:rustls-pemfile",
+  "vane-app/tls",
 ]
-quic = [
-	"dep:quinn",
-	"dep:aes",
-	"vane-app/quic",
-]
+quic = ["dep:quinn", "dep:aes", "vane-app/quic"]
 lazycert = []
 console = []
-domain-target = [
-	"dep:hickory-resolver",
-	"vane-engine/domain-target",
-]
+domain-target = ["dep:hickory-resolver", "vane-engine/domain-target"]
 
 # Crypto backends
 aws-lc-rs = [
-	"rustls?/aws-lc-rs",
-	"tokio-rustls?/aws-lc-rs",
-	"quinn?/aws-lc-rs",
-	"vane-app/aws-lc-rs",
+  "rustls?/aws-lc-rs",
+  "tokio-rustls?/aws-lc-rs",
+  "quinn?/aws-lc-rs",
+  "vane-app/aws-lc-rs",
 ]
-ring = [
-	"rustls?/ring",
-	"tokio-rustls?/ring",
-	"quinn?/ring",
-	"vane-app/ring",
-]
+ring = ["rustls?/ring", "tokio-rustls?/ring", "quinn?/ring", "vane-app/ring"]
 
 [dependencies]
 vane-primitives = { path = "../primitives" }
@@ -72,12 +60,22 @@ tokio-util = "0.7"
 
 # Optional
 fancy-regex = { version = "0.17", optional = true }
-rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12"], optional = true }
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"], optional = true }
+rustls = { version = "0.23", default-features = false, features = [
+  "logging",
+  "std",
+  "tls12",
+], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+  "logging",
+  "tls12",
+], optional = true }
 rustls-pemfile = { version = "2", optional = true }
 tls-parser = { version = "0.12", optional = true }
 x509-parser = { version = "0.18", optional = true }
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls"], optional = true }
+quinn = { version = "0.11", default-features = false, features = [
+  "runtime-tokio",
+  "rustls",
+], optional = true }
 aes = { version = "0.8", optional = true }
 hickory-resolver = { version = "0.25", optional = true }
 ring = "0.17"

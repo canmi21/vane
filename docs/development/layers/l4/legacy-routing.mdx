@@ -4,12 +4,12 @@ description: Backward-compatible rule-based routing.
 icon: Route
 ---
 
-import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Step, Steps } from 'fumadocs-ui/components/steps'
 
 <Callout title="Stable but Maintenance Only" type="idea">
-	Legacy Routing is provided for strict backward compatibility. It will not receive new features,
-	but it will not be deprecated. It functions similarly to traditional Reverse Proxy Virtual Hosts.
-	For modern use cases and advanced capabilities, **Flow Routing** is the recommended primary path.
+  Legacy Routing is provided for strict backward compatibility. It will not receive new features,
+  but it will not be deprecated. It functions similarly to traditional Reverse Proxy Virtual Hosts.
+  For modern use cases and advanced capabilities, **Flow Routing** is the recommended primary path.
 </Callout>
 
 ## Overview
@@ -28,7 +28,7 @@ Legacy Routing provides strict backward compatibility with older Vane configurat
 Vane loads the protocol rules from `ports.json` and sorts them by their `priority` field (lower numbers execute first).
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Config[Load Config] --> Rules[List of Rules]
     Rules --> Sort[Sort by Priority]
@@ -44,7 +44,7 @@ graph LR
 To match rules, Vane peeks at the initial bytes of the connection without consuming them.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Socket[Socket] --> Peek[Peek N Bytes]
     Peek --> Buffer[Peek Buffer]
@@ -59,7 +59,7 @@ graph LR
 The engine iterates through the sorted rules, testing each `detect` pattern against the peek buffer.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Buffer --> Rule1{Match Rule 1?}
     Rule1 -- No --> Rule2{Match Rule 2?}
@@ -76,7 +76,7 @@ graph LR
 Once a match is found, the connection is either forwarded to a target pool or dropped if no rules match.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Match[Match Found] --> Target{Target Type}
     Target -- Forward --> Proxy[L4 Forwarder]

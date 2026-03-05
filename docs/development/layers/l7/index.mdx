@@ -4,7 +4,7 @@ description: Full HTTP termination and payload processing.
 icon: AppWindow
 ---
 
-import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Step, Steps } from 'fumadocs-ui/components/steps'
 
 Layer 7 (L7) is where Vane performs full **HTTP Termination**. Unlike L4/L4+, it parses the entire request (Headers & Body), allowing for deep inspection, transformation, and synthetic responses.
 
@@ -52,7 +52,7 @@ graph TD
 Hyper (or Quinn) accepts the connection and parses the raw bytes into Protocol Frames.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Socket[TCP/QUIC] --> Engine{Protocol Engine}
     Engine -->|Headers Frame| Headers[Header Map]
@@ -68,7 +68,7 @@ graph LR
 The Adapter populates the `Container` with zero-copy moves.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Adapter[Adapter] -->|Metadata| KV[KV Store]
     Adapter -->|Move| ReqH[Request Headers]
@@ -85,7 +85,7 @@ graph LR
 The Flow Engine executes middleware. Middleware can inspect headers or force-buffer the body on demand.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Container --> Flow[Flow Executor]
     Flow --> Mid1[Middleware 1]
@@ -104,7 +104,7 @@ graph LR
 A Terminator signals completion. It sends headers via a oneshot channel and streams the body back to the protocol engine.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Terminator -->|Signal| Channel[Oneshot TX]
     Terminator -->|Stream| Body[Response Body]

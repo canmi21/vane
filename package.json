@@ -5,7 +5,7 @@
   "scripts": {
     "build": "next build",
     "check": "bun run lint && cargo fmt --check && cargo clippy -- -D warnings && cd integration && gofmt -l .",
-    "fmt": "oxfmt --write app components && dprint fmt && cargo fmt --all && cd integration && gofmt -w .",
+    "fmt": "oxfmt --write . && dprint fmt && cargo fmt --all && cd integration && gofmt -w .",
     "dev": "next dev",
     "start": "serve out",
     "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",

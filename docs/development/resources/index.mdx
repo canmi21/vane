@@ -31,12 +31,12 @@ Resources in Vane have different lifecycles:
 - **Global/Static**: `certs` and `service_discovery` nodes are loaded during bootstrap and live for the entire process duration, though they can be refreshed via hotswap.
 
 <Callout type="info" title="Metadata Pipeline">
-	Think of the resources as a pipeline. L4 populates the `kv` store with IP data, L4+ adds SNI/HTTP
-	headers, and the `templates` system uses all this data to resolve plugin inputs in L7.
+  Think of the resources as a pipeline. L4 populates the `kv` store with IP data, L4+ adds SNI/HTTP
+  headers, and the `templates` system uses all this data to resolve plugin inputs in L7.
 </Callout>
 
 <Callout type="idea">
-	Explore the specific implementation details for [KV Store](./resources/kv-store),
-	[Templates](./resources/templates), [Service Discovery](./resources/service-discovery), and
-	[Certificates](./resources/certificates).
+  Explore the specific implementation details for [KV Store](./resources/kv-store),
+  [Templates](./resources/templates), [Service Discovery](./resources/service-discovery), and
+  [Certificates](./resources/certificates).
 </Callout>

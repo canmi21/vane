@@ -45,12 +45,11 @@ Use `<Callout>` instead of standard blockquotes (`>`) for highlighted informatio
 Use `<Steps>` for sequential instructions.
 
 ```tsx
-import { Steps, Step } from 'fumadocs-ui/components/steps';
-
-<Steps>
-	<Step>### First Step Do this.</Step>
-	<Step>### Second Step Then do that.</Step>
-</Steps>;
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+;<Steps>
+  <Step>### First Step Do this.</Step>
+  <Step>### Second Step Then do that.</Step>
+</Steps>
 ```
 
 ## Diagrams (Mermaid)
@@ -62,7 +61,7 @@ We use Mermaid for diagrams.
 
 ```tsx
 <Mermaid
-	chart="
+  chart="
 graph LR
     A[Input] --> B{Process}
     B -- Yes --> C[Output]

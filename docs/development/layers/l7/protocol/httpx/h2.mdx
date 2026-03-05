@@ -4,7 +4,7 @@ description: Multiplexed binary streams.
 icon: Globe
 ---
 
-import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Step, Steps } from 'fumadocs-ui/components/steps'
 
 ## Implementation
 
@@ -13,7 +13,7 @@ import { Step, Steps } from 'fumadocs-ui/components/steps';
 HTTP/2 support is integrated into the same `httpx` adapter as HTTP/1.1, utilizing Hyper's automatic protocol detection.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Conn[TCP Connection] -->|Multiplex| S1[Stream 1]
     Conn -->|Multiplex| S2[Stream 2]

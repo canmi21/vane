@@ -4,7 +4,7 @@ description: The variable substitution and dynamic configuration engine in Vane.
 icon: Braces
 ---
 
-import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 The Template System is Vane's dynamic engine, allowing plugin configurations to reference real-time metadata from the [KV Store](./kv-store) or specific protocol contexts (like HTTP headers or TLS SNI).
 
@@ -57,7 +57,7 @@ The engine is not limited to plain strings. Through `resolve_inputs()`, Vane can
 The `parser.rs` module converts the raw string into an Abstract Syntax Tree (AST) composed of `Text` and `Variable` nodes.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Raw[Raw String] --> Parser[AST Parser]
     Parser --> Nodes[AST: Text + Variable Nodes]
@@ -72,7 +72,7 @@ graph LR
 The `resolver.rs` module traverses the AST. If a `Variable` node contains nested parts, it recursively calls the resolver to determine the final key name.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     AST[AST Nodes] --> Resolve[Recursive Resolver]
     Resolve --> Nested{Nested?}
@@ -89,7 +89,7 @@ graph LR
 The resolved key is passed to a `TemplateContext`. While usually linked to the connection's `KvStore`, the context can also "hijack" data directly from protocol streams.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Key[Key Name] --> Context{TemplateContext}
     Context --> KV[KV Store Lookup]

@@ -4,7 +4,7 @@ description: Adaptive memory management and system resource tracking in Vane.
 icon: Activity
 ---
 
-import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 Vane implements an adaptive resource monitoring system to ensure high performance while preventing system-wide resource exhaustion, particularly during heavy Layer 7 (Application) processing where request and response bodies are buffered in memory.
 
@@ -45,7 +45,7 @@ By adding the current usage to a percentage of the _remaining_ free memory, Vane
 The `src/common/sys/system.rs` module provides cross-platform abstractions for memory detection.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     OS[Operating System] --> Check{Check Platform}
     Check -- Linux --> Proc[Parse /proc/meminfo]
@@ -62,7 +62,7 @@ graph LR
 The monitor is spawned as a detached `tokio` task. It continuously polls the system and updates the global limit atomically.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Timer[Interval 1s] --> Detect[Get Free Memory]
     Detect --> Calc[Calculate Limit]
@@ -79,7 +79,7 @@ graph LR
 The L7 layer uses an atomic counter, `GLOBAL_L7_BUFFERED_BYTES`. Every plugin or middleware that buffers a payload must increment this counter through a `BufferGuard`.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Req[Buffer Request] --> Check{Check Limit}
     Check -- Exceeded --> Deny[Return Error]
@@ -104,6 +104,6 @@ The monitoring behavior is controlled via several environment variables:
 | `L7_GLOBAL_BUFFER_LIMIT`   | `536870912` | 512MB fallback limit if adaptive mode is off.   |
 
 <Callout type="info" title="Safety Margin">
-	The adaptive ratio is capped at 95% internally to ensure that the operating system always has a
-	small buffer of memory available for critical kernel operations, even under extreme Vane load.
+  The adaptive ratio is capped at 95% internally to ensure that the operating system always has a
+  small buffer of memory available for critical kernel operations, even under extreme Vane load.
 </Callout>

@@ -8,11 +8,11 @@ description = "Management REST API for vane reverse proxy"
 
 [features]
 console = [
-	"dep:axum",
-	"dep:utoipa",
-	"dep:utoipa-axum",
-	"vane-engine/console",
-	"vane-primitives/console",
+  "dep:axum",
+  "dep:utoipa",
+  "dep:utoipa-axum",
+  "vane-engine/console",
+  "vane-primitives/console",
 ]
 swagger-ui = ["dep:utoipa-swagger-ui"]
 

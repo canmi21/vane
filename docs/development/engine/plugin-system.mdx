@@ -4,7 +4,7 @@ description: The extensible trait-based architecture for processing network flow
 icon: Blocks
 ---
 
-import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 Vane uses a decoupled, trait-based plugin system that allows logic to be reused across different network layers. The system distinguishes between protocol-agnostic "Generic" plugins and protocol-aware "HTTP" plugins.
 
@@ -78,7 +78,7 @@ Terminators signal the end of a flow. They can either finish the connection or r
 An upgrade result contains a new `ConnectionObject` (e.g., a TLS-wrapped stream) and the target protocol, triggering a transition to the next layer (e.g., L4 -> L4+).
 
 <Callout type="info" title="External Drivers">
-	When a plugin is marked as "External", Vane automatically wraps it in a driver that handles the
-	JSON-RPC-like communication over HTTP, Unix sockets, or Stdinc/Stdout. From the engine's
-	perspective, it looks like a standard `GenericMiddleware`.
+  When a plugin is marked as "External", Vane automatically wraps it in a driver that handles the
+  JSON-RPC-like communication over HTTP, Unix sockets, or Stdinc/Stdout. From the engine's
+  perspective, it looks like a standard `GenericMiddleware`.
 </Callout>

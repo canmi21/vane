@@ -4,9 +4,9 @@ description: Get Vane running on your preferred platform
 icon: Download
 ---
 
-import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
-import { Callout } from 'fumadocs-ui/components/callout';
-import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 Vane provides first-class pre-compiled binaries for modern Linux and macOS systems, alongside a Docker image for containerized environments. For developers and rolling-release distributions, source-based installation is also fully supported.
 
@@ -87,8 +87,8 @@ docker run -d \
 ### Using Docker Compose
 
 <Callout type="info">
-	We recommend storing your Docker Compose configuration at `/opt/vane/docker-compose.yml` for
-	consistency. You'll need to create a `.env` file and a dedicated Docker network before starting.
+  We recommend storing your Docker Compose configuration at `/opt/vane/docker-compose.yml` for
+  consistency. You'll need to create a `.env` file and a dedicated Docker network before starting.
 </Callout>
 
 <Steps>
@@ -147,8 +147,8 @@ networks:
 ```
 
 <Callout type="tip">
-	If you don't need network isolation, you can simplify by using host network mode. Remove the
-	`networks` section and add `network_mode: host` instead.
+  If you don't need network isolation, you can simplify by using host network mode. Remove the
+  `networks` section and add `network_mode: host` instead.
 </Callout>
 
 </Step>
@@ -171,8 +171,8 @@ For bare-metal servers, we provide **statically linked** binaries built with **m
 ### Quick Install
 
 <Callout type="info">
-	This script automatically detects your system architecture and downloads the appropriate binary
-	from the [latest release](https://github.com/canmi21/vane/releases).
+  This script automatically detects your system architecture and downloads the appropriate binary
+  from the [latest release](https://github.com/canmi21/vane/releases).
 </Callout>
 
 <Steps>
@@ -509,8 +509,8 @@ paru -S vane
 If you have the Rust toolchain installed, you can compile and install Vane directly from [crates.io](https://crates.io/crates/vane). This is the **most compatible method** for Tier 2 and Tier 3 platforms, including Windows, BSD systems, and exotic architectures.
 
 <Callout type="tip">
-	This method compiles Vane from source on your machine. Ensure you have the following build
-	dependencies installed: `cmake` and a C compiler (`gcc`, `clang`, or MSVC on Windows)
+  This method compiles Vane from source on your machine. Ensure you have the following build
+  dependencies installed: `cmake` and a C compiler (`gcc`, `clang`, or MSVC on Windows)
 </Callout>
 
 **Install build dependencies:**
@@ -540,10 +540,10 @@ vane --version
 ```
 
 <Callout type="warn" title="Compatibility Note">
-	If your system or architecture doesn't support the default `aws-lc-rs` cryptographic backend
-	(e.g., lacks assembly support), you can use the pure Rust `ring` implementation instead: ```bash
-	cargo install vane --no-default-features --features full,ring ``` This provides 100% Rust-based
-	cryptography for maximum portability.
+  If your system or architecture doesn't support the default `aws-lc-rs` cryptographic backend
+  (e.g., lacks assembly support), you can use the pure Rust `ring` implementation instead: ```bash
+  cargo install vane --no-default-features --features full,ring ``` This provides 100% Rust-based
+  cryptography for maximum portability.
 </Callout>
 
 ---

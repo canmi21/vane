@@ -14,7 +14,7 @@ icon: Funnel
 This plugin acts as the **First Phase** of Vane's L7 Two-Phase Dispatch. It fetches the response from the backend and populates the `Container`.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Req[Client Req] --> Pool{Get Conn}
     Pool --> Send[Send Req]

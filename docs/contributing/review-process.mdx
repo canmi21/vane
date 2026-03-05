@@ -4,15 +4,15 @@ description: Documentation review and approval process
 icon: GitPullRequestDraft
 ---
 
-import { Steps, Step } from 'fumadocs-ui/components/steps';
-import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+import { Callout } from 'fumadocs-ui/components/callout'
 
 Every Pull Request (PR) goes through a review process to ensure quality, accuracy, and consistency.
 
 <Callout title="Contribution Scope" type="idea">
-	We encourage direct PRs for small fixes (typos, bug patches) and documentation improvements.
-	However, for significant changes (new features, architectural refactors), please **open an Issue
-	first** to discuss your proposal before starting work.
+  We encourage direct PRs for small fixes (typos, bug patches) and documentation improvements.
+  However, for significant changes (new features, architectural refactors), please **open an Issue
+  first** to discuss your proposal before starting work.
 </Callout>
 
 ## The Lifecycle of a PR
@@ -28,8 +28,8 @@ When you open a PR, GitHub Actions will run automated checks depending on the fi
 - **Build**: Verifies that the documentation site compiles without errors.
 
 <Callout title="Note on CI Status">
-	Currently, the automated CI pipeline for Vane is still under development. You may temporarily skip
-	this check, but once implemented, all PRs must pass CI before review.
+  Currently, the automated CI pipeline for Vane is still under development. You may temporarily skip
+  this check, but once implemented, all PRs must pass CI before review.
 </Callout>
 
 **Action**: If CI fails (once active), please fix the errors and set your PR to **Draft** status until it passes. Maintainers will usually not review PRs with failing CI.

@@ -4,7 +4,7 @@ description: Management of upstream nodes and backend service health.
 icon: Radar
 ---
 
-import { Steps, Step } from 'fumadocs-ui/components/steps';
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 The Service Discovery module manages the registry of upstream nodes that Vane uses for load balancing and proxying. It transforms static configuration into a high-performance, flattened runtime state.
 
@@ -70,7 +70,7 @@ Vane performs rigorous validation during the loading process:
 During the bootstrap sequence, Vane searches for node configuration files in the config directory.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Start[Bootstrap] --> Scan[Scan nodes.*]
     Scan --> Found{File Found?}
@@ -87,7 +87,7 @@ graph LR
 The parsed and validated config is stored in `NODES_STATE`, a global `ArcSwap<NodesConfig>`.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Parsed[Parsed Config] --> Pre[Pre-Process: Flattening]
     Pre --> Validate{validate}
@@ -104,7 +104,7 @@ graph LR
 The `hotswap.rs` module runs a dedicated watch loop to detect file changes and perform zero-downtime swaps.
 
 <Mermaid
-	chart="
+  chart="
 graph LR
     Notify[Watcher Event] --> Scan[Re-scan File]
     Scan --> Diff{Content Changed?}
@@ -117,7 +117,7 @@ graph LR
 </Steps>
 
 <Callout type="info" title="Effective Changes Only">
-	Vane's hotswap logic compares the actual content of the new configuration against the old one. If
-	you save the file without making changes, the engine will skip the expensive re-calculation and
-	swap.
+  Vane's hotswap logic compares the actual content of the new configuration against the old one. If
+  you save the file without making changes, the engine will skip the expensive re-calculation and
+  swap.
 </Callout>
