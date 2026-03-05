@@ -24,7 +24,10 @@ pub async fn start() {
 	// 1. Infrastructure Readiness
 	lifecycle::ensure_config_files_exist().await;
 
-	// 2. Initialize Config Manager
+	// 2. Register Internal Plugins (must happen before config validation)
+	plugins::register_builtin_plugins();
+
+	// 3. Initialize Config Manager
 	let config_dir_path = vane_primitives::common::config::file_loader::get_config_dir();
 	let config_dir_str = config_dir_path
 		.to_str()
@@ -174,8 +177,7 @@ pub async fn start() {
 	// 8. Start Background Maintenance Tasks
 	start_background_tasks().await;
 
-	// 9. Register Internal Plugins + Load External Plugins
-	plugins::register_builtin_plugins();
+	// 9. Load External Plugins
 	plugin_loader::initialize().await;
 
 	// 10. Initialize Adaptive Resource Management

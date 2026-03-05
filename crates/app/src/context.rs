@@ -26,14 +26,22 @@ impl ExecutionContext for ApplicationContext<'_> {
 		// Temporary take ownership to wrap in Arc<RwLock> for varchain scope
 		let original_kv = std::mem::take(&mut self.container.kv);
 		let original_headers = std::mem::take(&mut self.container.request_headers);
+		let original_req_body = std::mem::replace(
+			&mut self.container.request_body,
+			crate::l7::container::PayloadState::Empty,
+		);
 		let original_resp_headers = std::mem::take(&mut self.container.response_headers);
+		let original_resp_body = std::mem::replace(
+			&mut self.container.response_body,
+			crate::l7::container::PayloadState::Empty,
+		);
 
 		let temp_container = Container::new(
 			original_kv,
 			original_headers,
-			crate::l7::container::PayloadState::Empty,
+			original_req_body,
 			original_resp_headers,
-			crate::l7::container::PayloadState::Empty,
+			original_resp_body,
 			None,
 		);
 		let container_arc = Arc::new(RwLock::new(temp_container));
@@ -50,7 +58,9 @@ impl ExecutionContext for ApplicationContext<'_> {
 				let temp = lock.into_inner();
 				self.container.kv = temp.kv;
 				self.container.request_headers = temp.request_headers;
+				self.container.request_body = temp.request_body;
 				self.container.response_headers = temp.response_headers;
+				self.container.response_body = temp.response_body;
 			}
 			Err(_) => {
 				panic!("BUG: Container Arc has lingering references after scope drop");

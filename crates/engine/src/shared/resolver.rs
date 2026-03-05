@@ -12,6 +12,8 @@ use once_cell::sync::Lazy;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 #[cfg(feature = "domain-target")]
 use std::str::FromStr;
+#[cfg(feature = "domain-target")]
+use std::time::Duration;
 use std::sync::Arc;
 use vane_primitives::model::{ResolvedTarget, Target};
 
@@ -44,8 +46,14 @@ static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
 		);
 	}
 
+	let mut opts = ResolverOpts::default();
+	opts.timeout = Duration::from_secs(
+		envflag::get::<u64>("DNS_TIMEOUT_SECS", 2),
+	);
+	opts.attempts = envflag::get::<usize>("DNS_ATTEMPTS", 1);
+
 	TokioResolver::builder_with_config(config, TokioConnectionProvider::default())
-		.with_options(ResolverOpts::default())
+		.with_options(opts)
 		.build()
 });
 
