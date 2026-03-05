@@ -1,4 +1,4 @@
-/* src/plugins/protocol/mod.rs */
+// Protocol modules now live in vane-transport; upgrader stays in binary
 
 pub mod detect;
 pub mod quic;

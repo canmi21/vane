@@ -1,4 +1,4 @@
-/* src/layers/l4p/mod.rs */
+// Transport modules now live in vane-transport
 
 pub mod context;
 pub mod flow;

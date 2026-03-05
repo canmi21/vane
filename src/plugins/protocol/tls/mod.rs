@@ -1,3 +1,4 @@
-/* src/plugins/protocol/tls/mod.rs */
+// Module now lives in vane-transport
+pub use vane_transport::protocol::tls::*;
 
 pub mod clienthello;

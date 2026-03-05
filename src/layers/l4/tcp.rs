@@ -1,2 +1,2 @@
-// Config types now live in vane-engine
-pub use vane_engine::config::{TcpConfig, TcpFlowConfig as FlowConfig};
+// Module now lives in vane-transport
+pub use vane_transport::l4::tcp::*;

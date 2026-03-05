@@ -1,6 +1,5 @@
-/* src/ingress/mod.rs */
+// Transport modules now live in vane-transport; tasks stays in binary
 
-// pub mod api; // Moved to src/api/handlers/ports.rs
 pub mod hotswap;
 pub mod listener;
 pub mod state;

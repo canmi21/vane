@@ -1,26 +1,2 @@
-/* src/layers/l4/flow.rs */
-
-use anyhow::Result;
-
-use crate::engine::context::TransportContext;
-use crate::engine::executor;
-use crate::engine::interfaces::{ConnectionObject, ProcessingStep, TerminatorResult};
-use crate::resources::kv::KvStore;
-
-use bytes::Bytes;
-
-/// Public entry point for executing a flow.
-pub async fn execute(
-	step: &ProcessingStep,
-	kv: &mut KvStore,
-	conn: ConnectionObject,
-	initial_payloads: ahash::AHashMap<String, Bytes>,
-) -> Result<TerminatorResult> {
-	kv.insert("conn.layer".to_owned(), "l4".to_owned());
-
-	let mut context = TransportContext {
-		kv,
-		payloads: initial_payloads,
-	};
-	executor::execute(step, &mut context, conn, String::new()).await
-}
+// Module now lives in vane-transport
+pub use vane_transport::l4::flow::*;

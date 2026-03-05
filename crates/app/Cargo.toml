@@ -9,6 +9,7 @@ license = "MIT"
 [features]
 httpx = []
 tls = [
+	"httpx",
 	"dep:rustls",
 	"dep:tokio-rustls",
 	"dep:hyper-rustls",
@@ -16,7 +17,7 @@ tls = [
 	"dep:tower-service",
 	"dep:once_cell",
 ]
-quic = ["dep:h3", "dep:h3-quinn"]
+quic = ["httpx", "dep:h3", "dep:h3-quinn"]
 h3upstream = ["quic", "dep:quinn"]
 cgi = []
 static = ["dep:infer", "dep:mime_guess", "dep:futures-util"]
