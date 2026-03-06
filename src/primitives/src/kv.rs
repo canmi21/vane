@@ -178,4 +178,21 @@ mod tests {
 		assert_eq!(removed.as_deref(), Some("world"));
 		assert!(kv.get("custom.key").is_none());
 	}
+
+	#[test]
+	fn ipv6_peer_address() {
+		let peer = SocketAddr::new(IpAddr::V6("::1".parse().unwrap()), 9999);
+		let server = SocketAddr::new(IpAddr::V6("::1".parse().unwrap()), 443);
+		let kv = KvStore::new(&peer, &server, "tcp");
+		assert_eq!(kv.conn_ip(), "::1");
+		assert_eq!(kv.server_ip(), "::1");
+	}
+
+	#[test]
+	fn default_store_is_empty() {
+		let kv = KvStore::default();
+		assert!(kv.get(KEY_CONN_UUID).is_none());
+		assert!(kv.get(KEY_CONN_IP).is_none());
+		assert!(kv.get("anything").is_none());
+	}
 }

@@ -48,4 +48,10 @@ mod tests {
 		let back: Detect = serde_json::from_str(&json).unwrap();
 		assert_eq!(detect, back);
 	}
+
+	#[test]
+	fn invalid_method_json_error() {
+		let result = serde_json::from_str::<DetectMethod>(r#""unknown_method""#);
+		assert!(result.is_err());
+	}
 }

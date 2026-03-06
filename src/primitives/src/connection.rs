@@ -85,7 +85,7 @@ impl Drop for InternalGuard {
 #[allow(clippy::unwrap_used)]
 mod tests {
 	use super::*;
-	use std::net::Ipv4Addr;
+	use std::net::{Ipv4Addr, Ipv6Addr};
 
 	fn localhost() -> IpAddr {
 		IpAddr::V4(Ipv4Addr::LOCALHOST)
@@ -157,5 +157,17 @@ mod tests {
 		assert_eq!(tracker.ip_count(&localhost()), 1);
 		drop(guard);
 		assert_eq!(tracker.ip_count(&localhost()), 0);
+	}
+
+	#[test]
+	fn ipv6_acquire_and_release() {
+		let tracker = Arc::new(ConnectionTracker::new(10, 5));
+		let ipv6 = IpAddr::V6(Ipv6Addr::LOCALHOST);
+		let guard = tracker.acquire(ipv6).unwrap();
+		assert_eq!(tracker.global_count(), 1);
+		assert_eq!(tracker.ip_count(&ipv6), 1);
+		drop(guard);
+		assert_eq!(tracker.global_count(), 0);
+		assert_eq!(tracker.ip_count(&ipv6), 0);
 	}
 }

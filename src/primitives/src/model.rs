@@ -95,4 +95,26 @@ mod tests {
 		assert_eq!(forward.targets.len(), 1);
 		assert_eq!(forward.fallbacks.len(), 1);
 	}
+
+	#[test]
+	fn resolved_target_from_socket_addr() {
+		let addr: SocketAddr = "10.0.0.1:8080".parse().unwrap();
+		let target = ResolvedTarget { addr };
+		assert_eq!(target.addr, addr);
+	}
+
+	#[test]
+	fn target_ipv6_serde_roundtrip() {
+		let target = Target::Ip { ip: "::1".parse().unwrap(), port: 443 };
+		let json = serde_json::to_string(&target).unwrap();
+		let back: Target = serde_json::from_str(&json).unwrap();
+		assert_eq!(target, back);
+	}
+
+	#[test]
+	fn invalid_target_json_error() {
+		let bad_json = r#"{"not_ip_or_domain": true}"#;
+		let result = serde_json::from_str::<Target>(bad_json);
+		assert!(result.is_err());
+	}
 }
