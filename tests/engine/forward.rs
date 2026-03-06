@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{

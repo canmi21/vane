@@ -45,17 +45,13 @@ pub async fn handle_connection(
 ) {
     let _kv = KvStore::new(&peer_addr, &server_addr, "tcp");
 
-    let target = match select_target(&rule.forward) {
-        Some(t) => t,
-        None => {
-            tracing::warn!(%peer_addr, "no targets configured");
-            return;
-        }
+    let Some(target) = select_target(&rule.forward) else {
+        tracing::warn!(%peer_addr, "no targets configured");
+        return;
     };
 
-    let resolved = match resolve_target(target) {
-        Some(r) => r,
-        None => return,
+    let Some(resolved) = resolve_target(target) else {
+        return;
     };
 
     let span = tracing::info_span!("connection", %peer_addr, upstream = %resolved.addr);

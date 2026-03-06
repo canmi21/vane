@@ -20,8 +20,9 @@ pub struct KvStore {
 impl KvStore {
     /// Create a new store populated with connection metadata.
     ///
-    /// Generates a UUIDv7 (32-char hex, no dashes) and normalizes protocol to lowercase.
+    /// Generates a `UUIDv7` (32-char hex, no dashes) and normalizes protocol to lowercase.
     #[must_use]
+    #[allow(clippy::expect_used)] // system clock before UNIX epoch is unrecoverable
     pub fn new(peer_addr: &SocketAddr, server_addr: &SocketAddr, protocol: &str) -> Self {
         let mut inner = AHashMap::with_capacity(8);
 
@@ -43,38 +44,45 @@ impl KvStore {
         Self { inner }
     }
 
-    // -- typed getters (guaranteed present after new()) --
-
+    // Typed getters below are guaranteed present after new(); expect is a
+    // structural invariant, not a runtime risk.
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn conn_uuid(&self) -> &str {
         self.inner.get(KEY_CONN_UUID).expect("conn.uuid missing")
     }
 
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn conn_ip(&self) -> &str {
         self.inner.get(KEY_CONN_IP).expect("conn.ip missing")
     }
 
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn conn_port(&self) -> &str {
         self.inner.get(KEY_CONN_PORT).expect("conn.port missing")
     }
 
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn conn_proto(&self) -> &str {
         self.inner.get(KEY_CONN_PROTO).expect("conn.proto missing")
     }
 
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn conn_timestamp(&self) -> &str {
         self.inner.get(KEY_CONN_TIMESTAMP).expect("conn.timestamp missing")
     }
 
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn server_ip(&self) -> &str {
         self.inner.get(KEY_SERVER_IP).expect("server.ip missing")
     }
 
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn server_port(&self) -> &str {
         self.inner.get(KEY_SERVER_PORT).expect("server.port missing")
@@ -97,13 +105,14 @@ impl KvStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr};
 
     fn test_addrs() -> (SocketAddr, SocketAddr) {
         let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 54321);
-        let server = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 8080);
+        let server = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);
         (peer, server)
     }
 

@@ -38,6 +38,7 @@ impl ConnectionTracker {
 
         self.global_count.fetch_add(1, Ordering::Relaxed);
         ip_entry.fetch_add(1, Ordering::Relaxed);
+        drop(ip_entry);
 
         Some(ConnectionGuard(Arc::new(InternalGuard {
             tracker: self.clone(),
@@ -87,6 +88,7 @@ impl Drop for InternalGuard {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::net::Ipv4Addr;

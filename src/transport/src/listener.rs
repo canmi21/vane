@@ -54,7 +54,7 @@ impl std::fmt::Debug for TcpListenerHandle {
 		f.debug_struct("TcpListenerHandle")
 			.field("local_addr", &self.local_addr)
 			.field("state", &self.state())
-			.finish()
+			.finish_non_exhaustive()
 	}
 }
 
@@ -67,7 +67,7 @@ impl TcpListenerHandle {
 		*self.state_tx.borrow()
 	}
 
-	pub fn local_addr(&self) -> SocketAddr {
+	pub const fn local_addr(&self) -> SocketAddr {
 		self.local_addr
 	}
 
@@ -93,6 +93,8 @@ async fn bind_with_retry(
 			}
 		}
 	}
+	// last_err is always Some after the loop runs at least once (retries >= 1)
+	#[allow(clippy::unwrap_used)]
 	Err(ListenerError::BindFailed {
 		addr,
 		attempts: retries,
@@ -150,6 +152,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
 	use super::*;
 	use tokio::io::AsyncWriteExt;

@@ -100,7 +100,7 @@ pub async fn proxy_tcp(
 				source: e,
 			}),
 		},
-		_ = watchdog => {
+		() = watchdog => {
 			let idle_secs = config.idle_timeout.as_secs();
 			tracing::warn!(idle_secs, "idle timeout triggered");
 			Err(ProxyError::IdleTimeout { idle_secs })
@@ -111,6 +111,7 @@ pub async fn proxy_tcp(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
 	use super::*;
 	use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -172,7 +173,7 @@ mod tests {
 		let elapsed = start.elapsed();
 
 		assert!(
-			matches!(result, Err(ProxyError::ConnectTimeout { .. }) | Err(ProxyError::ConnectFailed { .. })),
+			matches!(result, Err(ProxyError::ConnectTimeout { .. } | ProxyError::ConnectFailed { .. })),
 			"expected ConnectTimeout or ConnectFailed, got {result:?}"
 		);
 		assert!(elapsed < Duration::from_secs(2), "took too long: {elapsed:?}");

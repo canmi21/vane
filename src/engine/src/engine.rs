@@ -18,6 +18,7 @@ pub enum EngineError {
     },
 }
 
+#[derive(Clone, Copy)]
 pub struct EngineConfig {
     pub max_connections: usize,
     pub max_connections_per_ip: usize,
@@ -51,8 +52,10 @@ impl Engine {
     }
 
     pub async fn start(&mut self) -> Result<(), EngineError> {
-        let _span = tracing::info_span!("engine").entered();
+        let span = tracing::info_span!("engine");
+        let guard = span.enter();
         let ports: Vec<u16> = self.route_table.ports().collect();
+        drop(guard);
 
         for port in ports {
             let config = ListenerConfig {
@@ -69,15 +72,12 @@ impl Engine {
                     let table = table.clone();
                     let tracker = tracker.clone();
                     tokio::spawn(async move {
-                        let guard = match tracker.acquire(peer_addr.ip()) {
-                            Some(g) => g,
-                            None => {
-                                tracing::warn!(
-                                    %peer_addr,
-                                    "connection rejected: limit exceeded"
-                                );
-                                return;
-                            }
+                        let Some(guard) = tracker.acquire(peer_addr.ip()) else {
+                            tracing::warn!(
+                                %peer_addr,
+                                "connection rejected: limit exceeded"
+                            );
+                            return;
                         };
                         if let Some(rule) = table.lookup(listener_port) {
                             handle_connection(stream, peer_addr, server_addr, rule, guard).await;

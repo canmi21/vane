@@ -29,7 +29,7 @@ impl EchoServer {
         Self { addr, handle }
     }
 
-    pub fn addr(&self) -> SocketAddr {
+    pub const fn addr(&self) -> SocketAddr {
         self.addr
     }
 

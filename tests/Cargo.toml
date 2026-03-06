@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 vane-engine.workspace = true
 vane-primitives.workspace = true

@@ -25,6 +25,7 @@ impl RouteTable {
         }
     }
 
+    #[must_use]
     pub fn add(mut self, port: u16, rule: PortRule) -> Self {
         self.rules.insert(port, rule);
         self

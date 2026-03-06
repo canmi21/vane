@@ -35,3 +35,36 @@ vane-transport = { path = "src/transport" }
 vane-engine = { path = "src/engine" }
 vane-extra = { path = "src/extra" }
 vane-test-utils = { path = "src/test-utils" }
+
+[workspace.lints.clippy]
+# -- lint groups --
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# -- individual lints --
+# Network engine should not panic; encourage Result-based error handling
+unwrap_used = "warn"
+expect_used = "warn"
+# Track temporary placeholders so they don't slip into releases
+todo = "warn"
+
+# -- pedantic allows --
+# Types like EngineError, ProxyConfig are clearer with the module prefix repeated
+module_name_repetitions = "allow"
+# We add #[must_use] manually where it matters; auto-suggesting it everywhere is noise
+must_use_candidate = "allow"
+# Rustdoc coverage is not yet a priority; these will be enabled later
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Timestamp and byte-count conversions use intentional as-casts (e.g. u128 -> u64 millis)
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+# Proxy code uses deliberately paired short names (cr/cw, ur/uw) for stream halves
+similar_names = "allow"
+# Returning Result from main() or handlers often has only one error variant; forcing impl is premature
+unnecessary_wraps = "allow"
+
+# -- nursery allows --
+# A network proxy forwards data between two sides; the two sides mirror each other.
+# Extracting common code harms readability more than the duplication costs.
+cognitive_complexity = "allow"
