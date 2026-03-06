@@ -9,18 +9,18 @@ use hickory_resolver::{
 	proto::xfer::Protocol,
 };
 #[cfg(feature = "domain-target")]
-use once_cell::sync::Lazy;
-#[cfg(feature = "domain-target")]
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 #[cfg(feature = "domain-target")]
 use std::str::FromStr;
 use std::sync::Arc;
 #[cfg(feature = "domain-target")]
+use std::sync::LazyLock;
+#[cfg(feature = "domain-target")]
 use std::time::Duration;
 use vane_primitives::model::{ResolvedTarget, Target};
 
 #[cfg(feature = "domain-target")]
-static DNS_RESOLVER: Lazy<TokioResolver> = Lazy::new(|| {
+static DNS_RESOLVER: LazyLock<TokioResolver> = LazyLock::new(|| {
 	let ns1_str = envflag::get_string("NAMESERVER1", "1.1.1.1");
 	let ns1_port = envflag::get::<u16>("NAMESERVER1_PORT", 53);
 	let ns2_str = envflag::get_string("NAMESERVER2", "8.8.8.8");

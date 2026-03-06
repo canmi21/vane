@@ -1,11 +1,12 @@
 /* src/primitives/src/lazycert.rs */
 
 use dashmap::DashMap;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 /// Global registry for active HTTP-01 challenges
 /// Maps token -> key_authorization
-pub static CHALLENGE_REGISTRY: Lazy<DashMap<String, ChallengeEntry>> = Lazy::new(DashMap::new);
+pub static CHALLENGE_REGISTRY: LazyLock<DashMap<String, ChallengeEntry>> =
+	LazyLock::new(DashMap::new);
 
 #[derive(Clone, Debug)]
 pub struct ChallengeEntry {

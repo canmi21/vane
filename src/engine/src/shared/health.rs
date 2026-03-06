@@ -4,7 +4,7 @@ use crate::config::{TcpConfig, TcpDestination};
 use crate::shared::resolver;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::{collections::HashSet, time::Duration};
 use tokio::{net::TcpStream, task::JoinHandle, time::Instant};
 use vane_primitives::model::ResolvedTarget;
@@ -21,9 +21,10 @@ impl TargetHealth {
 	}
 }
 
-pub static TARGET_HEALTH_REGISTRY: Lazy<DashMap<ResolvedTarget, TargetHealth>> =
-	Lazy::new(DashMap::new);
-static UNHEALTHY_UDP_TARGETS: Lazy<DashMap<ResolvedTarget, Instant>> = Lazy::new(DashMap::new);
+pub static TARGET_HEALTH_REGISTRY: LazyLock<DashMap<ResolvedTarget, TargetHealth>> =
+	LazyLock::new(DashMap::new);
+static UNHEALTHY_UDP_TARGETS: LazyLock<DashMap<ResolvedTarget, Instant>> =
+	LazyLock::new(DashMap::new);
 
 async fn check_tcp_target_health(target: ResolvedTarget, timeout_ms: u64) {
 	let start = Instant::now();

@@ -7,7 +7,7 @@ use h3_quinn::{
 	OpenStreams,
 	quinn::{ClientConfig, Endpoint, TransportConfig},
 };
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, RwLock};
 use vane_engine::shared::resolver;
@@ -60,8 +60,8 @@ async fn get_global_endpoint() -> Result<&'static Endpoint> {
 		.await
 }
 
-static CONNECTION_POOL: Lazy<RwLock<HashMap<PoolKey, QuicSender>>> =
-	Lazy::new(|| RwLock::new(HashMap::new()));
+static CONNECTION_POOL: LazyLock<RwLock<HashMap<PoolKey, QuicSender>>> =
+	LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub async fn get_or_create_connection(
 	host: &str,

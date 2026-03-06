@@ -10,9 +10,9 @@ use client::LazyCertClient;
 #[cfg(feature = "lazycert")]
 use fancy_log::{LogLevel, log};
 #[cfg(feature = "lazycert")]
-use once_cell::sync::OnceCell;
-#[cfg(feature = "lazycert")]
 use std::sync::Arc;
+#[cfg(feature = "lazycert")]
+use std::sync::OnceLock;
 #[cfg(feature = "lazycert")]
 use tokio::sync::RwLock;
 #[cfg(feature = "lazycert")]
@@ -20,11 +20,11 @@ use vane_engine::config::LazyCertConfig;
 
 /// Global LazyCert configuration (supports hot-reload)
 #[cfg(feature = "lazycert")]
-pub static LAZYCERT_CONFIG: OnceCell<Arc<RwLock<Option<LazyCertConfig>>>> = OnceCell::new();
+pub static LAZYCERT_CONFIG: OnceLock<Arc<RwLock<Option<LazyCertConfig>>>> = OnceLock::new();
 
 /// Global LazyCert client instance
 #[cfg(feature = "lazycert")]
-pub static LAZYCERT_CLIENT: OnceCell<Arc<RwLock<Option<Arc<LazyCertClient>>>>> = OnceCell::new();
+pub static LAZYCERT_CLIENT: OnceLock<Arc<RwLock<Option<Arc<LazyCertClient>>>>> = OnceLock::new();
 
 /// Initialize LazyCert integration
 pub async fn initialize() {

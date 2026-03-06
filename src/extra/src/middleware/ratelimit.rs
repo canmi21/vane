@@ -4,8 +4,8 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
-use once_cell::sync::Lazy;
 use serde_json::Value;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{any::Any, borrow::Cow, sync::Arc, time::Duration};
 use vane_engine::engine::interfaces::{
@@ -18,7 +18,7 @@ use vane_engine::engine::interfaces::{
 const ENTRY_OVERHEAD: usize = 92;
 
 /// Storage for per-second rate limiting.
-static SEC_POOL: Lazy<Arc<DashMap<String, u32>>> = Lazy::new(|| {
+static SEC_POOL: LazyLock<Arc<DashMap<String, u32>>> = LazyLock::new(|| {
 	let map = Arc::new(DashMap::new());
 	let map_clone = map.clone();
 	tokio::spawn(async move {
@@ -37,7 +37,7 @@ static SEC_POOL: Lazy<Arc<DashMap<String, u32>>> = Lazy::new(|| {
 static SEC_POOL_USAGE: AtomicUsize = AtomicUsize::new(0);
 
 /// Storage for per-minute rate limiting.
-static MIN_POOL: Lazy<Arc<DashMap<String, u32>>> = Lazy::new(|| {
+static MIN_POOL: LazyLock<Arc<DashMap<String, u32>>> = LazyLock::new(|| {
 	let map = Arc::new(DashMap::new());
 	let map_clone = map.clone();
 	tokio::spawn(async move {

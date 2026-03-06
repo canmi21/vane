@@ -4,9 +4,9 @@ use super::LAZYCERT_CLIENT;
 use super::client::LazyCertClient;
 use anyhow::Result;
 use fancy_log::{LogLevel, log};
-use once_cell::sync::Lazy;
 use sigterm::CancellationToken;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::fs;
 use tokio::sync::RwLock;
@@ -15,7 +15,8 @@ use vane_primitives::common::config::file_loader;
 use vane_primitives::lazycert::{CHALLENGE_REGISTRY, ChallengeEntry};
 
 /// Global cancellation token for sync task
-static SYNC_CANCEL: Lazy<RwLock<Option<CancellationToken>>> = Lazy::new(|| RwLock::new(None));
+static SYNC_CANCEL: LazyLock<RwLock<Option<CancellationToken>>> =
+	LazyLock::new(|| RwLock::new(None));
 
 /// Spawn background task for LazyCert synchronization
 pub fn spawn_sync_task(client: Arc<LazyCertClient>, poll_interval: Duration) {

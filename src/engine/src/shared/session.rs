@@ -2,10 +2,10 @@
 
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
-use once_cell::sync::Lazy;
 use std::mem;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use tokio::net::UdpSocket;
 use tokio::time::{Duration, Instant};
 use vane_primitives::model::ResolvedTarget;
@@ -22,11 +22,13 @@ pub struct Session {
 /// The key is a tuple of (client_address, protocol_name) to ensure
 /// that traffic from a single client can be routed to different backends
 /// based on the matched protocol rule.
-pub static SESSIONS: Lazy<DashMap<(SocketAddr, String), Arc<Session>>> = Lazy::new(DashMap::new);
+pub static SESSIONS: LazyLock<DashMap<(SocketAddr, String), Arc<Session>>> =
+	LazyLock::new(DashMap::new);
 
 /// A reverse mapping from an upstream socket's ephemeral address back to the client's address.
 /// This is essential for routing replies correctly.
-pub static REVERSE_SESSIONS: Lazy<DashMap<SocketAddr, SocketAddr>> = Lazy::new(DashMap::new);
+pub static REVERSE_SESSIONS: LazyLock<DashMap<SocketAddr, SocketAddr>> =
+	LazyLock::new(DashMap::new);
 
 /// Spawns a background task to clean up expired UDP sessions.
 /// The session timeout is configurable via the `UDP_SESSION_TIMEOUT_SECS` environment variable.

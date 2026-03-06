@@ -7,12 +7,12 @@ use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::{HttpConnector, dns::Name};
 use hyper_util::rt::{TokioExecutor, TokioTimer};
-use once_cell::sync::Lazy;
 use rustls::ClientConfig;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tower_service::Service;
@@ -54,8 +54,8 @@ impl Service<Name> for VaneResolver {
 pub type HttpClient = Client<HttpsConnector<HttpConnector<VaneResolver>>, BoxBody<Bytes, Error>>;
 
 // --- Global Pools ---
-pub static GLOBAL_SECURE_CLIENT: Lazy<HttpClient> = Lazy::new(|| build_client(false));
-pub static GLOBAL_INSECURE_CLIENT: Lazy<HttpClient> = Lazy::new(|| build_client(true));
+pub static GLOBAL_SECURE_CLIENT: LazyLock<HttpClient> = LazyLock::new(|| build_client(false));
+pub static GLOBAL_INSECURE_CLIENT: LazyLock<HttpClient> = LazyLock::new(|| build_client(true));
 
 fn build_client(skip_verify: bool) -> HttpClient {
 	let idle_timeout_s = envflag::get::<u64>("UPSTREAM_POOL_IDLE_TIMEOUT", 90);

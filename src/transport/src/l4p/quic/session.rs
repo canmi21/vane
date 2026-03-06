@@ -2,10 +2,10 @@
 
 use dashmap::DashMap;
 use fancy_log::{LogLevel, log};
-use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tokio::net::UdpSocket;
@@ -100,16 +100,16 @@ impl Drop for PendingState {
 }
 
 /// Global registry mapping Connection IDs (DCID) to Actions.
-pub static CID_REGISTRY: Lazy<DashMap<Vec<u8>, SessionAction>> = Lazy::new(DashMap::new);
+pub static CID_REGISTRY: LazyLock<DashMap<Vec<u8>, SessionAction>> = LazyLock::new(DashMap::new);
 
 /// Registry for pending Initials waiting for SNI.
-pub static PENDING_INITIALS: Lazy<DashMap<Vec<u8>, PendingState>> = Lazy::new(DashMap::new);
+pub static PENDING_INITIALS: LazyLock<DashMap<Vec<u8>, PendingState>> = LazyLock::new(DashMap::new);
 
 /// IP Stickiness Map: ClientAddr -> (TargetAddr, UpstreamSocket, LastSeen, Guard)
 /// Used when CID lookup fails (e.g. server-initiated CID migration in Transparent Proxy).
-pub static IP_STICKY_MAP: Lazy<
+pub static IP_STICKY_MAP: LazyLock<
 	DashMap<SocketAddr, (SocketAddr, Arc<UdpSocket>, Instant, ConnectionGuard)>,
-> = Lazy::new(DashMap::new);
+> = LazyLock::new(DashMap::new);
 
 pub fn register_session(cid: Vec<u8>, action: SessionAction) {
 	// Removal from PENDING_INITIALS triggers Drop, releasing bytes automatically.

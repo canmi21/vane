@@ -3,10 +3,11 @@
 use crate::engine::interfaces::Plugin;
 use dashmap::DashMap;
 use live::holder::{Store, UnloadPolicy};
-use once_cell::sync::Lazy;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
-static INTERNAL_PLUGIN_REGISTRY: Lazy<DashMap<String, Arc<dyn Plugin>>> = Lazy::new(DashMap::new);
+static INTERNAL_PLUGIN_REGISTRY: LazyLock<DashMap<String, Arc<dyn Plugin>>> =
+	LazyLock::new(DashMap::new);
 
 /// Register an internal plugin by name. Used by bootstrap to populate the
 /// registry after all crate-level types are available.
@@ -21,19 +22,19 @@ pub fn register_plugins(plugins: Vec<Arc<dyn Plugin>>) {
 	}
 }
 
-static EXTERNAL_PLUGIN_REGISTRY: Lazy<Store<Arc<dyn Plugin>>> = Lazy::new(Store::new);
+static EXTERNAL_PLUGIN_REGISTRY: LazyLock<Store<Arc<dyn Plugin>>> = LazyLock::new(Store::new);
 
 /// Stores the health status of external plugins.
 /// Key: Plugin Name
 /// Value: Result<(), ErrorMessage>
-pub static EXTERNAL_PLUGIN_STATUS: Lazy<DashMap<String, Result<(), String>>> =
-	Lazy::new(DashMap::new);
+pub static EXTERNAL_PLUGIN_STATUS: LazyLock<DashMap<String, Result<(), String>>> =
+	LazyLock::new(DashMap::new);
 
 /// Tracks the last runtime failure (IO error) of external plugins.
 /// Key: Plugin Name
 /// Value: Instant of last failure
-pub static EXTERNAL_PLUGIN_FAILURES: Lazy<DashMap<String, std::time::Instant>> =
-	Lazy::new(DashMap::new);
+pub static EXTERNAL_PLUGIN_FAILURES: LazyLock<DashMap<String, std::time::Instant>> =
+	LazyLock::new(DashMap::new);
 
 #[must_use]
 pub fn get_plugin(name: &str) -> Option<Arc<dyn Plugin>> {

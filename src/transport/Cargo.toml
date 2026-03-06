@@ -48,7 +48,6 @@ serde_json = "1"
 fancy-log = "0.1"
 envflag = "0.1"
 dashmap = "6"
-once_cell = "1"
 sigterm = { version = "0.3", features = ["full"] }
 guess = { version = "0.1", features = ["http", "tls", "dns", "quic"] }
 httparse = "1"

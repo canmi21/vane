@@ -1,10 +1,10 @@
 /* src/primitives/src/common/sys/lifecycle.rs */
 
 use crate::common::config::file_loader;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::time::Instant;
 
-pub static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
+pub static START_TIME: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

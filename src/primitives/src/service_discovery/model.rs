@@ -1,6 +1,5 @@
 /* src/primitives/src/service_discovery/model.rs */
 
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -8,10 +7,9 @@ use std::collections::HashSet;
 use utoipa::ToSchema;
 use validator::{Validate, ValidationError, ValidationErrors, ValidationErrorsKind};
 
-lazy_static! {
-	static ref NAME_REGEX: regex::Regex =
-		regex::Regex::new(r"^[a-z0-9-]+$").expect("Failed to compile NAME_REGEX");
-}
+static NAME_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+	regex::Regex::new(r"^[a-z0-9-]+$").expect("Failed to compile NAME_REGEX")
+});
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]

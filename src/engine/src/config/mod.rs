@@ -6,14 +6,14 @@ use fancy_log::{LogLevel, log};
 use live::controller::{KeyPattern, Live, LiveDir, LiveError, ScanMode};
 use live::holder::Store;
 use live::loader::{DynLoader, FileSource, format::AnyFormat};
-use once_cell::sync::OnceCell;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 mod types;
 pub use types::*;
 
-pub static CONFIG: OnceCell<ConfigManager> = OnceCell::new();
+pub static CONFIG: OnceLock<ConfigManager> = OnceLock::new();
 
 #[must_use]
 pub fn get() -> &'static ConfigManager {

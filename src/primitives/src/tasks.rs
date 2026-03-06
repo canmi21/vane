@@ -2,9 +2,9 @@
 
 use dashmap::DashMap;
 
-use once_cell::sync::Lazy;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // --- Connection Tracking ---
@@ -79,5 +79,5 @@ impl ConnectionTracker {
 	}
 }
 
-pub static GLOBAL_TRACKER: Lazy<Arc<ConnectionTracker>> =
-	Lazy::new(|| Arc::new(ConnectionTracker::new()));
+pub static GLOBAL_TRACKER: LazyLock<Arc<ConnectionTracker>> =
+	LazyLock::new(|| Arc::new(ConnectionTracker::new()));

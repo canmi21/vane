@@ -5,12 +5,12 @@ use crate::shared::{
 	resolver,
 };
 use dashmap::DashMap;
-use once_cell::sync::Lazy;
 use rand::prelude::IndexedRandom;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use vane_primitives::model::{Forward, ResolvedTarget, Strategy};
 
-static SERIAL_COUNTERS: Lazy<DashMap<(u16, String), AtomicUsize>> = Lazy::new(DashMap::new);
+static SERIAL_COUNTERS: LazyLock<DashMap<(u16, String), AtomicUsize>> = LazyLock::new(DashMap::new);
 
 /// Selects a TCP target by resolving, checking health, and applying a strategy.
 pub async fn select_tcp_target(

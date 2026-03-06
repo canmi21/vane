@@ -1,10 +1,10 @@
 /* src/transport/src/ingress/state.rs */
 
 use dashmap::DashMap;
-use once_cell::sync::Lazy;
 use serde::Serialize;
 use sigterm::ShutdownHandle;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use tokio::time::Instant;
 
 /// Represents the network protocol a port is listening on.
@@ -28,7 +28,8 @@ pub struct RunningListener {
 }
 
 /// The global, thread-safe registry of all active and draining listener tasks.
-pub static TASK_REGISTRY: Lazy<DashMap<(u16, Protocol), RunningListener>> = Lazy::new(DashMap::new);
+pub static TASK_REGISTRY: LazyLock<DashMap<(u16, Protocol), RunningListener>> =
+	LazyLock::new(DashMap::new);
 
 #[cfg(test)]
 mod tests {

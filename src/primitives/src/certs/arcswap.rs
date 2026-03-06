@@ -1,9 +1,9 @@
 /* src/primitives/src/certs/arcswap.rs */
 
 use live::holder::{Store, UnloadPolicy};
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use tokio_rustls::rustls::pki_types::{
 	CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
 };
@@ -44,7 +44,7 @@ impl LoadedCert {
 	}
 }
 
-pub static CERT_REGISTRY: Lazy<Store<LoadedCert>> = Lazy::new(Store::new);
+pub static CERT_REGISTRY: LazyLock<Store<LoadedCert>> = LazyLock::new(Store::new);
 
 pub fn update_registry(new_map: HashMap<String, Arc<LoadedCert>>) {
 	for (id, cert) in new_map {
