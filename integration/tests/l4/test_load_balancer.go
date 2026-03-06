@@ -192,14 +192,9 @@ func TestLoadBalancerRandom(ctx context.Context, s *env.Sandbox) error {
 		}
 	}
 
-	if total != int64(requestCount) {
-		// Note: Some requests might fail if Vane tried to send to unhealthy target before it realized it was unhealthy.
-		// But we waited 2s.
-		// Actually, Random only picks from 'available_targets'.
-		// If total is less, it means some connections failed or were routed elsewhere?
-		// Or connection close race.
-		// Let's just warn or allow small delta.
-	}
+	// Note: total may differ slightly from requestCount due to connection close races.
+	// Random strategy only picks from 'available_targets', so small deltas are acceptable.
+	_ = total
 
 	return nil
 }

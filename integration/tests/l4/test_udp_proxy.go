@@ -2,6 +2,7 @@
 package l4
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -59,11 +60,11 @@ func TestUdpProxy(ctx context.Context, s *env.Sandbox) error {
 		},
 	}
 
-	bytes, err := yaml.Marshal(udpConf)
+	confBytes, err := yaml.Marshal(udpConf)
 	if err != nil {
 		return err
 	}
-	if err := s.WriteConfig(fmt.Sprintf("listener/[%d]/udp.yaml", vanePort), bytes); err != nil {
+	if err := s.WriteConfig(fmt.Sprintf("listener/[%d]/udp.yaml", vanePort), confBytes); err != nil {
 		return err
 	}
 
@@ -104,7 +105,7 @@ func TestUdpProxy(ctx context.Context, s *env.Sandbox) error {
 	}
 
 	recv := buf[:n]
-	if string(recv) != string(expectedResponse) {
+	if !bytes.Equal(recv, expectedResponse) {
 		root := term.NewNode("Payload Mismatch")
 		root.Add(fmt.Sprintf("Expected: %x", expectedResponse))
 		root.Add(fmt.Sprintf("Actual:   %x", recv))

@@ -51,7 +51,7 @@ func (r *RandomStream) Read(p []byte) (n int, err error) {
 	}
 
 	// We use math/rand to fill buffer. It's fast enough for tests.
-	n, err = r.rnd.Read(p[:toRead])
+	n, _ = r.rnd.Read(p[:toRead])
 	r.readCount += int64(n)
 	return n, nil
 }
@@ -264,7 +264,6 @@ func RunStreamingTest(ctx context.Context, s *env.Sandbox, cType ClientType, uTy
 					deltaDown := float64(currDown - lastDown)
 					dur := now.Sub(lastTime).Seconds()
 
-					// Mbps = bytes * 8 / 1e6
 					mbpsUp := (deltaUp * 8 / 1e6) / dur
 					mbpsDown := (deltaDown * 8 / 1e6) / dur
 

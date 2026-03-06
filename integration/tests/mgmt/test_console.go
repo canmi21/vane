@@ -75,7 +75,7 @@ func TestConsoleUds(ctx context.Context, s *env.Sandbox) error {
 
 	// 2. Extract UDS path from logs
 	// Log pattern: "✓ Management console listening on unix:/tmp/..."
-	re := regexp.MustCompile(`Management console listening on unix:([^✓ ]+)`)
+	re := regexp.MustCompile(`Management console listening on unix:(\S+)`)
 	var udsPath string
 
 	// Wait up to 3 seconds for the log to appear

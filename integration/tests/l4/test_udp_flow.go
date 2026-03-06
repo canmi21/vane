@@ -2,6 +2,7 @@
 package l4
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -83,7 +84,7 @@ func TestUdpFlowProxy(ctx context.Context, s *env.Sandbox) error {
 	}
 
 	recv := buf[:n]
-	if string(recv) != string(expectedResponse) {
+	if !bytes.Equal(recv, expectedResponse) {
 		root := term.NewNode("Payload Mismatch")
 		root.Add(fmt.Sprintf("Expected: %s", expectedResponse))
 		root.Add(fmt.Sprintf("Actual:   %s", recv))

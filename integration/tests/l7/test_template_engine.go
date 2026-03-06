@@ -15,7 +15,7 @@ import (
 	"canmi.net/vane-mock-tests/pkg/term"
 )
 
-func setupTemplateTest(s *env.Sandbox, responseBody interface{}) (int, error) {
+func setupTemplateTest(s *env.Sandbox, responseBody interface{}) (int, error) { //nolint:unparam
 	ports, _ := env.GetFreePorts(1)
 	vanePort := ports[0]
 

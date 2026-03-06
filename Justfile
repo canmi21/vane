@@ -20,7 +20,7 @@ fmt:
     {{pm}} run fmt:ts
     {{pm}} run fmt:md
     cargo fmt --all
-    cd integration && gofmt -w .
+    gofmt -w integration/
 
 # Format TS only (oxfmt)
 fmt-ts:
@@ -34,9 +34,9 @@ fmt-md:
 fmt-rust:
     cargo fmt --all
 
-# Format Go (integration/)
+# Format Go
 fmt-go:
-    cd integration && gofmt -w .
+    gofmt -w integration/
 
 # Normalize file paths (chore)
 fmt-path:
@@ -47,7 +47,7 @@ fmt-check:
     {{pm}} run fmt:ts:check
     {{pm}} run fmt:md:check
     cargo fmt --all -- --check
-    test -z "$(cd integration && gofmt -l .)"
+    test -z "$(gofmt -l integration/)"
 
 # Run all linters
 lint: lint-ox lint-clippy lint-go lint-length
@@ -60,15 +60,9 @@ lint-ox:
 lint-clippy:
     cargo clippy --workspace --all-features --all-targets -- -D warnings -A clippy::unwrap_used -A clippy::print_stdout -A clippy::print_stderr
 
-# Lint Go (gofmt check)
+# Lint Go (golangci-lint)
 lint-go:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bad=$(cd integration && gofmt -l .)
-    if [[ -n "$bad" ]]; then
-      printf 'Go files not formatted:\n%s\n' "$bad"
-      exit 1
-    fi
+    cd integration && golangci-lint run ./...
 
 # Warn about files exceeding 500 lines
 lint-length:

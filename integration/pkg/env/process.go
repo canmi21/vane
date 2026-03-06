@@ -85,7 +85,8 @@ func (s *Sandbox) startVaneInternal(ctx context.Context, debugMode bool, withTok
 		}
 	}
 
-	cmd.Env = append(baseEnv, envVars...)
+	baseEnv = append(baseEnv, envVars...)
+	cmd.Env = baseEnv
 
 	// Set working directory to sandbox root to prevent loading .env from project root
 	cmd.Dir = s.RootDir

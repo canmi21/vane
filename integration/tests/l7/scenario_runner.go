@@ -186,7 +186,6 @@ func RunScenarios(ctx context.Context, s *env.Sandbox, cType ClientType, uType U
 		if err != nil {
 			return term.FormatFailure(fmt.Sprintf("[%s] Request Failed", sc.Name), term.NewNode(err.Error()))
 		}
-		defer resp.Body.Close()
 
 		// Verify Status
 		if resp.StatusCode != sc.ExpectStatus {
@@ -196,6 +195,7 @@ func RunScenarios(ctx context.Context, s *env.Sandbox, cType ClientType, uType U
 
 		// Verify Body
 		gotBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		expectBody := sc.ExpectBody
 		if expectBody == nil && sc.ExpectStatus != 204 {
 			expectBody = sc.RequestBody

@@ -35,7 +35,7 @@ func TestCgiLua(ctx context.Context, s *env.Sandbox) error {
 	// 1. Prepare Script
 	// Read source from integration/tests/l7/cgi-bin/sample_bin.lua
 	cwd, _ := os.Getwd()
-	sourcePath := filepath.Join(cwd, "tests/l7/cgi-bin/sample_bin.lua")
+	sourcePath := filepath.Join(cwd, "tests", "l7", "cgi-bin", "sample_bin.lua")
 	scriptContent, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return term.FormatFailure("Failed to read Lua script source", term.NewNode(err.Error()))

@@ -1,0 +1,20 @@
+version: '2'
+run:
+  timeout: 3m
+linters:
+  default: standard
+  disable:
+    - errcheck
+  enable:
+    - gocritic
+    - revive
+    - misspell
+    - unconvert
+    - unparam
+  settings:
+    gocritic:
+      enabled-tags: [diagnostic, performance]
+    revive:
+      rules:
+        - name: exported
+          disabled: true

@@ -19,7 +19,7 @@ import (
 	"canmi.net/vane-mock-tests/pkg/term"
 )
 
-func setupStaticTest(s *env.Sandbox, extraInputs map[string]interface{}) (int, string, error) {
+func setupStaticTest(s *env.Sandbox, extraInputs map[string]interface{}) (int, string, error) { //nolint:unparam
 	// 1. Create Temp Root
 	tmpRoot := filepath.Join(s.RootDir, "static_content")
 	os.MkdirAll(tmpRoot, 0755)

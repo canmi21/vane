@@ -20,7 +20,7 @@ func (s *Sandbox) CompileCgiBin(sourceRelativePath string) (string, error) {
 	sourcePath := filepath.Join(cwd, sourceRelativePath)
 
 	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("C source not found at %s", sourcePath)
+		return "", fmt.Errorf("c source not found at %s", sourcePath)
 	}
 
 	// 2. Output Path inside Sandbox

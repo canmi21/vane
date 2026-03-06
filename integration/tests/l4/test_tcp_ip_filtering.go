@@ -98,9 +98,8 @@ func TestTcpIpFiltering(ctx context.Context, s *env.Sandbox) error {
 		if err == nil && n > 0 {
 			return term.FormatFailure("Traffic allowed when IP should be denied", nil)
 		}
-	} else {
-		// Dial failing is also acceptable (e.g. if Vane closes aggressively)
 	}
+	// Dial failing is also acceptable (e.g. if Vane closes aggressively)
 
 	// 5. Scenario B: Allow (Config allow=127.0.0.1)
 	// Update Config

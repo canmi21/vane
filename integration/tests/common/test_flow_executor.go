@@ -188,10 +188,9 @@ func TestExternalCircuitBreaker(ctx context.Context, s *env.Sandbox) error {
 	// Check logs for "Executing plugin" again (proving it's not skipped anymore)
 	// We need to check if the NEW execution attempt is logged.
 	// Actually, just checking that it doesn't log "Circuit Breaker: ... is in quiet period" is enough.
-	if bytes.Contains([]byte(proc.DumpLogs()), []byte("is in quiet period")) {
-		// This check is flawed because it contains the OLD log.
-		// But if we see "Executing plugin" appearing twice, it works.
-	}
+	// Note: checking for "is in quiet period" in logs is unreliable
+	// since it contains logs from the earlier circuit breaker activation.
+	_ = proc.DumpLogs()
 
 	return nil
 }
@@ -220,24 +219,6 @@ func registerExecutorPlugin(consolePort int, token, bin, mode string) error {
 	}
 	resp.Body.Close()
 	return nil
-}
-
-// waitForHttpReady retries HTTP GET until a non-502/503 response or timeout.
-// This accounts for independent config watchers needing time to reload after listener comes UP.
-func waitForHttpReady(client *http.Client, url string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			// Any response that isn't "no resolver" (502) means configs are loaded
-			if resp.StatusCode != 502 {
-				return nil
-			}
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return fmt.Errorf("listener did not become ready within %v", timeout)
 }
 
 func writeExecutorFlow(s *env.Sandbox, vanePort int) error {

@@ -99,12 +99,10 @@ func verifyTcpConnection(port int, payload string, expectSuccess bool) error {
 			// But let's be safe:
 			return nil
 		}
-	} else {
+	} else if err == nil && line != "" {
 		// Expect Failure (Abort)
 		// If Abort plugin works, it drops the connection. Read should return EOF or Error.
-		if err == nil && line != "" {
-			return fmt.Errorf("expected connection abort but got data: %q", line)
-		}
+		return fmt.Errorf("expected connection abort but got data: %q", line)
 	}
 	return nil
 }
