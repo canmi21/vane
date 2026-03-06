@@ -30,6 +30,12 @@ jobs:
       - name: Format check
         run: just fmt-check
 
+      - name: Lint Go (golangci-lint)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: integration
+
       - name: Lint (oxlint + Go + links)
         run: just lint-check
 
@@ -69,4 +75,4 @@ jobs:
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           go mod download
-          go run main.go
+          go test -v -count=1 -parallel 8 -timeout 120s ./tests/...
