@@ -21,7 +21,7 @@ func TestCgiRedirect(t *testing.T) {
 	debug, _ := ctx.Value(env.DebugKey).(bool)
 
 	// 1. Compile the CGI binary
-	binPath, err := sb.CompileCgiBin("tests/l7/cgi-bin/redirect_login.c")
+	binPath, err := sb.CompileCgiBin("cgi-bin/redirect_login.c")
 	if err != nil {
 		t.Fatal(term.FormatFailure("CGI Compilation Failed", term.NewNode(err.Error())))
 	}

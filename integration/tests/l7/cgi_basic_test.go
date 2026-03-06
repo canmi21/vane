@@ -21,7 +21,7 @@ func TestCgiBasic(t *testing.T) {
 	debug, _ := ctx.Value(env.DebugKey).(bool)
 
 	// 1. Compile the CGI binary
-	binPath, err := sb.CompileCgiBin("tests/l7/cgi-bin/sample_bin.c")
+	binPath, err := sb.CompileCgiBin("cgi-bin/sample_bin.c")
 	if err != nil {
 		t.Fatal(term.FormatFailure("CGI Compilation Failed", term.NewNode(err.Error())))
 	}

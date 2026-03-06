@@ -30,7 +30,7 @@ func TestTemplateParsing(t *testing.T) {
 		t.Fatal(fmt.Errorf("failed to create bin dir: %v", err))
 	}
 
-	validatorSrc := "tests/l4/assets/validator.go"
+	validatorSrc := "assets/validator.go"
 	validatorBin := filepath.Join(binDir, "validator_plugin")
 
 	cmd := exec.Command("go", "build", "-o", validatorBin, validatorSrc)

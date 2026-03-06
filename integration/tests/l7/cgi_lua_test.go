@@ -36,7 +36,7 @@ func TestCgiLua(t *testing.T) {
 	// 1. Prepare Script
 	// Read source from integration/tests/l7/cgi-bin/sample_bin.lua
 	cwd, _ := os.Getwd()
-	sourcePath := filepath.Join(cwd, "tests", "l7", "cgi-bin", "sample_bin.lua")
+	sourcePath := filepath.Join(cwd, "cgi-bin", "sample_bin.lua")
 	scriptContent, err := os.ReadFile(sourcePath)
 	if err != nil {
 		t.Fatal(term.FormatFailure("Failed to read Lua script source", term.NewNode(err.Error())))
