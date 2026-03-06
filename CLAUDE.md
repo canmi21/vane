@@ -21,6 +21,7 @@
 - Run `git commit` after each plan mode phase completes, do not push
 - Commit messages: conventional commit format (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `deps:`, `revert:`, `perf:`); scope is optional and should only be added when it genuinely clarifies context — roughly 1 in 3 commits should have a scope (e.g. `feat(transport):` when the change is transport-specific), the rest use bare prefix (e.g. `refactor: extract shared helpers`)
 - Never add AI co-authorship (e.g., "Co-Authored-By: Claude")
+- Commit messages must not mention version bumps unless the version was actually changed
 
 ## Versioning
 
@@ -39,6 +40,12 @@
 - `src/` uses nested layout organized by functional modules
 - Nesting depth must not exceed 4 levels from `src/`
 - Use directories to express module boundaries
+
+## Monorepo Structure
+
+- Rust workspace: 7 crates under `src/` (core, primitives, engine, app, transport, extra, api)
+- Go integration tests: `integration/` with `pkg/` (env, mock, config, term) and `tests/` (common, l4, l4p, l7, mgmt)
+- Docs site: `docs/` (generates into `docs/out/`, `.source/`, `.next/` — all gitignored)
 
 ## Comments
 
@@ -77,6 +84,7 @@
 ## Agent Team Strategy
 
 - Use Agent Team (TeamCreate) when a plan has 2+ independent sub-tasks that touch different files
+- Agents create their own sub-tasks; lead monitors via TaskList and waits with sleep + periodic checks
 - Provide agents with full file contents and exact split instructions; do not rely on agents to read large files themselves
 - Always run a unified verification (`cargo test --workspace`) after agents finish before committing
 - Shut down agents (SendMessage shutdown_request) once their work is verified
@@ -86,14 +94,14 @@
 
 - Pure stateless functions: test correct path + error path (boundary values, empty input, missing keys)
 - Composition/orchestration functions: integration-level tests only, do not re-test inner functions
-- Go integration tests: test directory under `integration/` — uses `go run main.go` to exercise the vane binary
+- Go integration tests: standard `go test` under `integration/tests/` — each test uses `env.SetupTest(t)` for sandbox lifecycle
 
 ## Running Tests
 
 | Command                 | Scope                                            |
 | ----------------------- | ------------------------------------------------ |
 | `just test-rs`          | Rust unit tests (`cargo test --workspace`)       |
-| `just test-integration` | Go integration tests (`integration/`)            |
+| `just test-integration` | Go integration tests (`go test ./tests/...`)     |
 | `just test`             | All tests (Rust + Go integration)                |
 | `just lint`             | All linters (oxlint + clippy + Go + lint-length) |
 | `just lint-check`       | CI check linters (oxlint + Go + links, no build) |
