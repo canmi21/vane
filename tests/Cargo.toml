@@ -31,3 +31,7 @@ path = "engine/flow.rs"
 [[test]]
 name = "engine_detect"
 path = "engine/detect.rs"
+
+[[test]]
+name = "engine_config"
+path = "engine/config.rs"

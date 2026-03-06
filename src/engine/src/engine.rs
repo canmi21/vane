@@ -2,138 +2,140 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use thiserror::Error;
+use tokio::sync::watch;
 use vane_primitives::connection::ConnectionTracker;
 use vane_transport::error::ListenerError;
-use vane_transport::listener::{start_tcp_listener, ListenerConfig, TcpListenerHandle};
+use vane_transport::listener::{ListenerConfig, TcpListenerHandle, start_tcp_listener};
 
-use crate::flow::{FlowTable, PluginRegistry};
+use crate::config::ConfigTable;
+use crate::config::validate::ValidationError;
+use crate::flow::PluginRegistry;
 use crate::handler::{ConnectionConfig, handle_connection};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
-    #[error("listener failed on port {port}")]
-    ListenerFailed {
-        port: u16,
-        #[source]
-        source: ListenerError,
-    },
-}
+	#[error("listener failed on port {port}")]
+	ListenerFailed {
+		port: u16,
+		#[source]
+		source: ListenerError,
+	},
 
-#[derive(Clone)]
-pub struct EngineConfig {
-    pub max_connections: usize,
-    pub max_connections_per_ip: usize,
-    pub flow_timeout: Duration,
-    pub peek_limit: usize,
-}
-
-impl Default for EngineConfig {
-    fn default() -> Self {
-        Self {
-            max_connections: 10000,
-            max_connections_per_ip: 50,
-            flow_timeout: Duration::from_secs(10),
-            peek_limit: 64,
-        }
-    }
+	#[error("config validation failed ({} errors)", .0.len())]
+	ConfigInvalid(Vec<ValidationError>),
 }
 
 pub struct Engine {
-    flow_table: Arc<FlowTable>,
-    registry: Arc<PluginRegistry>,
-    config: EngineConfig,
-    tracker: Arc<ConnectionTracker>,
-    handles: Vec<TcpListenerHandle>,
+	config_tx: Arc<watch::Sender<Arc<ConfigTable>>>,
+	registry: Arc<PluginRegistry>,
+	tracker: Arc<ConnectionTracker>,
+	handles: Vec<TcpListenerHandle>,
 }
 
 impl Engine {
-    pub fn new(flow_table: FlowTable, registry: PluginRegistry, config: EngineConfig) -> Self {
-        Self {
-            flow_table: Arc::new(flow_table),
-            registry: Arc::new(registry),
-            tracker: Arc::new(ConnectionTracker::new(
-                config.max_connections,
-                config.max_connections_per_ip,
-            )),
-            config,
-            handles: Vec::new(),
-        }
-    }
+	/// Create a new engine. Validates the config against the registry.
+	pub fn new(config: ConfigTable, registry: PluginRegistry) -> Result<Self, EngineError> {
+		config.validate(&registry).map_err(EngineError::ConfigInvalid)?;
 
-    pub async fn start(&mut self) -> Result<(), EngineError> {
-        let span = tracing::info_span!("engine");
-        let guard = span.enter();
-        let ports: Vec<u16> = self.flow_table.ports().collect();
-        drop(guard);
+		let tracker = Arc::new(ConnectionTracker::new(
+			config.global.max_connections,
+			config.global.max_connections_per_ip,
+		));
 
-        for port in ports {
-            let config = ListenerConfig {
-                port,
-                ..Default::default()
-            };
+		let (config_tx, _) = watch::channel(Arc::new(config));
 
-            let table = self.flow_table.clone();
-            let registry = self.registry.clone();
-            let tracker = self.tracker.clone();
-            let conn_config = ConnectionConfig {
-                flow_timeout: self.config.flow_timeout,
-                peek_limit: self.config.peek_limit,
-            };
-            let listener_port = port;
+		Ok(Self {
+			config_tx: Arc::new(config_tx),
+			registry: Arc::new(registry),
+			tracker,
+			handles: Vec::new(),
+		})
+	}
 
-            let handle =
-                start_tcp_listener(&config, move |stream, peer_addr, server_addr| {
-                    let table = table.clone();
-                    let registry = registry.clone();
-                    let tracker = tracker.clone();
-                    let conn_config = conn_config.clone();
-                    tokio::spawn(async move {
-                        let Some(guard) = tracker.acquire(peer_addr.ip()) else {
-                            tracing::warn!(
-                                %peer_addr,
-                                "connection rejected: limit exceeded"
-                            );
-                            return;
-                        };
-                        if let Some(node) = table.lookup(listener_port) {
-                            handle_connection(
-                                stream,
-                                peer_addr,
-                                server_addr,
-                                node,
-                                &registry,
-                                &conn_config,
-                                guard,
-                            )
-                            .await;
-                        } else {
-                            tracing::warn!(port = listener_port, "no flow found for port");
-                        }
-                    });
-                })
-                .await
-                .map_err(|source| EngineError::ListenerFailed { port, source })?;
+	pub async fn start(&mut self) -> Result<(), EngineError> {
+		let config = self.config_tx.borrow().clone();
+		let ports: Vec<u16> = config.ports.keys().copied().collect();
 
-            tracing::info!(port, addr = %handle.local_addr(), "listener started");
-            self.handles.push(handle);
-        }
+		for port in ports {
+			let listener_config = ListenerConfig {
+				port,
+				ipv6: config.ports.get(&port).is_some_and(|p| p.listen.ipv6),
+				..Default::default()
+			};
 
-        Ok(())
-    }
+			let config_tx = self.config_tx.clone();
+			let registry = self.registry.clone();
+			let tracker = self.tracker.clone();
+			let listener_port = port;
 
-    pub fn listeners(&self) -> &[TcpListenerHandle] {
-        &self.handles
-    }
+			let handle = start_tcp_listener(&listener_config, move |stream, peer_addr, server_addr| {
+				let config_tx = config_tx.clone();
+				let registry = registry.clone();
+				let tracker = tracker.clone();
+				tokio::spawn(async move {
+					let Some(guard) = tracker.acquire(peer_addr.ip()) else {
+						tracing::warn!(
+								%peer_addr,
+								"connection rejected: limit exceeded"
+						);
+						return;
+					};
 
-    pub fn shutdown(&self) {
-        for handle in &self.handles {
-            handle.shutdown();
-        }
-    }
+					// Read fresh config per connection
+					let config = config_tx.borrow().clone();
+					let Some(port_config) = config.ports.get(&listener_port) else {
+						tracing::warn!(port = listener_port, "no flow found for port");
+						return;
+					};
 
-    pub async fn join(self) {
-        for handle in self.handles {
-            let _ = handle.join().await;
-        }
-    }
+					let conn_config = ConnectionConfig {
+						flow_timeout: Duration::from_millis(config.global.flow_timeout_ms),
+						peek_limit: config.global.peek_limit,
+					};
+
+					handle_connection(
+						stream,
+						peer_addr,
+						server_addr,
+						port_config,
+						&registry,
+						&conn_config,
+						guard,
+					)
+					.await;
+				});
+			})
+			.await
+			.map_err(|source| EngineError::ListenerFailed { port, source })?;
+
+			tracing::info!(port, addr = %handle.local_addr(), "listener started");
+			self.handles.push(handle);
+		}
+
+		Ok(())
+	}
+
+	/// Atomically swap the running config. Does NOT start/stop listeners for
+	/// added/removed ports — that requires a restart for now.
+	pub fn update_config(&self, config: ConfigTable) -> Result<(), EngineError> {
+		config.validate(&self.registry).map_err(EngineError::ConfigInvalid)?;
+		self.config_tx.send_replace(Arc::new(config));
+		Ok(())
+	}
+
+	pub fn listeners(&self) -> &[TcpListenerHandle] {
+		&self.handles
+	}
+
+	pub fn shutdown(&self) {
+		for handle in &self.handles {
+			handle.shutdown();
+		}
+	}
+
+	pub async fn join(self) {
+		for handle in self.handles {
+			let _ = handle.join().await;
+		}
+	}
 }
