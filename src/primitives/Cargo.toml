@@ -5,9 +5,12 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-tokio.workspace = true
-tracing.workspace = true
+ahash.workspace = true
+anyhow.workspace = true
+dashmap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-anyhow.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
