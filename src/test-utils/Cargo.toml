@@ -1,0 +1,9 @@
+[package]
+name = "vane-test-utils"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+tokio.workspace = true
+tracing-subscriber.workspace = true

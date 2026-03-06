@@ -1,0 +1,18 @@
+[package]
+name = "vane-integration-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+vane-engine.workspace = true
+vane-transport.workspace = true
+vane-test-utils.workspace = true
+tokio.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "engine_forward"
+path = "engine/forward.rs"

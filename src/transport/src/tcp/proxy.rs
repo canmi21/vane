@@ -114,37 +114,27 @@ mod tests {
 	use super::*;
 	use tokio::io::{AsyncReadExt, AsyncWriteExt};
 	use tokio::net::TcpListener;
+	use vane_test_utils::echo::EchoServer;
 
 	#[tokio::test]
 	async fn test_bidirectional_transfer() {
-		// Upstream: read data, echo it back, then close
-		let upstream_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-		let upstream_addr = upstream_listener.local_addr().unwrap();
-
-		tokio::spawn(async move {
-			let (mut stream, _) = upstream_listener.accept().await.unwrap();
-			let mut buf = vec![0u8; 1024];
-			let n = stream.read(&mut buf).await.unwrap();
-			stream.write_all(&buf[..n]).await.unwrap();
-			stream.shutdown().await.unwrap();
-		});
+		let echo = EchoServer::start().await;
 
 		let proxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let proxy_addr = proxy_listener.local_addr().unwrap();
 
+		let upstream_addr = echo.addr();
 		let config = ProxyConfig {
 			connect_timeout: Duration::from_secs(2),
 			idle_timeout: Duration::from_secs(5),
 			watchdog_poll_interval: Duration::from_millis(100),
 		};
 
-		// Run proxy in background
 		let proxy_task = tokio::spawn(async move {
 			let (client_stream, _) = proxy_listener.accept().await.unwrap();
 			proxy_tcp(client_stream, upstream_addr, &config).await
 		});
 
-		// Client: write data, then read the echo
 		let mut conn = TcpStream::connect(proxy_addr).await.unwrap();
 		conn.write_all(b"hello world").await.unwrap();
 
