@@ -1,7 +1,4 @@
-use std::net::SocketAddr;
-
-use vane_primitives::kv::KvStore;
-
+use crate::flow::context::ExecutionContext;
 use crate::flow::plugin::{BranchAction, Middleware};
 
 /// Middleware that reads branch name from params and sets a KV marker.
@@ -16,9 +13,7 @@ impl Middleware for EchoBranch {
     fn execute(
         &self,
         params: &serde_json::Value,
-        _kv: &KvStore,
-        _peer_addr: SocketAddr,
-        _server_addr: SocketAddr,
+        _ctx: &dyn ExecutionContext,
     ) -> Result<BranchAction, anyhow::Error> {
         let branch = params
             .get("branch")
@@ -49,21 +44,46 @@ impl Middleware for EchoBranch {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use vane_primitives::kv::KvStore;
 
-    fn test_addrs() -> (SocketAddr, SocketAddr) {
+    struct DummyContext {
+        peer: SocketAddr,
+        server: SocketAddr,
+        kv: KvStore,
+    }
+
+    impl ExecutionContext for DummyContext {
+        fn peer_addr(&self) -> SocketAddr {
+            self.peer
+        }
+        fn server_addr(&self) -> SocketAddr {
+            self.server
+        }
+        fn kv(&self) -> &KvStore {
+            &self.kv
+        }
+        fn kv_mut(&mut self) -> &mut KvStore {
+            &mut self.kv
+        }
+        fn take_stream(&mut self) -> Option<tokio::net::TcpStream> {
+            None
+        }
+    }
+
+    fn dummy_ctx() -> DummyContext {
         let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 12345);
         let server = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080);
-        (peer, server)
+        let kv = KvStore::new(&peer, &server, "tcp");
+        DummyContext { peer, server, kv }
     }
 
     #[test]
     fn default_params() {
-        let (peer, server) = test_addrs();
-        let kv = KvStore::new(&peer, &server, "tcp");
+        let ctx = dummy_ctx();
 
         let result = EchoBranch
-            .execute(&serde_json::Value::Null, &kv, peer, server)
+            .execute(&serde_json::Value::Null, &ctx)
             .expect("should succeed");
 
         assert_eq!(result.branch, "default");
@@ -74,8 +94,7 @@ mod tests {
 
     #[test]
     fn custom_params() {
-        let (peer, server) = test_addrs();
-        let kv = KvStore::new(&peer, &server, "tcp");
+        let ctx = dummy_ctx();
 
         let params = serde_json::json!({
             "branch": "custom",
@@ -84,7 +103,7 @@ mod tests {
         });
 
         let result = EchoBranch
-            .execute(&params, &kv, peer, server)
+            .execute(&params, &ctx)
             .expect("should succeed");
 
         assert_eq!(result.branch, "custom");

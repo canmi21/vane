@@ -34,18 +34,15 @@ impl PluginRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flow::context::ExecutionContext;
     use crate::flow::plugin::{BranchAction, Middleware};
-    use std::net::SocketAddr;
-    use vane_primitives::kv::KvStore;
 
     struct DummyMiddleware;
     impl Middleware for DummyMiddleware {
         fn execute(
             &self,
             _params: &serde_json::Value,
-            _kv: &KvStore,
-            _peer_addr: SocketAddr,
-            _server_addr: SocketAddr,
+            _ctx: &dyn ExecutionContext,
         ) -> Result<BranchAction, anyhow::Error> {
             Ok(BranchAction {
                 branch: "ok".to_owned(),

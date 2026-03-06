@@ -5,20 +5,20 @@ use std::pin::Pin;
 use tokio::net::TcpStream;
 use vane_primitives::kv::KvStore;
 
+use super::context::ExecutionContext;
+
 /// Result of a middleware step: which branch to follow and KV updates to apply.
 pub struct BranchAction {
     pub branch: String,
     pub updates: Vec<(String, String)>,
 }
 
-/// A synchronous plugin that inspects state and decides which branch to take.
+/// A synchronous plugin that inspects connection context and decides which branch to take.
 pub trait Middleware: Send + Sync {
     fn execute(
         &self,
         params: &serde_json::Value,
-        kv: &KvStore,
-        peer_addr: SocketAddr,
-        server_addr: SocketAddr,
+        ctx: &dyn ExecutionContext,
     ) -> Result<BranchAction, anyhow::Error>;
 }
 

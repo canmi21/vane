@@ -35,12 +35,7 @@ fn execute_inner<'a>(
         match plugin {
             PluginAction::Middleware(mw) => {
                 let action = mw
-                    .execute(
-                        &step.config.params,
-                        context.kv(),
-                        context.peer_addr(),
-                        context.server_addr(),
-                    )
+                    .execute(&step.config.params, &*context)
                     .map_err(|source| FlowError::PluginFailed {
                         name: step.plugin.clone(),
                         source,
@@ -89,15 +84,15 @@ fn execute_inner<'a>(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::flow::context::ExecutionContext;
     use crate::flow::plugin::{BranchAction, Middleware, PluginAction, Terminator};
+    use crate::flow::step::StepConfig;
     use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use tokio::net::TcpStream;
     use vane_primitives::kv::KvStore;
-
-    use crate::flow::step::StepConfig;
 
     // -- helpers --
 
@@ -176,9 +171,7 @@ mod tests {
         fn execute(
             &self,
             _params: &serde_json::Value,
-            _kv: &KvStore,
-            _peer_addr: SocketAddr,
-            _server_addr: SocketAddr,
+            _ctx: &dyn ExecutionContext,
         ) -> Result<BranchAction, anyhow::Error> {
             Ok(BranchAction {
                 branch: self.branch.clone(),
