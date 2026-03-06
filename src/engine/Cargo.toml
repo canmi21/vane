@@ -9,6 +9,7 @@ vane-primitives.workspace = true
 vane-transport.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+fastrand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

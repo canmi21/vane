@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 vane-engine.workspace = true
+vane-primitives.workspace = true
 vane-transport.workspace = true
 vane-test-utils.workspace = true
 tokio.workspace = true

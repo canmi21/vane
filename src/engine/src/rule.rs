@@ -1,15 +1,15 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
 
+use vane_primitives::model::Forward;
 use vane_transport::tcp::ProxyConfig;
 
-pub struct ForwardRule {
-    pub upstream: SocketAddr,
+pub struct PortRule {
+    pub forward: Forward,
     pub proxy_config: ProxyConfig,
 }
 
 pub struct RouteTable {
-    rules: HashMap<u16, ForwardRule>,
+    rules: HashMap<u16, PortRule>,
 }
 
 impl Default for RouteTable {
@@ -25,12 +25,12 @@ impl RouteTable {
         }
     }
 
-    pub fn add(mut self, port: u16, rule: ForwardRule) -> Self {
+    pub fn add(mut self, port: u16, rule: PortRule) -> Self {
         self.rules.insert(port, rule);
         self
     }
 
-    pub fn lookup(&self, port: u16) -> Option<&ForwardRule> {
+    pub fn lookup(&self, port: u16) -> Option<&PortRule> {
         self.rules.get(&port)
     }
 
