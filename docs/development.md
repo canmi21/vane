@@ -26,7 +26,7 @@ just inst            # cargo install --path src/core
 | Command                 | Scope                                            |
 | ----------------------- | ------------------------------------------------ |
 | `just test-rs`          | Rust unit tests (`cargo test --workspace`)       |
-| `just test-integration` | Go integration tests (`integration/`)            |
+| `just test-integration` | Go integration tests (`test/integration/`)       |
 | `just test`             | All tests (Rust + Go integration)                |
 | `just verify`           | Full pipeline: format + lint + build + all tests |
 

@@ -20,7 +20,7 @@ fmt:
     {{pm}} run fmt:ts
     {{pm}} run fmt:md
     cargo fmt --all
-    gofmt -w integration/
+    gofmt -w test/integration/
 
 # Format TS only (oxfmt)
 fmt-ts:
@@ -36,7 +36,7 @@ fmt-rust:
 
 # Format Go
 fmt-go:
-    gofmt -w integration/
+    gofmt -w test/integration/
 
 # Normalize file paths (chore)
 fmt-path:
@@ -47,7 +47,7 @@ fmt-check:
     {{pm}} run fmt:ts:check
     {{pm}} run fmt:md:check
     cargo fmt --all -- --check
-    test -z "$(gofmt -l integration/)"
+    test -z "$(gofmt -l test/integration/)"
 
 # Run all linters
 lint: lint-ox lint-clippy lint-go lint-length
@@ -62,7 +62,7 @@ lint-clippy:
 
 # Lint Go (golangci-lint)
 lint-go:
-    cd integration && golangci-lint run ./...
+    cd test/integration && golangci-lint run ./...
 
 # Warn about files exceeding 500 lines
 lint-length:
@@ -100,7 +100,7 @@ test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="$HOME/.cargo/bin:$PATH"
-    cd integration && go test -v -count=1 -parallel 8 -timeout 120s ./tests/...
+    cd test/integration && go test -v -count=1 -parallel 8 -timeout 120s ./tests/...
 
 # All tests
 test: test-rs test-integration

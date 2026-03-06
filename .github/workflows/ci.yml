@@ -34,7 +34,7 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
-          working-directory: integration
+          working-directory: test/integration
 
       - name: Lint (oxlint + Go + links)
         run: just lint-check
@@ -71,7 +71,7 @@ jobs:
         run: just inst
 
       - name: Go integration tests
-        working-directory: integration
+        working-directory: test/integration
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           go mod download

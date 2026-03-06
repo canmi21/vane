@@ -6,7 +6,7 @@ const readline = require('readline')
 // Safely read all content from Stdin
 function readAllStdin() {
 	return new Promise((resolve) => {
-		let lines = []
+		const lines = []
 		const rl = readline.createInterface({
 			input: process.stdin,
 			terminal: false,

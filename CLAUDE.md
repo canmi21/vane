@@ -44,7 +44,7 @@
 ## Monorepo Structure
 
 - Rust workspace: 7 crates under `src/` (core, primitives, engine, app, transport, extra, api)
-- Go integration tests: `integration/` with `pkg/` (env, mock, config, term) and `tests/` (common, l4, l4p, l7, mgmt)
+- Go integration tests: `test/integration/` with `pkg/` (env, mock, config, term) and `tests/` (common, l4, l4p, l7, mgmt)
 - Docs site: `docs/` (generates into `docs/out/`, `.source/`, `.next/` — all gitignored)
 
 ## Comments
@@ -94,7 +94,7 @@
 
 - Pure stateless functions: test correct path + error path (boundary values, empty input, missing keys)
 - Composition/orchestration functions: integration-level tests only, do not re-test inner functions
-- Go integration tests: standard `go test` under `integration/tests/` — each test uses `env.SetupTest(t)` for sandbox lifecycle
+- Go integration tests: standard `go test` under `test/integration/tests/` — each test uses `env.SetupTest(t)` for sandbox lifecycle
 
 ## Running Tests
 
