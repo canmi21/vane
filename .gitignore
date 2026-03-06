@@ -5,8 +5,6 @@ target/
 # Build output
 dist/
 out/
-coverage/
-*.tsbuildinfo
 
 # Environment
 .env
@@ -15,18 +13,11 @@ coverage/
 # OS
 .DS_Store
 
-# Editor
-.idea/
-*.sw?
-
 # Project
-.next/
-.source/
-next-env.d.ts
+.refactor
 
 # Logs
 *.log
 
-# Claude / worktrees
+# Claude
 .claude
-.worktrees/

@@ -1,6 +1,0 @@
-{
-  "title": "L7 Application",
-  "description": "Application layer implementation",
-  "icon": "Globe",
-  "pages": ["index", "protocol", "container"]
-}

@@ -1,6 +1,0 @@
-{
-  "title": "Plugins",
-  "description": "Plugin system architecture and implementation",
-  "icon": "Puzzle",
-  "pages": ["index", "architecture", "types", "built-in"]
-}

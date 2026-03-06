@@ -1,6 +1,0 @@
-{
-  "title": "L4 Transport",
-  "description": "Transport layer implementation",
-  "icon": "ArrowRightLeft",
-  "pages": ["index", "protocol", "flow-routing", "legacy-routing", "session-management", "proxy"]
-}

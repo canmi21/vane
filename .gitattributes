@@ -1,6 +1,0 @@
-* text=auto eol=lf
-*.rs linguist-language=Rust
-*.go linguist-language=Go
-*.sh linguist-language=Shell
-*.md linguist-detectable=false
-*.html linguist-detectable=false

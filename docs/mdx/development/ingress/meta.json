@@ -1,6 +1,0 @@
-{
-  "title": "Ingress",
-  "description": "Connection listeners and management",
-  "icon": "ArrowDownToLine",
-  "pages": ["index", "listeners", "connection-management"]
-}
