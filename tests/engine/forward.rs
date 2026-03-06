@@ -1,11 +1,14 @@
 #![allow(clippy::unwrap_used)]
 
+use std::collections::HashMap;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{
+    config::FlowNode,
     engine::{Engine, EngineConfig},
     flow::{
-        FlowStep, FlowTable, PluginAction, PluginRegistry, StepConfig,
+        FlowTable, PluginAction, PluginRegistry,
         builtin::tcp_forward::TcpForward,
     },
 };
@@ -17,18 +20,17 @@ async fn test_echo_forward() {
     let echo = EchoServer::start().await;
     let echo_addr = echo.addr();
 
-    let step = FlowStep {
+    let node = FlowNode {
         plugin: "tcp.forward".to_owned(),
-        config: StepConfig {
-            params: serde_json::json!({
-                "ip": echo_addr.ip().to_string(),
-                "port": echo_addr.port(),
-            }),
-            ..Default::default()
-        },
+        params: serde_json::json!({
+            "ip": echo_addr.ip().to_string(),
+            "port": echo_addr.port(),
+        }),
+        branches: HashMap::new(),
+        termination: None,
     };
 
-    let flow_table = FlowTable::new().add(0, step);
+    let flow_table = FlowTable::new().add(0, node);
     let registry = PluginRegistry::new().register(
         "tcp.forward",
         PluginAction::Terminator(Box::new(TcpForward {

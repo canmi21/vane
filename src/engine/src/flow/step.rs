@@ -1,27 +1,10 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use crate::config::FlowNode;
 
-/// A single step in the flow execution tree.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FlowStep {
-    pub plugin: String,
-    #[serde(default)]
-    pub config: StepConfig,
-}
-
-/// Configuration for a flow step: arbitrary params + named branches to child steps.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct StepConfig {
-    #[serde(default)]
-    pub params: serde_json::Value,
-    #[serde(default)]
-    pub branches: HashMap<String, FlowStep>,
-}
-
-/// Maps listening ports to their root flow steps.
+/// Maps listening ports to their root flow nodes.
 pub struct FlowTable {
-    flows: HashMap<u16, FlowStep>,
+    flows: HashMap<u16, FlowNode>,
 }
 
 impl Default for FlowTable {
@@ -38,12 +21,12 @@ impl FlowTable {
     }
 
     #[must_use]
-    pub fn add(mut self, port: u16, step: FlowStep) -> Self {
-        self.flows.insert(port, step);
+    pub fn add(mut self, port: u16, node: FlowNode) -> Self {
+        self.flows.insert(port, node);
         self
     }
 
-    pub fn lookup(&self, port: u16) -> Option<&FlowStep> {
+    pub fn lookup(&self, port: u16) -> Option<&FlowNode> {
         self.flows.get(&port)
     }
 
@@ -57,58 +40,20 @@ impl FlowTable {
 mod tests {
     use super::*;
 
-    fn sample_step(plugin: &str) -> FlowStep {
-        FlowStep {
+    fn sample_node(plugin: &str) -> FlowNode {
+        FlowNode {
             plugin: plugin.to_owned(),
-            config: StepConfig::default(),
+            params: serde_json::Value::default(),
+            branches: HashMap::new(),
+            termination: None,
         }
-    }
-
-    #[test]
-    fn flow_step_serde_roundtrip() {
-        let step = FlowStep {
-            plugin: "tcp.forward".to_owned(),
-            config: StepConfig {
-                params: serde_json::json!({"ip": "127.0.0.1", "port": 8080}),
-                branches: HashMap::new(),
-            },
-        };
-        let json = serde_json::to_string(&step).unwrap();
-        let back: FlowStep = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.plugin, "tcp.forward");
-    }
-
-    #[test]
-    fn step_config_serde_with_branches() {
-        let step = FlowStep {
-            plugin: "echo.branch".to_owned(),
-            config: StepConfig {
-                params: serde_json::json!({"branch": "default"}),
-                branches: HashMap::from([(
-                    "default".to_owned(),
-                    sample_step("tcp.forward"),
-                )]),
-            },
-        };
-        let json = serde_json::to_string(&step).unwrap();
-        let back: FlowStep = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.config.branches.len(), 1);
-        assert!(back.config.branches.contains_key("default"));
-    }
-
-    #[test]
-    fn step_config_defaults() {
-        let json = r#"{"plugin":"test"}"#;
-        let step: FlowStep = serde_json::from_str(json).unwrap();
-        assert!(step.config.params.is_null());
-        assert!(step.config.branches.is_empty());
     }
 
     #[test]
     fn flow_table_add_lookup_ports() {
         let table = FlowTable::new()
-            .add(80, sample_step("a"))
-            .add(443, sample_step("b"));
+            .add(80, sample_node("a"))
+            .add(443, sample_node("b"));
 
         assert!(table.lookup(80).is_some());
         assert!(table.lookup(443).is_some());

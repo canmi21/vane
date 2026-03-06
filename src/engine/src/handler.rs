@@ -5,7 +5,8 @@ use tracing::Instrument;
 use vane_primitives::connection::ConnectionGuard;
 use vane_primitives::kv::KvStore;
 
-use crate::flow::{self, FlowStep, PluginRegistry, TransportContext};
+use crate::config::FlowNode;
+use crate::flow::{self, PluginRegistry, TransportContext};
 
 /// Per-connection parameters derived from engine config.
 #[derive(Clone)]
@@ -18,7 +19,7 @@ pub async fn handle_connection(
     client: tokio::net::TcpStream,
     peer_addr: SocketAddr,
     server_addr: SocketAddr,
-    step: &FlowStep,
+    node: &FlowNode,
     registry: &PluginRegistry,
     config: &ConnectionConfig,
     _guard: ConnectionGuard,
@@ -43,7 +44,7 @@ pub async fn handle_connection(
     }
 
     let span = tracing::info_span!("connection", %peer_addr, %server_addr);
-    let result = flow::executor::execute(step, &mut ctx, registry, config.flow_timeout)
+    let result = flow::executor::execute(node, &mut ctx, registry, config.flow_timeout)
         .instrument(span.clone())
         .await;
 

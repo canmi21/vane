@@ -6,38 +6,38 @@ use super::context::ExecutionContext;
 use super::error::FlowError;
 use super::plugin::PluginAction;
 use super::registry::PluginRegistry;
-use super::step::FlowStep;
+use crate::config::FlowNode;
 
-/// Execute a flow step tree with a timeout wrapping the entire recursion.
+/// Execute a flow node tree with a timeout wrapping the entire recursion.
 pub async fn execute(
-    step: &FlowStep,
+    node: &FlowNode,
     context: &mut dyn ExecutionContext,
     registry: &PluginRegistry,
     timeout: Duration,
 ) -> Result<(), FlowError> {
-    tokio::time::timeout(timeout, execute_inner(step, context, registry))
+    tokio::time::timeout(timeout, execute_inner(node, context, registry))
         .await
         .map_err(|_| FlowError::ExecutionTimeout { timeout })?
 }
 
 fn execute_inner<'a>(
-    step: &'a FlowStep,
+    node: &'a FlowNode,
     context: &'a mut dyn ExecutionContext,
     registry: &'a PluginRegistry,
 ) -> Pin<Box<dyn Future<Output = Result<(), FlowError>> + Send + 'a>> {
     Box::pin(async move {
         let plugin = registry
-            .get(&step.plugin)
+            .get(&node.plugin)
             .ok_or_else(|| FlowError::PluginNotFound {
-                name: step.plugin.clone(),
+                name: node.plugin.clone(),
             })?;
 
         match plugin {
             PluginAction::Middleware(mw) => {
                 let action = mw
-                    .execute(&step.config.params, &*context)
+                    .execute(&node.params, &*context)
                     .map_err(|source| FlowError::PluginFailed {
-                        name: step.plugin.clone(),
+                        name: node.plugin.clone(),
                         source,
                     })?;
 
@@ -45,12 +45,11 @@ fn execute_inner<'a>(
                     context.kv_mut().set(key, value);
                 }
 
-                let next = step
-                    .config
+                let next = node
                     .branches
                     .get(&action.branch)
                     .ok_or_else(|| FlowError::BranchNotFound {
-                        step: step.plugin.clone(),
+                        step: node.plugin.clone(),
                         branch: action.branch.clone(),
                     })?;
 
@@ -59,12 +58,12 @@ fn execute_inner<'a>(
             PluginAction::Terminator(term) => {
                 let stream = context.take_stream().ok_or_else(|| {
                     FlowError::StreamAlreadyConsumed {
-                        step: step.plugin.clone(),
+                        step: node.plugin.clone(),
                     }
                 })?;
 
                 term.execute(
-                    &step.config.params,
+                    &node.params,
                     context.kv(),
                     stream,
                     context.peer_addr(),
@@ -72,7 +71,7 @@ fn execute_inner<'a>(
                 )
                 .await
                 .map_err(|source| FlowError::PluginFailed {
-                    name: step.plugin.clone(),
+                    name: node.plugin.clone(),
                     source,
                 })
             }
@@ -84,9 +83,9 @@ fn execute_inner<'a>(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::config::FlowNode;
     use crate::flow::context::ExecutionContext;
     use crate::flow::plugin::{BranchAction, Middleware, PluginAction, Terminator};
-    use crate::flow::step::StepConfig;
     use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -210,13 +209,15 @@ mod tests {
             })),
         );
 
-        let step = FlowStep {
+        let node = FlowNode {
             plugin: "mock.term".to_owned(),
-            config: StepConfig::default(),
+            params: serde_json::Value::default(),
+            branches: HashMap::new(),
+            termination: None,
         };
 
         let mut ctx = make_mock_context().await;
-        let result = execute(&step, &mut ctx, &registry, Duration::from_secs(5)).await;
+        let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
         assert!(result.is_ok());
         assert!(called.load(Ordering::SeqCst));
     }
@@ -238,22 +239,23 @@ mod tests {
                 })),
             );
 
-        let step = FlowStep {
+        let node = FlowNode {
             plugin: "mock.branch".to_owned(),
-            config: StepConfig {
-                params: serde_json::Value::Null,
-                branches: HashMap::from([(
-                    "next".to_owned(),
-                    FlowStep {
-                        plugin: "mock.term".to_owned(),
-                        config: StepConfig::default(),
-                    },
-                )]),
-            },
+            params: serde_json::Value::Null,
+            branches: HashMap::from([(
+                "next".to_owned(),
+                FlowNode {
+                    plugin: "mock.term".to_owned(),
+                    params: serde_json::Value::default(),
+                    branches: HashMap::new(),
+                    termination: None,
+                },
+            )]),
+            termination: None,
         };
 
         let mut ctx = make_mock_context().await;
-        let result = execute(&step, &mut ctx, &registry, Duration::from_secs(5)).await;
+        let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
         assert!(result.is_ok());
         assert!(called.load(Ordering::SeqCst));
         // Middleware applied KV updates
@@ -263,13 +265,15 @@ mod tests {
     #[tokio::test]
     async fn missing_plugin_error() {
         let registry = PluginRegistry::new();
-        let step = FlowStep {
+        let node = FlowNode {
             plugin: "nonexistent".to_owned(),
-            config: StepConfig::default(),
+            params: serde_json::Value::default(),
+            branches: HashMap::new(),
+            termination: None,
         };
 
         let mut ctx = make_mock_context().await;
-        let result = execute(&step, &mut ctx, &registry, Duration::from_secs(5)).await;
+        let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
         assert!(matches!(result, Err(FlowError::PluginNotFound { .. })));
     }
 
@@ -282,16 +286,15 @@ mod tests {
             })),
         );
 
-        let step = FlowStep {
+        let node = FlowNode {
             plugin: "mock.branch".to_owned(),
-            config: StepConfig {
-                params: serde_json::Value::Null,
-                branches: HashMap::new(), // no branches defined
-            },
+            params: serde_json::Value::Null,
+            branches: HashMap::new(), // no branches defined
+            termination: None,
         };
 
         let mut ctx = make_mock_context().await;
-        let result = execute(&step, &mut ctx, &registry, Duration::from_secs(5)).await;
+        let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
         assert!(matches!(result, Err(FlowError::BranchNotFound { .. })));
     }
 
@@ -302,15 +305,17 @@ mod tests {
             PluginAction::Terminator(Box::new(SlowTerminator)),
         );
 
-        let step = FlowStep {
+        let node = FlowNode {
             plugin: "slow".to_owned(),
-            config: StepConfig::default(),
+            params: serde_json::Value::default(),
+            branches: HashMap::new(),
+            termination: None,
         };
 
         let mut ctx = make_mock_context().await;
         // Use a short timeout; SlowTerminator sleeps 60s so this will fire first
         let result = execute(
-            &step,
+            &node,
             &mut ctx,
             &registry,
             Duration::from_millis(50),
@@ -328,16 +333,18 @@ mod tests {
             })),
         );
 
-        let step = FlowStep {
+        let node = FlowNode {
             plugin: "mock.term".to_owned(),
-            config: StepConfig::default(),
+            params: serde_json::Value::default(),
+            branches: HashMap::new(),
+            termination: None,
         };
 
         let mut ctx = make_mock_context().await;
         // Pre-consume the stream
         let _taken = ctx.take_stream();
 
-        let result = execute(&step, &mut ctx, &registry, Duration::from_secs(5)).await;
+        let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
         assert!(matches!(
             result,
             Err(FlowError::StreamAlreadyConsumed { .. })

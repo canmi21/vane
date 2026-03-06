@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{
+    config::FlowNode,
     engine::{Engine, EngineConfig},
     flow::{
-        FlowStep, FlowTable, PluginAction, PluginRegistry, ProtocolDetect, StepConfig,
+        FlowTable, PluginAction, PluginRegistry, ProtocolDetect,
         builtin::tcp_forward::TcpForward,
     },
 };
@@ -15,34 +16,32 @@ use vane_test_utils::echo::EchoServer;
 use vane_transport::tcp::ProxyConfig;
 
 /// Build a flow: protocol.detect -> {branch} -> tcp.forward(echo)
-fn detect_flow(echo_addr: std::net::SocketAddr, branches: &[&str]) -> (FlowStep, PluginRegistry) {
+fn detect_flow(echo_addr: std::net::SocketAddr, branches: &[&str]) -> (FlowNode, PluginRegistry) {
     let forward_params = serde_json::json!({
         "ip": echo_addr.ip().to_string(),
         "port": echo_addr.port(),
     });
 
-    let branch_map: HashMap<String, FlowStep> = branches
+    let branch_map: HashMap<String, FlowNode> = branches
         .iter()
         .map(|b| {
             (
                 (*b).to_owned(),
-                FlowStep {
+                FlowNode {
                     plugin: "tcp.forward".to_owned(),
-                    config: StepConfig {
-                        params: forward_params.clone(),
-                        ..Default::default()
-                    },
+                    params: forward_params.clone(),
+                    branches: HashMap::new(),
+                    termination: None,
                 },
             )
         })
         .collect();
 
-    let step = FlowStep {
+    let node = FlowNode {
         plugin: "protocol.detect".to_owned(),
-        config: StepConfig {
-            params: serde_json::Value::Null,
-            branches: branch_map,
-        },
+        params: serde_json::Value::Null,
+        branches: branch_map,
+        termination: None,
     };
 
     let registry = PluginRegistry::new()
@@ -57,16 +56,16 @@ fn detect_flow(echo_addr: std::net::SocketAddr, branches: &[&str]) -> (FlowStep,
             })),
         );
 
-    (step, registry)
+    (node, registry)
 }
 
 /// TLS-like bytes are detected and routed through the "tls" branch.
 #[tokio::test]
 async fn detect_tls_routes_to_tls_branch() {
     let echo = EchoServer::start().await;
-    let (step, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
+    let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-    let flow_table = FlowTable::new().add(0, step);
+    let flow_table = FlowTable::new().add(0, node);
     let mut engine = Engine::new(flow_table, registry, EngineConfig::default());
     engine.start().await.unwrap();
 
@@ -89,9 +88,9 @@ async fn detect_tls_routes_to_tls_branch() {
 #[tokio::test]
 async fn detect_http_routes_to_http_branch() {
     let echo = EchoServer::start().await;
-    let (step, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
+    let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-    let flow_table = FlowTable::new().add(0, step);
+    let flow_table = FlowTable::new().add(0, node);
     let mut engine = Engine::new(flow_table, registry, EngineConfig::default());
     engine.start().await.unwrap();
 
@@ -113,9 +112,9 @@ async fn detect_http_routes_to_http_branch() {
 #[tokio::test]
 async fn detect_unknown_routes_to_fallback_branch() {
     let echo = EchoServer::start().await;
-    let (step, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
+    let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-    let flow_table = FlowTable::new().add(0, step);
+    let flow_table = FlowTable::new().add(0, node);
     let mut engine = Engine::new(flow_table, registry, EngineConfig::default());
     engine.start().await.unwrap();
 

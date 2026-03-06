@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{
+    config::FlowNode,
     engine::{Engine, EngineConfig},
     flow::{
-        FlowStep, FlowTable, PluginAction, PluginRegistry, StepConfig,
+        FlowTable, PluginAction, PluginRegistry,
         builtin::{echo_branch::EchoBranch, tcp_forward::TcpForward},
     },
 };
@@ -20,27 +21,25 @@ async fn test_multi_step_flow() {
     let echo = EchoServer::start().await;
     let echo_addr = echo.addr();
 
-    let step = FlowStep {
+    let node = FlowNode {
         plugin: "echo.branch".to_owned(),
-        config: StepConfig {
-            params: serde_json::json!({"branch": "default"}),
-            branches: HashMap::from([(
-                "default".to_owned(),
-                FlowStep {
-                    plugin: "tcp.forward".to_owned(),
-                    config: StepConfig {
-                        params: serde_json::json!({
-                            "ip": echo_addr.ip().to_string(),
-                            "port": echo_addr.port(),
-                        }),
-                        ..Default::default()
-                    },
-                },
-            )]),
-        },
+        params: serde_json::json!({"branch": "default"}),
+        branches: HashMap::from([(
+            "default".to_owned(),
+            FlowNode {
+                plugin: "tcp.forward".to_owned(),
+                params: serde_json::json!({
+                    "ip": echo_addr.ip().to_string(),
+                    "port": echo_addr.port(),
+                }),
+                branches: HashMap::new(),
+                termination: None,
+            },
+        )]),
+        termination: None,
     };
 
-    let flow_table = FlowTable::new().add(0, step);
+    let flow_table = FlowTable::new().add(0, node);
     let registry = PluginRegistry::new()
         .register(
             "echo.branch",
@@ -74,15 +73,14 @@ async fn test_multi_step_flow() {
 /// The engine should log the error, not panic.
 #[tokio::test]
 async fn test_missing_branch_does_not_panic() {
-    let step = FlowStep {
+    let node = FlowNode {
         plugin: "echo.branch".to_owned(),
-        config: StepConfig {
-            params: serde_json::json!({"branch": "nonexistent"}),
-            branches: HashMap::new(), // no branches defined
-        },
+        params: serde_json::json!({"branch": "nonexistent"}),
+        branches: HashMap::new(), // no branches defined
+        termination: None,
     };
 
-    let flow_table = FlowTable::new().add(0, step);
+    let flow_table = FlowTable::new().add(0, node);
     let registry = PluginRegistry::new().register(
         "echo.branch",
         PluginAction::Middleware(Box::new(EchoBranch)),
@@ -133,12 +131,14 @@ async fn test_flow_timeout() {
         }
     }
 
-    let step = FlowStep {
+    let node = FlowNode {
         plugin: "never".to_owned(),
-        config: StepConfig::default(),
+        params: serde_json::Value::default(),
+        branches: HashMap::new(),
+        termination: None,
     };
 
-    let flow_table = FlowTable::new().add(0, step);
+    let flow_table = FlowTable::new().add(0, node);
     let registry = PluginRegistry::new().register(
         "never",
         PluginAction::Terminator(Box::new(NeverTerminator)),

@@ -95,12 +95,12 @@ impl Engine {
                             );
                             return;
                         };
-                        if let Some(step) = table.lookup(listener_port) {
+                        if let Some(node) = table.lookup(listener_port) {
                             handle_connection(
                                 stream,
                                 peer_addr,
                                 server_addr,
-                                step,
+                                node,
                                 &registry,
                                 &conn_config,
                                 guard,
