@@ -208,4 +208,27 @@ mod tests {
 			"expected BindFailed, got {result:?}"
 		);
 	}
+
+	#[tokio::test]
+	async fn ipv6_listener_accepts() {
+		let (tx, mut rx) = tokio::sync::mpsc::channel::<SocketAddr>(16);
+		let config = ListenerConfig { port: 0, ipv6: true, ..Default::default() };
+
+		let handle = start_tcp_listener(&config, move |_stream, addr, _server_addr| {
+			let _ = tx.try_send(addr);
+		})
+		.await
+		.unwrap();
+
+		let local_addr = handle.local_addr();
+		// Connect via IPv6 loopback
+		let ipv6_addr = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), local_addr.port());
+		let conn = TcpStream::connect(ipv6_addr).await.unwrap();
+		let reported_peer = rx.recv().await.unwrap();
+
+		assert_eq!(reported_peer, conn.local_addr().unwrap());
+
+		handle.shutdown();
+		handle.join().await.unwrap();
+	}
 }

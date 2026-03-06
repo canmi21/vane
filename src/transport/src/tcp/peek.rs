@@ -82,4 +82,22 @@ mod tests {
 		assert_eq!(peeked.len(), 4);
 		assert_eq!(&peeked[..], b"long");
 	}
+
+	#[tokio::test]
+	async fn peek_limit_zero_returns_empty() {
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let addr = listener.local_addr().unwrap();
+
+		let send_task = tokio::spawn(async move {
+			let mut conn = TcpStream::connect(addr).await.unwrap();
+			conn.write_all(b"data").await.unwrap();
+			conn
+		});
+
+		let (server, _) = listener.accept().await.unwrap();
+		let _client = send_task.await.unwrap();
+
+		let peeked = peek_tcp(&server, 0).await.unwrap();
+		assert!(peeked.is_empty());
+	}
 }

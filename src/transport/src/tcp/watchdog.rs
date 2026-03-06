@@ -63,3 +63,43 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for IdleWatchdog<S> {
 		Pin::new(&mut self.inner).poll_shutdown(cx)
 	}
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+	use super::*;
+	use std::sync::atomic::Ordering;
+	use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+	#[test]
+	fn now_millis_returns_nonzero() {
+		assert!(now_millis() > 0);
+	}
+
+	#[tokio::test]
+	async fn watchdog_updates_activity_on_read() {
+		let last_activity = Arc::new(AtomicU64::new(0));
+
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let addr = listener.local_addr().unwrap();
+
+		let write_task = tokio::spawn(async move {
+			let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+			conn.write_all(b"hello").await.unwrap();
+			conn
+		});
+
+		let (server, _) = listener.accept().await.unwrap();
+		let _client = write_task.await.unwrap();
+
+		let mut watchdog = IdleWatchdog::new(server, last_activity.clone());
+		assert_eq!(last_activity.load(Ordering::Relaxed), 0);
+
+		let mut buf = [0u8; 5];
+		watchdog.read_exact(&mut buf).await.unwrap();
+		assert_eq!(&buf, b"hello");
+
+		let activity = last_activity.load(Ordering::Relaxed);
+		assert!(activity > 0, "last_activity should have been updated");
+	}
+}

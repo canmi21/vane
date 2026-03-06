@@ -217,4 +217,37 @@ mod tests {
 		upstream_handle.abort();
 		client_handle.abort();
 	}
+
+	#[tokio::test]
+	async fn connect_refused_returns_connect_failed() {
+		// Bind then immediately drop to get a port that is definitely closed
+		let tmp = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let closed_addr = tmp.local_addr().unwrap();
+		drop(tmp);
+
+		let target = ResolvedTarget { addr: closed_addr };
+
+		let proxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let proxy_addr = proxy_listener.local_addr().unwrap();
+
+		let client_handle = tokio::spawn(async move {
+			let _conn = TcpStream::connect(proxy_addr).await.unwrap();
+			tokio::time::sleep(Duration::from_secs(5)).await;
+		});
+
+		let (client_stream, _) = proxy_listener.accept().await.unwrap();
+		let config = ProxyConfig {
+			connect_timeout: Duration::from_secs(2),
+			idle_timeout: Duration::from_secs(10),
+			watchdog_poll_interval: Duration::from_secs(1),
+		};
+
+		let result = proxy_tcp(client_stream, &target, &config).await;
+		assert!(
+			matches!(result, Err(ProxyError::ConnectFailed { .. })),
+			"expected ConnectFailed, got {result:?}"
+		);
+
+		client_handle.abort();
+	}
 }
