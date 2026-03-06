@@ -27,7 +27,7 @@ search '#[cfg_attr(..allow' 'cfg_attr.*allow' '*.rs'
 search "//nolint" "//nolint" '*.go'
 
 # Line-length opt-out
-search "vane:no-line-limit" "vane:no-line-limit" '*.sh' '*.rs' '*.go'
+search "vane:no-line-limit" "vane:no-line-limit" '*.sh' '*.rs' '*.go' '*.ts'
 
 printf '\n========================================\n'
 printf 'Total suppressions: %d\n' "$total"
