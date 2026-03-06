@@ -100,7 +100,7 @@ test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="$HOME/.cargo/bin:$PATH"
-    cd integration && go run main.go
+    cd integration && go test -v -count=1 -parallel 8 -timeout 120s ./tests/...
 
 # All tests
 test: test-rs test-integration

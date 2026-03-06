@@ -2,10 +2,12 @@
 package env
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"testing"
 	"time"
 )
 
@@ -90,6 +92,27 @@ func (s *Sandbox) WriteConfig(relativePath string, content []byte) error {
 	}
 
 	return os.WriteFile(fullPath, content, 0644)
+}
+
+// SetupTest creates an isolated sandbox and context for a standard go test.
+// It calls t.Parallel(), registers cleanup, and returns a 30s-timeout context
+// with the debug flag read from the DEBUG env var.
+func SetupTest(t *testing.T) (*Sandbox, context.Context) {
+	t.Helper()
+	t.Parallel()
+
+	sb, err := NewSandbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sb.Cleanup)
+
+	debug := os.Getenv("DEBUG") == "true"
+	ctx := context.WithValue(context.Background(), DebugKey, debug)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	t.Cleanup(cancel)
+
+	return sb, ctx
 }
 
 // ConnectConsole attempts to dial the Vane console port.
