@@ -7,7 +7,7 @@ use vane_transport::error::ListenerError;
 use vane_transport::listener::{start_tcp_listener, ListenerConfig, TcpListenerHandle};
 
 use crate::flow::{FlowTable, PluginRegistry};
-use crate::handler::handle_connection;
+use crate::handler::{ConnectionConfig, handle_connection};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -24,6 +24,7 @@ pub struct EngineConfig {
     pub max_connections: usize,
     pub max_connections_per_ip: usize,
     pub flow_timeout: Duration,
+    pub peek_limit: usize,
 }
 
 impl Default for EngineConfig {
@@ -32,6 +33,7 @@ impl Default for EngineConfig {
             max_connections: 10000,
             max_connections_per_ip: 50,
             flow_timeout: Duration::from_secs(10),
+            peek_limit: 64,
         }
     }
 }
@@ -73,7 +75,10 @@ impl Engine {
             let table = self.flow_table.clone();
             let registry = self.registry.clone();
             let tracker = self.tracker.clone();
-            let flow_timeout = self.config.flow_timeout;
+            let conn_config = ConnectionConfig {
+                flow_timeout: self.config.flow_timeout,
+                peek_limit: self.config.peek_limit,
+            };
             let listener_port = port;
 
             let handle =
@@ -81,6 +86,7 @@ impl Engine {
                     let table = table.clone();
                     let registry = registry.clone();
                     let tracker = tracker.clone();
+                    let conn_config = conn_config.clone();
                     tokio::spawn(async move {
                         let Some(guard) = tracker.acquire(peer_addr.ip()) else {
                             tracing::warn!(
@@ -96,7 +102,7 @@ impl Engine {
                                 server_addr,
                                 step,
                                 &registry,
-                                flow_timeout,
+                                &conn_config,
                                 guard,
                             )
                             .await;

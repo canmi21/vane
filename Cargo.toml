@@ -19,6 +19,7 @@ license = "MIT"
 # External
 ahash = "0.8"
 anyhow = "1"
+bytes = "1"
 dashmap = "6"
 fastrand = "2"
 serde = { version = "1", features = ["derive"] }

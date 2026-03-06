@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+bytes.workspace = true
 vane-primitives.workspace = true
 tokio.workspace = true
 tracing.workspace = true

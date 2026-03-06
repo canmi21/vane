@@ -626,6 +626,7 @@ name = "vane-engine"
 version = "0.10.1"
 dependencies = [
  "anyhow",
+ "bytes",
  "serde",
  "serde_json",
  "thiserror",
@@ -692,6 +693,7 @@ name = "vane-transport"
 version = "0.10.1"
 dependencies = [
  "anyhow",
+ "bytes",
  "serde",
  "serde_json",
  "thiserror",

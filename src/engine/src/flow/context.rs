@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use bytes::Bytes;
 use tokio::net::TcpStream;
 use vane_primitives::kv::KvStore;
 
@@ -10,6 +11,11 @@ pub trait ExecutionContext: Send {
     fn kv(&self) -> &KvStore;
     fn kv_mut(&mut self) -> &mut KvStore;
     fn take_stream(&mut self) -> Option<TcpStream>;
+
+    /// Returns peeked bytes from the connection, if available.
+    fn peek_data(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 /// Real connection context carrying a `TcpStream` and metadata.
@@ -18,6 +24,7 @@ pub struct TransportContext {
     server_addr: SocketAddr,
     kv: KvStore,
     stream: Option<TcpStream>,
+    peek_data: Option<Bytes>,
 }
 
 impl TransportContext {
@@ -32,7 +39,12 @@ impl TransportContext {
             server_addr,
             kv,
             stream: Some(stream),
+            peek_data: None,
         }
+    }
+
+    pub fn set_peek_data(&mut self, data: Bytes) {
+        self.peek_data = Some(data);
     }
 }
 
@@ -55,6 +67,10 @@ impl ExecutionContext for TransportContext {
 
     fn take_stream(&mut self) -> Option<TcpStream> {
         self.stream.take()
+    }
+
+    fn peek_data(&self) -> Option<&[u8]> {
+        self.peek_data.as_deref()
     }
 }
 
