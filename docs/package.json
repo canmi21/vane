@@ -25,10 +25,10 @@
 	"devDependencies": {
 		"@tailwindcss/postcss": "^4.2.1",
 		"@types/mdx": "^2.0.13",
-		"@types/node": "^25.3.3",
+		"@types/node": "^25.3.5",
 		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
-		"eslint": "9",
+		"eslint": "^9.39.3",
 		"eslint-config-next": "16.1.6",
 		"eslint-plugin-oxlint": "^1.51.0",
 		"oxlint": "^1.51.0",

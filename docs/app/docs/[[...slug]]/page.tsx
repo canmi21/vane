@@ -21,7 +21,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
 			<DocsBody>
 				<MDX
 					components={getMDXComponents({
-						// @ts-expect-error fumadocs-mdx defineDocs produces a narrower generic than createRelativeLink expects
+						// @ts-ignore createRelativeLink generic mismatch depends on fumadocs version
 						a: createRelativeLink(source, page),
 					})}
 				/>
