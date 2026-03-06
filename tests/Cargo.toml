@@ -8,6 +8,7 @@ publish = false
 workspace = true
 
 [dependencies]
+bytes.workspace = true
 vane-engine.workspace = true
 vane-primitives.workspace = true
 vane-transport.workspace = true
@@ -26,3 +27,7 @@ path = "engine/forward.rs"
 [[test]]
 name = "engine_flow"
 path = "engine/flow.rs"
+
+[[test]]
+name = "engine_detect"
+path = "engine/detect.rs"
