@@ -21,10 +21,7 @@ impl fmt::Display for TransferDirection {
 #[derive(Debug, Error)]
 pub enum ProxyError {
 	#[error("failed to connect to {addr}")]
-	ConnectFailed {
-		addr: SocketAddr,
-		source: std::io::Error,
-	},
+	ConnectFailed { addr: SocketAddr, source: std::io::Error },
 
 	#[error("connect timeout after {timeout_secs}s to {addr}")]
 	ConnectTimeout { addr: SocketAddr, timeout_secs: u64 },
@@ -33,18 +30,11 @@ pub enum ProxyError {
 	IdleTimeout { idle_secs: u64 },
 
 	#[error("transfer failed ({direction})")]
-	TransferFailed {
-		direction: TransferDirection,
-		source: std::io::Error,
-	},
+	TransferFailed { direction: TransferDirection, source: std::io::Error },
 }
 
 #[derive(Debug, Error)]
 pub enum ListenerError {
 	#[error("failed to bind {addr} after {attempts} attempts")]
-	BindFailed {
-		addr: SocketAddr,
-		attempts: u32,
-		source: std::io::Error,
-	},
+	BindFailed { addr: SocketAddr, attempts: u32, source: std::io::Error },
 }

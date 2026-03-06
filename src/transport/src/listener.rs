@@ -24,12 +24,7 @@ pub struct ListenerConfig {
 
 impl Default for ListenerConfig {
 	fn default() -> Self {
-		Self {
-			port: 0,
-			ipv6: false,
-			bind_retries: 5,
-			bind_retry_interval: Duration::from_millis(100),
-		}
+		Self { port: 0, ipv6: false, bind_retries: 5, bind_retry_interval: Duration::from_millis(100) }
 	}
 }
 
@@ -95,11 +90,7 @@ async fn bind_with_retry(
 	}
 	// last_err is always Some after the loop runs at least once (retries >= 1)
 	#[allow(clippy::unwrap_used)]
-	Err(ListenerError::BindFailed {
-		addr,
-		attempts: retries,
-		source: last_err.unwrap(),
-	})
+	Err(ListenerError::BindFailed { addr, attempts: retries, source: last_err.unwrap() })
 }
 
 pub async fn start_tcp_listener<F>(
@@ -144,11 +135,7 @@ where
 		.instrument(span),
 	);
 
-	Ok(TcpListenerHandle {
-		state_tx,
-		local_addr,
-		join_handle,
-	})
+	Ok(TcpListenerHandle { state_tx, local_addr, join_handle })
 }
 
 #[cfg(test)]
@@ -160,10 +147,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_accept_connection() {
 		let (tx, mut rx) = tokio::sync::mpsc::channel::<SocketAddr>(16);
-		let config = ListenerConfig {
-			port: 0,
-			..Default::default()
-		};
+		let config = ListenerConfig { port: 0, ..Default::default() };
 
 		let handle = start_tcp_listener(&config, move |_stream, addr, _server_addr| {
 			let _ = tx.try_send(addr);
@@ -183,10 +167,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_graceful_shutdown() {
-		let config = ListenerConfig {
-			port: 0,
-			..Default::default()
-		};
+		let config = ListenerConfig { port: 0, ..Default::default() };
 
 		let handle = start_tcp_listener(&config, |_, _, _| {}).await.unwrap();
 		let local_addr = handle.local_addr();
@@ -201,25 +182,17 @@ mod tests {
 		handle.join().await.unwrap();
 
 		// After shutdown, new connections should fail
-		let result = tokio::time::timeout(
-			Duration::from_millis(100),
-			TcpStream::connect(local_addr),
-		)
-		.await;
+		let result =
+			tokio::time::timeout(Duration::from_millis(100), TcpStream::connect(local_addr)).await;
 
-		assert!(
-			result.is_err() || result.unwrap().is_err(),
-			"connection should fail after shutdown"
-		);
+		assert!(result.is_err() || result.unwrap().is_err(), "connection should fail after shutdown");
 	}
 
 	#[tokio::test]
 	async fn test_bind_failure() {
 		// Occupy a port
 		let occupied =
-			TcpListener::bind(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0))
-				.await
-				.unwrap();
+			TcpListener::bind(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0)).await.unwrap();
 		let port = occupied.local_addr().unwrap().port();
 
 		let config = ListenerConfig {

@@ -8,6 +8,6 @@ use tokio::net::TcpListener;
 /// Prefer using port 0 directly with `EchoServer::start()` or
 /// `MockTcpServer::start()` when possible.
 pub async fn free_port() -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    listener.local_addr().unwrap()
+	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	listener.local_addr().unwrap()
 }

@@ -16,7 +16,7 @@
 
 ## Version Control
 
-- Before every `git commit`, run `just ci` (clippy + test) and fix any errors first
+- Before every `git commit`, run `just ci` (fmt + clippy + test) and fix any errors first
 - Run `git commit` after each plan mode phase completes, do not push
 - Commit messages: conventional commit format (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `deps:`, `revert:`, `perf:`); scope is optional and should only be added when it genuinely clarifies context — roughly 1 in 3 commits should have a scope (e.g. `feat(transport):` when the change is transport-specific), the rest use bare prefix (e.g. `refactor: extract shared helpers`)
 - Never add AI co-authorship (e.g., "Co-Authored-By: Claude")
@@ -76,7 +76,8 @@ Rust workspace with `resolver = "3"` and `edition = "2024"`:
 | `just test-unit` | Unit tests only (`cargo test --workspace --lib`) |
 | `just test-integration` | Integration tests only (`cargo test -p vane-integration-tests`) |
 | `just clippy` | Clippy with `-D warnings` |
-| `just ci` | Full CI check: clippy + all tests |
+| `just fmt` | Format code (`cargo fmt --all`) |
+| `just ci` | Full CI check: fmt + clippy + all tests |
 
 ## Testing Philosophy
 

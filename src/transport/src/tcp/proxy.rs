@@ -34,80 +34,73 @@ pub async fn proxy_tcp(
 	let upstream_addr = target.addr;
 	let span = tracing::info_span!("tcp_proxy", %upstream_addr);
 	async {
+		tracing::debug!("connecting to upstream");
 
-	tracing::debug!("connecting to upstream");
+		let upstream =
+			match tokio::time::timeout(config.connect_timeout, TcpStream::connect(upstream_addr)).await {
+				Ok(Ok(stream)) => stream,
+				Ok(Err(e)) => {
+					return Err(ProxyError::ConnectFailed { addr: upstream_addr, source: e });
+				}
+				Err(_) => {
+					return Err(ProxyError::ConnectTimeout {
+						addr: upstream_addr,
+						timeout_secs: config.connect_timeout.as_secs(),
+					});
+				}
+			};
 
-	let upstream = match tokio::time::timeout(
-		config.connect_timeout,
-		TcpStream::connect(upstream_addr),
-	)
-	.await
-	{
-		Ok(Ok(stream)) => stream,
-		Ok(Err(e)) => {
-			return Err(ProxyError::ConnectFailed {
-				addr: upstream_addr,
-				source: e,
-			});
-		}
-		Err(_) => {
-			return Err(ProxyError::ConnectTimeout {
-				addr: upstream_addr,
-				timeout_secs: config.connect_timeout.as_secs(),
-			});
-		}
-	};
+		let _ = client.set_nodelay(true);
+		let _ = upstream.set_nodelay(true);
 
-	let _ = client.set_nodelay(true);
-	let _ = upstream.set_nodelay(true);
+		let last_activity = Arc::new(AtomicU64::new(now_millis()));
 
-	let last_activity = Arc::new(AtomicU64::new(now_millis()));
+		let mut client_wrapped = IdleWatchdog::new(client, last_activity.clone());
+		let mut upstream_wrapped = IdleWatchdog::new(upstream, last_activity.clone());
 
-	let mut client_wrapped = IdleWatchdog::new(client, last_activity.clone());
-	let mut upstream_wrapped = IdleWatchdog::new(upstream, last_activity.clone());
+		let (mut cr, mut cw) = tokio::io::split(&mut client_wrapped);
+		let (mut ur, mut uw) = tokio::io::split(&mut upstream_wrapped);
 
-	let (mut cr, mut cw) = tokio::io::split(&mut client_wrapped);
-	let (mut ur, mut uw) = tokio::io::split(&mut upstream_wrapped);
+		let client_to_server = tokio::io::copy(&mut cr, &mut uw);
+		let server_to_client = tokio::io::copy(&mut ur, &mut cw);
 
-	let client_to_server = tokio::io::copy(&mut cr, &mut uw);
-	let server_to_client = tokio::io::copy(&mut ur, &mut cw);
+		let idle_millis = config.idle_timeout.as_millis() as u64;
+		let poll_interval = config.watchdog_poll_interval;
+		let activity = last_activity.clone();
+		let watchdog = async move {
+			loop {
+				tokio::time::sleep(poll_interval).await;
+				let last = activity.load(Ordering::Relaxed);
+				if now_millis() - last >= idle_millis {
+					break;
+				}
+			}
+		};
 
-	let idle_millis = config.idle_timeout.as_millis() as u64;
-	let poll_interval = config.watchdog_poll_interval;
-	let activity = last_activity.clone();
-	let watchdog = async move {
-		loop {
-			tokio::time::sleep(poll_interval).await;
-			let last = activity.load(Ordering::Relaxed);
-			if now_millis() - last >= idle_millis {
-				break;
+		tokio::select! {
+			res = client_to_server => match res {
+				Ok(_) => { tracing::debug!("forwarding finished"); Ok(()) }
+				Err(e) => Err(ProxyError::TransferFailed {
+					direction: TransferDirection::ClientToServer,
+					source: e,
+				}),
+			},
+			res = server_to_client => match res {
+				Ok(_) => { tracing::debug!("forwarding finished"); Ok(()) }
+				Err(e) => Err(ProxyError::TransferFailed {
+					direction: TransferDirection::ServerToClient,
+					source: e,
+				}),
+			},
+			() = watchdog => {
+				let idle_secs = config.idle_timeout.as_secs();
+				tracing::warn!(idle_secs, "idle timeout triggered");
+				Err(ProxyError::IdleTimeout { idle_secs })
 			}
 		}
-	};
-
-	tokio::select! {
-		res = client_to_server => match res {
-			Ok(_) => { tracing::debug!("forwarding finished"); Ok(()) }
-			Err(e) => Err(ProxyError::TransferFailed {
-				direction: TransferDirection::ClientToServer,
-				source: e,
-			}),
-		},
-		res = server_to_client => match res {
-			Ok(_) => { tracing::debug!("forwarding finished"); Ok(()) }
-			Err(e) => Err(ProxyError::TransferFailed {
-				direction: TransferDirection::ServerToClient,
-				source: e,
-			}),
-		},
-		() = watchdog => {
-			let idle_secs = config.idle_timeout.as_secs();
-			tracing::warn!(idle_secs, "idle timeout triggered");
-			Err(ProxyError::IdleTimeout { idle_secs })
-		}
 	}
-
-	}.instrument(span).await
+	.instrument(span)
+	.await
 }
 
 #[cfg(test)]

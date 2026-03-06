@@ -6,10 +6,8 @@ use std::task::{Context, Poll};
 use tokio::io::{self, AsyncRead, AsyncWrite, ReadBuf};
 
 pub fn now_millis() -> u64 {
-	std::time::SystemTime::now()
-		.duration_since(std::time::UNIX_EPOCH)
-		.unwrap_or_default()
-		.as_millis() as u64
+	std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()
+		as u64
 }
 
 pub struct IdleWatchdog<S> {
@@ -19,10 +17,7 @@ pub struct IdleWatchdog<S> {
 
 impl<S> IdleWatchdog<S> {
 	pub const fn new(inner: S, last_activity: Arc<AtomicU64>) -> Self {
-		Self {
-			inner,
-			last_activity,
-		}
+		Self { inner, last_activity }
 	}
 
 	fn update_activity(&self) {

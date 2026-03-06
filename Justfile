@@ -18,5 +18,9 @@ test-integration:
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
 
-# Full CI check: clippy + all tests
-ci: clippy test
+# Format code
+fmt:
+    cargo fmt --all
+
+# Full CI check: format + clippy + all tests
+ci: fmt clippy test

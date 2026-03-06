@@ -657,6 +657,7 @@ name = "vane-integration-tests"
 version = "0.10.1"
 dependencies = [
  "anyhow",
+ "bytes",
  "serde_json",
  "tokio",
  "vane-engine",
