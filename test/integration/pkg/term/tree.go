@@ -1,4 +1,5 @@
-/* integration/pkg/term/tree.go */
+/* test/integration/pkg/term/tree.go */
+
 package term
 
 import (

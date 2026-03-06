@@ -1,4 +1,5 @@
-/* integration/tests/l7/cgi_lua_test.go */
+/* test/integration/tests/l7/cgi_lua_test.go */
+
 package l7
 
 import (

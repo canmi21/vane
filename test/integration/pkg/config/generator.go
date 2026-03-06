@@ -1,3 +1,3 @@
-/* integration/pkg/config/generator.go */
+/* test/integration/pkg/config/generator.go */
 
 package basic

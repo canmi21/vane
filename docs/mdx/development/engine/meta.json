@@ -1,6 +1,6 @@
 {
-	"title": "Engine",
-	"description": "Flow execution engine",
-	"icon": "Cog",
-	"pages": ["index", "flow-executor", "plugin-system"]
+  "title": "Engine",
+  "description": "Flow execution engine",
+  "icon": "Cog",
+  "pages": ["index", "flow-executor", "plugin-system"]
 }

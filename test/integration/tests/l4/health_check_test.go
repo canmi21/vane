@@ -1,4 +1,5 @@
-/* integration/tests/l4/health_check_test.go */
+/* test/integration/tests/l4/health_check_test.go */
+
 package l4
 
 import (

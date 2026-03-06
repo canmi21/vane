@@ -1,4 +1,5 @@
-/* integration/tests/l7/httpx_matrix_helper.go */
+/* test/integration/tests/l7/httpx_matrix_helper_test.go */
+
 package l7
 
 import (

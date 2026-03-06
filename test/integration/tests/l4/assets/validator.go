@@ -1,4 +1,4 @@
-/* integration/tests/l4/assets/validator.go */
+/* test/integration/tests/l4/assets/validator.go */
 
 package main
 

@@ -1,4 +1,5 @@
-/* integration/pkg/mock/tcp_server.go */
+/* test/integration/pkg/mock/tcp_server.go */
+
 package mock
 
 import (

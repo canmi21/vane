@@ -1,4 +1,5 @@
-/* integration/pkg/term/color.go */
+/* test/integration/pkg/term/color.go */
+
 package term
 
 import "fmt"

@@ -1,4 +1,5 @@
-/* integration/tests/l4/udp_proxy_test.go */
+/* test/integration/tests/l4/udp_proxy_test.go */
+
 package l4
 
 import (

@@ -1,4 +1,5 @@
-/* integration/pkg/env/compiler.go */
+/* test/integration/pkg/env/compiler.go */
+
 package env
 
 import (

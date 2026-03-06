@@ -1,4 +1,5 @@
-/* integration/pkg/mock/upstream_http.go */
+/* test/integration/pkg/mock/upstream_http.go */
+
 package mock
 
 import (

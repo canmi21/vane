@@ -1,4 +1,5 @@
-/* integration/tests/common/config_hot_reload_test.go */
+/* test/integration/tests/common/config_hot_reload_test.go */
+
 package common
 
 import (

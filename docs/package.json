@@ -1,40 +1,40 @@
 {
-	"name": "vane-docs",
-	"version": "1.0.0",
-	"private": true,
-	"scripts": {
-		"build": "next build",
-		"dev": "next dev",
-		"start": "serve out",
-		"types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
-		"postinstall": "fumadocs-mdx",
-		"lint": "oxlint && eslint"
-	},
-	"dependencies": {
-		"@orama/orama": "^3.1.18",
-		"fumadocs-core": "16.6.9",
-		"fumadocs-mdx": "14.2.9",
-		"fumadocs-ui": "16.6.9",
-		"lucide-react": "^0.577.0",
-		"mermaid": "^11.12.3",
-		"next": "16.1.6",
-		"next-themes": "^0.4.6",
-		"react": "^19.2.4",
-		"react-dom": "^19.2.4"
-	},
-	"devDependencies": {
-		"@tailwindcss/postcss": "^4.2.1",
-		"@types/mdx": "^2.0.13",
-		"@types/node": "^25.3.5",
-		"@types/react": "^19.2.14",
-		"@types/react-dom": "^19.2.3",
-		"eslint": "^9.39.3",
-		"eslint-config-next": "16.1.6",
-		"eslint-plugin-oxlint": "^1.51.0",
-		"oxlint": "^1.51.0",
-		"postcss": "^8.5.8",
-		"serve": "^14.2.6",
-		"tailwindcss": "^4.2.1",
-		"typescript": "^5.9.3"
-	}
+  "name": "vane-docs",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "serve out",
+    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
+    "postinstall": "fumadocs-mdx",
+    "lint": "oxlint && eslint"
+  },
+  "dependencies": {
+    "@orama/orama": "^3.1.18",
+    "fumadocs-core": "16.6.9",
+    "fumadocs-mdx": "14.2.9",
+    "fumadocs-ui": "16.6.9",
+    "lucide-react": "^0.577.0",
+    "mermaid": "^11.12.3",
+    "next": "16.1.6",
+    "next-themes": "^0.4.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.1",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.3",
+    "eslint-config-next": "16.1.6",
+    "eslint-plugin-oxlint": "^1.51.0",
+    "oxlint": "^1.51.0",
+    "postcss": "^8.5.8",
+    "serve": "^14.2.6",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3"
+  }
 }

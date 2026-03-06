@@ -1,4 +1,5 @@
-/* integration/tests/l4p/tls_alpn_test.go */
+/* test/integration/tests/l4p/tls_alpn_test.go */
+
 package l4p
 
 import (

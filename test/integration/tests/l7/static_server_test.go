@@ -1,4 +1,5 @@
-/* integration/tests/l7/static_server_test.go */
+/* test/integration/tests/l7/static_server_test.go */
+
 package l7
 
 import (

@@ -1,4 +1,5 @@
-/* integration/pkg/mock/tls_server.go */
+/* test/integration/pkg/mock/tls_server.go */
+
 package mock
 
 import (

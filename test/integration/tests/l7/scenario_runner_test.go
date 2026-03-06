@@ -1,4 +1,5 @@
-/* integration/tests/l7/scenario_runner.go */
+/* test/integration/tests/l7/scenario_runner_test.go */
+
 package l7
 
 import (

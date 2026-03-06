@@ -1,4 +1,5 @@
-/* integration/tests/l4p/http_host_test.go */
+/* test/integration/tests/l4p/http_host_test.go */
+
 package l4p
 
 import (

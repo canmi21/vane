@@ -1,4 +1,5 @@
-/* integration/pkg/env/sandbox.go */
+/* test/integration/pkg/env/sandbox.go */
+
 package env
 
 import (

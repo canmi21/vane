@@ -1,4 +1,5 @@
-/* integration/pkg/config/basic/legacy.go */
+/* test/integration/pkg/config/basic/legacy.go */
+
 package basic
 
 // Target represents a backend destination (IP, Domain, or Node).

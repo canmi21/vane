@@ -1,4 +1,5 @@
-/* integration/tests/mgmt/console_test.go */
+/* test/integration/tests/mgmt/console_test.go */
+
 package mgmt
 
 import (

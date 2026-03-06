@@ -1,4 +1,5 @@
-/* integration/pkg/config/advanced/model.go */
+/* test/integration/pkg/config/advanced/model.go */
+
 package advanced
 
 // ProcessingStep represents a step in the flow.

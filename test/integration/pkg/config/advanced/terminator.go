@@ -1,4 +1,5 @@
-/* integration/pkg/config/advanced/terminator.go */
+/* test/integration/pkg/config/advanced/terminator.go */
+
 package advanced
 
 // NewTransparentProxy creates a ProcessingStep that terminates the flow

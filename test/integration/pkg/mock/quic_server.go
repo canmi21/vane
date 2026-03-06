@@ -1,4 +1,5 @@
-/* integration/pkg/mock/quic_server.go */
+/* test/integration/pkg/mock/quic_server.go */
+
 package mock
 
 import (

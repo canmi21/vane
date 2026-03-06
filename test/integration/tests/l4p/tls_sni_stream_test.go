@@ -1,4 +1,5 @@
-/* integration/tests/l4p/tls_sni_stream_test.go */
+/* test/integration/tests/l4p/tls_sni_stream_test.go */
+
 package l4p
 
 import (

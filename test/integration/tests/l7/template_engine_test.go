@@ -1,4 +1,5 @@
-/* integration/tests/l7/template_engine_test.go */
+/* test/integration/tests/l7/template_engine_test.go */
+
 package l7
 
 import (

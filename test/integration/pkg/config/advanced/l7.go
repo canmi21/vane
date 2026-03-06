@@ -1,4 +1,5 @@
-/* integration/pkg/config/advanced/l7.go */
+/* test/integration/pkg/config/advanced/l7.go */
+
 package advanced
 
 // NewFetchUpstream creates a ProcessingStep for internal.driver.upstream.

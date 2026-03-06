@@ -1,4 +1,5 @@
-/* integration/pkg/mock/udp_server.go */
+/* test/integration/pkg/mock/udp_server.go */
+
 package mock
 
 import (

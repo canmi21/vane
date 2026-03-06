@@ -1,4 +1,5 @@
-/* integration/tests/common/flow_executor_test.go */
+/* test/integration/tests/common/flow_executor_test.go */
+
 package common
 
 import (

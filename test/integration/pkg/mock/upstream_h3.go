@@ -1,4 +1,5 @@
-/* integration/pkg/mock/upstream_h3.go */
+/* test/integration/pkg/mock/upstream_h3.go */
+
 package mock
 
 import (

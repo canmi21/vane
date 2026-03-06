@@ -1,4 +1,5 @@
-/* integration/tests/l4p/quic_sni_test.go */
+/* test/integration/tests/l4p/quic_sni_test.go */
+
 package l4p
 
 import (

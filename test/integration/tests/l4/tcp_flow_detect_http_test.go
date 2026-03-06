@@ -1,4 +1,5 @@
-/* integration/tests/l4/tcp_flow_detect_http_test.go */
+/* test/integration/tests/l4/tcp_flow_detect_http_test.go */
+
 package l4
 
 import (

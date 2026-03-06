@@ -1,4 +1,5 @@
-/* integration/tests/common/config_resilience_test.go */
+/* test/integration/tests/common/config_resilience_test.go */
+
 package common
 
 import (

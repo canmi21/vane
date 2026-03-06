@@ -1,4 +1,5 @@
-/* integration/tests/l7/matrix_h1_test.go */
+/* test/integration/tests/l7/matrix_h1_test.go */
+
 package l7
 
 import (

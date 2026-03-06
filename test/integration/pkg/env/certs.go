@@ -1,4 +1,5 @@
-/* integration/pkg/env/certs.go */
+/* test/integration/pkg/env/certs.go */
+
 package env
 
 import (

@@ -1,4 +1,5 @@
-/* integration/pkg/env/ports.go */
+/* test/integration/pkg/env/ports.go */
+
 package env
 
 import (

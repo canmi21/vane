@@ -1,4 +1,5 @@
-/* integration/pkg/mock/common.go */
+/* test/integration/pkg/mock/common.go */
+
 package mock
 
 import (

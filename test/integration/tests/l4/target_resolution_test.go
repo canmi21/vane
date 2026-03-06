@@ -1,4 +1,5 @@
-/* integration/tests/l4/target_resolution_test.go */
+/* test/integration/tests/l4/target_resolution_test.go */
+
 package l4
 
 import (

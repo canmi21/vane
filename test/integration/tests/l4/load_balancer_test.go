@@ -1,4 +1,5 @@
-/* integration/tests/l4/load_balancer_test.go */
+/* test/integration/tests/l4/load_balancer_test.go */
+
 package l4
 
 import (

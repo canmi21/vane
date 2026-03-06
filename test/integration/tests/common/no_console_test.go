@@ -1,4 +1,5 @@
-/* integration/tests/common/no_console_test.go */
+/* test/integration/tests/common/no_console_test.go */
+
 package common
 
 import (

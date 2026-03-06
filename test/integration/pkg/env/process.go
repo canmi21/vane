@@ -1,4 +1,5 @@
-/* integration/pkg/env/process.go */
+/* test/integration/pkg/env/process.go */
+
 package env
 
 import (

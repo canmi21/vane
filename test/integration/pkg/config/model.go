@@ -1,3 +1,3 @@
-/* integration/pkg/config/model.go */
+/* test/integration/pkg/config/model.go */
 
 package basic

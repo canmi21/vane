@@ -1,4 +1,5 @@
-/* integration/tests/l4/template_parsing_test.go */
+/* test/integration/tests/l4/template_parsing_test.go */
+
 package l4
 
 import (

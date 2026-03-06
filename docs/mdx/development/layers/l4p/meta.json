@@ -1,6 +1,6 @@
 {
-	"title": "L4+ Carrier",
-	"description": "Carrier layer implementation",
-	"icon": "Package",
-	"pages": ["index", "protocol", "flow-management"]
+  "title": "L4+ Carrier",
+  "description": "Carrier layer implementation",
+  "icon": "Package",
+  "pages": ["index", "protocol", "flow-management"]
 }

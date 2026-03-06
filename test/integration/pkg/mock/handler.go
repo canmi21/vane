@@ -1,4 +1,5 @@
-/* integration/pkg/mock/handler.go */
+/* test/integration/pkg/mock/handler.go */
+
 package mock
 
 import (

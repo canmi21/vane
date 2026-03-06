@@ -1,4 +1,5 @@
-/* integration/tests/l7/advanced_status_test.go */
+/* test/integration/tests/l7/advanced_status_test.go */
+
 package l7
 
 import (

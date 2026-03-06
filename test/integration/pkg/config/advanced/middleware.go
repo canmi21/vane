@@ -1,4 +1,5 @@
-/* integration/pkg/config/advanced/middleware.go */
+/* test/integration/pkg/config/advanced/middleware.go */
+
 package advanced
 
 // NewMiddlewareStep creates a generic middleware step.

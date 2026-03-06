@@ -1,4 +1,5 @@
-/* integration/pkg/mock/ws_server.go */
+/* test/integration/pkg/mock/ws_server.go */
+
 package mock
 
 import (

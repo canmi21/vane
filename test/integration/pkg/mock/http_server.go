@@ -1,4 +1,5 @@
-/* integration/pkg/mock/http_server.go */
+/* test/integration/pkg/mock/http_server.go */
+
 package mock
 
 import (
