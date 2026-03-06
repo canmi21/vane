@@ -55,8 +55,11 @@ pub async fn update_from_config() {
 	#[cfg(feature = "lazycert")]
 	{
 		let config_manager = vane_engine::config::get();
-		let new_config =
-			config_manager.lazycert.as_ref().and_then(live::controller::Live::get).map(|arc| (*arc).clone());
+		let new_config = config_manager
+			.lazycert
+			.as_ref()
+			.and_then(live::controller::Live::get)
+			.map(|arc| (*arc).clone());
 
 		// Update global config
 		if let Some(config_lock) = LAZYCERT_CONFIG.get() {
