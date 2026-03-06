@@ -114,4 +114,26 @@ mod tests {
 		assert!(ctx.take_stream().is_some());
 		assert!(ctx.take_stream().is_none());
 	}
+
+	#[tokio::test]
+	async fn peek_data_set_and_get() {
+		let (peer, server) = test_addrs();
+		let kv = KvStore::new(&peer, &server, "tcp");
+
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let addr = listener.local_addr().unwrap();
+		let connect = tokio::net::TcpStream::connect(addr);
+		let accept = listener.accept();
+		let (stream, _) = tokio::join!(connect, accept);
+		let stream = stream.unwrap();
+
+		let mut ctx = TransportContext::new(peer, server, kv, stream);
+
+		// Default is None
+		assert!(ctx.peek_data().is_none());
+
+		// After set, returns the bytes
+		ctx.set_peek_data(Bytes::from_static(b"GET / HTTP"));
+		assert_eq!(ctx.peek_data(), Some(b"GET / HTTP".as_slice()));
+	}
 }

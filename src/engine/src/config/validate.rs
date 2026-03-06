@@ -547,4 +547,60 @@ mod tests {
 		let errors = config.validate(&mock_registry()).unwrap_err();
 		assert!(errors.iter().any(|e| e.message.contains("ports map must not be empty")));
 	}
+
+	#[test]
+	fn params_invalid_ip() {
+		let mut term = simple_terminator();
+		term.params = serde_json::json!({"ip": "not-an-ip", "port": 80});
+		let l4 = simple_middleware(HashMap::from([("default".to_owned(), term)]));
+		let config = simple_config(HashMap::from([(80, simple_port_l4_only(l4))]));
+		let errors = config.validate(&mock_registry()).unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("not a valid IP")));
+	}
+
+	#[test]
+	fn params_port_out_of_range() {
+		let mut term = simple_terminator();
+		term.params = serde_json::json!({"ip": "127.0.0.1", "port": 99999});
+		let l4 = simple_middleware(HashMap::from([("default".to_owned(), term)]));
+		let config = simple_config(HashMap::from([(80, simple_port_l4_only(l4))]));
+		let errors = config.validate(&mock_registry()).unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("does not fit u16")));
+	}
+
+	#[test]
+	fn upgrade_to_l4_error() {
+		let mut term = simple_terminator();
+		term.termination = Some(TerminationAction::Upgrade { target_layer: Layer::L4 });
+		let l4 = simple_middleware(HashMap::from([("default".to_owned(), term)]));
+		let config = simple_config(HashMap::from([(80, simple_port_l4_only(l4))]));
+		let errors = config.validate(&mock_registry()).unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("cannot upgrade to L4")));
+	}
+
+	#[test]
+	fn middleware_with_termination_error() {
+		let l4 = FlowNode {
+			plugin: "echo.branch".to_owned(),
+			params: serde_json::Value::default(),
+			branches: HashMap::from([("default".to_owned(), simple_terminator())]),
+			termination: Some(TerminationAction::Finished),
+		};
+		let config = simple_config(HashMap::from([(80, simple_port_l4_only(l4))]));
+		let errors = config.validate(&mock_registry()).unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("must not have termination")));
+	}
+
+	#[test]
+	fn validation_error_display_no_port() {
+		let err = ValidationError {
+			port: None,
+			layer: Some(Layer::L4),
+			step_path: vec!["tcp.forward".to_owned()],
+			message: "test error".to_owned(),
+		};
+		let display = err.to_string();
+		// Should not have "port" prefix, should start with layer
+		assert_eq!(display, "L4, tcp.forward: test error");
+	}
 }

@@ -176,6 +176,33 @@ mod tests {
 		}
 	}
 
+	struct FailingMiddleware;
+
+	impl Middleware for FailingMiddleware {
+		fn execute(
+			&self,
+			_params: &serde_json::Value,
+			_ctx: &dyn ExecutionContext,
+		) -> Result<BranchAction, anyhow::Error> {
+			Err(anyhow::anyhow!("boom"))
+		}
+	}
+
+	struct FailingTerminator;
+
+	impl Terminator for FailingTerminator {
+		fn execute(
+			&self,
+			_params: &serde_json::Value,
+			_kv: &KvStore,
+			_stream: TcpStream,
+			_peer_addr: SocketAddr,
+			_server_addr: SocketAddr,
+		) -> Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send + '_>> {
+			Box::pin(async { Err(anyhow::anyhow!("crash")) })
+		}
+	}
+
 	// -- tests --
 
 	#[tokio::test]
@@ -330,5 +357,47 @@ mod tests {
 		let mut ctx = make_mock_context().await;
 		let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
 		assert_eq!(result.unwrap(), TerminationAction::Upgrade { target_layer: Layer::L5 });
+	}
+
+	#[tokio::test]
+	async fn middleware_plugin_failed() {
+		let registry = PluginRegistry::new()
+			.register("fail.mw", PluginAction::Middleware(Box::new(FailingMiddleware)));
+
+		let node = FlowNode {
+			plugin: "fail.mw".to_owned(),
+			params: serde_json::Value::default(),
+			branches: HashMap::from([(
+				"x".to_owned(),
+				FlowNode {
+					plugin: "fail.mw".to_owned(),
+					params: serde_json::Value::default(),
+					branches: HashMap::new(),
+					termination: None,
+				},
+			)]),
+			termination: None,
+		};
+
+		let mut ctx = make_mock_context().await;
+		let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
+		assert!(matches!(result, Err(FlowError::PluginFailed { ref name, .. }) if name == "fail.mw"));
+	}
+
+	#[tokio::test]
+	async fn terminator_plugin_failed() {
+		let registry = PluginRegistry::new()
+			.register("fail.term", PluginAction::Terminator(Box::new(FailingTerminator)));
+
+		let node = FlowNode {
+			plugin: "fail.term".to_owned(),
+			params: serde_json::Value::default(),
+			branches: HashMap::new(),
+			termination: None,
+		};
+
+		let mut ctx = make_mock_context().await;
+		let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
+		assert!(matches!(result, Err(FlowError::PluginFailed { ref name, .. }) if name == "fail.term"));
 	}
 }
