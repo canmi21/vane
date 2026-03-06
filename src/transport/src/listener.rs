@@ -105,7 +105,7 @@ pub async fn start_tcp_listener<F>(
 	on_connection: F,
 ) -> Result<TcpListenerHandle, ListenerError>
 where
-	F: Fn(TcpStream, SocketAddr) + Send + Sync + 'static,
+	F: Fn(TcpStream, SocketAddr, SocketAddr) + Send + Sync + 'static,
 {
 	let addr = config.bind_addr();
 	let listener = bind_with_retry(addr, config.bind_retries, config.bind_retry_interval).await?;
@@ -125,7 +125,7 @@ where
 							Ok((stream, peer_addr)) => {
 								let _conn = tracing::debug_span!("tcp_conn", %peer_addr).entered();
 								tracing::debug!("accepted connection");
-								on_connection(stream, peer_addr);
+								on_connection(stream, peer_addr, local_addr);
 							}
 							Err(e) => {
 								tracing::warn!(error = %e, "accept failed");
@@ -162,7 +162,7 @@ mod tests {
 			..Default::default()
 		};
 
-		let handle = start_tcp_listener(&config, move |_stream, addr| {
+		let handle = start_tcp_listener(&config, move |_stream, addr, _server_addr| {
 			let _ = tx.try_send(addr);
 		})
 		.await
@@ -185,7 +185,7 @@ mod tests {
 			..Default::default()
 		};
 
-		let handle = start_tcp_listener(&config, |_, _| {}).await.unwrap();
+		let handle = start_tcp_listener(&config, |_, _, _| {}).await.unwrap();
 		let local_addr = handle.local_addr();
 
 		// Can connect before shutdown
@@ -226,7 +226,7 @@ mod tests {
 			bind_retry_interval: Duration::from_millis(10),
 		};
 
-		let result = start_tcp_listener(&config, |_, _| {}).await;
+		let result = start_tcp_listener(&config, |_, _, _| {}).await;
 		assert!(
 			matches!(result, Err(ListenerError::BindFailed { .. })),
 			"expected BindFailed, got {result:?}"

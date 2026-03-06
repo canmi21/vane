@@ -1,10 +1,10 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::net::TcpStream;
 use tracing::Instrument;
+use vane_primitives::model::ResolvedTarget;
 
 use crate::error::{ProxyError, TransferDirection};
 use crate::tcp::watchdog::{IdleWatchdog, now_millis};
@@ -28,9 +28,10 @@ impl Default for ProxyConfig {
 
 pub async fn proxy_tcp(
 	client: TcpStream,
-	upstream_addr: SocketAddr,
+	target: &ResolvedTarget,
 	config: &ProxyConfig,
 ) -> Result<(), ProxyError> {
+	let upstream_addr = target.addr;
 	let span = tracing::info_span!("tcp_proxy", %upstream_addr);
 	async {
 
@@ -123,7 +124,7 @@ mod tests {
 		let proxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let proxy_addr = proxy_listener.local_addr().unwrap();
 
-		let upstream_addr = echo.addr();
+		let target = ResolvedTarget { addr: echo.addr() };
 		let config = ProxyConfig {
 			connect_timeout: Duration::from_secs(2),
 			idle_timeout: Duration::from_secs(5),
@@ -132,7 +133,7 @@ mod tests {
 
 		let proxy_task = tokio::spawn(async move {
 			let (client_stream, _) = proxy_listener.accept().await.unwrap();
-			proxy_tcp(client_stream, upstream_addr, &config).await
+			proxy_tcp(client_stream, &target, &config).await
 		});
 
 		let mut conn = TcpStream::connect(proxy_addr).await.unwrap();
@@ -149,7 +150,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_connect_timeout() {
 		// 192.0.2.1 is TEST-NET-1 (RFC 5737), should be unreachable
-		let addr: SocketAddr = "192.0.2.1:1".parse().unwrap();
+		let target = ResolvedTarget { addr: "192.0.2.1:1".parse().unwrap() };
 
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let proxy_addr = listener.local_addr().unwrap();
@@ -167,7 +168,7 @@ mod tests {
 		};
 
 		let start = tokio::time::Instant::now();
-		let result = proxy_tcp(client_stream, addr, &config).await;
+		let result = proxy_tcp(client_stream, &target, &config).await;
 		let elapsed = start.elapsed();
 
 		assert!(
@@ -199,6 +200,7 @@ mod tests {
 		});
 
 		let (client_stream, _) = proxy_listener.accept().await.unwrap();
+		let target = ResolvedTarget { addr: upstream_addr };
 		let config = ProxyConfig {
 			connect_timeout: Duration::from_secs(2),
 			idle_timeout: Duration::from_millis(200),
@@ -206,7 +208,7 @@ mod tests {
 		};
 
 		let start = tokio::time::Instant::now();
-		let result = proxy_tcp(client_stream, upstream_addr, &config).await;
+		let result = proxy_tcp(client_stream, &target, &config).await;
 		let elapsed = start.elapsed();
 
 		assert!(
