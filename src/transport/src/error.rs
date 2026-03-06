@@ -38,3 +38,13 @@ pub enum ProxyError {
 		source: std::io::Error,
 	},
 }
+
+#[derive(Debug, Error)]
+pub enum ListenerError {
+	#[error("failed to bind {addr} after {attempts} attempts")]
+	BindFailed {
+		addr: SocketAddr,
+		attempts: u32,
+		source: std::io::Error,
+	},
+}
