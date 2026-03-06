@@ -1,12 +1,13 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use thiserror::Error;
 use vane_primitives::connection::ConnectionTracker;
 use vane_transport::error::ListenerError;
 use vane_transport::listener::{start_tcp_listener, ListenerConfig, TcpListenerHandle};
 
+use crate::flow::{FlowTable, PluginRegistry};
 use crate::handler::handle_connection;
-use crate::rule::RouteTable;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -18,10 +19,11 @@ pub enum EngineError {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct EngineConfig {
     pub max_connections: usize,
     pub max_connections_per_ip: usize,
+    pub flow_timeout: Duration,
 }
 
 impl Default for EngineConfig {
@@ -29,24 +31,29 @@ impl Default for EngineConfig {
         Self {
             max_connections: 10000,
             max_connections_per_ip: 50,
+            flow_timeout: Duration::from_secs(10),
         }
     }
 }
 
 pub struct Engine {
-    route_table: Arc<RouteTable>,
+    flow_table: Arc<FlowTable>,
+    registry: Arc<PluginRegistry>,
+    config: EngineConfig,
     tracker: Arc<ConnectionTracker>,
     handles: Vec<TcpListenerHandle>,
 }
 
 impl Engine {
-    pub fn new(route_table: RouteTable, config: EngineConfig) -> Self {
+    pub fn new(flow_table: FlowTable, registry: PluginRegistry, config: EngineConfig) -> Self {
         Self {
-            route_table: Arc::new(route_table),
+            flow_table: Arc::new(flow_table),
+            registry: Arc::new(registry),
             tracker: Arc::new(ConnectionTracker::new(
                 config.max_connections,
                 config.max_connections_per_ip,
             )),
+            config,
             handles: Vec::new(),
         }
     }
@@ -54,7 +61,7 @@ impl Engine {
     pub async fn start(&mut self) -> Result<(), EngineError> {
         let span = tracing::info_span!("engine");
         let guard = span.enter();
-        let ports: Vec<u16> = self.route_table.ports().collect();
+        let ports: Vec<u16> = self.flow_table.ports().collect();
         drop(guard);
 
         for port in ports {
@@ -63,13 +70,16 @@ impl Engine {
                 ..Default::default()
             };
 
-            let table = self.route_table.clone();
+            let table = self.flow_table.clone();
+            let registry = self.registry.clone();
             let tracker = self.tracker.clone();
+            let flow_timeout = self.config.flow_timeout;
             let listener_port = port;
 
             let handle =
                 start_tcp_listener(&config, move |stream, peer_addr, server_addr| {
                     let table = table.clone();
+                    let registry = registry.clone();
                     let tracker = tracker.clone();
                     tokio::spawn(async move {
                         let Some(guard) = tracker.acquire(peer_addr.ip()) else {
@@ -79,10 +89,19 @@ impl Engine {
                             );
                             return;
                         };
-                        if let Some(rule) = table.lookup(listener_port) {
-                            handle_connection(stream, peer_addr, server_addr, rule, guard).await;
+                        if let Some(step) = table.lookup(listener_port) {
+                            handle_connection(
+                                stream,
+                                peer_addr,
+                                server_addr,
+                                step,
+                                &registry,
+                                flow_timeout,
+                                guard,
+                            )
+                            .await;
                         } else {
-                            tracing::warn!(port = listener_port, "no rule found for port");
+                            tracing::warn!(port = listener_port, "no flow found for port");
                         }
                     });
                 })

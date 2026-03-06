@@ -4,9 +4,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{
     engine::{Engine, EngineConfig},
-    rule::{PortRule, RouteTable},
+    flow::{
+        FlowStep, FlowTable, PluginAction, PluginRegistry, StepConfig,
+        builtin::tcp_forward::TcpForward,
+    },
 };
-use vane_primitives::model::{Forward, Strategy, Target};
 use vane_test_utils::echo::EchoServer;
 use vane_transport::tcp::ProxyConfig;
 
@@ -15,24 +17,26 @@ async fn test_echo_forward() {
     let echo = EchoServer::start().await;
     let echo_addr = echo.addr();
 
-    let forward = Forward {
-        strategy: Strategy::Random,
-        targets: vec![Target::Ip {
-            ip: echo_addr.ip(),
-            port: echo_addr.port(),
-        }],
-        fallbacks: vec![],
+    let step = FlowStep {
+        plugin: "tcp.forward".to_owned(),
+        config: StepConfig {
+            params: serde_json::json!({
+                "ip": echo_addr.ip().to_string(),
+                "port": echo_addr.port(),
+            }),
+            ..Default::default()
+        },
     };
 
-    let route_table = RouteTable::new().add(
-        0,
-        PortRule {
-            forward,
+    let flow_table = FlowTable::new().add(0, step);
+    let registry = PluginRegistry::new().register(
+        "tcp.forward",
+        PluginAction::Terminator(Box::new(TcpForward {
             proxy_config: ProxyConfig::default(),
-        },
+        })),
     );
 
-    let mut engine = Engine::new(route_table, EngineConfig::default());
+    let mut engine = Engine::new(flow_table, registry, EngineConfig::default());
     engine.start().await.unwrap();
 
     let listen_addr = engine.listeners()[0].local_addr();

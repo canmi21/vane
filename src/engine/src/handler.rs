@@ -1,66 +1,31 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tracing::Instrument;
 use vane_primitives::connection::ConnectionGuard;
 use vane_primitives::kv::KvStore;
-use vane_primitives::model::{Forward, ResolvedTarget, Strategy, Target};
-use vane_transport::tcp::proxy_tcp;
 
-use crate::rule::PortRule;
-
-fn resolve_target(target: &Target) -> Option<ResolvedTarget> {
-    match target {
-        Target::Ip { ip, port } => Some(ResolvedTarget {
-            addr: SocketAddr::new(*ip, *port),
-        }),
-        Target::Domain { domain, .. } => {
-            tracing::warn!(%domain, "domain target resolution not yet supported");
-            None
-        }
-    }
-}
-
-fn select_target(forward: &Forward) -> Option<&Target> {
-    if forward.targets.is_empty() {
-        return None;
-    }
-    match forward.strategy {
-        Strategy::Random => {
-            let idx = fastrand::usize(..forward.targets.len());
-            Some(&forward.targets[idx])
-        }
-        Strategy::Serial | Strategy::Fastest => {
-            tracing::warn!(strategy = ?forward.strategy, "strategy not yet implemented, using first target");
-            Some(&forward.targets[0])
-        }
-    }
-}
+use crate::flow::{self, FlowStep, PluginRegistry, TransportContext};
 
 pub async fn handle_connection(
     client: tokio::net::TcpStream,
     peer_addr: SocketAddr,
     server_addr: SocketAddr,
-    rule: &PortRule,
+    step: &FlowStep,
+    registry: &PluginRegistry,
+    flow_timeout: Duration,
     _guard: ConnectionGuard,
 ) {
-    let _kv = KvStore::new(&peer_addr, &server_addr, "tcp");
+    let kv = KvStore::new(&peer_addr, &server_addr, "tcp");
+    let mut ctx = TransportContext::new(peer_addr, server_addr, kv, client);
 
-    let Some(target) = select_target(&rule.forward) else {
-        tracing::warn!(%peer_addr, "no targets configured");
-        return;
-    };
-
-    let Some(resolved) = resolve_target(target) else {
-        return;
-    };
-
-    let span = tracing::info_span!("connection", %peer_addr, upstream = %resolved.addr);
-    let result = proxy_tcp(client, &resolved, &rule.proxy_config)
+    let span = tracing::info_span!("connection", %peer_addr, %server_addr);
+    let result = flow::executor::execute(step, &mut ctx, registry, flow_timeout)
         .instrument(span.clone())
         .await;
 
     match result {
-        Ok(()) => tracing::info!(parent: &span, "connection closed"),
-        Err(e) => tracing::warn!(parent: &span, error = %e, "connection failed"),
+        Ok(()) => tracing::info!(parent: &span, "flow completed"),
+        Err(e) => tracing::warn!(parent: &span, error = %e, "flow failed"),
     }
 }
