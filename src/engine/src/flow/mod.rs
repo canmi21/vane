@@ -6,6 +6,7 @@ mod plugin;
 mod registry;
 mod step;
 
+pub use builtin::protocol_detect::{DetectRule, MatchCondition, ProtocolDetect};
 pub use context::{ExecutionContext, TransportContext};
 pub use error::FlowError;
 pub use plugin::{BranchAction, Middleware, PluginAction, Terminator};
