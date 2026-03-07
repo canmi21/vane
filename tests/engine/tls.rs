@@ -205,6 +205,36 @@ async fn tls_upgrade_forwards_to_echo() {
 	engine.join().await;
 }
 
+/// TLS-like bytes (0x16 prefix) pass protocol detection as "tls" but fail TLS handshake.
+/// Connection should be closed gracefully without panic.
+#[tokio::test]
+async fn tls_like_bytes_handshake_failure_closes() {
+	let echo = EchoServer::start().await;
+	let (config, registry, cert_store) = build_tls_test_setup(echo.addr());
+
+	let mut engine = Engine::new(config, registry, cert_store).unwrap();
+	engine.start().await.unwrap();
+	let listen_addr = engine.listeners()[0].local_addr();
+
+	let mut client = TcpStream::connect(listen_addr).await.unwrap();
+	// Send bytes that look like a TLS record header (0x16 = handshake)
+	// but contain garbage -- passes ProtocolDetect as "tls" branch,
+	// triggers Upgrade(L5), then accept_tls fails on handshake
+	let fake_tls = [
+		0x16, 0x03, 0x01, 0x00, 0x05, // record header
+		0x01, 0x00, 0x00, 0x01, 0x00, // garbage handshake data
+	];
+	client.write_all(&fake_tls).await.unwrap();
+
+	// Server closes after handshake failure (rustls may send a TLS alert first)
+	let mut buf = Vec::new();
+	let _ = client.read_to_end(&mut buf).await.unwrap();
+	// Connection terminated — no echo of application data
+
+	engine.shutdown();
+	engine.join().await;
+}
+
 /// Non-TLS client on the same port goes through the "unknown" branch directly.
 #[tokio::test]
 async fn non_tls_passthrough() {

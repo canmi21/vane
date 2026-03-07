@@ -480,6 +480,125 @@ mod tests {
 		assert_eq!(info.cipher_suites, vec![0x1301]);
 	}
 
+	#[test]
+	fn odd_cipher_suite_length() {
+		let mut data = Vec::new();
+		// Record header
+		data.push(0x16);
+		data.extend_from_slice(&[0x03, 0x03]);
+		// Placeholder for record length
+		let record_len_pos = data.len();
+		data.extend_from_slice(&[0x00, 0x00]);
+		let body_start = data.len();
+
+		// Handshake header
+		data.push(0x01);
+		let hs_len_pos = data.len();
+		data.extend_from_slice(&[0x00, 0x00, 0x00]);
+		let hs_body_start = data.len();
+
+		// ClientHello body
+		data.extend_from_slice(&[0x03, 0x03]); // version
+		data.extend_from_slice(&[0u8; 32]); // random
+		data.push(0x00); // session_id length = 0
+		data.extend_from_slice(&[0x00, 0x03]); // cipher suites length = 3 (odd!)
+		data.extend_from_slice(&[0x13, 0x01, 0x00]); // 3 bytes
+
+		// Fill lengths
+		let hs_len = data.len() - hs_body_start;
+		data[hs_len_pos] = (hs_len >> 16) as u8;
+		data[hs_len_pos + 1] = (hs_len >> 8) as u8;
+		data[hs_len_pos + 2] = hs_len as u8;
+		let record_len = data.len() - body_start;
+		data[record_len_pos] = (record_len >> 8) as u8;
+		data[record_len_pos + 1] = record_len as u8;
+
+		assert_eq!(parse_client_hello(&data), Err(ClientHelloError::InvalidLength));
+	}
+
+	#[test]
+	fn non_utf8_sni() {
+		// Build SNI extension with non-UTF8 bytes
+		let mut ext = Vec::new();
+		ext.extend_from_slice(&[0x00, 0x00]); // extension type: SNI
+		let name_bytes: &[u8] = &[0xFF, 0xFE];
+		let sni_list_len = 3 + name_bytes.len();
+		let ext_data_len = 2 + sni_list_len;
+		ext.extend_from_slice(&(ext_data_len as u16).to_be_bytes());
+		ext.extend_from_slice(&(sni_list_len as u16).to_be_bytes());
+		ext.push(0x00); // host_name type
+		ext.extend_from_slice(&(name_bytes.len() as u16).to_be_bytes());
+		ext.extend_from_slice(name_bytes);
+
+		let data = build_clienthello_with_raw_extensions(&ext);
+		let info = parse_client_hello(&data).unwrap();
+		assert!(info.sni.is_none());
+	}
+
+	#[test]
+	fn clienthello_with_sni_handcrafted() {
+		let data = build_minimal_clienthello(Some("example.com"));
+		let info = parse_client_hello(&data).unwrap();
+		assert_eq!(info.sni.as_deref(), Some("example.com"));
+		assert_eq!(info.cipher_suites, vec![0x1301]);
+	}
+
+	#[test]
+	fn extension_length_overflow() {
+		// Craft an extension with length 0xFFFF but only 10 bytes of data
+		let mut ext = Vec::new();
+		ext.extend_from_slice(&[0x00, 0x42]); // unknown extension type
+		ext.extend_from_slice(&[0xFF, 0xFF]); // extension length = 65535 (overflow)
+		ext.extend_from_slice(&[0x00; 10]); // only 10 bytes of actual data
+
+		let data = build_clienthello_with_raw_extensions(&ext);
+		let info = parse_client_hello(&data).unwrap();
+		// Parser breaks gracefully — returns Ok with partial results
+		assert!(info.sni.is_none());
+	}
+
+	#[test]
+	fn supported_versions_odd_length() {
+		// supported_versions extension (type 0x002b)
+		let mut ext = Vec::new();
+		ext.extend_from_slice(&[0x00, 0x2b]); // extension type: supported_versions
+		ext.extend_from_slice(&[0x00, 0x04]); // extension length = 4
+		ext.push(0x03); // list_len = 3 (odd!)
+		ext.extend_from_slice(&[0x03, 0x04, 0x03]); // 3 bytes of version data
+
+		let data = build_clienthello_with_raw_extensions(&ext);
+		assert_eq!(parse_client_hello(&data), Err(ClientHelloError::MalformedExtension));
+	}
+
+	/// Build a `ClientHello` with raw extensions bytes injected directly.
+	fn build_clienthello_with_raw_extensions(extensions: &[u8]) -> Vec<u8> {
+		let mut body = Vec::new();
+		body.extend_from_slice(&[0x03, 0x03]); // version TLS 1.2
+		body.extend_from_slice(&[0u8; 32]); // random
+		body.push(0x00); // session_id length = 0
+		body.extend_from_slice(&[0x00, 0x02]); // cipher suites length = 2
+		body.extend_from_slice(&[0x13, 0x01]); // TLS_AES_128_GCM_SHA256
+		body.push(0x01); // compression methods length = 1
+		body.push(0x00); // null compression
+
+		// Extensions length + raw data
+		body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+		body.extend_from_slice(extensions);
+
+		let mut data = Vec::new();
+		data.push(0x16); // handshake
+		data.extend_from_slice(&[0x03, 0x01]); // TLS 1.0 (record version)
+		let record_len = 4 + body.len();
+		data.extend_from_slice(&(record_len as u16).to_be_bytes());
+		data.push(0x01); // ClientHello
+		let hs_len = body.len();
+		data.push((hs_len >> 16) as u8);
+		data.push((hs_len >> 8) as u8);
+		data.push(hs_len as u8);
+		data.extend(body);
+		data
+	}
+
 	/// Build a minimal hand-crafted `ClientHello` with optional SNI.
 	fn build_minimal_clienthello(sni: Option<&str>) -> Vec<u8> {
 		let mut body = Vec::new();

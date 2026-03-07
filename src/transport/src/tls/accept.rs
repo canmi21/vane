@@ -305,4 +305,72 @@ mod tests {
 		let (_, info) = server.await.unwrap();
 		assert_eq!(info.alpn.as_deref(), Some("h2"));
 	}
+
+	#[test]
+	fn build_server_config_empty_store() {
+		let store = Arc::new(CertStore::new());
+		let result = build_server_config(store, &[]);
+		assert!(matches!(result, Err(TlsAcceptError::NoCertificateConfigured)));
+	}
+
+	#[tokio::test]
+	async fn non_tls_data_handshake_fails() {
+		use tokio::io::AsyncWriteExt;
+
+		let (cert_pem, key_pem) = generate_self_signed(vec!["localhost".to_owned()]);
+		let loaded = parse_pem(&cert_pem, &key_pem).unwrap();
+
+		let mut store = CertStore::new();
+		store.insert("default", loaded);
+
+		let server_config = build_server_config(Arc::new(store), &[]).unwrap();
+
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let addr = listener.local_addr().unwrap();
+
+		let client_handle = tokio::spawn(async move {
+			let mut stream = TcpStream::connect(addr).await.unwrap();
+			// Send HTTP bytes instead of TLS ClientHello
+			stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").await.unwrap();
+			// Keep connection open briefly so server can attempt handshake
+			tokio::time::sleep(Duration::from_millis(200)).await;
+		});
+
+		let (stream, _) = listener.accept().await.unwrap();
+		let result = accept_tls(stream, &server_config, Duration::from_secs(5)).await;
+		assert!(matches!(result, Err(TlsAcceptError::HandshakeFailed(_))));
+
+		let _ = client_handle.await;
+	}
+
+	#[tokio::test]
+	async fn sni_fallback_to_default_cert() {
+		let (cert_pem, key_pem) = generate_self_signed(vec!["localhost".to_owned()]);
+		let loaded = parse_pem(&cert_pem, &key_pem).unwrap();
+
+		let mut store = CertStore::new();
+		store.insert("default", loaded);
+
+		let server_config = build_server_config(Arc::new(store), &[]).unwrap();
+
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let addr = listener.local_addr().unwrap();
+
+		let sc = server_config.clone();
+		let server = tokio::spawn(async move {
+			let (stream, _) = listener.accept().await.unwrap();
+			accept_tls(stream, &sc, Duration::from_secs(5)).await.unwrap()
+		});
+
+		let client_config = build_test_client_config(&[]);
+		let connector = TlsConnector::from(client_config);
+		let tcp = TcpStream::connect(addr).await.unwrap();
+		// Connect with SNI that doesn't match any cert name — should fall back to "default"
+		let server_name = ServerName::try_from("unknown.example.com").unwrap();
+		let _client_stream = connector.connect(server_name, tcp).await.unwrap();
+
+		let (_, info) = server.await.unwrap();
+		assert_eq!(info.sni.as_deref(), Some("unknown.example.com"));
+		assert!(info.tls_version.is_some());
+	}
 }

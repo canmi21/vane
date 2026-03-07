@@ -219,4 +219,48 @@ mod tests {
 
 		assert_eq!(registry.count(), 0);
 	}
+
+	#[test]
+	fn set_tls_info_clears_with_none() {
+		let registry = Arc::new(ConnectionRegistry::new());
+		let guard = registry.register(test_state("tls-clear"));
+
+		// Set TLS info
+		guard.set_tls_info(Some("example.com".to_owned()), Some("TLSv1.3".to_owned()));
+		let state = registry.get("tls-clear").unwrap();
+		assert_eq!(state.tls_sni.as_deref(), Some("example.com"));
+		assert_eq!(state.tls_version.as_deref(), Some("TLSv1.3"));
+
+		// Clear TLS info
+		guard.set_tls_info(None, None);
+		let state = registry.get("tls-clear").unwrap();
+		assert!(state.tls_sni.is_none());
+		assert!(state.tls_version.is_none());
+	}
+
+	#[tokio::test]
+	async fn concurrent_updates_same_connection() {
+		let registry = Arc::new(ConnectionRegistry::new());
+		let guard = Arc::new(registry.register(test_state("concurrent")));
+		let mut handles = Vec::new();
+
+		for i in 0..50 {
+			let g = guard.clone();
+			handles.push(tokio::spawn(async move {
+				if i % 2 == 0 {
+					g.update_phase(ConnPhase::Forwarding);
+				} else {
+					g.update_layer(ConnLayer::L5);
+				}
+			}));
+		}
+
+		for handle in handles {
+			handle.await.unwrap();
+		}
+
+		// Connection entry should still exist and be consistent (no panic, no corruption)
+		let state = registry.get("concurrent").unwrap();
+		assert_eq!(state.id, "concurrent");
+	}
 }

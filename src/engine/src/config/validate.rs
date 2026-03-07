@@ -603,4 +603,78 @@ mod tests {
 		// Should not have "port" prefix, should start with layer
 		assert_eq!(display, "L4, tcp.forward: test error");
 	}
+
+	#[test]
+	fn l5_to_l5_upgrade_rejected() {
+		let mut l5_term = simple_terminator();
+		l5_term.termination = Some(TerminationAction::Upgrade { target_layer: Layer::L5 });
+
+		// L4 flow that upgrades to L5
+		let mut l4_term = simple_terminator();
+		l4_term.termination = Some(TerminationAction::Upgrade { target_layer: Layer::L5 });
+		let l4 = simple_middleware(HashMap::from([("default".to_owned(), l4_term)]));
+
+		let l5 = L5Config {
+			default_cert: "main".to_owned(),
+			alpn: vec![],
+			flow: l5_term, // L5 flow tries Upgrade(L5) — should be rejected
+		};
+
+		let port_config = PortConfig { listen: ListenConfig::default(), l4, l5: Some(l5), l7: None };
+		let config = ConfigTable {
+			ports: HashMap::from([(443, port_config)]),
+			global: GlobalConfig::default(),
+			certs: HashMap::from([(
+				"main".to_owned(),
+				CertEntry::File { cert_path: "/cert.pem".to_owned(), key_path: "/key.pem".to_owned() },
+			)]),
+		};
+		let errors = config.validate(&mock_registry()).unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("L5 flow cannot upgrade to L5")));
+	}
+
+	#[test]
+	fn upgrade_l7_missing_config() {
+		let mut term = simple_terminator();
+		term.termination = Some(TerminationAction::Upgrade { target_layer: Layer::L7 });
+
+		let l4 = simple_middleware(HashMap::from([("default".to_owned(), term)]));
+		// No l7 config
+		let config = simple_config(HashMap::from([(80, simple_port_l4_only(l4))]));
+		let errors = config.validate(&mock_registry()).unwrap_err();
+		assert!(errors.iter().any(|e| e.message.contains("upgrade to L7 but no l7 config")));
+	}
+
+	#[test]
+	fn multiple_errors_collected() {
+		// Port 80: middleware with no branches
+		let bad_mw = FlowNode {
+			plugin: "echo.branch".to_owned(),
+			params: serde_json::Value::default(),
+			branches: HashMap::new(),
+			termination: None,
+		};
+		// Port 81: unknown plugin
+		let bad_plugin = FlowNode {
+			plugin: "nonexistent".to_owned(),
+			params: serde_json::Value::default(),
+			branches: HashMap::new(),
+			termination: None,
+		};
+		let config = simple_config(HashMap::from([
+			(80, simple_port_l4_only(bad_mw)),
+			(81, simple_port_l4_only(bad_plugin)),
+		]));
+		let errors = config.validate(&mock_registry()).unwrap_err();
+		assert!(errors.len() >= 2);
+	}
+
+	#[test]
+	fn params_ipv6_valid() {
+		let mut term = simple_terminator();
+		term.params = serde_json::json!({"ip": "::1", "port": 8080});
+		let l4 = simple_middleware(HashMap::from([("default".to_owned(), term)]));
+		let config = simple_config(HashMap::from([(80, simple_port_l4_only(l4))]));
+		assert!(config.validate(&mock_registry()).is_ok());
+	}
 }

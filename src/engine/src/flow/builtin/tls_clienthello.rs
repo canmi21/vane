@@ -180,4 +180,32 @@ mod tests {
 		let plugin = TlsClientHello;
 		assert!(plugin.execute(&serde_json::Value::Null, &ctx).is_err());
 	}
+
+	#[test]
+	fn uppercase_sni_normalized() {
+		let data = build_minimal_clienthello(Some("EXAMPLE.COM"));
+		let ctx = MockContext::with_peek(&data);
+		let plugin = TlsClientHello;
+
+		let action = plugin.execute(&serde_json::Value::Null, &ctx).unwrap();
+
+		// Parser lowercases SNI, sanitize_sni preserves it
+		assert_eq!(action.branch, "example.com");
+		assert!(action.updates.iter().any(|(k, v)| k == "tls.client.sni" && v == "example.com"));
+	}
+
+	#[test]
+	fn sni_special_chars_sanitized() {
+		// SNI "ex@mple.com!" — parser lowercases to "ex@mple.com!"
+		// sanitize_sni strips @ and ! → "exmple.com"
+		let data = build_minimal_clienthello(Some("ex@mple.com!"));
+		let ctx = MockContext::with_peek(&data);
+		let plugin = TlsClientHello;
+
+		let action = plugin.execute(&serde_json::Value::Null, &ctx).unwrap();
+
+		assert_eq!(action.branch, "exmple.com");
+		// KV stores the raw parsed SNI (lowercase from parser)
+		assert!(action.updates.iter().any(|(k, v)| k == "tls.client.sni" && v == "ex@mple.com!"));
+	}
 }

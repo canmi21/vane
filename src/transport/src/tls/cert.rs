@@ -194,4 +194,42 @@ mod tests {
 		assert!(store.get("removable").is_none());
 		assert!(store.is_empty());
 	}
+
+	#[test]
+	fn multi_cert_chain_pem() {
+		let ca_key = rcgen::KeyPair::generate().unwrap();
+		let ca_params = rcgen::CertificateParams::new(vec!["Test CA".to_owned()]).unwrap();
+		let ca_cert = ca_params.self_signed(&ca_key).unwrap();
+
+		let mut leaf_params = rcgen::CertificateParams::new(vec!["localhost".to_owned()]).unwrap();
+		leaf_params.is_ca = rcgen::IsCa::NoCa;
+		let leaf_key = rcgen::KeyPair::generate().unwrap();
+		let leaf_cert = leaf_params.signed_by(&leaf_key, &ca_cert, &ca_key).unwrap();
+
+		// Concatenate leaf + CA PEM to form a chain
+		let mut chain_pem = leaf_cert.pem().into_bytes();
+		chain_pem.extend_from_slice(ca_cert.pem().as_bytes());
+
+		let key_pem = leaf_key.serialize_pem().into_bytes();
+		let loaded = parse_pem(&chain_pem, &key_pem).unwrap();
+		assert_eq!(loaded.certs().len(), 2);
+	}
+
+	#[test]
+	fn store_duplicate_insert_overwrites() {
+		let (cert_a, key_a) = generate_self_signed();
+		let (cert_b, key_b) = generate_self_signed();
+		let loaded_a = parse_pem(&cert_a, &key_a).unwrap();
+		let loaded_b = parse_pem(&cert_b, &key_b).unwrap();
+
+		let expected_der = loaded_b.certs()[0].clone();
+
+		let mut store = CertStore::new();
+		store.insert("test", loaded_a);
+		store.insert("test", loaded_b);
+
+		assert_eq!(store.len(), 1);
+		let retrieved = store.get("test").unwrap();
+		assert_eq!(retrieved.certs()[0], expected_der);
+	}
 }

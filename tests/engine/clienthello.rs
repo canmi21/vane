@@ -182,3 +182,30 @@ async fn clienthello_sni_routes_and_upgrades() {
 	engine.shutdown();
 	engine.join().await;
 }
+
+/// SNI="unknown.com" -> middleware returns branch "unknown.com" -> no matching branch in config
+/// -> `BranchNotFound` error -> connection closed gracefully
+#[tokio::test]
+async fn clienthello_sni_no_matching_branch() {
+	let echo = EchoServer::start().await;
+	let (config, registry, cert_store) = build_clienthello_test_setup(echo.addr());
+
+	let mut engine = Engine::new(config, registry, cert_store).unwrap();
+	engine.start().await.unwrap();
+	let listen_addr = engine.listeners()[0].local_addr();
+
+	let client_config = build_test_client_config();
+	let connector = TlsConnector::from(client_config);
+
+	let tcp = TcpStream::connect(listen_addr).await.unwrap();
+	// "unknown.com" has no matching branch in the config (only "localhost" and "_default")
+	let server_name = ServerName::try_from("unknown.com").unwrap();
+	let result = connector.connect(server_name, tcp).await;
+
+	// The server closes the connection due to BranchNotFound error,
+	// so the TLS handshake never completes -- client sees a connection error
+	assert!(result.is_err(), "connection should fail when SNI has no matching branch");
+
+	engine.shutdown();
+	engine.join().await;
+}
