@@ -6,6 +6,7 @@ use rustls::ServerConfig;
 use thiserror::Error;
 use tokio::sync::watch;
 use vane_primitives::connection::ConnectionTracker;
+use vane_primitives::registry::ConnectionRegistry;
 use vane_transport::error::ListenerError;
 use vane_transport::listener::{ListenerConfig, TcpListenerHandle, start_tcp_listener};
 use vane_transport::tls::{CertStore, TlsAcceptError, build_server_config};
@@ -39,6 +40,7 @@ pub struct Engine {
 	config_tx: Arc<watch::Sender<Arc<ConfigTable>>>,
 	registry: Arc<PluginRegistry>,
 	tracker: Arc<ConnectionTracker>,
+	conn_registry: Arc<ConnectionRegistry>,
 	tls_configs: Arc<HashMap<u16, Arc<ServerConfig>>>,
 	handles: Vec<TcpListenerHandle>,
 }
@@ -66,6 +68,7 @@ impl Engine {
 			config_tx: Arc::new(config_tx),
 			registry: Arc::new(registry),
 			tracker,
+			conn_registry: Arc::new(ConnectionRegistry::new()),
 			tls_configs: Arc::new(tls_configs),
 			handles: Vec::new(),
 		})
@@ -85,6 +88,7 @@ impl Engine {
 			let config_tx = self.config_tx.clone();
 			let registry = self.registry.clone();
 			let tracker = self.tracker.clone();
+			let conn_registry = self.conn_registry.clone();
 			let tls_configs = self.tls_configs.clone();
 			let listener_port = port;
 
@@ -92,6 +96,7 @@ impl Engine {
 				let config_tx = config_tx.clone();
 				let registry = registry.clone();
 				let tracker = tracker.clone();
+				let conn_registry = conn_registry.clone();
 				let tls_configs = tls_configs.clone();
 				tokio::spawn(async move {
 					let Some(guard) = tracker.acquire(peer_addr.ip()) else {
@@ -113,6 +118,7 @@ impl Engine {
 						flow_timeout: Duration::from_millis(config.global.flow_timeout_ms),
 						peek_limit: config.global.peek_limit,
 						tls_config: tls_configs.get(&listener_port).cloned(),
+						conn_registry,
 					};
 
 					handle_connection(
@@ -143,6 +149,10 @@ impl Engine {
 		config.validate(&self.registry).map_err(EngineError::ConfigInvalid)?;
 		self.config_tx.send_replace(Arc::new(config));
 		Ok(())
+	}
+
+	pub fn conn_registry(&self) -> &ConnectionRegistry {
+		&self.conn_registry
 	}
 
 	pub fn listeners(&self) -> &[TcpListenerHandle] {

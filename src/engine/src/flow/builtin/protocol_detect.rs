@@ -61,7 +61,10 @@ impl Middleware for ProtocolDetect {
 
 		for rule in &self.rules {
 			if rule.condition.matches(data) {
-				return Ok(BranchAction { branch: rule.protocol.clone(), updates: vec![] });
+				return Ok(BranchAction {
+					branch: rule.protocol.clone(),
+					updates: vec![("conn.detected_protocol".to_owned(), rule.protocol.clone())],
+				});
 			}
 		}
 
@@ -273,6 +276,21 @@ mod tests {
 	fn exact_length_match() {
 		let cond = MatchCondition::MagicBytes { offset: 0, bytes: vec![0x16, 0x03] };
 		assert!(cond.matches(&[0x16, 0x03]));
+	}
+
+	#[test]
+	fn updates_contain_detected_protocol() {
+		let pd = ProtocolDetect::with_defaults();
+
+		let tls_ctx = MockContext::with_peek(&[0x16, 0x03, 0x01, 0x00, 0x05]);
+		let action = pd.execute(&serde_json::Value::Null, &tls_ctx).unwrap();
+		assert_eq!(action.branch, "tls");
+		assert!(action.updates.iter().any(|(k, v)| k == "conn.detected_protocol" && v == "tls"));
+
+		let http_ctx = MockContext::with_peek(b"GET / HTTP/1.1\r\n");
+		let action = pd.execute(&serde_json::Value::Null, &http_ctx).unwrap();
+		assert_eq!(action.branch, "http");
+		assert!(action.updates.iter().any(|(k, v)| k == "conn.detected_protocol" && v == "http"));
 	}
 
 	#[test]
