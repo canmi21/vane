@@ -16,6 +16,10 @@ use crate::config::validate::ValidationError;
 use crate::flow::PluginRegistry;
 use crate::handler::{ConnectionConfig, handle_connection};
 
+/// Minimum peek buffer for ports with TLS (L5) config, large enough to capture
+/// a typical `ClientHello` (~200-2000 bytes).
+const TLS_PEEK_LIMIT: usize = 4096;
+
 #[derive(Debug, Error)]
 pub enum EngineError {
 	#[error("listener failed on port {port}")]
@@ -114,9 +118,15 @@ impl Engine {
 						return;
 					};
 
+					let peek_limit = if port_config.l5.is_some() {
+						config.global.peek_limit.max(TLS_PEEK_LIMIT)
+					} else {
+						config.global.peek_limit
+					};
+
 					let conn_config = ConnectionConfig {
 						flow_timeout: Duration::from_millis(config.global.flow_timeout_ms),
-						peek_limit: config.global.peek_limit,
+						peek_limit,
 						tls_config: tls_configs.get(&listener_port).cloned(),
 						conn_registry,
 					};
