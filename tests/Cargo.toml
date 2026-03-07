@@ -42,3 +42,7 @@ path = "engine/config.rs"
 [[test]]
 name = "engine_tls"
 path = "engine/tls.rs"
+
+[[test]]
+name = "engine_clienthello"
+path = "engine/clienthello.rs"
