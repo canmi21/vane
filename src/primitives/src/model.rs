@@ -2,6 +2,22 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 
 /// A target endpoint in configuration, either IP-based or domain-based.
+///
+/// ```
+/// use vane_primitives::model::Target;
+///
+/// let ip_target: Target = serde_json::from_str(r#"{"ip":"10.0.0.1","port":443}"#).unwrap();
+/// assert!(matches!(ip_target, Target::Ip { .. }));
+///
+/// let domain_target: Target =
+///     serde_json::from_str(r#"{"domain":"example.com","port":8080}"#).unwrap();
+/// assert!(matches!(domain_target, Target::Domain { .. }));
+///
+/// // Roundtrip
+/// let json = serde_json::to_string(&ip_target).unwrap();
+/// let back: Target = serde_json::from_str(&json).unwrap();
+/// assert_eq!(ip_target, back);
+/// ```
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(untagged)]
 pub enum Target {
@@ -25,6 +41,19 @@ pub enum Strategy {
 }
 
 /// Forwarding configuration with strategy and target lists.
+///
+/// ```
+/// use vane_primitives::model::{Forward, Strategy};
+///
+/// let forward: Forward = serde_json::from_str(r#"{
+///     "strategy": "random",
+///     "targets": [{"ip": "10.0.0.1", "port": 443}]
+/// }"#).unwrap();
+///
+/// assert_eq!(forward.strategy, Strategy::Random);
+/// assert_eq!(forward.targets.len(), 1);
+/// assert!(forward.fallbacks.is_empty()); // defaults to empty
+/// ```
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Forward {
 	pub strategy: Strategy,

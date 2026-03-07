@@ -4,6 +4,28 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Tracks active connections with global and per-IP limits.
+///
+/// ```
+/// use std::net::{IpAddr, Ipv4Addr};
+/// use std::sync::Arc;
+/// use vane_primitives::connection::ConnectionTracker;
+///
+/// let tracker = Arc::new(ConnectionTracker::new(100, 2));
+/// let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+///
+/// // Acquire returns a guard that releases on drop
+/// let guard1 = tracker.acquire(ip).unwrap();
+/// let guard2 = tracker.acquire(ip).unwrap();
+/// assert_eq!(tracker.global_count(), 2);
+///
+/// // Per-IP limit reached
+/// assert!(tracker.acquire(ip).is_none());
+///
+/// // Dropping a guard frees the slot
+/// drop(guard1);
+/// assert_eq!(tracker.ip_count(&ip), 1);
+/// assert!(tracker.acquire(ip).is_some());
+/// ```
 #[derive(Debug)]
 pub struct ConnectionTracker {
 	global_count: AtomicUsize,

@@ -12,6 +12,21 @@ pub const KEY_SERVER_IP: &str = "server.ip";
 pub const KEY_SERVER_PORT: &str = "server.port";
 
 /// Per-connection key-value store with pre-populated connection metadata.
+///
+/// ```
+/// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+/// use vane_primitives::kv::KvStore;
+///
+/// let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 54321);
+/// let server = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8080);
+/// let mut kv = KvStore::new(&peer, &server, "TCP");
+///
+/// assert_eq!(kv.conn_ip(), "192.168.1.100");
+/// assert_eq!(kv.conn_proto(), "tcp"); // protocol is lowercased
+///
+/// kv.set("route.target".to_owned(), "backend-a".to_owned());
+/// assert_eq!(kv.get("route.target"), Some("backend-a"));
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct KvStore {
 	inner: AHashMap<String, String>,

@@ -4,6 +4,37 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// Declarative configuration for a single engine instance.
+///
+/// ```
+/// use std::collections::HashMap;
+/// use vane_engine::config::{
+///     ConfigTable, FlowNode, GlobalConfig, ListenConfig, PortConfig, TerminationAction,
+/// };
+///
+/// let config = ConfigTable {
+///     ports: HashMap::from([(
+///         8080,
+///         PortConfig {
+///             listen: ListenConfig::default(),
+///             l4: FlowNode {
+///                 plugin: "tcp.forward".to_owned(),
+///                 params: serde_json::json!({"ip": "127.0.0.1", "port": 3000}),
+///                 branches: HashMap::new(),
+///                 termination: Some(TerminationAction::Finished),
+///             },
+///             l5: None,
+///             l7: None,
+///         },
+///     )]),
+///     global: GlobalConfig::default(),
+///     certs: HashMap::new(),
+/// };
+///
+/// // Roundtrip through JSON
+/// let json = serde_json::to_string(&config).unwrap();
+/// let back: ConfigTable = serde_json::from_str(&json).unwrap();
+/// assert_eq!(config, back);
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConfigTable {
 	pub ports: HashMap<u16, PortConfig>,

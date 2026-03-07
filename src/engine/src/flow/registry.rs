@@ -3,6 +3,27 @@ use std::collections::HashMap;
 use super::plugin::PluginAction;
 
 /// Holds all registered plugins by name.
+///
+/// ```
+/// use vane_engine::flow::{BranchAction, ExecutionContext, Middleware, PluginAction, PluginRegistry};
+///
+/// struct Noop;
+/// impl Middleware for Noop {
+///     fn execute(
+///         &self,
+///         _params: &serde_json::Value,
+///         _ctx: &dyn ExecutionContext,
+///     ) -> Result<BranchAction, anyhow::Error> {
+///         Ok(BranchAction { branch: "ok".to_owned(), updates: vec![] })
+///     }
+/// }
+///
+/// let registry = PluginRegistry::new()
+///     .register("noop", PluginAction::Middleware(Box::new(Noop)));
+///
+/// assert!(registry.get("noop").is_some());
+/// assert!(registry.get("missing").is_none());
+/// ```
 pub struct PluginRegistry {
 	plugins: HashMap<String, PluginAction>,
 }
