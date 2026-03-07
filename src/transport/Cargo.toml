@@ -16,6 +16,10 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+tokio-rustls.workspace = true
 
 [dev-dependencies]
 vane-test-utils.workspace = true
+rcgen.workspace = true
