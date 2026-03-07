@@ -48,6 +48,13 @@ fn execute_inner<'a>(
 				execute_inner(next, context, registry).await
 			}
 			PluginAction::Terminator(term) => {
+				let termination = node.termination.clone().unwrap_or(TerminationAction::Finished);
+
+				// Upgrade requires preserving the stream for the next layer's handshake
+				if matches!(termination, TerminationAction::Upgrade { .. }) {
+					return Ok(termination);
+				}
+
 				let stream = context
 					.take_stream()
 					.ok_or_else(|| FlowError::StreamAlreadyConsumed { step: node.plugin.clone() })?;
@@ -57,7 +64,7 @@ fn execute_inner<'a>(
 					.await
 					.map_err(|source| FlowError::PluginFailed { name: node.plugin.clone(), source })?;
 
-				Ok(node.termination.clone().unwrap_or(TerminationAction::Finished))
+				Ok(termination)
 			}
 		}
 	})
@@ -76,6 +83,7 @@ mod tests {
 	use std::sync::atomic::{AtomicBool, Ordering};
 	use tokio::net::TcpStream;
 	use vane_primitives::kv::KvStore;
+	use vane_transport::stream::ConnectionStream;
 
 	// -- helpers --
 
@@ -89,7 +97,7 @@ mod tests {
 		peer: SocketAddr,
 		server: SocketAddr,
 		kv: KvStore,
-		stream: Option<TcpStream>,
+		stream: Option<ConnectionStream>,
 	}
 
 	impl ExecutionContext for MockContext {
@@ -105,7 +113,7 @@ mod tests {
 		fn kv_mut(&mut self) -> &mut KvStore {
 			&mut self.kv
 		}
-		fn take_stream(&mut self) -> Option<TcpStream> {
+		fn take_stream(&mut self) -> Option<ConnectionStream> {
 			self.stream.take()
 		}
 	}
@@ -118,7 +126,7 @@ mod tests {
 		let addr = listener.local_addr().unwrap();
 		let (stream, _) = tokio::join!(TcpStream::connect(addr), listener.accept());
 
-		MockContext { peer, server, kv, stream: Some(stream.unwrap()) }
+		MockContext { peer, server, kv, stream: Some(ConnectionStream::from(stream.unwrap())) }
 	}
 
 	// -- mock plugins --
@@ -132,7 +140,7 @@ mod tests {
 			&self,
 			_params: &serde_json::Value,
 			_kv: &KvStore,
-			_stream: TcpStream,
+			_stream: ConnectionStream,
 			_peer_addr: SocketAddr,
 			_server_addr: SocketAddr,
 		) -> Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send + '_>> {
@@ -165,7 +173,7 @@ mod tests {
 			&self,
 			_params: &serde_json::Value,
 			_kv: &KvStore,
-			_stream: TcpStream,
+			_stream: ConnectionStream,
 			_peer_addr: SocketAddr,
 			_server_addr: SocketAddr,
 		) -> Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send + '_>> {
@@ -195,7 +203,7 @@ mod tests {
 			&self,
 			_params: &serde_json::Value,
 			_kv: &KvStore,
-			_stream: TcpStream,
+			_stream: ConnectionStream,
 			_peer_addr: SocketAddr,
 			_server_addr: SocketAddr,
 		) -> Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send + '_>> {
@@ -339,12 +347,11 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn terminator_returns_upgrade_action() {
+	async fn upgrade_skips_terminator_and_preserves_stream() {
+		let called = Arc::new(AtomicBool::new(false));
 		let registry = PluginRegistry::new().register(
 			"mock.term",
-			PluginAction::Terminator(Box::new(MockTerminator {
-				called: Arc::new(AtomicBool::new(false)),
-			})),
+			PluginAction::Terminator(Box::new(MockTerminator { called: called.clone() })),
 		);
 
 		let node = FlowNode {
@@ -357,6 +364,9 @@ mod tests {
 		let mut ctx = make_mock_context().await;
 		let result = execute(&node, &mut ctx, &registry, Duration::from_secs(5)).await;
 		assert_eq!(result.unwrap(), TerminationAction::Upgrade { target_layer: Layer::L5 });
+		// Terminator must NOT be called on Upgrade — stream stays for the next layer
+		assert!(!called.load(Ordering::SeqCst));
+		assert!(ctx.take_stream().is_some());
 	}
 
 	#[tokio::test]

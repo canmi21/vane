@@ -11,6 +11,7 @@ use vane_engine::{
 };
 use vane_test_utils::echo::EchoServer;
 use vane_transport::tcp::ProxyConfig;
+use vane_transport::tls::CertStore;
 
 /// Build a flow: protocol.detect -> {branch} -> tcp.forward(echo)
 fn detect_flow(echo_addr: std::net::SocketAddr, branches: &[&str]) -> (FlowNode, PluginRegistry) {
@@ -71,7 +72,7 @@ async fn detect_tls_routes_to_tls_branch() {
 	let echo = EchoServer::start().await;
 	let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-	let mut engine = Engine::new(make_config(node), registry).unwrap();
+	let mut engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
 	let listen_addr = engine.listeners()[0].local_addr();
@@ -95,7 +96,7 @@ async fn detect_http_routes_to_http_branch() {
 	let echo = EchoServer::start().await;
 	let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-	let mut engine = Engine::new(make_config(node), registry).unwrap();
+	let mut engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
 	let listen_addr = engine.listeners()[0].local_addr();
@@ -118,7 +119,7 @@ async fn detect_unknown_routes_to_fallback_branch() {
 	let echo = EchoServer::start().await;
 	let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-	let mut engine = Engine::new(make_config(node), registry).unwrap();
+	let mut engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
 	let listen_addr = engine.listeners()[0].local_addr();

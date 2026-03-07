@@ -2,8 +2,8 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 
-use tokio::net::TcpStream;
 use vane_primitives::kv::KvStore;
+use vane_transport::stream::ConnectionStream;
 
 use super::context::ExecutionContext;
 
@@ -22,13 +22,13 @@ pub trait Middleware: Send + Sync {
 	) -> Result<BranchAction, anyhow::Error>;
 }
 
-/// An async plugin that consumes the TCP stream and terminates the flow.
+/// An async plugin that consumes the connection stream and terminates the flow.
 pub trait Terminator: Send + Sync {
 	fn execute(
 		&self,
 		params: &serde_json::Value,
 		kv: &KvStore,
-		stream: TcpStream,
+		stream: ConnectionStream,
 		peer_addr: SocketAddr,
 		server_addr: SocketAddr,
 	) -> Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send + '_>>;

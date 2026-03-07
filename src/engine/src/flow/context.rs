@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
 use bytes::Bytes;
-use tokio::net::TcpStream;
 use vane_primitives::kv::KvStore;
+use vane_transport::stream::ConnectionStream;
 
 /// Provides access to per-connection state during flow execution.
 pub trait ExecutionContext: Send {
@@ -10,7 +10,7 @@ pub trait ExecutionContext: Send {
 	fn server_addr(&self) -> SocketAddr;
 	fn kv(&self) -> &KvStore;
 	fn kv_mut(&mut self) -> &mut KvStore;
-	fn take_stream(&mut self) -> Option<TcpStream>;
+	fn take_stream(&mut self) -> Option<ConnectionStream>;
 
 	/// Returns peeked bytes from the connection, if available.
 	fn peek_data(&self) -> Option<&[u8]> {
@@ -18,12 +18,12 @@ pub trait ExecutionContext: Send {
 	}
 }
 
-/// Real connection context carrying a `TcpStream` and metadata.
+/// Real connection context carrying a connection stream and metadata.
 pub struct TransportContext {
 	peer_addr: SocketAddr,
 	server_addr: SocketAddr,
 	kv: KvStore,
-	stream: Option<TcpStream>,
+	stream: Option<ConnectionStream>,
 	peek_data: Option<Bytes>,
 }
 
@@ -32,7 +32,7 @@ impl TransportContext {
 		peer_addr: SocketAddr,
 		server_addr: SocketAddr,
 		kv: KvStore,
-		stream: TcpStream,
+		stream: ConnectionStream,
 	) -> Self {
 		Self { peer_addr, server_addr, kv, stream: Some(stream), peek_data: None }
 	}
@@ -59,7 +59,7 @@ impl ExecutionContext for TransportContext {
 		&mut self.kv
 	}
 
-	fn take_stream(&mut self) -> Option<TcpStream> {
+	fn take_stream(&mut self) -> Option<ConnectionStream> {
 		self.stream.take()
 	}
 
@@ -92,7 +92,7 @@ mod tests {
 		let (stream, _) = tokio::join!(connect, accept);
 		let stream = stream.unwrap();
 
-		let ctx = TransportContext::new(peer, server, kv, stream);
+		let ctx = TransportContext::new(peer, server, kv, ConnectionStream::from(stream));
 		assert_eq!(ctx.peer_addr(), peer);
 		assert_eq!(ctx.server_addr(), server);
 		assert_eq!(ctx.kv().conn_proto(), "tcp");
@@ -110,7 +110,7 @@ mod tests {
 		let (stream, _) = tokio::join!(connect, accept);
 		let stream = stream.unwrap();
 
-		let mut ctx = TransportContext::new(peer, server, kv, stream);
+		let mut ctx = TransportContext::new(peer, server, kv, ConnectionStream::from(stream));
 		assert!(ctx.take_stream().is_some());
 		assert!(ctx.take_stream().is_none());
 	}
@@ -127,7 +127,7 @@ mod tests {
 		let (stream, _) = tokio::join!(connect, accept);
 		let stream = stream.unwrap();
 
-		let mut ctx = TransportContext::new(peer, server, kv, stream);
+		let mut ctx = TransportContext::new(peer, server, kv, ConnectionStream::from(stream));
 
 		// Default is None
 		assert!(ctx.peek_data().is_none());

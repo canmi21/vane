@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use rustls::ServerConfig;
 use thiserror::Error;
 use tokio::sync::watch;
 use vane_primitives::connection::ConnectionTracker;
 use vane_transport::error::ListenerError;
 use vane_transport::listener::{ListenerConfig, TcpListenerHandle, start_tcp_listener};
+use vane_transport::tls::{CertStore, TlsAcceptError, build_server_config};
 
 use crate::config::ConfigTable;
 use crate::config::validate::ValidationError;
@@ -23,18 +26,31 @@ pub enum EngineError {
 
 	#[error("config validation failed ({} errors)", .0.len())]
 	ConfigInvalid(Vec<ValidationError>),
+
+	#[error("TLS config build failed for port {port}")]
+	TlsBuildFailed {
+		port: u16,
+		#[source]
+		source: TlsAcceptError,
+	},
 }
 
 pub struct Engine {
 	config_tx: Arc<watch::Sender<Arc<ConfigTable>>>,
 	registry: Arc<PluginRegistry>,
 	tracker: Arc<ConnectionTracker>,
+	tls_configs: Arc<HashMap<u16, Arc<ServerConfig>>>,
 	handles: Vec<TcpListenerHandle>,
 }
 
 impl Engine {
-	/// Create a new engine. Validates the config against the registry.
-	pub fn new(config: ConfigTable, registry: PluginRegistry) -> Result<Self, EngineError> {
+	/// Create a new engine. Validates the config against the registry and builds
+	/// TLS configs for ports with L5 configuration.
+	pub fn new(
+		config: ConfigTable,
+		registry: PluginRegistry,
+		cert_store: CertStore,
+	) -> Result<Self, EngineError> {
 		config.validate(&registry).map_err(EngineError::ConfigInvalid)?;
 
 		let tracker = Arc::new(ConnectionTracker::new(
@@ -42,12 +58,15 @@ impl Engine {
 			config.global.max_connections_per_ip,
 		));
 
+		let tls_configs = build_tls_configs(&config, cert_store)?;
+
 		let (config_tx, _) = watch::channel(Arc::new(config));
 
 		Ok(Self {
 			config_tx: Arc::new(config_tx),
 			registry: Arc::new(registry),
 			tracker,
+			tls_configs: Arc::new(tls_configs),
 			handles: Vec::new(),
 		})
 	}
@@ -66,12 +85,14 @@ impl Engine {
 			let config_tx = self.config_tx.clone();
 			let registry = self.registry.clone();
 			let tracker = self.tracker.clone();
+			let tls_configs = self.tls_configs.clone();
 			let listener_port = port;
 
 			let handle = start_tcp_listener(&listener_config, move |stream, peer_addr, server_addr| {
 				let config_tx = config_tx.clone();
 				let registry = registry.clone();
 				let tracker = tracker.clone();
+				let tls_configs = tls_configs.clone();
 				tokio::spawn(async move {
 					let Some(guard) = tracker.acquire(peer_addr.ip()) else {
 						tracing::warn!(
@@ -91,6 +112,7 @@ impl Engine {
 					let conn_config = ConnectionConfig {
 						flow_timeout: Duration::from_millis(config.global.flow_timeout_ms),
 						peek_limit: config.global.peek_limit,
+						tls_config: tls_configs.get(&listener_port).cloned(),
 					};
 
 					handle_connection(
@@ -138,4 +160,22 @@ impl Engine {
 			let _ = handle.join().await;
 		}
 	}
+}
+
+fn build_tls_configs(
+	config: &ConfigTable,
+	cert_store: CertStore,
+) -> Result<HashMap<u16, Arc<ServerConfig>>, EngineError> {
+	let mut tls_configs = HashMap::new();
+	let store = Arc::new(cert_store);
+
+	for (&port, port_config) in &config.ports {
+		if let Some(l5) = &port_config.l5 {
+			let server_config = build_server_config(store.clone(), &l5.alpn)
+				.map_err(|source| EngineError::TlsBuildFailed { port, source })?;
+			tls_configs.insert(port, server_config);
+		}
+	}
+
+	Ok(tls_configs)
 }

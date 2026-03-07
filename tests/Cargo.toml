@@ -16,6 +16,9 @@ vane-test-utils.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
 
 [lib]
 path = "src/lib.rs"
@@ -35,3 +38,7 @@ path = "engine/detect.rs"
 [[test]]
 name = "engine_config"
 path = "engine/config.rs"
+
+[[test]]
+name = "engine_tls"
+path = "engine/tls.rs"

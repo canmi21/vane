@@ -6,15 +6,13 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{
-	config::{
-		CertEntry, ConfigTable, FlowNode, GlobalConfig, L5Config, Layer, ListenConfig, PortConfig,
-		TerminationAction,
-	},
+	config::{CertEntry, ConfigTable, FlowNode, GlobalConfig, L5Config, ListenConfig, PortConfig},
 	engine::{Engine, EngineError},
 	flow::{PluginAction, PluginRegistry, builtin::tcp_forward::TcpForward},
 };
 use vane_test_utils::echo::EchoServer;
 use vane_transport::tcp::ProxyConfig;
+use vane_transport::tls::CertStore;
 
 #[test]
 fn engine_rejects_invalid_config() {
@@ -35,67 +33,8 @@ fn engine_rejects_invalid_config() {
 	};
 
 	let registry = PluginRegistry::new();
-	let result = Engine::new(config, registry);
+	let result = Engine::new(config, registry, CertStore::new());
 	assert!(matches!(result, Err(EngineError::ConfigInvalid(_))));
-}
-
-/// `FlowNode` with termination: `Upgrade(L5)` — connection closes cleanly,
-/// handler logs "upgrade requested, not yet implemented".
-#[tokio::test]
-async fn upgrade_terminates_gracefully() {
-	let echo = EchoServer::start().await;
-	let echo_addr = echo.addr();
-
-	let node = FlowNode {
-		plugin: "tcp.forward".to_owned(),
-		params: serde_json::json!({
-				"ip": echo_addr.ip().to_string(),
-				"port": echo_addr.port(),
-		}),
-		branches: HashMap::new(),
-		termination: Some(TerminationAction::Upgrade { target_layer: Layer::L5 }),
-	};
-
-	// Provide a valid L5 config so validation accepts the Upgrade(L5) termination
-	let l5_node = FlowNode {
-		plugin: "tcp.forward".to_owned(),
-		params: serde_json::json!({"ip": "127.0.0.1", "port": 1}),
-		branches: HashMap::new(),
-		termination: None,
-	};
-	let l5 = L5Config { default_cert: "test".to_owned(), alpn: vec![], flow: l5_node };
-
-	let config = ConfigTable {
-		ports: HashMap::from([(
-			0,
-			PortConfig { listen: ListenConfig::default(), l4: node, l5: Some(l5), l7: None },
-		)]),
-		global: GlobalConfig::default(),
-		certs: HashMap::from([(
-			"test".to_owned(),
-			CertEntry::Pem { cert_pem: "CERT".to_owned(), key_pem: "KEY".to_owned() },
-		)]),
-	};
-	let registry = PluginRegistry::new().register(
-		"tcp.forward",
-		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
-	);
-
-	let mut engine = Engine::new(config, registry).unwrap();
-	engine.start().await.unwrap();
-
-	let listen_addr = engine.listeners()[0].local_addr();
-
-	// Connect, send data, verify connection closes without panic
-	let mut client = TcpStream::connect(listen_addr).await.unwrap();
-	client.write_all(b"upgrade test").await.unwrap();
-
-	let mut response = Vec::new();
-	client.read_to_end(&mut response).await.unwrap();
-	assert_eq!(response, b"upgrade test");
-
-	engine.shutdown();
-	engine.join().await;
 }
 
 #[tokio::test]
@@ -127,7 +66,7 @@ async fn update_config_hot_reload() {
 		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
 	);
 
-	let mut engine = Engine::new(make_config(echo_a.addr()), registry).unwrap();
+	let mut engine = Engine::new(make_config(echo_a.addr()), registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 	let listen_addr = engine.listeners()[0].local_addr();
 
@@ -143,9 +82,6 @@ async fn update_config_hot_reload() {
 	// Hot-reload: point at echo_b
 	engine.update_config(make_config(echo_b.addr())).unwrap();
 
-	// echo_a already consumed its single connection — new connections to its
-	// address would fail with ConnectFailed, proving the engine must be using
-	// the updated config.
 	{
 		let mut client = TcpStream::connect(listen_addr).await.unwrap();
 		client.write_all(b"after reload").await.unwrap();
@@ -192,7 +128,7 @@ async fn connection_limit_rejects() {
 		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
 	);
 
-	let mut engine = Engine::new(config, registry).unwrap();
+	let mut engine = Engine::new(config, registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 	let listen_addr = engine.listeners()[0].local_addr();
 
@@ -215,4 +151,49 @@ async fn connection_limit_rejects() {
 	engine.shutdown();
 	engine.join().await;
 	upstream_handle.abort();
+}
+
+/// Engine rejects config that references L5 with upgrade but cert store is empty.
+#[test]
+fn tls_build_fails_with_empty_cert_store() {
+	use vane_engine::config::{Layer, TerminationAction};
+
+	let l4_node = FlowNode {
+		plugin: "tcp.forward".to_owned(),
+		params: serde_json::json!({"ip": "127.0.0.1", "port": 1}),
+		branches: HashMap::new(),
+		termination: Some(TerminationAction::Upgrade { target_layer: Layer::L5 }),
+	};
+
+	let l5 = L5Config {
+		default_cert: "test".to_owned(),
+		alpn: vec![],
+		flow: FlowNode {
+			plugin: "tcp.forward".to_owned(),
+			params: serde_json::json!({"ip": "127.0.0.1", "port": 1}),
+			branches: HashMap::new(),
+			termination: None,
+		},
+	};
+
+	let config = ConfigTable {
+		ports: HashMap::from([(
+			443,
+			PortConfig { listen: ListenConfig::default(), l4: l4_node, l5: Some(l5), l7: None },
+		)]),
+		global: GlobalConfig::default(),
+		certs: HashMap::from([(
+			"test".to_owned(),
+			CertEntry::Pem { cert_pem: "CERT".to_owned(), key_pem: "KEY".to_owned() },
+		)]),
+	};
+
+	let registry = PluginRegistry::new().register(
+		"tcp.forward",
+		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
+	);
+
+	// Empty cert store — TLS config build should fail
+	let result = Engine::new(config, registry, CertStore::new());
+	assert!(matches!(result, Err(EngineError::TlsBuildFailed { .. })));
 }

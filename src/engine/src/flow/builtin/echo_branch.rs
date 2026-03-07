@@ -34,6 +34,7 @@ mod tests {
 	use super::*;
 	use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 	use vane_primitives::kv::KvStore;
+	use vane_transport::stream::ConnectionStream;
 
 	struct DummyContext {
 		peer: SocketAddr,
@@ -54,7 +55,7 @@ mod tests {
 		fn kv_mut(&mut self) -> &mut KvStore {
 			&mut self.kv
 		}
-		fn take_stream(&mut self) -> Option<tokio::net::TcpStream> {
+		fn take_stream(&mut self) -> Option<ConnectionStream> {
 			None
 		}
 	}

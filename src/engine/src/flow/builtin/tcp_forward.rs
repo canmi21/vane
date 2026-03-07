@@ -2,9 +2,9 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 
-use tokio::net::TcpStream;
 use vane_primitives::kv::KvStore;
 use vane_primitives::model::ResolvedTarget;
+use vane_transport::stream::ConnectionStream;
 use vane_transport::tcp::{ProxyConfig, proxy_tcp};
 
 use crate::flow::plugin::Terminator;
@@ -51,7 +51,7 @@ impl Terminator for TcpForward {
 		&self,
 		params: &serde_json::Value,
 		kv: &KvStore,
-		stream: TcpStream,
+		stream: ConnectionStream,
 		_peer_addr: SocketAddr,
 		_server_addr: SocketAddr,
 	) -> Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send + '_>> {

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tracing::Instrument;
 use vane_primitives::model::ResolvedTarget;
@@ -26,8 +27,12 @@ impl Default for ProxyConfig {
 	}
 }
 
-pub async fn proxy_tcp(
-	client: TcpStream,
+/// Forward traffic bidirectionally between a client stream and an upstream TCP target.
+///
+/// Caller is responsible for setting TCP options (e.g. `set_nodelay`) on the client
+/// stream before calling, since generic `S` may not expose TCP-specific methods.
+pub async fn proxy_tcp<S: AsyncRead + AsyncWrite + Unpin>(
+	client: S,
 	target: &ResolvedTarget,
 	config: &ProxyConfig,
 ) -> Result<(), ProxyError> {
@@ -50,7 +55,6 @@ pub async fn proxy_tcp(
 				}
 			};
 
-		let _ = client.set_nodelay(true);
 		let _ = upstream.set_nodelay(true);
 
 		let last_activity = Arc::new(AtomicU64::new(now_millis()));

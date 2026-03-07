@@ -283,8 +283,8 @@ mod tests {
 	use std::net::SocketAddr;
 	use std::pin::Pin;
 
-	use tokio::net::TcpStream;
 	use vane_primitives::kv::KvStore;
+	use vane_transport::stream::ConnectionStream;
 
 	use std::collections::HashMap;
 
@@ -309,7 +309,7 @@ mod tests {
 			&self,
 			_params: &serde_json::Value,
 			_kv: &KvStore,
-			_stream: TcpStream,
+			_stream: ConnectionStream,
 			_peer_addr: SocketAddr,
 			_server_addr: SocketAddr,
 		) -> Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send + '_>> {

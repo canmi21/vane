@@ -11,6 +11,7 @@ use vane_engine::{
 };
 use vane_test_utils::echo::EchoServer;
 use vane_transport::tcp::ProxyConfig;
+use vane_transport::tls::CertStore;
 
 #[tokio::test]
 async fn test_echo_forward() {
@@ -40,7 +41,7 @@ async fn test_echo_forward() {
 		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
 	);
 
-	let mut engine = Engine::new(config, registry).unwrap();
+	let mut engine = Engine::new(config, registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
 	let listen_addr = engine.listeners()[0].local_addr();
