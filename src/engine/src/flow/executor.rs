@@ -30,11 +30,15 @@ fn execute_inner<'a>(
 			.get(&node.plugin)
 			.ok_or_else(|| FlowError::PluginNotFound { name: node.plugin.clone() })?;
 
+		tracing::debug!(plugin = %node.plugin, "flow.step");
+
 		match plugin {
 			PluginAction::Middleware(mw) => {
 				let action = mw
 					.execute(&node.params, &*context)
 					.map_err(|source| FlowError::PluginFailed { name: node.plugin.clone(), source })?;
+
+				tracing::debug!(plugin = %node.plugin, branch = %action.branch, "flow.branch");
 
 				for (key, value) in action.updates {
 					context.kv_mut().set(key, value);

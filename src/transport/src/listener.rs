@@ -106,8 +106,8 @@ where
 
 	let (state_tx, mut state_rx) = watch::channel(ListenerState::Active);
 
-	let span = tracing::info_span!("tcp_listener", %local_addr);
-	tracing::info!(parent: &span, "tcp listener started");
+	let span = tracing::info_span!("listener", %local_addr);
+	tracing::info!(parent: &span, "listener started");
 
 	let join_handle = tokio::spawn(
 		async move {
@@ -116,9 +116,7 @@ where
 					result = listener.accept() => {
 						match result {
 							Ok((stream, peer_addr)) => {
-								let _conn = tracing::debug_span!("tcp_conn", %peer_addr).entered();
-								tracing::debug!("accepted connection");
-								on_connection(stream, peer_addr, local_addr);
+										on_connection(stream, peer_addr, local_addr);
 							}
 							Err(e) => {
 								tracing::warn!(error = %e, "accept failed");

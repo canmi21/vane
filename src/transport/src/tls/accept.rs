@@ -100,7 +100,7 @@ pub async fn accept_tls(
 		sni = tls_info.sni.as_deref().unwrap_or("-"),
 		alpn = tls_info.alpn.as_deref().unwrap_or("-"),
 		version = tls_info.tls_version.as_deref().unwrap_or("-"),
-		"TLS handshake complete"
+		"tls.handshake_complete"
 	);
 
 	Ok((tls_stream, tls_info))

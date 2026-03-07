@@ -37,9 +37,9 @@ pub async fn proxy_tcp<S: AsyncRead + AsyncWrite + Unpin>(
 	config: &ProxyConfig,
 ) -> Result<(), ProxyError> {
 	let upstream_addr = target.addr;
-	let span = tracing::info_span!("tcp_proxy", %upstream_addr);
+	let span = tracing::info_span!("forward", %upstream_addr);
 	async {
-		tracing::debug!("connecting to upstream");
+		tracing::debug!("connection.forwarding");
 
 		let upstream =
 			match tokio::time::timeout(config.connect_timeout, TcpStream::connect(upstream_addr)).await {
