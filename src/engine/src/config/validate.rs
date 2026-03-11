@@ -51,15 +51,6 @@ impl ConfigTable {
 	pub fn validate(&self, registry: &PluginRegistry) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
-		if self.ports.is_empty() {
-			errors.push(ValidationError {
-				port: None,
-				layer: None,
-				step_path: vec![],
-				message: "ports map must not be empty".to_owned(),
-			});
-		}
-
 		for (&port, port_config) in &self.ports {
 			// L4 flow
 			let mut ctx =
@@ -542,10 +533,9 @@ mod tests {
 	}
 
 	#[test]
-	fn empty_ports_error() {
+	fn empty_ports_are_allowed_for_panel_bootstrap() {
 		let config = simple_config(HashMap::new());
-		let errors = config.validate(&mock_registry()).unwrap_err();
-		assert!(errors.iter().any(|e| e.message.contains("ports map must not be empty")));
+		assert!(config.validate(&mock_registry()).is_ok());
 	}
 
 	#[test]

@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 /// let back: ConfigTable = serde_json::from_str(&json).unwrap();
 /// assert_eq!(config, back);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ConfigTable {
 	pub ports: HashMap<u16, PortConfig>,
 	#[serde(default)]

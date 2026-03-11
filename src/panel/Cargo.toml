@@ -1,0 +1,23 @@
+[package]
+name = "vane-panel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+axum = { version = "0.8" }
+seam-server.workspace = true
+seam-server-axum.workspace = true
+vane-engine.workspace = true
+vane-primitives.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+vane-transport.workspace = true

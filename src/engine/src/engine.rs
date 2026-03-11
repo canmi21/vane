@@ -161,6 +161,10 @@ impl Engine {
 		Ok(())
 	}
 
+	pub fn current_config(&self) -> Arc<ConfigTable> {
+		self.config_tx.borrow().clone()
+	}
+
 	pub fn conn_registry(&self) -> &ConnectionRegistry {
 		&self.conn_registry
 	}
