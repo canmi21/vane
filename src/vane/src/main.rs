@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use vane_engine::config::ConfigTable;
 use vane_engine::engine::Engine;
 use vane_engine::flow::default_plugin_registry;
-use vane_panel::{VaneState, start_panel_server};
+use vane_panel::{VaneState, build_panel_manifest_json, start_panel_server};
 use vane_transport::tls::CertStore;
 
 const DEFAULT_PANEL_BIND_ADDR: &str = "127.0.0.1:3333";
@@ -15,6 +15,11 @@ const DEFAULT_PANEL_BIND_ADDR: &str = "127.0.0.1:3333";
 #[tokio::main]
 async fn main() -> Result<()> {
 	init_tracing();
+
+	if manifest_requested() {
+		print_panel_manifest()?;
+		return Ok(());
+	}
 
 	let started_at = SystemTime::now();
 	let panel_bind_addr = panel_bind_addr()?;
@@ -37,6 +42,10 @@ async fn main() -> Result<()> {
 	panel_task.abort();
 
 	Ok(())
+}
+
+fn manifest_requested() -> bool {
+	std::env::args().any(|arg| arg == "--manifest")
 }
 
 fn init_tracing() {
@@ -64,4 +73,15 @@ fn load_initial_config() -> Result<ConfigTable> {
 		.with_context(|| format!("failed to parse config file {}", path.display()))?;
 	tracing::info!(path = %path.display(), "loaded initial config");
 	Ok(config)
+}
+
+fn print_panel_manifest() -> Result<()> {
+	let engine = Arc::new(
+		Engine::new(ConfigTable::default(), default_plugin_registry(), CertStore::new())
+			.context("failed to build engine for manifest output")?,
+	);
+	let state = Arc::new(VaneState::new(engine, SystemTime::now()));
+	let manifest = build_panel_manifest_json(state).context("failed to build panel manifest")?;
+	println!("{manifest}");
+	Ok(())
 }

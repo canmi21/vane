@@ -14,10 +14,12 @@ out/
 .DS_Store
 
 # Project
-.refactor
+.refactor/
+.seam/
+.yalc/
 
 # Logs
 *.log
 
-# Claude
-.claude
+# LLM
+.claude/

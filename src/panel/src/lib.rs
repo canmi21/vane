@@ -3,7 +3,8 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use axum::Router;
-use seam_server::{SeamError, SeamType, seam_command, seam_procedure};
+use seam_server::manifest::build_manifest;
+use seam_server::{SeamError, SeamServer, SeamType, seam_command, seam_procedure};
 use seam_server_axum::IntoAxumRouter;
 use serde::{Deserialize, Serialize};
 use vane_engine::config::ConfigTable;
@@ -171,12 +172,28 @@ async fn get_system_info(
 }
 
 pub fn build_panel_router(state: Arc<VaneState>) -> Router {
-	seam_server::SeamServer::new()
+	build_panel_server(state).into_axum_router()
+}
+
+pub fn build_panel_server(state: Arc<VaneState>) -> SeamServer {
+	SeamServer::new()
 		.procedure(list_connections_procedure(Arc::clone(&state)))
 		.procedure(get_config_procedure(Arc::clone(&state)))
 		.procedure(get_system_info_procedure(Arc::clone(&state)))
 		.procedure(update_config_procedure(state))
-		.into_axum_router()
+}
+
+pub fn build_panel_manifest_json(state: Arc<VaneState>) -> Result<String, serde_json::Error> {
+	let parts = build_panel_server(state).into_parts();
+	let manifest = build_manifest(
+		&parts.procedures,
+		&parts.subscriptions,
+		&parts.streams,
+		&parts.uploads,
+		parts.channel_metas,
+		&parts.context_config,
+	);
+	serde_json::to_string_pretty(&manifest)
 }
 
 pub async fn start_panel_server(

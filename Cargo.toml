@@ -33,7 +33,7 @@ uuid = { version = "1", features = ["v7"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 rustls-pemfile = "2"
-rcgen = "0.13"
+rcgen = "0.14"
 seam-server = "0.5"
 seam-server-axum = "0.5"
 seam-macros = "0.5"
