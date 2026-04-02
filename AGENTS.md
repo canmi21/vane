@@ -19,7 +19,6 @@
 - Before every `git commit`, run `just ci` (fmt + clippy + test) and fix any errors first
 - Run `git commit` after each plan mode phase completes, do not push
 - Commit messages: conventional commit format (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `deps:`, `revert:`, `perf:`); scope is optional and should only be added when it genuinely clarifies context — roughly 1 in 3 commits should have a scope (e.g. `feat(transport):` when the change is transport-specific), the rest use bare prefix (e.g. `refactor: extract shared helpers`)
-- Never add AI co-authorship (e.g., "Co-Authored-By: Claude")
 - Commit messages must not mention version bumps unless the version was actually changed
 
 ## Versioning
@@ -38,15 +37,15 @@
 
 Rust workspace with `resolver = "3"` and `edition = "2024"`:
 
-| Crate | Path | Role |
-|-------|------|------|
-| `vane-primitives` | `src/primitives` | Shared types and foundational utilities |
-| `vane-transport` | `src/transport` | TCP listener, bidirectional proxy, transport errors |
-| `vane-engine` | `src/engine` | Route table, connection dispatch, engine lifecycle |
-| `vane-extra` | `src/extra` | Extended functionality |
-| `vane` | `src/vane` | Binary entry point |
-| `vane-test-utils` | `src/test-utils` | Test helpers (echo server, mock server, tracing init, timeout assertions); dev-dependency only |
-| `vane-integration-tests` | `tests` | Workspace-level integration tests, organized by domain (`tests/engine/`, `tests/transport/`, etc.) |
+| Crate                    | Path             | Role                                                                                               |
+| ------------------------ | ---------------- | -------------------------------------------------------------------------------------------------- |
+| `vane-primitives`        | `src/primitives` | Shared types and foundational utilities                                                            |
+| `vane-transport`         | `src/transport`  | TCP listener, bidirectional proxy, transport errors                                                |
+| `vane-engine`            | `src/engine`     | Route table, connection dispatch, engine lifecycle                                                 |
+| `vane-extra`             | `src/extra`      | Extended functionality                                                                             |
+| `vane`                   | `src/vane`       | Binary entry point                                                                                 |
+| `vane-test-utils`        | `src/test-utils` | Test helpers (echo server, mock server, tracing init, timeout assertions); dev-dependency only     |
+| `vane-integration-tests` | `tests`          | Workspace-level integration tests, organized by domain (`tests/engine/`, `tests/transport/`, etc.) |
 
 - `src/` uses nested layout organized by functional modules
 - Nesting depth must not exceed 4 levels from `src/`
@@ -70,14 +69,14 @@ Rust workspace with `resolver = "3"` and `edition = "2024"`:
 
 ## Running Tests
 
-| Command | Scope |
-|---------|-------|
-| `just test` | All tests (`cargo test --workspace`) |
-| `just test-unit` | Unit tests only (`cargo test --workspace --lib`) |
+| Command                 | Scope                                                           |
+| ----------------------- | --------------------------------------------------------------- |
+| `just test`             | All tests (`cargo test --workspace`)                            |
+| `just test-unit`        | Unit tests only (`cargo test --workspace --lib`)                |
 | `just test-integration` | Integration tests only (`cargo test -p vane-integration-tests`) |
-| `just clippy` | Clippy with `-D warnings` |
-| `just fmt` | Format code (`cargo fmt --all`) |
-| `just ci` | Full CI check: fmt + clippy + all tests |
+| `just clippy`           | Clippy with `-D warnings`                                       |
+| `just fmt`              | Format code (`cargo fmt --all`)                                 |
+| `just ci`               | Full CI check: fmt + clippy + all tests                         |
 
 ## Testing Philosophy
 
