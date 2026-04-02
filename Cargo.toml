@@ -34,10 +34,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "logg
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 rustls-pemfile = "2"
 rcgen = "0.14"
-seam-server = "0.5"
-seam-server-axum = "0.5"
-seam-macros = "0.5"
-
 # Internal
 vane-primitives = { path = "src/primitives" }
 vane-transport = { path = "src/transport" }
@@ -45,11 +41,6 @@ vane-engine = { path = "src/engine" }
 vane-panel = { path = "src/panel" }
 vane-extra = { path = "src/extra" }
 vane-test-utils = { path = "src/test-utils" }
-
-[patch.crates-io]
-seam-server = { path = "../seam/src/server/core/rust" }
-seam-server-axum = { path = "../seam/src/server/adapter/axum" }
-seam-macros = { path = "../seam/src/server/core/rust-macros" }
 
 [workspace.lints.clippy]
 # -- lint groups --
