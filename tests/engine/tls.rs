@@ -24,7 +24,7 @@ use vane_transport::tls::{CertStore, parse_pem};
 fn generate_self_signed() -> (Vec<u8>, Vec<u8>) {
 	let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
 	let cert_pem = cert.cert.pem().into_bytes();
-	let key_pem = cert.key_pair.serialize_pem().into_bytes();
+	let key_pem = cert.signing_key.serialize_pem().into_bytes();
 	(cert_pem, key_pem)
 }
 

@@ -111,7 +111,7 @@ mod tests {
 	fn generate_self_signed() -> (Vec<u8>, Vec<u8>) {
 		let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
 		let cert_pem = cert.cert.pem().into_bytes();
-		let key_pem = cert.key_pair.serialize_pem().into_bytes();
+		let key_pem = cert.signing_key.serialize_pem().into_bytes();
 		(cert_pem, key_pem)
 	}
 
@@ -204,7 +204,8 @@ mod tests {
 		let mut leaf_params = rcgen::CertificateParams::new(vec!["localhost".to_owned()]).unwrap();
 		leaf_params.is_ca = rcgen::IsCa::NoCa;
 		let leaf_key = rcgen::KeyPair::generate().unwrap();
-		let leaf_cert = leaf_params.signed_by(&leaf_key, &ca_cert, &ca_key).unwrap();
+		let issuer = rcgen::Issuer::from_params(&ca_params, &ca_key);
+		let leaf_cert = leaf_params.signed_by(&leaf_key, &issuer).unwrap();
 
 		// Concatenate leaf + CA PEM to form a chain
 		let mut chain_pem = leaf_cert.pem().into_bytes();
