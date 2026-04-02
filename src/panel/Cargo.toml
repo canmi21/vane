@@ -6,3 +6,21 @@ license.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+axum.workspace = true
+rust-embed.workspace = true
+mime_guess.workspace = true
+specta.workspace = true
+vane-engine.workspace = true
+vane-primitives.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+specta-serde.workspace = true
+specta-typescript.workspace = true
+tower = { version = "0.5", features = ["util"] }
+vane-transport.workspace = true

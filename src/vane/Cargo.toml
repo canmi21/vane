@@ -11,6 +11,7 @@ workspace = true
 vane-primitives.workspace = true
 vane-transport.workspace = true
 vane-engine.workspace = true
+vane-panel.workspace = true
 vane-extra.workspace = true
 tokio.workspace = true
 tracing.workspace = true

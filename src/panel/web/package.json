@@ -1,0 +1,19 @@
+{
+  "name": "@vane/panel",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0"
+  }
+}

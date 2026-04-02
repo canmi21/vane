@@ -18,6 +18,9 @@ out/
 .seam/
 .yalc/
 
+# Generated
+src/panel/web/src/types/bindings.ts
+
 # Logs
 *.log
 
