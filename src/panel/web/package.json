@@ -8,7 +8,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "svelte": "^5.0.0"
+    "@tailwindcss/vite": "^4.2.2",
+    "svelte": "^5.0.0",
+    "tailwindcss": "^4.2.2"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",

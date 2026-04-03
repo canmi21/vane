@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+@theme {
+  /* Polar Night */
+  --color-nord-0: #2E3440;
+  --color-nord-1: #3B4252;
+  --color-nord-2: #434C5E;
+  --color-nord-3: #4C566A;
+
+  /* Snow Storm */
+  --color-nord-4: #D8DEE9;
+  --color-nord-5: #E5E9F0;
+  --color-nord-6: #ECEFF4;
+
+  /* Frost */
+  --color-frost-teal: #8FBCBB;
+  --color-frost-cyan: #88C0D0;
+  --color-frost-blue: #81A1C1;
+  --color-frost-deep: #5E81AC;
+
+  /* Aurora */
+  --color-aurora-red: #BF616A;
+  --color-aurora-orange: #D08770;
+  --color-aurora-yellow: #EBCB8B;
+  --color-aurora-green: #A3BE8C;
+  --color-aurora-purple: #B48EAD;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-nord-0);
+  color: var(--color-nord-4);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+}
