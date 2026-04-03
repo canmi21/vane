@@ -31,6 +31,7 @@
 
 - Default: lowercase + hyphen (kebab-case) for file names and directory names
 - Rust code follows Rust convention: lowercase + underscore (snake_case)
+- Svelte / TypeScript files follow kebab-case: `app.svelte`, `api-client.ts` (variables inside files use camelCase as normal)
 - No uppercase-initial directory or file names unless forced by framework conventions
 
 ## Monorepo Structure
@@ -91,6 +92,13 @@ Rust workspace with `resolver = "3"` and `edition = "2024"`:
 - Provide agents with full file contents and exact split instructions; do not rely on agents to read large files themselves
 - Always run unified verification (`just ci`) after agents finish before committing
 - Shut down agents (SendMessage shutdown_request) once their work is verified
+
+## Dev Server (tmux)
+
+- Long-running dev servers use tmux, session name: `vane-dev`
+- Before starting, check `tmux has-session -t vane-dev`; if it exists, reuse it
+- When restarting or troubleshooting, kill the old session first (`tmux kill-session -t vane-dev`), then create a new one — keep exactly one session at all times
+- Start command: `tmux new-session -d -s vane-dev '<command>'`
 
 ## Refactoring
 
