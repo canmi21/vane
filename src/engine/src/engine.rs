@@ -1,26 +1,19 @@
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use dashmap::DashMap;
-use rustls::ServerConfig;
 use thiserror::Error;
 use tokio::sync::watch;
 use vane_primitives::connection::ConnectionTracker;
 use vane_primitives::registry::ConnectionRegistry;
 use vane_transport::error::ListenerError;
 use vane_transport::listener::{ListenerConfig, TcpListenerHandle, start_tcp_listener};
-use vane_transport::tls::{CertStore, TlsAcceptError, build_server_config};
+use vane_transport::tcp::ProxyConfig;
 
 use crate::config::ConfigTable;
 use crate::config::validate::ValidationError;
-use crate::flow::PluginRegistry;
 use crate::handler::{ConnectionConfig, handle_connection};
-
-/// Minimum peek buffer for ports with TLS (L5) config, large enough to capture
-/// a typical `ClientHello` (~200-2000 bytes).
-const TLS_PEEK_LIMIT: usize = 4096;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -34,13 +27,6 @@ pub enum EngineError {
 	#[error("config validation failed ({} errors)", .0.len())]
 	ConfigInvalid(Vec<ValidationError>),
 
-	#[error("TLS config build failed for port {port}")]
-	TlsBuildFailed {
-		port: u16,
-		#[source]
-		source: TlsAcceptError,
-	},
-
 	#[error("port {port} is already running")]
 	PortAlreadyRunning { port: u16 },
 
@@ -53,41 +39,27 @@ pub enum EngineError {
 
 pub struct Engine {
 	config_tx: Arc<watch::Sender<Arc<ConfigTable>>>,
-	registry: Arc<PluginRegistry>,
 	tracker: Arc<ConnectionTracker>,
 	conn_registry: Arc<ConnectionRegistry>,
-	cert_store: Arc<CertStore>,
-	tls_configs: Arc<DashMap<u16, Arc<ServerConfig>>>,
 	handles: Arc<DashMap<u16, TcpListenerHandle>>,
 }
 
 impl Engine {
-	/// Create a new engine. Validates the config against the registry and builds
-	/// TLS configs for ports with L5 configuration.
-	pub fn new(
-		config: ConfigTable,
-		registry: PluginRegistry,
-		cert_store: CertStore,
-	) -> Result<Self, EngineError> {
-		config.validate(&registry).map_err(EngineError::ConfigInvalid)?;
+	/// Create a new engine with validated config.
+	pub fn new(config: ConfigTable) -> Result<Self, EngineError> {
+		config.validate().map_err(EngineError::ConfigInvalid)?;
 
 		let tracker = Arc::new(ConnectionTracker::new(
 			config.global.max_connections,
 			config.global.max_connections_per_ip,
 		));
 
-		let cert_store = Arc::new(cert_store);
-		let tls_configs = build_tls_configs(&config, &cert_store)?;
-
 		let (config_tx, _) = watch::channel(Arc::new(config));
 
 		Ok(Self {
 			config_tx: Arc::new(config_tx),
-			registry: Arc::new(registry),
 			tracker,
 			conn_registry: Arc::new(ConnectionRegistry::new()),
-			cert_store,
-			tls_configs: Arc::new(tls_configs),
 			handles: Arc::new(DashMap::new()),
 		})
 	}
@@ -113,70 +85,35 @@ impl Engine {
 			return Err(EngineError::PortNotConfigured { port });
 		};
 
-		// Build TLS config on demand if L5 is present but tls_configs lacks it
-		if let Some(l5) = &port_config.l5
-			&& !self.tls_configs.contains_key(&port)
-		{
-			let server_config = build_server_config(self.cert_store.clone(), &l5.alpn)
-				.map_err(|source| EngineError::TlsBuildFailed { port, source })?;
-			self.tls_configs.insert(port, server_config);
-		}
-
 		let listener_config =
 			ListenerConfig { port, ipv6: port_config.listen.ipv6, ..Default::default() };
 
 		let config_tx = self.config_tx.clone();
-		let registry = self.registry.clone();
 		let tracker = self.tracker.clone();
 		let conn_registry = self.conn_registry.clone();
-		let tls_configs = self.tls_configs.clone();
 		let listener_port = port;
 
 		let handle = start_tcp_listener(&listener_config, move |stream, peer_addr, server_addr| {
 			let config_tx = config_tx.clone();
-			let registry = registry.clone();
 			let tracker = tracker.clone();
 			let conn_registry = conn_registry.clone();
-			let tls_configs = tls_configs.clone();
 			tokio::spawn(async move {
 				let Some(guard) = tracker.acquire(peer_addr.ip()) else {
-					tracing::warn!(
-							%peer_addr,
-							"connection rejected: limit exceeded"
-					);
+					tracing::warn!(%peer_addr, "connection rejected: limit exceeded");
 					return;
 				};
 
 				// Read fresh config per connection
 				let config = config_tx.borrow().clone();
 				let Some(port_config) = config.ports.get(&listener_port) else {
-					tracing::warn!(port = listener_port, "no flow found for port");
+					tracing::warn!(port = listener_port, "no config found for port");
 					return;
 				};
 
-				let peek_limit = if port_config.l5.is_some() {
-					config.global.peek_limit.max(TLS_PEEK_LIMIT)
-				} else {
-					config.global.peek_limit
-				};
+				let conn_config = ConnectionConfig { proxy_config: ProxyConfig::default(), conn_registry };
 
-				let conn_config = ConnectionConfig {
-					flow_timeout: Duration::from_millis(config.global.flow_timeout_ms),
-					peek_limit,
-					tls_config: tls_configs.get(&listener_port).map(|r| r.clone()),
-					conn_registry,
-				};
-
-				handle_connection(
-					stream,
-					peer_addr,
-					server_addr,
-					port_config,
-					&registry,
-					&conn_config,
-					guard,
-				)
-				.await;
+				handle_connection(stream, peer_addr, server_addr, &port_config.target, &conn_config, guard)
+					.await;
 			});
 		})
 		.await
@@ -194,7 +131,6 @@ impl Engine {
 			return Err(EngineError::PortNotRunning { port });
 		};
 		handle.shutdown();
-		self.tls_configs.remove(&port);
 
 		// Join the listener task in the background so resources are cleaned up
 		tokio::spawn(async move {
@@ -206,13 +142,8 @@ impl Engine {
 	}
 
 	/// Atomically swap the running config and reconcile listeners.
-	///
-	/// - Ports removed from the new config are shut down.
-	/// - Ports added in the new config start listening.
-	/// - Ports kept but with changed L5 config get their TLS rebuilt.
-	/// - Ports kept with unchanged config rely on watch channel (next connection reads new config).
 	pub async fn update_config(&self, config: ConfigTable) -> Result<(), EngineError> {
-		config.validate(&self.registry).map_err(EngineError::ConfigInvalid)?;
+		config.validate().map_err(EngineError::ConfigInvalid)?;
 
 		let old_config = self.config_tx.borrow().clone();
 		let old_ports: HashSet<u16> = old_config.ports.keys().copied().collect();
@@ -225,21 +156,6 @@ impl Engine {
 		for &port in &to_stop {
 			if let Err(e) = self.stop_port(port) {
 				tracing::warn!(port, error = %e, "failed to stop port during config update");
-			}
-		}
-
-		// Rebuild TLS configs for kept ports whose L5 config changed
-		for &port in new_ports.intersection(&old_ports) {
-			let old_l5 = old_config.ports.get(&port).and_then(|p| p.l5.as_ref());
-			let new_l5 = config.ports.get(&port).and_then(|p| p.l5.as_ref());
-
-			if old_l5 != new_l5 {
-				self.tls_configs.remove(&port);
-				if let Some(l5) = new_l5 {
-					let server_config = build_server_config(self.cert_store.clone(), &l5.alpn)
-						.map_err(|source| EngineError::TlsBuildFailed { port, source })?;
-					self.tls_configs.insert(port, server_config);
-				}
 			}
 		}
 
@@ -296,21 +212,4 @@ impl Engine {
 			}
 		}
 	}
-}
-
-fn build_tls_configs(
-	config: &ConfigTable,
-	cert_store: &Arc<CertStore>,
-) -> Result<DashMap<u16, Arc<ServerConfig>>, EngineError> {
-	let tls_configs = DashMap::new();
-
-	for (&port, port_config) in &config.ports {
-		if let Some(l5) = &port_config.l5 {
-			let server_config = build_server_config(cert_store.clone(), &l5.alpn)
-				.map_err(|source| EngineError::TlsBuildFailed { port, source })?;
-			tls_configs.insert(port, server_config);
-		}
-	}
-
-	Ok(tls_configs)
 }

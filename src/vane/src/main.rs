@@ -6,9 +6,7 @@ use std::time::SystemTime;
 use anyhow::{Context, Result};
 use vane_engine::config::ConfigTable;
 use vane_engine::engine::Engine;
-use vane_engine::flow::default_plugin_registry;
 use vane_panel::{PanelState, panel_bind_addr, start_panel_server};
-use vane_transport::tls::CertStore;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -18,8 +16,7 @@ async fn main() -> Result<()> {
 	let panel_addr = resolve_panel_addr()?;
 	let initial_config = load_initial_config()?;
 
-	let engine = Engine::new(initial_config, default_plugin_registry(), CertStore::new())
-		.context("failed to build engine")?;
+	let engine = Engine::new(initial_config).context("failed to build engine")?;
 	engine.start().await.context("failed to start engine")?;
 
 	let engine = Arc::new(engine);

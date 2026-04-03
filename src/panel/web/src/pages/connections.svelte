@@ -60,7 +60,6 @@
             <th class="text-left px-4 py-3 font-medium">ID</th>
             <th class="text-left px-4 py-3 font-medium">Client</th>
             <th class="text-left px-4 py-3 font-medium">Port</th>
-            <th class="text-left px-4 py-3 font-medium">Layer</th>
             <th class="text-left px-4 py-3 font-medium">Phase</th>
             <th class="text-left px-4 py-3 font-medium">Started</th>
           </tr>
@@ -71,7 +70,6 @@
               <td class="px-4 py-3 font-mono text-xs text-nord-3" title={conn.id}>{conn.id.slice(0, 8)}</td>
               <td class="px-4 py-3 font-mono text-nord-4">{conn.peerAddr}</td>
               <td class="px-4 py-3 font-mono text-frost-blue">{conn.listenPort}</td>
-              <td class="px-4 py-3 text-xs text-frost-teal">{conn.layer}</td>
               <td class="px-4 py-3 text-xs {phaseColor(conn.phase)}">{conn.phase}</td>
               <td class="px-4 py-3 text-xs text-nord-3">{formatTime(conn.startedAtUnixMs)}</td>
             </tr>

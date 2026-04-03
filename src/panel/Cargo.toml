@@ -23,4 +23,3 @@ tracing.workspace = true
 specta-serde.workspace = true
 specta-typescript.workspace = true
 tower = { version = "0.5", features = ["util"] }
-vane-transport.workspace = true

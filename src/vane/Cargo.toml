@@ -8,14 +8,11 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-vane-primitives.workspace = true
-vane-transport.workspace = true
 vane-engine.workspace = true
 vane-panel.workspace = true
 vane-extra.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

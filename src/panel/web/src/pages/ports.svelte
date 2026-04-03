@@ -34,12 +34,11 @@
 
       ports = Object.entries(portsMap).map(([key, pc]) => {
         const portNum = Number(key);
-        const l4 = pc.l4 as Record<string, unknown> | undefined;
-        const params = (l4?.params ?? {}) as Record<string, unknown>;
+        const target = (pc.target ?? {}) as Record<string, unknown>;
         return {
           port: portNum,
-          targetIp: String(params.ip ?? ""),
-          targetPort: Number(params.port ?? 0),
+          targetIp: String(target.ip ?? ""),
+          targetPort: Number(target.port ?? 0),
           listening: listeningSet.has(portNum),
         };
       });
@@ -59,11 +58,7 @@
 
       portsMap[String(formPort)] = {
         listen: {},
-        l4: {
-          plugin: "tcp.forward",
-          params: { ip: formTargetIp, port: formTargetPort },
-          branches: {},
-        },
+        target: { ip: formTargetIp, port: formTargetPort },
       };
 
       config.ports = portsMap;

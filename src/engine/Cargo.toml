@@ -9,17 +9,14 @@ workspace = true
 
 [dependencies]
 dashmap.workspace = true
-bytes.workspace = true
+fastrand.workspace = true
 vane-primitives.workspace = true
 vane-transport.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-anyhow.workspace = true
 thiserror.workspace = true
-rustls.workspace = true
-tokio-rustls.workspace = true
 
 [dev-dependencies]
 vane-test-utils.workspace = true

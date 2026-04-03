@@ -5,43 +5,28 @@ use std::collections::HashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{
-	config::{ConfigTable, FlowNode, GlobalConfig, ListenConfig, PortConfig},
+	config::{ConfigTable, GlobalConfig, ListenConfig, PortConfig, TargetAddr},
 	engine::Engine,
-	flow::{PluginAction, PluginRegistry, builtin::tcp_forward::TcpForward},
 };
 use vane_test_utils::echo::EchoServer;
-use vane_transport::tcp::ProxyConfig;
-use vane_transport::tls::CertStore;
 
 #[tokio::test]
 async fn test_echo_forward() {
 	let echo = EchoServer::start().await;
 	let echo_addr = echo.addr();
 
-	let node = FlowNode {
-		plugin: "tcp.forward".to_owned(),
-		params: serde_json::json!({
-				"ip": echo_addr.ip().to_string(),
-				"port": echo_addr.port(),
-		}),
-		branches: HashMap::new(),
-		termination: None,
-	};
-
 	let config = ConfigTable {
 		ports: HashMap::from([(
 			0,
-			PortConfig { listen: ListenConfig::default(), l4: node, l5: None, l7: None },
+			PortConfig {
+				listen: ListenConfig::default(),
+				target: TargetAddr { ip: echo_addr.ip().to_string(), port: echo_addr.port() },
+			},
 		)]),
 		global: GlobalConfig::default(),
-		certs: HashMap::new(),
 	};
-	let registry = PluginRegistry::new().register(
-		"tcp.forward",
-		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
-	);
 
-	let engine = Engine::new(config, registry, CertStore::new()).unwrap();
+	let engine = Engine::new(config).unwrap();
 	engine.start().await.unwrap();
 
 	let listen_addr = engine.listener_addr(0).unwrap();

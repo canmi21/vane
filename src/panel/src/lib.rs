@@ -12,7 +12,7 @@ use axum::{Router, serve};
 use rust_embed::Embed;
 use vane_engine::config::ConfigTable;
 use vane_engine::engine::{Engine, EngineError};
-use vane_primitives::registry::{ConnLayer, ConnPhase};
+use vane_primitives::registry::ConnPhase;
 
 pub use types::*;
 
@@ -160,20 +160,10 @@ fn map_connection(state: vane_primitives::registry::ConnectionState) -> Connecti
 		peer_addr: state.peer_addr.to_string(),
 		server_addr: state.server_addr.to_string(),
 		listen_port: state.server_addr.port(),
-		layer: match state.layer {
-			ConnLayer::L4 => Layer::L4,
-			ConnLayer::L5 => Layer::L5,
-			ConnLayer::L7 => Layer::L7,
-		},
 		phase: match state.phase {
 			ConnPhase::Accepted => Phase::Accepted,
-			ConnPhase::Detecting => Phase::Detecting,
 			ConnPhase::Forwarding => Phase::Forwarding,
-			ConnPhase::TlsHandshake => Phase::TlsHandshake,
 		},
-		protocol: state.protocol,
-		tls_sni: state.tls_sni,
-		tls_version: state.tls_version,
 		forward_target: state.forward_target.map(|a| a.to_string()),
 		started_at_unix_ms: started_instant_to_unix_ms(state.started_at),
 	}
@@ -196,12 +186,7 @@ fn system_time_to_unix_ms(time: SystemTime) -> String {
 
 impl From<&vane_engine::config::ValidationError> for ValidationIssue {
 	fn from(value: &vane_engine::config::ValidationError) -> Self {
-		Self {
-			port: value.port,
-			layer: value.layer.map(|l| l.to_string()),
-			step_path: value.step_path.clone(),
-			message: value.message.clone(),
-		}
+		Self { port: value.port, message: value.message.clone() }
 	}
 }
 
@@ -213,13 +198,10 @@ mod tests {
 	use axum::body::{Body, to_bytes};
 	use axum::http::{Request, StatusCode};
 	use tower::ServiceExt;
-	use vane_engine::flow::default_plugin_registry;
-	use vane_transport::tls::CertStore;
 
 	fn test_state() -> PanelState {
-		let engine = Engine::new(ConfigTable::default(), default_plugin_registry(), CertStore::new())
-			.expect("engine should build with empty config");
-		// Cannot call engine.start() in sync context; listeners will be empty
+		let engine =
+			Engine::new(ConfigTable::default()).expect("engine should build with empty config");
 		PanelState::new(Arc::new(engine), SystemTime::now())
 	}
 
@@ -275,7 +257,6 @@ mod tests {
 			.await
 			.expect("router should respond");
 
-		// rust-embed includes dist/ at compile time; if dist/ was built, this is 200
 		let status = resp.status();
 		assert!(
 			status == StatusCode::OK || status == StatusCode::NOT_FOUND,

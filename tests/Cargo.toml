@@ -8,17 +8,12 @@ publish = false
 workspace = true
 
 [dependencies]
-bytes.workspace = true
 vane-engine.workspace = true
 vane-primitives.workspace = true
 vane-transport.workspace = true
 vane-test-utils.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
-anyhow.workspace = true
-rcgen.workspace = true
-rustls.workspace = true
-tokio-rustls.workspace = true
 
 [lib]
 path = "src/lib.rs"
@@ -28,24 +23,8 @@ name = "engine_forward"
 path = "engine/forward.rs"
 
 [[test]]
-name = "engine_flow"
-path = "engine/flow.rs"
-
-[[test]]
-name = "engine_detect"
-path = "engine/detect.rs"
-
-[[test]]
 name = "engine_config"
 path = "engine/config.rs"
-
-[[test]]
-name = "engine_tls"
-path = "engine/tls.rs"
-
-[[test]]
-name = "engine_clienthello"
-path = "engine/clienthello.rs"
 
 [[test]]
 name = "engine_dynamic"
