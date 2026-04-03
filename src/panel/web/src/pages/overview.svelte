@@ -1,17 +1,20 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { getSystemInfo } from "../lib/api";
   import type { SystemInfoOutput } from "../types/bindings";
 
   let info: SystemInfoOutput | null = $state(null);
   let error: string | null = $state(null);
+  let initialLoading = $state(true);
 
   async function load() {
-    error = null;
     try {
       info = await getSystemInfo();
+      error = null;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+    } finally {
+      initialLoading = false;
     }
   }
 
@@ -29,7 +32,9 @@
     return `${hours}h ${minutes % 60}m`;
   }
 
-  onMount(() => { load(); });
+  let timer: ReturnType<typeof setInterval>;
+  onMount(() => { load(); timer = setInterval(load, 5000); });
+  onDestroy(() => { clearInterval(timer); });
 </script>
 
 <div>
@@ -47,7 +52,9 @@
     </div>
   {/if}
 
-  {#if info}
+  {#if initialLoading}
+    <p class="text-nord-3 text-sm">Loading...</p>
+  {:else if info}
     <div class="grid grid-cols-4 gap-4 mb-8">
       <div class="bg-nord-1 rounded-lg p-4">
         <div class="text-xs uppercase tracking-wider text-nord-3 mb-1">Version</div>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { getConfig, getSystemInfo, updateConfig } from "../lib/api";
 
   // Runtime shape of the config JSON (JsonBlob is an actual object despite TS typing it as string)
@@ -13,6 +13,7 @@
   let ports: PortEntry[] = $state([]);
   let error: string | null = $state(null);
   let saving = $state(false);
+  let initialLoading = $state(true);
 
   // Add-port form
   let showForm = $state(false);
@@ -45,6 +46,8 @@
       ports.sort((a, b) => a.port - b.port);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+    } finally {
+      initialLoading = false;
     }
   }
 
@@ -100,7 +103,9 @@
     }
   }
 
-  onMount(() => { load(); });
+  let timer: ReturnType<typeof setInterval>;
+  onMount(() => { load(); timer = setInterval(load, 5000); });
+  onDestroy(() => { clearInterval(timer); });
 </script>
 
 <div>
@@ -168,7 +173,9 @@
     </div>
   {/if}
 
-  {#if ports.length > 0}
+  {#if initialLoading}
+    <p class="text-nord-3 text-sm">Loading...</p>
+  {:else if ports.length > 0}
     <div class="bg-nord-1 rounded-lg overflow-hidden">
       <table class="w-full text-sm">
         <thead>
