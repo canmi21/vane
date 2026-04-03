@@ -7,4 +7,12 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
   },
+  server: {
+    proxy: {
+      "/_bridge": {
+        target: "http://127.0.0.1:3333",
+        changeOrigin: true,
+      },
+    },
+  },
 });

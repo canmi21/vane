@@ -22,5 +22,9 @@ clippy:
 fmt:
     cargo fmt --all
 
+# Export panel TypeScript bindings from Rust types
+export-types:
+    cargo test -p vane-panel --test export_types
+
 # Full CI check: format + clippy + all tests
 ci: fmt clippy test
