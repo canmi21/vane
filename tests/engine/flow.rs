@@ -56,10 +56,10 @@ async fn test_multi_step_flow() {
 			PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
 		);
 
-	let mut engine = Engine::new(config, registry, CertStore::new()).unwrap();
+	let engine = Engine::new(config, registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
 	client.write_all(b"multi step").await.unwrap();
@@ -110,10 +110,10 @@ async fn test_missing_branch_does_not_panic() {
 		certs: HashMap::new(),
 	};
 
-	let mut engine = Engine::new(config, registry, CertStore::new()).unwrap();
+	let engine = Engine::new(config, registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	// Connect; the handler should log BranchNotFound and close the connection
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
@@ -173,10 +173,10 @@ async fn test_flow_timeout() {
 	let registry =
 		PluginRegistry::new().register("never", PluginAction::Terminator(Box::new(NeverTerminator)));
 
-	let mut engine = Engine::new(config, registry, CertStore::new()).unwrap();
+	let engine = Engine::new(config, registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
 	client.write_all(b"timeout test").await.unwrap();

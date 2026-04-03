@@ -1420,6 +1420,7 @@ version = "0.10.1"
 dependencies = [
  "anyhow",
  "bytes",
+ "dashmap",
  "rustls",
  "serde",
  "serde_json",

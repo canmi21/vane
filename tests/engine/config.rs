@@ -66,9 +66,9 @@ async fn update_config_hot_reload() {
 		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
 	);
 
-	let mut engine = Engine::new(make_config(echo_a.addr()), registry, CertStore::new()).unwrap();
+	let engine = Engine::new(make_config(echo_a.addr()), registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	// Verify initial config (forwards to echo_a)
 	{
@@ -80,7 +80,7 @@ async fn update_config_hot_reload() {
 	}
 
 	// Hot-reload: point at echo_b
-	engine.update_config(make_config(echo_b.addr())).unwrap();
+	engine.update_config(make_config(echo_b.addr())).await.unwrap();
 
 	{
 		let mut client = TcpStream::connect(listen_addr).await.unwrap();
@@ -128,9 +128,9 @@ async fn connection_limit_rejects() {
 		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
 	);
 
-	let mut engine = Engine::new(config, registry, CertStore::new()).unwrap();
+	let engine = Engine::new(config, registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	// Hold first connection open through the proxy
 	let mut first = TcpStream::connect(listen_addr).await.unwrap();

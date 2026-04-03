@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
 	let panel_addr = resolve_panel_addr()?;
 	let initial_config = load_initial_config()?;
 
-	let mut engine = Engine::new(initial_config, default_plugin_registry(), CertStore::new())
+	let engine = Engine::new(initial_config, default_plugin_registry(), CertStore::new())
 		.context("failed to build engine")?;
 	engine.start().await.context("failed to start engine")?;
 

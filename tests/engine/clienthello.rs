@@ -160,9 +160,9 @@ async fn clienthello_sni_routes_and_upgrades() {
 	let echo = EchoServer::start().await;
 	let (config, registry, cert_store) = build_clienthello_test_setup(echo.addr());
 
-	let mut engine = Engine::new(config, registry, cert_store).unwrap();
+	let engine = Engine::new(config, registry, cert_store).unwrap();
 	engine.start().await.unwrap();
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let client_config = build_test_client_config();
 	let connector = TlsConnector::from(client_config);
@@ -190,9 +190,9 @@ async fn clienthello_sni_no_matching_branch() {
 	let echo = EchoServer::start().await;
 	let (config, registry, cert_store) = build_clienthello_test_setup(echo.addr());
 
-	let mut engine = Engine::new(config, registry, cert_store).unwrap();
+	let engine = Engine::new(config, registry, cert_store).unwrap();
 	engine.start().await.unwrap();
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let client_config = build_test_client_config();
 	let connector = TlsConnector::from(client_config);

@@ -46,3 +46,7 @@ path = "engine/tls.rs"
 [[test]]
 name = "engine_clienthello"
 path = "engine/clienthello.rs"
+
+[[test]]
+name = "engine_dynamic"
+path = "engine/dynamic.rs"

@@ -72,10 +72,10 @@ async fn detect_tls_routes_to_tls_branch() {
 	let echo = EchoServer::start().await;
 	let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-	let mut engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
+	let engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
 	// TLS ClientHello: 0x16 (Handshake) + 0x03 0x01 (TLS 1.0) + payload
@@ -96,10 +96,10 @@ async fn detect_http_routes_to_http_branch() {
 	let echo = EchoServer::start().await;
 	let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-	let mut engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
+	let engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
 	let http_data = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
@@ -119,10 +119,10 @@ async fn detect_unknown_routes_to_fallback_branch() {
 	let echo = EchoServer::start().await;
 	let (node, registry) = detect_flow(echo.addr(), &["tls", "http", "unknown"]);
 
-	let mut engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
+	let engine = Engine::new(make_config(node), registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
 	let random_data = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02];

@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+dashmap.workspace = true
 bytes.workspace = true
 vane-primitives.workspace = true
 vane-transport.workspace = true

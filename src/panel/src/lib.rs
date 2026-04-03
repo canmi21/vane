@@ -65,7 +65,7 @@ async fn list_connections(State(state): State<PanelState>) -> Json<ListConnectio
 }
 
 async fn get_system_info(State(state): State<PanelState>) -> Json<SystemInfoOutput> {
-	let listener_ports = state.engine.listeners().iter().map(|h| h.local_addr().port()).collect();
+	let listener_ports = state.engine.listener_addrs().iter().map(|(_, addr)| addr.port()).collect();
 	let mut configured_ports =
 		state.engine.current_config().ports.keys().copied().collect::<Vec<_>>();
 	configured_ports.sort_unstable();
@@ -104,7 +104,7 @@ async fn update_config(
 		}
 	};
 
-	match state.engine.update_config(config) {
+	match state.engine.update_config(config).await {
 		Ok(()) => Json(UpdateConfigOutput { ok: true, validation_errors: Vec::new(), error: None }),
 		Err(EngineError::ConfigInvalid(errors)) => Json(UpdateConfigOutput {
 			ok: false,

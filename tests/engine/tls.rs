@@ -179,9 +179,9 @@ async fn tls_upgrade_forwards_to_echo() {
 	let echo = EchoServer::start().await;
 	let (config, registry, cert_store) = build_tls_test_setup(echo.addr());
 
-	let mut engine = Engine::new(config, registry, cert_store).unwrap();
+	let engine = Engine::new(config, registry, cert_store).unwrap();
 	engine.start().await.unwrap();
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let client_config = build_test_client_config();
 	let connector = TlsConnector::from(client_config);
@@ -212,9 +212,9 @@ async fn tls_like_bytes_handshake_failure_closes() {
 	let echo = EchoServer::start().await;
 	let (config, registry, cert_store) = build_tls_test_setup(echo.addr());
 
-	let mut engine = Engine::new(config, registry, cert_store).unwrap();
+	let engine = Engine::new(config, registry, cert_store).unwrap();
 	engine.start().await.unwrap();
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
 	// Send bytes that look like a TLS record header (0x16 = handshake)
@@ -241,9 +241,9 @@ async fn non_tls_passthrough() {
 	let echo = EchoServer::start().await;
 	let (config, registry, cert_store) = build_tls_test_setup(echo.addr());
 
-	let mut engine = Engine::new(config, registry, cert_store).unwrap();
+	let engine = Engine::new(config, registry, cert_store).unwrap();
 	engine.start().await.unwrap();
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
 	// Random non-TLS bytes → "unknown" branch → tcp.forward passthrough

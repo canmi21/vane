@@ -41,10 +41,10 @@ async fn test_echo_forward() {
 		PluginAction::Terminator(Box::new(TcpForward { proxy_config: ProxyConfig::default() })),
 	);
 
-	let mut engine = Engine::new(config, registry, CertStore::new()).unwrap();
+	let engine = Engine::new(config, registry, CertStore::new()).unwrap();
 	engine.start().await.unwrap();
 
-	let listen_addr = engine.listeners()[0].local_addr();
+	let listen_addr = engine.listener_addr(0).unwrap();
 
 	let mut client = TcpStream::connect(listen_addr).await.unwrap();
 	client.write_all(b"hello vane").await.unwrap();
