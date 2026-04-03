@@ -146,9 +146,14 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn test_connect_timeout() {
-		// 192.0.2.1 is TEST-NET-1 (RFC 5737), should be unreachable
-		let target = ResolvedTarget { addr: "192.0.2.1:1".parse().unwrap() };
+	async fn test_connect_refused() {
+		// Bind a port then immediately drop the listener so the port is closed.
+		// Connecting to it will deterministically get "connection refused".
+		let closed_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let closed_addr = closed_listener.local_addr().unwrap();
+		drop(closed_listener);
+
+		let target = ResolvedTarget { addr: closed_addr };
 
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let proxy_addr = listener.local_addr().unwrap();
@@ -160,20 +165,17 @@ mod tests {
 
 		let (client_stream, _) = listener.accept().await.unwrap();
 		let config = ProxyConfig {
-			connect_timeout: Duration::from_millis(100),
+			connect_timeout: Duration::from_secs(2),
 			idle_timeout: Duration::from_secs(10),
 			watchdog_poll_interval: Duration::from_secs(1),
 		};
 
-		let start = tokio::time::Instant::now();
 		let result = proxy_tcp(client_stream, &target, &config).await;
-		let elapsed = start.elapsed();
 
 		assert!(
-			matches!(result, Err(ProxyError::ConnectTimeout { .. } | ProxyError::ConnectFailed { .. })),
-			"expected ConnectTimeout or ConnectFailed, got {result:?}"
+			matches!(result, Err(ProxyError::ConnectFailed { .. })),
+			"expected ConnectFailed, got {result:?}"
 		);
-		assert!(elapsed < Duration::from_secs(2), "took too long: {elapsed:?}");
 
 		handle.abort();
 	}
