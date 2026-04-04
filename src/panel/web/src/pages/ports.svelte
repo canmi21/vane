@@ -1,49 +1,66 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { getConfig, getSystemInfo, updateConfig } from "../lib/api";
+  import { getConfig, updateConfig, compileListeners } from "../lib/api";
+  import type {
+    ListenerRule,
+    Protocol,
+    CompiledListener,
+  } from "../types/bindings";
+  import { z } from "zod/v4";
 
-  // Runtime shape of the config JSON (JsonBlob is an actual object despite TS typing it as string)
-  interface PortEntry {
-    port: number;
-    targetIp: string;
-    targetPort: number;
-    listening: boolean;
-  }
+  // -- Zod validation schema for the add-rule form -------------------------
 
-  let ports: PortEntry[] = $state([]);
+  const portSpec = z.string().check(
+    z.refine((v) => {
+      const match = v.match(/^(\d+)(?:-(\d+))?$/);
+      if (!match) return false;
+      const start = Number(match[1]);
+      const end = match[2] ? Number(match[2]) : start;
+      return start >= 1 && start <= 65535 && end >= 1 && end <= 65535 && start <= end;
+    }, "Must be a port (1-65535) or range (start-end)")
+  );
+
+  const ipAddr = z.string().check(
+    z.refine((v) => {
+      // Simple IPv4 + IPv6 check
+      if (v === "0.0.0.0" || v === "::") return true;
+      const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(v) && v.split(".").every((o) => Number(o) <= 255);
+      const ipv6 = v.includes(":");
+      return ipv4 || ipv6;
+    }, "Must be a valid IP address")
+  );
+
+  const ruleSchema = z.object({
+    bind: ipAddr,
+    port: portSpec,
+    protocol: z.enum(["tcp", "udp", "both"]),
+  });
+
+  // -- State ---------------------------------------------------------------
+
+  let rules: ListenerRule[] = $state([]);
+  let compiled: CompiledListener[] = $state([]);
+  let compileError: string | null = $state(null);
   let error: string | null = $state(null);
   let saving = $state(false);
   let initialLoading = $state(true);
 
-  // Add-port form
+  // Form
   let showForm = $state(false);
-  let formPort = $state(8080);
-  let formTargetIp = $state("127.0.0.1");
-  let formTargetPort = $state(3000);
+  let formBind = $state("0.0.0.0");
+  let formPort = $state("8080");
+  let formProtocol: Protocol = $state("tcp");
+  let formErrors: string[] = $state([]);
+
+  // -- Load / refresh ------------------------------------------------------
 
   async function load() {
-    error = null;
     try {
-      const [configResult, sysInfo] = await Promise.all([
-        getConfig(),
-        getSystemInfo(),
-      ]);
-      // config is a JsonBlob (actual JSON object at runtime)
+      const configResult = await getConfig();
       const config = configResult.config as unknown as Record<string, unknown>;
-      const portsMap = (config.ports ?? {}) as Record<string, Record<string, unknown>>;
-      const listeningSet = new Set(sysInfo.listenerPorts);
-
-      ports = Object.entries(portsMap).map(([key, pc]) => {
-        const portNum = Number(key);
-        const target = (pc.target ?? {}) as Record<string, unknown>;
-        return {
-          port: portNum,
-          targetIp: String(target.ip ?? ""),
-          targetPort: Number(target.port ?? 0),
-          listening: listeningSet.has(portNum),
-        };
-      });
-      ports.sort((a, b) => a.port - b.port);
+      rules = ((config.listeners ?? []) as ListenerRule[]);
+      await refreshCompile();
+      error = null;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -51,20 +68,49 @@
     }
   }
 
-  async function addPort() {
+  async function refreshCompile() {
+    try {
+      const result = await compileListeners({ listeners: rules });
+      if (result.ok) {
+        compiled = result.listeners;
+        compileError = null;
+      } else {
+        compiled = [];
+        compileError = result.error;
+      }
+    } catch (e) {
+      compiled = [];
+      compileError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  // -- Add / Remove --------------------------------------------------------
+
+  function validateForm(): boolean {
+    const result = ruleSchema.safeParse({
+      bind: formBind,
+      port: formPort,
+      protocol: formProtocol,
+    });
+    if (!result.success) {
+      formErrors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
+      return false;
+    }
+    formErrors = [];
+    return true;
+  }
+
+  async function addRule() {
+    if (!validateForm()) return;
     saving = true;
     error = null;
     try {
       const configResult = await getConfig();
       const config = configResult.config as unknown as Record<string, unknown>;
-      const portsMap = ((config.ports ?? {}) as Record<string, unknown>);
+      const listeners = ((config.listeners ?? []) as ListenerRule[]);
+      listeners.push({ bind: formBind, port: formPort, protocol: formProtocol });
+      config.listeners = listeners;
 
-      portsMap[String(formPort)] = {
-        listen: {},
-        target: { ip: formTargetIp, port: formTargetPort },
-      };
-
-      config.ports = portsMap;
       const result = await updateConfig({ config: config as unknown as string });
       if (!result.ok) {
         error = result.error ?? result.validationErrors.map((v) => v.message).join("; ");
@@ -79,16 +125,15 @@
     }
   }
 
-  async function removePort(port: number) {
+  async function removeRule(index: number) {
     saving = true;
     error = null;
     try {
       const configResult = await getConfig();
       const config = configResult.config as unknown as Record<string, unknown>;
-      const portsMap = ((config.ports ?? {}) as Record<string, unknown>);
-
-      delete portsMap[String(port)];
-      config.ports = portsMap;
+      const listeners = ((config.listeners ?? []) as ListenerRule[]);
+      listeners.splice(index, 1);
+      config.listeners = listeners;
 
       const result = await updateConfig({ config: config as unknown as string });
       if (!result.ok) {
@@ -118,8 +163,8 @@
       >Refresh</button>
       <button
         class="px-3 py-1.5 text-sm bg-frost-deep hover:bg-frost-blue text-nord-6 rounded transition-colors"
-        onclick={() => (showForm = !showForm)}
-      >{showForm ? "Cancel" : "Add Port"}</button>
+        onclick={() => { showForm = !showForm; formErrors = []; }}
+      >{showForm ? "Cancel" : "Add Rule"}</button>
     </div>
   </div>
 
@@ -129,86 +174,88 @@
     </div>
   {/if}
 
+  <!-- Add Rule Form -->
   {#if showForm}
     <div class="bg-nord-1 rounded-lg p-5 mb-6 border border-nord-2">
-      <h2 class="text-sm font-semibold text-nord-5 mb-4 uppercase tracking-wider">New L4 TCP Forward</h2>
-      <div class="grid grid-cols-3 gap-4">
-        <div>
-          <label class="block text-xs text-nord-3 mb-1" for="listen-port">Listen Port</label>
-          <input
-            id="listen-port"
-            type="number"
-            min="1"
-            max="65535"
-            bind:value={formPort}
-            class="w-full px-3 py-2 bg-nord-0 border border-nord-3 rounded text-nord-4 font-mono text-sm focus:border-frost-cyan focus:outline-none"
-          />
+      <h2 class="text-sm font-semibold text-nord-5 mb-4 uppercase tracking-wider">New Listener Rule</h2>
+      {#if formErrors.length > 0}
+        <div class="p-2 rounded bg-aurora-red/10 border border-aurora-red/30 text-aurora-red text-xs mb-3">
+          {#each formErrors as fe}
+            <div>{fe}</div>
+          {/each}
         </div>
+      {/if}
+      <div class="grid grid-cols-4 gap-4">
         <div>
-          <label class="block text-xs text-nord-3 mb-1" for="target-ip">Target IP</label>
+          <label class="block text-xs text-nord-3 mb-1" for="rule-bind">Bind Address</label>
           <input
-            id="target-ip"
+            id="rule-bind"
             type="text"
-            bind:value={formTargetIp}
+            bind:value={formBind}
             class="w-full px-3 py-2 bg-nord-0 border border-nord-3 rounded text-nord-4 font-mono text-sm focus:border-frost-cyan focus:outline-none"
           />
         </div>
         <div>
-          <label class="block text-xs text-nord-3 mb-1" for="target-port">Target Port</label>
+          <label class="block text-xs text-nord-3 mb-1" for="rule-port">Port / Range</label>
           <input
-            id="target-port"
-            type="number"
-            min="1"
-            max="65535"
-            bind:value={formTargetPort}
+            id="rule-port"
+            type="text"
+            bind:value={formPort}
+            placeholder="8080 or 8000-8100"
             class="w-full px-3 py-2 bg-nord-0 border border-nord-3 rounded text-nord-4 font-mono text-sm focus:border-frost-cyan focus:outline-none"
           />
+        </div>
+        <div>
+          <label class="block text-xs text-nord-3 mb-1" for="rule-protocol">Protocol</label>
+          <select
+            id="rule-protocol"
+            bind:value={formProtocol}
+            class="w-full px-3 py-2 bg-nord-0 border border-nord-3 rounded text-nord-4 text-sm focus:border-frost-cyan focus:outline-none"
+          >
+            <option value="tcp">TCP</option>
+            <option value="udp">UDP</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
+        <div class="flex items-end">
+          <button
+            class="w-full px-4 py-2 text-sm bg-aurora-green hover:bg-aurora-green/80 text-nord-0 font-medium rounded transition-colors disabled:opacity-50"
+            disabled={saving}
+            onclick={addRule}
+          >{saving ? "Saving..." : "Save"}</button>
         </div>
       </div>
-      <button
-        class="mt-4 px-4 py-2 text-sm bg-aurora-green hover:bg-aurora-green/80 text-nord-0 font-medium rounded transition-colors disabled:opacity-50"
-        disabled={saving}
-        onclick={addPort}
-      >{saving ? "Saving..." : "Save"}</button>
     </div>
   {/if}
 
+  <!-- Rules List -->
   {#if initialLoading}
     <p class="text-nord-3 text-sm">Loading...</p>
-  {:else if ports.length > 0}
-    <div class="bg-nord-1 rounded-lg overflow-hidden">
+  {:else if rules.length > 0}
+    <h2 class="text-sm font-semibold text-nord-5 mb-3 uppercase tracking-wider">Listener Rules</h2>
+    <div class="bg-nord-1 rounded-lg overflow-hidden mb-6">
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-nord-2 text-xs uppercase tracking-wider text-nord-3">
+            <th class="text-left px-4 py-3 font-medium">#</th>
+            <th class="text-left px-4 py-3 font-medium">Bind</th>
             <th class="text-left px-4 py-3 font-medium">Port</th>
-            <th class="text-left px-4 py-3 font-medium">Forward Target</th>
-            <th class="text-left px-4 py-3 font-medium">Status</th>
+            <th class="text-left px-4 py-3 font-medium">Protocol</th>
             <th class="text-right px-4 py-3 font-medium">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {#each ports as p}
+          {#each rules as rule, i}
             <tr class="border-b border-nord-2/50 hover:bg-nord-2/30 transition-colors">
-              <td class="px-4 py-3 font-mono text-frost-blue">{p.port}</td>
-              <td class="px-4 py-3 font-mono text-nord-4">{p.targetIp}:{p.targetPort}</td>
-              <td class="px-4 py-3">
-                {#if p.listening}
-                  <span class="inline-flex items-center gap-1.5 text-aurora-green text-xs">
-                    <span class="w-1.5 h-1.5 rounded-full bg-aurora-green"></span>
-                    Listening
-                  </span>
-                {:else}
-                  <span class="inline-flex items-center gap-1.5 text-nord-3 text-xs">
-                    <span class="w-1.5 h-1.5 rounded-full bg-nord-3"></span>
-                    Stopped
-                  </span>
-                {/if}
-              </td>
+              <td class="px-4 py-3 text-nord-3 text-xs">{i + 1}</td>
+              <td class="px-4 py-3 font-mono text-nord-4">{rule.bind ?? "0.0.0.0"}</td>
+              <td class="px-4 py-3 font-mono text-frost-blue">{rule.port}</td>
+              <td class="px-4 py-3 text-xs uppercase text-frost-teal">{rule.protocol ?? "tcp"}</td>
               <td class="px-4 py-3 text-right">
                 <button
                   class="px-2 py-1 text-xs bg-aurora-red/20 hover:bg-aurora-red/40 text-aurora-red rounded transition-colors disabled:opacity-50"
                   disabled={saving}
-                  onclick={() => removePort(p.port)}
+                  onclick={() => removeRule(i)}
                 >Delete</button>
               </td>
             </tr>
@@ -217,9 +264,44 @@
       </table>
     </div>
   {:else}
-    <div class="bg-nord-1 rounded-lg p-8 text-center">
-      <p class="text-nord-3 mb-2">No ports configured</p>
-      <p class="text-nord-3/60 text-sm">Click "Add Port" to create a L4 TCP forward rule.</p>
+    <div class="bg-nord-1 rounded-lg p-8 text-center mb-6">
+      <p class="text-nord-3 mb-2">No listener rules configured</p>
+      <p class="text-nord-3/60 text-sm">Click "Add Rule" to define which ports Vane should listen on.</p>
     </div>
+  {/if}
+
+  <!-- Compiled Preview -->
+  <h2 class="text-sm font-semibold text-nord-5 mb-3 uppercase tracking-wider">Compiled Listeners</h2>
+
+  {#if compileError}
+    <div class="p-3 rounded bg-nord-1 border border-aurora-red/40 text-aurora-red text-sm mb-4">
+      {compileError}
+    </div>
+  {/if}
+
+  {#if compiled.length > 0}
+    <div class="text-xs text-nord-3 mb-2">{compiled.length} listener{compiled.length === 1 ? "" : "s"} total</div>
+    <div class="bg-nord-1 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+      <table class="w-full text-sm">
+        <thead class="sticky top-0 bg-nord-1">
+          <tr class="border-b border-nord-2 text-xs uppercase tracking-wider text-nord-3">
+            <th class="text-left px-4 py-2 font-medium">Address</th>
+            <th class="text-left px-4 py-2 font-medium">Port</th>
+            <th class="text-left px-4 py-2 font-medium">Protocol</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each compiled as entry}
+            <tr class="border-b border-nord-2/30 text-xs">
+              <td class="px-4 py-1.5 font-mono text-nord-4">{entry.bind}</td>
+              <td class="px-4 py-1.5 font-mono text-frost-blue">{entry.port}</td>
+              <td class="px-4 py-1.5 uppercase text-frost-teal">{entry.protocol}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {:else if !compileError && rules.length === 0}
+    <p class="text-nord-3 text-sm">No rules to compile.</p>
   {/if}
 </div>

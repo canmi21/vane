@@ -10,7 +10,7 @@ use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use axum::{Router, serve};
 use rust_embed::Embed;
-use vane_engine::config::ConfigTable;
+use vane_engine::config::{ConfigTable, compile_rules};
 use vane_engine::engine::{Engine, EngineError};
 use vane_primitives::registry::ConnPhase;
 
@@ -65,17 +65,14 @@ async fn list_connections(State(state): State<PanelState>) -> Json<ListConnectio
 }
 
 async fn get_system_info(State(state): State<PanelState>) -> Json<SystemInfoOutput> {
-	let listener_ports = state.engine.listener_addrs().iter().map(|(_, addr)| addr.port()).collect();
-	let mut configured_ports =
-		state.engine.current_config().ports.keys().copied().collect::<Vec<_>>();
-	configured_ports.sort_unstable();
+	let config = state.engine.current_config();
 
 	Json(SystemInfoOutput {
 		version: env!("CARGO_PKG_VERSION").to_owned(),
 		started_at_unix_ms: system_time_to_unix_ms(state.started_at),
-		listener_ports,
+		active_listeners: state.engine.listener_addrs().len().try_into().unwrap_or(u32::MAX),
 		total_connections: state.engine.conn_registry().count().try_into().unwrap_or(u32::MAX),
-		configured_ports,
+		configured_rules: config.listeners.len().try_into().unwrap_or(u32::MAX),
 	})
 }
 
@@ -119,6 +116,17 @@ async fn update_config(
 	}
 }
 
+async fn compile_listeners(
+	Json(input): Json<CompileListenersInput>,
+) -> Json<CompileListenersOutput> {
+	match compile_rules(&input.listeners) {
+		Ok(compiled) => Json(CompileListenersOutput { ok: true, listeners: compiled, error: None }),
+		Err(e) => {
+			Json(CompileListenersOutput { ok: false, listeners: Vec::new(), error: Some(e.to_string()) })
+		}
+	}
+}
+
 // -- Router ---------------------------------------------------------------
 
 pub fn build_panel_router(state: PanelState) -> Router {
@@ -126,7 +134,8 @@ pub fn build_panel_router(state: PanelState) -> Router {
 		.route("/listConnections", get(list_connections))
 		.route("/getSystemInfo", get(get_system_info))
 		.route("/getConfig", get(get_config))
-		.route("/updateConfig", post(update_config));
+		.route("/updateConfig", post(update_config))
+		.route("/compileListeners", post(compile_listeners));
 
 	Router::new()
 		.nest("/_bridge", api)
@@ -186,7 +195,7 @@ fn system_time_to_unix_ms(time: SystemTime) -> String {
 
 impl From<&vane_engine::config::ValidationError> for ValidationIssue {
 	fn from(value: &vane_engine::config::ValidationError) -> Self {
-		Self { port: value.port, message: value.message.clone() }
+		Self { message: value.message.clone() }
 	}
 }
 
@@ -222,8 +231,8 @@ mod tests {
 		assert_eq!(resp.status(), StatusCode::OK);
 		let body = to_bytes(resp.into_body(), usize::MAX).await.expect("body should read");
 		let json: serde_json::Value = serde_json::from_slice(&body).expect("body should be valid json");
-		assert_eq!(json["listenerPorts"], serde_json::json!([]));
-		assert_eq!(json["configuredPorts"], serde_json::json!([]));
+		assert_eq!(json["activeListeners"], 0);
+		assert_eq!(json["configuredRules"], 0);
 		assert!(json["startedAtUnixMs"].as_str().is_some());
 	}
 

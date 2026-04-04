@@ -30,9 +30,9 @@ pub struct ListConnectionsOutput {
 pub struct SystemInfoOutput {
 	pub version: String,
 	pub started_at_unix_ms: String,
-	pub listener_ports: Vec<u16>,
+	pub active_listeners: u32,
 	pub total_connections: u32,
-	pub configured_ports: Vec<u16>,
+	pub configured_rules: u32,
 }
 
 /// Opaque JSON value — exported as `unknown` in TypeScript.
@@ -67,6 +67,17 @@ pub struct UpdateConfigOutput {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationIssue {
-	pub port: Option<u16>,
 	pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CompileListenersInput {
+	pub listeners: Vec<vane_engine::config::ListenerRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CompileListenersOutput {
+	pub ok: bool,
+	pub listeners: Vec<vane_engine::config::CompiledListener>,
+	pub error: Option<String>,
 }

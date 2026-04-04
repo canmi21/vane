@@ -11,15 +11,16 @@ use vane_transport::error::ListenerError;
 use vane_transport::listener::{ListenerConfig, TcpListenerHandle, start_tcp_listener};
 use vane_transport::tcp::ProxyConfig;
 
-use crate::config::ConfigTable;
+use crate::config::listener::SingleProtocol;
 use crate::config::validate::ValidationError;
+use crate::config::{CompileError, CompiledListener, ConfigTable, compile_rules};
 use crate::handler::{ConnectionConfig, handle_connection};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
-	#[error("listener failed on port {port}")]
+	#[error("listener failed on {addr}")]
 	ListenerFailed {
-		port: u16,
+		addr: SocketAddr,
 		#[source]
 		source: ListenerError,
 	},
@@ -27,27 +28,35 @@ pub enum EngineError {
 	#[error("config validation failed ({} errors)", .0.len())]
 	ConfigInvalid(Vec<ValidationError>),
 
-	#[error("port {port} is already running")]
-	PortAlreadyRunning { port: u16 },
+	#[error("rule compilation failed")]
+	CompileFailed(#[from] CompileError),
 
-	#[error("port {port} is not running")]
-	PortNotRunning { port: u16 },
+	#[error("listener {addr} is already running")]
+	ListenerAlreadyRunning { addr: SocketAddr },
 
-	#[error("port {port} not found in current config")]
-	PortNotConfigured { port: u16 },
+	#[error("listener {addr} is not running")]
+	ListenerNotRunning { addr: SocketAddr },
+
+	#[error("no forward target configured")]
+	NoTarget,
 }
+
+/// Key type for the listener handle map: config-level bind address + port.
+type ListenerKey = SocketAddr;
 
 pub struct Engine {
 	config_tx: Arc<watch::Sender<Arc<ConfigTable>>>,
 	tracker: Arc<ConnectionTracker>,
 	conn_registry: Arc<ConnectionRegistry>,
-	handles: Arc<DashMap<u16, TcpListenerHandle>>,
+	handles: Arc<DashMap<ListenerKey, TcpListenerHandle>>,
 }
 
 impl Engine {
 	/// Create a new engine with validated config.
 	pub fn new(config: ConfigTable) -> Result<Self, EngineError> {
 		config.validate().map_err(EngineError::ConfigInvalid)?;
+		// Pre-compile to verify rules are valid
+		compile_rules(&config.listeners)?;
 
 		let tracker = Arc::new(ConnectionTracker::new(
 			config.global.max_connections,
@@ -64,34 +73,41 @@ impl Engine {
 		})
 	}
 
-	/// Start listeners on all configured ports.
+	/// Start listeners for all compiled TCP rules.
 	pub async fn start(&self) -> Result<(), EngineError> {
 		let config = self.config_tx.borrow().clone();
-		let ports: Vec<u16> = config.ports.keys().copied().collect();
-		for port in ports {
-			self.start_port(port).await?;
+		let compiled = compile_rules(&config.listeners)?;
+		for entry in &compiled {
+			if entry.protocol == SingleProtocol::Tcp {
+				self.start_listener(entry).await?;
+			}
 		}
 		Ok(())
 	}
 
-	/// Start a single listener for the given config port.
-	pub async fn start_port(&self, port: u16) -> Result<(), EngineError> {
-		if self.handles.contains_key(&port) {
-			return Err(EngineError::PortAlreadyRunning { port });
+	/// Start a single TCP listener for a compiled entry.
+	async fn start_listener(&self, entry: &CompiledListener) -> Result<(), EngineError> {
+		let bind_addr: SocketAddr = format!("{}:{}", entry.bind, entry.port).parse().map_err(|_| {
+			EngineError::ListenerFailed {
+				addr: SocketAddr::from(([0, 0, 0, 0], entry.port)),
+				source: vane_transport::error::ListenerError::BindFailed {
+					addr: SocketAddr::from(([0, 0, 0, 0], entry.port)),
+					attempts: 0,
+					source: std::io::Error::new(std::io::ErrorKind::InvalidInput, "bad bind address"),
+				},
+			}
+		})?;
+
+		if self.handles.contains_key(&bind_addr) {
+			return Err(EngineError::ListenerAlreadyRunning { addr: bind_addr });
 		}
 
-		let config = self.config_tx.borrow().clone();
-		let Some(port_config) = config.ports.get(&port) else {
-			return Err(EngineError::PortNotConfigured { port });
-		};
-
 		let listener_config =
-			ListenerConfig { port, ipv6: port_config.listen.ipv6, ..Default::default() };
+			ListenerConfig { port: entry.port, ipv6: bind_addr.is_ipv6(), ..Default::default() };
 
 		let config_tx = self.config_tx.clone();
 		let tracker = self.tracker.clone();
 		let conn_registry = self.conn_registry.clone();
-		let listener_port = port;
 
 		let handle = start_tcp_listener(&listener_config, move |stream, peer_addr, server_addr| {
 			let config_tx = config_tx.clone();
@@ -103,70 +119,83 @@ impl Engine {
 					return;
 				};
 
-				// Read fresh config per connection
 				let config = config_tx.borrow().clone();
-				let Some(port_config) = config.ports.get(&listener_port) else {
-					tracing::warn!(port = listener_port, "no config found for port");
+				let Some(target) = &config.target else {
+					tracing::warn!("no forward target configured, dropping connection");
 					return;
 				};
 
 				let conn_config = ConnectionConfig { proxy_config: ProxyConfig::default(), conn_registry };
 
-				handle_connection(stream, peer_addr, server_addr, &port_config.target, &conn_config, guard)
-					.await;
+				handle_connection(stream, peer_addr, server_addr, target, &conn_config, guard).await;
 			});
 		})
 		.await
-		.map_err(|source| EngineError::ListenerFailed { port, source })?;
+		.map_err(|source| EngineError::ListenerFailed { addr: bind_addr, source })?;
 
-		tracing::info!(port, addr = %handle.local_addr(), "listener started");
-		self.handles.insert(port, handle);
+		tracing::info!(%bind_addr, actual = %handle.local_addr(), "listener started");
+		self.handles.insert(bind_addr, handle);
 
 		Ok(())
 	}
 
-	/// Stop the listener on the given config port (graceful shutdown).
-	pub fn stop_port(&self, port: u16) -> Result<(), EngineError> {
-		let Some((_, handle)) = self.handles.remove(&port) else {
-			return Err(EngineError::PortNotRunning { port });
+	/// Stop a listener by its config-level address.
+	pub fn stop_listener(&self, addr: &SocketAddr) -> Result<(), EngineError> {
+		let Some((_, handle)) = self.handles.remove(addr) else {
+			return Err(EngineError::ListenerNotRunning { addr: *addr });
 		};
 		handle.shutdown();
-
-		// Join the listener task in the background so resources are cleaned up
 		tokio::spawn(async move {
 			let _ = handle.join().await;
 		});
-
-		tracing::info!(port, "listener stopped");
+		tracing::info!(%addr, "listener stopped");
 		Ok(())
 	}
 
-	/// Atomically swap the running config and reconcile listeners.
+	/// Atomically swap config and reconcile listeners.
 	pub async fn update_config(&self, config: ConfigTable) -> Result<(), EngineError> {
 		config.validate().map_err(EngineError::ConfigInvalid)?;
+		let new_compiled = compile_rules(&config.listeners)?;
 
 		let old_config = self.config_tx.borrow().clone();
-		let old_ports: HashSet<u16> = old_config.ports.keys().copied().collect();
-		let new_ports: HashSet<u16> = config.ports.keys().copied().collect();
+		let old_compiled = compile_rules(&old_config.listeners).unwrap_or_default();
 
-		let to_stop: Vec<u16> = old_ports.difference(&new_ports).copied().collect();
-		let to_start: Vec<u16> = new_ports.difference(&old_ports).copied().collect();
+		let old_tcp: HashSet<SocketAddr> = old_compiled
+			.iter()
+			.filter(|c| c.protocol == SingleProtocol::Tcp)
+			.filter_map(|c| format!("{}:{}", c.bind, c.port).parse().ok())
+			.collect();
 
-		// Stop removed ports before swapping config
-		for &port in &to_stop {
-			if let Err(e) = self.stop_port(port) {
-				tracing::warn!(port, error = %e, "failed to stop port during config update");
+		let new_tcp: HashSet<SocketAddr> = new_compiled
+			.iter()
+			.filter(|c| c.protocol == SingleProtocol::Tcp)
+			.filter_map(|c| format!("{}:{}", c.bind, c.port).parse().ok())
+			.collect();
+
+		let to_stop: Vec<SocketAddr> = old_tcp.difference(&new_tcp).copied().collect();
+		let to_start: Vec<&CompiledListener> = new_compiled
+			.iter()
+			.filter(|c| c.protocol == SingleProtocol::Tcp)
+			.filter(|c| {
+				let addr: SocketAddr = format!("{}:{}", c.bind, c.port)
+					.parse()
+					.unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
+				new_tcp.contains(&addr) && !old_tcp.contains(&addr)
+			})
+			.collect();
+
+		for addr in &to_stop {
+			if let Err(e) = self.stop_listener(addr) {
+				tracing::warn!(%addr, error = %e, "failed to stop listener during config update");
 			}
 		}
 
-		// Swap config — new connections on kept ports will read the new config
 		self.config_tx.send_replace(Arc::new(config));
 
-		// Start newly added ports
 		let mut first_error = None;
-		for &port in &to_start {
-			if let Err(e) = self.start_port(port).await {
-				tracing::error!(port, error = %e, "failed to start port during config update");
+		for entry in &to_start {
+			if let Err(e) = self.start_listener(entry).await {
+				tracing::error!(error = %e, "failed to start listener during config update");
 				if first_error.is_none() {
 					first_error = Some(e);
 				}
@@ -188,13 +217,13 @@ impl Engine {
 		&self.conn_registry
 	}
 
-	/// Get the actual listening address for a config port.
-	pub fn listener_addr(&self, config_port: u16) -> Option<SocketAddr> {
-		self.handles.get(&config_port).map(|r| r.local_addr())
+	/// Get the actual bound address for a config-level listener address.
+	pub fn listener_addr(&self, config_addr: SocketAddr) -> Option<SocketAddr> {
+		self.handles.get(&config_addr).map(|r| r.local_addr())
 	}
 
-	/// Get all currently listening addresses with their config ports.
-	pub fn listener_addrs(&self) -> Vec<(u16, SocketAddr)> {
+	/// Get all running listeners as (config addr, actual addr) pairs.
+	pub fn listener_addrs(&self) -> Vec<(SocketAddr, SocketAddr)> {
 		self.handles.iter().map(|r| (*r.key(), r.local_addr())).collect()
 	}
 
@@ -205,7 +234,7 @@ impl Engine {
 	}
 
 	pub async fn join(self) {
-		let keys: Vec<u16> = self.handles.iter().map(|r| *r.key()).collect();
+		let keys: Vec<ListenerKey> = self.handles.iter().map(|r| *r.key()).collect();
 		for key in keys {
 			if let Some((_, handle)) = self.handles.remove(&key) {
 				let _ = handle.join().await;

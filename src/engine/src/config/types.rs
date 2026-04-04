@@ -1,21 +1,19 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
+
+use super::listener::ListenerRule;
 
 /// Declarative configuration for a single engine instance.
 ///
 /// ```
-/// use std::collections::HashMap;
-/// use vane_engine::config::{ConfigTable, GlobalConfig, ListenConfig, PortConfig, TargetAddr};
+/// use vane_engine::config::{ConfigTable, GlobalConfig, ListenerRule, Protocol, TargetAddr};
 ///
 /// let config = ConfigTable {
-///     ports: HashMap::from([(
-///         8080,
-///         PortConfig {
-///             listen: ListenConfig::default(),
-///             target: TargetAddr { ip: "127.0.0.1".to_owned(), port: 3000 },
-///         },
-///     )]),
+///     listeners: vec![ListenerRule {
+///         bind: "0.0.0.0".to_owned(),
+///         port: "8080".to_owned(),
+///         protocol: Protocol::Tcp,
+///     }],
+///     target: Some(TargetAddr { ip: "127.0.0.1".to_owned(), port: 3000 }),
 ///     global: GlobalConfig::default(),
 /// };
 ///
@@ -25,17 +23,12 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ConfigTable {
-	pub ports: HashMap<u16, PortConfig>,
+	#[serde(default)]
+	pub listeners: Vec<ListenerRule>,
+	#[serde(default)]
+	pub target: Option<TargetAddr>,
 	#[serde(default)]
 	pub global: GlobalConfig,
-}
-
-/// Per-port configuration: listen settings and a forward target.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PortConfig {
-	#[serde(default)]
-	pub listen: ListenConfig,
-	pub target: TargetAddr,
 }
 
 /// TCP forward target address.
@@ -70,27 +63,20 @@ impl Default for GlobalConfig {
 	}
 }
 
-/// Listen configuration for a port.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ListenConfig {
-	#[serde(default)]
-	pub ipv6: bool,
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
 	use super::*;
+	use crate::config::Protocol;
 
 	fn sample_config() -> ConfigTable {
 		ConfigTable {
-			ports: HashMap::from([(
-				8080,
-				PortConfig {
-					listen: ListenConfig::default(),
-					target: TargetAddr { ip: "127.0.0.1".to_owned(), port: 3000 },
-				},
-			)]),
+			listeners: vec![ListenerRule {
+				bind: "0.0.0.0".to_owned(),
+				port: "8080".to_owned(),
+				protocol: Protocol::Tcp,
+			}],
+			target: Some(TargetAddr { ip: "127.0.0.1".to_owned(), port: 3000 }),
 			global: GlobalConfig::default(),
 		}
 	}
@@ -111,9 +97,10 @@ mod tests {
 	}
 
 	#[test]
-	fn listen_config_defaults() {
+	fn empty_config_defaults() {
 		let json = "{}";
-		let listen: ListenConfig = serde_json::from_str(json).unwrap();
-		assert!(!listen.ipv6);
+		let config: ConfigTable = serde_json::from_str(json).unwrap();
+		assert!(config.listeners.is_empty());
+		assert!(config.target.is_none());
 	}
 }

@@ -4,6 +4,8 @@ import type {
   GetConfigOutput,
   UpdateConfigInput,
   UpdateConfigOutput,
+  CompileListenersInput,
+  CompileListenersOutput,
 } from "../types/bindings";
 
 const BASE = "/_bridge";
@@ -32,6 +34,16 @@ export function updateConfig(
   input: UpdateConfigInput,
 ): Promise<UpdateConfigOutput> {
   return request("/updateConfig", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function compileListeners(
+  input: CompileListenersInput,
+): Promise<CompileListenersOutput> {
+  return request("/compileListeners", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),

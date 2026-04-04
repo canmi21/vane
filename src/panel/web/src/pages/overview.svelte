@@ -65,8 +65,8 @@
         <div class="text-lg font-mono text-frost-cyan">{uptime(info.startedAtUnixMs)}</div>
       </div>
       <div class="bg-nord-1 rounded-lg p-4">
-        <div class="text-xs uppercase tracking-wider text-nord-3 mb-1">Listening Ports</div>
-        <div class="text-lg font-mono text-frost-cyan">{info.listenerPorts.length}</div>
+        <div class="text-xs uppercase tracking-wider text-nord-3 mb-1">Active Listeners</div>
+        <div class="text-lg font-mono text-frost-cyan">{info.activeListeners}</div>
       </div>
       <div class="bg-nord-1 rounded-lg p-4">
         <div class="text-xs uppercase tracking-wider text-nord-3 mb-1">Connections</div>
@@ -74,34 +74,9 @@
       </div>
     </div>
 
-    <h2 class="text-lg font-semibold text-nord-5 mb-3">Listening Ports</h2>
-    {#if info.listenerPorts.length > 0}
-      <div class="flex flex-wrap gap-2">
-        {#each info.listenerPorts as port}
-          <span class="px-3 py-1 bg-nord-1 rounded font-mono text-sm text-frost-blue">
-            :{port}
-          </span>
-        {/each}
-      </div>
-    {:else}
-      <p class="text-nord-3 text-sm">No ports currently listening.</p>
-    {/if}
-
-    <h2 class="text-lg font-semibold text-nord-5 mb-3 mt-6">Configured Ports</h2>
-    {#if info.configuredPorts.length > 0}
-      <div class="flex flex-wrap gap-2">
-        {#each info.configuredPorts as port}
-          <span class="px-3 py-1 bg-nord-1 rounded font-mono text-sm text-nord-4">
-            :{port}
-          </span>
-        {/each}
-      </div>
-    {:else}
-      <p class="text-nord-3 text-sm">No ports configured.</p>
-    {/if}
-
-    <div class="mt-6 text-xs text-nord-3">
-      Started at {formatTime(info.startedAtUnixMs)}
+    <div class="text-xs text-nord-3">
+      {info.configuredRules} listener rule{info.configuredRules === 1 ? "" : "s"} configured.
+      Started at {formatTime(info.startedAtUnixMs)}.
     </div>
   {/if}
 </div>

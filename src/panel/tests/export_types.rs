@@ -9,7 +9,8 @@ fn export_typescript_bindings() {
 	use specta::Types;
 	use specta_typescript::Typescript;
 	use vane_panel::{
-		GetConfigOutput, ListConnectionsOutput, SystemInfoOutput, UpdateConfigInput, UpdateConfigOutput,
+		CompileListenersInput, CompileListenersOutput, GetConfigOutput, ListConnectionsOutput,
+		SystemInfoOutput, UpdateConfigInput, UpdateConfigOutput,
 	};
 
 	let types = Types::default()
@@ -17,7 +18,9 @@ fn export_typescript_bindings() {
 		.register::<SystemInfoOutput>()
 		.register::<GetConfigOutput>()
 		.register::<UpdateConfigInput>()
-		.register::<UpdateConfigOutput>();
+		.register::<UpdateConfigOutput>()
+		.register::<CompileListenersInput>()
+		.register::<CompileListenersOutput>();
 
 	let resolved = specta_serde::apply_phases(types).unwrap();
 
