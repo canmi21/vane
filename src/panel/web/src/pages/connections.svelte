@@ -52,11 +52,11 @@
   {#if initialLoading}
     <p class="text-nord-3 text-sm">Loading...</p>
   {:else if data && data.connections.length > 0}
-    <div class="text-xs text-nord-3 mb-3">{data.total} active connection{data.total === 1 ? "" : "s"}</div>
+    <div class="text-xs text-nord-4/50 mb-3">{data.total} active connection{data.total === 1 ? "" : "s"}</div>
     <div class="bg-nord-1 rounded-lg overflow-hidden">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-nord-2 text-xs uppercase tracking-wider text-nord-3">
+          <tr class="border-b border-nord-2 text-xs tracking-wide text-nord-4/70">
             <th class="text-left px-4 py-3 font-medium">ID</th>
             <th class="text-left px-4 py-3 font-medium">Client</th>
             <th class="text-left px-4 py-3 font-medium">Port</th>

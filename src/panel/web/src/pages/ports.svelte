@@ -182,7 +182,7 @@
     <div class="bg-nord-1 rounded-lg overflow-hidden mb-6">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-nord-2 text-xs uppercase tracking-wider text-nord-3">
+          <tr class="border-b border-nord-2 text-xs tracking-wide text-nord-4/70">
             <th class="text-left px-4 py-3 font-medium w-12">#</th>
             <th class="text-left px-4 py-3 font-medium">Bind</th>
             <th class="text-left px-4 py-3 font-medium">Port</th>
@@ -281,7 +281,7 @@
   {/if}
 
   <!-- Compile preview -->
-  <h2 class="text-sm font-semibold text-nord-5 mb-3 uppercase tracking-wider">Compiled Listeners</h2>
+  <h2 class="text-sm font-semibold text-nord-4 mb-3">Compiled Listeners</h2>
 
   {#if compileError}
     <div class="p-3 rounded bg-nord-1 border border-aurora-red/40 text-aurora-red text-sm mb-4">{compileError}</div>
@@ -292,7 +292,7 @@
     <div class="bg-nord-1 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
       <table class="w-full text-sm">
         <thead class="sticky top-0 bg-nord-1">
-          <tr class="border-b border-nord-2 text-xs uppercase tracking-wider text-nord-3">
+          <tr class="border-b border-nord-2 text-xs tracking-wide text-nord-4/70">
             <th class="text-left px-4 py-2 font-medium">Address</th>
             <th class="text-left px-4 py-2 font-medium">Port</th>
             <th class="text-left px-4 py-2 font-medium">Protocol</th>

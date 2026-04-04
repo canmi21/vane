@@ -57,24 +57,24 @@
   {:else if info}
     <div class="grid grid-cols-4 gap-4 mb-8">
       <div class="bg-nord-1 rounded-lg p-4">
-        <div class="text-xs uppercase tracking-wider text-nord-3 mb-1">Version</div>
+        <div class="text-xs tracking-wide text-nord-4/70 mb-1">Version</div>
         <div class="text-lg font-mono text-frost-cyan">{info.version}</div>
       </div>
       <div class="bg-nord-1 rounded-lg p-4">
-        <div class="text-xs uppercase tracking-wider text-nord-3 mb-1">Uptime</div>
+        <div class="text-xs tracking-wide text-nord-4/70 mb-1">Uptime</div>
         <div class="text-lg font-mono text-frost-cyan">{uptime(info.startedAtUnixMs)}</div>
       </div>
       <div class="bg-nord-1 rounded-lg p-4">
-        <div class="text-xs uppercase tracking-wider text-nord-3 mb-1">Active Listeners</div>
+        <div class="text-xs tracking-wide text-nord-4/70 mb-1">Active Listeners</div>
         <div class="text-lg font-mono text-frost-cyan">{info.activeListeners}</div>
       </div>
       <div class="bg-nord-1 rounded-lg p-4">
-        <div class="text-xs uppercase tracking-wider text-nord-3 mb-1">Connections</div>
+        <div class="text-xs tracking-wide text-nord-4/70 mb-1">Connections</div>
         <div class="text-lg font-mono text-frost-cyan">{info.totalConnections}</div>
       </div>
     </div>
 
-    <div class="text-xs text-nord-3">
+    <div class="text-xs text-nord-4/50">
       {info.configuredRules} listener rule{info.configuredRules === 1 ? "" : "s"} configured.
       Started at {formatTime(info.startedAtUnixMs)}.
     </div>
