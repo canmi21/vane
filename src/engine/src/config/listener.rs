@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use thiserror::Error;
 
-/// Maximum number of listeners after rule expansion (port ranges + Both protocol).
+/// Maximum number of listeners after rule expansion (port ranges + Any protocol).
 const MAX_COMPILED_LISTENERS: usize = 10_000;
 
 // -- Types ----------------------------------------------------------------
@@ -31,7 +31,7 @@ pub enum Protocol {
 	#[default]
 	Tcp,
 	Udp,
-	Both,
+	Any,
 }
 
 impl fmt::Display for Protocol {
@@ -39,7 +39,7 @@ impl fmt::Display for Protocol {
 		match self {
 			Self::Tcp => f.write_str("tcp"),
 			Self::Udp => f.write_str("udp"),
-			Self::Both => f.write_str("both"),
+			Self::Any => f.write_str("both"),
 		}
 	}
 }
@@ -117,7 +117,7 @@ pub fn compile_rules(rules: &[ListenerRule]) -> Result<Vec<CompiledListener>, Co
 		let protocols: &[SingleProtocol] = match rule.protocol {
 			Protocol::Tcp => &[SingleProtocol::Tcp],
 			Protocol::Udp => &[SingleProtocol::Udp],
-			Protocol::Both => &[SingleProtocol::Tcp, SingleProtocol::Udp],
+			Protocol::Any => &[SingleProtocol::Tcp, SingleProtocol::Udp],
 		};
 
 		let bind_str = bind.to_string();
@@ -187,7 +187,7 @@ mod tests {
 
 	#[test]
 	fn both_expands_to_tcp_and_udp() {
-		let result = compile_rules(&[rule("0.0.0.0", "8080", Protocol::Both)]).unwrap();
+		let result = compile_rules(&[rule("0.0.0.0", "8080", Protocol::Any)]).unwrap();
 		assert_eq!(result.len(), 2);
 		assert_eq!(result[0].protocol, SingleProtocol::Tcp);
 		assert_eq!(result[1].protocol, SingleProtocol::Udp);
@@ -195,7 +195,7 @@ mod tests {
 
 	#[test]
 	fn both_with_range() {
-		let result = compile_rules(&[rule("0.0.0.0", "80-81", Protocol::Both)]).unwrap();
+		let result = compile_rules(&[rule("0.0.0.0", "80-81", Protocol::Any)]).unwrap();
 		assert_eq!(result.len(), 4); // 2 ports * 2 protocols
 	}
 
@@ -268,7 +268,7 @@ mod tests {
 	#[test]
 	fn too_many_listeners() {
 		// 20000 ports * 2 protocols = 40000 > 10000 limit
-		let err = compile_rules(&[rule("0.0.0.0", "1-20000", Protocol::Both)]).unwrap_err();
+		let err = compile_rules(&[rule("0.0.0.0", "1-20000", Protocol::Any)]).unwrap_err();
 		assert!(matches!(err, CompileError::TooManyListeners { .. }));
 	}
 
@@ -322,7 +322,7 @@ mod tests {
 
 	#[test]
 	fn serde_roundtrip() {
-		let r = rule("127.0.0.1", "8080-8082", Protocol::Both);
+		let r = rule("127.0.0.1", "8080-8082", Protocol::Any);
 		let json = serde_json::to_string(&r).unwrap();
 		let back: ListenerRule = serde_json::from_str(&json).unwrap();
 		assert_eq!(r, back);
