@@ -1,20 +1,22 @@
 use serde::{Deserialize, Serialize};
 
-use super::listener::ListenerRule;
+use super::listener::{CompiledListener, ListenerRule};
 
-/// Declarative configuration for a single engine instance.
+/// Engine configuration. `listeners` holds pre-compiled concrete entries
+/// that the engine binds directly. `rules` is an optional field that
+/// preserves the user-facing listener rules for UI round-tripping.
 ///
 /// ```
-/// use vane_engine::config::{ConfigTable, GlobalConfig, ListenerRule, Protocol, TargetAddr};
+/// use vane_engine::config::{ConfigTable, CompiledListener, GlobalConfig, SingleProtocol, TargetAddr};
 ///
 /// let config = ConfigTable {
-///     listeners: vec![ListenerRule {
+///     listeners: vec![CompiledListener {
 ///         bind: "0.0.0.0".to_owned(),
-///         port: "8080".to_owned(),
-///         protocol: Protocol::Tcp,
+///         port: 8080,
+///         protocol: SingleProtocol::Tcp,
 ///     }],
 ///     target: Some(TargetAddr { ip: "127.0.0.1".to_owned(), port: 3000 }),
-///     global: GlobalConfig::default(),
+///     ..Default::default()
 /// };
 ///
 /// let json = serde_json::to_string(&config).unwrap();
@@ -23,8 +25,12 @@ use super::listener::ListenerRule;
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ConfigTable {
+	/// Compiled listeners — the engine binds exactly these.
 	#[serde(default)]
-	pub listeners: Vec<ListenerRule>,
+	pub listeners: Vec<CompiledListener>,
+	/// Original user rules preserved for UI editing (engine ignores this).
+	#[serde(default)]
+	pub rules: Vec<ListenerRule>,
 	#[serde(default)]
 	pub target: Option<TargetAddr>,
 	#[serde(default)]
@@ -67,17 +73,17 @@ impl Default for GlobalConfig {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
 	use super::*;
-	use crate::config::Protocol;
+	use crate::config::SingleProtocol;
 
 	fn sample_config() -> ConfigTable {
 		ConfigTable {
-			listeners: vec![ListenerRule {
+			listeners: vec![CompiledListener {
 				bind: "0.0.0.0".to_owned(),
-				port: "8080".to_owned(),
-				protocol: Protocol::Tcp,
+				port: 8080,
+				protocol: SingleProtocol::Tcp,
 			}],
 			target: Some(TargetAddr { ip: "127.0.0.1".to_owned(), port: 3000 }),
-			global: GlobalConfig::default(),
+			..Default::default()
 		}
 	}
 

@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{
-	config::{ConfigTable, GlobalConfig, ListenerRule, Protocol, TargetAddr},
+	config::{CompiledListener, ConfigTable, SingleProtocol, TargetAddr},
 	engine::Engine,
 };
 use vane_test_utils::echo::EchoServer;
@@ -16,13 +16,13 @@ async fn test_echo_forward() {
 	let echo_addr = echo.addr();
 
 	let config = ConfigTable {
-		listeners: vec![ListenerRule {
+		listeners: vec![CompiledListener {
 			bind: "0.0.0.0".to_owned(),
-			port: "0".to_owned(),
-			protocol: Protocol::Tcp,
+			port: 0,
+			protocol: SingleProtocol::Tcp,
 		}],
 		target: Some(TargetAddr { ip: echo_addr.ip().to_string(), port: echo_addr.port() }),
-		global: GlobalConfig::default(),
+		..Default::default()
 	};
 
 	let engine = Engine::new(config).unwrap();

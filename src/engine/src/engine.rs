@@ -13,7 +13,7 @@ use vane_transport::tcp::ProxyConfig;
 
 use crate::config::listener::SingleProtocol;
 use crate::config::validate::ValidationError;
-use crate::config::{CompileError, CompiledListener, ConfigTable, compile_rules};
+use crate::config::{CompiledListener, ConfigTable};
 use crate::handler::{ConnectionConfig, handle_connection};
 
 #[derive(Debug, Error)]
@@ -28,17 +28,11 @@ pub enum EngineError {
 	#[error("config validation failed ({} errors)", .0.len())]
 	ConfigInvalid(Vec<ValidationError>),
 
-	#[error("rule compilation failed")]
-	CompileFailed(#[from] CompileError),
-
 	#[error("listener {addr} is already running")]
 	ListenerAlreadyRunning { addr: SocketAddr },
 
 	#[error("listener {addr} is not running")]
 	ListenerNotRunning { addr: SocketAddr },
-
-	#[error("no forward target configured")]
-	NoTarget,
 }
 
 /// Key type for the listener handle map: config-level bind address + port.
@@ -55,8 +49,6 @@ impl Engine {
 	/// Create a new engine with validated config.
 	pub fn new(config: ConfigTable) -> Result<Self, EngineError> {
 		config.validate().map_err(EngineError::ConfigInvalid)?;
-		// Pre-compile to verify rules are valid
-		compile_rules(&config.listeners)?;
 
 		let tracker = Arc::new(ConnectionTracker::new(
 			config.global.max_connections,
@@ -73,11 +65,10 @@ impl Engine {
 		})
 	}
 
-	/// Start listeners for all compiled TCP rules.
+	/// Start listeners for all configured TCP entries.
 	pub async fn start(&self) -> Result<(), EngineError> {
 		let config = self.config_tx.borrow().clone();
-		let compiled = compile_rules(&config.listeners)?;
-		for entry in &compiled {
+		for entry in &config.listeners {
 			if entry.protocol == SingleProtocol::Tcp {
 				self.start_listener(entry).await?;
 			}
@@ -90,7 +81,7 @@ impl Engine {
 		let bind_addr: SocketAddr = format!("{}:{}", entry.bind, entry.port).parse().map_err(|_| {
 			EngineError::ListenerFailed {
 				addr: SocketAddr::from(([0, 0, 0, 0], entry.port)),
-				source: vane_transport::error::ListenerError::BindFailed {
+				source: ListenerError::BindFailed {
 					addr: SocketAddr::from(([0, 0, 0, 0], entry.port)),
 					attempts: 0,
 					source: std::io::Error::new(std::io::ErrorKind::InvalidInput, "bad bind address"),
@@ -155,33 +146,25 @@ impl Engine {
 	/// Atomically swap config and reconcile listeners.
 	pub async fn update_config(&self, config: ConfigTable) -> Result<(), EngineError> {
 		config.validate().map_err(EngineError::ConfigInvalid)?;
-		let new_compiled = compile_rules(&config.listeners)?;
 
 		let old_config = self.config_tx.borrow().clone();
-		let old_compiled = compile_rules(&old_config.listeners).unwrap_or_default();
 
-		let old_tcp: HashSet<SocketAddr> = old_compiled
-			.iter()
-			.filter(|c| c.protocol == SingleProtocol::Tcp)
-			.filter_map(|c| format!("{}:{}", c.bind, c.port).parse().ok())
-			.collect();
-
-		let new_tcp: HashSet<SocketAddr> = new_compiled
-			.iter()
-			.filter(|c| c.protocol == SingleProtocol::Tcp)
-			.filter_map(|c| format!("{}:{}", c.bind, c.port).parse().ok())
-			.collect();
+		let old_tcp = listener_addrs_set(&old_config.listeners);
+		let new_tcp = listener_addrs_set(&config.listeners);
 
 		let to_stop: Vec<SocketAddr> = old_tcp.difference(&new_tcp).copied().collect();
-		let to_start: Vec<&CompiledListener> = new_compiled
+
+		// Collect new entries to start (clone to avoid borrowing config)
+		let to_start: Vec<CompiledListener> = config
+			.listeners
 			.iter()
 			.filter(|c| c.protocol == SingleProtocol::Tcp)
 			.filter(|c| {
-				let addr: SocketAddr = format!("{}:{}", c.bind, c.port)
-					.parse()
-					.unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
-				new_tcp.contains(&addr) && !old_tcp.contains(&addr)
+				format!("{}:{}", c.bind, c.port)
+					.parse::<SocketAddr>()
+					.is_ok_and(|addr| !old_tcp.contains(&addr))
 			})
+			.cloned()
 			.collect();
 
 		for addr in &to_stop {
@@ -241,4 +224,12 @@ impl Engine {
 			}
 		}
 	}
+}
+
+fn listener_addrs_set(listeners: &[CompiledListener]) -> HashSet<SocketAddr> {
+	listeners
+		.iter()
+		.filter(|c| c.protocol == SingleProtocol::Tcp)
+		.filter_map(|c| format!("{}:{}", c.bind, c.port).parse().ok())
+		.collect()
 }

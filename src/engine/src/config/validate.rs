@@ -1,7 +1,7 @@
 use std::fmt;
 use std::net::IpAddr;
 
-use super::{ConfigTable, compile_rules};
+use super::ConfigTable;
 
 /// A single validation failure with location context.
 #[derive(Debug, Clone)]
@@ -20,12 +20,14 @@ impl ConfigTable {
 	pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
 		let mut errors = Vec::new();
 
-		// Validate listener rules can compile
-		if let Err(e) = compile_rules(&self.listeners) {
-			errors.push(ValidationError { message: e.to_string() });
+		for (i, entry) in self.listeners.iter().enumerate() {
+			if entry.bind.parse::<IpAddr>().is_err() {
+				errors.push(ValidationError {
+					message: format!("listener #{}: bind {:?} is not a valid IP", i, entry.bind),
+				});
+			}
 		}
 
-		// Validate target if present
 		if let Some(target) = &self.target {
 			if target.ip.parse::<IpAddr>().is_err() {
 				errors.push(ValidationError {
@@ -45,23 +47,20 @@ impl ConfigTable {
 #[allow(clippy::unwrap_used)]
 mod tests {
 	use super::*;
-	use crate::config::{GlobalConfig, ListenerRule, Protocol, TargetAddr};
+	use crate::config::{CompiledListener, SingleProtocol, TargetAddr};
 
-	fn config_with_listener(port: &str) -> ConfigTable {
-		ConfigTable {
-			listeners: vec![ListenerRule {
-				bind: "0.0.0.0".to_owned(),
-				port: port.to_owned(),
-				protocol: Protocol::Tcp,
-			}],
-			target: Some(TargetAddr { ip: "127.0.0.1".to_owned(), port: 8080 }),
-			global: GlobalConfig::default(),
-		}
+	fn tcp_listener(bind: &str, port: u16) -> CompiledListener {
+		CompiledListener { bind: bind.to_owned(), port, protocol: SingleProtocol::Tcp }
 	}
 
 	#[test]
 	fn valid_config() {
-		assert!(config_with_listener("8080").validate().is_ok());
+		let config = ConfigTable {
+			listeners: vec![tcp_listener("0.0.0.0", 8080)],
+			target: Some(TargetAddr { ip: "127.0.0.1".to_owned(), port: 8080 }),
+			..Default::default()
+		};
+		assert!(config.validate().is_ok());
 	}
 
 	#[test]
@@ -70,10 +69,14 @@ mod tests {
 	}
 
 	#[test]
-	fn invalid_listener_rule() {
-		let config = config_with_listener("abc");
+	fn invalid_listener_bind() {
+		let config = ConfigTable {
+			listeners: vec![tcp_listener("bad-ip", 8080)],
+			target: None,
+			..Default::default()
+		};
 		let errors = config.validate().unwrap_err();
-		assert!(errors.iter().any(|e| e.message.contains("not a valid u16")));
+		assert!(errors.iter().any(|e| e.message.contains("not a valid IP")));
 	}
 
 	#[test]
@@ -81,7 +84,7 @@ mod tests {
 		let config = ConfigTable {
 			listeners: vec![],
 			target: Some(TargetAddr { ip: "bad-ip".to_owned(), port: 8080 }),
-			global: GlobalConfig::default(),
+			..Default::default()
 		};
 		let errors = config.validate().unwrap_err();
 		assert!(errors.iter().any(|e| e.message.contains("not a valid IP")));
@@ -92,7 +95,7 @@ mod tests {
 		let config = ConfigTable {
 			listeners: vec![],
 			target: Some(TargetAddr { ip: "127.0.0.1".to_owned(), port: 0 }),
-			global: GlobalConfig::default(),
+			..Default::default()
 		};
 		let errors = config.validate().unwrap_err();
 		assert!(errors.iter().any(|e| e.message.contains("must not be 0")));

@@ -58,7 +58,7 @@
     try {
       const configResult = await getConfig();
       const config = configResult.config as unknown as Record<string, unknown>;
-      rules = (config.listeners ?? []) as ListenerRule[];
+      rules = (config.rules ?? []) as ListenerRule[];
       await refreshCompile();
       error = null;
     } catch (e) {
@@ -90,9 +90,17 @@
     saving = true;
     error = null;
     try {
+      // Compile rules into concrete listeners for the engine
+      const compileResult = await compileListeners({ listeners: newRules });
+      if (!compileResult.ok) {
+        error = compileResult.error ?? "Compilation failed";
+        return;
+      }
+
       const configResult = await getConfig();
       const config = configResult.config as unknown as Record<string, unknown>;
-      config.listeners = newRules;
+      config.listeners = compileResult.listeners; // engine sees compiled entries
+      config.rules = newRules; // preserve original rules for UI
       const result = await updateConfig({ config: config as unknown as string });
       if (!result.ok) {
         error = result.error ?? result.validationErrors.map((v) => v.message).join("; ");

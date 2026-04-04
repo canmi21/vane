@@ -6,25 +6,25 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use vane_engine::{
-	config::{ConfigTable, GlobalConfig, ListenerRule, Protocol, TargetAddr},
+	config::{CompiledListener, ConfigTable, GlobalConfig, SingleProtocol, TargetAddr},
 	engine::{Engine, EngineError},
 };
 use vane_test_utils::echo::EchoServer;
 
-fn tcp_rule(port: &str) -> ListenerRule {
-	ListenerRule { bind: "0.0.0.0".to_owned(), port: port.to_owned(), protocol: Protocol::Tcp }
+fn tcp(port: u16) -> CompiledListener {
+	CompiledListener { bind: "0.0.0.0".to_owned(), port, protocol: SingleProtocol::Tcp }
 }
 
 #[test]
 fn engine_rejects_invalid_config() {
 	let config = ConfigTable {
-		listeners: vec![ListenerRule {
+		listeners: vec![CompiledListener {
 			bind: "not-an-ip".to_owned(),
-			port: "8080".to_owned(),
-			protocol: Protocol::Tcp,
+			port: 8080,
+			protocol: SingleProtocol::Tcp,
 		}],
 		target: Some(TargetAddr { ip: "127.0.0.1".to_owned(), port: 8080 }),
-		global: GlobalConfig::default(),
+		..Default::default()
 	};
 
 	let result = Engine::new(config);
@@ -37,9 +37,9 @@ async fn update_config_hot_reload() {
 	let echo_b = EchoServer::start().await;
 
 	let make_config = |addr: std::net::SocketAddr| ConfigTable {
-		listeners: vec![tcp_rule("0")],
+		listeners: vec![tcp(0)],
 		target: Some(TargetAddr { ip: addr.ip().to_string(), port: addr.port() }),
-		global: GlobalConfig::default(),
+		..Default::default()
 	};
 
 	let engine = Engine::new(make_config(echo_a.addr())).unwrap();
@@ -55,7 +55,6 @@ async fn update_config_hot_reload() {
 		assert_eq!(buf, b"before reload");
 	}
 
-	// Hot-reload: point at echo_b (same listeners, different target)
 	engine.update_config(make_config(echo_b.addr())).await.unwrap();
 
 	{
@@ -80,9 +79,10 @@ async fn connection_limit_rejects() {
 	});
 
 	let config = ConfigTable {
-		listeners: vec![tcp_rule("0")],
+		listeners: vec![tcp(0)],
 		target: Some(TargetAddr { ip: upstream_addr.ip().to_string(), port: upstream_addr.port() }),
 		global: GlobalConfig { max_connections_per_ip: 1, ..Default::default() },
+		..Default::default()
 	};
 
 	let engine = Engine::new(config).unwrap();
