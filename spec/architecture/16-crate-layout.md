@@ -285,3 +285,267 @@ MVP release targets:
 Building with musl static-link confirms the hickory-resolver DNS choice (glibc NSS is not involved; see `07-l7.md`).
 
 Container images (Docker / OCI) are built from the static binaries on Alpine or distroless base. That's tooling, not architecture — out of scope for this document.
+
+## Feature flags
+
+Naming follows ecosystem conventions — short, lowercase, single-word where possible. No prefixes; the underlying concept (crate name or protocol name) is clear enough.
+
+### Per-crate feature flags
+
+| Crate         | Feature     | Default | Purpose                                               |
+|---------------|-------------|---------|-------------------------------------------------------|
+| `vane-engine` | `aws-lc-rs` | ✅      | rustls crypto provider = aws-lc-rs                    |
+| `vane-engine` | `ring`      | ❌      | rustls crypto provider = ring (mutually exclusive)    |
+| `vane-engine` | `h3`        | ✅      | compile h3 + quinn for HTTP/3 support                 |
+| `vane-engine` | `cgi`       | ✅      | compile CGI fork-exec path                            |
+| `vaned`       | `aws-lc-rs` | ✅      | forwards to `vane-engine/aws-lc-rs`                   |
+| `vaned`       | `ring`      | ❌      | forwards to `vane-engine/ring`                        |
+| `vaned`       | `h3`        | ✅      | forwards to `vane-engine/h3`                          |
+| `vaned`       | `cgi`       | ✅      | forwards to `vane-engine/cgi`                         |
+| `vaned`       | `wasm`      | ✅      | links `vane-wasm` (pulls wasmtime)                    |
+| `vane` (bin)  | `tui`       | ✅      | compiles ratatui + crossterm TUI code                 |
+
+No feature flags on `vane-core`, `vane-wasm`, `vane-mgmt`, `vane-testutil` — they are always-on code.
+
+### Crypto backend: `aws-lc-rs` vs `ring` (mutually exclusive)
+
+Compile-time enforcement in `vane-engine`:
+
+```rust
+#[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
+compile_error!("`aws-lc-rs` and `ring` features are mutually exclusive — pick one");
+
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+compile_error!("one of `aws-lc-rs` or `ring` must be enabled");
+
+pub fn default_provider() -> Arc<rustls::crypto::CryptoProvider> {
+    #[cfg(feature = "aws-lc-rs")]
+    { rustls::crypto::aws_lc_rs::default_provider().into() }
+    #[cfg(feature = "ring")]
+    { rustls::crypto::ring::default_provider().into() }
+}
+
+pub fn install_default_provider() -> Result<(), Error> {
+    default_provider()
+        .install_default()
+        .map_err(|_| Error::internal("crypto provider already installed"))
+}
+
+pub const BACKEND_NAME: &str = {
+    #[cfg(feature = "aws-lc-rs")] { "aws-lc-rs" }
+    #[cfg(feature = "ring")]      { "ring" }
+};
+```
+
+Trade-offs:
+
+|                      | `aws-lc-rs` (default)                 | `ring`                                |
+|----------------------|----------------------------------------|---------------------------------------|
+| Performance          | fast — AES-NI / SHA-NI / AVX-512       | slower — basic assembly only          |
+| Build toolchain      | needs cmake + C compiler (BoringSSL)   | pure Rust + small asm, no C toolchain |
+| FIPS 140-3           | optional                               | not available                         |
+| musl cross-compile   | possible with musl-cc setup            | cleanest                              |
+| Binary size          | slightly larger                        | slightly smaller                      |
+
+### Feature-off → rule compile-time rejection
+
+When a feature is disabled in the build, rules referencing the disabled capability fail at **rule compile time** (inside `vane compile` or at `vaned` boot's compile pass), not at request dispatch:
+
+- `!h3` + rule with `HttpUpstream::Tcp { version: Http3 }` → compile error: `"this binary was built without the 'h3' feature"`
+- `!cgi` + rule with `HttpUpstream::Cgi { ... }` → compile error: `"this binary was built without the 'cgi' feature"`
+- `!wasm` + rule referencing a WASM plugin → compile error: `"this binary was built without the 'wasm' feature"`
+
+Compile-time rejection surfaces feature mismatches early — before the daemon bind listeners or before a deploy — rather than as ambiguous runtime 5xx's.
+
+### Management HTTP: runtime, not compile-time
+
+The HTTP-over-TCP management transport is **not** feature-gated. `hyper` is already linked for proxy duties; feature-gating HTTP management saves zero compile time and zero binary size.
+
+Instead, HTTP management is driven by env vars:
+
+```
+VANE_MGMT_UNIX=/var/run/vaned.sock     # default, always bound
+VANE_MGMT_HTTP_BIND=127.0.0.1:4479     # unset = Unix only; set = additional HTTP binding
+VANE_MGMT_HTTP_TOKEN=<bearer-hash>      # required when HTTP bind is non-loopback
+VANE_MGMT_HTTP_TLS_CERT=/etc/vaned/mgmt.crt
+VANE_MGMT_HTTP_TLS_KEY=/etc/vaned/mgmt.key
+```
+
+Unix socket is always bound. HTTP-over-TCP is opt-in per deployment.
+
+### Build matrix examples
+
+```
+# Default production
+cargo build --release -p vaned
+
+# Pure-Rust build chain (musl cross-compile friendly)
+cargo build --release -p vaned --no-default-features \
+  --features "ring,h3,cgi,wasm"
+
+# Minimal HTTP/1.1 + HTTP/2 only (drop h3, wasm, cgi)
+cargo build --release -p vaned --no-default-features --features "aws-lc-rs"
+
+# CLI without TUI
+cargo build --release -p vane --no-default-features
+```
+
+## Binary CLIs
+
+Both binaries use `clap` (derive API) for argument parsing. The surface is intentionally small — most behavior is file- and env-driven.
+
+### `vaned`
+
+The daemon has exactly two concerns: print build info, and start with a given config directory.
+
+```
+vaned --version          print build info and exit
+vaned -v                 (alias)
+vaned --help             print help and exit
+vaned -h                 (alias)
+
+vaned --config DIR       start the daemon with the given config directory
+vaned -c DIR             (alias)
+```
+
+`--config` is **required** when starting. `vaned` does not probe for default paths (`/etc/vaned`, `~/.vaned`, etc.) — it refuses to guess. Running `vaned` with no arguments exits with an error and a hint:
+
+```
+error: no config directory specified
+hint: `vaned --config /etc/vaned` (or wherever your config lives)
+```
+
+This forces explicit config placement in systemd units, Docker images, etc.
+
+### `vane`
+
+The terminal binary. Subcommand-based for future extension:
+
+```
+vane --version | -v
+vane --help    | -h
+
+vane compile <DIR>         dry-run compile; emit FlowGraph JSON to stdout
+vane tail <DIR>            subscribe to the flow log (streams from running vaned)
+vane reload                trigger reload of running daemon (via mgmt socket)
+vane tui                   launch TUI (requires `tui` feature)
+```
+
+Subcommand set grows during implementation. The clap derive API makes adding verbs trivial.
+
+## Startup sequence (`vaned`)
+
+Strict order; any failure in steps 1–6 aborts with non-zero exit and a descriptive stderr message.
+
+1. **Parse CLI args** via clap. `--config` resolves to a valid directory or the process exits with a usage error.
+2. **Load environment variables**:
+   - OS env first (whatever systemd / shell / container injects) — **takes precedence**.
+   - Then `<config-dir>/.env` is attempted via `dotenvy`. Values in the file fill in variables **not already set** by OS env; they do not overwrite.
+3. **Install crypto provider** — `vane_engine::crypto::install_default_provider()`. Must happen before any TLS code runs.
+4. **Initialize tracing** — `tracing-subscriber`, level from `VANE_LOG_LEVEL` (default `info`), output to stderr (journald captures automatically under systemd).
+5. **Scan and parse** `<config-dir>/config.json` and `<config-dir>/rules/*.json`.
+6. **Expand / merge / analyze / lower / validate** to produce `Arc<FlowGraph>`.
+7. **Bind listeners** (per `01-topology.md`). Individual per-listener bind failures are logged but don't abort boot.
+8. **Start management transports** — Unix socket always (`VANE_MGMT_UNIX`), HTTP-over-TCP only if `VANE_MGMT_HTTP_BIND` is set.
+9. **Spawn file watcher** on `<config-dir>`, enter run loop.
+
+## Build info and version strings
+
+Both binaries share a version string format via a `vane-core::version` helper.
+
+### Output format
+
+Common prefix (both binaries):
+
+```
+vane 0.1.0 (59807616e 2026-04-14)
+rustc 1.95.0
+cargo 1.95.0
+```
+
+`vaned` prints two additional lines with compile-time capabilities:
+
+```
+features:  aws-lc-rs, h3, cgi, wasm
+protocols: http/1.1, http/2, http/3, websocket, tcp, udp, cgi
+```
+
+Common footer (both binaries):
+
+```
+Copyright © 2025 Canmi (t@canmi.icu)
+License: MIT
+Repository: https://github.com/canmi21/vane
+```
+
+### `build.rs` contract
+
+Each binary crate (`vane`, `vaned`) has its own `build.rs` that emits compile-time env vars via `cargo:rustc-env=`:
+
+| Env var           | Source                                          |
+|-------------------|-------------------------------------------------|
+| `VANE_COMMIT`     | `git rev-parse --short HEAD` (or `unknown` when not in a git tree) |
+| `VANE_BUILD_DATE` | UTC build date in `YYYY-MM-DD`                  |
+| `VANE_RUSTC`      | `rustc --version` trimmed to `1.x.y`            |
+| `VANE_CARGO`      | `cargo --version` trimmed to `1.x.y`            |
+
+The binary's `main.rs` reads these via `env!("VANE_...")` at compile time and passes them into the shared formatter.
+
+Package version (`CARGO_PKG_VERSION`) is set automatically by Cargo from `[workspace.package].version` inherited via `version.workspace = true` — no build.rs needed for the version number itself.
+
+### Shared `BuildInfo` in `vane-core`
+
+```rust
+// crates/core/src/version.rs
+pub struct BuildInfo {
+    pub version:    &'static str,
+    pub commit:     &'static str,
+    pub build_date: &'static str,
+    pub rustc:      &'static str,
+    pub cargo:      &'static str,
+    pub features:   &'static [&'static str],   // empty for `vane` binary; populated for `vaned`
+    pub protocols:  &'static [&'static str],   // empty for `vane` binary; populated for `vaned`
+}
+
+pub fn format_version(info: &BuildInfo) -> String { /* produces the output above */ }
+```
+
+Each binary constructs `BuildInfo` from its own compile-time env (via `env!`) and from `cfg!(feature = "...")` introspection for features / protocols.
+
+For `vaned`, the `features` and `protocols` slices are computed:
+
+```rust
+// crates/vaned/src/version.rs (sketch)
+fn enabled_features() -> &'static [&'static str] {
+    const FEATURES: &[&str] = &[
+        #[cfg(feature = "aws-lc-rs")] "aws-lc-rs",
+        #[cfg(feature = "ring")]      "ring",
+        #[cfg(feature = "h3")]        "h3",
+        #[cfg(feature = "cgi")]       "cgi",
+        #[cfg(feature = "wasm")]      "wasm",
+    ];
+    FEATURES
+}
+
+fn supported_protocols() -> &'static [&'static str] {
+    const PROTOS: &[&str] = &[
+        "http/1.1", "http/2", "websocket", "tcp", "udp",
+        #[cfg(feature = "h3")]  "http/3",
+        #[cfg(feature = "h3")]  "quic",
+        #[cfg(feature = "cgi")] "cgi",
+    ];
+    PROTOS
+}
+```
+
+## Project metadata
+
+Constants in `vane-core::meta`:
+
+```rust
+pub const LICENSE:    &str = "MIT";
+pub const REPOSITORY: &str = "https://github.com/canmi21/vane";
+pub const COPYRIGHT:  &str = "Copyright © 2025 Canmi (t@canmi.icu)";
+```
+
+These are the single source of truth for these values; used in `--version` output, CLI help text, and any generated documentation.

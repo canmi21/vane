@@ -169,6 +169,16 @@ VANE_SEC_MAX_HEADER_BYTES=65536
 VANE_SEC_MAX_HEADERS_COUNT=100
 VANE_SEC_HEADER_TIMEOUT=30
 VANE_SEC_MAX_CONN_PER_IP=100
+
+# Management transports (Unix always bound; HTTP only if BIND is set)
+VANE_MGMT_UNIX=/var/run/vaned.sock
+VANE_MGMT_HTTP_BIND=                       # empty = Unix-only; set to bind HTTP, e.g., 127.0.0.1:4479
+VANE_MGMT_HTTP_TOKEN=                      # required when VANE_MGMT_HTTP_BIND is non-loopback
+VANE_MGMT_HTTP_TLS_CERT=
+VANE_MGMT_HTTP_TLS_KEY=
+
+# CGI (if `cgi` feature enabled)
+VANE_CGI_MAX_CONCURRENT=100
 # ...
 ```
 
