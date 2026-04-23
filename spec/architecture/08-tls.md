@@ -1,0 +1,283 @@
+# TLS
+
+## Principle: two orthogonal dimensions
+
+TLS policy in `vane` is **two independent dimensions**, not a single strictness toggle:
+
+- **Client ↔ vaned** — determined by listener + rule configuration. Binding only `:443` forces HTTPS; binding `:80` accepts plain HTTP; combining `:80` with a `redirect_https` rule produces HTTP-upgrade-to-HTTPS.
+- **vaned ↔ upstream** — determined by the upstream's protocol choice (`HttpUpstream::Tcp.tls: Option<UpstreamTls>`) and, when TLS is used, its verification mode (`Full` vs `Skip`).
+
+These compose into a 6-cell configuration matrix; `vane` accepts all combinations. No architecture-level "禁止" policy — users pick their own security posture, and `vane compile --dry-run` plus external lints can enforce organizational policies on top.
+
+```
+                         Upstream HTTP     Upstream HTTPS Full     Upstream HTTPS Skip
+Listener :80 (HTTP)       plaintext         start TLS to origin     start TLS, no verify
+Listener :443 (HTTPS)     client-TLS→plain  end-to-end TLS verified end-to-end TLS no-verify
+```
+
+## Scenarios
+
+| Scenario                               | Decrypt?           | Cert needed?                 | Where                 |
+| -------------------------------------- | ------------------ | ---------------------------- | --------------------- |
+| Pure L4 TCP forward                    | No                 | No                           | —                     |
+| L4 SNI-based routing (peek only)       | No                 | No                           | Listener peek         |
+| L4 → L7 upgrade (need HTTP visibility) | Yes                | Yes (server cert)            | On upgrade            |
+| Upstream TLS `VerifyMode::Full`        | Yes                | Root CA (plus optional mTLS) | On upstream connect   |
+| Upstream TLS `VerifyMode::Skip`        | Yes (encrypt only) | None                         | On upstream connect   |
+| mTLS listener (`ClientAuth::Require`)  | Yes                | Yes (client trust store)     | On listener handshake |
+
+---
+
+## Listener-side TLS
+
+### SNI peek (L4)
+
+A built-in L4 middleware reads the ClientHello from the peek buffer and populates `ctx.tls.sni` and `ctx.tls.alpn` **without decrypting**. Uses `rustls`'s low-level parsing APIs; no handshake.
+
+Once populated, L4 predicates match on `tls.sni`, enabling SNI-based L4 forward to different upstreams per tenant — the standard pattern for TLS-passthrough load balancing.
+
+### TLS termination (L4 → L7 upgrade)
+
+When a FlowGraph path requires HTTP inspection on a TLS-wrapped connection:
+
+```
+TCP stream
+  ↓ peek ClientHello (L4, no decrypt)
+  ↓ SNI-based cert lookup   → rustls::ServerConfig
+  ↓ rustls handshake        → plaintext AsyncRead + AsyncWrite; ctx.tls populated
+  ↓ ALPN dispatch           → hyper (H1/H2) or h3 (H3); ctx.http_version populated
+  ↓ parse                   → Request
+```
+
+### Version, cipher, ALPN policy
+
+- **TLS versions** — 1.3 preferred, 1.2 accepted, 1.0 / 1.1 / SSL v1 / v2 / v3 all rejected. `vane` is a new-era engine and carries no legacy protocol baggage.
+- **Cipher suites** — rustls defaults. No custom tuning; safe choice maintained upstream by the rustls project.
+- **ALPN** — listener advertises based on `kind`:
+  - `Http` → `h2`, `http/1.1`
+  - QUIC listener → `h3`
+  - `Auto` → all applicable, peer picks
+
+### Cert resolver and rotation
+
+The resolver implements rustls's `ResolvesServerCert`:
+
+```rust
+impl rustls::server::ResolvesServerCert for VaneCertResolver {
+    fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        let sni = client_hello.server_name()?;
+        self.store.load().lookup(sni)
+    }
+}
+
+pub struct VaneCertResolver {
+    store: Arc<ArcSwap<CertStore>>,
+}
+
+pub struct CertStore {
+    by_sni:  HashMap<String, Arc<CertEntry>>,
+    default: Option<Arc<CertEntry>>,    // optional no-SNI fallback
+}
+
+pub struct CertEntry {
+    pub key:              Arc<CertifiedKey>,   // CertifiedKey.ocsp carries OCSP stapling data
+    pub not_after:        SystemTime,
+    pub ocsp_next_update: Option<Instant>,
+}
+```
+
+Rotation is an `ArcSwap` replacement of the inner `CertStore`. Live TLS connections keep their handshake-time cert; only **new handshakes** see the new cert. TLS protocol does not permit mid-connection cert change — this is not a limitation of `vane`, it is the protocol. ("How does a live connection observe a rotated cert?" — it does not.)
+
+### Fallback behavior
+
+| Situation           | Behavior                                           |
+| ------------------- | -------------------------------------------------- |
+| Client sends no SNI | Use `default_cert` if configured; otherwise reject |
+| SNI not in store    | Same                                               |
+| No cert resolved    | TLS handshake fails; TCP connection closes         |
+
+Default: **reject**. Opt-in fallback via `default_cert` in `config.json`. Silent mismatch (presenting a cert for the wrong domain) is worse than an explicit TLS error — clients detect the latter immediately; the former may leak to application layer before detection.
+
+### Cert populators
+
+Certs are loaded by `CertPopulator` implementations:
+
+```rust
+pub trait CertPopulator: Send + Sync {
+    async fn initial_store(&self) -> Result<CertStore>;
+    async fn refresh(&self, current: &CertStore) -> Result<Option<CertStore>>;
+}
+```
+
+The architecture supports **multiple populators simultaneously** — public-facing domains via ACME, internal domains via static files, both populating the same store keyed by SNI.
+
+Built-in implementations:
+
+- **`StaticCertPopulator`** — loads cert/key files from configured paths. Optional OCSP response file paths, or optional OCSP fetch from the cert's AIA URL on refresh.
+- **`ManagedCertPopulator`** (integrated LazyCert) — ACME / Let's Encrypt automatic issuance and renewal. OCSP fetched from the cert's AIA URL automatically.
+
+`refresh()` runs periodically (default: every 5 minutes). Each populator decides what is stale — near-expiry cert, expired OCSP response. If stale, return a new `CertStore` for `ArcSwap` to install.
+
+### OCSP stapling
+
+OCSP stapling is carried inline on the cert: `CertifiedKey.ocsp: Option<Vec<u8>>`. During handshake, rustls staples these bytes to the ServerHello automatically.
+
+The populator is responsible for keeping OCSP fresh. OCSP responses typically validate for 4–7 days; refresh daily.
+
+### Session ticket rotation
+
+Session tickets let clients resume TLS sessions without a full handshake. The server encrypts session state with a key that must rotate periodically — a leaked key compromises all sessions encrypted with it.
+
+Daemon-level manager:
+
+```rust
+pub struct TicketKeyManager {
+    current:         ArcSwap<TicketKey>,
+    previous:        ArcSwap<Option<TicketKey>>,   // accept tickets from previous key during transition
+    rotation_period: Duration,                      // default 24h, configurable
+}
+
+impl rustls::server::ProducesTickets for TicketKeyManager { /* ... */ }
+```
+
+Background task rotates keys: generate new current, current → previous, drop old previous. All `ServerConfig`s share a single `Arc<TicketKeyManager>` — daemon-wide consistency.
+
+### TLS 1.3 0-RTT (early data)
+
+0-RTT lets clients send application data in the first flight, saving one round-trip. **Trade-off**: the data is not replay-protected — attackers can replay captured 0-RTT packets against idempotent endpoints.
+
+Two-level opt-in:
+
+```rust
+pub struct ListenerTlsConfig {
+    pub enable_0rtt: bool,    // default false
+}
+
+pub struct Rule {
+    // ... other fields ...
+    pub allow_0rtt: bool,     // default false
+}
+```
+
+Runtime flow:
+
+```
+Client sends 0-RTT data
+  ↓ rustls decrypts, exposes as "early data"
+  ↓ we parse Request, walk FlowGraph to matched rule
+  ↓ rule.allow_0rtt is false?
+      ├─ yes → reject early data, rustls sends HRR, client retries with full handshake
+      └─ no  → accept, proceed normally
+```
+
+**Compile-time constraint**: `allow_0rtt: true` is only legal on rules whose match predicates include a method constraint restricted to idempotent methods (GET / HEAD / OPTIONS). Non-idempotent rules with `allow_0rtt: true` are a compile error.
+
+### Client certificate verification (mTLS on listener)
+
+Listener may request or require client certificates:
+
+```rust
+pub enum ClientAuth {
+    None,                             // default: don't request client cert
+    Request {                         // request, don't require; log if provided
+        trust_store: Arc<ArcSwap<ClientTrustStore>>,
+    },
+    Require {                         // require; fail handshake if missing or invalid
+        trust_store: Arc<ArcSwap<ClientTrustStore>>,
+    },
+}
+
+pub struct ClientTrustStore {
+    pub cas:  RootCertStore,
+    pub crls: Vec<CertificateRevocationList>,    // optional CRL for revocation checks
+}
+```
+
+Verified client certs populate `ctx.tls.peer_cert`. L7 middleware can match on it:
+
+```json
+{ "tls.peer_cert.subject_cn": { "equals": "admin@example.com" } }
+```
+
+`ClientTrustStore`'s `ArcSwap` rotation is symmetric to `CertStore` — same pattern, same mental model.
+
+---
+
+## Upstream-side TLS
+
+### `UpstreamTls`
+
+```rust
+pub struct UpstreamTls {
+    pub root_ca:     RootCaSource,
+    pub client_cert: Option<CertifiedKey>,        // optional mTLS client cert
+    pub crls:        Vec<CrlSource>,              // optional CRL list
+    pub verify_mode: VerifyMode,                  // default Full
+    pub alpn:        Option<Vec<String>>,         // default: derived from HttpUpstream.version
+    pub sni:         Option<String>,              // override; default: derived from addr hostname
+}
+
+pub enum RootCaSource {
+    System,                   // via rustls-native-certs
+    Bundle(PathBuf),          // custom PEM bundle
+}
+
+pub enum VerifyMode {
+    /// Full validation: chain + hostname + CRL (if provided) + OCSP (if stapled)
+    Full,
+
+    /// Skip validation entirely. Still runs TLS 1.2/1.3 handshake (encrypted connection),
+    /// but does not verify the upstream's identity. Use for self-signed certs or dev environments.
+    Skip,
+}
+
+pub enum CrlSource {
+    File(PathBuf),
+    Url(String),              // fetched periodically
+}
+```
+
+**`Skip` does not mean "no encryption"**: the TLS handshake still runs; traffic is still encrypted; only cert identity verification is skipped. The connection is still protected against passive eavesdropping, just not against active MITM.
+
+### ClientConfig fingerprint and caching
+
+`rustls::ClientConfig` construction is expensive. Daemon caches configs by fingerprint:
+
+```rust
+daemon.tls_config_cache: HashMap<TlsConfigFingerprint, Arc<ClientConfig>>
+
+TlsConfigFingerprint = hash(
+    root_ca_source,     // System or Bundle hash
+    client_cert,        // hash of CertifiedKey
+    crls,               // hash of CRL sources
+    verify_mode,        // Full or Skip
+    alpn_protocols,     // offered ALPN list
+)
+```
+
+Two Fetches sharing the same fingerprint share one `Arc<ClientConfig>`. Cache entries become unreachable when the last referencing Fetch is dropped, and are reclaimed by Arc refcount on the next sweep.
+
+### mTLS on upstream
+
+`client_cert: Some(CertifiedKey)` presents a client cert to the upstream during handshake. Combined with the upstream's requirement for it on its side, this establishes mutual authentication.
+
+### CRL checking
+
+When `crls` is non-empty, `rustls::WebPkiCrlProvider` validates the upstream cert against the provided CRL list. CRLs come from files (loaded at boot) or URLs (fetched periodically).
+
+CRLs participate in the TLS fingerprint — two Fetches with different CRL sets get separate pool slots.
+
+---
+
+## Architected but deferred in MVP
+
+These features have architectural positions defined above; MVP implementation order defers some:
+
+- **OCSP stapling** — populator framework exists; `ManagedCertPopulator` fetches OCSP on cert issuance in its first release. `StaticCertPopulator` gains optional OCSP fetch later.
+- **CRL checking** — `UpstreamTls.crls` defined; `WebPkiCrlProvider` integration and URL fetcher post-MVP.
+- **Session ticket rotation** — `TicketKeyManager` designed; rotation task post-MVP. MVP uses rustls's default static ticket key per daemon.
+- **TLS 1.3 0-RTT** — config flags and runtime check designed; rustls early-data wiring post-MVP. MVP ships with `enable_0rtt: false` hardcoded.
+- **mTLS on listener** — `ClientAuth` enum and `ClientTrustStore` defined; MVP ships `ClientAuth::None` only; `Request` / `Require` post-MVP.
+- **`ManagedCertPopulator` (integrated LazyCert)** — trait defined; MVP ships only `StaticCertPopulator`. ACME integration post-MVP.
+
+All of the above can be added without refactoring — interfaces and data structures are in place today.

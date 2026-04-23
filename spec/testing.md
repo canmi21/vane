@@ -35,11 +35,11 @@ A test written after the fix proves nothing — it is a rubber stamp, not a safe
 
 ## Test types
 
-| Type        | When to use                                          | Location                         |
-| ----------- | ---------------------------------------------------- | -------------------------------- |
-| Unit        | Pure functions, zero-dependency logic                | `#[cfg(test)] mod tests` in-file |
-| Integration | Cross-crate behavior, public API contracts           | workspace `tests/` crate         |
-| Network     | End-to-end traffic against a spawned test server     | `tests/` crate via test-utils    |
+| Type        | When to use                                      | Location                         |
+| ----------- | ------------------------------------------------ | -------------------------------- |
+| Unit        | Pure functions, zero-dependency logic            | `#[cfg(test)] mod tests` in-file |
+| Integration | Cross-crate behavior, public API contracts       | workspace `tests/` crate         |
+| Network     | End-to-end traffic against a spawned test server | `tests/` crate via test-utils    |
 
 Start with unit tests. Introduce integration or network tests when a feature genuinely needs cross-module or transport-level verification — don't pre-build the harness.
 

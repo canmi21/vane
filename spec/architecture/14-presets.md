@@ -1,0 +1,208 @@
+# Presets
+
+Presets are **opinionated compile-stage expansions** that turn high-level intent into raw rule bundles. They let common deployments ship with sensible defaults while keeping the raw rule layer transparent.
+
+## Two-tier rule system
+
+```
+User config (mix of raw rules + presets)
+  ↓ preset expansion  ── new pipeline stage
+Canonical raw rules
+  ↓ merge / analyze / lower / validate  ── existing compile pipeline
+FlowGraph
+```
+
+- **Raw rule layer** — what the user writes is exactly what the FlowGraph runs. Zero implicit middleware injection, zero hidden defaults. A raw rule without a `rate_limit` truly has no rate limit. A raw rule without `forward_client_ip` truly does not add `X-Forwarded-For`.
+- **Preset layer** — "usually-on" policies (sensible rate limit, client IP forwarding, WebSocket handling, timeouts) live here. A preset expands to one or more raw rules; the expansion is fully visible via `vane compile --dry-run`.
+
+Users choose their posture:
+
+- **Hand-write raw rules** — maximum control, zero surprises, no policy unless explicitly added.
+- **Use presets** — convenience with policy opinions baked in; inspect what the preset does with `--dry-run`.
+- **Mix** — presets for the common cases, raw rules for the edges.
+
+## Design principle: transparent expansion
+
+The compiled FlowGraph loaded into memory has **no hidden behavior**. The engine does not add middleware behind the user's back. Presets produce their effects only by emitting explicit raw rules; those raw rules run through the same compile pipeline as hand-written ones.
+
+Consequence: `vane compile --dry-run` output is the authoritative description of what will execute. Reading it tells you everything the daemon will do, with no "and also these invisible things" footnote.
+
+## Preset expansion stage
+
+Implemented as a pure function:
+
+```rust
+fn expand(preset: PresetInvocation) -> Vec<RawRule>;
+```
+
+Each preset has its own expansion rule. Expansion runs before merge; expanded rules participate in merge and compile like any other raw rule.
+
+Expansion is **deterministic given the preset args plus current daemon config** (env vars, config.json). Two runs of `vane compile --dry-run` on the same inputs produce byte-identical output.
+
+## Catalog
+
+Four presets cover the MVP scope:
+
+- `reverse_proxy`
+- `port_forward`
+- `static_site`
+- `redirect_https`
+
+---
+
+### `reverse_proxy`
+
+HTTP reverse proxy with sensible production defaults.
+
+```json
+{
+	"preset": "reverse_proxy",
+	"listen": [":443"],
+	"args": {
+		"upstream": "127.0.0.1:8080",
+		"websocket": false,
+		"rate_limit": { "rate": 100, "burst": 200, "window": "1s" },
+		"forward_client_ip": true,
+		"timeouts": { "connect": "5s", "total": "60s" }
+	}
+}
+```
+
+Defaults injected when args are omitted:
+
+- **`websocket: false`** — WebSocket upgrade requests are rejected with 400. See [WebSocket](#websocket-handling) below.
+- **`rate_limit`**: per-IP at 100/s with burst 200 (conservative against accidental DDoS, non-intrusive for legitimate traffic).
+- **`forward_client_ip: true`** — adds `X-Forwarded-For` (append) and `X-Real-IP` (overwrite) to the upstream request.
+- **`timeouts`**: 5s connect, 60s total.
+
+Expands to (conceptually):
+
+```
+Rule <name>.ratelimit   → match [] → use rate_limit(...)
+Rule <name>.fwdip       → match [] → use forward_client_ip
+Rule <name>.ws          → match [upgrade == websocket] → HttpSynthesize 400
+Rule <name>.main        → match [] → HttpProxy(upstream, timeouts)
+```
+
+Middleware rules (ratelimit, fwdip) order before the fetch rule via inspection-level sorting.
+
+#### WebSocket handling
+
+The `websocket` arg accepts:
+
+| Value                    | Effect                                                                  |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `false` (default)        | WS upgrade requests rejected with 400                                   |
+| `true` or `"*"`          | All paths allow WS passthrough                                          |
+| `["/ws", "/api/stream"]` | Only listed path prefixes allow WS; other WS requests rejected with 400 |
+
+Expansion for `websocket: true`:
+
+```
+Rule <name>.ws   → match [upgrade == websocket]  → WebSocketUpgrade(upstream)
+Rule <name>.main → match []                      → HttpProxy(upstream)
+```
+
+Expansion for `websocket: ["/ws"]`:
+
+```
+Rule <name>.ws-allow → match [upgrade == websocket AND path.prefix any_of ["/ws"]]
+                     → WebSocketUpgrade(upstream)
+Rule <name>.ws-deny  → match [upgrade == websocket]
+                     → HttpSynthesize 400
+Rule <name>.main     → match []
+                     → HttpProxy(upstream)
+```
+
+`<name>.ws-allow` has more predicates → higher specificity → sorts before `<name>.ws-deny`, so matched paths take the WS route and unmatched WS requests fall through to rejection.
+
+---
+
+### `port_forward`
+
+Raw L4 byte forward (TCP or UDP).
+
+```json
+{
+	"preset": "port_forward",
+	"listen": [":2222"],
+	"args": {
+		"upstream": "10.0.0.5:22",
+		"transport": "tcp"
+	}
+}
+```
+
+Expansion:
+
+```
+Rule <name> → match [] → L4Forward(upstream, transport)
+```
+
+No middleware — L4 forwarding is intentionally spartan. No rate limiting, no client IP forwarding (there is no HTTP layer to set headers on).
+
+---
+
+### `static_site`
+
+Static content or synthesized response.
+
+```json
+{
+	"preset": "static_site",
+	"listen": [":443"],
+	"args": {
+		"status": 200,
+		"headers": { "content-type": "text/plain" },
+		"body": "Hello, world!"
+	}
+}
+```
+
+Expansion:
+
+```
+Rule <name> → match [] → HttpSynthesize(status, headers, body)
+```
+
+Serving a file tree (rather than a single static response) is an MVP-adjacent feature, implemented as an extended variant once the underlying file-serving Fetch lands.
+
+---
+
+### `redirect_https`
+
+HTTP-to-HTTPS redirect.
+
+```json
+{
+	"preset": "redirect_https",
+	"listen": [":80"]
+}
+```
+
+Expansion:
+
+```
+Rule <name> → match [] → HttpSynthesize(
+  status:  308,
+  headers: { "location": "https://${host}${uri}" }
+)
+```
+
+Status fixed at 308 (preserves request method on modern clients).
+
+---
+
+## Writing a preset (architectural outline)
+
+Each preset is a Rust function `expand(args: Value) -> Vec<RawRule>`. Presets live in a daemon-internal registry; adding a new preset is a source change in the `vaned` crate.
+
+User-defined presets (via WASM or config templates) are **not supported**. Presets encode policy opinions, and policy opinions should be reviewed at code-commit time rather than at configuration-load time. If users want custom expansions, they write raw rules directly.
+
+---
+
+## Relationship to `type` aliases in `terminate`
+
+Not to be confused: the `type` string inside a rule's `terminate` block (e.g., `"type": "http_proxy"`) is a one-for-one syntactic alias for a `FetchInst` variant. That is not a preset; it's a raw-layer naming convenience.
+
+Presets are distinguished by the **top-level `preset` field** on a rule object. They expand into multiple `FetchInst`-level rules, possibly with middleware, across the compile stage.

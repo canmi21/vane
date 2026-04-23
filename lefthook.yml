@@ -7,8 +7,8 @@ pre-commit:
   parallel: true
   commands:
     fmt:
-      glob: "*.rs"
+      glob: '*.rs'
       run: cargo fmt --check
     clippy:
-      glob: "*.rs"
+      glob: '*.rs'
       run: cargo clippy --workspace --all-targets -- -D warnings

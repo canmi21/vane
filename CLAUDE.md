@@ -2,7 +2,7 @@
 
 ## Stack
 
-Rust workspace. Async runtime, crate layout, and module boundaries are decided in the design phase — see `spec/` once the architecture docs land. Until then, this section is intentionally sparse.
+Rust workspace targeting stable. Async runtime: `tokio`. HTTP stack: `hyper` / `h3` / `quinn`. TLS: `rustls`. WASM: `wasmtime`. Concrete crate layout, module boundaries, and trait shapes are proposed in [`spec/architecture/`](spec/architecture/) — start with [`spec/architecture/README.md`](spec/architecture/README.md).
 
 ## Quality gates
 
@@ -30,6 +30,7 @@ Conventional Commits (see `commitlint.config.js`). Subject ≤ 72 chars, lower-c
 
 Each file below is the authoritative source for its topic. Edit there, not here.
 
+- [spec/architecture/](spec/architecture/) — system architecture (start with `architecture/README.md`)
 - [spec/naming.md](spec/naming.md) — identifier and filename conventions
 - [spec/comments.md](spec/comments.md) — when and how to write comments
 - [spec/testing.md](spec/testing.md) — test structure, coverage, red-green protocol
