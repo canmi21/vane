@@ -198,7 +198,7 @@ Fetch and Terminator failures propagate as structured errors.
 | Malformed upstream response        | `502 Bad Gateway`         | close client |
 | WASM response-phase pool exhausted | `503 Service Unavailable` | —            |
 
-Fetch failures do not retry inside the FlowGraph. Retry is a Fetch-internal concern (open question — see `07-l7.md`).
+Fetch failures do not retry inside the FlowGraph. Retry lives inside the Fetch itself — see the Retry subsection above and `07-l7.md` for the full retry policy.
 
 ### Terminator failures
 

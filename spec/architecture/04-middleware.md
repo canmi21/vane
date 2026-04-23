@@ -173,7 +173,7 @@ Middleware returns `Result<Decision, Error>`. An `Err(_)` return:
 - **L7 Request** — return a 5xx to the client (`500` by default; `Timeout → 504`; `Upstream → 502`). Skip Fetch.
 - **L7 Response** — the upstream response is already obtained; a response-middleware error replaces the response with a 5xx. Upstream work is not rolled back.
 
-Middleware does not retry. Retry is a Fetch concern (open question — see `07-l7.md`).
+Middleware does not retry. Retry lives inside the Fetch — see `05-terminator.md` (Retry subsection) and `07-l7.md` for the policy.
 
 ## Non-goals
 

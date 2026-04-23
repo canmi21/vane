@@ -80,7 +80,7 @@ Post-MVP optimizations (subtree sharing, dead-node elimination) are additional p
 
 - Every `Node::Check`'s `on_match` and `on_miss` resolve to valid `NodeId`s.
 - Every `Node::Middleware`'s `id` and `next` resolve.
-- Every `Node::Fetch`'s `id` and `next` resolve. Referenced upstream addresses, WASM modules, and CGI binary paths exist and type-check.
+- Every `Node::Fetch`'s `id` resolves. `next_response` and `next_tunnel` are each `Some(valid NodeId)` or `None` consistent with the Fetch variant's output modes (`HttpProxy` / `HttpSynthesize` → `next_response` required, `next_tunnel` forbidden; `L4Forward` → `next_tunnel` required, `next_response` forbidden; `WebSocketUpgrade` → both required). Referenced upstream addresses, WASM modules, and CGI binary paths exist and type-check.
 - Every `Node::Terminate`'s referenced Terminator exists.
 - The graph is acyclic.
 - **Phase consistency** — every walk from an entry to a Terminator respects the phase state machine. `L4PeekMiddleware` / `L4BytesMiddleware` appear only on pre-Fetch L4 paths; `L7RequestMiddleware` only between L4→L7 upgrade and Fetch; `L7ResponseMiddleware` only between Fetch and `Terminator::WriteHttpResponse`; `Terminator::ByteTunnel` follows only `Fetch::L4Forward` or `Fetch::WebSocketUpgrade`. Violations are compile errors with the offending node and source rule named.
@@ -153,9 +153,20 @@ pub async fn execute(
                 graph[*id].run(ctx).await?;
                 cur = *next;
             }
-            Node::Fetch { id, next } => {
-                graph[*id].fetch(ctx).await?;
-                cur = *next;
+            Node::Fetch { id, next_response, next_tunnel } => {
+                // Fetch may produce either a Response (for HttpProxy / HttpSynthesize,
+                // or WebSocketUpgrade when upstream rejects the upgrade) or a Tunnel
+                // (for L4Forward, or WebSocketUpgrade on 101). Dispatch on the output
+                // variant. The compiler guarantees the relevant `next_*` is `Some` for
+                // each Fetch variant's reachable outputs (see validate section above).
+                match graph[*id].fetch(ctx).await? {
+                    FetchOutput::Response(_) => {
+                        cur = next_response.expect("compile-time check ensures this is Some");
+                    }
+                    FetchOutput::Tunnel(_) => {
+                        cur = next_tunnel.expect("compile-time check ensures this is Some");
+                    }
+                }
             }
             Node::Terminate(t) => {
                 return graph[*t].run(ctx).await;

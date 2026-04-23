@@ -28,7 +28,7 @@ These are not "later." They are explicit non-goals.
 ## Deferred (may enter scope post-MVP)
 
 - WASM instance-pool auto-scaling (MVP uses user-configured fixed pool sizes).
-- Hot listener add/remove at runtime (MVP binds listeners at boot).
+- Dedicated management-API verbs for standalone listener add / remove (MVP handles listener-set changes via config reload diff — see `01-topology.md` — but does not expose `listener.add` / `listener.remove` verbs).
 - Automatic certificate acquisition (MVP accepts cert files; the pure-Rust LazyCert port-over from v1 lands after MVP).
 - Upstream health checks and circuit breaking.
 - Metrics/tracing exporters beyond structured logs.
@@ -45,7 +45,7 @@ Proposal, not final. Intended as the first concrete milestone after architecture
 - HTTP/1.1 reverse proxy (client side and upstream side).
 - Unix socket management, no remote HTTP management.
 - JSON merge-compile-swap config.
-- Three preset rule shapes: `port-forward`, `reverse-proxy`, `static-site`.
+- Four preset rule shapes: `port_forward`, `reverse_proxy`, `static_site`, `redirect_https`. WebSocket proxying is a `reverse_proxy` flag, not a separate preset.
 - Built-in middleware: SNI peek, HTTP protocol detect, path match, header rewrite.
 - No WASM (internal middleware only).
 - No TUI (CLI only).
