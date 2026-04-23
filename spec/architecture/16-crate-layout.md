@@ -12,7 +12,7 @@ crates/
 ├── mgmt/          vane-mgmt         ── management protocol (wire format, server, client)
 ├── testutil/      vane-testutil     ── dev-only test helpers
 ├── vane/          vane              ── binary: CLI + TUI (client of mgmt)
-└── vaned/         vaned             ── binary: daemon (ties everything together)
+└── daemon/        vaned             ── binary: daemon (ties everything together)
 
 tests/                               ── workspace-level integration tests
 ```
@@ -292,18 +292,18 @@ Naming follows ecosystem conventions — short, lowercase, single-word where pos
 
 ### Per-crate feature flags
 
-| Crate         | Feature     | Default | Purpose                                               |
-|---------------|-------------|---------|-------------------------------------------------------|
-| `vane-engine` | `aws-lc-rs` | ✅      | rustls crypto provider = aws-lc-rs                    |
-| `vane-engine` | `ring`      | ❌      | rustls crypto provider = ring (mutually exclusive)    |
-| `vane-engine` | `h3`        | ✅      | compile h3 + quinn for HTTP/3 support                 |
-| `vane-engine` | `cgi`       | ✅      | compile CGI fork-exec path                            |
-| `vaned`       | `aws-lc-rs` | ✅      | forwards to `vane-engine/aws-lc-rs`                   |
-| `vaned`       | `ring`      | ❌      | forwards to `vane-engine/ring`                        |
-| `vaned`       | `h3`        | ✅      | forwards to `vane-engine/h3`                          |
-| `vaned`       | `cgi`       | ✅      | forwards to `vane-engine/cgi`                         |
-| `vaned`       | `wasm`      | ✅      | links `vane-wasm` (pulls wasmtime)                    |
-| `vane` (bin)  | `tui`       | ✅      | compiles ratatui + crossterm TUI code                 |
+| Crate         | Feature     | Default | Purpose                                            |
+| ------------- | ----------- | ------- | -------------------------------------------------- |
+| `vane-engine` | `aws-lc-rs` | ✅      | rustls crypto provider = aws-lc-rs                 |
+| `vane-engine` | `ring`      | ❌      | rustls crypto provider = ring (mutually exclusive) |
+| `vane-engine` | `h3`        | ✅      | compile h3 + quinn for HTTP/3 support              |
+| `vane-engine` | `cgi`       | ✅      | compile CGI fork-exec path                         |
+| `vaned`       | `aws-lc-rs` | ✅      | forwards to `vane-engine/aws-lc-rs`                |
+| `vaned`       | `ring`      | ❌      | forwards to `vane-engine/ring`                     |
+| `vaned`       | `h3`        | ✅      | forwards to `vane-engine/h3`                       |
+| `vaned`       | `cgi`       | ✅      | forwards to `vane-engine/cgi`                      |
+| `vaned`       | `wasm`      | ✅      | links `vane-wasm` (pulls wasmtime)                 |
+| `vane` (bin)  | `tui`       | ✅      | compiles ratatui + crossterm TUI code              |
 
 No feature flags on `vane-core`, `vane-wasm`, `vane-mgmt`, `vane-testutil` — they are always-on code.
 
@@ -339,13 +339,13 @@ pub const BACKEND_NAME: &str = {
 
 Trade-offs:
 
-|                      | `aws-lc-rs` (default)                 | `ring`                                |
-|----------------------|----------------------------------------|---------------------------------------|
-| Performance          | fast — AES-NI / SHA-NI / AVX-512       | slower — basic assembly only          |
-| Build toolchain      | needs cmake + C compiler (BoringSSL)   | pure Rust + small asm, no C toolchain |
-| FIPS 140-3           | optional                               | not available                         |
-| musl cross-compile   | possible with musl-cc setup            | cleanest                              |
-| Binary size          | slightly larger                        | slightly smaller                      |
+|                    | `aws-lc-rs` (default)                | `ring`                                |
+| ------------------ | ------------------------------------ | ------------------------------------- |
+| Performance        | fast — AES-NI / SHA-NI / AVX-512     | slower — basic assembly only          |
+| Build toolchain    | needs cmake + C compiler (BoringSSL) | pure Rust + small asm, no C toolchain |
+| FIPS 140-3         | optional                             | not available                         |
+| musl cross-compile | possible with musl-cc setup          | cleanest                              |
+| Binary size        | slightly larger                      | slightly smaller                      |
 
 ### Feature-off → rule compile-time rejection
 
@@ -482,12 +482,12 @@ Repository: https://github.com/canmi21/vane
 
 Each binary crate (`vane`, `vaned`) has its own `build.rs` that emits compile-time env vars via `cargo:rustc-env=`:
 
-| Env var           | Source                                          |
-|-------------------|-------------------------------------------------|
+| Env var           | Source                                                             |
+| ----------------- | ------------------------------------------------------------------ |
 | `VANE_COMMIT`     | `git rev-parse --short HEAD` (or `unknown` when not in a git tree) |
-| `VANE_BUILD_DATE` | UTC build date in `YYYY-MM-DD`                  |
-| `VANE_RUSTC`      | `rustc --version` trimmed to `1.x.y`            |
-| `VANE_CARGO`      | `cargo --version` trimmed to `1.x.y`            |
+| `VANE_BUILD_DATE` | UTC build date in `YYYY-MM-DD`                                     |
+| `VANE_RUSTC`      | `rustc --version` trimmed to `1.x.y`                               |
+| `VANE_CARGO`      | `cargo --version` trimmed to `1.x.y`                               |
 
 The binary's `main.rs` reads these via `env!("VANE_...")` at compile time and passes them into the shared formatter.
 

@@ -1,0 +1,23 @@
+[package]
+name = "vane"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["tui"]
+tui = []
+
+[dependencies]
+vane-core = { workspace = true }
+vane-mgmt = { workspace = true }
+
+[[bin]]
+name = "vane"
+path = "src/main.rs"

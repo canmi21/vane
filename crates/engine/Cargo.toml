@@ -1,0 +1,21 @@
+[package]
+name = "vane-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["aws-lc-rs", "h3", "cgi"]
+aws-lc-rs = []
+ring = []
+h3 = []
+cgi = []
+
+[dependencies]
+vane-core = { workspace = true }

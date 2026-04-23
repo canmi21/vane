@@ -1,0 +1,22 @@
+//! vane runtime engine: executor, listeners, pools, TLS, built-in middleware.
+//!
+//! See `spec/architecture/02-flow.md`, `06-l4.md`, `07-l7.md`, `08-tls.md`, `13-rate-limit.md`.
+
+#[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
+compile_error!("`aws-lc-rs` and `ring` features are mutually exclusive — pick one");
+
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+compile_error!("one of `aws-lc-rs` or `ring` must be enabled");
+
+pub mod crypto {
+	pub const BACKEND_NAME: &str = {
+		#[cfg(feature = "aws-lc-rs")]
+		{
+			"aws-lc-rs"
+		}
+		#[cfg(feature = "ring")]
+		{
+			"ring"
+		}
+	};
+}

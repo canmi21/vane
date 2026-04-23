@@ -60,13 +60,13 @@ DOCUMENT_URI            decoded URI path
 
 ```json
 {
-  "type": "cgi",
-  "binary": "/var/www/cgi-bin/app.cgi",
-  "script_name": "/cgi-bin/app.cgi",
-  "env": {
-    "DATABASE_URL": "postgres://...",
-    "APP_MODE": "production"
-  }
+	"type": "cgi",
+	"binary": "/var/www/cgi-bin/app.cgi",
+	"script_name": "/cgi-bin/app.cgi",
+	"env": {
+		"DATABASE_URL": "postgres://...",
+		"APP_MODE": "production"
+	}
 }
 ```
 
@@ -74,7 +74,7 @@ User-provided `env` entries merge into the CGI process's environment. User keys 
 
 ### Isolation from daemon env
 
-The daemon's own env (loaded by `dotenvy` at startup, including secrets) is **not propagated** to CGI children. The CGI child process's environment contains *only* what this subsystem constructs — RFC 3875 vars, common extensions, user-declared env. A deliberate boundary to keep CGI scripts from accidentally reading daemon secrets.
+The daemon's own env (loaded by `dotenvy` at startup, including secrets) is **not propagated** to CGI children. The CGI child process's environment contains _only_ what this subsystem constructs — RFC 3875 vars, common extensions, user-declared env. A deliberate boundary to keep CGI scripts from accidentally reading daemon secrets.
 
 ## Path handling: explicit `script_name`
 

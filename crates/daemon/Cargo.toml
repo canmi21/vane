@@ -1,0 +1,29 @@
+[package]
+name = "vaned"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["aws-lc-rs", "h3", "cgi", "wasm"]
+aws-lc-rs = ["vane-engine/aws-lc-rs"]
+ring = ["vane-engine/ring"]
+h3 = ["vane-engine/h3"]
+cgi = ["vane-engine/cgi"]
+wasm = ["dep:vane-wasm"]
+
+[dependencies]
+vane-core = { workspace = true }
+vane-engine = { path = "../engine", version = "0.10.0", default-features = false }
+vane-mgmt = { workspace = true }
+vane-wasm = { workspace = true, optional = true }
+
+[[bin]]
+name = "vaned"
+path = "src/main.rs"
