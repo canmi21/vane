@@ -1,7 +1,0 @@
-{
-  "name": "vane-workspace",
-  "private": true,
-  "workspaces": [
-    "src/panel/web"
-  ]
-}
