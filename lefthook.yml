@@ -7,13 +7,13 @@ pre-commit:
   parallel: true
   commands:
     rustfmt:
-      glob: '*.rs'
+      glob: "*.rs"
       run: rustfmt --edition 2024 {staged_files}
       stage_fixed: true
-    oxfmt:
-      glob: '*.{md,json}'
-      run: bunx --bun oxfmt {staged_files}
+    dprint:
+      glob: "*.{md,json,toml,yml,yaml}"
+      run: dprint fmt {staged_files}
       stage_fixed: true
     clippy:
-      glob: '*.rs'
+      glob: "*.rs"
       run: cargo clippy --workspace --all-targets -- -D warnings

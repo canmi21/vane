@@ -131,22 +131,22 @@ Dependencies: `vane-core`, `vane-engine`, `vane-wasm`, `vane-mgmt`, plus `tokio`
 Strict DAG, one direction only:
 
 ```
-                     ┌──────┐
-                     │ core │
-                     └──┬───┘
-       ┌────────────┬───┴────┬──────────┐
-       │            │        │          │
-   ┌───▼────┐   ┌───▼────┐ ┌─▼────┐   ┌─▼────┐
-   │ engine │   │  wasm  │ │ mgmt │   │ testutil
-   └───┬────┘   └───┬────┘ └──┬───┘   └──────┘
-       │            │         │
-       │            │         ├────────────────┐
-       │            │         │                │
-       ├────────────┘         │                │
-       │                      │                │
-   ┌───▼──┐               ┌───▼──┐
-   │vaned │               │ vane │
-   └──────┘               └──────┘
+                  ┌──────┐
+                  │ core │
+                  └──┬───┘
+    ┌────────────┬───┴────┬──────────┐
+    │            │        │          │
+┌───▼────┐   ┌───▼────┐ ┌─▼────┐   ┌─▼────┐
+│ engine │   │  wasm  │ │ mgmt │   │ testutil
+└───┬────┘   └───┬────┘ └──┬───┘   └──────┘
+    │            │         │
+    │            │         ├────────────────┐
+    │            │         │                │
+    ├────────────┘         │                │
+    │                      │                │
+┌───▼──┐               ┌───▼──┐
+│vaned │               │ vane │
+└──────┘               └──────┘
 ```
 
 Enforced by CI: `cargo check --workspace` detects any inadvertent dependency cycle or inversion.
@@ -180,36 +180,36 @@ They do **not** need `vane-engine` (no listener, no pool, no executor in this bi
 
 ```toml
 [workspace]
-resolver = "3"                                   # MSRV-aware resolver, requires Rust 1.84+
-members  = [
-  "crates/core",
-  "crates/engine",
-  "crates/wasm",
-  "crates/mgmt",
-  "crates/testutil",
-  "crates/vane",
-  "crates/vaned",
-  "tests",
+resolver = "3" # MSRV-aware resolver, requires Rust 1.84+
+members = [
+	"crates/core",
+	"crates/engine",
+	"crates/wasm",
+	"crates/mgmt",
+	"crates/testutil",
+	"crates/vane",
+	"crates/vaned",
+	"tests",
 ]
 
 [workspace.package]
-edition      = "2024"                            # requires Rust 1.85+
-rust-version = "1.95"                            # MSRV
-license      = "see LICENSE"
+edition = "2024" # requires Rust 1.85+
+rust-version = "1.95" # MSRV
+license = "see LICENSE"
 
 [workspace.lints.rust]
-unsafe_code        = "forbid"                    # stricter than deny; cannot be overridden via allow
-missing_docs       = "warn"
-unreachable_pub    = "warn"
+unsafe_code = "deny" # per-file `#[allow(unsafe_code)]` is required for CGI pre_exec; reviewed in audit
+missing_docs = "warn"
+unreachable_pub = "warn"
 
 [workspace.lints.clippy]
-all                    = { level = "warn", priority = -1 }
-pedantic               = { level = "warn", priority = -1 }
-nursery                = { level = "warn", priority = -1 }
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
 # selectively allowed
 module_name_repetitions = "allow"
-missing_errors_doc      = "allow"
-missing_panics_doc      = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 
 [workspace.dependencies]
 # Dependencies are added via `cargo add <name>` — no hand-pinned versions.
@@ -218,19 +218,19 @@ missing_panics_doc      = "allow"
 # the new Cargo.lock explicitly.
 
 [profile.release]
-opt-level     = "z"                              # size-optimized
-lto           = true                             # fat LTO
-codegen-units = 1                                # single codegen unit for maximum optimization
-strip         = true                             # strip symbols
-panic         = "abort"                          # no unwinding; smaller, faster
+opt-level = "z" # size-optimized
+lto = true # fat LTO
+codegen-units = 1 # single codegen unit for maximum optimization
+strip = true # strip symbols
+panic = "abort" # no unwinding; smaller, faster
 
 [profile.dev]
-opt-level     = 0                                # no optimization
-codegen-units = 256                              # high parallelism for fast builds
-lto           = false
-strip         = false                            # keep debug symbols
-debug         = "full"
-panic         = "unwind"                         # normal unwind for tests / debuggers
+opt-level = 0 # no optimization
+codegen-units = 256 # high parallelism for fast builds
+lto = false
+strip = false # keep debug symbols
+debug = "full"
+panic = "unwind" # normal unwind for tests / debuggers
 ```
 
 ### Dependency management policy
@@ -244,12 +244,12 @@ panic         = "unwind"                         # normal unwind for tests / deb
 
 ```toml
 [alias]
-c    = "check --all-targets --workspace"
-b    = "build --all-targets --workspace"
-t    = "test --workspace"
-fmt  = "fmt --all"
+c = "check --all-targets --workspace"
+b = "build --all-targets --workspace"
+t = "test --workspace"
+fmt = "fmt --all"
 lint = "clippy --workspace --all-targets -- -D warnings"
-ci   = "test --workspace --all-features"
+ci = "test --workspace --all-features"
 ```
 
 ## Tests
@@ -455,28 +455,56 @@ Both binaries share a version string format via a `vane-core::version` helper.
 
 ### Output format
 
-Common prefix (both binaries):
+Three blocks separated by blank lines:
+
+1. **Header** — `Vane — <description>` then `Copyright (C) <year> <author>`.
+2. **Build** — `Built:` / `Rust:` / `Cargo:` always; `Features:` / `Protocols:` added on `vaned`. Label column width fixed at 12 (longest label `Protocols:` is 10 chars, + 2 col gap).
+3. **Legal** — three-line notice: `Copyright (C) <year> <author>`, `Released under the MIT License without restriction.`, and `This software comes with ABSOLUTELY NO WARRANTY.`
+4. **Links** — `Homepage:` / `Source:` / `License:`, same 12-col label width.
+
+`vane`:
 
 ```
-vane 0.1.0 (59807616e 2026-04-14)
-rustc 1.95.0
-cargo 1.95.0
+Vane — A compact programmable proxy engine
+
+Built:      <version> (<commit> <date>)
+Rust:       <rustc-version-line>
+Cargo:      <cargo-version-line>
+
+Copyright (C) 2025 Canmi <t@canmi.icu>
+
+Released under the MIT License without restriction.
+This software comes with ABSOLUTELY NO WARRANTY.
+
+Homepage:   https://vane.canmi.app
+Source:     https://github.com/canmi21/vane
+License:    https://opensource.org/licenses/MIT
 ```
 
-`vaned` prints two additional lines with compile-time capabilities:
+`vaned`:
 
 ```
-features:  aws-lc-rs, h3, cgi, wasm
-protocols: http/1.1, http/2, http/3, websocket, tcp, udp, cgi
+Vane — A compact programmable proxy engine
+
+Built:      <version> (<commit> <date>)
+Rust:       <rustc-version-line>
+Cargo:      <cargo-version-line>
+Features:   aws-lc-rs, h3, cgi, wasm
+Protocols:  tcp, udp, quic, h1, h2, h3, ws, cgi
+
+Copyright (C) 2025 Canmi <t@canmi.icu>
+
+Released under the MIT License without restriction.
+This software comes with ABSOLUTELY NO WARRANTY.
+
+Homepage:   https://vane.canmi.app
+Source:     https://github.com/canmi21/vane
+License:    https://opensource.org/licenses/MIT
 ```
 
-Common footer (both binaries):
+`<rustc-version-line>` is the whole trailing portion of `rustc --version` (without the `rustc` prefix) — e.g., `1.95.0 (59807616e 2026-04-14)`. Same shape for `cargo`. Captured at build time by `build.rs`.
 
-```
-Copyright © 2025 Canmi (t@canmi.icu)
-License: MIT
-Repository: https://github.com/canmi21/vane
-```
+Protocol names use short canonical forms: `h1` / `h2` / `h3` / `ws`. Display order is L4 transports first (`tcp`, `udp`, `quic`), then HTTP family (`h1`, `h2`, `h3`, `ws`), then `cgi` (when the feature is on).
 
 ### `build.rs` contract
 
@@ -543,9 +571,12 @@ fn supported_protocols() -> &'static [&'static str] {
 Constants in `vane-core::meta`:
 
 ```rust
-pub const LICENSE:    &str = "MIT";
-pub const REPOSITORY: &str = "https://github.com/canmi21/vane";
-pub const COPYRIGHT:  &str = "Copyright © 2025 Canmi (t@canmi.icu)";
+pub const DESCRIPTION: &str = "A compact programmable proxy engine";
+pub const COPYRIGHT:   &str = "Copyright (C) 2025 Canmi <t@canmi.icu>";
+pub const HOMEPAGE:    &str = "https://vane.canmi.app";
+pub const REPOSITORY:  &str = "https://github.com/canmi21/vane";
+pub const LICENSE:     &str = "MIT";
+pub const LICENSE_URL: &str = "https://opensource.org/licenses/MIT";
 ```
 
 These are the single source of truth for these values; used in `--version` output, CLI help text, and any generated documentation.

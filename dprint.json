@@ -1,0 +1,26 @@
+{
+	"$schema": "https://dprint.dev/schemas/v0.json",
+	"indentWidth": 2,
+	"useTabs": true,
+	"lineWidth": 100,
+	"newLineKind": "lf",
+	"markdown": {
+		"textWrap": "maintain"
+	},
+	"json": {},
+	"toml": {},
+	"yaml": {},
+	"excludes": [
+		"target/**",
+		"dist/**",
+		"node_modules/**",
+		"Cargo.lock",
+		".git/**"
+	],
+	"plugins": [
+		"https://plugins.dprint.dev/markdown-0.17.8.wasm",
+		"https://plugins.dprint.dev/json-0.19.3.wasm",
+		"https://plugins.dprint.dev/toml-0.6.2.wasm",
+		"https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.0.wasm"
+	]
+}

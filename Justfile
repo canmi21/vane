@@ -15,15 +15,16 @@ b:
 t:
 	cargo test --workspace
 
-# Format: rustfmt for .rs, oxfmt for md/json/yml
+# Format: rustfmt for .rs, dprint for md/json/toml/yaml
 fmt:
 	cargo fmt --all
-	bunx --bun oxfmt
+	dprint fmt
 
-# Lint: clippy + fmt check
+# Lint: clippy + rustfmt check + dprint check
 lint:
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo fmt --all -- --check
+	dprint check
 
 # Run vaned (accepts extra args after --)
 d *args:

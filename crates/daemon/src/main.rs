@@ -16,15 +16,15 @@ const FEATURES: &[&str] = &[
 ];
 
 const PROTOCOLS: &[&str] = &[
-	"http/1.1",
-	"http/2",
-	"websocket",
 	"tcp",
 	"udp",
 	#[cfg(feature = "h3")]
-	"http/3",
-	#[cfg(feature = "h3")]
 	"quic",
+	"h1",
+	"h2",
+	#[cfg(feature = "h3")]
+	"h3",
+	"ws",
 	#[cfg(feature = "cgi")]
 	"cgi",
 ];

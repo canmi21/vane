@@ -2,25 +2,25 @@
 resolver = "3"
 members = [
 	"crates/core",
+	"crates/daemon",
 	"crates/engine",
-	"crates/wasm",
 	"crates/mgmt",
 	"crates/testutil",
 	"crates/vane",
-	"crates/daemon",
+	"crates/wasm",
 	"tests",
 ]
 
 [workspace.package]
 version = "0.10.0"
+authors = ["Canmi <t@canmi.icu>"]
 edition = "2024"
-rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/canmi21/vane"
-authors = ["Canmi <t@canmi.icu>"]
+rust-version = "1.95"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 unreachable_pub = "warn"
 
 [workspace.lints.clippy]
@@ -30,9 +30,9 @@ pedantic = { level = "warn", priority = -1 }
 [workspace.dependencies]
 vane-core = { path = "crates/core", version = "0.10.0" }
 vane-engine = { path = "crates/engine", version = "0.10.0" }
-vane-wasm = { path = "crates/wasm", version = "0.10.0" }
 vane-mgmt = { path = "crates/mgmt", version = "0.10.0" }
 vane-testutil = { path = "crates/testutil", version = "0.10.0" }
+vane-wasm = { path = "crates/wasm", version = "0.10.0" }
 
 [profile.release]
 opt-level = "z"

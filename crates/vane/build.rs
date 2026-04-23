@@ -15,7 +15,7 @@ fn main() {
 
 fn git_short_commit() -> String {
 	Command::new("git")
-		.args(["rev-parse", "--short", "HEAD"])
+		.args(["rev-parse", "--short=9", "HEAD"])
 		.output()
 		.ok()
 		.filter(|o| o.status.success())
@@ -32,23 +32,28 @@ fn build_date() -> String {
 }
 
 fn rustc_version() -> String {
-	Command::new("rustc")
-		.arg("--version")
-		.output()
-		.ok()
-		.filter(|o| o.status.success())
-		.and_then(|o| String::from_utf8(o.stdout).ok())
-		.and_then(|s| s.split_whitespace().nth(1).map(str::to_owned))
-		.unwrap_or_else(|| "unknown".to_owned())
+	tool_version_tail("rustc")
 }
 
 fn cargo_version() -> String {
-	Command::new("cargo")
+	tool_version_tail("cargo")
+}
+
+/// Capture everything after the tool name on the first line of `<tool> --version`.
+///
+/// `rustc 1.95.0 (59807616e 2026-04-14)` → `1.95.0 (59807616e 2026-04-14)`
+fn tool_version_tail(tool: &str) -> String {
+	Command::new(tool)
 		.arg("--version")
 		.output()
 		.ok()
 		.filter(|o| o.status.success())
 		.and_then(|o| String::from_utf8(o.stdout).ok())
-		.and_then(|s| s.split_whitespace().nth(1).map(str::to_owned))
-		.unwrap_or_else(|| "unknown".to_owned())
+		.map_or_else(
+			|| "unknown".to_owned(),
+			|s| {
+				let prefix = format!("{tool} ");
+				s.trim().strip_prefix(&prefix).unwrap_or_else(|| s.trim()).to_owned()
+			},
+		)
 }
