@@ -17,6 +17,7 @@ Reading order:
 13. [`13-rate-limit.md`](13-rate-limit.md) — L1 security floor + L2 user middleware
 14. [`14-presets.md`](14-presets.md) — preset expansion stage, raw-rule transparency, preset catalog
 15. [`15-cgi.md`](15-cgi.md) — CGI driver (process model, env, path handling, security)
+16. [`16-crate-layout.md`](16-crate-layout.md) — Rust workspace: 7 crates, dependency graph, profiles, toolchain
 
 ## Status
 
