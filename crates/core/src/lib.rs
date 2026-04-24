@@ -5,6 +5,7 @@
 pub mod body;
 pub use body::*;
 pub mod compile;
+pub use compile::compile;
 pub mod conn_context;
 pub use conn_context::*;
 pub mod error;
