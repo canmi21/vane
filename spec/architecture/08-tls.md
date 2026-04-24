@@ -36,6 +36,17 @@ A built-in L4 middleware reads the ClientHello from the peek buffer and populate
 
 Once populated, L4 predicates match on `tls.sni`, enabling SNI-based L4 forward to different upstreams per tenant — the standard pattern for TLS-passthrough load balancing.
 
+#### SNI normalization invariant
+
+DNS names are case-insensitive (RFC 4343); some clients send `API.example.COM` in the ClientHello, most send `api.example.com`. To keep one comparison path on the hot side, the SNI string is **ASCII-lowercased at every ingress boundary** and the invariant "`ctx.tls.sni` is lowercase" is maintained system-wide:
+
+- The SNI peek middleware lowercases the parsed `server_name` before writing `ctx.tls.sni`.
+- `VaneCertResolver::resolve` lowercases `client_hello.server_name()` before the `lookup` call.
+- `CertStore::by_sni` keys are stored lowercase at populator-time; populators that read user-provided cert hostnames call `to_ascii_lowercase()` on insert.
+- The predicate compiler (`lower` pass in `02-flow.md`) rejects `tls.sni { equals/prefix/suffix/... "X" }` literals that contain uppercase ASCII with a clear error: `"tls.sni literals must be lowercase — saw 'Api.example.com' at rules/30-api.json:14"`. This keeps hot-path comparison byte-for-byte; no `eq_ignore_ascii_case` shim.
+
+Non-ASCII hostnames follow IDNA: clients are expected to send punycode (`xn--`) in SNI; `vane` does not attempt U-label → A-label conversion. Cert files loaded via `StaticCertPopulator` must list hostnames in punycode form.
+
 ### TLS termination (L4 → L7 upgrade)
 
 When a FlowGraph path requires HTTP inspection on a TLS-wrapped connection:
@@ -247,9 +258,9 @@ pub enum CrlSource {
 daemon.tls_config_cache: HashMap<TlsConfigFingerprint, Arc<ClientConfig>>
 
 TlsConfigFingerprint = hash(
-    root_ca_source,     // System or Bundle hash
-    client_cert,        // hash of CertifiedKey
-    crls,               // hash of CRL sources
+    root_ca_source,     // System: constant tag; Bundle(path): path string
+    client_cert,        // hash of CertifiedKey bytes (cert DER + key DER)
+    crls,               // hash of CRL *sources* — see below
     verify_mode,        // Full or Skip
     alpn_protocols,     // offered ALPN list
 )
@@ -257,15 +268,19 @@ TlsConfigFingerprint = hash(
 
 Two Fetches sharing the same fingerprint share one `Arc<ClientConfig>`. Cache entries become unreachable when the last referencing Fetch is dropped, and are reclaimed by Arc refcount on the next sweep.
 
+**CRL fingerprint = source identity, not content.** `CrlSource::File(path)` hashes the path string; `CrlSource::Url(url)` hashes the URL string. The fetched CRL bytes are **not** part of the fingerprint. Consequence: when a CRL file is re-read from disk or a CRL URL returns fresh bytes, the fingerprint is unchanged, the cached `Arc<ClientConfig>` is unchanged, and the new CRL content is installed by mutating the rustls `CryptoProvider`'s CRL provider — new handshakes on the existing `ClientConfig` see the refreshed revocation list immediately.
+
+Rationale: hashing CRL content would force a new `ClientConfig` on every CRL refresh, defeating the cache and producing connection-pool churn every few hours. The TLS `ClientConfig` identity stays stable across CRL updates; in-flight TLS connections keep serving (a revoked cert caught by a fresh CRL affects _new_ handshakes, not established ones — which is correct: in-flight sessions already completed identity verification at handshake time).
+
 ### mTLS on upstream
 
 `client_cert: Some(CertifiedKey)` presents a client cert to the upstream during handshake. Combined with the upstream's requirement for it on its side, this establishes mutual authentication.
 
 ### CRL checking
 
-When `crls` is non-empty, `rustls::WebPkiCrlProvider` validates the upstream cert against the provided CRL list. CRLs come from files (loaded at boot) or URLs (fetched periodically).
+When `crls` is non-empty, `rustls::WebPkiCrlProvider` validates the upstream cert against the provided CRL list. CRLs come from files (loaded at boot, optionally re-read on refresh) or URLs (fetched periodically from the CRL distribution point).
 
-CRLs participate in the TLS fingerprint — two Fetches with different CRL sets get separate pool slots.
+Two Fetches with different CRL source sets get separate pool slots (the source list participates in the fingerprint); two Fetches with identical CRL sources share one `ClientConfig` even as the underlying CRL bytes refresh (see fingerprint note above).
 
 ---
 

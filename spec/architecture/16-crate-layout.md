@@ -357,6 +357,8 @@ When a feature is disabled in the build, rules referencing the disabled capabili
 
 Compile-time rejection surfaces feature mismatches early — before the daemon bind listeners or before a deploy — rather than as ambiguous runtime 5xx's.
 
+The rejection lives in `vane-engine`'s `validate` pass (see `02-flow.md` § _validate_), not in `vane-core`'s parser. `vane-core` is feature-flag-free and parses every legal raw rule regardless of which crypto / protocol / extension features the downstream binary was built with — so a shared tool that only reads configs (e.g., `vane lint`) can be built without pulling in wasmtime or quinn. Engine owns the "what did this binary compile in" truth and gates accordingly via `FlowGraphMeta::feature_set`.
+
 ### Management HTTP: runtime, not compile-time
 
 The HTTP-over-TCP management transport is **not** feature-gated. `hyper` is already linked for proxy duties; feature-gating HTTP management saves zero compile time and zero binary size.
