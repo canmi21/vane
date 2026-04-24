@@ -79,8 +79,11 @@ pub enum Terminator {
 
 #[cfg(test)]
 mod tests {
+	use std::io;
+	use std::task::{Context, Poll};
+
 	use serde_json::json;
-	use tokio::net::UnixStream;
+	use tokio::io::ReadBuf;
 
 	use super::*;
 	use crate::body::{Body, Response};
@@ -91,12 +94,42 @@ mod tests {
 	// are not dyn-compatible; resolving that is a spec/impl task for the
 	// main LLM (e.g., dynosaur-style Dyn shim or boxed-future variants).
 
+	// A runtime-free `AsyncRead + AsyncWrite` witness. `UnixStream::pair` and
+	// `tokio::io::duplex` both require a running reactor, which core tests
+	// deliberately do not spin up (16-crate-layout.md: no async-runtime dep).
+	struct NoopStream;
+
+	impl AsyncRead for NoopStream {
+		fn poll_read(
+			self: Pin<&mut Self>,
+			_cx: &mut Context<'_>,
+			_buf: &mut ReadBuf<'_>,
+		) -> Poll<io::Result<()>> {
+			Poll::Ready(Ok(()))
+		}
+	}
+
+	impl AsyncWrite for NoopStream {
+		fn poll_write(
+			self: Pin<&mut Self>,
+			_cx: &mut Context<'_>,
+			buf: &[u8],
+		) -> Poll<io::Result<usize>> {
+			Poll::Ready(Ok(buf.len()))
+		}
+
+		fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+			Poll::Ready(Ok(()))
+		}
+
+		fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+			Poll::Ready(Ok(()))
+		}
+	}
+
 	#[test]
-	fn async_read_write_blanket_accepts_unix_stream() {
-		// Any `AsyncRead + AsyncWrite` must fit `Pin<Box<dyn AsyncReadWrite + Send>>`
-		// via the blanket impl. UnixStream is the convenient witness on Unix hosts.
-		let (a, _b) = UnixStream::pair().expect("unix pair");
-		let _: Pin<Box<dyn AsyncReadWrite + Send>> = Box::pin(a);
+	fn async_read_write_blanket_accepts_async_io_type() {
+		let _: Pin<Box<dyn AsyncReadWrite + Send>> = Box::pin(NoopStream);
 	}
 
 	#[test]
@@ -110,16 +143,13 @@ mod tests {
 	}
 
 	#[test]
-	fn tunnel_builds_from_paired_unix_streams() {
-		let (client, upstream) = UnixStream::pair().expect("unix pair");
+	fn tunnel_builds_from_paired_async_io_streams() {
 		let (tx, _rx) = oneshot::channel::<crate::middleware::CloseReason>();
 		let tunnel = Tunnel {
-			client: Box::pin(client) as Pin<Box<dyn AsyncReadWrite + Send>>,
-			upstream: Box::pin(upstream) as Pin<Box<dyn AsyncReadWrite + Send>>,
+			client: Box::pin(NoopStream) as Pin<Box<dyn AsyncReadWrite + Send>>,
+			upstream: Box::pin(NoopStream) as Pin<Box<dyn AsyncReadWrite + Send>>,
 			close_reason_tx: Some(tx),
 		};
-		// Routing it through L7FetchOutput::Tunnel exercises the second variant
-		// and confirms Tunnel is usable as the output payload.
 		let _ = L7FetchOutput::Tunnel(tunnel);
 	}
 
