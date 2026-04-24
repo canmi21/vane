@@ -554,4 +554,288 @@ mod tests {
 			PredicateView::L4 { .. } => panic!("wrong variant"),
 		}
 	}
+
+	// Parse-layer coverage for Predicate / CheckMap / Operator / Value.
+	// Tests exercise the wire format defined in spec/architecture/18-predicate-schema.md.
+
+	fn parse_predicate(v: serde_json::Value) -> Result<Predicate, serde_json::Error> {
+		serde_json::from_value(v)
+	}
+
+	fn expect_check(p: &Predicate) -> &CheckMap {
+		match p {
+			Predicate::Check(c) => c,
+			other => panic!("expected Predicate::Check, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parse_any_of_happy_path() {
+		let raw = serde_json::json!({
+			"any_of": [
+				{ "tls.sni": { "equals": "a" } },
+				{ "tls.sni": { "equals": "b" } },
+			],
+		});
+		let p = parse_predicate(raw).expect("parse any_of");
+		let Predicate::AnyOf(AnyOfP { any_of }) = p else {
+			panic!("expected AnyOf");
+		};
+		assert_eq!(any_of.len(), 2);
+		let c0 = expect_check(&any_of[0]);
+		let c1 = expect_check(&any_of[1]);
+		assert_eq!(c0.path, FieldPath::TlsSni);
+		assert_eq!(c1.path, FieldPath::TlsSni);
+		match (&c0.op, &c1.op) {
+			(Operator::Equals(Value::Str(a)), Operator::Equals(Value::Str(b))) => {
+				assert_eq!(a, "a");
+				assert_eq!(b, "b");
+			}
+			(a, b) => panic!("unexpected ops: {a:?} / {b:?}"),
+		}
+	}
+
+	#[test]
+	fn parse_not_happy_path() {
+		let raw = serde_json::json!({
+			"not": { "tls.sni": { "equals": "internal" } },
+		});
+		let p = parse_predicate(raw).expect("parse not");
+		let Predicate::Not(NotP { not }) = p else {
+			panic!("expected Not");
+		};
+		let inner = expect_check(&not);
+		assert_eq!(inner.path, FieldPath::TlsSni);
+		match &inner.op {
+			Operator::Equals(Value::Str(s)) => assert_eq!(s, "internal"),
+			other => panic!("unexpected op: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parse_check_across_representative_paths() {
+		let cases = [
+			(serde_json::json!({ "tls.sni": { "equals": "api.example.com" } }), FieldPath::TlsSni),
+			(serde_json::json!({ "remote.port": { "gt": 1024 } }), FieldPath::RemotePort),
+			(serde_json::json!({ "http.method": { "equals": "GET" } }), FieldPath::HttpMethod),
+			(serde_json::json!({ "http.uri.path": { "prefix": "/api" } }), FieldPath::HttpUriPath),
+			(
+				serde_json::json!({ "http.header.host": { "equals": "a.example.com" } }),
+				FieldPath::HttpHeader(Arc::from("host")),
+			),
+			(serde_json::json!({ "http.body": { "contains": "hello" } }), FieldPath::HttpBody),
+		];
+		for (raw, expected_path) in cases {
+			let p = parse_predicate(raw.clone()).unwrap_or_else(|e| panic!("parse {raw}: {e}"));
+			let c = expect_check(&p);
+			assert_eq!(c.path, expected_path, "input: {raw}");
+		}
+	}
+
+	#[test]
+	fn parse_any_of_with_extra_key_is_rejected() {
+		// AnyOfP carries deny_unknown_fields; an object with any_of + an extra key must not
+		// silently fall back to Check (two top-level keys would also fail CheckMap).
+		let raw = serde_json::json!({
+			"any_of": [ { "tls.sni": { "equals": "a" } } ],
+			"extra": true,
+		});
+		let err = parse_predicate(raw).expect_err("must reject extra key on any_of");
+		let _ = err.to_string();
+	}
+
+	#[test]
+	fn parse_http_header_any_of_is_a_check_not_combinator() {
+		// A header literally named "any_of" is a multi-segment dotted path and is a Check,
+		// not the combinator form. 18-predicate-schema.md § "Why this doesn't need reserved-word policy".
+		let raw = serde_json::json!({ "http.header.any_of": { "equals": "x" } });
+		let p = parse_predicate(raw).expect("parse");
+		let c = expect_check(&p);
+		assert_eq!(c.path, FieldPath::HttpHeader(Arc::from("any_of")));
+	}
+
+	#[test]
+	fn parse_uppercase_field_path_suggests_lowercase() {
+		let raw = serde_json::json!({ "http.header.Host": { "equals": "x" } });
+		let err = parse_predicate(raw).expect_err("uppercase must fail");
+		let msg = err.to_string();
+		assert!(msg.contains("http.header.Host"), "error mentions offending input: {msg}");
+		assert!(msg.contains("did you mean"), "error includes suggestion phrase: {msg}");
+		assert!(msg.contains("http.header.host"), "error contains lowercased form: {msg}");
+	}
+
+	#[test]
+	fn parse_multi_key_check_is_rejected() {
+		let raw = serde_json::json!({
+			"http.uri.path": { "matches": "^/" },
+			"http.method": { "equals": "GET" },
+		});
+		let err = parse_predicate(raw).expect_err("multi-key check must fail");
+		let _ = err.to_string();
+	}
+
+	#[test]
+	fn parse_empty_http_header_name_is_rejected() {
+		let raw = serde_json::json!({ "http.header.": { "equals": "x" } });
+		let err = parse_predicate(raw).expect_err("empty header name must fail");
+		let _ = err.to_string();
+	}
+
+	#[test]
+	fn parse_unknown_field_path_is_rejected_with_name() {
+		let raw = serde_json::json!({ "http.nope": { "equals": "x" } });
+		let err = parse_predicate(raw).expect_err("unknown path must fail");
+		let msg = err.to_string();
+		assert!(msg.contains("http.nope"), "error mentions offending path: {msg}");
+	}
+
+	fn parse_op(v: serde_json::Value) -> Operator {
+		let mut map = serde_json::Map::new();
+		map.insert("tls.sni".to_string(), v);
+		let raw = serde_json::Value::Object(map);
+		match parse_predicate(raw).expect("parse check") {
+			Predicate::Check(c) => c.op,
+			other => panic!("expected Check, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn operator_equals_and_not_equals_on_string() {
+		let eq = parse_op(serde_json::json!({ "equals": "api" }));
+		match eq {
+			Operator::Equals(Value::Str(s)) => assert_eq!(s, "api"),
+			other => panic!("expected equals/str: {other:?}"),
+		}
+		let neq = parse_op(serde_json::json!({ "not_equals": "api" }));
+		match neq {
+			Operator::NotEquals(Value::Str(s)) => assert_eq!(s, "api"),
+			other => panic!("expected not_equals/str: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn operator_contains_and_not_contains_on_string() {
+		let c = parse_op(serde_json::json!({ "contains": "foo" }));
+		match c {
+			Operator::Contains(Value::Str(s)) => assert_eq!(s, "foo"),
+			other => panic!("expected contains/str: {other:?}"),
+		}
+		let nc = parse_op(serde_json::json!({ "not_contains": "foo" }));
+		match nc {
+			Operator::NotContains(Value::Str(s)) => assert_eq!(s, "foo"),
+			other => panic!("expected not_contains/str: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn operator_prefix_and_suffix_on_string() {
+		let p = parse_op(serde_json::json!({ "prefix": "/api" }));
+		match p {
+			Operator::Prefix(Value::Str(s)) => assert_eq!(s, "/api"),
+			other => panic!("expected prefix/str: {other:?}"),
+		}
+		let s = parse_op(serde_json::json!({ "suffix": ".json" }));
+		match s {
+			Operator::Suffix(Value::Str(v)) => assert_eq!(v, ".json"),
+			other => panic!("expected suffix/str: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn operator_matches_carries_pattern_source() {
+		let op = parse_op(serde_json::json!({ "matches": "^/api/v\\d+" }));
+		match op {
+			Operator::Matches(pattern) => assert_eq!(pattern, "^/api/v\\d+"),
+			other => panic!("expected matches: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn operator_in_and_not_in_accept_mixed_scalar_types() {
+		let op = parse_op(serde_json::json!({ "in": ["foo", 42] }));
+		let Operator::In(xs) = op else {
+			panic!("expected in");
+		};
+		assert_eq!(xs.len(), 2);
+		assert_eq!(xs[0], Value::Str("foo".into()));
+		assert_eq!(xs[1], Value::Int(42));
+		let op2 = parse_op(serde_json::json!({ "not_in": ["bar", 7] }));
+		let Operator::NotIn(ys) = op2 else {
+			panic!("expected not_in");
+		};
+		assert_eq!(ys.len(), 2);
+		assert_eq!(ys[0], Value::Str("bar".into()));
+		assert_eq!(ys[1], Value::Int(7));
+	}
+
+	#[test]
+	fn operator_numeric_comparisons() {
+		assert!(matches!(parse_op(serde_json::json!({ "gt": 10 })), Operator::Gt(10)));
+		assert!(matches!(parse_op(serde_json::json!({ "gte": 10 })), Operator::Gte(10)));
+		assert!(matches!(parse_op(serde_json::json!({ "lt": 10 })), Operator::Lt(10)));
+		assert!(matches!(parse_op(serde_json::json!({ "lte": 10 })), Operator::Lte(10)));
+	}
+
+	#[test]
+	fn operator_cidr_carries_source_string() {
+		let op = parse_op(serde_json::json!({ "cidr": "10.0.0.0/8" }));
+		match op {
+			Operator::Cidr(s) => assert_eq!(s, "10.0.0.0/8"),
+			other => panic!("expected cidr: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn value_untagged_priority_bool_before_str() {
+		// Per the untagged listing (Bool, Int, Str), `true`/`false` must land as Bool,
+		// not as Str("true").
+		let op_t = parse_op(serde_json::json!({ "equals": true }));
+		assert!(matches!(op_t, Operator::Equals(Value::Bool(true))));
+		let op_f = parse_op(serde_json::json!({ "equals": false }));
+		assert!(matches!(op_f, Operator::Equals(Value::Bool(false))));
+	}
+
+	#[test]
+	fn value_untagged_priority_int_before_str() {
+		// A JSON number `42` must land as Int, not as Str("42").
+		let op = parse_op(serde_json::json!({ "equals": 42 }));
+		assert!(matches!(op, Operator::Equals(Value::Int(42))));
+	}
+
+	#[test]
+	fn value_untagged_json_string_stays_str() {
+		// A JSON string `"42"` must land as Str; the untagged enum must not coerce digit
+		// strings into Int.
+		let op = parse_op(serde_json::json!({ "equals": "42" }));
+		match op {
+			Operator::Equals(Value::Str(s)) => assert_eq!(s, "42"),
+			other => panic!("expected equals/str(\"42\"): {other:?}"),
+		}
+	}
+
+	#[test]
+	fn regex_pattern_exactly_at_limit_parses() {
+		// 4096 bytes == REGEX_PATTERN_MAX_BYTES; must parse.
+		assert_eq!(REGEX_PATTERN_MAX_BYTES, 4 * 1024);
+		let pattern = "a".repeat(REGEX_PATTERN_MAX_BYTES);
+		let raw = serde_json::json!({ "http.uri.path": { "matches": pattern } });
+		let p = parse_predicate(raw).expect("4 KiB pattern parses");
+		let c = expect_check(&p);
+		match &c.op {
+			Operator::Matches(src) => assert_eq!(src.len(), REGEX_PATTERN_MAX_BYTES),
+			other => panic!("expected matches: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn regex_pattern_over_limit_rejected_with_limit_in_message() {
+		let pattern = "a".repeat(REGEX_PATTERN_MAX_BYTES + 1);
+		let raw = serde_json::json!({ "http.uri.path": { "matches": pattern } });
+		let err = parse_predicate(raw).expect_err("over-limit pattern must fail");
+		let msg = err.to_string();
+		assert!(
+			msg.contains(&REGEX_PATTERN_MAX_BYTES.to_string()),
+			"error mentions the limit ({REGEX_PATTERN_MAX_BYTES}): {msg}",
+		);
+	}
 }
