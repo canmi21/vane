@@ -1,0 +1,271 @@
+# Predicate Schema
+
+The wire format and serde design for rule `match` predicates, plus the grammar of field paths and the compatibility matrix between operators and value types. Pairs with `02-flow.md`'s `PredicateInst` (runtime form) and `04-middleware.md`'s `L7RequestMiddleware.inspects()` (feature discovery).
+
+## Shape overview
+
+A predicate is one of three forms, serialized as JSON:
+
+```jsonc
+// Combinator: OR over children.
+{ "any_of": [ <predicate>, <predicate>, ... ] }
+
+// Combinator: negation.
+{ "not": <predicate> }
+
+// Check: a single-key object whose key is a field path and whose value
+// is an externally-tagged operator enum.
+{ "<field-path>": { "<operator>": <value> } }
+```
+
+Top-level `match` on a rule is an **implicit AND** — an array of predicates that must all hold:
+
+```jsonc
+{
+	"rule": "web-api",
+	"listen": [":443"],
+	"match": [
+		{ "tls.sni": { "equals": "api.example.com" } },
+		{ "http.header.host": { "equals": "api.example.com" } },
+		{
+			"any_of": [
+				{ "http.method": { "equals": "GET" } },
+				{ "http.method": { "equals": "HEAD" } }
+			]
+		}
+	],
+	"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" }
+}
+```
+
+## Rust type definitions
+
+```rust
+pub enum Predicate {
+    AnyOf(AnyOfP),
+    Not(NotP),
+    Check(CheckMap),
+}
+
+pub struct AnyOfP { pub any_of: Vec<Predicate> }
+pub struct NotP   { pub not:    Box<Predicate> }
+
+/// A single-key map: the key is a field path, the value is the operator.
+/// Deserializes from `{ "<field-path>": { "<operator>": <value> } }`.
+pub struct CheckMap {
+    pub path: FieldPath,
+    pub op:   Operator,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Operator {
+    Equals(Value),
+    NotEquals(Value),
+    Contains(Value),
+    NotContains(Value),
+    Prefix(Value),
+    Suffix(Value),
+    Matches(String),           // regex pattern, validated at compile
+    In(Vec<Value>),
+    NotIn(Vec<Value>),
+    Gt(i64), Gte(i64), Lt(i64), Lte(i64),
+    Cidr(String),              // CIDR notation, validated at compile
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+pub enum Value {
+    Str(String),
+    Int(i64),
+    Bool(bool),
+    // Bytes: accepted as base64-encoded string; detected by field-path type at compile.
+}
+```
+
+## Serde derivation
+
+The shape is fully derivable with stock serde — no custom `Deserialize` impl:
+
+```rust
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+pub enum Predicate {
+    AnyOf(AnyOfP),
+    Not(NotP),
+    Check(CheckMap),
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnyOfP { pub any_of: Vec<Predicate> }
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotP { pub not: Box<Predicate> }
+```
+
+### How disambiguation works
+
+`#[serde(untagged)]` tries variants in declaration order. For an input object:
+
+1. **`AnyOf`** — matches if the object has a single field named `any_of` whose value is an array of predicates. `deny_unknown_fields` ensures it does **not** match an object that has `any_of` plus other keys.
+2. **`Not`** — same pattern with `not`.
+3. **`Check`** — the fallback. Any single-key object with a non-combinator key falls here. `CheckMap` has a custom one-line `Deserialize` that reads the map's only key as `FieldPath` and the value as `Operator`.
+
+Only `CheckMap`'s `Deserialize` is custom — and it's ~15 lines. The combinator variants are pure derive.
+
+### Why this doesn't need reserved-word policy
+
+The audit initially asked "what if a user has a field named `any_of`?" Looking at the authoritative field-path grammar below: field paths are drawn from a **fixed closed set** (`transport`, `remote.*`, `peek`, `tls.*`, `http.method`, `http.uri.*`, `http.header.<name>`, `http.body`). None of these top-level paths matches `any_of` / `not` / `all_of`. Only nested paths (e.g., `http.header.any_of` — an HTTP header literally named "any_of") are legal in principle, but those are **multi-segment dotted paths**, not bare single-token keys. The untagged deserializer distinguishes them cleanly: `{"any_of": ...}` always means the combinator; `{"http.header.any_of": ...}` always means the Check form.
+
+`all_of` is reserved for future use (grouped AND inside an `any_of`) and will be added to the enum when needed; today, the top-level `match: [A, B, C]` array provides implicit AND.
+
+## Field path grammar
+
+```ebnf
+field-path  = segment ("." segment)*
+segment     = [a-z_] [a-z0-9_-]*         ; lowercase letters, digits, underscore, hyphen
+```
+
+Lowercase-only by rule. Mixed-case field paths are a parse error.
+
+### Authoritative field paths
+
+| Path                       | Value type            | Source                                        |
+| -------------------------- | --------------------- | --------------------------------------------- |
+| `transport`                | enum `"tcp" \| "udp"` | `ConnContext.transport`                       |
+| `remote.ip`                | `IpAddr`              | `ConnContext.remote.ip()`                     |
+| `remote.port`              | `u16`                 | `ConnContext.remote.port()`                   |
+| `local.ip`                 | `IpAddr`              | `ConnContext.local.ip()`                      |
+| `local.port`               | `u16`                 | `ConnContext.local.port()`                    |
+| `peek`                     | `Bytes`               | `PeekResult.buffer` (L4 peek phase)           |
+| `tls.sni`                  | `String`              | `ConnContext.tls.sni`                         |
+| `tls.alpn`                 | `Bytes`               | `ConnContext.tls.alpn`                        |
+| `tls.version`              | enum `TlsVersion`     | `ConnContext.tls.version`                     |
+| `tls.peer_cert.subject_cn` | `String`              | `ConnContext.tls.peer_cert` subject CN        |
+| `http.method`              | enum `Method`         | `Request.method()`                            |
+| `http.uri.path`            | `String`              | `Request.uri().path()`                        |
+| `http.uri.query`           | `String`              | `Request.uri().query().unwrap_or("")`         |
+| `http.header.<name>`       | `String`              | first value of `Request.headers()[name]`      |
+| `http.body`                | `Bytes`               | buffered `Body::Static` — triggers LazyBuffer |
+
+`<name>` in `http.header.<name>` is a header name: lowercased, hyphens allowed. Duplicate-valued headers (e.g., `Cookie`) expose the first value; users needing "any of the values" combine with `any_of`.
+
+### Field path → inspection level
+
+The compiler's `analyze` pass categorizes each path into one of three inspection levels for rule sorting:
+
+| Path prefix                                    | Inspection level                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------- |
+| `transport` / `remote.*` / `local.*`           | `L4-only`                                                           |
+| `peek` / `tls.*`                               | `L4-peek` (falls under L4 for sorting, but needs ClientHello parse) |
+| `http.method` / `http.uri.*` / `http.header.*` | `L7-header`                                                         |
+| `http.body`                                    | `L7-body`                                                           |
+
+`L4-only < L4-peek < L7-header < L7-body` for the "deeper first" sort.
+
+## Operator × value type compatibility
+
+```
+                       Str  Bytes  Int  IpAddr  enum
+equals / not_equals     ✓    ✓     ✓    ✓       ✓
+contains / not_contains ✓    ✓     —    —       —
+prefix / suffix         ✓    ✓     —    —       —
+matches                 ✓    —     —    —       —
+in / not_in             ✓    ✓     ✓    ✓       ✓
+gt / gte / lt / lte     —    —     ✓    —       —
+cidr                    —    —     —    ✓       —
+```
+
+Compile-time type check: on a `{ "http.body": { "gt": 100 } }`, the compiler sees `http.body: Bytes` and `gt: numeric-only` → rejects with:
+
+```
+error: operator `gt` cannot apply to field `http.body` (expected numeric, got Bytes)
+       rules/30-api.json:14
+```
+
+Similarly, `{ "http.uri.path": { "cidr": "10.0.0.0/8" } }` fails: `cidr` is IP-only.
+
+## Value JSON encoding
+
+```jsonc
+// String-valued fields
+{ "equals": "api.example.com" }
+
+// Bytes-valued fields: base64
+{ "contains": "aGVsbG8=" }
+
+// Integer-valued fields
+{ "gt": 1024 }
+
+// Lists
+{ "in": ["foo", "bar", "baz"] }
+
+// CIDR (field type = IpAddr, operator = cidr)
+{ "cidr": "10.0.0.0/8" }
+
+// Regex (field type = String, operator = matches)
+{ "matches": "^/api/v\\d+/users" }
+```
+
+The `Value` serde enum's `untagged` representation auto-infers from JSON type (string → `Str`, number → `Int`, etc.). Bytes fields accept base64-encoded strings; the compiler decodes at `lower` time based on the field's known type.
+
+## Regex specifics
+
+Matched at compile time using `fancy-regex`. Safeguards applied at **compile time** (before the pattern reaches the runtime):
+
+- **Pattern size limit** — compiled NFA ≤ 10 KiB. Rejects pathological patterns early.
+- **Backtrack step limit** — every `Regex` is constructed with `set_backtrack_limit(1_000_000)` so malformed input cannot consume unbounded CPU at runtime. Patterns not using lookaround / backreferences are delegated to the `regex` crate internally and have no backtracking.
+
+Compile errors on bad patterns name both the rule file and the offending operator:
+
+```
+error: invalid regex in `matches` operator on field `http.uri.path`
+       rules/30-api.json:14
+       caused by: unknown escape sequence at position 5
+```
+
+## CIDR specifics
+
+```jsonc
+{ "remote.ip": { "cidr": "10.0.0.0/8" } }
+{ "remote.ip": { "cidr": "2001:db8::/32" } }
+```
+
+Parsed via `ipnet::IpNet::from_str`. Mixing IPv4 and IPv6 CIDRs in `in`/`not_in` is allowed; a single `cidr` operator matches only the specified family.
+
+## Compilation: `Predicate` → `PredicateInst`
+
+The `lower` pass (see `02-flow.md`) transforms each parsed `Predicate` into `PredicateInst`:
+
+| Operator                                                             | Compilation step                                                                   |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `Equals`, `NotEquals`, `Contains`, `NotContains`, `Prefix`, `Suffix` | Value coerced to field's native type (string → `Arc<str>`, base64 → `Bytes`, etc.) |
+| `Matches`                                                            | Pattern compiled to `fancy_regex::Regex` with backtrack limit                      |
+| `In`, `NotIn`                                                        | Each element coerced; stored as `Vec<CompiledValue>`                               |
+| `Gt`/`Gte`/`Lt`/`Lte`                                                | Stored as `i64`                                                                    |
+| `Cidr`                                                               | Parsed to `ipnet::IpNet`                                                           |
+
+All failures produce compile errors with rule name + file + line pointers from `RawRule::source` (see `14-presets.md`).
+
+## Hash-consing
+
+`PredicateInst` is `Hash + Eq` so the compiler deduplicates structurally-identical predicates across rules. Two rules both writing `{ "tls.sni": { "equals": "api.example.com" } }` share one `PredicateId`.
+
+- `fancy_regex::Regex` — equality by pattern source string (canonicalized via `as_str()`)
+- `ipnet::IpNet` — equality by canonical form (network addr + prefix length)
+- `CompiledValue::Str(Arc<str>)` — equality by string content (not by Arc identity)
+
+This means editor-level whitespace differences in rule files never defeat dedup, but intentionally-different regex source strings (e.g., `a|b` vs `b|a`) are treated as distinct — the compiler does not rewrite regexes for structural equivalence.
+
+## Extensibility rules
+
+The authoritative field path list grows **only** by source change in `vane-core`'s path resolver. Adding a new path:
+
+1. Add the path → value type row in the table above.
+2. Wire the path reader into `PredicateInst::test`'s dispatch.
+3. Update `analyze`'s inspection-level table.
+4. If the new path touches a resource that isn't always present (e.g., TLS-only), `analyze` must recognize this and emit a compile error when a rule uses the path on a non-TLS-capable listener.
+
+WASM plugins **do not** contribute field paths — plugin-driven predicates go through the `Wasm` middleware variant and use the plugin's own `inspects: list<string>` metadata (see `11-wasm.md`), not this field-path grammar.
