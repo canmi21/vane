@@ -18,6 +18,7 @@ Reading order:
 14. [`14-presets.md`](14-presets.md) — preset expansion stage, raw-rule transparency, preset catalog
 15. [`15-cgi.md`](15-cgi.md) — CGI driver (process model, env, path handling, security)
 16. [`16-crate-layout.md`](16-crate-layout.md) — Rust workspace: 7 crates, dependency graph, profiles, toolchain
+17. [`17-error-type.md`](17-error-type.md) — `Error` / `ErrorKind` (nested reason), thiserror+anyhow+tracing layers, HTTP status and retry mapping
 
 ## Status
 
