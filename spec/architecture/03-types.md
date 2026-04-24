@@ -44,6 +44,45 @@ All variants implement `http_body::Body<Data = Bytes>`. The enum avoids vtable d
 
 Variant names are **protocol-named, not vendor-named** (per `spec/naming.md` — brand names only in edge modules). Type parameters reference upstream crates as edge types, but the variant name describes the protocol role.
 
+### `H3Body`
+
+`h3` crate does **not** implement `http_body::Body` — it splits the two concerns: `recv_data()` yields `impl Buf` (in current versions: `Bytes` slices over quinn's internal buffer) and `recv_trailers()` is a separate, once-only call at data EOF. `H3Body` is vane's glue that wraps both into a single `http_body::Body` stream:
+
+```rust
+pub struct H3Body<S> {
+    stream: S,                         // h3::server::RequestStream or h3::client::RequestStream
+    state:  H3BodyState,
+}
+
+enum H3BodyState {
+    DataPhase,                         // recv_data() yields Frame::data(Bytes)
+    TrailerPhase,                      // recv_trailers() yields Frame::trailers(HeaderMap) or None
+    Done,
+}
+
+impl<S> http_body::Body for H3Body<S> where S: /* h3 stream trait */ {
+    type Data  = bytes::Bytes;
+    type Error = Error;
+
+    // poll_frame dispatches on state:
+    //   DataPhase    → recv_data()  → Frame::data(Bytes); at data EOF, transition to TrailerPhase
+    //   TrailerPhase → recv_trailers() once → Frame::trailers(HeaderMap) or skip; then Done
+    //   Done         → Poll::Ready(None)
+}
+```
+
+Server and client use different `h3` stream types; `S` is monomorphized at each construction site. The `Bytes` returned by `recv_data()` slices quinn's buffer pool — no copy on the vane side.
+
+### What vane's "no copy" covers (and what it does not)
+
+The `Body` enum is a zero-copy pipe **at vane's layer**: `poll_frame` returns `Frame<Bytes>` whose payload was already a `Bytes` produced by the ingress parser (hyper for H1/H2, `H3Body` wrapping `h3::RequestStream::recv_data` for H3). Vane neither copies nor accumulates these `Bytes` before handing them to the upstream encoder. It follows that:
+
+- **QUIC packet reassembly** (multi-datagram coalescing, out-of-order stream-offset handling, retransmission cache) happens inside `quinn` / `h3`; vane makes no zero-copy claim about it.
+- **H2 flow-control window accounting** happens inside the `h2` crate; its buffering is that crate's concern.
+- **H1 chunked decode and encode** happen inside `hyper`; the per-chunk size-prefix allocation on encode and the chunk-boundary `Bytes` production on decode are hyper's cost, not vane's.
+
+Vane's guarantee is the absence of a **vane-introduced** copy — not that the whole stack from wire to upstream is allocation-free. Users who want to know "is this deployment truly zero-copy from kernel to origin?" must additionally audit quinn / h3 / hyper's own cost models.
+
 ### `BodyStreamAdapter`
 
 Producers that implement `http_body::Body` with a foreign `Error` type (WASM plugin outputs, custom streaming sources, CGI buffered body wrappers) use a standard adapter to land as `Body::Stream`:
@@ -75,6 +114,8 @@ impl Body {
 ```
 
 The `E: Into<Error>` bound means every custom producer only needs to provide a `From<CustomError> for Error` impl (one line with `#[from]` on `ErrorKind`) to participate. WASM plugins' produced bodies plug through this adapter.
+
+The `Box::pin` inside `from_producer` is a once-per-body allocation (paid at producer construction, not per frame). Per-frame `poll_frame` delegates to the inner producer with no additional copy — this is the `Body::Stream` path's steady-state cost.
 
 ### The `'static` bound on `Body::Stream`
 
@@ -133,6 +174,8 @@ Cancellation is **ownership-based**. When a client disconnects mid-stream, the h
 ### Trailers
 
 HTTP trailers (used by gRPC-over-H2) are transparent. `http_body::Body::poll_frame` yields `Frame<Bytes>` with two variants: `Frame::data` and `Frame::trailers`. The `Body` variants `Http12` and `Http3` pass through `Frame::trailers` verbatim. Ingress parsers produce them when the wire format contains trailers; egress encoders emit them as the target protocol's trailer form (H1 chunked trailers, H2/H3 trailer frames).
+
+**H1 egress-side framing decision**: H1 can carry trailers only via `Transfer-Encoding: chunked` (RFC 9112 §7.1.2), not via `Content-Length`. When the outgoing `Body` on an H1 egress is `Body::Http12(_)` (from an H2 upstream whose body may carry trailers) or `Body::Http3(_)`, **the H1 encoder unconditionally selects `Transfer-Encoding: chunked` and strips any `Content-Length` header**. When the outgoing `Body` is `Body::Static(_)`, the encoder uses `Content-Length` (exact size is known, chunked framing would only add overhead). `Body::Empty` writes no body and no content framing header. `Body::Stream` defaults to chunked. The encoder owns this decision; middleware never does.
 
 ## L4: `L4Conn`
 

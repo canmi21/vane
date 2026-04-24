@@ -107,6 +107,17 @@ Parsed as RFC 3875 response:
 <body bytes until EOF>
 ```
 
+## Streaming posture: half-buffered
+
+CGI does **not** participate in the "both sides native streaming" posture of `07-l7.md`. It is a half-buffered path by protocol constraint:
+
+- **Request side**: vane writes the request body to the child's stdin as bytes arrive from the client decoder. This is structurally streaming from vane's view, but the CGI process model (RFC 3875) requires the child to see **stdin EOF** before producing output. Typical CGI scripts read stdin fully before writing anything. The path is therefore observationally equivalent to "request is buffered at the child". `max_body_size` on the request side is enforced during the write loop; exceeding it `SIGTERM`s the child and returns `413 Payload Too Large`.
+- **Response side**: the child's stdout is read frame by frame. After the RFC 3875 header block (terminated by `\r\n\r\n`), every stdout `read()` becomes a `Body::Stream` frame handed to the response encoder. No vane-side buffering on this side.
+
+LazyBuffer analysis sees the CGI `L7Fetch` node like any other: if a response-side middleware declares `needs_body()`, the response side buffers as usual (on top of the per-frame stream already flowing out of stdout). The request-side "buffering at the child" is below the Fetch abstraction — it does not appear in the graph and is not controlled by LazyBuffer flags.
+
+Rules using CGI implicitly accept this posture. Retry on CGI is not supported (the child is a one-shot process by RFC 3875; "replay" would require re-forking, which changes the child PID and breaks any PID-keyed external state).
+
 Special headers:
 
 - `Status: 200 OK` — sets HTTP status code. This is a CGI-specific header, not an HTTP/1.1 status line.

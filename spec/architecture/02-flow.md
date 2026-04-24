@@ -557,16 +557,27 @@ This is also why the validator does not need a "carry the buffer state across Fe
 
 ### Runtime behavior
 
-The executor's pre-node check (`02-flow.md` executor pseudocode) performs `body.collect().await` at the flagged node, replacing:
+The executor's pre-node check (`02-flow.md` executor pseudocode) performs `body.collect().await` at the flagged node, **copying streaming frames into a single contiguous `Bytes`**:
 
-- `Body::Http12(hyper::body::Incoming)` → `Body::Static(Bytes)`
-- `Body::Http3(H3Body)` → `Body::Static(Bytes)`
-- `Body::Stream(dyn http_body::Body)` → `Body::Static(Bytes)`
+- `Body::Http12(hyper::body::Incoming)` → `Body::Static(Bytes)` — multi-frame aggregation, real memory copy
+- `Body::Http3(H3Body)` → `Body::Static(Bytes)` — same
+- `Body::Stream(dyn http_body::Body)` → `Body::Static(Bytes)` — same
 - `Body::Static(_)` / `Body::Empty` → no-op (already terminal)
+
+This is not a type relabel — it is the explicit cost of LazyBuffer triggering. Triggering buffering means paying the full-body allocation + copy at this point; the stream story ends here for this side. The cost model is honest: no LazyBuffer = zero vane-layer copy end-to-end (modulo the inner-crate costs documented in `03-types.md`), LazyBuffer fires = one aggregate copy of the body on the triggered side.
 
 Post-collect, the body is replay-safe: subsequent readers, including retry loops and response-side middleware that read after a mutation, get stable `&Bytes`. `max_body_size` (`03-types.md`) is enforced during collect; exceeding the limit produces `413` (request side) or `502` (response side).
 
 The runtime never asks "should I buffer this?" It follows a flag set at compile.
+
+### Worked example: request-streamed, response-buffered
+
+Rule: `/api/upload` → H2 upstream, no body predicates, no request-phase middleware that inspects body. A response-phase middleware `response_filter` declares `needs_body() == true` (rewrites the response body).
+
+- **analyze** sets `collect_body_before = None` on every node between entry and Fetch — request-side track is empty. It sets `collect_body_before = Some(BodySide::Response)` on the first node after `L7Fetch.next_response` that is `response_filter`.
+- **runtime**: Request body streams from the client decoder to the upstream encoder unmodified — the H2 connection carries frames as they arrive. After `HttpProxyFetch` returns a `Response` whose `Body` is `Body::Http12(hyper::body::Incoming)`, the executor reaches the response-side first-reader node, runs `resp.body_mut().collect().await` (copying all response frames into one `Bytes`), replaces with `Body::Static(bytes)`, then `response_filter` mutates it, then the egress encoder writes it with a computed `Content-Length` (or chunked framing if the egress is H1 and the body carries trailers — see `03-types.md`).
+
+The reverse mix (request-buffered + response-streaming) is symmetric — the executor switches per side based on the flag, no global "this request is buffered" mode.
 
 ## Hot reload
 
