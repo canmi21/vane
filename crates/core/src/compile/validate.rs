@@ -4,22 +4,17 @@ use crate::error::Error;
 use crate::ir::{Node, NodeId, SymbolicFlowGraph};
 use crate::phase::{Phase, PhaseNodeKind, Transition, transition};
 
-/// Run IR-level structural validation on a freshly-lowered graph.
-///
-/// Phase-state-machine validation is callable via [`check_phases`] but not
-/// enforced from `validate()` yet: the spec transition table requires every
-/// L7 path to pass through an `L4Peek` middleware (`protocol_detect`) before
-/// an `Upgrade`, and that middleware lands at S1-16. Until then `lower`
-/// produces graphs that the phase table would reject; re-enabling the
-/// invocation is a one-line followup.
+/// Run IR-level structural and phase validation on a freshly-lowered graph.
 ///
 /// # Errors
 /// Returns [`Error::compile`] on missing-id references, Fetch edges that
-/// don't match the kind's output-mode contract, or acyclicity violations.
+/// don't match the kind's output-mode contract, acyclicity violations, or
+/// phase-state-machine mismatches.
 pub fn validate(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 	check_id_ranges(graph)?;
 	check_fetch_edges(graph)?;
 	check_acyclic(graph)?;
+	check_phases(graph)?;
 	Ok(())
 }
 
@@ -399,8 +394,11 @@ mod tests {
 	}
 
 	#[test]
-	fn phase_check_rejects_upgrade_in_l4_raw() {
-		// Explicitly invoked (not wired into validate() yet per S1-16 deferral).
+	fn phase_check_rejects_write_http_response_reached_in_wrong_phase() {
+		// Upgrade out-phase is L7Request (spec C5.5 patch accepts L4Raw in);
+		// Terminate(WriteHttpResponse) requires L7Response — so walking
+		// Upgrade directly into it is a phase mismatch the validator must
+		// catch.
 		let tid = TerminatorId::new(0);
 		let graph = SymbolicFlowGraph {
 			nodes: vec![Node::Terminate(tid), Node::Upgrade { next: NodeId::new(0) }],

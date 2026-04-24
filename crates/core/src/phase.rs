@@ -36,7 +36,6 @@ pub struct PhaseError {
 const L4_ANY: &[Phase] = &[Phase::L4Raw, Phase::L4Peeked];
 const L7_REQ: &[Phase] = &[Phase::L7Request];
 const L7_RESP: &[Phase] = &[Phase::L7Response];
-const L4_PEEKED: &[Phase] = &[Phase::L4Peeked];
 const TUNNEL: &[Phase] = &[Phase::Tunnel];
 const ANY_PHASE: &[Phase] =
 	&[Phase::L4Raw, Phase::L4Peeked, Phase::L7Request, Phase::L7Response, Phase::Tunnel];
@@ -53,7 +52,11 @@ pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 		PhaseNodeKind::Middleware(MiddlewareKind::L4Bytes) => L4_ANY,
 		PhaseNodeKind::Middleware(MiddlewareKind::L7Request) => L7_REQ,
 		PhaseNodeKind::Middleware(MiddlewareKind::L7Response) => L7_RESP,
-		PhaseNodeKind::Upgrade => L4_PEEKED,
+		// Spec C5.5 patch (commit 86025228): Upgrade accepts L4Raw as well as
+		// L4Peeked. Pure-HTTP listeners enter via `L4Raw → Upgrade → L7Request`
+		// without an intermediate peek; mixed-posture listeners run an L4Peek
+		// middleware first to advance into `L4Peeked` before Upgrade.
+		PhaseNodeKind::Upgrade => L4_ANY,
 		PhaseNodeKind::Fetch(FetchKind::L4Forward) => L4_ANY,
 		PhaseNodeKind::Fetch(FetchKind::HttpProxy) => L7_REQ,
 		PhaseNodeKind::Fetch(FetchKind::HttpSynthesize) => L7_REQ,
@@ -148,8 +151,13 @@ mod tests {
 	}
 
 	#[test]
-	fn upgrade_accepts_only_l4_peeked() {
-		assert_eq!(accepted_in_phases(PhaseNodeKind::Upgrade), &[Phase::L4Peeked] as &[Phase]);
+	fn upgrade_accepts_both_l4_phases() {
+		// Spec C5.5 patch: pure-HTTP listeners take L4Raw → Upgrade directly;
+		// mixed-posture listeners advance via L4Peek into L4Peeked first.
+		assert_eq!(
+			accepted_in_phases(PhaseNodeKind::Upgrade),
+			&[Phase::L4Raw, Phase::L4Peeked] as &[Phase],
+		);
 	}
 
 	#[test]
@@ -211,11 +219,10 @@ mod tests {
 	}
 
 	#[test]
-	fn upgrade_transitions_l4_peeked_to_l7_request() {
-		assert_eq!(
-			transition(PhaseNodeKind::Upgrade, Phase::L4Peeked),
-			Ok(Transition::Into(Phase::L7Request)),
-		);
+	fn upgrade_transitions_to_l7_request_from_any_l4_phase() {
+		for cur in [Phase::L4Raw, Phase::L4Peeked] {
+			assert_eq!(transition(PhaseNodeKind::Upgrade, cur), Ok(Transition::Into(Phase::L7Request)),);
+		}
 	}
 
 	#[test]
@@ -296,8 +303,8 @@ mod tests {
 	#[test]
 	fn rejects_out_of_phase_attempts() {
 		let cases: &[(PhaseNodeKind, Phase)] = &[
-			(PhaseNodeKind::Upgrade, Phase::L4Raw),
 			(PhaseNodeKind::Upgrade, Phase::L7Request),
+			(PhaseNodeKind::Upgrade, Phase::L7Response),
 			(PhaseNodeKind::Middleware(MiddlewareKind::L7Request), Phase::L4Raw),
 			(PhaseNodeKind::Middleware(MiddlewareKind::L7Response), Phase::L7Request),
 			(PhaseNodeKind::Fetch(FetchKind::HttpProxy), Phase::L7Response),
