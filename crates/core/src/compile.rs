@@ -562,6 +562,161 @@ mod tests {
 		assert_eq!(graph.predicates.len(), 1);
 	}
 
+	// --- Task 3: phase-split Check placement --------------------------------
+
+	fn node_successors(n: &Node) -> Vec<NodeId> {
+		match n {
+			Node::Check { on_match, on_miss, .. } => vec![*on_match, *on_miss],
+			Node::Middleware { next, on_error, .. } => {
+				let mut v = vec![*next];
+				if let Some(e) = on_error {
+					v.push(*e);
+				}
+				v
+			}
+			Node::Fetch { next_response, next_tunnel, .. } => {
+				let mut v = Vec::new();
+				if let Some(r) = next_response {
+					v.push(*r);
+				}
+				if let Some(t) = next_tunnel {
+					v.push(*t);
+				}
+				v
+			}
+			Node::Upgrade { next } => vec![*next],
+			Node::Terminate(_) => Vec::new(),
+		}
+	}
+
+	fn walk_reachable(graph: &SymbolicFlowGraph, from: NodeId) -> std::collections::HashSet<NodeId> {
+		let mut seen = std::collections::HashSet::new();
+		let mut stack = vec![from];
+		while let Some(id) = stack.pop() {
+			if !seen.insert(id) {
+				continue;
+			}
+			for s in node_successors(&graph[id]) {
+				stack.push(s);
+			}
+		}
+		seen
+	}
+
+	#[test]
+	fn l4_predicate_on_l7_rule_sits_before_upgrade() {
+		// `tls.sni == "a"` is L4Peek level. On an L7 posture rule it must be
+		// reachable BEFORE the Upgrade node so the predicate evaluates while
+		// no Request has been decoded yet.
+		let r = check_rule("r", 7300, &serde_json::json!({ "tls.sni": { "equals": "a" } }));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let entry = find_entry_check(&graph, 7300);
+		// Entry must be a Check node.
+		assert!(matches!(&graph[entry], Node::Check { .. }));
+		// Walk from the Check's on_match — it should eventually pass through an Upgrade.
+		let (_, on_match, _) = unwrap_check(&graph[entry]);
+		let reached = walk_reachable(&graph, on_match);
+		let upgrade_reached = reached.iter().any(|id| matches!(&graph[*id], Node::Upgrade { .. }));
+		assert!(upgrade_reached, "Upgrade must sit below the L4-level Check");
+	}
+
+	#[test]
+	fn l7_predicate_on_l7_rule_sits_after_upgrade() {
+		// `http.header.host == "x"` is L7Header level. Placement requires
+		// Upgrade above the Check.
+		let r = check_rule(
+			"r",
+			7301,
+			&serde_json::json!({ "http.header.host": { "equals": "api.example.com" } }),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let entry = find_entry_check(&graph, 7301);
+		// Entry must be an Upgrade node for an L7-level check on an L7 rule.
+		assert!(
+			matches!(&graph[entry], Node::Upgrade { .. }),
+			"L7-level check must sit below Upgrade, so listener entry is the Upgrade itself",
+		);
+		// The Upgrade's `next` is a Check node reading http.header.host.
+		let Node::Upgrade { next } = &graph[entry] else {
+			panic!("expected Upgrade");
+		};
+		assert!(matches!(&graph[*next], Node::Check { .. }));
+	}
+
+	// L4 rule with a predicate needs Terminator::Close as the default-miss;
+	// C5.5 task 4 lands that. Test for L4 placement is in the task-4 commit.
+
+	#[test]
+	fn l7_rule_without_predicate_has_upgrade_as_entry() {
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7303"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let entry = find_entry_check(&graph, 7303);
+		assert!(matches!(&graph[entry], Node::Upgrade { .. }));
+	}
+
+	#[test]
+	fn cross_level_any_of_is_rejected() {
+		let r = check_rule(
+			"r",
+			7304,
+			&serde_json::json!({
+				"any_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "http.method": { "equals": "GET" } },
+				],
+			}),
+		);
+		let err = compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers)
+			.expect_err("cross-level any_of must fail");
+		assert!(err.to_string().contains("cross-level"), "error message names the constraint: {err}");
+	}
+
+	#[test]
+	fn cross_level_not_is_rejected() {
+		let r = check_rule(
+			"r",
+			7305,
+			&serde_json::json!({
+				"not": {
+					"any_of": [
+						{ "tls.sni": { "equals": "a" } },
+						{ "http.method": { "equals": "GET" } },
+					],
+				},
+			}),
+		);
+		let err = compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers)
+			.expect_err("cross-level not(any_of) must fail");
+		assert!(err.to_string().contains("cross-level"));
+	}
+
+	#[test]
+	fn same_level_any_of_compiles_at_one_side_of_upgrade() {
+		// Two L4Peek checks: Upgrade sits BELOW both Checks.
+		let r = check_rule(
+			"r",
+			7306,
+			&serde_json::json!({
+				"any_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "tls.sni": { "equals": "b" } },
+				],
+			}),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let entry = find_entry_check(&graph, 7306);
+		// Entry is a Check; walking any_of's shared on_match must reach an Upgrade.
+		assert!(matches!(&graph[entry], Node::Check { .. }));
+	}
+
 	#[test]
 	fn validate_stays_green_for_all_combinator_shapes() {
 		let shapes = [
