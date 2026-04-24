@@ -19,16 +19,12 @@ These are `http` crate aliases. Hyper produces and consumes them directly on the
 
 ```rust
 pub enum Body {
-    // H1 / H2 server ingress via hyper
-    Http12(hyper::body::Incoming),
-    // H3 server ingress via the h3 crate
-    Http3(H3Body),
     // Materialized bytes (middleware-produced, fixtures, fixed responses)
     Static(bytes::Bytes),
-    // Arbitrary stream (WASM plugin output, custom producers)
-    Stream(Pin<Box<dyn http_body::Body<Data = bytes::Bytes, Error = Error> + Send + 'static>>),
     // No body (HEAD, GET without body, 204, 304)
     Empty,
+    // Any streaming producer: hyper's Incoming, engine's H3Body, WASM plugin output, CGI, ...
+    Stream(Pin<Box<dyn http_body::Body<Data = bytes::Bytes, Error = Error> + Send + 'static>>),
 }
 
 impl http_body::Body for Body {
@@ -40,54 +36,17 @@ impl http_body::Body for Body {
 }
 ```
 
-All variants implement `http_body::Body<Data = Bytes>`. The enum avoids vtable dispatch on the common path; the `Stream` variant absorbs extension cases where vtable cost is unavoidable.
+Three variants by design: `Static` (buffered bytes, replayable), `Empty` (no body at all), `Stream` (anything else). All three impl `http_body::Body`.
+
+**Why no `Http12(hyper::body::Incoming)` or `Http3(H3Body)` variant**: keeping those required `vane-core` to depend on `hyper` and `h3` respectively, which would pull hyper's network stack and h3/quinn into the `vane lint` / `vane compile --dry-run` link-closure. The measured benefit of avoiding one `Box<dyn Body>` per request (~1 ns vtable dispatch per `poll_frame`, negligible versus the 100–1000 ns of real per-frame work) does not justify the crate-dep footprint. Engine wraps its protocol-specific ingress types in `Body::Stream` via a `Box::pin`. See `07-l7.md` § _Body streaming across versions_ for the concrete ingress sites.
+
+The `H3Body` adapter (an engine-side concrete struct that unifies `h3::server::RequestStream` and `h3::client::RequestStream` via a `H3StreamSource` trait, bridging `h3`'s split `recv_data` / `recv_trailers` API into `http_body::Body::poll_frame`) lives in `vane-engine`, not `vane-core`. See `07-l7.md` for that definition.
 
 Variant names are **protocol-named, not vendor-named** (per `spec/naming.md` — brand names only in edge modules). Type parameters reference upstream crates as edge types, but the variant name describes the protocol role.
 
-### `H3Body`
-
-`h3` crate does **not** implement `http_body::Body` — it splits the two concerns: `recv_data()` yields `impl Buf` (in current versions: `Bytes` slices over quinn's internal buffer) and `recv_trailers()` is a separate, once-only call at data EOF. `H3Body` is vane's glue that unifies both into a single `http_body::Body` stream **without being generic over the stream type** (so `Body::Http3(H3Body)` needs no type parameter — server and client both fit the same `Body` enum):
-
-```rust
-pub struct H3Body {
-    inner: Pin<Box<dyn H3StreamSource + Send>>,  // dyn-erased; holds either server or client stream
-    state: H3BodyState,
-}
-
-#[trait_variant::make(H3StreamSource: Send)]
-pub trait H3StreamSourceLocal {
-    async fn recv_data(&mut self)     -> Result<Option<bytes::Bytes>,     Error>;
-    async fn recv_trailers(&mut self) -> Result<Option<http::HeaderMap>, Error>;
-}
-
-enum H3BodyState {
-    DataPhase,                         // recv_data() yields Frame::data(Bytes)
-    TrailerPhase,                      // recv_trailers() yields Frame::trailers(HeaderMap) or None
-    Done,
-}
-
-impl http_body::Body for H3Body {
-    type Data  = bytes::Bytes;
-    type Error = Error;
-    // poll_frame dispatches on state:
-    //   DataPhase    → recv_data()  → Frame::data(Bytes); at data EOF, transition to TrailerPhase
-    //   TrailerPhase → recv_trailers() once → Frame::trailers(HeaderMap) or skip; then Done
-    //   Done         → Poll::Ready(None)
-}
-
-// Engine-side impls of H3StreamSource (in vane-engine):
-//   - for h3::server::RequestStream<_, _>
-//   - for h3::client::RequestStream<_, _>
-// Both wrap the h3 crate's split recv_data/recv_trailers API.
-```
-
-`H3Body` is thus a single non-generic type usable in both directions. The vtable cost is per-frame `poll_frame` (negligible vs. QUIC decrypt) and never appears on paths not going through H3.
-
-The `Bytes` returned by `recv_data()` slices quinn's buffer pool — no copy on the vane side.
-
 ### What vane's "no copy" covers (and what it does not)
 
-The `Body` enum is a zero-copy pipe **at vane's layer**: `poll_frame` returns `Frame<Bytes>` whose payload was already a `Bytes` produced by the ingress parser (hyper for H1/H2, `H3Body` wrapping `h3::RequestStream::recv_data` for H3). Vane neither copies nor accumulates these `Bytes` before handing them to the upstream encoder. It follows that:
+The `Body` enum is a zero-copy pipe **at vane's layer**: `poll_frame` returns `Frame<Bytes>` whose payload was already a `Bytes` produced by the ingress parser (hyper for H1/H2, engine's `H3Body` wrapping `h3::RequestStream::recv_data` for H3). Vane neither copies nor accumulates these `Bytes` before handing them to the upstream encoder. It follows that:
 
 - **QUIC packet reassembly** (multi-datagram coalescing, out-of-order stream-offset handling, retransmission cache) happens inside `quinn` / `h3`; vane makes no zero-copy claim about it.
 - **H2 flow-control window accounting** happens inside the `h2` crate; its buffering is that crate's concern.
@@ -185,9 +144,9 @@ Cancellation is **ownership-based**. When a client disconnects mid-stream, the h
 
 ### Trailers
 
-HTTP trailers (used by gRPC-over-H2) are transparent. `http_body::Body::poll_frame` yields `Frame<Bytes>` with two variants: `Frame::data` and `Frame::trailers`. The `Body` variants `Http12` and `Http3` pass through `Frame::trailers` verbatim. Ingress parsers produce them when the wire format contains trailers; egress encoders emit them as the target protocol's trailer form (H1 chunked trailers, H2/H3 trailer frames).
+HTTP trailers (used by gRPC-over-H2) are transparent. `http_body::Body::poll_frame` yields `Frame<Bytes>` with two variants: `Frame::data` and `Frame::trailers`. Any `Body::Stream(...)` inner producer (hyper `Incoming`, engine's `H3Body`, CGI wrapper, WASM output) passes `Frame::trailers` verbatim — the Body enum does nothing special. Ingress parsers produce trailer frames when the wire format carries them; egress encoders emit them as the target protocol's trailer form (H1 chunked trailers, H2/H3 trailer frames).
 
-**H1 egress-side framing decision**: H1 can carry trailers only via `Transfer-Encoding: chunked` (RFC 9112 §7.1.2), not via `Content-Length`. When the outgoing `Body` on an H1 egress is `Body::Http12(_)` (from an H2 upstream whose body may carry trailers) or `Body::Http3(_)`, **the H1 encoder unconditionally selects `Transfer-Encoding: chunked` and strips any `Content-Length` header**. When the outgoing `Body` is `Body::Static(_)`, the encoder uses `Content-Length` (exact size is known, chunked framing would only add overhead). `Body::Empty` writes no body and no content framing header. `Body::Stream` defaults to chunked. The encoder owns this decision; middleware never does.
+**H1 egress-side framing decision**: H1 can carry trailers only via `Transfer-Encoding: chunked` (RFC 9112 §7.1.2), not via `Content-Length`. When the outgoing `Body` on an H1 egress is `Body::Stream(_)` (which carries every non-materialized body — hyper Incoming from an H2 upstream that may carry trailers, engine's H3Body, plugin output, etc.), **the H1 encoder unconditionally selects `Transfer-Encoding: chunked` and strips any `Content-Length` header**. When the outgoing `Body` is `Body::Static(_)`, the encoder uses `Content-Length` (exact size is known, chunked framing would only add overhead). `Body::Empty` writes no body and no content framing header. The encoder owns this decision; middleware never does.
 
 ## L4: `L4Conn`
 
@@ -240,15 +199,18 @@ pub struct ConnContext {
 }
 
 pub struct TlsInfo {
-    pub sni:       Option<String>,          // from ClientHello (L4 peek) or handshake
-    pub alpn:      Option<Vec<u8>>,         // from ClientHello / ALPN negotiation
-    pub version:   Option<rustls::ProtocolVersion>,           // known after handshake
-    pub peer_cert: Option<rustls::pki_types::CertificateDer<'static>>,  // after handshake, if mTLS
+    pub sni:       Option<String>,                                         // from ClientHello (L4 peek) or handshake
+    pub alpn:      Option<Vec<u8>>,                                        // from ClientHello / ALPN negotiation
+    pub version:   Option<TlsVersion>,                                     // known after handshake
+    pub peer_cert: Option<rustls_pki_types::CertificateDer<'static>>,      // after handshake, if mTLS
 }
 
+pub enum TlsVersion { Tls12, Tls13 }        // 1.2 and 1.3 only; older are rejected at handshake (see 08-tls.md)
 pub enum Transport { Tcp, Udp }
 pub enum HttpVersion { Http1_0, Http1_1, Http2, Http3 }
 ```
+
+`TlsInfo` uses `rustls-pki-types` (a pure-Rust, runtime-free data-types crate shared across the rustls ecosystem) rather than pulling the full `rustls` crate into `vane-core`. `TlsVersion` is vane-owned (only 1.2 / 1.3 are accepted anyway per `08-tls.md`); engine converts `rustls::ProtocolVersion` → `TlsVersion` at handshake completion.
 
 Invariants:
 

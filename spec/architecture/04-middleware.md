@@ -326,9 +326,9 @@ The user explicitly sets `stateless: true | false`. The runtime does not infer. 
 - The **request-side** track marks a path as request-buffered if any `L7RequestMiddleware::needs_body()` returns `true`, any `Check` reads `http.body`, or the path's Fetch has retry enabled.
 - The **response-side** track marks a path as response-buffered if any `L7ResponseMiddleware::needs_body()` returns `true` (response-side field paths are future work).
 
-A path can be request-buffered and response-streaming (or any other combination of the two). The executor collects only the side(s) flagged, replacing `Body::Http12 / Http3 / Stream` with `Body::Static(Bytes)` at the compile-time-decided trigger node. Middleware downstream of the trigger on that side always observes complete, replayable bytes.
+A path can be request-buffered and response-streaming (or any other combination of the two). The executor collects only the side(s) flagged, replacing `Body::Stream(...)` with `Body::Static(Bytes)` at the compile-time-decided trigger node. Middleware downstream of the trigger on that side always observes complete, replayable bytes.
 
-Retry in Fetch implicitly forces request-body buffering (retry requires replay; `Body::Http12` and `Body::Http3` are one-shot streams). Only `Body::Static` and `Body::Empty` are retry-safe. A rule opting into retry cannot avoid the memory cost on the request side; the response side is unaffected.
+Retry in Fetch implicitly forces request-body buffering (retry requires replay; `Body::Stream(...)` is a one-shot stream). Only `Body::Static` and `Body::Empty` are retry-safe. A rule opting into retry cannot avoid the memory cost on the request side; the response side is unaffected.
 
 WASM middleware declares `needs_body` in its module metadata, read at module load. Plugin metadata distinguishes request-side and response-side body needs via the middleware's `kind` (see `WasmMiddleware` below).
 

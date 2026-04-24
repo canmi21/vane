@@ -178,7 +178,7 @@ pub struct FetchId(u32);
 pub struct TerminatorId(u32);
 ```
 
-`collect_body_before` is the compile-time LazyBuffer trigger. When set to `Some(BodySide::Request | Response)`, the executor performs `Body::collect().await` on the relevant side _before_ executing the node, replacing `Body::Http12 | Http3 | Stream` with `Body::Static(Bytes)`. The analyze pass sets it on exactly the **first** node on each path that needs the buffered bytes (see the LazyBuffer section below); downstream nodes on the same side inherit the buffered state naturally because `Body::Static` does not revert.
+`collect_body_before` is the compile-time LazyBuffer trigger. When set to `Some(BodySide::Request | Response)`, the executor performs `Body::collect().await` on the relevant side _before_ executing the node, replacing `Body::Stream(...)` with `Body::Static(Bytes)`. The analyze pass sets it on exactly the **first** node on each path that needs the buffered bytes (see the LazyBuffer section below); downstream nodes on the same side inherit the buffered state naturally because `Body::Static` does not revert.
 
 `Node::Upgrade { next }` is the explicit L4→L7 phase boundary. It carries no parameters of its own — the concrete upgrade behavior (TLS termination? ALPN selection? which HTTP version?) is driven by the **listener config** that produced the `Arc<ConnContext>` this execution operates on. A rule whose `listen: [":80", ":443"]` produces two listeners; both share the same graph and the same `Upgrade` node, but `:80`'s upgrade skips TLS while `:443`'s performs TLS handshake + ALPN dispatch. Graph only says "upgrade here"; listener config says "with what".
 
@@ -557,9 +557,7 @@ This is also why the validator does not need a "carry the buffer state across Fe
 
 The executor's pre-node check (`02-flow.md` executor pseudocode) performs `body.collect().await` at the flagged node, **copying streaming frames into a single contiguous `Bytes`**:
 
-- `Body::Http12(hyper::body::Incoming)` → `Body::Static(Bytes)` — multi-frame aggregation, real memory copy
-- `Body::Http3(H3Body)` → `Body::Static(Bytes)` — same
-- `Body::Stream(dyn http_body::Body)` → `Body::Static(Bytes)` — same
+- `Body::Stream(...)` → `Body::Static(Bytes)` — multi-frame aggregation, real memory copy (drives every protocol-specific ingress, since hyper Incoming / H3Body / plugin producers all live behind `Body::Stream`)
 - `Body::Static(_)` / `Body::Empty` → no-op (already terminal)
 
 This is not a type relabel — it is the explicit cost of LazyBuffer triggering. Triggering buffering means paying the full-body allocation + copy at this point; the stream story ends here for this side. The cost model is honest: no LazyBuffer = zero vane-layer copy end-to-end (modulo the inner-crate costs documented in `03-types.md`), LazyBuffer fires = one aggregate copy of the body on the triggered side.
@@ -573,7 +571,7 @@ The runtime never asks "should I buffer this?" It follows a flag set at compile.
 Rule: `/api/upload` → H2 upstream, no body predicates, no request-phase middleware that inspects body. A response-phase middleware `response_filter` declares `needs_body() == true` (rewrites the response body).
 
 - **analyze** sets `collect_body_before = None` on every node between entry and Fetch — request-side track is empty. It sets `collect_body_before = Some(BodySide::Response)` on the first node after `L7Fetch.next_response` that is `response_filter`.
-- **runtime**: Request body streams from the client decoder to the upstream encoder unmodified — the H2 connection carries frames as they arrive. After `HttpProxyFetch` returns a `Response` whose `Body` is `Body::Http12(hyper::body::Incoming)`, the executor reaches the response-side first-reader node, runs `resp.body_mut().collect().await` (copying all response frames into one `Bytes`), replaces with `Body::Static(bytes)`, then `response_filter` mutates it, then the egress encoder writes it with a computed `Content-Length` (or chunked framing if the egress is H1 and the body carries trailers — see `03-types.md`).
+- **runtime**: Request body streams from the client decoder to the upstream encoder unmodified — the H2 connection carries frames as they arrive. After `HttpProxyFetch` returns a `Response` whose `Body` is `Body::Stream(Box::pin(hyper_incoming))`, the executor reaches the response-side first-reader node, runs `resp.body_mut().collect().await` (copying all response frames into one `Bytes`), replaces with `Body::Static(bytes)`, then `response_filter` mutates it, then the egress encoder writes it with a computed `Content-Length` (or chunked framing if the egress is H1 and the body carries trailers — see `03-types.md`).
 
 The reverse mix (request-buffered + response-streaming) is symmetric — the executor switches per side based on the flag, no global "this request is buffered" mode.
 

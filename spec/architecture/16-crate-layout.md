@@ -39,7 +39,7 @@ Owns:
 - `FlowCtx`, `PredicateView`.
 - `FlowLogSink` trait + `FlowLogEvent` / `FlowLogKind` data types (concrete `FlowLogSink` impl lives in `vane-engine` at S1-29).
 
-Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`, `trait-variant`, `fancy-regex`, `ipnet`, `sha2` (for the SHA-256 `FlowGraphMeta::version_hash`), `tokio-util` with the `sync` feature only (for `CancellationToken` — see `FlowCtx` in `03-types.md`).
+Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`, `trait-variant`, `fancy-regex`, `ipnet`, `sha2` (for the SHA-256 `FlowGraphMeta::version_hash`), `tokio-util` with the `sync` feature only (for `CancellationToken` — see `FlowCtx` in `03-types.md`), `rustls-pki-types` (a pure-Rust, runtime-free shared-PKI-types crate — for `TlsInfo::peer_cert`; `vane-core` does **not** pull the full `rustls` crate).
 
 **No async runtime executor dependency.** Core pulls `tokio-util`'s `sync` primitives (`CancellationToken`) and via transitive `tokio/sync`, but core itself never calls `tokio::spawn`, never drives a runtime, never opens sockets. Constructing and observing a `CancellationToken` works outside a tokio context; only `.cancelled().await` requires one, and that's the executor's concern. No network stack. No TLS. No WASM. `vane lint` / `vane compile --dry-run` link only this crate and serialize its `SymbolicFlowGraph` output — neither needs hyper, rustls, wasmtime, or a tokio runtime. Minimal foot-gun surface; this crate should build in <5 seconds cold on a developer laptop.
 
@@ -57,6 +57,7 @@ Owns:
 - Listeners: accept loop per `(transport, addr)`, bind retry, cancellation, drain — per `01-topology.md`.
 - HTTP server integration: hyper for H1/H2, h3 for H3; `udp_dispatch` for QUIC session demux.
 - Fetch implementations: `HttpProxy`, `HttpSynthesize`, `WebSocketUpgrade`, `L4Forward`.
+- H3 body adapter: `H3Body` struct + `H3StreamSource` trait (unifies `h3::server::RequestStream` and `h3::client::RequestStream` under a single `http_body::Body` surface). Engine constructs `Body::Stream(Box::pin(H3Body::new(stream)))` at H3 ingress. Also the hyper-ingress bridge — each protocol-specific stream type wrapped in `Body::Stream` via a `Box::pin` adapter.
 - Upstream pools: `TcpPool` (hyper-util Client wrapper), `QuicPool` (our h3 client manager); fingerprint-based sharing.
 - TLS: cert resolver, cert store, cert populators (`StaticCertPopulator` + space for `ManagedCertPopulator`); `ClientConfig` fingerprint cache; `TicketKeyManager`.
 - Built-in middleware impls: SNI match, host header match, path prefix, method match, protocol detect, rate limit, `forward_client_ip`, etc.

@@ -258,7 +258,7 @@ Retry lives inside Fetch. A rule opting in configures:
 - `on` — `ErrorKind` set that triggers retry. Default: `{ Upstream, Timeout }`. Connection-pool failures always retry regardless.
 - `backoff` — `none`, `fixed(Duration)`, or `exponential(base, max, jitter)`. Default: exponential with jitter.
 
-Retry **implicitly forces request-body eager-buffering** (see `03-types.md` and `04-middleware.md`). `Body::Http12` and `Body::Http3` cannot be replayed; retry cannot proceed without buffering. Enabling retry is a deliberate memory-for-reliability tradeoff.
+Retry **implicitly forces request-body eager-buffering** (see `03-types.md` and `04-middleware.md`). `Body::Stream(...)` is one-shot — the inner producer (hyper Incoming, H3Body, etc.) cannot be replayed — so retry cannot proceed without buffering. Enabling retry is a deliberate memory-for-reliability tradeoff.
 
 Retry is scoped to the single `HttpUpstream` configured for this Fetch. Multi-upstream failover is not a Fetch concern — express it via multiple rules with fallback predicates, each with its own Fetch.
 

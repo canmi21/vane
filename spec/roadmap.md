@@ -80,7 +80,7 @@ Feature IDs are stable across the project's life — refer to them in commits, i
 
 | ID    | Feature                                                                                                                          | Crate provision                                                           | Depends on   |
 | ----- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------ |
-| S3-01 | `H3Body` + `Body::Http3` + H3 server path                                                                                        | `quinn` 0.11, `h3` 0.0.6+, `h3-quinn` 0.0.7+                              | S2-04        |
+| S3-01 | Engine `H3Body` + `H3StreamSource` impls + H3 server path (engine wraps `H3Body` in `Body::Stream`)                              | `quinn` 0.11, `h3` 0.0.6+, `h3-quinn` 0.0.7+                              | S2-04        |
 | S3-02 | H3 upstream in `HttpProxyFetch` + `QuicPool`                                                                                     | `h3`, `h3-quinn`, `quinn`                                                 | S3-01, S2-06 |
 | S3-03 | `udp_dispatch` QUIC session demultiplexer                                                                                        | `quinn` (shared `UdpSocket`)                                              | S3-01, S2-11 |
 | S3-04 | `WasmtimeRuntime : WasmRuntime` + Component Model load (sync host, async bindings)                                               | `wasmtime` 26+, `wit-bindgen` 0.35+                                       | S1-05        |
