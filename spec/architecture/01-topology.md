@@ -58,6 +58,12 @@ On successful FlowGraph recompile, the daemon diffs the next compiled listener s
 
 No in-flight connection ever observes a torn-down graph. Listener removal is soft-first, forced only on drain timeout.
 
+### What reload does not preserve
+
+The HMR contract is "in-flight connections see no disruption" — the graph itself swaps atomically, and old connections finish against their captured `Arc<FlowGraph>`. **Graph-scoped stateful state (rate-limit buckets, counters, stateful WASM linear memory) does not migrate** — the old graph's `MiddlewareInst`s drop when the old Arc releases, and the new graph constructs its stateful middleware fresh with empty state. This is the finalized design, not a temporary MVP limit. See `04-middleware.md` § _State migration on reload_ for the full rationale and for where state-that-must-survive-reload belongs (external limiter layer, or application-level enforcement).
+
+Daemon-scoped state — L1 security floor counters (`13-rate-limit.md`), TLS ticket keys, upstream connection pools, cert stores — **is** preserved across reloads. It lives on the daemon, not the graph.
+
 ### IPv4 / IPv6
 
 Dual-stack is expressed by **two separate listeners**, one per address family. A rule with `listen: [":443"]` expands (at `lower` time) to two entries — `0.0.0.0:443` and `[::]:443` — both pointing to the same NodeId. Users who want one family only write `"0.0.0.0:443"` or `"[::]:443"` explicitly. See `09-config.md` § _ListenSpec grammar_ for the full table.

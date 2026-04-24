@@ -95,8 +95,8 @@ For each `.wasm` in the config directory:
 
 File watcher detects a changed `.wasm`. Compile new `Component`; call `get-metadata()` on it.
 
-- **Metadata unchanged** (`kind`, `stateless`, `needs_body`, and the exported middleware set all equal) — seamless module swap. New instance checkouts use the new component; existing instances drain naturally.
-- **Metadata changed** — triggers **full FlowGraph recompile** (because compilation decisions depend on metadata). The new graph ArcSwaps into place; old graph drops when its in-flight requests finish.
+- **Metadata unchanged** (`kind`, `stateless`, `needs_body`, and the exported middleware set all equal) — module swap only; `FlowGraph` is not recompiled. Module registry swaps the active `Component` for that `module_id`. For **stateless** plugins: new invocations rent instances from `PoolingAllocator` which transparently creates new instances against the new component; in-flight stateless invocations (if any) finish and their instances drop. For **stateful** plugins: the old instance pool continues to serve in-flight checkouts until they return naturally; new checkouts will construct against the new component. Old instances drop as they complete. (Note: stateful linear memory bound to the old component's layout does **not** migrate to the new component even if metadata is compatible — each instance's state lives only as long as that instance.)
+- **Metadata changed** — triggers **full FlowGraph recompile** (because compilation decisions depend on metadata). The new graph ArcSwaps into place; old graph drops when its in-flight requests finish. All stateful linear memory on that module resets — see `04-middleware.md` § _State migration on reload_.
 
 ## Instance pool
 
@@ -112,9 +112,10 @@ Two modes, declared per plugin's `stateless` metadata:
 ### Stateful
 
 - Declared with `pool: N` (N ≥ 1, default 4).
-- N instances pre-allocated at module load. Each call checks out, invokes, returns — linear-memory state persists.
+- N instances pre-allocated at module load. Each call checks out, invokes, returns — linear-memory state persists **within a single graph generation**.
 - Pool size fixed; auto-scaling deferred.
 - On exhaustion: drop connection with 503. Queueing deliberately not implemented.
+- **On FlowGraph reload** (metadata changed, or any other recompile-triggering change): the pool drops with the old graph. The new graph pre-allocates a fresh pool of N empty-state instances. Linear memory **does not migrate**. This matches vane's general "no state migration across reload" posture — see `04-middleware.md` § _State migration on reload_ for the rationale and the recommended external-layer alternatives.
 
 ## Host function surface
 

@@ -174,6 +174,19 @@ Only `Reject` is supported in MVP. `Delay` (briefly queue hoping for a token) is
 
 Multi-daemon deployments behave as N independent limiters — the effective total rate equals `N × configured rate`. This is the correct behavior for a per-node proxy that happens to be replicated; distributed rate limiting is an application-layer concern, not a proxy concern (same philosophy as the 60s window ceiling).
 
+### Reload resets the bucket
+
+The `rate_limit` middleware's `DashMap<Key, TokenBucket>` lives on the `Arc<FlowGraph>`. Every config reload that recompiles the graph drops the old `Arc` and constructs fresh buckets on the new graph — existing buckets' accumulated counters are **not** carried over. This is the finalized design, not an MVP limitation; see `04-middleware.md` § _State migration on reload_.
+
+Consequence: if an operator considers vane's L2 `rate_limit` a load-bearing part of the security posture, a frequent-reload workflow (file-watch-driven edits, cert rotation that happens to also touch rules) becomes an inadvertent attack surface — reloads reset counters.
+
+Two correct responses:
+
+- **Put the load-bearing rate limit outside vane** — between vane and the origin (haproxy / envoy / a dedicated limiter service), or inside the origin application itself (per-user quotas backed by redis, application middleware). That layer is unaffected by vane's graph lifecycle.
+- **For DDoS-grade coarse protection that must survive reloads**, rely on L1 (see above). L1 state is daemon-scoped and `ArcSwap` does not touch it.
+
+L2 `rate_limit` remains appropriate for its designed role: **in-memory, short-window, application-level flow control** whose primary purpose is smoothing rather than enforcement. Treat it like a QoS knob, not like a security boundary.
+
 ---
 
 ## Positional summary

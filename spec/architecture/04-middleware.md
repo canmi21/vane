@@ -188,7 +188,35 @@ Structs with interior mutability (`parking_lot::Mutex`, `ArcSwap`, atomics, `Das
 
 One instance per middleware-in-FlowGraph, **per call site**. Two rules both declaring `rate_limit(rate=100)` get **two distinct** `MiddlewareId`s and **two separate** buckets — silently merging them would halve the effective rate across the two rules. The `MiddlewareRegistry`'s construction path checks statefulness and disables dedup for this kind.
 
-Lifetime is tied to the `FlowGraph`'s `Arc` — replaced when the graph swaps. (The consequence that this resets all counters on every config reload is flagged in the HMR-group audit; behavior is not yet final.)
+Lifetime is tied to the `FlowGraph`'s `Arc` — replaced when the graph swaps. Every reload therefore resets all graph-scoped stateful state (buckets empty, counters at zero, caches cleared). This is the final design — see "State migration on reload" below.
+
+## State migration on reload
+
+**Intentionally none.** When a config change recompiles the graph and `ArcSwap` installs it, the old `Arc<FlowGraph>` eventually drops and all its `MiddlewareInst`s drop with it; the new graph's stateful middleware are constructed fresh with empty state:
+
+| Middleware kind                                 | Reload effect                                                                                        |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Internal stateless (`sni_match`, `path_prefix`) | None — no state to preserve                                                                          |
+| Internal stateful (`rate_limit`, counters)      | **State resets**: buckets refill to capacity, counters return to zero                                |
+| External stateless WASM                         | Instance pool drains naturally; new pool starts fresh                                                |
+| External stateful WASM                          | **Linear memory resets**: old pool drains with the old graph, new pool pre-allocates fresh instances |
+
+### Why this is the design, not a compromise
+
+Preserving arbitrary Rust / WASM state across `ArcSwap` requires one of:
+
+- **Identity-based migration** — every stateful `use` gets a stable `id`, the `lower` pass queries the old graph and transplants `Arc`s by identity. This is plausible but adds a formal identity layer to every middleware invocation and a non-pure stage to the compile pipeline — non-trivial complexity for a feature few rules actually need.
+- **State externalization** — state lives in a KV store (sled / redis) and every call round-trips. A per-request network / disk hit breaks the proxy's hot-path budget and drags in a database dependency.
+
+Neither fits vane's posture as a **small, fast, fully in-memory proxy whose HMR contract is "in-flight connections see no disruption"**. Seamless state preservation across config changes is explicitly **not** part of that contract.
+
+### What to do if you need state that survives reloads
+
+The correct place to put such state is not inside vane:
+
+- **Put a dedicated rate-limit / flow-control layer between vane and your origin.** A separate limiter service, or a sidecar like haproxy / envoy configured in front of the origin. That layer's state is independent of vane's graph lifecycle; vane forwards bytes, the limiter owns the counters.
+- **Push enforcement into the application.** The origin service carries its own per-user / per-IP limits (application middleware, a shared redis cache, a CDN-level WAF). vane stays out of the state business; application semantics are unaffected by vane reloads.
+- **For coarse DDoS-class protection that is intended to survive reloads**, use the daemon-level L1 floor (see `13-rate-limit.md` — `max_conn_per_ip`, `max_total_connections`, etc.). L1 state lives on the daemon, not the graph; `ArcSwap` does not touch it. L1 is deliberately coarse and is not a substitute for application-level flow control — but for "keep the daemon alive under a SYN flood", it is the right layer and it does persist.
 
 ## External middleware (WASM)
 
