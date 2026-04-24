@@ -1,5 +1,28 @@
 # TLS
 
+## TLS library: rustls only
+
+`vane` commits to [`rustls`](https://crates.io/crates/rustls) as its single TLS library. The following are **non-dependencies by policy** — a PR introducing any of them (direct dep, or a default-feature of an indirect dep) is rejected:
+
+- **[`native-tls`](https://crates.io/crates/native-tls)** — wraps the host OS's TLS library (SChannel / Secure Transport / OpenSSL). A competitor to rustls.
+- **`openssl`, `openssl-sys`** — FFI to OpenSSL.
+- **`boring`, `boring-sys`** — FFI to BoringSSL.
+- **`hyper-tls`** — hyper connector built on `native-tls`. We use `hyper-rustls` instead.
+
+### Confusingly-named crate that we _do_ use
+
+- **[`rustls-native-certs`](https://crates.io/crates/rustls-native-certs)** — **pure Rust**, despite the name. It loads the **host's root-CA bundle** (via `security-framework` on macOS, filesystem probe via `openssl-probe` on Linux — the probe is a filesystem lookup, not an OpenSSL dep) and hands those roots to rustls. It is an **ally** of rustls, not a competitor. We depend on it; it is listed in the `vane-engine` deps in `16-crate-layout.md`.
+
+The naming is unfortunate. To disambiguate in reviews: if the crate name starts with `rustls-` or is a rustls-flavored feature on another crate (e.g., `reqwest`'s `rustls-tls`, `hickory-resolver`'s `tls-aws-lc-rs` / `tls-ring` / `https-aws-lc-rs` features), it is an ally. If it starts with `native-tls` / `openssl` / `boring` / `hyper-tls`, it is a competitor and banned.
+
+### Enforcement
+
+When pulling a crate that offers multiple TLS backends (`reqwest`, `ureq`, `hyper`, `hickory-resolver`, etc.), the `Cargo.toml` entry must carry `default-features = false` and explicitly select a rustls-flavored feature. "Accidentally defaults to native-tls" is a regression, not a shrug.
+
+This is orthogonal to the `aws-lc-rs` ↔ `ring` crypto-provider choice in `16-crate-layout.md` § _Crypto backend_. Both providers are rustls-internal; the policy here is about never pulling a _different_ TLS library in front of rustls.
+
+A CI check (post-MVP) asserts `! cargo tree --workspace | grep -q 'openssl-sys '` to catch regressions mechanically. See `script/check-no-openssl.sh` in `16-crate-layout.md` § _CI orchestration shape_.
+
 ## Principle: two orthogonal dimensions
 
 TLS policy in `vane` is **two independent dimensions**, not a single strictness toggle:

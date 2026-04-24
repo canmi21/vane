@@ -24,6 +24,8 @@ These are not "later." They are explicit non-goals.
 - **Non-HTTP application protocols**: no SMTP, SSH, MySQL, or similar as proxied protocols. L4 forward handles these opaquely when they happen to use TCP/UDP.
 - **Web UI for management**: CLI + TUI only.
 - **Multi-tenant cloud operation**: no tenant isolation beyond what WASM sandboxing provides for plugins.
+- **Windows (any target)**: permanent non-goal. `vaned` assumes Unix signals, Unix domain sockets, `SO_REUSEADDR/PORT`, fork+exec for CGI, `CAP_NET_BIND_SERVICE` / systemd socket activation for privileged ports. These assumptions are load-bearing; no Windows shim is planned.
+- **`native-tls` / `openssl` / `boring` / `hyper-tls` as TLS library**: `vane` uses `rustls` exclusively (see `08-tls.md` § _TLS library: rustls only_). The `aws-lc-rs` ↔ `ring` choice is a crypto-provider choice _within_ rustls and does not imply a non-rustls path. Note: `rustls-native-certs` (which is pure Rust despite its name — it only loads OS root CAs) **is** used; do not confuse it with `native-tls`.
 
 ## Deferred (may enter scope post-MVP)
 

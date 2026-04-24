@@ -1,5 +1,11 @@
 # Testing
 
+## Local dev environment
+
+Local development happens on **`aarch64-apple-darwin`** (macOS arm64) exclusively. Every developer — human or LLM — runs `cargo test` against this single platform. Cross-target behaviour is exercised in CI per the Target tier matrix in `spec/architecture/16-crate-layout.md`.
+
+Code that branches on target at runtime must have a macOS arm64 happy path. Target-gated code (`#[cfg(target_os = "linux")]`, `#[cfg(target_family = "unix")]`, etc.) is acceptable, but the crate must still compile on macOS arm64 — use `compile_error!` in a `#[cfg]` branch only if the target is truly unsupported (e.g., Windows).
+
 `cargo test` is the canonical runner. Unit tests live beside their code in `#[cfg(test)] mod tests` blocks; integration tests live in the workspace-level `tests/` crate. End-to-end daemon tests spawn `vaned` as a subprocess via the `vane-testutil::VanedFixture` harness.
 
 See [`spec/architecture/16-crate-layout.md`](architecture/16-crate-layout.md) § _Tests_ for the test-file layout and the [Fixture management](#fixture-management) section below for helper location.

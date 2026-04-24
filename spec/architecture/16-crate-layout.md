@@ -285,15 +285,102 @@ All integration test files reference `vane-testutil` for fixtures. Unit tests st
 
 ## Release artifacts
 
-MVP release targets:
+MVP release targets are enumerated in § _Target tier matrix_ below. The short form: static binaries for all Tier 1 targets (gnu + musl on linux x86_64/aarch64, plus apple-darwin arm64); compile-only CI for Tier 2 (FreeBSD, i686, armv7). Source tarball of the workspace.
 
-- **`vane`** static binary for: `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `x86_64-apple-darwin`, `aarch64-apple-darwin`.
-- **`vaned`** static binary for same targets.
-- Source tarball of the workspace.
+Container images (Docker / OCI) are built from the static musl binaries on Alpine or distroless base. That's tooling, not architecture — out of scope for this document.
 
-Building with musl static-link confirms the hickory-resolver DNS choice (glibc NSS is not involved; see `07-l7.md`).
+## Target tier matrix
 
-Container images (Docker / OCI) are built from the static binaries on Alpine or distroless base. That's tooling, not architecture — out of scope for this document.
+`vane` is **Unix-only** (Windows is a permanent non-goal — see `00-charter.md` § _Permanently out of scope_). Among Unix targets, support is tiered:
+
+| Target                          | Crypto    | Tier            | Wasm feature       | Notes                                                                                                                                                                             |
+| ------------------------------- | --------- | --------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `x86_64-unknown-linux-gnu`      | aws-lc-rs | Tier 1          | on                 | Primary CI target — full `cargo test` runs here. aws-lc-rs pre-generated bindings. wasmtime Tier 1.                                                                               |
+| `aarch64-unknown-linux-gnu`     | aws-lc-rs | Tier 1          | on                 | aws-lc-rs pre-generated bindings. wasmtime Tier 2.                                                                                                                                |
+| `x86_64-unknown-linux-musl`     | aws-lc-rs | Tier 1          | on                 | Primary **static-binary** release target (edge / router deploy). aws-lc-rs builds via bindgen; `musl-gcc` or `clang` suffices.                                                    |
+| `aarch64-unknown-linux-musl`    | aws-lc-rs | Tier 1          | on                 | Same. Container base is typically Alpine or distroless.                                                                                                                           |
+| `aarch64-apple-darwin`          | aws-lc-rs | Tier 1          | on                 | **Local dev target** (see `spec/testing.md`). aws-lc-rs pre-generated bindings via `security-framework`. wasmtime Tier 2.                                                         |
+| `x86_64-unknown-freebsd`        | aws-lc-rs | Tier 2          | **off by default** | CI runs `cargo check` only. `wasm` feature turned off in the default FreeBSD build — wasmtime is Tier 3 there. Operators who want WASM rebuild with `--features wasm`.            |
+| `i686-unknown-linux-gnu`        | ring      | Tier 2          | **unavailable**    | Cranelift has no 32-bit native backend; Pulley interpreter is experimental. `wasm` feature is not offered. `aws-lc-rs` is technically supported but uses bindgen — prefer `ring`. |
+| `armv7-unknown-linux-gnueabihf` | ring      | Tier 2          | **unavailable**    | Same rationale: no 32-bit wasmtime backend. `ring` is the portable default.                                                                                                       |
+| Windows (any)                   | —         | **unsupported** | —                  | Permanent non-goal. `vaned` assumes Unix signals, Unix-domain sockets, fork+exec, capability-based port binding.                                                                  |
+
+Tier meanings:
+
+- **Tier 1** — a release artifact is produced; full `cargo test --workspace` runs in CI (on `x86_64-unknown-linux-gnu` specifically, with other Tier 1 targets validated via `cargo check`). Guaranteed to boot and serve.
+- **Tier 2** — compile-only in CI (`cargo check --target <t> --features <reduced>`). No release artifact; no functional test. Builds today, may regress silently.
+
+Authoritative upstream references: [aws-lc-rs Platform Support](https://aws.github.io/aws-lc-rs/platform_support.html) for crypto-backend target coverage; [Wasmtime Tiers of Support](https://docs.wasmtime.dev/stability-tiers.html) for wasm availability.
+
+## musl build matrix
+
+musl targets are **first-class** (Tier 1). The release pipeline produces musl static binaries as the primary artifact for edge / router deployments — a single self-contained file, glibc-free.
+
+Dep-by-dep musl posture:
+
+| Dep                                              | Musl-clean?            | Requires                           | Notes                                                                                                                                                                                                         |
+| ------------------------------------------------ | ---------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rustls` 0.23 + `aws-lc-rs`                      | buildable, not trivial | `musl-gcc` or `clang` + bindgen    | First-class path. Needs a musl C compiler on the build host; `cross` image ships with it.                                                                                                                     |
+| `rustls` 0.23 + `ring`                           | yes                    | nothing                            | Fallback for 32-bit targets and cross-compile hosts without musl cc.                                                                                                                                          |
+| `hyper` 1.x / `hyper-util` / `hyper-rustls`      | yes                    | nothing                            | Pure Rust.                                                                                                                                                                                                    |
+| `h3` / `h3-quinn` / `quinn` 0.11                 | yes                    | nothing                            | Pure Rust QUIC stack.                                                                                                                                                                                         |
+| `hickory-resolver`                               | yes                    | nothing                            | Glibc-NSS-free by design — chosen specifically so musl static-link is clean.                                                                                                                                  |
+| `notify` + `notify-debouncer-full`               | yes                    | inotify syscalls (linux-musl fine) | Pure Rust bindings over inotify / kqueue.                                                                                                                                                                     |
+| `dashmap` / `parking_lot` / `arc-swap` / `tokio` | yes                    | nothing                            | Pure Rust.                                                                                                                                                                                                    |
+| `instant-acme`, `rcgen`                          | inherits crypto choice | —                                  | Pure Rust otherwise.                                                                                                                                                                                          |
+| `wasmtime` 26+                                   | **upstream Tier 3**    | Cranelift support per target       | Builds on `x86_64/aarch64-unknown-linux-musl`; wasmtime declares it Tier 3 (no CI commitment). `vane` Tier 1 status here covers vane's own test coverage; wasmtime runtime stability is the upstream's claim. |
+| `libc` (CGI `pre_exec` syscalls)                 | yes                    | nothing                            | Syscall shape identical on musl.                                                                                                                                                                              |
+| `testcontainers`                                 | N/A                    | Docker at test time                | `[dev-dependencies]` only; never in release build.                                                                                                                                                            |
+
+Recommended musl build command for edge / router deploy:
+
+```
+cargo build --release --target aarch64-unknown-linux-musl -p vaned \
+  --no-default-features --features "aws-lc-rs,h3,cgi,wasm"
+```
+
+For 32-bit targets (`i686`, `armv7`), drop `wasm` and switch crypto:
+
+```
+cargo build --release --target armv7-unknown-linux-gnueabihf -p vaned \
+  --no-default-features --features "ring,h3,cgi"
+```
+
+For FreeBSD (wasm opt-in):
+
+```
+cargo build --release --target x86_64-unknown-freebsd -p vaned \
+  --no-default-features --features "aws-lc-rs,h3,cgi"
+# add ',wasm' if you know you want it on FreeBSD
+```
+
+## CI orchestration shape
+
+**Deferred past Stage 1** — this section documents the _shape_ so Stage 2's compile-matrix has a target to aim at. `script/` does not exist yet; CI workflow files do not exist yet. When they land, they follow this shape.
+
+Logic lives in **shell scripts under `script/`**, not in YAML. Rationale: CI should be locally testable. A CI failure the developer cannot reproduce on their laptop is a CI that wastes time.
+
+```
+script/
+├── fmt.sh               # cargo fmt --all -- --check && dprint check
+├── lint.sh              # cargo clippy --workspace --all-targets -- -D warnings
+├── test.sh              # cargo test --workspace [--features ...]
+├── check-target.sh      # $1 = triple; $2 = feature string; cargo check --target $1 --no-default-features --features "$2"
+├── check-mutual-excl.sh # asserts `cargo build --features "aws-lc-rs,ring"` fails with the expected compile_error!
+├── check-no-openssl.sh  # ! cargo tree --workspace 2>&1 | grep -q 'openssl-sys '
+├── build-release.sh     # $1 = target; $2 = features; static-link flags; strip
+└── commitlint.sh        # commitlint --from ${1:-origin/main}
+```
+
+Each script: ≤ 20 lines of bash, `set -euo pipefail`, echoes its own command, exits non-zero on first failure.
+
+`Justfile` recipes are thin wrappers — one per script. Local dev invokes them directly (`just fmt`, `just check-target aarch64-unknown-linux-musl "aws-lc-rs,h3,cgi,wasm"`).
+
+`.github/workflows/*.yml` (when it lands) stays orchestration-only — a workflow file that `just fmt` / `just lint` / `just test` plus a loop over the Target tier matrix's Tier 2 targets for `just check-target`. No logic in YAML.
+
+Cross-compile toolchain: prefer native `cargo build --target <t>` with rustup targets installed. Use [`cross`](https://github.com/cross-rs/cross) only when the local host's glibc is newer than the deploy target's (musl has no such problem — musl cross-compiles clean with rust-native).
+
+## Feature flags
 
 ## Feature flags
 
@@ -301,18 +388,18 @@ Naming follows ecosystem conventions — short, lowercase, single-word where pos
 
 ### Per-crate feature flags
 
-| Crate         | Feature     | Default | Purpose                                            |
-| ------------- | ----------- | ------- | -------------------------------------------------- |
-| `vane-engine` | `aws-lc-rs` | on      | rustls crypto provider = aws-lc-rs                 |
-| `vane-engine` | `ring`      | off     | rustls crypto provider = ring (mutually exclusive) |
-| `vane-engine` | `h3`        | on      | compile h3 + quinn for HTTP/3 support              |
-| `vane-engine` | `cgi`       | on      | compile CGI fork-exec path                         |
-| `vaned`       | `aws-lc-rs` | on      | forwards to `vane-engine/aws-lc-rs`                |
-| `vaned`       | `ring`      | off     | forwards to `vane-engine/ring`                     |
-| `vaned`       | `h3`        | on      | forwards to `vane-engine/h3`                       |
-| `vaned`       | `cgi`       | on      | forwards to `vane-engine/cgi`                      |
-| `vaned`       | `wasm`      | on      | links `vane-wasm` (pulls wasmtime)                 |
-| `vane` (bin)  | `tui`       | on      | compiles ratatui + crossterm TUI code              |
+| Crate         | Feature     | Default | Purpose                                                                                           |
+| ------------- | ----------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `vane-engine` | `aws-lc-rs` | on      | rustls crypto provider = aws-lc-rs; default on Tier 1; see § _Target tier matrix_                 |
+| `vane-engine` | `ring`      | off     | rustls crypto provider = ring (mutually exclusive); the portable default on 32-bit Tier 2 targets |
+| `vane-engine` | `h3`        | on      | compile h3 + quinn for HTTP/3 support                                                             |
+| `vane-engine` | `cgi`       | on      | compile CGI fork-exec path                                                                        |
+| `vaned`       | `aws-lc-rs` | on      | forwards to `vane-engine/aws-lc-rs`                                                               |
+| `vaned`       | `ring`      | off     | forwards to `vane-engine/ring`                                                                    |
+| `vaned`       | `h3`        | on      | forwards to `vane-engine/h3`                                                                      |
+| `vaned`       | `cgi`       | on      | forwards to `vane-engine/cgi`                                                                     |
+| `vaned`       | `wasm`      | on      | links `vane-wasm` (pulls wasmtime)                                                                |
+| `vane` (bin)  | `tui`       | on      | compiles ratatui + crossterm TUI code                                                             |
 
 No feature flags on `vane-core`, `vane-wasm`, `vane-mgmt`, `vane-testutil` — they are always-on code.
 
@@ -348,13 +435,16 @@ pub const BACKEND_NAME: &str = {
 
 Trade-offs:
 
-|                    | `aws-lc-rs` (default)                | `ring`                                |
-| ------------------ | ------------------------------------ | ------------------------------------- |
-| Performance        | fast — AES-NI / SHA-NI / AVX-512     | slower — basic assembly only          |
-| Build toolchain    | needs cmake + C compiler (BoringSSL) | pure Rust + small asm, no C toolchain |
-| FIPS 140-3         | optional                             | not available                         |
-| musl cross-compile | possible with musl-cc setup          | cleanest                              |
-| Binary size        | slightly larger                      | slightly smaller                      |
+|                    | `aws-lc-rs` (default)                                                                                                                     | `ring`                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Performance        | fast — AES-NI / SHA-NI / AVX-512                                                                                                          | slower — basic assembly only          |
+| Build toolchain    | needs cmake + C compiler (BoringSSL)                                                                                                      | pure Rust + small asm, no C toolchain |
+| FIPS 140-3         | optional                                                                                                                                  | not available                         |
+| musl cross-compile | **Tier 1** — via `musl-gcc` / `clang` (the `cross` image ships it; a raw `rustup target add` host needs to provide the C compiler itself) | cleanest (pure Rust + asm)            |
+| 32-bit targets     | possible but runs bindgen                                                                                                                 | preferred default                     |
+| FreeBSD            | possible, runs bindgen                                                                                                                    | fallback                              |
+| Pre-gen bindings   | `x86_64/aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` — other Tier 1/2 targets invoke bindgen during build                            | N/A                                   |
+| Binary size        | slightly larger                                                                                                                           | slightly smaller                      |
 
 ### Feature-off → rule compile-time rejection
 
@@ -387,12 +477,17 @@ Unix socket is always bound. HTTP-over-TCP is opt-in per deployment.
 ### Build matrix examples
 
 ```
-# Default production
+# Default production (Tier 1 target, e.g. x86_64-unknown-linux-gnu or *-musl)
 cargo build --release -p vaned
 
-# Pure-Rust build chain (musl cross-compile friendly)
-cargo build --release -p vaned --no-default-features \
-  --features "ring,h3,cgi,wasm"
+# 32-bit Tier 2 target — no wasm, ring crypto
+cargo build --release --target armv7-unknown-linux-gnueabihf -p vaned \
+  --no-default-features --features "ring,h3,cgi"
+
+# FreeBSD (Tier 2, wasm opt-in)
+cargo build --release --target x86_64-unknown-freebsd -p vaned \
+  --no-default-features --features "aws-lc-rs,h3,cgi"
+#  add ',wasm' if you want it on FreeBSD
 
 # Minimal HTTP/1.1 + HTTP/2 only (drop h3, wasm, cgi)
 cargo build --release -p vaned --no-default-features --features "aws-lc-rs"
@@ -400,6 +495,8 @@ cargo build --release -p vaned --no-default-features --features "aws-lc-rs"
 # CLI without TUI
 cargo build --release -p vane --no-default-features
 ```
+
+See § _Target tier matrix_ and § _musl build matrix_ above for the full grid.
 
 ## Binary CLIs
 

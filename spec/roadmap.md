@@ -121,3 +121,29 @@ Feature IDs are stable across the project's life — refer to them in commits, i
 Each feature in this roadmap has a row in the per-stage testing matrix. The sub-agent writing tests for feature `SX-NN` pulls its test-matrix row from the corresponding `spec/architecture/*.md` section that owns the feature, plus the "Anti-over-testing examples" and "Test surface by binary kind" sections of `spec/testing.md`.
 
 Coverage targets per feature align with the `spec/testing.md` 95 % floor — lower only with an in-module documented exemption (I/O error branches with no observable behavior).
+
+## CI ambition (per stage)
+
+CI is **deferred past Stage 1**. This section sketches what CI will check per stage — actual workflow wiring lands when Stage 2 starts. Implementation shape is documented in `spec/architecture/16-crate-layout.md` § _CI orchestration shape_ (shell scripts under `script/`, orchestrated by `Justfile` locally and `.github/workflows/*.yml` in CI).
+
+**Stage 1** — single CI job on `x86_64-unknown-linux-gnu`:
+
+- `just fmt` — `cargo fmt --check` + `dprint check`
+- `just lint` — `cargo clippy --workspace --all-targets -- -D warnings`
+- `just test` — `cargo test --workspace`
+- `commitlint` on every push / pre-merge
+
+**Stage 2** — add the target compile-matrix:
+
+- `cargo check` on all Tier 2 targets listed in `spec/architecture/16-crate-layout.md` § _Target tier matrix_, each with its prescribed feature set (32-bit targets drop `wasm`, FreeBSD defaults `wasm` off).
+- `just check-mutual-excl` — verifies `cargo build --features "aws-lc-rs,ring"` **fails** with the expected `compile_error!` (per risk-register item 7).
+- `just check-no-openssl` — verifies `cargo tree --workspace` contains zero `openssl-sys` (per TLS-library policy; see `spec/architecture/08-tls.md` § _TLS library: rustls only_).
+- Full test stays on `x86_64-unknown-linux-gnu`; other Tier 1 targets get `cargo check`.
+
+**Stage 3** — add integration-test jobs:
+
+- WASM-component build: build `vane-wasm-fixture` for `wasm32-wasi`, run `tests/wasm_plugin.rs`.
+- ACME: Pebble-backed HTTP-01 integration test via `testcontainers` (slow; gated behind a label or nightly schedule).
+- Release-artifact job: emit static binaries for every Tier 1 target (gnu + musl on linux x86_64 / aarch64, plus apple-darwin arm64), `strip`ped, with the expected feature set.
+
+Cross-compile toolchain: `cargo build --target <t>` with rustup targets installed. [`cross`](https://github.com/cross-rs/cross) is reserved for the rare case where the CI runner's glibc is newer than the deploy target's — musl cross-compiles are handled rust-native with a musl C compiler installed on the runner (needed for `aws-lc-rs`'s bindgen step on musl Tier 1 targets).
