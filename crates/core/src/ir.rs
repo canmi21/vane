@@ -1,6 +1,16 @@
-//! Symbolic IR: `SymbolicFlowGraph`, `Node`, newtype ids (`NodeId`,
-//! `PredicateId`, `MiddlewareId`, `FetchId`, `TerminatorId`), `BodySide`,
-//! `FlowGraphMeta` (SHA-256 `version_hash`, `feature_set` snapshot).
-//!
-//! See `spec/architecture/02-flow.md` § _The compiled form_.
-//! Feature: S1-10.
+#[derive(
+	Copy, Clone, Eq, PartialEq, Hash, Debug, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct NodeId(u32);
+
+impl NodeId {
+	#[must_use]
+	pub const fn new(raw: u32) -> Self {
+		Self(raw)
+	}
+
+	#[must_use]
+	pub const fn get(self) -> u32 {
+		self.0
+	}
+}

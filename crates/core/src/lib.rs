@@ -2,17 +2,26 @@
 //!
 //! See `spec/architecture/03-types.md`, `02-flow.md`, `04-middleware.md`.
 
+pub mod body;
+pub use body::*;
 pub mod compile;
+pub mod conn_context;
+pub use conn_context::*;
 pub mod error;
 pub use error::*;
 pub mod fetch;
+pub mod flow_ctx;
+pub use flow_ctx::*;
+pub mod flow_log;
+pub use flow_log::*;
 pub mod ir;
+pub mod l4;
+pub use l4::*;
 pub mod metadata;
 pub mod middleware;
 pub mod phase;
 pub mod predicate;
 pub mod rule;
-pub mod types;
 
 pub mod meta {
 	pub const DESCRIPTION: &str = "A compact programmable proxy engine";
