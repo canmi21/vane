@@ -36,3 +36,278 @@ pub fn compile(
 	validate::validate(&graph)?;
 	Ok(Arc::new(graph))
 }
+
+#[cfg(test)]
+mod tests {
+	use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+	use std::path::PathBuf;
+
+	use super::*;
+	use crate::fetch::{FetchKind, FetchOutputModes, FetchPhase, Terminator};
+	use crate::ir::Node;
+	use crate::metadata::{FetchMetadata, MiddlewareMetadata};
+	use crate::middleware::MiddlewareKind;
+	use crate::rule::{RawRule, TerminateSpec};
+
+	struct Providers;
+
+	#[allow(clippy::unnecessary_wraps)]
+	fn validate_ok(_: &serde_json::Value) -> Result<(), Error> {
+		Ok(())
+	}
+
+	impl MiddlewareMetadataProvider for Providers {
+		fn get(&self, name: &str) -> Option<MiddlewareMetadata> {
+			match name {
+				"forward_client_ip" => Some(MiddlewareMetadata {
+					kind: MiddlewareKind::L7Request,
+					stateless: true,
+					needs_body: false,
+					validate_args: validate_ok,
+				}),
+				"rate_limit" => Some(MiddlewareMetadata {
+					kind: MiddlewareKind::L7Request,
+					stateless: false,
+					needs_body: false,
+					validate_args: validate_ok,
+				}),
+				_ => None,
+			}
+		}
+	}
+
+	impl FetchMetadataProvider for Providers {
+		fn get(&self, kind: FetchKind) -> Option<FetchMetadata> {
+			Some(FetchMetadata {
+				kind,
+				phase: match kind {
+					FetchKind::L4Forward => FetchPhase::L4,
+					_ => FetchPhase::L7,
+				},
+				output_modes: match kind {
+					FetchKind::L4Forward => FetchOutputModes { response: false, tunnel: true },
+					FetchKind::WebSocketUpgrade => FetchOutputModes { response: true, tunnel: true },
+					_ => FetchOutputModes { response: true, tunnel: false },
+				},
+				validate_args: validate_ok,
+			})
+		}
+	}
+
+	fn parse_rule(j: serde_json::Value) -> RawRule {
+		serde_json::from_value(j).expect("parse rule")
+	}
+
+	fn rule_file(path: &str, rules: Vec<RawRule>) -> RawRuleFile {
+		RawRuleFile { path: PathBuf::from(path), order: 0, rules }
+	}
+
+	fn _unused_mentions() {
+		let _ = TerminateSpec { kind: FetchKind::HttpProxy, args: serde_json::Value::Null };
+	}
+
+	#[test]
+	fn reverse_proxy_end_to_end_compiles_with_dual_stack_entries() {
+		let r = parse_rule(serde_json::json!({
+			"name": "proxy",
+			"listen": [":443"],
+			"middleware_chain": [{ "use": "forward_client_ip" }, { "use": "rate_limit", "args": { "rate": 100 } }],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		}));
+		let graph =
+			compile(vec![rule_file("30-proxy.json", vec![r])], &Providers, &Providers).expect("compile");
+		assert!(!graph.nodes.is_empty());
+		// Dual-stack `:443` expands to both v4 and v6 SocketAddrs sharing one entry NodeId.
+		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 443);
+		let v6 = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 443);
+		let e_v4 = graph.entries.get(&v4).expect("v4 entry present");
+		let e_v6 = graph.entries.get(&v6).expect("v6 entry present");
+		assert_eq!(e_v4, e_v6);
+		// The terminator set contains WriteHttpResponse (both the rule terminator
+		// and the synthesised default-miss write it).
+		assert!(
+			graph.terminators.iter().any(|t| matches!(t, Terminator::WriteHttpResponse)),
+			"expected WriteHttpResponse terminator",
+		);
+	}
+
+	#[test]
+	fn predicate_hash_cons_shares_id_across_rules() {
+		// Two rules on different listeners both match `tls.sni == "api"`.
+		// Spec 02-flow.md § _Hash-consing_: predicates always dedup.
+		let a = parse_rule(serde_json::json!({
+			"name": "a",
+			"listen": [":8443"],
+			"match": { "tls.sni": { "equals": "api" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "b",
+			"listen": [":9443"],
+			"match": { "tls.sni": { "equals": "api" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers).expect("compile");
+		assert_eq!(graph.predicates.len(), 1, "identical predicates must hash-cons to one slot");
+	}
+
+	#[test]
+	fn stateless_middleware_hash_cons_across_rules() {
+		// Two rules sharing an identical `forward_client_ip` (stateless, no args)
+		// must share one MiddlewareId.
+		let a = parse_rule(serde_json::json!({
+			"name": "a",
+			"listen": [":7001"],
+			"middleware_chain": [{ "use": "forward_client_ip" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "b",
+			"listen": [":7002"],
+			"middleware_chain": [{ "use": "forward_client_ip" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers).expect("compile");
+		let shared = graph
+			.middlewares
+			.iter()
+			.filter(|m| m.name.as_ref() == "forward_client_ip" && m.stateless)
+			.count();
+		assert_eq!(shared, 1, "stateless middleware dedups across rules");
+	}
+
+	#[test]
+	fn stateful_middleware_per_site_not_shared() {
+		// Two rules both use `rate_limit` (stateful). Each call site must get
+		// its own MiddlewareId per spec § _Hash-consing_ — sharing buckets
+		// would silently halve the effective rate.
+		let a = parse_rule(serde_json::json!({
+			"name": "a",
+			"listen": [":7003"],
+			"middleware_chain": [{ "use": "rate_limit", "args": { "rate": 100 } }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "b",
+			"listen": [":7004"],
+			"middleware_chain": [{ "use": "rate_limit", "args": { "rate": 100 } }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers).expect("compile");
+		let rate_limit_count =
+			graph.middlewares.iter().filter(|m| m.name.as_ref() == "rate_limit").count();
+		assert_eq!(rate_limit_count, 2, "stateful middleware must not share ids across call sites");
+	}
+
+	#[test]
+	fn terminator_variant_derives_from_fetch_kind() {
+		// HttpProxy / HttpSynthesize → WriteHttpResponse; L4Forward → ByteTunnel.
+		let http = parse_rule(serde_json::json!({
+			"name": "http",
+			"listen": [":8080"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let tcp = parse_rule(serde_json::json!({
+			"name": "tcp",
+			"listen": [":2222"],
+			"terminate": { "type": "tcp_forward", "upstream": "10.0.0.5:22" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![http, tcp])], &Providers, &Providers).expect("compile");
+		let terms: std::collections::HashSet<_> = graph.terminators.iter().copied().collect();
+		assert!(terms.contains(&Terminator::WriteHttpResponse));
+		assert!(terms.contains(&Terminator::ByteTunnel));
+	}
+
+	#[test]
+	fn l7_rule_inserts_upgrade_node() {
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let upgrades = graph.nodes.iter().filter(|n| matches!(n, Node::Upgrade { .. })).count();
+		assert!(upgrades >= 1, "L7 listener must have at least one Upgrade node");
+	}
+
+	#[test]
+	fn l4_only_rule_has_no_upgrade() {
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":2222"],
+			"terminate": { "type": "tcp_forward", "upstream": "10.0.0.5:22" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let upgrades = graph.nodes.iter().filter(|n| matches!(n, Node::Upgrade { .. })).count();
+		assert_eq!(upgrades, 0);
+	}
+
+	#[test]
+	fn duplicate_rule_names_fail_at_merge_stage() {
+		let a = parse_rule(serde_json::json!({
+			"name": "same",
+			"listen": [":1000"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "same",
+			"listen": [":1001"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let err = compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
+			.expect_err("duplicate must fail");
+		assert!(err.to_string().contains("duplicate"));
+	}
+
+	#[test]
+	fn any_of_combinator_is_not_supported_in_this_chunk() {
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"match": {
+				"any_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "tls.sni": { "equals": "b" } },
+				],
+			},
+			"terminate": { "type": "http_proxy" },
+		}));
+		let err = compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers)
+			.expect_err("any_of not yet lowered");
+		assert!(err.to_string().contains("any_of"));
+	}
+
+	#[test]
+	fn wildcard_port_listen_spec_is_rejected() {
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":0"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let err = compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers)
+			.expect_err("wildcard port must fail");
+		assert!(err.to_string().contains("wildcard port"));
+	}
+
+	#[test]
+	fn validate_runs_and_catches_basic_graph_integrity() {
+		// End-to-end: `compile` runs `validate` inside. A clean reverse_proxy
+		// graph must pass — this is an end-to-end sanity check that validate
+		// is wired into the pipeline and doesn't falsely reject good graphs.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		// Running validate again on the returned graph must still succeed.
+		validate::validate(&graph).expect("re-validate");
+	}
+}

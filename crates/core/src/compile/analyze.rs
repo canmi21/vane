@@ -167,3 +167,155 @@ const fn field_path_inspection_level(path: &FieldPath) -> InspectionLevel {
 		FieldPath::HttpBody => InspectionLevel::L7Body,
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::compile::expand::RawRuleSet;
+	use crate::fetch::{FetchOutputModes, FetchPhase as FetchMetaPhase};
+	use crate::metadata::{FetchMetadata, MiddlewareMetadata};
+	use crate::middleware::MiddlewareKind;
+	use serde_json::Value;
+
+	struct Providers;
+
+	#[allow(clippy::unnecessary_wraps)]
+	fn validate_ok(_: &Value) -> Result<(), Error> {
+		Ok(())
+	}
+
+	impl MiddlewareMetadataProvider for Providers {
+		fn get(&self, name: &str) -> Option<MiddlewareMetadata> {
+			match name {
+				"req_plain" => Some(MiddlewareMetadata {
+					kind: MiddlewareKind::L7Request,
+					stateless: true,
+					needs_body: false,
+					validate_args: validate_ok,
+				}),
+				"req_body" => Some(MiddlewareMetadata {
+					kind: MiddlewareKind::L7Request,
+					stateless: true,
+					needs_body: true,
+					validate_args: validate_ok,
+				}),
+				"resp_body" => Some(MiddlewareMetadata {
+					kind: MiddlewareKind::L7Response,
+					stateless: true,
+					needs_body: true,
+					validate_args: validate_ok,
+				}),
+				_ => None,
+			}
+		}
+	}
+
+	impl FetchMetadataProvider for Providers {
+		fn get(&self, kind: FetchKind) -> Option<FetchMetadata> {
+			Some(FetchMetadata {
+				kind,
+				phase: match kind {
+					FetchKind::L4Forward => FetchMetaPhase::L4,
+					_ => FetchMetaPhase::L7,
+				},
+				output_modes: match kind {
+					FetchKind::L4Forward => FetchOutputModes { response: false, tunnel: true },
+					FetchKind::WebSocketUpgrade => FetchOutputModes { response: true, tunnel: true },
+					_ => FetchOutputModes { response: true, tunnel: false },
+				},
+				validate_args: validate_ok,
+			})
+		}
+	}
+
+	fn set(rules: Vec<RawRule>) -> RawRuleSet {
+		RawRuleSet { rules, source_files: vec![] }
+	}
+
+	fn parse_rule(j: serde_json::Value) -> RawRule {
+		serde_json::from_value(j).expect("parse rule")
+	}
+
+	#[test]
+	fn http_body_predicate_sets_request_body_flag_and_l7body_level() {
+		let rule = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"match": { "http.body": { "contains": "admin" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let out = analyze(set(vec![rule]), &Providers, &Providers).expect("analyze");
+		let a = &out.rules[0];
+		assert!(a.needs_request_body);
+		assert!(!a.needs_response_body);
+		assert_eq!(a.inspection_level, InspectionLevel::L7Body);
+		assert_eq!(a.posture, Posture::L7);
+	}
+
+	#[test]
+	fn l7_request_needs_body_middleware_flags_request_side() {
+		let rule = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"middleware_chain": [{ "use": "req_body" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let out = analyze(set(vec![rule]), &Providers, &Providers).expect("analyze");
+		assert!(out.rules[0].needs_request_body);
+		assert!(!out.rules[0].needs_response_body);
+	}
+
+	#[test]
+	fn l7_response_needs_body_middleware_flags_response_side() {
+		let rule = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"middleware_chain": [{ "use": "resp_body" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let out = analyze(set(vec![rule]), &Providers, &Providers).expect("analyze");
+		assert!(!out.rules[0].needs_request_body);
+		assert!(out.rules[0].needs_response_body);
+	}
+
+	#[test]
+	fn l4_fetch_with_l7_predicate_errors() {
+		let rule = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":22"],
+			"match": { "http.method": { "equals": "GET" } },
+			"terminate": { "type": "tcp_forward", "upstream": "10.0.0.1:22" },
+		}));
+		let err = analyze(set(vec![rule]), &Providers, &Providers).expect_err("must error");
+		assert!(err.to_string().contains("L7-level predicate"));
+	}
+
+	#[test]
+	fn unknown_middleware_name_errors() {
+		let rule = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"middleware_chain": [{ "use": "does_not_exist" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let err = analyze(set(vec![rule]), &Providers, &Providers).expect_err("must error");
+		assert!(err.to_string().contains("does_not_exist"));
+	}
+
+	#[test]
+	fn specificity_counts_check_predicates() {
+		let rule = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"match": {
+				"any_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "tls.sni": { "equals": "b" } },
+				],
+			},
+			"terminate": { "type": "http_proxy" },
+		}));
+		let out = analyze(set(vec![rule]), &Providers, &Providers).expect("analyze");
+		assert_eq!(out.rules[0].specificity, 2);
+	}
+}

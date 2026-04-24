@@ -162,7 +162,21 @@ impl Builder {
 				.then(a.raw.name.cmp(&b.raw.name))
 		});
 
-		let mut current_miss = self.synthesize_default_miss(posture)?;
+		// Synthesize a default-miss only when at least one rule has a
+		// predicate that could miss and thus needs a fallback target. A set
+		// of catch-all (predicate-less) rules produces a chain whose entry
+		// is the first rule's first node — the default-miss would be dead
+		// code, and L4's default-miss cannot be synthesised today anyway.
+		let needs_fallback = ordered.iter().any(|r| r.raw.match_predicate.is_some());
+		let fallback_miss = if needs_fallback {
+			self.synthesize_default_miss(posture)?
+		} else {
+			// Use a sentinel; it is never read because no Check node will
+			// point at it. `NodeId::new(u32::MAX)` would also work but picking
+			// the last real fetch-id-less value keeps dumps clean.
+			NodeId::new(0)
+		};
+		let mut current_miss = fallback_miss;
 		for rule in ordered.iter().rev() {
 			let chain_entry = self.lower_rule(rule, current_miss, mw_meta, fetch_meta)?;
 			current_miss = chain_entry;
