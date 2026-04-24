@@ -8,7 +8,7 @@ use ipnet::IpNet;
 use crate::body::Request;
 use crate::conn_context::ConnContext;
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum FieldPath {
 	Transport,
 	RemoteIp,
@@ -139,6 +139,161 @@ impl PredicateInst {
 		// up against the same field-path readers it uses at compile time.
 		todo!("PredicateInst::test lands with the lower pass in S1-09")
 	}
+}
+
+pub const REGEX_PATTERN_MAX_BYTES: usize = 4 * 1024;
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub enum Predicate {
+	AnyOf(AnyOfP),
+	Not(NotP),
+	Check(CheckMap),
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnyOfP {
+	pub any_of: Vec<Predicate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotP {
+	pub not: Box<Predicate>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CheckMap {
+	pub path: FieldPath,
+	pub op: Operator,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Operator {
+	Equals(Value),
+	NotEquals(Value),
+	Contains(Value),
+	NotContains(Value),
+	Prefix(Value),
+	Suffix(Value),
+	Matches(String),
+	In(Vec<Value>),
+	NotIn(Vec<Value>),
+	Gt(i64),
+	Gte(i64),
+	Lt(i64),
+	Lte(i64),
+	Cidr(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum Value {
+	Bool(bool),
+	Int(i64),
+	Str(String),
+}
+
+impl<'de> serde::Deserialize<'de> for Predicate {
+	fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+		let v = serde_json::Value::deserialize(de)?;
+		let serde_json::Value::Object(ref map) = v else {
+			return Err(serde::de::Error::custom("predicate must be a JSON object"));
+		};
+		if map.len() == 1 {
+			let (key, _) = map.iter().next().expect("len == 1");
+			match key.as_str() {
+				"any_of" => {
+					return serde_json::from_value::<AnyOfP>(v)
+						.map(Predicate::AnyOf)
+						.map_err(serde::de::Error::custom);
+				}
+				"not" => {
+					return serde_json::from_value::<NotP>(v)
+						.map(Predicate::Not)
+						.map_err(serde::de::Error::custom);
+				}
+				_ => {}
+			}
+		}
+		serde_json::from_value::<CheckMap>(v).map(Predicate::Check).map_err(serde::de::Error::custom)
+	}
+}
+
+impl<'de> serde::Deserialize<'de> for CheckMap {
+	fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+		struct Visitor;
+
+		impl<'de> serde::de::Visitor<'de> for Visitor {
+			type Value = CheckMap;
+
+			fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+				f.write_str("a single-key object of the form {\"<field-path>\": {\"<operator>\": <value>}}")
+			}
+
+			fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<CheckMap, M::Error> {
+				let Some(key) = map.next_key::<String>()? else {
+					return Err(serde::de::Error::invalid_length(0, &"exactly one key"));
+				};
+				let path = parse_field_path(&key).map_err(serde::de::Error::custom)?;
+				let op: Operator = map.next_value()?;
+				if map.next_key::<serde::de::IgnoredAny>()?.is_some() {
+					return Err(serde::de::Error::custom("check object must have exactly one key"));
+				}
+				validate_operator(&op).map_err(serde::de::Error::custom)?;
+				Ok(CheckMap { path, op })
+			}
+		}
+
+		de.deserialize_map(Visitor)
+	}
+}
+
+fn parse_field_path(s: &str) -> Result<FieldPath, String> {
+	if s.chars().any(|c| c.is_ascii_uppercase()) {
+		return Err(format!(
+			"field path must be lowercase: {:?} — did you mean {:?}?",
+			s,
+			s.to_ascii_lowercase(),
+		));
+	}
+	match s {
+		"transport" => Ok(FieldPath::Transport),
+		"remote.ip" => Ok(FieldPath::RemoteIp),
+		"remote.port" => Ok(FieldPath::RemotePort),
+		"local.ip" => Ok(FieldPath::LocalIp),
+		"local.port" => Ok(FieldPath::LocalPort),
+		"peek" => Ok(FieldPath::Peek),
+		"tls.sni" => Ok(FieldPath::TlsSni),
+		"tls.alpn" => Ok(FieldPath::TlsAlpn),
+		"tls.version" => Ok(FieldPath::TlsVersion),
+		"tls.peer_cert.subject_cn" => Ok(FieldPath::TlsPeerCertSubjectCn),
+		"http.method" => Ok(FieldPath::HttpMethod),
+		"http.uri.path" => Ok(FieldPath::HttpUriPath),
+		"http.uri.query" => Ok(FieldPath::HttpUriQuery),
+		"http.body" => Ok(FieldPath::HttpBody),
+		other if other.starts_with("http.header.") => {
+			let name = &other["http.header.".len()..];
+			if name.is_empty() {
+				return Err(format!("http.header.* requires a header name: {other:?}"));
+			}
+			Ok(FieldPath::HttpHeader(Arc::from(name)))
+		}
+		other => Err(format!("unknown field path: {other:?}")),
+	}
+}
+
+fn validate_operator(op: &Operator) -> Result<(), String> {
+	if let Operator::Matches(pattern) = op
+		&& pattern.len() > REGEX_PATTERN_MAX_BYTES
+	{
+		return Err(format!(
+			"regex pattern source exceeds {REGEX_PATTERN_MAX_BYTES}-byte limit: got {} bytes",
+			pattern.len(),
+		));
+	}
+	Ok(())
 }
 
 #[cfg(test)]
