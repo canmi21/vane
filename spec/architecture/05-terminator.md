@@ -22,6 +22,33 @@ Contract:
 - **L4 Fetch** consumes the `L4Conn` and establishes a byte tunnel.
 - **Failure is typed** — upstream unreachable, timeout, malformed response, pool exhaustion: each is an `ErrorKind` that flows into the rest of the pipeline.
 
+### Trait surface
+
+All `FetchInst` variants implement a single trait:
+
+```rust
+pub trait Fetch: Send + Sync {
+    async fn fetch(&self, ctx: &mut Ctx<'_>) -> Result<FetchOutput, Error>;
+}
+
+pub enum FetchOutput {
+    Response(Response),      // HttpProxy, HttpSynthesize, WebSocketUpgrade-on-non-101
+    Tunnel(Tunnel),          // L4Forward, WebSocketUpgrade-on-101
+}
+
+pub struct Tunnel {
+    pub client:   Pin<Box<dyn AsyncReadWrite + Send>>,
+    pub upstream: Pin<Box<dyn AsyncReadWrite + Send>>,
+    pub close_reason_tx: Option<tokio::sync::oneshot::Sender<CloseReason>>,
+}
+
+/// Convenience trait-alias so `Box<dyn AsyncReadWrite>` compiles cleanly.
+pub trait AsyncReadWrite: tokio::io::AsyncRead + tokio::io::AsyncWrite {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + ?Sized> AsyncReadWrite for T {}
+```
+
+The executor (`02-flow.md`) dispatches on `FetchOutput` variant to pick the `next_response` or `next_tunnel` edge on the Fetch node. Variants that cannot produce one of the outputs (e.g., `L4Forward` never produces `Response`) simply never return it; the compiler's phase check ensures matching edges exist only where reachable.
+
 ### Variants
 
 ```rust

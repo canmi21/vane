@@ -37,6 +37,43 @@ fn expand(preset: PresetInvocation) -> Vec<RawRule>;
 
 Each preset has its own expansion rule. Expansion runs before merge; expanded rules participate in merge and compile like any other raw rule.
 
+### `RawRule` shape
+
+The intermediate form a rule takes between parse/expand and compile. Middleware and fetch are referenced by **string name** at this stage — the compiler's `lower` pass resolves those strings into `MiddlewareId` / `FetchId` using the middleware registry (see `04-middleware.md`).
+
+```rust
+pub struct RawRule {
+    pub name:             String,                         // unique across the merged rule set
+    pub listen:           Vec<ListenSpec>,                // ":443", "0.0.0.0:80", "[::]:443"
+    pub match_predicate:  Option<Predicate>,              // config-form predicate (see 18-predicate-schema.md)
+    pub middleware_chain: Vec<MiddlewareRef>,             // middleware nodes, in declared order
+    pub fetch:            Option<FetchSpec>,              // at most one per rule
+    pub terminate:        TerminatorSpec,                 // required
+    pub source:           SourceInfo,                     // which file + line produced this rule
+}
+
+pub struct MiddlewareRef {
+    pub name:  String,             // registry key — e.g., "rate_limit" or "auth:jwt_validator"
+    pub args:  serde_json::Value,  // per-instance args, opaque to the registry
+}
+
+pub struct FetchSpec {
+    pub kind: String,              // "http_proxy", "tcp_forward", etc. — maps to FetchInst variant
+    pub args: serde_json::Value,   // upstream, timeouts, etc.
+}
+
+pub struct TerminatorSpec {
+    pub kind: String,              // "write_http_response" or "byte_tunnel" — usually inferred from fetch kind
+}
+
+pub struct SourceInfo {
+    pub file: std::path::PathBuf,
+    pub line: u32,                 // JSON pointer line, for error messages
+}
+```
+
+The same `RawRule` shape is the output of both: (a) hand-written raw rules (parsed from `rules/*.json`) and (b) preset expansion. The merge stage treats them identically.
+
 Expansion is **deterministic given the preset args plus current daemon config** (env vars, config.json). Two runs of `vane compile --dry-run` on the same inputs produce byte-identical output.
 
 ## Catalog

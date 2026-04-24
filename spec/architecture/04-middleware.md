@@ -139,6 +139,32 @@ Declared `"stateless": false` with `"pool": N` (N ≥ 1).
 
 Pool sizing is the operator's responsibility. Auto-scaling is deferred post-MVP.
 
+### `WasmMiddleware` shape
+
+The struct embedded in the FlowGraph for every WASM middleware invocation site:
+
+```rust
+pub struct WasmMiddleware {
+    pub module_id: ModuleId,              // index into the daemon's module registry
+    pub runtime:   Arc<dyn WasmRuntime>,  // trait defined in vane-core; impl lives in vane-wasm
+    pub args:      serde_json::Value,     // per-rule args passed to the plugin at invocation
+    pub metadata:  Arc<PluginMetadata>,   // cached get-metadata() result; drives compile-time decisions
+}
+
+pub struct ModuleId(pub u32);
+
+pub struct PluginMetadata {
+    pub name:       String,
+    pub version:    String,
+    pub kind:       MiddlewareKind,       // L4Peek | L4Bytes | L7Request | L7Response
+    pub stateless:  bool,
+    pub needs_body: bool,
+    pub inspects:   Vec<String>,          // field paths the plugin reads
+}
+```
+
+Runtime dispatch: when the executor hits a `MiddlewareInst::Wasm(w)`, it calls `w.runtime.invoke(w.module_id, w.args.clone(), /* serialized ctx + input */)`. The WasmRuntime trait's implementation (in `vane-wasm`) handles pool checkout, marshaling, and result decoding — see `11-wasm.md`.
+
 ### Mode choice is user-declared
 
 The user explicitly sets `stateless: true | false`. The runtime does not infer. The two modes have different ABI guarantees (stateless cannot observe globals across calls; stateful can), so the mode is a contract the user opts into.

@@ -93,9 +93,12 @@ pub struct ConnContext {
     pub transport:  Transport,
     pub entered_at: std::time::Instant,
 
-    // Populated during L4→L7 upgrade. OnceLock gives write-once semantics
-    // without requiring a mutable reference after set.
-    pub tls:          std::sync::OnceLock<TlsInfo>,
+    // Populated progressively: the L4 peek phase writes sni/alpn from the
+    // ClientHello; the L4→L7 upgrade phase writes version/peer_cert after
+    // the full handshake. Mutex because writes are sequential across phase
+    // transitions — contention is effectively zero but we need interior
+    // mutability through Arc.
+    pub tls:          parking_lot::Mutex<Option<TlsInfo>>,
     pub http_version: std::sync::OnceLock<HttpVersion>,
 
     // User-defined typed slots. Lock is cheap (parking_lot); contention is rare
@@ -104,10 +107,10 @@ pub struct ConnContext {
 }
 
 pub struct TlsInfo {
-    pub sni:       Option<String>,
-    pub alpn:      Option<Vec<u8>>,
-    pub peer_cert: Option<rustls::pki_types::CertificateDer<'static>>,
-    pub version:   rustls::ProtocolVersion,
+    pub sni:       Option<String>,          // from ClientHello (L4 peek) or handshake
+    pub alpn:      Option<Vec<u8>>,         // from ClientHello / ALPN negotiation
+    pub version:   Option<rustls::ProtocolVersion>,           // known after handshake
+    pub peer_cert: Option<rustls::pki_types::CertificateDer<'static>>,  // after handshake, if mTLS
 }
 
 pub enum Transport { Tcp, Udp }
@@ -117,7 +120,8 @@ pub enum HttpVersion { Http1_0, Http1_1, Http2, Http3 }
 Invariants:
 
 - `remote`, `local`, `transport`, `entered_at` are set at accept and never mutate.
-- `tls` and `http_version` use `OnceLock` — set exactly once during L4→L7 upgrade, read freely afterward.
+- `tls` uses `Mutex<Option<TlsInfo>>` to allow progressive population across phase transitions. Readers (predicates, middleware) observe `None` until the first write (peek) and a progressively-filled `Some(TlsInfo)` thereafter.
+- `http_version` uses `OnceLock` — set exactly once during L4→L7 upgrade, read freely afterward.
 - `user` is a typed anymap. Read is cheap; write is guarded by a lock that is essentially uncontended in practice.
 
 Every `Request` on this connection carries `Arc<ConnContext>` in `request.extensions()`. H2 and H3 streams multiplexed on one connection share the same `Arc`. Refcount reaching zero releases the context.

@@ -132,6 +132,58 @@ Rationale:
 
 `impl Index<NodeId> for FlowGraph`, `Index<PredicateId>`, etc. give `graph[id]` ergonomics. The newtype wrappers prevent confusing a `NodeId` with a `PredicateId` at compile time.
 
+### Compiled predicate instances
+
+`PredicateInst` is the compile-time-validated runtime form of a rule's `match` predicate. Config-time (JSON) shape is defined in `18-predicate-schema.md`; the transformation from config to compiled is part of the `lower` pass.
+
+```rust
+pub struct PredicateInst {
+    pub path: FieldPath,
+    pub op:   CompiledOperator,
+}
+
+pub enum CompiledOperator {
+    Equals(CompiledValue),
+    NotEquals(CompiledValue),
+    Contains(bytes::Bytes),
+    NotContains(bytes::Bytes),
+    Prefix(bytes::Bytes),
+    Suffix(bytes::Bytes),
+    Matches(fancy_regex::Regex),          // already compiled; size + backtrack limits applied at construction
+    In(Vec<CompiledValue>),
+    NotIn(Vec<CompiledValue>),
+    Gt(i64), Gte(i64), Lt(i64), Lte(i64),
+    Cidr(ipnet::IpNet),
+}
+
+pub enum CompiledValue {
+    Str(std::sync::Arc<str>),
+    Bytes(bytes::Bytes),
+    Int(i64),
+    Bool(bool),
+    Addr(std::net::IpAddr),
+}
+
+impl PredicateInst {
+    pub fn test(&self, ctx: &Ctx<'_>) -> bool { /* dispatch on path + op */ }
+}
+```
+
+`PredicateInst` implements `Hash + Eq` so the `lower` pass can hash-cons equivalent predicates — two rules both checking `tls.sni == "example.com"` share one `PredicateId`. `fancy_regex::Regex` compares by pattern source string; `ipnet::IpNet` compares by canonical form.
+
+### FlowGraph metadata
+
+```rust
+pub struct FlowGraphMeta {
+    pub version_hash: [u8; 32],          // SHA-256 over the canonical MergedConfig JSON
+    pub compiled_at:  std::time::SystemTime,
+    pub source_files: Vec<std::path::PathBuf>,  // files that contributed to this graph
+    pub feature_set:  &'static [&'static str],  // snapshot of daemon-enabled Cargo features
+}
+```
+
+`version_hash` is returned by the management API's `get_active_config` verb and gates reload idempotency — `ArcSwap::store` runs only when the new graph's hash differs from the currently active one.
+
 ## Execution model
 
 The executor is an **iterative walker**. A single `async fn` holds a loop; the loop walks the flat graph by updating a `NodeId` cursor.
