@@ -31,9 +31,10 @@ Conventional Commits (see `commitlint.config.js`). Subject ≤ 72 chars, lower-c
 Each file below is the authoritative source for its topic. Edit there, not here.
 
 - [spec/architecture/](spec/architecture/) — system architecture (start with `architecture/README.md`)
+- [spec/roadmap.md](spec/roadmap.md) — 3-stage implementation plan, feature IDs (S1-NN / S2-NN / S3-NN), dependency ordering
 - [spec/naming.md](spec/naming.md) — identifier and filename conventions
 - [spec/comments.md](spec/comments.md) — when and how to write comments
-- [spec/testing.md](spec/testing.md) — test structure, coverage, red-green protocol
+- [spec/testing.md](spec/testing.md) — test structure, coverage, sub-agent testing protocol
 
 ## Keeping the spec honest
 
