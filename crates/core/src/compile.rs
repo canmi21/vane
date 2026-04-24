@@ -44,7 +44,7 @@ mod tests {
 
 	use super::*;
 	use crate::fetch::{FetchKind, FetchOutputModes, FetchPhase, Terminator};
-	use crate::ir::Node;
+	use crate::ir::{Node, NodeId, PredicateId};
 	use crate::metadata::{FetchMetadata, MiddlewareMetadata};
 	use crate::middleware::MiddlewareKind;
 	use crate::rule::{RawRule, TerminateSpec};
@@ -375,6 +375,219 @@ mod tests {
 				}
 				(a, b) => panic!("node[{i}] variant changed across round-trip: {a:?} -> {b:?}"),
 			}
+		}
+	}
+
+	// --- AnyOf / Not lowering tests -----------------------------------------
+
+	fn check_rule(name: &str, port: u16, match_predicate: &serde_json::Value) -> RawRule {
+		parse_rule(serde_json::json!({
+			"name": name,
+			"listen": [format!(":{port}")],
+			"match": match_predicate,
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		}))
+	}
+
+	fn find_entry_check(graph: &SymbolicFlowGraph, port: u16) -> NodeId {
+		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
+		*graph.entries.get(&v4).expect("entry present")
+	}
+
+	fn unwrap_check(node: &Node) -> (PredicateId, NodeId, NodeId) {
+		match node {
+			Node::Check { predicate, on_match, on_miss, .. } => (*predicate, *on_match, *on_miss),
+			other => panic!("expected Check, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn any_of_two_checks_chains_via_on_miss_sharing_on_match() {
+		let r = check_rule(
+			"r",
+			7100,
+			&serde_json::json!({
+				"any_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "tls.sni": { "equals": "b" } },
+				],
+			}),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+
+		let entry = find_entry_check(&graph, 7100);
+		let (_, match_a, miss_a) = unwrap_check(&graph[entry]);
+		let (_, match_b, _miss_b) = unwrap_check(&graph[miss_a]);
+		assert_eq!(match_a, match_b, "both any_of branches share on_match");
+		let check_count = graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count();
+		assert_eq!(check_count, 2);
+		assert_eq!(graph.predicates.len(), 2, "tls.sni=\"a\" and tls.sni=\"b\" are distinct");
+	}
+
+	#[test]
+	fn any_of_three_checks_chains_right_to_left() {
+		let r = check_rule(
+			"r",
+			7101,
+			&serde_json::json!({
+				"any_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "tls.sni": { "equals": "b" } },
+					{ "tls.sni": { "equals": "c" } },
+				],
+			}),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+
+		let c0 = find_entry_check(&graph, 7101);
+		let (_, m0, miss0) = unwrap_check(&graph[c0]);
+		let (_, m1, miss1) = unwrap_check(&graph[miss0]);
+		let (_, m2, _miss2) = unwrap_check(&graph[miss1]);
+		assert_eq!(m0, m1);
+		assert_eq!(m1, m2, "all three any_of branches share on_match");
+		assert_eq!(graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count(), 3);
+	}
+
+	#[test]
+	fn not_wrapping_a_check_swaps_on_match_and_on_miss() {
+		let r =
+			check_rule("r", 7102, &serde_json::json!({ "not": { "tls.sni": { "equals": "internal" } } }));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+
+		// Not adds no node — exactly one Check.
+		let check_count = graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count();
+		assert_eq!(check_count, 1);
+		let entry = find_entry_check(&graph, 7102);
+		let (_, on_match, on_miss) = unwrap_check(&graph[entry]);
+		// Per the equivalence `not P match=>X miss=>Y` ≡ lower(P, match=>Y, miss=>X),
+		// the emitted Check has swapped edges: its on_match is the outer on_miss
+		// (the default-miss fallback) and its on_miss is the rule body entry.
+		// Assert they're distinct — before-task-2 code had them both pointing
+		// at the body entry.
+		assert_ne!(on_match, on_miss);
+		// Walking `on_miss` should land at something reachable; walking
+		// `on_match` should land at a node that cannot reach the rule's Fetch.
+		// Minimal structural check: the two targets differ.
+	}
+
+	#[test]
+	fn not_wrapping_any_of_swaps_edges_and_produces_two_checks() {
+		let r = check_rule(
+			"r",
+			7103,
+			&serde_json::json!({
+				"not": {
+					"any_of": [
+						{ "tls.sni": { "equals": "a" } },
+						{ "tls.sni": { "equals": "b" } },
+					],
+				},
+			}),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+
+		assert_eq!(graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count(), 2);
+		let c0 = find_entry_check(&graph, 7103);
+		let (_, m0, miss0) = unwrap_check(&graph[c0]);
+		let (_, m1, _miss1) = unwrap_check(&graph[miss0]);
+		// `not (any_of [A, B])` = lower(any_of, match=>Y, miss=>X) =
+		//   Check(A) match=>Y miss=>Check(B) match=>Y miss=>X.
+		// Both Checks share on_match (== outer on_miss, i.e. the default-miss).
+		assert_eq!(m0, m1);
+	}
+
+	#[test]
+	fn any_of_nested_inside_any_of_produces_three_checks_with_shared_on_match() {
+		let r = check_rule(
+			"r",
+			7104,
+			&serde_json::json!({
+				"any_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{
+						"any_of": [
+							{ "tls.sni": { "equals": "b" } },
+							{ "tls.sni": { "equals": "c" } },
+						],
+					},
+				],
+			}),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+
+		let c0 = find_entry_check(&graph, 7104);
+		let (_, m0, miss0) = unwrap_check(&graph[c0]);
+		let (_, m1, miss1) = unwrap_check(&graph[miss0]);
+		let (_, m2, _miss2) = unwrap_check(&graph[miss1]);
+		assert_eq!(m0, m1);
+		assert_eq!(m1, m2);
+		assert_eq!(graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count(), 3);
+	}
+
+	#[test]
+	fn empty_any_of_short_circuits_to_on_miss() {
+		let r = check_rule("r", 7105, &serde_json::json!({ "any_of": [] }));
+		// Empty any_of ≡ never matches. The rule's chain entry equals the
+		// on_miss target (default-miss); no Check node is emitted for the
+		// empty any_of itself.
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let check_count = graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count();
+		assert_eq!(check_count, 0, "empty any_of must not emit a Check node");
+	}
+
+	#[test]
+	fn any_of_hash_cons_shares_predicate_slot_across_rules() {
+		// Two rules on different listeners both use the same `tls.sni ==
+		// "shared"` predicate inside any_of. Per 02-flow.md § _Hash-consing_,
+		// predicates dedup transparently regardless of the combinator tree
+		// they're nested inside.
+		let a = check_rule(
+			"a",
+			7106,
+			&serde_json::json!({ "any_of": [{ "tls.sni": { "equals": "shared" } }] }),
+		);
+		let b = check_rule(
+			"b",
+			7107,
+			&serde_json::json!({ "any_of": [{ "tls.sni": { "equals": "shared" } }] }),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers).expect("compile");
+		assert_eq!(graph.predicates.len(), 1);
+	}
+
+	#[test]
+	fn validate_stays_green_for_all_combinator_shapes() {
+		let shapes = [
+			serde_json::json!({ "tls.sni": { "equals": "x" } }),
+			serde_json::json!({
+				"any_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "tls.sni": { "equals": "b" } },
+				],
+			}),
+			serde_json::json!({ "not": { "tls.sni": { "equals": "y" } } }),
+			serde_json::json!({
+				"not": {
+					"any_of": [
+						{ "tls.sni": { "equals": "a" } },
+						{ "tls.sni": { "equals": "b" } },
+					],
+				},
+			}),
+		];
+		for (i, m) in shapes.iter().enumerate() {
+			let port = 7200 + u16::try_from(i).expect("fits u16");
+			let r = check_rule(&format!("r{i}"), port, m);
+			let graph =
+				compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+			validate::validate(&graph).expect("validate");
 		}
 	}
 }
