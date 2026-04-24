@@ -69,11 +69,32 @@ pub struct MiddlewareRef {
 // `args` defaults to null (Value::Null) when omitted; on_error defaults to None
 // (which means the fail-safe tombstone per 04-middleware.md).
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum OnErrorSpec {
     Close,                                // L4 RST / L7 close
-    Response { status: u16, headers: Option<HeaderMap>, body: Option<Bytes> },
+    Response(SynthResponse),
     // post-MVP: Rule(String)  — jump to another rule's entry
 }
+// Custom Deserialize dispatches on shape:
+//   "close"                                   → OnErrorSpec::Close
+//   { "response": { "status": N, ... } }      → OnErrorSpec::Response(SynthResponse)
+// See 04-middleware.md § _Config form_.
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct SynthResponse {
+    pub status:  u16,
+    #[serde(default)]
+    pub headers: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(default)]
+    pub body:    Option<String>,
+}
+// SynthResponse's field types are deliberately serde-friendly — `BTreeMap<String,
+// String>` for headers (not `http::HeaderMap`, which needs custom
+// deserialization) and `String` for body (not `Bytes`, which cannot
+// round-trip through plain JSON). This is the config-time wire shape;
+// the fallback-response builder downstream converts into `http::HeaderMap`
+// and `Bytes` when materializing the synth response. Invalid header
+// names / values surface at that conversion step, not at parse time.
 
 // `TerminateSpec` mirrors the user-facing JSON exactly:
 //   "terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080", "timeouts": {...} }

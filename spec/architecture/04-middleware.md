@@ -77,6 +77,19 @@ pub enum ShortCircuit {
     Close(CloseReason),    // L4 or L7: close the connection
 }
 
+#[derive(Clone, Debug)]
+pub enum CloseReason {
+    /// Clean shutdown, no anomaly. FIN-on-both-sides semantics.
+    Graceful,
+    /// Policy layer rejected the traffic (e.g., rate limit hit, IP blocklist,
+    /// WASM plugin's Decision::Short(Close)). Carries a short human-readable
+    /// label for the flow log.
+    PolicyDenied(std::borrow::Cow<'static, str>),
+    /// Wire-level protocol violation (malformed ClientHello, bad H1 request
+    /// line, invalid HPACK frame, etc.). Carries a short label.
+    ProtocolError(std::borrow::Cow<'static, str>),
+}
+
 // This enum lives in vane-engine, not vane-core — it holds Arc<dyn Trait>
 // values that only engine can construct from its factory registries.
 // Core's IR references middleware by SymbolicMiddlewareRef { name, args,
