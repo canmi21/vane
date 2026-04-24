@@ -264,21 +264,26 @@ pub enum Phase {
 
 A single table drives both the validator and the runtime walker. Reading this table top-down: for a given `Node`, the "In-phase(s)" column lists phases the walker may be in when it reaches that node, and "Out-phase" is the phase it transitions into after executing the node.
 
-| Node kind                                           | In-phase(s) accepted  | Out-phase                             |
-| --------------------------------------------------- | --------------------- | ------------------------------------- |
-| `Check`                                             | any                   | `= In` (phase is pass-through)        |
-| `Middleware(L4Peek)`                                | `L4Raw` \| `L4Peeked` | `L4Peeked` (forces peek buffer)       |
-| `Middleware(L4Bytes)`                               | `L4Raw` \| `L4Peeked` | `= In`                                |
-| `Upgrade`                                           | `L4Peeked`            | `L7Request`                           |
-| `Middleware(L7Request)`                             | `L7Request`           | `L7Request`                           |
-| `Middleware(L7Response)`                            | `L7Response`          | `L7Response`                          |
-| `Fetch(FetchInst::L4, L4Forward)`                   | `L4Raw` \| `L4Peeked` | `Tunnel`                              |
-| `Fetch(FetchInst::L7, HttpProxy \| HttpSynthesize)` | `L7Request`           | `L7Response`                          |
-| `Fetch(FetchInst::L7, WebSocketUpgrade)`            | `L7Request`           | `L7Response` \| `Tunnel` (bi-outcome) |
-| `Terminate(WriteHttpResponse)`                      | `L7Response`          | (terminal — ends execution)           |
-| `Terminate(ByteTunnel)`                             | `Tunnel`              | (terminal — ends execution)           |
+| Node kind                                           | In-phase(s) accepted  | Out-phase                              |
+| --------------------------------------------------- | --------------------- | -------------------------------------- |
+| `Check`                                             | any                   | `= In` (phase is pass-through)         |
+| `Middleware(L4Peek)`                                | `L4Raw` \| `L4Peeked` | `L4Peeked` (forces peek buffer)        |
+| `Middleware(L4Bytes)`                               | `L4Raw` \| `L4Peeked` | `= In`                                 |
+| `Upgrade`                                           | `L4Raw` \| `L4Peeked` | `L7Request`                            |
+| `Middleware(L7Request)`                             | `L7Request`           | `L7Request`                            |
+| `Middleware(L7Response)`                            | `L7Response`          | `L7Response`                           |
+| `Fetch(FetchInst::L4, L4Forward)`                   | `L4Raw` \| `L4Peeked` | `Tunnel`                               |
+| `Fetch(FetchInst::L7, HttpProxy \| HttpSynthesize)` | `L7Request`           | `L7Response`                           |
+| `Fetch(FetchInst::L7, WebSocketUpgrade)`            | `L7Request`           | `L7Response` \| `Tunnel` (bi-outcome)  |
+| `Terminate(WriteHttpResponse)`                      | `L7Response`          | (terminal — ends execution)            |
+| `Terminate(ByteTunnel)`                             | `Tunnel`              | (terminal — ends execution)            |
+| `Terminate(Close)`                                  | any                   | (terminal — drops connection silently) |
 
-The `Upgrade` node is the explicit L4→L7 phase boundary that the `lower` pass inserts on listeners mixing L4 and L7 rules. The node itself carries no configuration — the protocol-stack initialization (TLS handshake, ALPN dispatch, HTTP version selection) is driven by the listener config attached to the `Arc<ConnContext>` at runtime. A listener without TLS termination runs `Upgrade` as "HTTP decode only"; a TLS-terminating listener runs it as "handshake + ALPN + HTTP decode". Graph specifies "upgrade here"; listener config specifies "with what posture".
+The `Upgrade` node is the explicit L4→L7 phase boundary inserted by the `lower` pass on every L7 path. Its in-phase is `L4Raw | L4Peeked`: **pure-L7 listeners** (e.g., an `Http` listener whose ALPN negotiation alone reveals the version — no SNI-routing, no mix-port protocol sniffing) transition directly `L4Raw → L7Request` via `Upgrade`; **mixed-posture listeners** (e.g., SNI-based tenant routing, port-443-for-both-HTTPS-and-SSH) run a `Middleware(L4Peek)` first, advancing `L4Raw → L4Peeked`, and then `Upgrade` fires `L4Peeked → L7Request`. The peek is optional but never backwards-incompatible.
+
+The node itself carries no configuration — the protocol-stack initialization (TLS handshake, ALPN dispatch, HTTP version selection) is driven by the listener config attached to the `Arc<ConnContext>` at runtime. A listener without TLS termination runs `Upgrade` as "HTTP decode only"; a TLS-terminating listener runs it as "handshake + ALPN + HTTP decode". Graph specifies "upgrade here"; listener config specifies "with what posture".
+
+`Terminate(Close)` is the default-miss terminator. When the `lower` pass synthesizes fallback paths (no rule matched), it emits `Terminate(Close)` — the executor silently closes the underlying transport (TCP RST / QUIC stream reset / Unix-socket shutdown) and emits a `FlowLogKind::Terminate` event with a `CloseReason::PolicyDenied("no matching rule")`. `Close` is phase-agnostic: unmatched paths can terminate in any phase. See `05-terminator.md` § _Variants_ for the full discussion of when `Close` fires vs the two content-bearing terminators.
 
 Entries always start in phase `L4Raw`. `FlowGraph::entries` maps each listener's `SocketAddr` to a `NodeId` whose accepted in-phase must include `L4Raw`.
 

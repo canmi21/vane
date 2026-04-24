@@ -272,20 +272,30 @@ Contract:
 
 - **`WriteHttpResponse`** consumes a `Response`, serializes it over the client-side HTTP version (H1/H2/H3), then either closes or keeps the connection alive (H1 keep-alive / H2 / H3 multiplexing).
 - **`ByteTunnel`** awaits the `Tunnel` established by `WebSocketUpgrade` or `L4Forward`. It neither drives the tunnel nor modifies bytes; it awaits completion and cleans up.
+- **`Close`** drops the transport silently. No response is produced; no tunnel is opened. The executor closes the TCP / QUIC / Unix-socket handle with `CloseReason::PolicyDenied("no matching rule")` (see `04-middleware.md` § `CloseReason`) and emits a `FlowLogKind::Terminate` event so operators see the traffic did reach the daemon.
 
 ### Variants
 
 ```rust
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Terminator {
     WriteHttpResponse,
     ByteTunnel,
+    Close,
 }
 ```
 
-Two variants is the complete set. The compiler enforces phase consistency (see `02-flow.md`):
+Three variants is the complete set. The compiler enforces phase consistency (see `02-flow.md`):
 
 - Paths through `HttpProxyFetch` or `HttpSynthesizeFetch` end in `WriteHttpResponse`.
 - Paths through `WebSocketUpgradeFetch` or `L4ForwardFetch` end in `ByteTunnel`.
+- Paths that **do not match any user rule** end in `Close` — the `lower` pass synthesizes a single `Terminate(Close)` per listener as the default-miss fallback. This applies regardless of posture (L4 or L7): unmatched traffic is silently dropped, not answered with a 500 or a transparent pass-through.
+
+### Why `Close` is the default no-match terminator (for both L4 and L7)
+
+`vane` treats "request arrived at a listener but no rule matched" as **unintended traffic**: the operator did not ask for it, so the daemon drops it with no response. This matches how production reverse proxies treat port scans, opportunistic protocol probes, and misrouted packets — the correct behavior is "nobody home", not "here is a detailed 500 error". Operators who want a specific HTTP response for unmatched L7 requests write an explicit catch-all rule with `HttpSynthesize` (status 404 / 503 / whatever they choose); the default is Close.
+
+`Close` is phase-agnostic — `lower` may emit it on an L4 path (no TCP rule matched → RST the client), on an L7 path before `Upgrade` (L4 predicates all missed, no need to parse HTTP → RST), or on an L7 path after `Upgrade` (HTTP request decoded but no rule picked it up → close without a response). The engine executor knows how to close in each phase.
 
 ---
 
