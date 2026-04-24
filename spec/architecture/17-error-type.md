@@ -62,6 +62,7 @@ pub enum UpstreamReason {
     #[error("tls handshake failed")]  TlsHandshake,          // cert / config error
     #[error("dns resolution failed")] DnsFailure,            // resolver error
     #[error("refused by upstream")]   Refused,               // H2 RST_STREAM REFUSED_STREAM
+    #[error("gone")]                  Gone,                  // H2/H3 GOAWAY for streams > last_stream_id
     #[error("malformed response")]    Malformed,             // upstream spoke gibberish
 }
 
@@ -153,6 +154,7 @@ impl Error {
                 UpstreamReason::TlsHandshake      => "tls_handshake",
                 UpstreamReason::DnsFailure        => "dns_failure",
                 UpstreamReason::Refused           => "refused",
+                UpstreamReason::Gone              => "gone",
                 UpstreamReason::Malformed         => "malformed",
             }),
             ErrorKind::Timeout(t) => Some(match t {
@@ -180,7 +182,8 @@ impl Error {
                 UpstreamReason::Unreachable
                     | UpstreamReason::ResetOnIdlePickup
                     | UpstreamReason::DnsFailure
-                    | UpstreamReason::Refused,
+                    | UpstreamReason::Refused
+                    | UpstreamReason::Gone,  // GOAWAY: upstream explicitly "did not process"
             ),
             ErrorKind::Timeout(TimeoutKind::Connect) => true,
             ErrorKind::Resource(ResourceKind::ConnectionPool) => true,  // transient pool pressure
@@ -281,9 +284,38 @@ Caused by:
 
 `anyhow` appears **only** in the two binary `main.rs` files and nowhere else.
 
+## `SerializedError` — stable serde shape
+
+`Error` is `!Clone` (because `Box<dyn std::error::Error>` in the source chain is not `Clone`). For flow log events (which need to fan out to many `tail_flow_log` subscribers) and management-API error payloads (which are JSON), we serialize at event-emit time into a dedicated POD:
+
+```rust
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SerializedError {
+    pub kind:          String,                   // from Error::kind_label()
+    pub reason:        Option<String>,           // from Error::reason_label()
+    pub message:       String,                   // top-level error string (Display)
+    pub ctx:           Option<String>,           // Error::ctx
+    pub source_chain:  Vec<String>,              // each source's Display, walked via Error::source_chain()
+    pub http_status:   u16,                      // from Error::http_status()
+    pub retryable:     bool,                     // from Error::is_retryable()
+}
+
+impl From<&Error> for SerializedError { /* ... */ }
+```
+
+**Size caps** — applied when constructing the `SerializedError` from an `Error`, so individual events cannot balloon:
+
+| Field          | Cap                    | Behavior on exceed                                   |
+| -------------- | ---------------------- | ---------------------------------------------------- |
+| `message`      | 4 KiB                  | truncate with `"… [truncated]"` suffix               |
+| `ctx`          | 1 KiB                  | same                                                 |
+| `source_chain` | 16 entries, 1 KiB each | drop tail entries; last entry becomes `"… [N more]"` |
+
+Without these caps, a pathological TLS chain or deeply-nested WASM plugin error could ship multi-MiB single flow-log events to every subscriber. The caps are generous enough for all realistic diagnostic content; anything above the cap is almost certainly an error path with unbounded source attachment, which we would rather see as truncated than drown out the rest of the stream.
+
 ## Flow log error events
 
-When an error reaches the flow log sink, it's serialized as:
+When an error reaches the flow log sink, the sink constructs a `SerializedError` once (capping applied) and attaches it to the event; subscribers read the same value:
 
 ```jsonc
 {
@@ -303,6 +335,8 @@ When an error reaches the flow log sink, it's serialized as:
 	}
 }
 ```
+
+The `"error"` object is a `SerializedError` verbatim. `FlowLogEvent` stores `error: Option<Arc<SerializedError>>` so N subscribers share one allocation; drop happens when the last subscriber consumes it.
 
 TUI (`vane tail`) subscribes to `tail_flow_log` on the management API, filters by `conn` field, and renders the full error chain for the selected connection — no log scraping, no regex.
 

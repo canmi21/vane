@@ -196,6 +196,16 @@ Handshake sequence:
 
 No WebSocket frame parsing in Vane. Post-upgrade, bytes are opaque.
 
+### Close frame semantics — vane does not synthesize
+
+Because vane is a byte tunnel after the upgrade, it does not synthesize or interpret `Close` control frames (opcode `0x8`). Consequences:
+
+- If the client closes its TCP side (FIN), the upstream sees only a FIN — no preceding `Close` frame. RFC 6455 calls this an "abnormal closure" from the upstream's perspective, but it is **legal**; RFC 6455 §7.1.5 explicitly allows this case and applications are required to tolerate it.
+- Conversely, a `Close` frame initiated by either endpoint flows through vane unchanged (it is just bytes in the tunnel). Vane does not acknowledge, translate, or delay it.
+- Applications that depend on clean close handshakes (e.g., for flushing buffered messages) must handle the truncation case in their protocol layer — same as they would when speaking directly over a network that can drop connections.
+
+This matches haproxy / envoy behavior in "tunnel" mode. Parsing frames to synthesize `Close` would re-introduce the frame-aware code path that v1 accumulated, which is exactly what `ByteTunnel`-by-design rejects.
+
 ### `L4Forward`
 
 Byte-level duplex forward. TCP uses `tokio::io::copy_bidirectional` (which uses `splice(2)` on Linux when available); UDP uses a 5-tuple session-scoped forwarder with idle timeout.

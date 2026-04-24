@@ -44,6 +44,42 @@ All variants implement `http_body::Body<Data = Bytes>`. The enum avoids vtable d
 
 Variant names are **protocol-named, not vendor-named** (per `spec/naming.md` — brand names only in edge modules). Type parameters reference upstream crates as edge types, but the variant name describes the protocol role.
 
+### `BodyStreamAdapter`
+
+Producers that implement `http_body::Body` with a foreign `Error` type (WASM plugin outputs, custom streaming sources, CGI buffered body wrappers) use a standard adapter to land as `Body::Stream`:
+
+```rust
+pub struct BodyStreamAdapter<B> {
+    inner: B,
+}
+
+impl<B, E> http_body::Body for BodyStreamAdapter<B>
+where
+    B: http_body::Body<Data = bytes::Bytes, Error = E> + Send + 'static,
+    E: Into<Error> + Send + Sync + 'static,
+{
+    type Data  = bytes::Bytes;
+    type Error = Error;
+    // poll_frame forwards to inner, mapping Err(E) → Err(E.into())
+}
+
+impl Body {
+    pub fn from_producer<B, E>(producer: B) -> Self
+    where
+        B: http_body::Body<Data = bytes::Bytes, Error = E> + Send + 'static,
+        E: Into<Error> + Send + Sync + 'static,
+    {
+        Self::Stream(Box::pin(BodyStreamAdapter { inner: producer }))
+    }
+}
+```
+
+The `E: Into<Error>` bound means every custom producer only needs to provide a `From<CustomError> for Error` impl (one line with `#[from]` on `ErrorKind`) to participate. WASM plugins' produced bodies plug through this adapter.
+
+### The `'static` bound on `Body::Stream`
+
+`Body::Stream` is `dyn Body + Send + 'static`. This means a producer must not borrow from anything that outlives a single request — in practice it must own its data (most commonly via `Bytes`, which is already refcounted and cheap to clone from buffered state). Middleware that wants to "replace body with data it holds" takes the explicit path: materialize to owned `Bytes`, then `*req.body_mut() = Body::Static(bytes)` — no borrow plumbing, no lifetime parameters infecting the `Body` enum. Every production use-case (buffered rewrites, synthesized bodies, proxied streams from pooled upstream clients) fits this shape naturally; a lifetime-parameterized `Body<'a>` was considered and rejected for the cost of polluting every `Request`/`Response` signature downstream.
+
 ### `Body::as_static`
 
 Post-buffering readers (the most common being `http.body` predicates) rely on a simple accessor:

@@ -221,7 +221,7 @@ Verified client certs populate `ctx.tls.peer_cert`. L7 middleware can match on i
 ```rust
 pub struct UpstreamTls {
     pub root_ca:     RootCaSource,
-    pub client_cert: Option<CertifiedKey>,        // optional mTLS client cert
+    pub client_cert: Option<Arc<CertifiedKey>>,   // optional mTLS client cert (Arc-shared; see below)
     pub crls:        Vec<CrlSource>,              // optional CRL list
     pub verify_mode: VerifyMode,                  // default Full
     pub alpn:        Option<Vec<String>>,         // default: derived from HttpUpstream.version
@@ -274,7 +274,16 @@ Rationale: hashing CRL content would force a new `ClientConfig` on every CRL ref
 
 ### mTLS on upstream
 
-`client_cert: Some(CertifiedKey)` presents a client cert to the upstream during handshake. Combined with the upstream's requirement for it on its side, this establishes mutual authentication.
+`client_cert: Some(Arc<CertifiedKey>)` presents a client cert to the upstream during handshake. Combined with the upstream's requirement for it on its side, this establishes mutual authentication.
+
+### `CertifiedKey` is `Arc`-shared everywhere
+
+Both sides of the TLS surface use `Arc<CertifiedKey>`:
+
+- Listener side: `CertEntry.key: Arc<CertifiedKey>` (already defined above)
+- Upstream side: `UpstreamTls.client_cert: Option<Arc<CertifiedKey>>`
+
+`rustls::sign::CertifiedKey` is deliberately not `Clone` (it holds signing-key material), so `Arc` is the only reasonable sharing primitive. Populators construct one `Arc<CertifiedKey>` per loaded cert at refresh time; every rule referencing the same cert shares that Arc. The `TlsConfigFingerprint`'s `client_cert` field hashes the Arc's inner `(cert_der, key_id)` — two rules that independently load the same cert file produce the same fingerprint (and thus share one `Arc<ClientConfig>`), while a rotated cert gets a new Arc and a new fingerprint.
 
 ### CRL checking
 

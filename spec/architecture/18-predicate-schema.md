@@ -128,7 +128,15 @@ field-path  = segment ("." segment)*
 segment     = [a-z_] [a-z0-9_-]*         ; lowercase letters, digits, underscore, hyphen
 ```
 
-Lowercase-only by rule. Mixed-case field paths are a parse error.
+Lowercase-only by rule. Mixed-case field paths are a parse error. The parser's error message suggests the lowercased form:
+
+```
+error: field path must be lowercase
+       at rules/30-api.json:14: "http.header.Host"
+       did you mean `http.header.host`?
+```
+
+HTTP header names are case-insensitive (RFC 9110 §5.1) but vane's canonical internal form is always lowercase — both in the predicate grammar and in the `hyper::HeaderMap` that `http.header.<name>` reads from. The suggestion is cheap (lowercase the offending segment) and eliminates the commonest new-user friction.
 
 ### Authoritative field paths
 

@@ -123,16 +123,18 @@ Defaults injected when args are omitted:
 - **`forward_client_ip: true`** — adds `X-Forwarded-For` (append) and `X-Real-IP` (overwrite) to the upstream request.
 - **`timeouts`**: 5s connect, 60s total.
 
-Expands to (conceptually):
+Expands to (conceptually — **one** RawRule for the main path plus one small gate rule for the WS reject):
 
 ```
-Rule <name>.ratelimit   → match [] → use rate_limit(...)
-Rule <name>.fwdip       → match [] → use forward_client_ip
-Rule <name>.ws          → match [upgrade == websocket] → HttpSynthesize 400
-Rule <name>.main        → match [] → HttpProxy(upstream, timeouts)
+Rule <name>.ws   → match [upgrade == websocket] → HttpSynthesize 400    (only when websocket: false)
+Rule <name>.main → match []
+                   middleware_chain: [ rate_limit(...), forward_client_ip ]
+                   → HttpProxy(upstream, timeouts)
 ```
 
-Middleware rules (ratelimit, fwdip) order before the fetch rule via inspection-level sorting.
+Why a single `<name>.main` rule with a chain instead of three parallel rules: the middleware execution order inside `reverse_proxy` is a **pipeline** (`rate_limit` fires before `forward_client_ip` before `HttpProxy`), not a specificity competition. A chain on one rule preserves declaration order trivially. Three sibling rules would depend on inspection-level sort, which ranks higher-inspection rules first — putting `HttpProxy` (L7-header) _before_ `rate_limit` / `forward_client_ip` (both L4-only level), which is backwards. The chain form sidesteps the ordering question entirely.
+
+The WS gate is a separate rule because it is a genuine predicate branch (upgrade requests take a different terminator), not a middleware pipeline step.
 
 #### WebSocket handling
 

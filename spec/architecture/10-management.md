@@ -19,6 +19,17 @@ Line-delimited JSON. One request per line, one response per line. Streaming verb
 
 JSON body over POST for request/response verbs. `application/x-ndjson` chunked response for streaming verbs.
 
+### Streaming verb lifecycle
+
+Streaming verbs (`tail_flow_log`, `tail_log`) follow a minimal contract:
+
+- **Start** — client sends a POST (HTTP) or a request line (Unix). The daemon begins emitting `{"request_id": ..., "stream": {"seq": N, "data": ...}}` frames.
+- **Cancel** — client closes the TCP (or Unix) connection. No control-frame vocabulary; closing the transport is the cancellation signal. The daemon sees the close, drops its subscriber, and reclaims resources.
+- **Parameter changes** (filter, level, conn-id scope) — **not supported mid-stream**. The client cancels and issues a fresh request with the new args. Reconnection is cheap; the stream has no persistent server-side state beyond the subscriber binding.
+- **Back-pressure and overflow** — when the subscriber cannot keep up, the daemon drops events from that subscriber with a `{"stream": {"dropped": N, "reason": "backpressure"}}` frame and continues. Other subscribers are unaffected.
+
+This avoids a second protocol layer (WebSocket control frames, SSE event types) and keeps `vane` CLI clients trivial.
+
 ### Request
 
 ```json
@@ -66,7 +77,7 @@ Concrete verb names are proposals. The categories are architectural.
 - `list_connections` — snapshot of live connections (remote, local, transport, age, bytes, current node).
 - `tail_flow_log` — stream flow-path events: `"conn X matched predicate Y at node Z, branched to A"`. One event per predicate evaluation or Terminator invocation.
 - `tail_log` — stream the structured log.
-- `get_metrics` — counter/gauge snapshot.
+- `get_metrics` — counter/gauge snapshot. The daemon's metrics backend is the [`metrics`](https://crates.io/crates/metrics) crate (facade), with `metrics-exporter-prometheus` recording into a registry. `get_metrics` accepts `format: "prometheus" | "json"` in its args; default `"prometheus"` returns the standard text exposition format suitable for scraping. All counters/gauges defined by vane (error totals, pool events, latency histograms, rate-limit hits, WASM pool events) go through the `metrics::counter!` / `metrics::gauge!` / `metrics::histogram!` macros — no bespoke facade.
 
 ### Runtime
 

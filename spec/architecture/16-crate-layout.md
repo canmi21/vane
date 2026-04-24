@@ -60,7 +60,7 @@ Owns:
 - DNS: `hickory-resolver` integration.
 - `ArcSwap<FlowGraph>` holds the **linked** graph — that is the one accept loops and the executor read.
 
-Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `h3`, `quinn`, `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` (for file watcher).
+Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `h3`, `quinn`, `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` (for file watcher), `metrics` + `metrics-exporter-prometheus`.
 
 ### `vane-wasm`
 
