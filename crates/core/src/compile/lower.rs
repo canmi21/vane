@@ -273,34 +273,44 @@ impl Builder {
 			// can set it post-Fetch in the response sub-chain (S2 scope).
 		}
 
-		// Insert Upgrade for L7 posture when any predicate reads L4 state.
-		// Simplified: for L7 posture we always emit Upgrade between the L4
-		// check (if any) and the post-Upgrade chain head.
-		let chain_entry_after_predicate_split;
-		if rule.posture == Posture::L7 {
-			let l4_pre_upgrade = predicate_is_l4(rule.raw.match_predicate.as_ref());
-			if l4_pre_upgrade {
-				// Upgrade sits between the L4 check and the L7 chain head.
-				let upgrade_id = self.push_node(Node::Upgrade { next: head });
-				head = upgrade_id;
-				chain_entry_after_predicate_split = head;
-			} else {
-				// Upgrade sits at the top of the chain, before predicates.
-				let upgrade_id = self.push_node(Node::Upgrade { next: head });
-				head = upgrade_id;
-				chain_entry_after_predicate_split = head;
-			}
-		} else {
-			chain_entry_after_predicate_split = head;
-		}
-		let _ = chain_entry_after_predicate_split;
+		// Place the match predicate's Check nodes per their inspection level.
+		// L4-level checks sit before Upgrade (so they evaluate in L4Raw /
+		// L4Peeked — no Request is available yet). L7-level checks sit after
+		// Upgrade so they see the decoded Request. The user-facing simplification
+		// for C5.5: the entire match_predicate inherits ONE level derived from
+		// the union of its Check leaves; cross-level combinators are rejected
+		// with a spec-quoted error so users get a clear explanation. See task 3
+		// of the C5.5 brief.
+		let pred_level = rule.raw.match_predicate.as_ref().map(predicate_uniform_level).transpose()?;
 
-		// Lower the match predicate (Check / AnyOf / Not) recursively. Each
-		// emitted Check node carries its own on_match / on_miss edges; the
-		// combinator tree reshapes those edges per the spec equivalences in
-		// C5.5 task 2.
-		if let Some(pred) = &rule.raw.match_predicate {
-			head = self.lower_predicate(pred, head, on_miss)?;
+		match (rule.posture, pred_level) {
+			(Posture::L7, Some(Level::L7Header | Level::L7Body)) => {
+				// L7 Check sits BETWEEN Upgrade (above) and the L7 chain (below).
+				if let Some(pred) = &rule.raw.match_predicate {
+					head = self.lower_predicate(pred, head, on_miss)?;
+				}
+				let upgrade = self.push_node(Node::Upgrade { next: head });
+				head = upgrade;
+			}
+			(Posture::L7, Some(Level::L4Only | Level::L4Peek)) => {
+				// L4 Check sits ABOVE Upgrade; Upgrade wraps the L7 chain below.
+				let upgrade = self.push_node(Node::Upgrade { next: head });
+				head = upgrade;
+				if let Some(pred) = &rule.raw.match_predicate {
+					head = self.lower_predicate(pred, head, on_miss)?;
+				}
+			}
+			(Posture::L7, None) => {
+				// No predicates; still need Upgrade to enter L7 phase.
+				let upgrade = self.push_node(Node::Upgrade { next: head });
+				head = upgrade;
+			}
+			(Posture::L4, _) => {
+				// L4 rules never Upgrade; Check (if any) sits directly on top.
+				if let Some(pred) = &rule.raw.match_predicate {
+					head = self.lower_predicate(pred, head, on_miss)?;
+				}
+			}
 		}
 
 		Ok(head)
@@ -377,6 +387,79 @@ impl Builder {
 	}
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+enum Level {
+	L4Only,
+	L4Peek,
+	L7Header,
+	L7Body,
+}
+
+fn field_path_level(path: &FieldPath) -> Level {
+	match path {
+		FieldPath::Transport
+		| FieldPath::RemoteIp
+		| FieldPath::RemotePort
+		| FieldPath::LocalIp
+		| FieldPath::LocalPort => Level::L4Only,
+		FieldPath::Peek
+		| FieldPath::TlsSni
+		| FieldPath::TlsAlpn
+		| FieldPath::TlsVersion
+		| FieldPath::TlsPeerCertSubjectCn => Level::L4Peek,
+		FieldPath::HttpMethod
+		| FieldPath::HttpUriPath
+		| FieldPath::HttpUriQuery
+		| FieldPath::HttpHeader(_) => Level::L7Header,
+		FieldPath::HttpBody => Level::L7Body,
+	}
+}
+
+const fn level_is_l4(l: Level) -> bool {
+	matches!(l, Level::L4Only | Level::L4Peek)
+}
+
+/// Walk a predicate subtree and return the single level common to every
+/// Check leaf. Combinators that mix L4 and L7 leaves are rejected so the
+/// resulting graph's Check placement (before vs. after Upgrade) stays
+/// unambiguous. Empty combinators have no leaves and yield the lowest
+/// level (`L4Only`) — they never emit a Check, so the value is unused.
+fn predicate_uniform_level(pred: &Predicate) -> Result<Level, Error> {
+	let mut acc: Option<Level> = None;
+	collect_levels(pred, &mut acc)?;
+	Ok(acc.unwrap_or(Level::L4Only))
+}
+
+fn collect_levels(pred: &Predicate, acc: &mut Option<Level>) -> Result<(), Error> {
+	match pred {
+		Predicate::Check(c) => {
+			let leaf = field_path_level(&c.path);
+			match *acc {
+				None => *acc = Some(leaf),
+				Some(existing) if level_is_l4(existing) == level_is_l4(leaf) => {
+					if (leaf as u8) > (existing as u8) {
+						*acc = Some(leaf);
+					}
+				}
+				Some(existing) => {
+					return Err(Error::compile(format!(
+						"cross-level any_of / not not supported: predicate mixes {existing:?} and {leaf:?} leaves"
+					)));
+				}
+			}
+			Ok(())
+		}
+		Predicate::AnyOf(a) => {
+			for child in &a.any_of {
+				collect_levels(child, acc)?;
+			}
+			Ok(())
+		}
+		Predicate::Not(n) => collect_levels(&n.not, acc),
+	}
+}
+
+#[allow(dead_code)]
 fn predicate_is_l4(pred: Option<&Predicate>) -> bool {
 	let Some(Predicate::Check(c)) = pred else {
 		return false;
