@@ -106,15 +106,27 @@ pub struct FlowGraph {
 }
 
 pub enum Node {
-    Check      { predicate: PredicateId, on_match: NodeId, on_miss: NodeId },
-    Middleware { id: MiddlewareId, next: NodeId },
+    Check {
+        predicate: PredicateId,
+        on_match:  NodeId,
+        on_miss:   NodeId,
+        collect_body_before: Option<BodySide>,
+    },
+    Middleware {
+        id:   MiddlewareId,
+        next: NodeId,
+        collect_body_before: Option<BodySide>,
+    },
     Fetch {
         id:            FetchId,
-        next_response: Option<NodeId>,   // followed when Fetch produces a Response
-        next_tunnel:   Option<NodeId>,   // followed when Fetch produces a Tunnel
+        next_response: Option<NodeId>,   // followed when L7Fetch produces a Response
+        next_tunnel:   Option<NodeId>,   // followed when L4Fetch runs, or L7Fetch::WS returns Tunnel
+        collect_body_before: Option<BodySide>,
     },
-    Terminate(TerminatorId),
+    Terminate(TerminatorId),             // terminators never trigger collects; bodies pass through
 }
+
+pub enum BodySide { Request, Response }
 
 pub struct NodeId(u32);
 pub struct PredicateId(u32);
@@ -122,6 +134,8 @@ pub struct MiddlewareId(u32);
 pub struct FetchId(u32);
 pub struct TerminatorId(u32);
 ```
+
+`collect_body_before` is the compile-time LazyBuffer trigger. When set to `Some(BodySide::Request | Response)`, the executor performs `Body::collect().await` on the relevant side _before_ executing the node, replacing `Body::Http12 | Http3 | Stream` with `Body::Static(Bytes)`. The analyze pass sets it on exactly the **first** node on each path that needs the buffered bytes (see the LazyBuffer section below); downstream nodes on the same side inherit the buffered state naturally because `Body::Static` does not revert.
 
 Rationale:
 
@@ -166,7 +180,7 @@ pub enum CompiledValue {
 }
 
 impl PredicateInst {
-    pub fn test(&self, ctx: &Ctx<'_>) -> bool { /* dispatch on path + op */ }
+    pub fn test(&self, view: &PredicateView<'_>) -> bool { /* dispatch on path + op; see 18-predicate-schema.md */ }
 }
 ```
 
@@ -203,19 +217,19 @@ pub enum Phase {
 
 A single table drives both the validator and the runtime walker. Reading this table top-down: for a given `Node`, the "In-phase(s)" column lists phases the walker may be in when it reaches that node, and "Out-phase" is the phase it transitions into after executing the node.
 
-| Node kind                            | In-phase(s) accepted  | Out-phase                             |
-| ------------------------------------ | --------------------- | ------------------------------------- |
-| `Check`                              | any                   | `= In` (phase is pass-through)        |
-| `Middleware(L4Peek)`                 | `L4Raw` \| `L4Peeked` | `L4Peeked` (forces peek buffer)       |
-| `Middleware(L4Bytes)`                | `L4Raw` \| `L4Peeked` | `= In`                                |
-| (implicit L4→L7 upgrade edge)        | `L4Peeked`            | `L7Request`                           |
-| `Middleware(L7Request)`              | `L7Request`           | `L7Request`                           |
-| `Middleware(L7Response)`             | `L7Response`          | `L7Response`                          |
-| `Fetch(HttpProxy \| HttpSynthesize)` | `L7Request`           | `L7Response`                          |
-| `Fetch(L4Forward)`                   | `L4Raw` \| `L4Peeked` | `Tunnel`                              |
-| `Fetch(WebSocketUpgrade)`            | `L7Request`           | `L7Response` \| `Tunnel` (bi-outcome) |
-| `Terminate(WriteHttpResponse)`       | `L7Response`          | (terminal — ends execution)           |
-| `Terminate(ByteTunnel)`              | `Tunnel`              | (terminal — ends execution)           |
+| Node kind                                           | In-phase(s) accepted  | Out-phase                             |
+| --------------------------------------------------- | --------------------- | ------------------------------------- |
+| `Check`                                             | any                   | `= In` (phase is pass-through)        |
+| `Middleware(L4Peek)`                                | `L4Raw` \| `L4Peeked` | `L4Peeked` (forces peek buffer)       |
+| `Middleware(L4Bytes)`                               | `L4Raw` \| `L4Peeked` | `= In`                                |
+| (implicit L4→L7 upgrade edge)                       | `L4Peeked`            | `L7Request`                           |
+| `Middleware(L7Request)`                             | `L7Request`           | `L7Request`                           |
+| `Middleware(L7Response)`                            | `L7Response`          | `L7Response`                          |
+| `Fetch(FetchInst::L4, L4Forward)`                   | `L4Raw` \| `L4Peeked` | `Tunnel`                              |
+| `Fetch(FetchInst::L7, HttpProxy \| HttpSynthesize)` | `L7Request`           | `L7Response`                          |
+| `Fetch(FetchInst::L7, WebSocketUpgrade)`            | `L7Request`           | `L7Response` \| `Tunnel` (bi-outcome) |
+| `Terminate(WriteHttpResponse)`                      | `L7Response`          | (terminal — ends execution)           |
+| `Terminate(ByteTunnel)`                             | `Tunnel`              | (terminal — ends execution)           |
 
 The L4→L7 upgrade is not a standalone node; it is an implicit edge the `lower` pass inserts at the boundary between L4-scoped rules and L7-scoped rules on a listener that mixes both. The validator recognizes this edge and bumps the phase from `L4Peeked` to `L7Request`.
 
@@ -263,55 +277,128 @@ A single transition table is the Rust-proxy analogue of an ISA encoding table or
 
 ## Execution model
 
-The executor is an **iterative walker**. A single `async fn` holds a loop; the loop walks the flat graph by updating a `NodeId` cursor.
+The executor is an **iterative walker**. A single `async fn` holds a loop; the loop walks the flat graph by updating a `NodeId` cursor and maintaining the per-phase owned state slots.
 
 ```rust
 pub async fn execute(
     graph: &FlowGraph,
     entry: NodeId,
-    ctx:   &mut Ctx<'_>,
+    input: ExecutorInput,            // L4Conn (L4 entries) or Request (L7 entries)
+    conn:  &Arc<ConnContext>,
+    ctx:   &mut FlowCtx<'_>,
 ) -> Result<(), Error> {
+    // Phase-scoped owned slots. The phase state machine guarantees at most one
+    // is `Some` at any time; `.take().expect("phase invariant")` is sound.
+    let mut l4:     Option<L4Conn>  = /* from input if L4 entry */;
+    let mut req:    Option<Request> = /* from input if L7 entry */;
+    let mut resp:   Option<Response> = None;
+    let mut tunnel: Option<Tunnel>  = None;
+
     let mut cur = entry;
     loop {
+        // Precondition: eager-buffer the relevant body if this node demands it.
+        // The flag is set on the FIRST node (on each side) whose execution requires
+        // a replayable Body::Static — see LazyBuffer section below.
+        if let Some(side) = graph[cur].collect_body_before() {
+            collect_body(side, req.as_mut(), resp.as_mut()).await?;
+            // After this await, the targeted body is Body::Static(Bytes);
+            // any downstream node on this side observes that without re-collecting.
+        }
+
         match &graph[cur] {
-            Node::Check { predicate, on_match, on_miss } => {
-                let matched = graph[*predicate].test(ctx);
+            Node::Check { predicate, on_match, on_miss, .. } => {
+                let view = PredicateView::build(conn, req.as_ref(), resp.as_ref(), l4.as_ref());
+                let matched = graph[*predicate].test(&view);
                 cur = if matched { *on_match } else { *on_miss };
             }
-            Node::Middleware { id, next } => {
-                graph[*id].run(ctx).await?;
-                cur = *next;
-            }
-            Node::Fetch { id, next_response, next_tunnel } => {
-                // Fetch may produce either a Response (for HttpProxy / HttpSynthesize,
-                // or WebSocketUpgrade when upstream rejects the upgrade) or a Tunnel
-                // (for L4Forward, or WebSocketUpgrade on 101). Dispatch on the output
-                // variant. The compiler guarantees the relevant `next_*` is `Some` for
-                // each Fetch variant's reachable outputs (see validate section above).
-                match graph[*id].fetch(ctx).await? {
-                    FetchOutput::Response(_) => {
-                        cur = next_response.expect("compile-time check ensures this is Some");
-                    }
-                    FetchOutput::Tunnel(_) => {
-                        cur = next_tunnel.expect("compile-time check ensures this is Some");
+
+            Node::Middleware { id, next, .. } => match &graph[*id] {
+                MiddlewareInst::L4Peek(m) => {
+                    let peek = conn.peek().expect("phase invariant").buffer.as_ref();
+                    match m.run(peek, conn, ctx).await? {
+                        Decision::Continue    => cur = *next,
+                        Decision::Short(s)    => return handle_short(s, conn, ctx).await,
                     }
                 }
-            }
-            Node::Terminate(t) => {
-                return graph[*t].run(ctx).await;
-            }
+                MiddlewareInst::L4Bytes(m) => {
+                    let l4_ref = l4.as_mut().expect("phase invariant");
+                    match m.run(l4_ref, conn, ctx).await? {
+                        Decision::Continue    => cur = *next,
+                        Decision::Short(s)    => return handle_short(s, conn, ctx).await,
+                    }
+                }
+                MiddlewareInst::L7Request(m) => {
+                    let req_ref = req.as_mut().expect("phase invariant");
+                    match m.run(req_ref, conn, ctx).await? {
+                        Decision::Continue             => cur = *next,
+                        Decision::Short(Short::Response(r)) => {
+                            drop(req.take());                  // Request dies here
+                            resp = Some(r);
+                            cur = graph.meta.short_circuit_response_entry(entry);
+                        }
+                        Decision::Short(Short::Close(reason)) => return Err(Error::closed(reason)),
+                    }
+                }
+                MiddlewareInst::L7Response(m) => {
+                    let resp_ref = resp.as_mut().expect("phase invariant");
+                    match m.run(resp_ref, conn, ctx).await? {
+                        Decision::Continue    => cur = *next,
+                        Decision::Short(Short::Response(r)) => { *resp.as_mut().unwrap() = r; cur = *next; }
+                        Decision::Short(Short::Close(reason)) => return Err(Error::closed(reason)),
+                    }
+                }
+                MiddlewareInst::Wasm(w) => { /* dispatch to w.runtime — see 11-wasm.md */ }
+            },
+
+            Node::Fetch { id, next_response, next_tunnel, .. } => match &graph[*id] {
+                FetchInst::L7(f) => {
+                    let r = req.take().expect("phase invariant");     // Request is consumed here
+                    match f.fetch(r, conn, ctx).await? {
+                        L7FetchOutput::Response(rp) => {
+                            resp = Some(rp);
+                            cur = next_response.expect("validator guarantees Some on L7 paths");
+                        }
+                        L7FetchOutput::Tunnel(t) => {
+                            tunnel = Some(t);
+                            cur = next_tunnel.expect("validator guarantees Some for WebSocketUpgrade");
+                        }
+                    }
+                }
+                FetchInst::L4(f) => {
+                    let c = l4.take().expect("phase invariant");      // L4Conn is consumed here
+                    let t = f.fetch(c, conn, ctx).await?;
+                    tunnel = Some(t);
+                    cur = next_tunnel.expect("validator guarantees Some on L4 paths");
+                }
+            },
+
+            Node::Terminate(t) => return match &graph[*t] {
+                Terminator::WriteHttpResponse =>
+                    write_http_response(resp.take().expect("phase invariant"), conn, ctx).await,
+                Terminator::ByteTunnel =>
+                    drive_byte_tunnel(tunnel.take().expect("phase invariant"), conn, ctx).await,
+            },
         }
     }
 }
 ```
 
+Ownership summary — every owned resource has exactly one consumer (type system enforced, not a convention):
+
+| Resource   | Created by                                                     | Consumed by                                                      |
+| ---------- | -------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `L4Conn`   | accept loop                                                    | `L4Fetch::fetch` (moved into `Tunnel.upstream`) OR L4→L7 upgrade |
+| `Request`  | L4→L7 upgrade (HTTP decoder)                                   | `L7Fetch::fetch` OR dropped on `Decision::Short(Response)`       |
+| `Response` | `L7Fetch::fetch` OR a short-circuit from `L7RequestMiddleware` | `Terminator::WriteHttpResponse`                                  |
+| `Tunnel`   | `L4Fetch::fetch` OR `L7Fetch::fetch` (WS-101)                  | `Terminator::ByteTunnel`                                         |
+
 Why iterative, not recursive:
 
 - The entire execution is a single `Future`, a single state machine, a single allocation per request. Recursive `async fn` requires `Box::pin` per call — at 10k QPS with 10 nodes per request, that's 100k saved allocations per second.
 - No stack depth concerns — graphs can be deep after predicate merging.
-- The cursor `cur` is the complete execution state (plus `ctx`). Future features — flow log replay, coroutine-like pause/resume, checkpointing — are additive.
+- The cursor `cur` + owned slots `(l4, req, resp, tunnel)` are the complete execution state. Future features — flow log replay, coroutine-like pause/resume, checkpointing — are additive.
 
-The `tracing` integration emits one event per loop iteration: `trace!(node_id = ?cur, kind = "check" | "mid" | "terminate")`. This is the flow log that shows "connection X visited node 42, matched predicate, moved to node 43."
+The `tracing` integration emits one event per loop iteration: `trace!(node_id = ?cur, kind = "check" | "mid" | "fetch" | "terminate")`. This is the flow log that shows "connection X visited node 42, matched predicate, moved to node 43."
 
 ## Pay-as-you-go as a compilation property
 
@@ -334,16 +421,61 @@ A `FlowGraph` is valid iff:
 
 Validity is checked at compile. A broken graph does not reach `ArcSwap`; the previous graph continues to serve.
 
-## LazyBuffer: load-time decision
+## LazyBuffer: load-time decision, two independent tracks
 
-Bodies stream by default. They are buffered only when a middleware or Terminator on this path actually reads body bytes.
+Bodies stream by default. They are buffered only where a node on this path actually needs replayable bytes. **Request body and response body are analyzed as two independent tracks** — a single rule can be request-buffered and response-streaming, or vice versa, or both, or neither.
 
-The decision is made at compile time per-path:
+### Per-side analysis
 
-- The compiler walks each path from the entry listener to each reachable Terminator.
-- If **any** middleware or Terminator on the path declares `needs_body: true`, that path is marked buffered.
-- On a buffered path, the runtime accumulates body bytes from the first byte before invoking the middleware that needs them.
-- On a streaming path, `Bytes` chunks pass through to the Terminator with zero intermediate copies.
+For each path from an entry to a terminator, the analyze pass walks the nodes twice:
+
+**Request-side first-reader**: first node (in execution order) where any of the following holds:
+
+- the node is a `Middleware(L7Request)` whose impl declares `needs_body() == true`;
+- the node is a `Check` whose predicate reads the `http.body` field path (always request-side in the current field grammar — see `18-predicate-schema.md`);
+- the node is a `Fetch(L7Fetch)` whose FetchInst has retry enabled (retry requires a replayable request).
+
+**Response-side first-reader**: first node (in execution order, after `Fetch`) where any of the following holds:
+
+- the node is a `Middleware(L7Response)` whose impl declares `needs_body() == true`;
+- (reserved) a `Check` whose predicate reads a response-side body field — no such field is defined today; placeholder for future extension.
+
+For each side, the lower pass sets `collect_body_before = Some(BodySide::X)` on exactly the first-reader node. Nodes downstream on the same side do **not** re-set the flag: once `Body::Static`, the body stays static.
+
+A path with no request-side first-reader stays request-streaming end-to-end; same for the response side. The two tracks are fully orthogonal.
+
+### Where each track lives on the path
+
+The two tracks occupy disjoint segments of the execution, separated by `L7Fetch`:
+
+```
+entry ─── ... ─── [request-side track] ─── L7Fetch ─── [response-side track] ─── Terminate
+                  ^^^^^^^^^^^^^^^^^^^^     ^^^^^^^^    ^^^^^^^^^^^^^^^^^^^^^
+                  request body lives       request      response body is
+                  here; flag may fire      is           produced here; flag
+                  on the first reader      consumed     may fire on the first
+                  between entry and        here;        reader between Fetch
+                  Fetch                    request-     and Terminate
+                                           side track
+                                           ends
+```
+
+- A **request-side `collect_body_before` flag is legal only on nodes between the entry and the L7Fetch** (i.e., nodes in phase `L7Request`). After `L7Fetch` the `Request` has been consumed; there is no body to collect, so the flag would be meaningless.
+- A **response-side `collect_body_before` flag is legal only on nodes between the `L7Fetch.next_response` edge and the `Terminator::WriteHttpResponse`** (i.e., nodes in phase `L7Response`). Before `L7Fetch` there is no `Response` yet.
+- The analyze pass runs its two first-reader searches over these two disjoint segments. The fact that a path is request-buffered has **no effect** on whether it is response-buffered — whether and where to collect the response body is re-analyzed from scratch starting at `L7Fetch.next_response`.
+
+This is also why the validator does not need a "carry the buffer state across Fetch" rule: the two tracks never interact, and the `collect_body_before` flag space on each node is the enum `Option<BodySide>` whose `BodySide::Request` and `BodySide::Response` values live on different phase segments by construction.
+
+### Runtime behavior
+
+The executor's pre-node check (`02-flow.md` executor pseudocode) performs `body.collect().await` at the flagged node, replacing:
+
+- `Body::Http12(hyper::body::Incoming)` → `Body::Static(Bytes)`
+- `Body::Http3(H3Body)` → `Body::Static(Bytes)`
+- `Body::Stream(dyn http_body::Body)` → `Body::Static(Bytes)`
+- `Body::Static(_)` / `Body::Empty` → no-op (already terminal)
+
+Post-collect, the body is replay-safe: subsequent readers, including retry loops and response-side middleware that read after a mutation, get stable `&Bytes`. `max_body_size` (`03-types.md`) is enforced during collect; exceeding the limit produces `413` (request side) or `502` (response side).
 
 The runtime never asks "should I buffer this?" It follows a flag set at compile.
 

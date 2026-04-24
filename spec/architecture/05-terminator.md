@@ -24,16 +24,37 @@ Contract:
 
 ### Trait surface
 
-All `FetchInst` variants implement a single trait:
+Fetch splits into two traits along the L4 / L7 phase axis. The owned-parameter shape is load-bearing: `Request` and `L4Conn` are **consumed** by Fetch, not borrowed. This is how the type system enforces "Fetch is the terminal owner of the request phase" — after `L7Fetch::fetch` returns, no caller can reach the old `Request` (Rust's ownership rules; not a convention).
 
 ```rust
-pub trait Fetch: Send + Sync {
-    async fn fetch(&self, ctx: &mut Ctx<'_>) -> Result<FetchOutput, Error>;
+#[trait_variant::make(L7Fetch: Send)]
+pub trait L7FetchLocal {
+    async fn fetch(
+        &self,
+        req:  Request,                 // owned — consumed by the upstream client or synthesis
+        conn: &Arc<ConnContext>,
+        ctx:  &mut FlowCtx<'_>,
+    ) -> Result<L7FetchOutput, Error>;
 }
 
-pub enum FetchOutput {
-    Response(Response),      // HttpProxy, HttpSynthesize, WebSocketUpgrade-on-non-101
-    Tunnel(Tunnel),          // L4Forward, WebSocketUpgrade-on-101
+#[trait_variant::make(L4Fetch: Send)]
+pub trait L4FetchLocal {
+    async fn fetch(
+        &self,
+        l4:   L4Conn,                  // owned — becomes one end of the tunnel
+        conn: &Arc<ConnContext>,
+        ctx:  &mut FlowCtx<'_>,
+    ) -> Result<Tunnel, Error>;
+}
+
+pub enum L7FetchOutput {
+    Response(Response),                // HttpProxy, HttpSynthesize, WebSocketUpgrade-on-non-101
+    Tunnel(Tunnel),                    // WebSocketUpgrade-on-101
+}
+
+pub enum FetchInst {
+    L7(Arc<dyn L7Fetch>),              // HttpProxy, HttpSynthesize, WebSocketUpgrade
+    L4(Arc<dyn L4Fetch>),              // L4Forward
 }
 
 pub struct Tunnel {
@@ -47,7 +68,9 @@ pub trait AsyncReadWrite: tokio::io::AsyncRead + tokio::io::AsyncWrite {}
 impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + ?Sized> AsyncReadWrite for T {}
 ```
 
-The executor (`02-flow.md`) dispatches on `FetchOutput` variant to pick the `next_response` or `next_tunnel` edge on the Fetch node. Variants that cannot produce one of the outputs (e.g., `L4Forward` never produces `Response`) simply never return it; the compiler's phase check ensures matching edges exist only where reachable.
+The executor (`02-flow.md`) dispatches first on `FetchInst::L4 | L7`, then on the output variant of `L7Fetch` (`Response` vs `Tunnel`) to pick the `next_response` or `next_tunnel` edge on the Fetch node. The phase state machine (also in `02-flow.md`) guarantees that `L4Fetch` always sits on an L4 path with `next_tunnel` set, and `L7Fetch::WebSocketUpgrade` has both edges set — validator fails the compile otherwise.
+
+`L7Fetch::fetch` consuming `req: Request` also answers "what happens to the request body on a response-middleware path": the request no longer exists. Response-phase middleware works against `&mut Response` only; if it needs request-derived data, request-phase middleware stashes it in `ConnContext.user` (see `04-middleware.md`).
 
 ### Variants
 

@@ -18,37 +18,56 @@ All four combinations are first-class:
 
 ## Traits
 
-Four traits, one per input scope. Each signature _is_ the inspection declaration — a middleware's parameter type communicates exactly what it can touch.
+Four traits, one per input scope. Each signature _is_ the inspection declaration — a middleware's parameter type communicates exactly what it can touch. Every trait takes two context parameters: `conn: &Arc<ConnContext>` (shared, mostly-immutable connection state) and `ctx: &mut FlowCtx<'_>` (per-execution mutable state; see `03-types.md`).
 
 ```rust
 #[trait_variant::make(L4PeekMiddleware: Send)]
 pub trait L4PeekMiddlewareLocal {
-    async fn run(&self, peek: &[u8], ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
+    async fn run(
+        &self,
+        peek: &[u8],
+        conn: &Arc<ConnContext>,
+        ctx:  &mut FlowCtx<'_>,
+    ) -> Result<Decision, Error>;
 }
 
 #[trait_variant::make(L4BytesMiddleware: Send)]
 pub trait L4BytesMiddlewareLocal {
-    async fn run(&self, conn: &mut L4Conn, ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
+    async fn run(
+        &self,
+        l4:   &mut L4Conn,
+        conn: &Arc<ConnContext>,
+        ctx:  &mut FlowCtx<'_>,
+    ) -> Result<Decision, Error>;
 }
 
 #[trait_variant::make(L7RequestMiddleware: Send)]
 pub trait L7RequestMiddlewareLocal {
-    async fn run(&self, req: &mut Request, ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
-    /// Declared body access. Drives the LazyBuffer compile-time decision.
+    async fn run(
+        &self,
+        req:  &mut Request,
+        conn: &Arc<ConnContext>,
+        ctx:  &mut FlowCtx<'_>,
+    ) -> Result<Decision, Error>;
+    /// Declared body access. Drives the LazyBuffer compile-time decision (request side).
     fn needs_body(&self) -> bool { false }
 }
 
 #[trait_variant::make(L7ResponseMiddleware: Send)]
 pub trait L7ResponseMiddlewareLocal {
-    async fn run(&self, resp: &mut Response, ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
-    /// Declared body access. Drives the LazyBuffer compile-time decision.
+    async fn run(
+        &self,
+        resp: &mut Response,
+        conn: &Arc<ConnContext>,
+        ctx:  &mut FlowCtx<'_>,
+    ) -> Result<Decision, Error>;
+    /// Declared body access. Drives the LazyBuffer compile-time decision (response side).
     fn needs_body(&self) -> bool { false }
 }
 
 pub enum Decision {
     Continue,
     Short(ShortCircuit),
-    Branch(BranchId),
 }
 
 pub enum ShortCircuit {
@@ -64,6 +83,15 @@ pub enum MiddlewareInst {
     Wasm       (WasmMiddleware),
 }
 ```
+
+### Why `L7ResponseMiddleware` does not receive `&Request`
+
+`L7Fetch::fetch` consumes the `Request` by value (see `05-terminator.md`); after Fetch the Request no longer exists in the executor. Middleware that needs request-derived information on the response side must stash it during the request phase — typical patterns:
+
+- Put a typed entry into `ConnContext.user` from `L7RequestMiddleware::run`, read it in `L7ResponseMiddleware::run`.
+- The `HttpProxy` Fetch propagates selected request extensions onto the Response's extensions before returning (implementation detail of the Fetch).
+
+The shape "response middleware reads consumed request" is intentionally not supported: it would require either `Arc<Request>` (forbidding body mutation) or Fetch returning the Request back out (each Fetch variant has a different story). Both tradeoffs are worse than the stash pattern.
 
 ### Why four traits instead of one with a phase tag
 
@@ -85,7 +113,12 @@ We use [`trait_variant`](https://crates.io/crates/trait-variant) to generate pai
 //   - L4PeekMiddleware          (Send-bounded; inherits from Local)
 #[trait_variant::make(L4PeekMiddleware: Send)]
 pub trait L4PeekMiddlewareLocal {
-    async fn run(&self, peek: &[u8], ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
+    async fn run(
+        &self,
+        peek: &[u8],
+        conn: &Arc<ConnContext>,
+        ctx:  &mut FlowCtx<'_>,
+    ) -> Result<Decision, Error>;
 }
 
 // Authors implement Local:
@@ -98,7 +131,7 @@ pub enum MiddlewareInst {
 }
 ```
 
-The compiler checks at the impl site: if the impl's future happens to be `Send` (which it will be for any middleware using our `Ctx` and the standard types defined in `vane-core`), it automatically also satisfies `L4PeekMiddleware`. If someone writes a middleware holding a non-`Send` type across an `.await`, compilation fails at their impl with a clear error, not deep inside the executor.
+The compiler checks at the impl site: if the impl's future happens to be `Send` (which it will be for any middleware using our standard types defined in `vane-core`), it automatically also satisfies `L4PeekMiddleware`. If someone writes a middleware holding a non-`Send` type across an `.await`, compilation fails at their impl with a clear error, not deep inside the executor.
 
 Zero runtime overhead — `trait_variant` uses RPITIT (return-position impl Trait in trait) under the hood, not `Box<dyn Future>`.
 
@@ -112,20 +145,19 @@ A middleware's trait determines where it can appear in the FlowGraph. The compil
 - `L7RequestMiddleware` — after L4→L7 upgrade, before Fetch.
 - `L7ResponseMiddleware` — after Fetch, before `Terminator::WriteHttpResponse`. Only valid on paths ending in `WriteHttpResponse`; paths ending in `ByteTunnel` (WebSocket and L4Forward) have no response phase.
 
-## Context
+## Context parameters
 
-```rust
-pub struct Ctx<'a> {
-    pub conn:  &'a Arc<ConnContext>,    // connection-level, shared across every middleware on this conn
-    pub graph: &'a FlowGraph,           // read-only, for sibling lookups
-    // future: tracing span, flow-log sink, cancellation token
-}
-```
+Middleware receives the two context objects defined in `03-types.md`:
+
+- `conn: &Arc<ConnContext>` — per-connection shared state (transport, TLS info, user extensions)
+- `ctx:  &mut FlowCtx<'_>` — per-execution mutable state (graph ref, tracing span, flow-log sink, cancel token)
 
 Middleware can:
 
 - Read all fields of `ConnContext`.
 - Write to `ConnContext.user` (the typed anymap). Downstream middleware reads by type.
+- Enter tracing spans via `ctx.span` and emit structured events via `ctx.log`.
+- Observe `ctx.cancel` to cooperate with client-disconnect / management-cancel signals.
 - Not access other middleware's internal state. Cross-middleware communication is exclusively through `ConnContext.user`.
 - Not touch client or upstream sockets. Those belong to Fetch and Terminator.
 
@@ -206,16 +238,16 @@ The user explicitly sets `stateless: true | false`. The runtime does not infer. 
 
 ## Body access and LazyBuffer
 
-`L7RequestMiddleware` and `L7ResponseMiddleware` declare body access via `needs_body()`. The compiler consumes this declaration during `analyze` and `lower`:
+`L7RequestMiddleware` and `L7ResponseMiddleware` declare body access via `needs_body()`. The compiler consumes this declaration during `analyze` and `lower` — **as two independent tracks, one per body side** (see `02-flow.md`'s LazyBuffer section):
 
-- If any reachable middleware on a path declares `needs_body() == true`, **or** the path's Fetch has retry enabled, the body on that path is **eagerly buffered**: the runtime collects all frames (including trailers) into `Body::Static(Bytes)` before invoking any middleware that touches it.
-- Otherwise, the body streams through as `Bytes` chunks with zero intermediate copies.
+- The **request-side** track marks a path as request-buffered if any `L7RequestMiddleware::needs_body()` returns `true`, any `Check` reads `http.body`, or the path's Fetch has retry enabled.
+- The **response-side** track marks a path as response-buffered if any `L7ResponseMiddleware::needs_body()` returns `true` (response-side field paths are future work).
 
-Eager means middleware always sees complete, replayable bytes — never a half-arrived stream. This trades startup latency (on paths the user explicitly asked for body inspection) for semantic simplicity.
+A path can be request-buffered and response-streaming (or any other combination of the two). The executor collects only the side(s) flagged, replacing `Body::Http12 / Http3 / Stream` with `Body::Static(Bytes)` at the compile-time-decided trigger node. Middleware downstream of the trigger on that side always observes complete, replayable bytes.
 
-Retry in Fetch implicitly forces request-body buffering. Retry requires replay; `Body::Http12` and `Body::Http3` are one-shot streams that cannot be re-polled. Only `Body::Static` and `Body::Empty` are retry-safe. A rule opting into retry cannot avoid the memory cost.
+Retry in Fetch implicitly forces request-body buffering (retry requires replay; `Body::Http12` and `Body::Http3` are one-shot streams). Only `Body::Static` and `Body::Empty` are retry-safe. A rule opting into retry cannot avoid the memory cost on the request side; the response side is unaffected.
 
-WASM middleware declares `needs_body` in its module metadata, read at module load.
+WASM middleware declares `needs_body` in its module metadata, read at module load. Plugin metadata distinguishes request-side and response-side body needs via the middleware's `kind` (see `WasmMiddleware` below).
 
 ## Lifecycle
 

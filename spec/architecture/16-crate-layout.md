@@ -31,8 +31,9 @@ Owns:
 - FlowGraph IR: `FlowGraph`, `Node`, `NodeId / PredicateId / MiddlewareId / FetchId / TerminatorId`, `MiddlewareInst`, `FetchInst`, `Terminator`, `PredicateInst`.
 - Compilation pipeline: `merge`, `expand` (preset expansion with string middleware refs), `analyze`, `lower`, `validate`. Pure functions from source config to `Arc<FlowGraph>`.
 - Middleware traits: `L4PeekMiddleware`, `L4BytesMiddleware`, `L7RequestMiddleware`, `L7ResponseMiddleware`, `Decision`, `ShortCircuit`.
+- Fetch traits: `L7Fetch`, `L4Fetch`, `L7FetchOutput`.
 - `WasmRuntime` trait (implementation lives in `vane-wasm`).
-- `Ctx`, `FetchOutput`.
+- `FlowCtx`, `PredicateView`, `BodySide`.
 
 Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`.
 

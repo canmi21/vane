@@ -44,20 +44,51 @@ All variants implement `http_body::Body<Data = Bytes>`. The enum avoids vtable d
 
 Variant names are **protocol-named, not vendor-named** (per `spec/naming.md` — brand names only in edge modules). Type parameters reference upstream crates as edge types, but the variant name describes the protocol role.
 
+### `Body::as_static`
+
+Post-buffering readers (the most common being `http.body` predicates) rely on a simple accessor:
+
+```rust
+impl Body {
+    /// Returns `Some(&Bytes)` iff this body has already been collected to
+    /// `Body::Static`. Returns `None` for stream-typed variants.
+    pub fn as_static(&self) -> Option<&bytes::Bytes> {
+        if let Self::Static(b) = self { Some(b) } else { None }
+    }
+}
+```
+
+By the phase machine + LazyBuffer compile-time analysis, any reader of `http.body` on a given path is guaranteed to run **after** the eager-collect point for that side, so `as_static().expect("lazy-buffer invariant")` is a legal pattern at the call site.
+
 ## Body lifecycle
 
 Two bodies exist per L7 connection flow, owned and transferred in sequence:
 
-1. **Request body** — created at L4→L7 upgrade; owned by `Request`; accessible as `&mut` to `L7RequestMiddleware`; consumed by Fetch (ownership moves into the upstream client or into synthesis).
-2. **Response body** — produced by Fetch (from upstream or synthesis); owned by `Response`; accessible as `&mut` to `L7ResponseMiddleware`; consumed by `Terminator::WriteHttpResponse` (ownership moves into the client-side encoder).
+1. **Request body** — created at L4→L7 upgrade; owned by `Request`; accessible as `&mut` to `L7RequestMiddleware`; consumed by `L7Fetch::fetch` (ownership moves into the upstream client or into synthesis).
+2. **Response body** — produced by `L7Fetch` (from upstream or synthesis); owned by `Response`; accessible as `&mut` to `L7ResponseMiddleware`; consumed by `Terminator::WriteHttpResponse` (ownership moves into the client-side encoder).
 
 Within a middleware's `&mut` borrow, the `Body` is a swappable value — `*req.body_mut() = Body::Static(new_bytes)` is the body-replacement idiom.
 
-### Buffering and size
+### Buffering is two-track and compile-time-decided
 
-Buffering is **eager and compile-time-decided** (see `02-flow.md` and `04-middleware.md`). On paths where any reachable middleware declares `needs_body`, or where Fetch has retry enabled, the body is fully collected into `Body::Static(Bytes)` before any middleware runs.
+Buffering is **eager and compile-time-decided** (see `02-flow.md`'s LazyBuffer section), but **request-side and response-side are independent tracks**. A single rule can be request-buffered (e.g., a middleware validates the request body) and response-streaming (the response flows through untouched), or vice-versa, or both-buffered, or both-streaming.
 
-`max_body_size` is per-rule (default **8 MiB**). Request body exceeding the limit during eager collection produces `413 Payload Too Large`. Response body exceeding it produces `502 Bad Gateway` (upstream violated the expected contract).
+A path is request-buffered iff **any** of the following is reachable from the path entry to the `L7Fetch`:
+
+- a `L7RequestMiddleware` on that path declares `needs_body() == true`, or
+- a `Check` node on that path reads the `http.body` field (request side), or
+- the terminating `L7Fetch` has retry enabled.
+
+A path is response-buffered iff **any** of the following is reachable from the `L7Fetch`'s `next_response` edge to the `WriteHttpResponse` terminator:
+
+- a `L7ResponseMiddleware` on that path declares `needs_body() == true`, or
+- (future) a `Check` node on that path reads a response-side body field.
+
+The compiler attaches a `collect_body_before: Option<BodySide>` flag to the **first** node that requires buffered bytes on each side (see `02-flow.md`). The executor collects at that point and replaces the body with `Body::Static(Bytes)`; nodes downstream on that side observe buffered bytes.
+
+Once collected, `Body::Static` is **replay-safe** (it is a `Bytes` — refcounted, cheap to clone). Fetch retry is enabled by this property: the retry loop keeps the `Body::Static` around and clones it into each attempt.
+
+`max_body_size` is per-rule (default **8 MiB**). Request body exceeding the limit during eager collection produces `413 Payload Too Large`. Response body exceeding it produces `502 Bad Gateway` (upstream violated the expected contract). The two limits can be configured independently; omitting either defaults to the 8 MiB value.
 
 ### Cancellation
 
@@ -125,6 +156,28 @@ Invariants:
 - `user` is a typed anymap. Read is cheap; write is guarded by a lock that is essentially uncontended in practice.
 
 Every `Request` on this connection carries `Arc<ConnContext>` in `request.extensions()`. H2 and H3 streams multiplexed on one connection share the same `Arc`. Refcount reaching zero releases the context.
+
+## Execution context: `FlowCtx`
+
+`ConnContext` is the connection-level, mostly-immutable shared state (one `Arc` per TCP/QUIC connection, read by all middleware on all multiplexed streams). `FlowCtx` is the complementary **per-execution, mutable** state — one `FlowCtx` per executor invocation, owned on the executor's stack and borrowed `&mut` to every middleware / Fetch call.
+
+```rust
+pub struct FlowCtx<'a> {
+    pub graph:  &'a FlowGraph,
+    pub span:   &'a mut tracing::Span,       // current flow-log span; middleware may enter children
+    pub log:    &'a mut FlowLogSink,         // structured event sink for this execution
+    pub cancel: &'a tokio_util::sync::CancellationToken,
+}
+```
+
+Every async trait in `04-middleware.md` and `05-terminator.md` takes two context parameters:
+
+- `conn: &Arc<ConnContext>` — connection-shared state (read, and `user`-extensions write)
+- `ctx:  &mut FlowCtx<'_>` — execution-scoped state (span nesting, log emission, cancel observation)
+
+The split makes the two axes explicit: **shared/unchanging vs. execution/mutable**. It also makes the `&mut` meaningful — previously a single `&mut Ctx` existed but none of its fields were actually mutable, which confused both trait authors and the executor.
+
+The executor is the sole producer of `FlowCtx`. Middleware never constructs one; middleware receives the executor's `FlowCtx` by mutable borrow and is forbidden from leaking its fields beyond the `run` call.
 
 ## Connection lifecycle
 

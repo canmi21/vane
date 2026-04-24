@@ -132,25 +132,27 @@ Lowercase-only by rule. Mixed-case field paths are a parse error.
 
 ### Authoritative field paths
 
-| Path                       | Value type            | Source                                        |
-| -------------------------- | --------------------- | --------------------------------------------- |
-| `transport`                | enum `"tcp" \| "udp"` | `ConnContext.transport`                       |
-| `remote.ip`                | `IpAddr`              | `ConnContext.remote.ip()`                     |
-| `remote.port`              | `u16`                 | `ConnContext.remote.port()`                   |
-| `local.ip`                 | `IpAddr`              | `ConnContext.local.ip()`                      |
-| `local.port`               | `u16`                 | `ConnContext.local.port()`                    |
-| `peek`                     | `Bytes`               | `PeekResult.buffer` (L4 peek phase)           |
-| `tls.sni`                  | `String`              | `ConnContext.tls.sni`                         |
-| `tls.alpn`                 | `Bytes`               | `ConnContext.tls.alpn`                        |
-| `tls.version`              | enum `TlsVersion`     | `ConnContext.tls.version`                     |
-| `tls.peer_cert.subject_cn` | `String`              | `ConnContext.tls.peer_cert` subject CN        |
-| `http.method`              | enum `Method`         | `Request.method()`                            |
-| `http.uri.path`            | `String`              | `Request.uri().path()`                        |
-| `http.uri.query`           | `String`              | `Request.uri().query().unwrap_or("")`         |
-| `http.header.<name>`       | `String`              | first value of `Request.headers()[name]`      |
-| `http.body`                | `Bytes`               | buffered `Body::Static` — triggers LazyBuffer |
+| Path                       | Value type            | Source                                                            |
+| -------------------------- | --------------------- | ----------------------------------------------------------------- |
+| `transport`                | enum `"tcp" \| "udp"` | `ConnContext.transport`                                           |
+| `remote.ip`                | `IpAddr`              | `ConnContext.remote.ip()`                                         |
+| `remote.port`              | `u16`                 | `ConnContext.remote.port()`                                       |
+| `local.ip`                 | `IpAddr`              | `ConnContext.local.ip()`                                          |
+| `local.port`               | `u16`                 | `ConnContext.local.port()`                                        |
+| `peek`                     | `Bytes`               | `PeekResult.buffer` (L4 peek phase)                               |
+| `tls.sni`                  | `String`              | `ConnContext.tls.sni`                                             |
+| `tls.alpn`                 | `Bytes`               | `ConnContext.tls.alpn`                                            |
+| `tls.version`              | enum `TlsVersion`     | `ConnContext.tls.version`                                         |
+| `tls.peer_cert.subject_cn` | `String`              | `ConnContext.tls.peer_cert` subject CN                            |
+| `http.method`              | enum `Method`         | `Request.method()`                                                |
+| `http.uri.path`            | `String`              | `Request.uri().path()`                                            |
+| `http.uri.query`           | `String`              | `Request.uri().query().unwrap_or("")`                             |
+| `http.header.<name>`       | `String`              | first value of `Request.headers()[name]`                          |
+| `http.body`                | `Bytes`               | **request-side** buffered body; triggers request-track LazyBuffer |
 
 `<name>` in `http.header.<name>` is a header name: lowercased, hyphens allowed. Duplicate-valued headers (e.g., `Cookie`) expose the first value; users needing "any of the values" combine with `any_of`.
+
+`http.body` reads the **request** body, which is a sole side today — response-body inspection is deliberately not in the MVP grammar. When added, it will take a distinct path (`http.response.body`) so that the two LazyBuffer tracks (see `02-flow.md`) stay independently analyzable.
 
 ### Field path → inspection level
 
@@ -248,6 +250,34 @@ The `lower` pass (see `02-flow.md`) transforms each parsed `Predicate` into `Pre
 | `Cidr`                                                               | Parsed to `ipnet::IpNet`                                                           |
 
 All failures produce compile errors with rule name + file + line pointers from `RawRule::source` (see `14-presets.md`).
+
+## Runtime: `PredicateInst::test`
+
+Test is evaluated by the executor at every `Node::Check`. It receives a `PredicateView` — a phase-aware window onto only the state that is legal to read in the current phase:
+
+```rust
+pub enum PredicateView<'a> {
+    L4 {
+        conn: &'a Arc<ConnContext>,
+        peek: Option<&'a [u8]>,     // Some iff phase == L4Peeked
+    },
+    L7Req {
+        conn: &'a Arc<ConnContext>,
+        req:  &'a Request,          // body is Body::Static iff a request-side LazyBuffer trigger preceded this check
+    },
+    // L7Resp variant is reserved for future response-side field paths; none exist today.
+}
+
+impl PredicateInst {
+    pub fn test(&self, view: &PredicateView<'_>) -> bool { /* dispatch on self.path + self.op */ }
+}
+```
+
+Why a phase-typed view instead of universal field access: the executor has only the state that the phase owns. In `Phase::L4Raw` there is no `Request` to read `http.method` from; in `Phase::L7Response` the `Request` has already been consumed by `L7Fetch::fetch` (see `05-terminator.md`). Encoding the phase into the `PredicateView` enum makes it a compile error for `test` implementations to reach for state that does not exist.
+
+The `lower` pass participates in this invariant: when it emits a `Check` node on path `P`, it picks the `PredicateView` variant matching `P`'s phase at that point. Field paths whose inspection level does not fit that phase are rejected at compile time with the same error style as other validate failures (`rules/30-api.json:14`).
+
+Body access inside `test`: for `http.body`, the reader is `view.req.body().as_static().expect("lazy-buffer invariant")`. The `.expect` is sound because the analyze pass marks the Check node's incoming edge with `collect_body_before = Some(BodySide::Request)` on the first reader, and executor collects before entering the node (see `02-flow.md`).
 
 ## Hash-consing
 
