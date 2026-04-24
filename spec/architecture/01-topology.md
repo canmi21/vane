@@ -115,7 +115,7 @@ Defaults below; all overridable via `config.json` or environment variables.
   wasm/*.wasm            # WASM plugin binaries referenced by rules
 
 /var/lib/vaned/          # daemon-owned state
-  compiled.json          # last-successful compiled FlowGraph (for post-crash recovery inspection)
+  compiled.json          # last-successful SymbolicFlowGraph (JSON-serialized; for post-crash recovery inspection and diff)
   wasm/*.cwasm           # pre-compiled wasmtime modules
 
 /var/run/vaned.sock      # Unix management socket, or $XDG_RUNTIME_DIR/vaned.sock
@@ -127,7 +127,7 @@ Defaults below; all overridable via `config.json` or environment variables.
 `vane` the CLI operates in two modes:
 
 - **Offline** — reads and writes files in `/etc/vaned/` directly. Used for provisioning before `vaned` is running, or for git-managed configuration.
-- **Online** — connects to a running `vaned`. Queries live state, pulls the compiled FlowGraph for inspection, triggers reload.
+- **Online** — connects to a running `vaned`. Queries live state, pulls the active `SymbolicFlowGraph` (JSON) for inspection, triggers reload.
 
 Configuration is always file-authoritative. Online CLI mutations (if any) still go to files on disk; `vaned` observes via the file watcher. The daemon is not a configuration database.
 

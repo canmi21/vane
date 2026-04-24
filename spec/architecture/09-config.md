@@ -99,7 +99,7 @@ Field paths (proposal):
 - `transport`, `remote`, `local` — connection-level.
 - `tls.sni`, `tls.alpn`, `tls.version` — TLS-level.
 - `http.method`, `http.uri.path`, `http.uri.query`, `http.header.<name>` — HTTP header-level.
-- `http.body.contains`, `http.body.matches` — HTTP body-level (triggers LazyBuffer).
+- `http.body` — HTTP body-level (triggers LazyBuffer). Operators `contains` / `matches` / etc. apply to this field in the usual operator-object form. See `18-predicate-schema.md` for the authoritative grammar.
 - `peek` — L4 peek buffer (byte match).
 
 Operators:
@@ -180,7 +180,6 @@ Content: things that describe the runtime environment rather than the traffic mo
 VANE_DATA_DIR=/var/lib/vaned
 VANE_CONFIG_DIR=/etc/vaned
 VANE_LOG_LEVEL=info
-VANE_MANAGEMENT_UNIX=/var/run/vaned.sock
 
 # Address-family toggles. Default 1 = bind this family. Set to 0 to globally
 # suppress — useful on hosts where one stack is disabled at the kernel level.

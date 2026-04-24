@@ -388,18 +388,22 @@ Naming follows ecosystem conventions — short, lowercase, single-word where pos
 
 ### Per-crate feature flags
 
-| Crate         | Feature     | Default | Purpose                                                                                           |
-| ------------- | ----------- | ------- | ------------------------------------------------------------------------------------------------- |
-| `vane-engine` | `aws-lc-rs` | on      | rustls crypto provider = aws-lc-rs; default on Tier 1; see § _Target tier matrix_                 |
-| `vane-engine` | `ring`      | off     | rustls crypto provider = ring (mutually exclusive); the portable default on 32-bit Tier 2 targets |
-| `vane-engine` | `h3`        | on      | compile h3 + quinn for HTTP/3 support                                                             |
-| `vane-engine` | `cgi`       | on      | compile CGI fork-exec path                                                                        |
-| `vaned`       | `aws-lc-rs` | on      | forwards to `vane-engine/aws-lc-rs`                                                               |
-| `vaned`       | `ring`      | off     | forwards to `vane-engine/ring`                                                                    |
-| `vaned`       | `h3`        | on      | forwards to `vane-engine/h3`                                                                      |
-| `vaned`       | `cgi`       | on      | forwards to `vane-engine/cgi`                                                                     |
-| `vaned`       | `wasm`      | on      | links `vane-wasm` (pulls wasmtime)                                                                |
-| `vane` (bin)  | `tui`       | on      | compiles ratatui + crossterm TUI code                                                             |
+| Crate         | Feature               | Default | Purpose                                                                                           |
+| ------------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `vane-engine` | `aws-lc-rs`           | on      | rustls crypto provider = aws-lc-rs; default on Tier 1; see § _Target tier matrix_                 |
+| `vane-engine` | `ring`                | off     | rustls crypto provider = ring (mutually exclusive); the portable default on 32-bit Tier 2 targets |
+| `vane-engine` | `h3`                  | on      | compile h3 + quinn for HTTP/3 support                                                             |
+| `vane-engine` | `cgi`                 | on      | compile CGI fork-exec path (pulls `libc`)                                                         |
+| `vane-engine` | `acme`                | off     | compile `ManagedCertPopulator` + `instant-acme` for ACME HTTP-01 and DNS-01                       |
+| `vane-engine` | `acme-dns-cloudflare` | off     | pulls the Cloudflare DNS-01 provider module (requires `acme`)                                     |
+| `vaned`       | `aws-lc-rs`           | on      | forwards to `vane-engine/aws-lc-rs`                                                               |
+| `vaned`       | `ring`                | off     | forwards to `vane-engine/ring`                                                                    |
+| `vaned`       | `h3`                  | on      | forwards to `vane-engine/h3`                                                                      |
+| `vaned`       | `cgi`                 | on      | forwards to `vane-engine/cgi`                                                                     |
+| `vaned`       | `acme`                | off     | forwards to `vane-engine/acme`                                                                    |
+| `vaned`       | `acme-dns-cloudflare` | off     | forwards to `vane-engine/acme-dns-cloudflare`                                                     |
+| `vaned`       | `wasm`                | on      | links `vane-wasm` (pulls wasmtime)                                                                |
+| `vane` (bin)  | `tui`                 | on      | compiles ratatui + crossterm TUI code                                                             |
 
 No feature flags on `vane-core`, `vane-wasm`, `vane-mgmt`, `vane-testutil` — they are always-on code.
 
@@ -533,7 +537,7 @@ The terminal binary. Subcommand-based for future extension:
 vane --version | -v
 vane --help    | -h
 
-vane compile <DIR>         dry-run compile; emit FlowGraph JSON to stdout
+vane compile <DIR>         dry-run compile; emit SymbolicFlowGraph JSON to stdout
 vane tail <DIR>            subscribe to the flow log (streams from running vaned)
 vane reload                trigger reload of running daemon (via mgmt socket)
 vane tui                   launch TUI (requires `tui` feature)
@@ -651,7 +655,7 @@ Each binary constructs `BuildInfo` from its own compile-time env (via `env!`) an
 For `vaned`, the `features` and `protocols` slices are computed:
 
 ```rust
-// crates/vaned/src/version.rs (sketch)
+// crates/daemon/src/version.rs (sketch; package name is `vaned`)
 fn enabled_features() -> &'static [&'static str] {
     const FEATURES: &[&str] = &[
         #[cfg(feature = "aws-lc-rs")] "aws-lc-rs",

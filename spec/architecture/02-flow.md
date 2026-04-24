@@ -26,7 +26,7 @@ Users do not write FlowGraphs. Users write **rules**:
 - `match`: zero or more predicates. All must hold for the rule to match. Zero predicates = fallthrough / always match.
 - `terminate`: what to do when the rule matches. See [`05-terminator.md`](05-terminator.md).
 
-A predicate reads fields from the connection context (`transport`, `remote`, `tls.sni`, `http.header.host`, `http.body.contains(...)`, etc.). It **does not name hooks**. The compiler derives required hooks from predicate field access.
+A predicate reads fields from the connection context (`transport`, `remote`, `tls.sni`, `http.header.host`, `http.body`, etc.) and applies an operator to the read value. It **does not name hooks**. The compiler derives required hooks from predicate field access. See `18-predicate-schema.md` for the grammar.
 
 ## Merge
 
@@ -76,7 +76,7 @@ Each stage's input type fully determines its output. Stages are independently te
 
 For each rule, compute:
 
-- **Inspection level** — the deepest field any predicate accesses (`L4 < L7-header < L7-body`).
+- **Inspection level** — the deepest field any predicate accesses (`L4-only < L4-peek < L7-header < L7-body`). See `18-predicate-schema.md` § _Field path → inspection level_ for the authoritative table.
 - **Specificity** — number of predicates (tiebreaker among same-level rules).
 - **LazyBuffer need** — whether any predicate reads `http.body.*` (propagates to the compiled path as a buffer-vs-stream flag).
 
@@ -501,14 +501,12 @@ Pay-as-you-go is not a runtime optimization. It is a compilation guarantee.
 
 ## Graph validity
 
-A `FlowGraph` is valid iff:
+The authoritative validity rules are split across two passes, defined above:
 
-1. Every leaf is a Terminator node.
-2. Every internal node has at least one child; predicate branches (`on_match` and `on_miss`) both lead to valid subgraphs.
-3. Every Terminator's referenced resource exists (upstream reachable at compile time is **not** required; upstream liveness is a runtime concern).
-4. Every declared WASM module loads and its referenced exports exist.
+- **Structural / IR validity** — `validate (core, IR-level)` section. Every leaf is a Terminator; every internal node has at least one child; predicate branches (`on_match` / `on_miss`) resolve; phase consistency holds; the graph is acyclic. These checks run on `SymbolicFlowGraph` in `vane-core` and never touch impls.
+- **Feature / impl availability** — `link (engine, feature + impl availability)` section. Every referenced middleware / Fetch kind has a factory in this binary; referenced upstream addresses / WASM modules / CGI binary paths exist. These checks run on the factory registries in `vane-engine`.
 
-Validity is checked at compile. A broken graph does not reach `ArcSwap`; the previous graph continues to serve.
+A broken graph at either pass does not reach `ArcSwap`; the previous graph continues to serve.
 
 ## LazyBuffer: load-time decision, two independent tracks
 

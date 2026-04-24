@@ -246,7 +246,7 @@ match fetch_upstream(req).await {
         tracing::warn!(
             kind     = e.kind_label(),
             reason   = e.reason_label().unwrap_or(""),
-            conn_id  = %ctx.conn.id(),
+            conn_id  = %conn.id,
             upstream = %upstream_addr,
             "fetch failed",
         );
