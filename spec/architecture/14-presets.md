@@ -51,8 +51,7 @@ pub struct RawRule {
     pub listen:           Vec<ListenSpec>,                // ":443", "0.0.0.0:80", "[::]:443"
     pub match_predicate:  Option<Predicate>,              // config-form predicate (see 18-predicate-schema.md)
     pub middleware_chain: Vec<MiddlewareRef>,             // middleware nodes, in declared order
-    pub fetch:            Option<FetchSpec>,              // at most one per rule
-    pub terminate:        TerminatorSpec,                 // required
+    pub terminate:        TerminateSpec,                  // single JSON block that names both the Fetch and (implicitly) the Terminator
     pub source:           SourceInfo,                     // which file + line produced this rule
 }
 
@@ -76,13 +75,15 @@ pub enum OnErrorSpec {
     // post-MVP: Rule(String)  — jump to another rule's entry
 }
 
-pub struct FetchSpec {
-    pub kind: String,              // "http_proxy", "tcp_forward", etc. — maps to FetchInst variant
-    pub args: serde_json::Value,   // upstream, timeouts, etc.
-}
-
-pub struct TerminatorSpec {
-    pub kind: String,              // "write_http_response" or "byte_tunnel" — usually inferred from fetch kind
+// `TerminateSpec` mirrors the user-facing JSON exactly:
+//   "terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080", "timeouts": {...} }
+// `type` maps to a FetchKind (see 05-terminator.md § _Variant ergonomics in config_);
+// every other key goes into `args` verbatim. The Terminator variant
+// (WriteHttpResponse vs ByteTunnel) is derived from the FetchKind at lower
+// time and is not carried in the source JSON — it is redundant with the kind.
+pub struct TerminateSpec {
+    pub kind: FetchKind,                  // parsed from the JSON "type" field
+    pub args: serde_json::Value,          // all other keys (upstream, timeouts, headers, body, transport, ...)
 }
 
 pub struct SourceInfo {

@@ -20,9 +20,11 @@ All four combinations are first-class:
 
 Four traits, one per input scope. Each signature _is_ the inspection declaration — a middleware's parameter type communicates exactly what it can touch. Every trait takes two context parameters: `conn: &Arc<ConnContext>` (shared, mostly-immutable connection state) and `ctx: &mut FlowCtx<'_>` (per-execution mutable state; see `03-types.md`).
 
+All four traits use `#[async_trait::async_trait]` to stay **dyn-compatible** — `MiddlewareInst` stores them as `Arc<dyn Trait>`, so the trait must be object-safe. `async_trait` rewrites each `async fn` to return `Pin<Box<dyn Future + Send>>`; the `Send` bound on futures is default and matches our multi-threaded executor. See § _Async Send via async_trait_ below for the full rationale.
+
 ```rust
-#[trait_variant::make(L4PeekMiddleware: Send)]
-pub trait L4PeekMiddlewareLocal {
+#[async_trait]
+pub trait L4PeekMiddleware: Send + Sync {
     async fn run(
         &self,
         peek: &[u8],
@@ -31,8 +33,8 @@ pub trait L4PeekMiddlewareLocal {
     ) -> Result<Decision, Error>;
 }
 
-#[trait_variant::make(L4BytesMiddleware: Send)]
-pub trait L4BytesMiddlewareLocal {
+#[async_trait]
+pub trait L4BytesMiddleware: Send + Sync {
     async fn run(
         &self,
         l4:   &mut L4Conn,
@@ -41,8 +43,8 @@ pub trait L4BytesMiddlewareLocal {
     ) -> Result<Decision, Error>;
 }
 
-#[trait_variant::make(L7RequestMiddleware: Send)]
-pub trait L7RequestMiddlewareLocal {
+#[async_trait]
+pub trait L7RequestMiddleware: Send + Sync {
     async fn run(
         &self,
         req:  &mut Request,
@@ -53,8 +55,8 @@ pub trait L7RequestMiddlewareLocal {
     fn needs_body(&self) -> bool { false }
 }
 
-#[trait_variant::make(L7ResponseMiddleware: Send)]
-pub trait L7ResponseMiddlewareLocal {
+#[async_trait]
+pub trait L7ResponseMiddleware: Send + Sync {
     async fn run(
         &self,
         resp: &mut Response,
@@ -153,18 +155,17 @@ The trait signature makes phase violations a compile error, not a runtime bug. A
 
 vtable dispatch on a middleware call is ~1 ns; middleware work (regex match, KV lookup, hashmap ops) is 100× to 10000× more. Dispatch cost is not measurable. `dyn Trait` is type-safe — unlike the rejected `dyn Any`, method signatures stay enforced at the call site.
 
-### Async `Send` via `trait_variant`
+### Async `Send` via `async_trait`
 
-Rust 1.95's `async fn` in traits (AFIT) is stable, but the returned future's `Send`-ness is **not** automatically part of the trait contract. Middleware impls that accidentally `await` a non-`Send` value yield a non-`Send` future — which the executor (running in tokio's multi-threaded runtime under `tokio::spawn`) cannot accept. Without a guard, the error surfaces far from the trait definition, in some downstream executor site.
+Rust 1.95's `async fn` in traits (AFIT) is stable, but AFIT traits use RPITIT (return-position `impl Trait`) which makes the trait **not dyn-compatible** — `Arc<dyn L4PeekMiddleware>` would not compile.
 
-We use [`trait_variant`](https://crates.io/crates/trait-variant) to generate paired traits: one local, one `Send`-bounded. Authors implement the local version; the executor stores and calls the `Send` version.
+Our architecture requires dyn-compat: `MiddlewareInst::L4Peek(Arc<dyn L4PeekMiddleware>)` and friends (see § _Symbolic forms_) store each middleware behind a trait object so the engine's factory registry can produce heterogeneous middleware instances at link time. Plugin (WASM) expansion also requires dyn dispatch.
+
+We therefore use the [`async_trait`](https://crates.io/crates/async-trait) macro. It rewrites each `async fn` in the trait to return `Pin<Box<dyn Future<Output = _> + Send + 'async_trait>>`, producing a dyn-compatible trait with `Send`-bounded futures by default. The author still writes natural `async fn`; the macro takes care of the Box-and-pin.
 
 ```rust
-// Declaration produces two traits:
-//   - L4PeekMiddlewareLocal    (no Send requirement on futures)
-//   - L4PeekMiddleware          (Send-bounded; inherits from Local)
-#[trait_variant::make(L4PeekMiddleware: Send)]
-pub trait L4PeekMiddlewareLocal {
+#[async_trait]
+pub trait L4PeekMiddleware: Send + Sync {
     async fn run(
         &self,
         peek: &[u8],
@@ -173,21 +174,24 @@ pub trait L4PeekMiddlewareLocal {
     ) -> Result<Decision, Error>;
 }
 
-// Authors implement Local:
-impl L4PeekMiddlewareLocal for SniMatch { ... }
+// Authors:
+#[async_trait]
+impl L4PeekMiddleware for SniMatch {
+    async fn run(&self, /* ... */) -> Result<Decision, Error> { ... }
+}
 
-// MiddlewareInst stores the Send-bounded trait object:
+// MiddlewareInst stores the trait object:
 pub enum MiddlewareInst {
-    L4Peek(Arc<dyn L4PeekMiddleware>),   // Send-bounded
+    L4Peek(Arc<dyn L4PeekMiddleware>),    // dyn-compat via async_trait
     ...
 }
 ```
 
-The compiler checks at the impl site: if the impl's future happens to be `Send` (which it will be for any middleware using our standard types defined in `vane-core`), it automatically also satisfies `L4PeekMiddleware`. If someone writes a middleware holding a non-`Send` type across an `.await`, compilation fails at their impl with a clear error, not deep inside the executor.
+**Send-ness guarantee**: `async_trait`'s default bound is `Send`, matching our multi-threaded tokio runtime under `tokio::spawn`. A middleware that holds a `!Send` value across an `.await` fails to compile at the impl site with a clear error — not deep inside the executor.
 
-Zero runtime overhead — `trait_variant` uses RPITIT (return-position impl Trait in trait) under the hood, not `Box<dyn Future>`.
+**Cost**: one `Box::pin` allocation per middleware call. On a hot path of 10k req/s × ~5 middleware per request that is 50k allocations per second, roughly 0.25% CPU at 50 ns per allocation. Not measurable versus hyper's per-request bookkeeping, TLS decrypt, or upstream I/O. We previously considered `trait_variant`'s zero-alloc RPITIT path, but the benefit required monomorphization and was incompatible with `Arc<dyn _>` storage — the unavoidable consequence of our plugin-extension architecture. `async_trait` is the idiomatic, dyn-compatible choice for Rust async traits whose impls are heterogeneous at runtime.
 
-Dependency: `trait-variant` added to `[workspace.dependencies]` in the root `Cargo.toml`.
+**Dependency**: `async-trait` in `[workspace.dependencies]` in the root `Cargo.toml`. `vane-core` uses it for middleware and Fetch traits; `vane-engine` and `vane-wasm` use it for `WasmRuntime` / `HttpFetchBackend` / `H3StreamSource` by the same reasoning.
 
 ## Phase placement
 

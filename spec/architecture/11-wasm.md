@@ -173,8 +173,8 @@ Key design points:
 
   ```rust
   // vane-core
-  #[trait_variant::make(HttpFetchBackend: Send)]
-  pub trait HttpFetchBackendLocal {
+  #[async_trait]
+  pub trait HttpFetchBackend: Send + Sync {
       async fn fetch(&self, req: Request, limits: HttpFetchLimits) -> Result<Response, Error>;
   }
   ```

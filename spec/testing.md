@@ -42,7 +42,7 @@ These are concrete patterns to avoid in this project:
 - **Re-testing tokio runtime mechanics.** Assert walker state transitions; do not count `spawn` calls.
 - **"Exhaustive combinatorial" tests on the 9-cell HTTP version matrix.** Cover H1↔H1, H2↔H1, H1↔H2 (captures version-translation glue). The other 6 cells are combinations of the same underlying stacks — testing all 9 end-to-end duplicates hyper's own tests.
 - **Re-testing hash-consing in `test()` calls.** Hash-cons tests belong to `lower` unit tests; executor tests should not assert "the result is cached" — hash-consing is a memory property, not a call-count one.
-- **Re-testing `trait_variant` boilerplate** or **`fancy_regex` internals** — rely on the upstream crates' own test suites.
+- **Re-testing `async_trait` macro expansion** or **`fancy_regex` internals** — rely on the upstream crates' own test suites.
 
 ## Sub-agent testing protocol
 
@@ -77,6 +77,16 @@ These are concrete patterns to avoid in this project:
    - Main LLM writes tests for its own code in the same session.
    - Sub-agent reads implementation bodies.
    - Sub-agent runs tests.
+
+#### On incidental body exposure
+
+Grep and Read tools return lines of context around a match. A sub-agent searching for `pub fn` signatures may unavoidably see a few lines of adjacent body. This is tool friction, not a protocol breach, and the correct response is:
+
+- **Ignore what was seen.** The sub-agent must still ground each test in `spec/` and the public signatures; it may not write a test that only makes sense given the body it saw.
+- **Disclose it.** The sub-agent reports "I incidentally saw impl bodies at `<file:line>` while searching for `<pattern>`" in its commit message or its final report. The human reviewer gains audit signal and can spot-check if the tests drifted toward impl-ratification.
+- **Prefer signature-only reads.** When possible, use tools that can return only signatures (e.g., `grep -n '^\s*pub '` + `Read` around that line with a tiny window, rather than reading full files).
+
+A leak that is disclosed and then anchored back to spec is fine. A leak that is not disclosed — and shows up as a test that asserts the impl's accidents rather than the spec's contract — is the real violation.
 
 ### Why this protocol
 

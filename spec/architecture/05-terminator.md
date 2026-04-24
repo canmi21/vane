@@ -27,8 +27,8 @@ Contract:
 Fetch splits into two traits along the L4 / L7 phase axis. The owned-parameter shape is load-bearing: `Request` and `L4Conn` are **consumed** by Fetch, not borrowed. This is how the type system enforces "Fetch is the terminal owner of the request phase" — after `L7Fetch::fetch` returns, no caller can reach the old `Request` (Rust's ownership rules; not a convention).
 
 ```rust
-#[trait_variant::make(L7Fetch: Send)]
-pub trait L7FetchLocal {
+#[async_trait]
+pub trait L7Fetch: Send + Sync {
     async fn fetch(
         &self,
         req:  Request,                 // owned — consumed by the upstream client or synthesis
@@ -37,8 +37,8 @@ pub trait L7FetchLocal {
     ) -> Result<L7FetchOutput, Error>;
 }
 
-#[trait_variant::make(L4Fetch: Send)]
-pub trait L4FetchLocal {
+#[async_trait]
+pub trait L4Fetch: Send + Sync {
     async fn fetch(
         &self,
         l4:   L4Conn,                  // owned — becomes one end of the tunnel
