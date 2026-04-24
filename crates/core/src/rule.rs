@@ -280,52 +280,73 @@ mod tests {
 	}
 
 	#[test]
-	fn terminate_spec_http_proxy_alias() {
-		let raw = serde_json::json!({ "type": "http_proxy", "upstream": "127.0.0.1:8080" });
-		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
-		assert_eq!(t.kind, FetchKind::HttpProxy);
-		assert_eq!(t.args, serde_json::json!({ "upstream": "127.0.0.1:8080" }));
+	fn terminate_spec_alias_table_maps_to_fetch_kind() {
+		// Every row of 05-terminator.md § _Variant ergonomics in config_.
+		let cases: &[(&str, FetchKind)] = &[
+			("tcp_forward", FetchKind::L4Forward),
+			("udp_forward", FetchKind::L4Forward),
+			("http_proxy", FetchKind::HttpProxy),
+			("http1_proxy", FetchKind::HttpProxy),
+			("http2_proxy", FetchKind::HttpProxy),
+			("http3_proxy", FetchKind::HttpProxy),
+			("unix_proxy", FetchKind::HttpProxy),
+			("cgi", FetchKind::HttpProxy),
+			("websocket", FetchKind::WebSocketUpgrade),
+			("static", FetchKind::HttpSynthesize),
+			("redirect_https", FetchKind::HttpSynthesize),
+		];
+		for (alias, expected) in cases {
+			let raw = serde_json::json!({ "type": alias });
+			let t: TerminateSpec =
+				serde_json::from_value(raw).unwrap_or_else(|e| panic!("alias {alias} must parse: {e}"));
+			assert_eq!(t.kind, *expected, "alias {alias} must map to {expected:?}");
+		}
 	}
 
 	#[test]
-	fn terminate_spec_tcp_forward_alias() {
+	fn terminate_spec_args_preserves_all_non_type_keys_verbatim() {
+		// 14-presets.md § _RawRule shape_: "every other key goes into `args`
+		// verbatim". Covers top-level scalars AND nested objects.
 		let raw = serde_json::json!({
-			"type": "tcp_forward",
-			"upstream": "10.0.0.5:22",
-			"transport": "tcp",
+			"type": "http_proxy",
+			"upstream": "127.0.0.1:8080",
+			"timeouts": { "connect": "5s", "total": "60s" },
 		});
 		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
-		assert_eq!(t.kind, FetchKind::L4Forward);
-		assert_eq!(t.args, serde_json::json!({ "upstream": "10.0.0.5:22", "transport": "tcp" }),);
+		assert_eq!(t.kind, FetchKind::HttpProxy);
+		assert_eq!(
+			t.args,
+			serde_json::json!({
+				"upstream": "127.0.0.1:8080",
+				"timeouts": { "connect": "5s", "total": "60s" },
+			}),
+		);
 	}
 
 	#[test]
-	fn terminate_spec_static_alias() {
-		let raw = serde_json::json!({ "type": "static", "status": 200, "body": "hi" });
+	fn terminate_spec_alias_only_yields_empty_object_not_null() {
+		// 14-presets.md § _RawRule shape_: the custom Deserialize removes `type`
+		// from a JSON object and keeps the rest. An alias-only terminate leaves
+		// an empty object behind — NOT Value::Null.
+		let raw = serde_json::json!({ "type": "http_proxy" });
 		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
-		assert_eq!(t.kind, FetchKind::HttpSynthesize);
-		assert_eq!(t.args, serde_json::json!({ "status": 200, "body": "hi" }));
+		assert_eq!(t.kind, FetchKind::HttpProxy);
+		assert_eq!(t.args, serde_json::Value::Object(serde_json::Map::new()));
+		assert!(t.args.is_object(), "args must be an object, got {:?}", t.args);
 	}
 
 	#[test]
-	fn terminate_spec_websocket_alias() {
-		let raw = serde_json::json!({ "type": "websocket", "upstream": "127.0.0.1:9000" });
-		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
-		assert_eq!(t.kind, FetchKind::WebSocketUpgrade);
-	}
-
-	#[test]
-	fn terminate_spec_unknown_type_rejected() {
+	fn terminate_spec_unknown_type_rejected_and_names_alias() {
 		let raw = serde_json::json!({ "type": "bogus" });
 		let err = serde_json::from_value::<TerminateSpec>(raw).expect_err("unknown alias rejected");
-		assert!(err.to_string().contains("bogus"));
+		assert!(err.to_string().contains("bogus"), "error must name the offending alias: {err}");
 	}
 
 	#[test]
-	fn terminate_spec_missing_type_rejected() {
+	fn terminate_spec_missing_type_rejected_and_names_field() {
 		let raw = serde_json::json!({ "upstream": "127.0.0.1:8080" });
 		let err = serde_json::from_value::<TerminateSpec>(raw).expect_err("missing type rejected");
-		assert!(err.to_string().contains("type"));
+		assert!(err.to_string().contains("type"), "error must name the missing field: {err}");
 	}
 
 	#[test]

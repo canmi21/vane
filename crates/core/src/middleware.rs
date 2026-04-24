@@ -173,11 +173,19 @@ fn hash_canonical_json<H: std::hash::Hasher>(v: &serde_json::Value, state: &mut 
 #[cfg(test)]
 mod tests {
 	use std::collections::hash_map::DefaultHasher;
+	use std::future::Future;
 	use std::hash::{Hash, Hasher};
+	use std::net::SocketAddr;
+	use std::pin::Pin;
+	use std::time::Instant;
 
+	use parking_lot::Mutex;
 	use serde_json::json;
+	use tokio_util::sync::CancellationToken;
 
 	use super::*;
+	use crate::conn_context::{ConnId, Transport};
+	use crate::flow_log::{FlowLogEvent, FlowLogSink};
 
 	struct PassPeek;
 	#[async_trait]
@@ -231,31 +239,112 @@ mod tests {
 		}
 	}
 
-	// `async_trait` makes these traits dyn-compatible — `MiddlewareInst` stores
-	// them as `Arc<dyn Trait>` per 04-middleware.md § _Where the types live_.
-	fn accepts_dyn_peek(_: &dyn L4PeekMiddleware) {}
-	fn accepts_dyn_bytes(_: &dyn L4BytesMiddleware) {}
-	fn accepts_dyn_req(_: &dyn L7RequestMiddleware) {}
-	fn accepts_dyn_resp(_: &dyn L7ResponseMiddleware) {}
+	// Compile-time assertion helper: the type `F` must be `Send`. `async_trait`
+	// rewrites `async fn run(...)` to return `Pin<Box<dyn Future + Send>>`, so
+	// every `run` invocation's future must satisfy this bound — that is the
+	// load-bearing contract per 04-middleware.md § _Async Send via async_trait_.
+	fn assert_send<F: Send>(_: &F) {}
+
+	struct NullSink;
+	impl FlowLogSink for NullSink {
+		fn emit(&self, _event: FlowLogEvent) {}
+	}
+
+	fn make_conn_context() -> Arc<ConnContext> {
+		let addr: SocketAddr = "127.0.0.1:0".parse().expect("parse addr");
+		Arc::new(ConnContext {
+			id: ConnId(0),
+			remote: addr,
+			local: addr,
+			transport: Transport::Tcp,
+			entered_at: Instant::now(),
+			tls: Mutex::new(None),
+			http_version: std::sync::OnceLock::new(),
+			user: Mutex::new(http::Extensions::new()),
+		})
+	}
+
+	// `async_trait` makes these traits dyn-compatible. `MiddlewareInst` stores
+	// each variant as `Arc<dyn Trait>` per 04-middleware.md § _Symbolic forms_
+	// and § _Async Send via async_trait_; constructing that exact shape from a
+	// concrete impl is the contract we guard.
 
 	#[test]
-	fn peek_trait_is_dyn_compatible() {
-		accepts_dyn_peek(&PassPeek);
+	fn l4_peek_is_constructible_as_arc_dyn_send_sync() {
+		let m: Arc<dyn L4PeekMiddleware + Send + Sync> = Arc::new(PassPeek);
+		// The trait-object Arc coerces to the bare `Arc<dyn Trait>` shape used
+		// by `MiddlewareInst::L4Peek(Arc<dyn L4PeekMiddleware>)` in engine.
+		let _: Arc<dyn L4PeekMiddleware> = m;
 	}
 
 	#[test]
-	fn bytes_trait_is_dyn_compatible() {
-		accepts_dyn_bytes(&PassBytes);
+	fn l4_bytes_is_constructible_as_arc_dyn_send_sync() {
+		let m: Arc<dyn L4BytesMiddleware + Send + Sync> = Arc::new(PassBytes);
+		let _: Arc<dyn L4BytesMiddleware> = m;
 	}
 
 	#[test]
-	fn l7_request_trait_is_dyn_compatible() {
-		accepts_dyn_req(&PassReq);
+	fn l7_request_is_constructible_as_arc_dyn_send_sync() {
+		let m: Arc<dyn L7RequestMiddleware + Send + Sync> = Arc::new(PassReq);
+		let _: Arc<dyn L7RequestMiddleware> = m;
 	}
 
 	#[test]
-	fn l7_response_trait_is_dyn_compatible() {
-		accepts_dyn_resp(&PassResp);
+	fn l7_response_is_constructible_as_arc_dyn_send_sync() {
+		let m: Arc<dyn L7ResponseMiddleware + Send + Sync> = Arc::new(PassResp);
+		let _: Arc<dyn L7ResponseMiddleware> = m;
+	}
+
+	#[test]
+	fn l4_peek_run_returns_send_future() {
+		let m: Arc<dyn L4PeekMiddleware> = Arc::new(PassPeek);
+		let conn = make_conn_context();
+		let mut sink = NullSink;
+		let mut span = tracing::Span::none();
+		let cancel = CancellationToken::new();
+		let mut ctx =
+			FlowCtx { span: &mut span, log: &mut sink as &mut dyn FlowLogSink, cancel: &cancel };
+		let peek: &[u8] = &[];
+		// Exact-type coercion into `Pin<Box<dyn Future + Send>>` — the async_trait
+		// signature. Fails to compile if a future becomes `!Send`.
+		let fut: Pin<Box<dyn Future<Output = Result<Decision, Error>> + Send + '_>> =
+			m.run(peek, &conn, &mut ctx);
+		assert_send(&fut);
+		drop(fut);
+	}
+
+	#[test]
+	fn l7_request_run_returns_send_future() {
+		let m: Arc<dyn L7RequestMiddleware> = Arc::new(PassReq);
+		let conn = make_conn_context();
+		let mut sink = NullSink;
+		let mut span = tracing::Span::none();
+		let cancel = CancellationToken::new();
+		let mut ctx =
+			FlowCtx { span: &mut span, log: &mut sink as &mut dyn FlowLogSink, cancel: &cancel };
+		let mut req: Request =
+			http::Request::builder().uri("/").body(crate::body::Body::Empty).expect("build req");
+		let fut: Pin<Box<dyn Future<Output = Result<Decision, Error>> + Send + '_>> =
+			m.run(&mut req, &conn, &mut ctx);
+		assert_send(&fut);
+		drop(fut);
+	}
+
+	#[test]
+	fn l7_response_run_returns_send_future() {
+		let m: Arc<dyn L7ResponseMiddleware> = Arc::new(PassResp);
+		let conn = make_conn_context();
+		let mut sink = NullSink;
+		let mut span = tracing::Span::none();
+		let cancel = CancellationToken::new();
+		let mut ctx =
+			FlowCtx { span: &mut span, log: &mut sink as &mut dyn FlowLogSink, cancel: &cancel };
+		let mut resp: Response =
+			http::Response::builder().status(200).body(crate::body::Body::Empty).expect("build resp");
+		let fut: Pin<Box<dyn Future<Output = Result<Decision, Error>> + Send + '_>> =
+			m.run(&mut resp, &conn, &mut ctx);
+		assert_send(&fut);
+		drop(fut);
 	}
 
 	#[test]

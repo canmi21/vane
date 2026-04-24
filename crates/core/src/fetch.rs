@@ -80,18 +80,26 @@ pub enum Terminator {
 
 #[cfg(test)]
 mod tests {
+	use std::future::Future;
 	use std::io;
+	use std::net::SocketAddr;
 	use std::task::{Context, Poll};
+	use std::time::Instant;
 
+	use parking_lot::Mutex;
 	use serde_json::json;
 	use tokio::io::ReadBuf;
+	use tokio_util::sync::CancellationToken;
 
 	use super::*;
-	use crate::body::{Body, Response};
+	use crate::body::{Body, Request, Response};
+	use crate::conn_context::{ConnId, Transport};
+	use crate::flow_log::{FlowLogEvent, FlowLogSink};
 
 	// A runtime-free `AsyncRead + AsyncWrite` witness. `UnixStream::pair` and
-	// `tokio::io::duplex` both require a running reactor, which core tests
-	// deliberately do not spin up (16-crate-layout.md: no async-runtime dep).
+	// `tokio::io::duplex` both require a running reactor; core tests
+	// deliberately do not spin one up (16-crate-layout.md: no async-runtime
+	// dep).
 	struct NoopStream;
 
 	impl AsyncRead for NoopStream {
@@ -122,6 +130,59 @@ mod tests {
 		}
 	}
 
+	struct NullSink;
+	impl FlowLogSink for NullSink {
+		fn emit(&self, _event: FlowLogEvent) {}
+	}
+
+	struct SynthOk;
+	#[async_trait]
+	impl L7Fetch for SynthOk {
+		async fn fetch(
+			&self,
+			_req: Request,
+			_conn: &Arc<ConnContext>,
+			_ctx: &mut FlowCtx<'_>,
+		) -> Result<L7FetchOutput, Error> {
+			let resp: Response = http::Response::builder().status(200).body(Body::Empty).expect("build");
+			Ok(L7FetchOutput::Response(resp))
+		}
+	}
+
+	struct L4Nop;
+	#[async_trait]
+	impl L4Fetch for L4Nop {
+		async fn fetch(
+			&self,
+			_l4: L4Conn,
+			_conn: &Arc<ConnContext>,
+			_ctx: &mut FlowCtx<'_>,
+		) -> Result<Tunnel, Error> {
+			let (tx, _rx) = oneshot::channel::<crate::middleware::CloseReason>();
+			Ok(Tunnel {
+				client: Box::pin(NoopStream) as Pin<Box<dyn AsyncReadWrite + Send>>,
+				upstream: Box::pin(NoopStream) as Pin<Box<dyn AsyncReadWrite + Send>>,
+				close_reason_tx: Some(tx),
+			})
+		}
+	}
+
+	fn assert_send<F: Send>(_: &F) {}
+
+	fn make_conn_context() -> Arc<ConnContext> {
+		let addr: SocketAddr = "127.0.0.1:0".parse().expect("parse addr");
+		Arc::new(ConnContext {
+			id: ConnId(0),
+			remote: addr,
+			local: addr,
+			transport: Transport::Tcp,
+			entered_at: Instant::now(),
+			tls: Mutex::new(None),
+			http_version: std::sync::OnceLock::new(),
+			user: Mutex::new(http::Extensions::new()),
+		})
+	}
+
 	#[test]
 	fn async_read_write_blanket_accepts_async_io_type() {
 		let _: Pin<Box<dyn AsyncReadWrite + Send>> = Box::pin(NoopStream);
@@ -146,6 +207,42 @@ mod tests {
 			close_reason_tx: Some(tx),
 		};
 		let _ = L7FetchOutput::Tunnel(tunnel);
+	}
+
+	// `async_trait` makes `L7Fetch` and `L4Fetch` dyn-compatible. `FetchInst`
+	// stores them as `Arc<dyn _>` per 05-terminator.md § _Trait surface_;
+	// constructing that exact shape from a concrete impl is the contract we
+	// guard here.
+
+	#[test]
+	fn l7_fetch_is_constructible_as_arc_dyn_send_sync() {
+		let f: Arc<dyn L7Fetch + Send + Sync> = Arc::new(SynthOk);
+		let _: Arc<dyn L7Fetch> = f;
+	}
+
+	#[test]
+	fn l4_fetch_is_constructible_as_arc_dyn_send_sync() {
+		let f: Arc<dyn L4Fetch + Send + Sync> = Arc::new(L4Nop);
+		let _: Arc<dyn L4Fetch> = f;
+	}
+
+	#[test]
+	fn l7_fetch_fetch_returns_send_future() {
+		let f: Arc<dyn L7Fetch> = Arc::new(SynthOk);
+		let conn = make_conn_context();
+		let mut sink = NullSink;
+		let mut span = tracing::Span::none();
+		let cancel = CancellationToken::new();
+		let mut ctx =
+			FlowCtx { span: &mut span, log: &mut sink as &mut dyn FlowLogSink, cancel: &cancel };
+		let req: Request = http::Request::builder().uri("/").body(Body::Empty).expect("build req");
+		// Exact-type coercion — async_trait rewrites `fetch` to return
+		// `Pin<Box<dyn Future + Send>>`; this binding fails to compile if the
+		// future ever loses `Send`.
+		let fut: Pin<Box<dyn Future<Output = Result<L7FetchOutput, Error>> + Send + '_>> =
+			f.fetch(req, &conn, &mut ctx);
+		assert_send(&fut);
+		drop(fut);
 	}
 
 	#[test]
