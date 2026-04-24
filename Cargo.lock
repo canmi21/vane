@@ -1060,6 +1060,7 @@ name = "vane-engine"
 version = "0.10.0"
 dependencies = [
  "arc-swap",
+ "async-trait",
  "bytes",
  "dashmap",
  "http",
@@ -1070,6 +1071,8 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "parking_lot",
+ "serde_json",
+ "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
