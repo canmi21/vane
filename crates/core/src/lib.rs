@@ -10,17 +10,22 @@ pub use conn_context::*;
 pub mod error;
 pub use error::*;
 pub mod fetch;
+pub use fetch::*;
 pub mod flow_ctx;
 pub use flow_ctx::*;
 pub mod flow_log;
 pub use flow_log::*;
 pub mod ir;
+pub use ir::*;
 pub mod l4;
 pub use l4::*;
 pub mod metadata;
+pub use metadata::*;
 pub mod middleware;
+pub use middleware::*;
 pub mod phase;
 pub mod predicate;
+pub use predicate::*;
 pub mod rule;
 
 pub mod meta {

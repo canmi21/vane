@@ -15,6 +15,12 @@ impl NodeId {
 	}
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub enum BodySide {
+	Request,
+	Response,
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
