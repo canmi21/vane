@@ -101,6 +101,41 @@ pub enum MiddlewareInst {
 
 The `lower` pass queries a `&dyn MiddlewareMetadataProvider` for each middleware's `kind` / `stateless` / `needs_body`; it stores these alongside `name` + `args` in the `SymbolicMiddlewareRef`. No trait objects are constructed until engine's `link` step.
 
+### Symbolic forms (owned by `vane-core`)
+
+```rust
+pub enum MiddlewareKind {
+    L4Peek,
+    L4Bytes,
+    L7Request,
+    L7Response,
+}
+// Note: WASM plugins do not get their own MiddlewareKind variant — a WASM plugin
+// always declares itself as one of the four above (via its PluginMetadata.kind).
+// Whether the impl behind a SymbolicMiddlewareRef is internal-Rust or external-WASM
+// is resolved by the factory registry at link time, not encoded in MiddlewareKind.
+
+pub struct SymbolicMiddlewareRef {
+    pub name:       Arc<str>,             // registry key; e.g. "rate_limit" or "auth:jwt_validator"
+    pub args:       serde_json::Value,    // canonical-JSON form; opaque to core
+    pub kind:       MiddlewareKind,       // from MiddlewareMetadataProvider
+    pub stateless:  bool,                 // drives MiddlewareInst dedup (see 02-flow.md § Hash-consing)
+    pub needs_body: bool,                 // drives LazyBuffer per-side analysis
+    pub on_error:   Option<NodeId>,       // lower resolves on_error config into a target NodeId
+}
+
+pub struct MiddlewareMetadata {
+    pub kind:          MiddlewareKind,
+    pub stateless:     bool,
+    pub needs_body:    bool,
+    pub validate_args: fn(&serde_json::Value) -> Result<(), Error>,
+}
+
+pub trait MiddlewareMetadataProvider {
+    fn get(&self, name: &str) -> Option<MiddlewareMetadata>;
+}
+```
+
 ### Why `L7ResponseMiddleware` does not receive `&Request`
 
 `L7Fetch::fetch` consumes the `Request` by value (see `05-terminator.md`); after Fetch the Request no longer exists in the executor. Middleware that needs request-derived information on the response side must stash it during the request phase — typical patterns:
@@ -331,19 +366,21 @@ In a rule, `on_error` is declared alongside the middleware `use`:
 
 ```jsonc
 // Default (no on_error) → fail-safe tombstone
-{ "use": { "name": "jwt_validator" } }
+{ "use": "jwt_validator", "args": { "secret": "..." } }
 
 // Close on failure
-{ "use": { "name": "jwt_validator", "on_error": "close" } }
+{ "use": "jwt_validator", "args": { "secret": "..." }, "on_error": "close" }
 
 // Fallback to a synth response
-{ "use": { "name": "jwt_validator", "on_error": { "response": { "status": 503, "body": "maintenance" } } } }
+{ "use": "jwt_validator", "args": { "secret": "..." }, "on_error": { "response": { "status": 503, "body": "maintenance" } } }
 ```
+
+The JSON schema is flat: `use` is the middleware name, `args` is the middleware's own config, `on_error` is the per-use-site error-routing (a core IR concern, not a middleware concern). This matches the samples in `13-rate-limit.md` and `11-wasm.md`. Serde shape is in `14-presets.md` § `MiddlewareRef`.
 
 The `lower` pass resolves each `on_error` form into a concrete `NodeId`:
 
 - `"close"` → a small inline subgraph ending in `Terminate(ByteTunnel-close-only)` for L4, or `Terminate(WriteHttpResponse with 5xx)` for L7.
-- `{ "response": ... }` → a `Fetch::HttpSynthesize` + `Terminate(WriteHttpResponse)` subgraph.
+- `{ "response": ... }` → an `HttpSynthesizeFetch` + `Terminate(WriteHttpResponse)` subgraph.
 
 Post-MVP: `on_error: "<rule-name>"` to reroute through another rule's entry. Deliberately excluded from MVP because inter-rule graph coupling (one rule's `on_error` targeting another's internals) complicates reasoning; single-rule self-contained fallbacks cover the common cases.
 

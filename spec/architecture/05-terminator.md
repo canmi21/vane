@@ -72,7 +72,7 @@ pub trait AsyncReadWrite: tokio::io::AsyncRead + tokio::io::AsyncWrite {}
 impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + ?Sized> AsyncReadWrite for T {}
 ```
 
-The executor (`02-flow.md`) dispatches first on `FetchInst::L4 | L7`, then on the output variant of `L7Fetch` (`Response` vs `Tunnel`) to pick the `next_response` or `next_tunnel` edge on the Fetch node. The phase state machine (also in `02-flow.md`) guarantees that `L4Fetch` always sits on an L4 path with `next_tunnel` set, and `L7Fetch::WebSocketUpgrade` has both edges set — the core validator fails the compile otherwise.
+The executor (`02-flow.md`) dispatches first on `FetchInst::L4 | L7`, then on the output variant of `L7Fetch` (`Response` vs `Tunnel`) to pick the `next_response` or `next_tunnel` edge on the Fetch node. The phase state machine (also in `02-flow.md`) guarantees that `L4Fetch` (i.e. `L4ForwardFetch`) always sits on an L4 path with `next_tunnel` set, and `WebSocketUpgradeFetch` has both edges set — the core validator fails the compile otherwise.
 
 `L7Fetch::fetch` consuming `req: Request` also answers "what happens to the request body on a response-middleware path": the request no longer exists. Response-phase middleware works against `&mut Response` only; if it needs request-derived data, request-phase middleware stashes it in `ConnContext.user` (see `04-middleware.md`).
 
@@ -102,12 +102,29 @@ pub struct WebSocketUpgradeFetch { upstream: WsUpstream,      subprotocol: Optio
 // Implements L4Fetch (lives in vane-engine)
 pub struct L4ForwardFetch        { upstream: SocketAddr,      transport: Transport, keep_alive: bool, idle_timeout: Duration }
 
-// Core-side symbolic discriminant used in SymbolicFetchRef
+// Core-side symbolic forms (live in vane-core; no runtime impls).
+
 pub enum FetchKind {
     HttpProxy,
     HttpSynthesize,
     WebSocketUpgrade,
     L4Forward,
+}
+
+pub struct SymbolicFetchRef {
+    pub kind: FetchKind,
+    pub args: serde_json::Value,         // canonical-JSON form; opaque to core
+}
+
+pub struct FetchMetadata {
+    pub kind:          FetchKind,
+    pub phase:         FetchPhase,       // L4 | L7 — drives phase-state-machine placement
+    pub output_modes:  FetchOutputModes, // { response: bool, tunnel: bool } — e.g. WS has both
+    pub validate_args: fn(&serde_json::Value) -> Result<(), Error>,
+}
+
+pub trait FetchMetadataProvider {
+    fn get(&self, kind: FetchKind) -> Option<FetchMetadata>;
 }
 
 pub enum HttpUpstream {
@@ -214,23 +231,23 @@ For QUIC/HTTP-3 traffic, `udp_dispatch` demultiplexes before Fetch sees packets 
 
 ### Variant ergonomics in config
 
-Users write a `"type"` string; the parser maps it to the internal enum:
+Users write a `"type"` string in the rule's `terminate` block; the parser maps it to `(FetchKind, concrete Fetch impl)`. `FetchKind` is the core-side symbolic discriminant (see § _Concrete Fetch kinds_); the concrete impl is what `link` constructs in engine.
 
-| JSON `type`      | FetchInst                                                                                                                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tcp_forward`    | `L4Forward { transport: Tcp, ... }`                                                                                                                                       |
-| `udp_forward`    | `L4Forward { transport: Udp, ... }`                                                                                                                                       |
-| `http_proxy`     | `HttpProxy { upstream: Tcp(Auto), ... }`                                                                                                                                  |
-| `http1_proxy`    | `HttpProxy { upstream: Tcp(Http1), ... }`                                                                                                                                 |
-| `http2_proxy`    | `HttpProxy { upstream: Tcp(Http2), ... }`                                                                                                                                 |
-| `http3_proxy`    | `HttpProxy { upstream: Tcp(Http3), ... }`                                                                                                                                 |
-| `unix_proxy`     | `HttpProxy { upstream: Unix, ... }`                                                                                                                                       |
-| `cgi`            | `HttpProxy { upstream: Cgi, ... }`                                                                                                                                        |
-| `websocket`      | `WebSocketUpgrade { ... }`                                                                                                                                                |
-| `static`         | `HttpSynthesize { ... }`                                                                                                                                                  |
-| `redirect_https` | `HttpSynthesize { status: 308, headers: { "location": "https://${host}${uri}" } }` — 308 preserves request method; dynamic Location built from the request's Host and URI |
+| JSON `type`      | FetchKind          | Concrete impl (engine)                                                                                                                                                         |
+| ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tcp_forward`    | `L4Forward`        | `L4ForwardFetch { upstream, transport: Tcp, ... }`                                                                                                                             |
+| `udp_forward`    | `L4Forward`        | `L4ForwardFetch { upstream, transport: Udp, ... }`                                                                                                                             |
+| `http_proxy`     | `HttpProxy`        | `HttpProxyFetch { upstream: HttpUpstream::Tcp { version: Auto, .. }, ... }`                                                                                                    |
+| `http1_proxy`    | `HttpProxy`        | `HttpProxyFetch { upstream: HttpUpstream::Tcp { version: Http1, .. }, ... }`                                                                                                   |
+| `http2_proxy`    | `HttpProxy`        | `HttpProxyFetch { upstream: HttpUpstream::Tcp { version: Http2, .. }, ... }`                                                                                                   |
+| `http3_proxy`    | `HttpProxy`        | `HttpProxyFetch { upstream: HttpUpstream::Tcp { version: Http3, .. }, ... }`                                                                                                   |
+| `unix_proxy`     | `HttpProxy`        | `HttpProxyFetch { upstream: HttpUpstream::Unix { .. }, ... }`                                                                                                                  |
+| `cgi`            | `HttpProxy`        | `HttpProxyFetch { upstream: HttpUpstream::Cgi { .. }, ... }`                                                                                                                   |
+| `websocket`      | `WebSocketUpgrade` | `WebSocketUpgradeFetch { upstream, subprotocol, ... }`                                                                                                                         |
+| `static`         | `HttpSynthesize`   | `HttpSynthesizeFetch { status, headers, body }`                                                                                                                                |
+| `redirect_https` | `HttpSynthesize`   | `HttpSynthesizeFetch { status: 308, headers: { "location": "https://${host}${uri}" } }` — 308 preserves request method; dynamic Location built from the request's Host and URI |
 
-Aliases are sugar; adding a new alias is a parser change, not a new variant.
+Aliases are sugar; adding a new alias is a parser change, not a new `FetchKind` variant.
 
 ### Retry
 
@@ -267,8 +284,8 @@ pub enum Terminator {
 
 Two variants is the complete set. The compiler enforces phase consistency (see `02-flow.md`):
 
-- Paths through `Fetch::HttpProxy` or `Fetch::HttpSynthesize` end in `WriteHttpResponse`.
-- Paths through `Fetch::WebSocketUpgrade` or `Fetch::L4Forward` end in `ByteTunnel`.
+- Paths through `HttpProxyFetch` or `HttpSynthesizeFetch` end in `WriteHttpResponse`.
+- Paths through `WebSocketUpgradeFetch` or `L4ForwardFetch` end in `ByteTunnel`.
 
 ---
 

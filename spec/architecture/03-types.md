@@ -46,12 +46,18 @@ Variant names are **protocol-named, not vendor-named** (per `spec/naming.md` —
 
 ### `H3Body`
 
-`h3` crate does **not** implement `http_body::Body` — it splits the two concerns: `recv_data()` yields `impl Buf` (in current versions: `Bytes` slices over quinn's internal buffer) and `recv_trailers()` is a separate, once-only call at data EOF. `H3Body` is vane's glue that wraps both into a single `http_body::Body` stream:
+`h3` crate does **not** implement `http_body::Body` — it splits the two concerns: `recv_data()` yields `impl Buf` (in current versions: `Bytes` slices over quinn's internal buffer) and `recv_trailers()` is a separate, once-only call at data EOF. `H3Body` is vane's glue that unifies both into a single `http_body::Body` stream **without being generic over the stream type** (so `Body::Http3(H3Body)` needs no type parameter — server and client both fit the same `Body` enum):
 
 ```rust
-pub struct H3Body<S> {
-    stream: S,                         // h3::server::RequestStream or h3::client::RequestStream
-    state:  H3BodyState,
+pub struct H3Body {
+    inner: Pin<Box<dyn H3StreamSource + Send>>,  // dyn-erased; holds either server or client stream
+    state: H3BodyState,
+}
+
+#[trait_variant::make(H3StreamSource: Send)]
+pub trait H3StreamSourceLocal {
+    async fn recv_data(&mut self)     -> Result<Option<bytes::Bytes>,     Error>;
+    async fn recv_trailers(&mut self) -> Result<Option<http::HeaderMap>, Error>;
 }
 
 enum H3BodyState {
@@ -60,18 +66,24 @@ enum H3BodyState {
     Done,
 }
 
-impl<S> http_body::Body for H3Body<S> where S: /* h3 stream trait */ {
+impl http_body::Body for H3Body {
     type Data  = bytes::Bytes;
     type Error = Error;
-
     // poll_frame dispatches on state:
     //   DataPhase    → recv_data()  → Frame::data(Bytes); at data EOF, transition to TrailerPhase
     //   TrailerPhase → recv_trailers() once → Frame::trailers(HeaderMap) or skip; then Done
     //   Done         → Poll::Ready(None)
 }
+
+// Engine-side impls of H3StreamSource (in vane-engine):
+//   - for h3::server::RequestStream<_, _>
+//   - for h3::client::RequestStream<_, _>
+// Both wrap the h3 crate's split recv_data/recv_trailers API.
 ```
 
-Server and client use different `h3` stream types; `S` is monomorphized at each construction site. The `Bytes` returned by `recv_data()` slices quinn's buffer pool — no copy on the vane side.
+`H3Body` is thus a single non-generic type usable in both directions. The vtable cost is per-frame `poll_frame` (negligible vs. QUIC decrypt) and never appears on paths not going through H3.
+
+The `Bytes` returned by `recv_data()` slices quinn's buffer pool — no copy on the vane side.
 
 ### What vane's "no copy" covers (and what it does not)
 

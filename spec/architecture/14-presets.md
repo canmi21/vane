@@ -56,11 +56,19 @@ pub struct RawRule {
     pub source:           SourceInfo,                     // which file + line produced this rule
 }
 
+#[derive(serde::Deserialize)]
 pub struct MiddlewareRef {
+    #[serde(rename = "use")]
     pub name:     String,                 // registry key — e.g., "rate_limit" or "auth:jwt_validator"
+    #[serde(default)]
     pub args:     serde_json::Value,      // per-instance args, opaque to the registry
+    #[serde(default)]
     pub on_error: Option<OnErrorSpec>,    // how Err(_) returns are routed; None → fail-safe tombstone
 }
+// JSON shape (flat, Form 1):
+//   { "use": "rate_limit", "args": { "rate": 100 }, "on_error": "close" }
+// `args` defaults to null (Value::Null) when omitted; on_error defaults to None
+// (which means the fail-safe tombstone per 04-middleware.md).
 
 pub enum OnErrorSpec {
     Close,                                // L4 RST / L7 close

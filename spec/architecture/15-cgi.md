@@ -6,7 +6,7 @@ CGI is the sole non-socket-based upstream. Every request fork-execs a new proces
 
 Per spec, CGI is inherently per-request fork-exec. "Pooling" would require a different protocol (FastCGI, SCGI, WSGI) — explicitly out of scope.
 
-Each `Fetch::HttpProxy { upstream: HttpUpstream::Cgi { ... } }` invocation uses `tokio::process::Command` configured with:
+Each `HttpProxyFetch { upstream: HttpUpstream::Cgi { ... }, ... }` invocation uses `tokio::process::Command` configured with:
 
 - `env_clear()` then `envs(computed_rfc3875_vars)` — no daemon env inherited.
 - `current_dir(working_dir)`.
