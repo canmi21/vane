@@ -68,9 +68,25 @@ A file may contain any subset: just `rules`, just `listeners`, or a mix.
 ```
 
 - `rule` (string, required, unique across the entire merged set).
-- `listen` (array of strings, required): port specs (`":443"`, `"0.0.0.0:80"`, `"[::]:443"`).
+- `listen` (array of strings, required): port specs — see **ListenSpec grammar** below.
 - `match` (array, optional): zero or more predicates. All must hold. Empty means "always match."
 - `terminate` (object, required): see [`05-terminator.md`](05-terminator.md).
+
+### ListenSpec grammar
+
+| Form              | Expands to                                            | Semantics                                                        |
+| ----------------- | ----------------------------------------------------- | ---------------------------------------------------------------- |
+| `":443"`          | `0.0.0.0:443` + `[::]:443` (two entries, same NodeId) | Dual-stack; two independent listeners sharing one graph entry    |
+| `"*:443"`         | same as `":443"`                                      | Alias                                                            |
+| `"0.0.0.0:443"`   | `0.0.0.0:443`                                         | IPv4 only                                                        |
+| `"[::]:443"`      | `[::]:443`                                            | IPv6 only; `bindv6only=1` (no IPv4-mapped); see `01-topology.md` |
+| `"127.0.0.1:443"` | as written                                            | Specific IPv4 bind                                               |
+| `"[::1]:443"`     | as written                                            | Specific IPv6 bind                                               |
+| `":0"` / `"*:0"`  | **rejected at compile**                               | Wildcard port disallowed — graph entry keys must be stable       |
+
+Dual-stack expansion produces two `entries` map keys (v4 and v6 `SocketAddr`s) pointing to the **same** `NodeId`. Bind happens independently per listener; `01-topology.md` defines the tolerance for one-side failure (warn + continue if only one family binds; fail the rule only if both fail).
+
+The env vars `VANE_BIND_IPV4=0` / `VANE_BIND_IPV6=0` (default `1`) globally suppress one family — useful on hosts where the kernel has disabled one stack entirely and repeated bind attempts just produce noise. With `VANE_BIND_IPV6=0`, dual-stack `listen` specs expand to v4-only; explicit `[::]:PORT` specs fail at validate with a clear error. The flags are symmetric.
 
 ## Predicate schema
 
@@ -163,6 +179,12 @@ VANE_DATA_DIR=/var/lib/vaned
 VANE_CONFIG_DIR=/etc/vaned
 VANE_LOG_LEVEL=info
 VANE_MANAGEMENT_UNIX=/var/run/vaned.sock
+
+# Address-family toggles. Default 1 = bind this family. Set to 0 to globally
+# suppress — useful on hosts where one stack is disabled at the kernel level.
+# Affects ":PORT" dual-stack expansion and explicit [::]:/0.0.0.0: binds.
+VANE_BIND_IPV4=1
+VANE_BIND_IPV6=1
 
 # L1 security floors (configurable upward, floors enforced at compile)
 VANE_SEC_MAX_HEADER_BYTES=65536

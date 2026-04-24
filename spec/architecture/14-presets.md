@@ -53,8 +53,15 @@ pub struct RawRule {
 }
 
 pub struct MiddlewareRef {
-    pub name:  String,             // registry key — e.g., "rate_limit" or "auth:jwt_validator"
-    pub args:  serde_json::Value,  // per-instance args, opaque to the registry
+    pub name:     String,                 // registry key — e.g., "rate_limit" or "auth:jwt_validator"
+    pub args:     serde_json::Value,      // per-instance args, opaque to the registry
+    pub on_error: Option<OnErrorSpec>,    // how Err(_) returns are routed; None → fail-safe tombstone
+}
+
+pub enum OnErrorSpec {
+    Close,                                // L4 RST / L7 close
+    Response { status: u16, headers: Option<HeaderMap>, body: Option<Bytes> },
+    // post-MVP: Rule(String)  — jump to another rule's entry
 }
 
 pub struct FetchSpec {

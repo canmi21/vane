@@ -194,7 +194,20 @@ All abnormal plugin exits, handled uniformly:
 | Malformed output (WIT decode fail)          | Same                                                                                                                             |
 | Component returns `Err(plugin-error)`       | **Not a trap** — plugin-originated structured error; flows through the regular `Middleware::Error` path (see `04-middleware.md`) |
 
-Default on uniform failure: **drop connection**. Rule may specify `on_plugin_fail: <branch>` to redirect to a fallback branch instead.
+On any of the above conditions, the plugin invocation returns `Err(Error)` up through the `L7RequestMiddleware::run` (etc.) trait method. From there the standard **middleware error channel** takes over — the same mechanism that handles non-WASM middleware errors:
+
+- `Err(_)` is distinct from `Ok(Decision::Short(_))`; the latter is an application-level refusal the plugin designed to produce.
+- Routing uses `Node::Middleware.on_error`. Default (unset) is the fail-safe tombstone: L7 → `500 Internal Server Error`; L4 → close connection.
+- Config-level `on_error: "close" | { "response": ... }` is available the same way as for internal middleware.
+
+See `04-middleware.md` § _Two error channels, not one_ for the full semantics. The old "`on_plugin_fail` is a WASM-only fallback" formulation is subsumed by this unified mechanism.
+
+### Dedup policy
+
+WASM plugin kinds follow the middleware dedup policy from `02-flow.md`:
+
+- **Stateless WASM** (`stateless: true`): **hash-consed**. Key = `(module_id, export_name, canonical_args_json)`. Two rules invoking the same export with the same args share one `MiddlewareId`. The runtime's `PoolingAllocator` reuses Instances across the shared `MiddlewareId` invocations.
+- **Stateful WASM** (`stateless: false`): **never deduped**. Each call site gets its own `MiddlewareId`, its own fixed-size instance pool, its own isolated linear-memory state. Two rules both declaring `stateful_cache(size=1024)` each maintain their own cache — merging them would leak state between rules. The `pool: N` declaration is per-call-site.
 
 ## Multi-middleware per module
 

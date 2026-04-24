@@ -176,7 +176,7 @@ Unit structs or plain `struct(args)`. Examples:
 - Protocol detect (reads L4 peek buffer)
 - `forward_client_ip` — sets `X-Forwarded-For` (append) or `X-Real-IP` (overwrite) on the outgoing request, derived from `ConnContext.remote`. Default header set `["x-forwarded-for", "x-real-ip"]`, append mode for XFF, overwrite mode for X-Real-IP. Disabled by default at the raw-rule layer; `reverse_proxy` preset enables it automatically.
 
-No allocation per invocation.
+No allocation per invocation. **Hash-consed**: the `lower` pass keys by `(name, canonical_args_json)`; two rules declaring the same `path_prefix "/api"` share a single `MiddlewareId`. See `02-flow.md`'s hash-consing section.
 
 ### Stateful internal
 
@@ -186,7 +186,9 @@ Structs with interior mutability (`parking_lot::Mutex`, `ArcSwap`, atomics, `Das
 - Connection counter
 - Request-ID generator
 
-One instance per middleware-in-FlowGraph. Lifetime is tied to the `FlowGraph`'s `Arc` — replaced when the graph swaps.
+One instance per middleware-in-FlowGraph, **per call site**. Two rules both declaring `rate_limit(rate=100)` get **two distinct** `MiddlewareId`s and **two separate** buckets — silently merging them would halve the effective rate across the two rules. The `MiddlewareRegistry`'s construction path checks statefulness and disables dedup for this kind.
+
+Lifetime is tied to the `FlowGraph`'s `Arc` — replaced when the graph swaps. (The consequence that this resets all counters on every config reload is flagged in the HMR-group audit; behavior is not yet final.)
 
 ## External middleware (WASM)
 
@@ -258,15 +260,51 @@ WASM middleware declares `needs_body` in its module metadata, read at module loa
 
 No user code runs on the reload critical path.
 
-## Error propagation
+## Two error channels, not one
 
-Middleware returns `Result<Decision, Error>`. An `Err(_)` return:
+Middleware returns `Result<Decision, Error>`. The two channels have different meanings and different routing:
 
-- **L4** — close the connection. Error is logged to the flow log with middleware name and `Error::kind()`.
-- **L7 Request** — return a 5xx to the client (`500` by default; `Timeout → 504`; `Upstream → 502`). Skip Fetch.
-- **L7 Response** — the upstream response is already obtained; a response-middleware error replaces the response with a 5xx. Upstream work is not rolled back.
+- **`Ok(Decision::Short(_))`** — the middleware **intentionally** refuses the request / closes the connection. This is an application-level decision: "this JWT is expired", "this IP is over quota", "this path is banned". The middleware has done its job correctly; the `Short` is the outcome it was built to produce. Routing is fixed by the enum variant: `Short::Response(r)` writes `r` to the client; `Short::Close(reason)` closes the connection.
+- **`Err(Error)`** — the middleware **failed to execute**. A plugin trapped, a parse step hit an unreachable branch, a pool is exhausted, an upstream lookup the middleware depends on is unreachable. This is an internal anomaly, not a designed-in outcome. Routing follows `Node::Middleware.on_error` (see `02-flow.md`):
 
-Middleware does not retry. Retry lives inside the Fetch — see `05-terminator.md` (Retry subsection) and `07-l7.md` for the policy.
+  | `on_error` value                       | Behavior when `run()` returns `Err(_)`                                 |
+  | -------------------------------------- | ---------------------------------------------------------------------- |
+  | `None` (default — fail-safe tombstone) | L7 path: synthesize `500 Internal Server Error`. L4 path: close (RST). |
+  | `Some(NodeId)` (user-configured)       | Jump to target node; request continues there.                          |
+
+The executor logs `Err(_)` to the flow log with the middleware's name and `Error::kind()` before routing, regardless of `on_error` choice.
+
+### Why the split matters
+
+Users writing rules often want to branch on "JWT invalid" differently from "JWT validator crashed". Collapsing both into a single error channel forces awkward config: either every failure goes to the same fallback, or the rule has to distinguish via opaque error codes. The explicit split makes "what do you want when your logic says no" (use `Decision::Short`, deterministic) distinct from "what do you want when the middleware itself is sick" (use `on_error`, rare, a safety net).
+
+Internal stateless middleware can still produce `Err` — e.g., `SniMatch` fed a malformed ClientHello, `PathPrefix` fed a URI with invalid percent-encoding. The probability rises across the four categories: internal stateless (low), internal stateful (moderate), external stateless WASM (higher — traps, instance exhaustion, memory budget), external stateful WASM (highest — the stateful pool adds another failure mode).
+
+### Config form
+
+In a rule, `on_error` is declared alongside the middleware `use`:
+
+```jsonc
+// Default (no on_error) → fail-safe tombstone
+{ "use": { "name": "jwt_validator" } }
+
+// Close on failure
+{ "use": { "name": "jwt_validator", "on_error": "close" } }
+
+// Fallback to a synth response
+{ "use": { "name": "jwt_validator", "on_error": { "response": { "status": 503, "body": "maintenance" } } } }
+```
+
+The `lower` pass resolves each `on_error` form into a concrete `NodeId`:
+
+- `"close"` → a small inline subgraph ending in `Terminate(ByteTunnel-close-only)` for L4, or `Terminate(WriteHttpResponse with 5xx)` for L7.
+- `{ "response": ... }` → a `Fetch::HttpSynthesize` + `Terminate(WriteHttpResponse)` subgraph.
+
+Post-MVP: `on_error: "<rule-name>"` to reroute through another rule's entry. Deliberately excluded from MVP because inter-rule graph coupling (one rule's `on_error` targeting another's internals) complicates reasoning; single-rule self-contained fallbacks cover the common cases.
+
+### Middleware does not retry
+
+Retry lives inside the Fetch — see `05-terminator.md` (Retry subsection) and `07-l7.md` for the policy. Middleware is not the right layer: it cannot replay side-effects it has already committed (e.g., rate-limit counter increment).
 
 ## Non-goals
 

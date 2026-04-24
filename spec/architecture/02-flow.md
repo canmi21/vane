@@ -72,14 +72,15 @@ For each rule, compute:
 2. Within each group, sort by `(inspection level desc, specificity desc, name asc)`.
 3. Build a decision tree: for each rule in order, emit `Check` nodes for its predicates and a `Terminate` leaf. Subsequent rules extend the `on_miss` branches.
 4. Flatten the tree into `Vec<Node>`, assign `NodeId`s, rewrite edges to indices.
-5. Hash-cons predicates — two rules with the same `tls.sni == "x"` share a `PredicateId`.
+5. Hash-cons predicates and stateless middleware — two rules with the same `tls.sni == "x"` share a `PredicateId`; two rules using the same stateless middleware (e.g., `path_prefix "/api"`) share a `MiddlewareId`. Stateful middleware (e.g., `rate_limit`) is **never** shared across call sites — every rule using `rate_limit` gets its own `MiddlewareId` and its own bucket. See the "Hash-consing" section below.
 
 Post-MVP optimizations (subtree sharing, dead-node elimination) are additional passes over the flattened IR.
 
 ### validate
 
 - Every `Node::Check`'s `on_match` and `on_miss` resolve to valid `NodeId`s.
-- Every `Node::Middleware`'s `id` and `next` resolve.
+- Every `Node::Middleware`'s `id` and `next` resolve; `on_error`, if `Some(_)`, resolves to a valid `NodeId` and that target's accepted-phase must include `cur_phase`'s out-phase equivalent (an `on_error` from an L7Request middleware cannot jump into an L4 subgraph).
+- Every `Node::Upgrade`'s `next` resolves and must accept phase `L7Request`. `Upgrade` may only appear on a path between L4-phase execution and an L7-phase sub-graph; the DFS phase walker catches misplacement automatically.
 - Every `Node::Fetch`'s `id` resolves. `next_response` and `next_tunnel` are each `Some(valid NodeId)` or `None` consistent with the Fetch variant's output modes (`HttpProxy` / `HttpSynthesize` → `next_response` required, `next_tunnel` forbidden; `L4Forward` → `next_tunnel` required, `next_response` forbidden; `WebSocketUpgrade` → both required). Referenced upstream addresses, WASM modules, and CGI binary paths exist and type-check.
 - Every `Node::Terminate`'s referenced Terminator exists.
 - The graph is acyclic.
@@ -113,17 +114,21 @@ pub enum Node {
         collect_body_before: Option<BodySide>,
     },
     Middleware {
-        id:   MiddlewareId,
-        next: NodeId,
+        id:       MiddlewareId,
+        next:     NodeId,
+        on_error: Option<NodeId>,                // Some → on Err(_) jump here; None → default fallback (see below)
         collect_body_before: Option<BodySide>,
     },
     Fetch {
         id:            FetchId,
-        next_response: Option<NodeId>,   // followed when L7Fetch produces a Response
-        next_tunnel:   Option<NodeId>,   // followed when L4Fetch runs, or L7Fetch::WS returns Tunnel
+        next_response: Option<NodeId>,           // followed when L7Fetch produces a Response
+        next_tunnel:   Option<NodeId>,           // followed when L4Fetch runs, or L7Fetch::WS returns Tunnel
         collect_body_before: Option<BodySide>,
     },
-    Terminate(TerminatorId),             // terminators never trigger collects; bodies pass through
+    Upgrade {
+        next: NodeId,                            // L4Peeked → L7Request phase transition
+    },
+    Terminate(TerminatorId),                     // terminators never trigger collects; bodies pass through
 }
 
 pub enum BodySide { Request, Response }
@@ -136,6 +141,10 @@ pub struct TerminatorId(u32);
 ```
 
 `collect_body_before` is the compile-time LazyBuffer trigger. When set to `Some(BodySide::Request | Response)`, the executor performs `Body::collect().await` on the relevant side _before_ executing the node, replacing `Body::Http12 | Http3 | Stream` with `Body::Static(Bytes)`. The analyze pass sets it on exactly the **first** node on each path that needs the buffered bytes (see the LazyBuffer section below); downstream nodes on the same side inherit the buffered state naturally because `Body::Static` does not revert.
+
+`Node::Upgrade { next }` is the explicit L4→L7 phase boundary. It carries no parameters of its own — the concrete upgrade behavior (TLS termination? ALPN selection? which HTTP version?) is driven by the **listener config** that produced the `Arc<ConnContext>` this execution operates on. A rule whose `listen: [":80", ":443"]` produces two listeners; both share the same graph and the same `Upgrade` node, but `:80`'s upgrade skips TLS while `:443`'s performs TLS handshake + ALPN dispatch. Graph only says "upgrade here"; listener config says "with what".
+
+`Node::Middleware.on_error` routes `Err(Error)` returns from a middleware. Default (`None`) is the **fail-safe tombstone**: L7 path writes a `500 Internal Server Error`; L4 path closes the connection with RST. A `Some(target)` jumps to `target` and the request continues there. This is the IR-level realization of the config-level `on_error` DSL (`"close"` / inline synth response) that `lower` resolves into a concrete `NodeId`. See `04-middleware.md` for the user-facing config shape and for why `Decision::Short` (application-level refusal) and `Err(_)` (internal anomaly) are two distinct channels.
 
 Rationale:
 
@@ -184,7 +193,7 @@ impl PredicateInst {
 }
 ```
 
-`PredicateInst` implements `Hash + Eq` so the `lower` pass can hash-cons equivalent predicates — two rules both checking `tls.sni == "example.com"` share one `PredicateId`. `fancy_regex::Regex` compares by pattern source string; `ipnet::IpNet` compares by canonical form.
+`PredicateInst` implements `Hash + Eq` so the `lower` pass can hash-cons equivalent predicates — two rules both checking `tls.sni == "example.com"` share one `PredicateId`. `fancy_regex::Regex` compares by pattern source string; `ipnet::IpNet` compares by canonical form. MiddlewareInst dedup follows a separate policy driven by statefulness (see "Hash-consing" section).
 
 ### FlowGraph metadata
 
@@ -222,7 +231,7 @@ A single table drives both the validator and the runtime walker. Reading this ta
 | `Check`                                             | any                   | `= In` (phase is pass-through)        |
 | `Middleware(L4Peek)`                                | `L4Raw` \| `L4Peeked` | `L4Peeked` (forces peek buffer)       |
 | `Middleware(L4Bytes)`                               | `L4Raw` \| `L4Peeked` | `= In`                                |
-| (implicit L4→L7 upgrade edge)                       | `L4Peeked`            | `L7Request`                           |
+| `Upgrade`                                           | `L4Peeked`            | `L7Request`                           |
 | `Middleware(L7Request)`                             | `L7Request`           | `L7Request`                           |
 | `Middleware(L7Response)`                            | `L7Response`          | `L7Response`                          |
 | `Fetch(FetchInst::L4, L4Forward)`                   | `L4Raw` \| `L4Peeked` | `Tunnel`                              |
@@ -231,7 +240,7 @@ A single table drives both the validator and the runtime walker. Reading this ta
 | `Terminate(WriteHttpResponse)`                      | `L7Response`          | (terminal — ends execution)           |
 | `Terminate(ByteTunnel)`                             | `Tunnel`              | (terminal — ends execution)           |
 
-The L4→L7 upgrade is not a standalone node; it is an implicit edge the `lower` pass inserts at the boundary between L4-scoped rules and L7-scoped rules on a listener that mixes both. The validator recognizes this edge and bumps the phase from `L4Peeked` to `L7Request`.
+The `Upgrade` node is the explicit L4→L7 phase boundary that the `lower` pass inserts on listeners mixing L4 and L7 rules. The node itself carries no configuration — the protocol-stack initialization (TLS handshake, ALPN dispatch, HTTP version selection) is driven by the listener config attached to the `Arc<ConnContext>` at runtime. A listener without TLS termination runs `Upgrade` as "HTTP decode only"; a TLS-terminating listener runs it as "handshake + ALPN + HTTP decode". Graph specifies "upgrade here"; listener config specifies "with what posture".
 
 Entries always start in phase `L4Raw`. `FlowGraph::entries` maps each listener's `SocketAddr` to a `NodeId` whose accepted in-phase must include `L4Raw`.
 
@@ -312,42 +321,48 @@ pub async fn execute(
                 cur = if matched { *on_match } else { *on_miss };
             }
 
-            Node::Middleware { id, next, .. } => match &graph[*id] {
-                MiddlewareInst::L4Peek(m) => {
-                    let peek = conn.peek().expect("phase invariant").buffer.as_ref();
-                    match m.run(peek, conn, ctx).await? {
-                        Decision::Continue    => cur = *next,
-                        Decision::Short(s)    => return handle_short(s, conn, ctx).await,
+            Node::Middleware { id, next, on_error, .. } => {
+                // Middleware error channel is binary:
+                //   Ok(Decision::Continue)           → proceed to `next`
+                //   Ok(Decision::Short(resp|close))  → application-level refusal
+                //   Err(_)                           → internal anomaly → route via on_error or default fallback
+                let outcome = match &graph[*id] {
+                    MiddlewareInst::L4Peek(m) => {
+                        let peek = conn.peek().expect("phase invariant").buffer.as_ref();
+                        m.run(peek, conn, ctx).await
+                    }
+                    MiddlewareInst::L4Bytes(m) => {
+                        let l4_ref = l4.as_mut().expect("phase invariant");
+                        m.run(l4_ref, conn, ctx).await
+                    }
+                    MiddlewareInst::L7Request(m) => {
+                        let req_ref = req.as_mut().expect("phase invariant");
+                        m.run(req_ref, conn, ctx).await
+                    }
+                    MiddlewareInst::L7Response(m) => {
+                        let resp_ref = resp.as_mut().expect("phase invariant");
+                        m.run(resp_ref, conn, ctx).await
+                    }
+                    MiddlewareInst::Wasm(w) => w.invoke(conn, ctx, ...).await,
+                };
+                match outcome {
+                    Ok(Decision::Continue)                 => cur = *next,
+                    Ok(Decision::Short(Short::Response(r))) => {
+                        drop(req.take());                         // Request dies on request-side short
+                        resp = Some(r);
+                        cur = graph.meta.short_circuit_response_entry(entry);
+                    }
+                    Ok(Decision::Short(Short::Close(reason))) => return Err(Error::closed(reason)),
+                    Err(e) => {
+                        ctx.log.emit_middleware_error(*id, &e);
+                        cur = match on_error {
+                            Some(target) => *target,
+                            None         => graph.meta.default_fallback(cur_phase()),
+                            // default_fallback produces a Terminate(WriteHttpResponse with 500)
+                            // on L7 paths and Terminate(close) on L4 paths; see lower pass.
+                        };
                     }
                 }
-                MiddlewareInst::L4Bytes(m) => {
-                    let l4_ref = l4.as_mut().expect("phase invariant");
-                    match m.run(l4_ref, conn, ctx).await? {
-                        Decision::Continue    => cur = *next,
-                        Decision::Short(s)    => return handle_short(s, conn, ctx).await,
-                    }
-                }
-                MiddlewareInst::L7Request(m) => {
-                    let req_ref = req.as_mut().expect("phase invariant");
-                    match m.run(req_ref, conn, ctx).await? {
-                        Decision::Continue             => cur = *next,
-                        Decision::Short(Short::Response(r)) => {
-                            drop(req.take());                  // Request dies here
-                            resp = Some(r);
-                            cur = graph.meta.short_circuit_response_entry(entry);
-                        }
-                        Decision::Short(Short::Close(reason)) => return Err(Error::closed(reason)),
-                    }
-                }
-                MiddlewareInst::L7Response(m) => {
-                    let resp_ref = resp.as_mut().expect("phase invariant");
-                    match m.run(resp_ref, conn, ctx).await? {
-                        Decision::Continue    => cur = *next,
-                        Decision::Short(Short::Response(r)) => { *resp.as_mut().unwrap() = r; cur = *next; }
-                        Decision::Short(Short::Close(reason)) => return Err(Error::closed(reason)),
-                    }
-                }
-                MiddlewareInst::Wasm(w) => { /* dispatch to w.runtime — see 11-wasm.md */ }
             },
 
             Node::Fetch { id, next_response, next_tunnel, .. } => match &graph[*id] {
@@ -371,6 +386,16 @@ pub async fn execute(
                     cur = next_tunnel.expect("validator guarantees Some on L4 paths");
                 }
             },
+
+            Node::Upgrade { next } => {
+                // L4Peeked → L7Request. The L4 connection is handed to the HTTP server
+                // (hyper for H1/H2, h3::server for H3). Per decoded Request, the server
+                // spawns a task that calls `execute(graph, *next, Request, conn.clone(), ctx)` —
+                // i.e., each request / H2 stream / H3 stream walks the L7 sub-graph
+                // independently from `*next`. The present L4 executor returns here.
+                let l4_conn = l4.take().expect("phase invariant");
+                return spawn_http_server(l4_conn, graph, *next, Arc::clone(conn)).await;
+            }
 
             Node::Terminate(t) => return match &graph[*t] {
                 Terminator::WriteHttpResponse =>
@@ -399,6 +424,32 @@ Why iterative, not recursive:
 - The cursor `cur` + owned slots `(l4, req, resp, tunnel)` are the complete execution state. Future features — flow log replay, coroutine-like pause/resume, checkpointing — are additive.
 
 The `tracing` integration emits one event per loop iteration: `trace!(node_id = ?cur, kind = "check" | "mid" | "fetch" | "terminate")`. This is the flow log that shows "connection X visited node 42, matched predicate, moved to node 43."
+
+## Hash-consing
+
+Dedup during `lower` so that two rules expressing the same logical shape share IR storage. Two tables, one per kind:
+
+**`PredicateInst` dedup** (all predicates are pure functions; always safe):
+
+- Key: the full `PredicateInst` value, compared by `Hash + Eq`.
+- Cross-phase: one `PredicateId` shared across L4 and L7 Checks; the field path's read code is the same at every phase that admits the read (see `18-predicate-schema.md`).
+
+**`MiddlewareInst` dedup** (driven by statefulness, enforced at construction):
+
+| Kind                     | Dedup policy | Key                                             |
+| ------------------------ | ------------ | ----------------------------------------------- |
+| Internal stateless       | ✅ dedup     | `(name, canonical_args_json)`                   |
+| Internal stateful        | ❌ per-site  | — (always distinct `MiddlewareId`)              |
+| External WASM, stateless | ✅ dedup     | `(module_id, export_name, canonical_args_json)` |
+| External WASM, stateful  | ❌ per-site  | — (each site gets its own instance pool)        |
+
+Stateless dedup is safe because calling the same middleware with the same args from two call sites has no observable difference — there is no per-instance state. Stateful dedup would be **unsafe**: two rules both declaring `rate_limit(rate=100)` each want their own token bucket; collapsing them into one shared bucket silently halves the effective rate across the two rules. The `MiddlewareRegistry` (see `04-middleware.md`) knows each middleware's statefulness and routes construction accordingly.
+
+Canonical args: serde's canonical JSON form (keys sorted, no whitespace, `null` fields omitted). Two rule files that write args in different key orders produce identical hashes.
+
+**`FetchInst`** is not hash-consed in MVP. Each `Fetch` node gets its own `FetchInst` even when two rules proxy to the same `HttpUpstream` — this preserves per-rule metrics, per-rule retry config, and keeps Fetch identity stable for flow-log attribution. Revisit if profiling shows this matters.
+
+**Runtime semantics**: hash-consing is an IR / memory optimization. It **does not** cache `test()` results or short-circuit middleware `run()`. Every `execute()` pass that walks through a Node executes the node's work; two HTTP/2 streams on one connection each walk their own L7 path and each execute every Check / Middleware they touch. Per-connection memoization of pure predicate reads (`tls.sni`, `remote.ip`) is a post-MVP optimization.
 
 ## Pay-as-you-go as a compilation property
 

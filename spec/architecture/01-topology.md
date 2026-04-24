@@ -60,7 +60,7 @@ No in-flight connection ever observes a torn-down graph. Listener removal is sof
 
 ### IPv4 / IPv6
 
-Dual-stack is expressed by **two separate listeners**, one per address family. A config wanting to serve both IPv4 and IPv6 on port 443 lists both `0.0.0.0:443` and `[::]:443`.
+Dual-stack is expressed by **two separate listeners**, one per address family. A rule with `listen: [":443"]` expands (at `lower` time) to two entries — `0.0.0.0:443` and `[::]:443` — both pointing to the same NodeId. Users who want one family only write `"0.0.0.0:443"` or `"[::]:443"` explicitly. See `09-config.md` § _ListenSpec grammar_ for the full table.
 
 Single-bind on `[::]` with OS-level IPv4-mapping is deliberately not supported:
 
@@ -69,6 +69,19 @@ Single-bind on `[::]` with OS-level IPv4-mapping is deliberately not supported:
 - Cross-platform behavior is inconsistent (Linux, macOS, Windows differ).
 
 Explicit separation matches nginx/Caddy/HAProxy production defaults.
+
+### Dual-stack partial-bind tolerance
+
+A dual-stack `":PORT"` expansion produces two listeners that bind independently. Common scenario: kernel has disabled IPv6 (`/proc/sys/net/ipv6/conf/all/disable_ipv6=1` or similar) so v6 bind fails while v4 succeeds. Daemon policy:
+
+| Situation             | Behavior                                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| Both v4 and v6 bind   | Normal dual-stack operation                                                                          |
+| v4 succeeds, v6 fails | Emit `WARN` once with the bind error; continue serving v4. Rule works on v4 only.                    |
+| v4 fails, v6 succeeds | Symmetric — `WARN` + continue on v6                                                                  |
+| Both fail             | The rule's listener set is empty — logged and tolerated as per the general bind-failure policy above |
+
+Operators who know their deploy target has only one family should set `VANE_BIND_IPV4=0` or `VANE_BIND_IPV6=0` at the daemon level (see `09-config.md`); the disabled family is skipped at `lower` time and produces no bind attempts, no warnings.
 
 ### Shutdown
 

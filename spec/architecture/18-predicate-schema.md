@@ -289,6 +289,14 @@ Body access inside `test`: for `http.body`, the reader is `view.req.body().as_st
 
 This means editor-level whitespace differences in rule files never defeat dedup, but intentionally-different regex source strings (e.g., `a|b` vs `b|a`) are treated as distinct — the compiler does not rewrite regexes for structural equivalence.
 
+### Dedup is cross-phase, runtime is not
+
+`PredicateInst` hash-consing is **phase-agnostic**: two rules checking `tls.sni == "api.com"`, one on an `L4Peeked` path and one on an `L7Request` path, share a single `PredicateId`. This is sound because a field path's _value domain_ (what it reads from ctx) does not change between phases that both admit the read — the lookup code is the same whether called from a peek-phase Check or a request-phase Check.
+
+`Node::Check` sharing is a separate question. A Check node's identity is `(predicate, on_match, on_miss, collect_body_before)`. Two Check nodes with the same predicate but different `on_match` targets are distinct nodes; they happen to share a `PredicateId`. A single Check node that is reachable from two different phase contexts (rare, but legal) is covered by the validator's `(NodeId, Phase)` seen-set (see `02-flow.md`).
+
+What hash-consing does **not** do: it does not skip runtime `test()` calls. Each `execute()` invocation that walks through a `Node::Check` runs `test()` once on that walk. Two HTTP/2 streams on the same connection hitting the same Check therefore call `test()` twice — this is the correct semantics (streams are independent requests), not a redundancy. Per-connection memoization of predicate results for fields that are provably connection-invariant (`tls.sni`, `remote.ip`) is a post-MVP optimization; MVP just calls `test()` each time.
+
 ## Extensibility rules
 
 The authoritative field path list grows **only** by source change in `vane-core`'s path resolver. Adding a new path:
