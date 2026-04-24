@@ -202,14 +202,15 @@ A middleware's trait determines where it can appear in the FlowGraph. The compil
 Middleware receives the two context objects defined in `03-types.md`:
 
 - `conn: &Arc<ConnContext>` — per-connection shared state (transport, TLS info, user extensions)
-- `ctx:  &mut FlowCtx<'_>` — per-execution mutable state (graph ref, tracing span, flow-log sink, cancel token)
+- `ctx:  &mut FlowCtx<'_>` — per-execution mutable state (tracing span, flow-log sink, cancel token)
 
 Middleware can:
 
 - Read all fields of `ConnContext`.
 - Write to `ConnContext.user` (the typed anymap). Downstream middleware reads by type.
-- Enter tracing spans via `ctx.span` and emit structured events via `ctx.log`.
+- Enter tracing spans via `ctx.span` and emit structured events via `ctx.log.emit(FlowLogEvent {..})`.
 - Observe `ctx.cancel` to cooperate with client-disconnect / management-cancel signals.
+- Not access the FlowGraph — `FlowCtx` intentionally does not carry a graph reference (see `03-types.md` § _Execution context_). Routing is the executor's job; middleware has no business walking the graph. If graph metadata (version hash, feature set) is needed for a log line, emit it via `ctx.log` and let the executor attach; do not try to reach for the graph directly.
 - Not access other middleware's internal state. Cross-middleware communication is exclusively through `ConnContext.user`.
 - Not touch client or upstream sockets. Those belong to Fetch and Terminator.
 

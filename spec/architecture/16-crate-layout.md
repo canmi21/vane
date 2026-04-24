@@ -37,10 +37,11 @@ Owns:
 - Fetch traits: `L7Fetch`, `L4Fetch`, `L7FetchOutput`.
 - `WasmRuntime` trait (implementation lives in `vane-wasm`).
 - `FlowCtx`, `PredicateView`.
+- `FlowLogSink` trait + `FlowLogEvent` / `FlowLogKind` data types (concrete `FlowLogSink` impl lives in `vane-engine` at S1-29).
 
-Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`, `trait-variant`, `fancy-regex`, `ipnet`, `sha2` (for the SHA-256 `FlowGraphMeta::version_hash`).
+Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`, `trait-variant`, `fancy-regex`, `ipnet`, `sha2` (for the SHA-256 `FlowGraphMeta::version_hash`), `tokio-util` with the `sync` feature only (for `CancellationToken` — see `FlowCtx` in `03-types.md`).
 
-No async runtime dependency. No network stack. No TLS. No WASM. `vane lint` / `vane compile --dry-run` link only this crate and serialize its `SymbolicFlowGraph` output — neither needs hyper, rustls, wasmtime, or tokio. Minimal foot-gun surface; this crate should build in <5 seconds cold on a developer laptop.
+**No async runtime executor dependency.** Core pulls `tokio-util`'s `sync` primitives (`CancellationToken`) and via transitive `tokio/sync`, but core itself never calls `tokio::spawn`, never drives a runtime, never opens sockets. Constructing and observing a `CancellationToken` works outside a tokio context; only `.cancelled().await` requires one, and that's the executor's concern. No network stack. No TLS. No WASM. `vane lint` / `vane compile --dry-run` link only this crate and serialize its `SymbolicFlowGraph` output — neither needs hyper, rustls, wasmtime, or a tokio runtime. Minimal foot-gun surface; this crate should build in <5 seconds cold on a developer laptop.
 
 ### `vane-engine`
 

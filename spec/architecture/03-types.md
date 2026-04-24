@@ -265,12 +265,15 @@ Every `Request` on this connection carries `Arc<ConnContext>` in `request.extens
 
 ```rust
 pub struct FlowCtx<'a> {
-    pub graph:  &'a FlowGraph,
     pub span:   &'a mut tracing::Span,       // current flow-log span; middleware may enter children
-    pub log:    &'a mut FlowLogSink,         // structured event sink for this execution
+    pub log:    &'a mut dyn FlowLogSink,     // structured event sink for this execution
     pub cancel: &'a tokio_util::sync::CancellationToken,
 }
 ```
+
+**`FlowCtx` deliberately does not carry a graph reference.** Middleware and Fetch do not need the FlowGraph — routing is the executor's job. The executor holds its own `&FlowGraph` on its own stack frame; it passes only the execution-mutable bits to user code. This also avoids a circular crate dependency (the linked `FlowGraph` lives in `vane-engine`, which already depends on `vane-core`; if `FlowCtx` named `FlowGraph`, `vane-core` would need to name an engine-side type).
+
+If a middleware truly needs graph metadata (`version_hash`, `feature_set`, etc.), the correct channel is a structured flow-log event the executor emits, not direct graph access.
 
 Every async trait in `04-middleware.md` and `05-terminator.md` takes two context parameters:
 
@@ -280,6 +283,38 @@ Every async trait in `04-middleware.md` and `05-terminator.md` takes two context
 The split makes the two axes explicit: **shared/unchanging vs. execution/mutable**. It also makes the `&mut` meaningful — previously a single `&mut Ctx` existed but none of its fields were actually mutable, which confused both trait authors and the executor.
 
 The executor is the sole producer of `FlowCtx`. Middleware never constructs one; middleware receives the executor's `FlowCtx` by mutable borrow and is forbidden from leaking its fields beyond the `run` call.
+
+### `FlowLogSink` and `FlowLogEvent`
+
+`FlowLogSink` is a core-side trait; the concrete broadcast-channel-backed impl lives in `vane-engine` (landing at S1-29 per `spec/roadmap.md`). Defining the trait in core now keeps `FlowCtx` fully typeable without a cyclic dep.
+
+```rust
+pub trait FlowLogSink: Send + Sync {
+    fn emit(&self, event: FlowLogEvent);
+}
+
+pub struct FlowLogEvent {
+    pub t:     u64,                          // unix ms — monotonic-ish, not wall-clock-guaranteed
+    pub conn:  ConnId,
+    pub seq:   u32,                          // monotonic counter per connection
+    pub kind:  FlowLogKind,
+    pub node:  Option<NodeId>,               // which node produced the event (None for events pre-graph)
+    pub error: Option<Arc<SerializedError>>, // populated on FlowLogKind::Error; Arc'd for fan-out to N subscribers
+    pub data:  Option<serde_json::Value>,    // per-kind structured payload; Some for Check / Middleware / Fetch
+}
+
+pub enum FlowLogKind {
+    Check,            // predicate evaluated
+    Middleware,       // middleware entered / exited
+    Fetch,            // fetch attempt / outcome
+    Terminate,        // final disposition
+    Error,            // Err(_) surfaced; `error` field carries SerializedError
+    SecurityLimit,    // L1 floor triggered (see 13-rate-limit.md)
+    Upgrade,          // L4 → L7 transition fired
+}
+```
+
+`FlowLogEvent` is serde-serializable; management API consumers deserialize it directly. The `Arc<SerializedError>` on the `error` field lets one error payload fan out to N subscribers without cloning (see `17-error-type.md`).
 
 ## Connection lifecycle
 
