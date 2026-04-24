@@ -8,6 +8,19 @@ compile_error!("`aws-lc-rs` and `ring` features are mutually exclusive — pick 
 #[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
 compile_error!("one of `aws-lc-rs` or `ring` must be enabled");
 
+pub mod executor;
+pub mod fetch;
+pub mod flow_graph;
+pub mod hot_reload;
+pub mod listener;
+pub mod middleware;
+pub mod preset;
+pub mod protocol_detect;
+pub mod security;
+pub mod terminator;
+pub mod tracing_init;
+pub mod upgrade;
+
 pub mod crypto {
 	pub const BACKEND_NAME: &str = {
 		#[cfg(feature = "aws-lc-rs")]

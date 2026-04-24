@@ -16,9 +16,18 @@ aws-lc-rs = ["vane-engine/aws-lc-rs"]
 ring = ["vane-engine/ring"]
 h3 = ["vane-engine/h3"]
 cgi = ["vane-engine/cgi"]
+acme = ["vane-engine/acme"]
+acme-dns-cloudflare = ["vane-engine/acme-dns-cloudflare"]
 wasm = ["dep:vane-wasm"]
 
 [dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.1", features = ["derive"] }
+dotenvy = "0.15.7"
+tokio = { version = "1.52.1", features = ["full"] }
+tokio-util = "0.7.18"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
 vane-core = { workspace = true }
 vane-engine = { path = "../engine", version = "0.10.0", default-features = false }
 vane-mgmt = { workspace = true }

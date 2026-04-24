@@ -16,6 +16,22 @@ aws-lc-rs = []
 ring = []
 h3 = []
 cgi = []
+acme = []
+acme-dns-cloudflare = ["acme"]
 
 [dependencies]
+arc-swap = "1.9.1"
+bytes = "1.11.1"
+dashmap = "6.1.0"
+http = "1.4.0"
+http-body = "1.0.1"
+hyper = { version = "1.9.0", features = ["server", "http1", "http2", "client"] }
+hyper-util = { version = "0.1.20", features = ["tokio", "client", "client-legacy", "server-auto", "http1", "http2"] }
+memchr = "2.8.0"
+notify = "8.2.0"
+notify-debouncer-full = "0.7.0"
+parking_lot = "0.12.5"
+tokio = { version = "1.52.1", features = ["full"] }
+tokio-util = "0.7.18"
+tracing = "0.1.44"
 vane-core = { workspace = true }

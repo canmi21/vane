@@ -2,6 +2,17 @@
 //!
 //! See `spec/architecture/03-types.md`, `02-flow.md`, `04-middleware.md`.
 
+pub mod compile;
+pub mod error;
+pub mod fetch;
+pub mod ir;
+pub mod metadata;
+pub mod middleware;
+pub mod phase;
+pub mod predicate;
+pub mod rule;
+pub mod types;
+
 pub mod meta {
 	pub const DESCRIPTION: &str = "A compact programmable proxy engine";
 	pub const COPYRIGHT: &str = "Copyright (C) 2025 Canmi <t@canmi.icu>";

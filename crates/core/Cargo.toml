@@ -11,3 +11,18 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+arc-swap = "1.9.1"
+bytes = "1.11.1"
+fancy-regex = "0.18.0"
+http = "1.4.0"
+http-body = "1.0.1"
+ipnet = "2.12.0"
+parking_lot = "0.12.5"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.11.0"
+thiserror = "2.0.18"
+tokio = { version = "1.52.1", features = ["net", "sync", "time"] }
+tokio-util = "0.7.18"
+tracing = "0.1.44"
+trait-variant = "0.1.2"
