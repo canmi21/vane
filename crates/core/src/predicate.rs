@@ -132,13 +132,55 @@ pub enum PredicateView<'a> {
 	L7Req { conn: &'a Arc<ConnContext>, req: &'a Request },
 }
 
-impl PredicateInst {
+impl<'a> PredicateView<'a> {
+	/// Build the phase-appropriate view the executor hands to
+	/// `PredicateInst::test`. Picks `L7Req` when a `Request` is in scope
+	/// (phase `L7Request`), otherwise falls back to `L4`.
+	///
+	/// `peek` is hardcoded to `None` for C7 — the peek buffer wiring on
+	/// `ConnContext` lands with `protocol_detect` (S1-16). Predicates on
+	/// `FieldPath::Peek` consequently evaluate to `false` until then; the
+	/// operator-matrix stub already returns `false` for unsupported cases.
 	#[must_use]
-	pub fn test(&self, _view: &PredicateView<'_>) -> bool {
-		// Dispatch lands with the lower pass in S1-09 (C5); that's where the
-		// operator-by-value-type matrix in 18-predicate-schema.md gets wired
-		// up against the same field-path readers it uses at compile time.
-		todo!("PredicateInst::test lands with the lower pass in S1-09")
+	pub fn build(
+		conn: &'a Arc<ConnContext>,
+		req: Option<&'a Request>,
+		_l4: Option<&'a crate::l4::L4Conn>,
+	) -> Self {
+		match req {
+			Some(r) => Self::L7Req { conn, req: r },
+			None => Self::L4 { conn, peek: None },
+		}
+	}
+}
+
+impl PredicateInst {
+	/// Evaluate the predicate against a phase-typed view.
+	///
+	/// C7 minimal matrix — two combinations are wired today, everything
+	/// else returns `false` with a TODO. The full operator × field-path
+	/// matrix from `18-predicate-schema.md` is a separate task (~14 ops
+	/// across a dozen field paths).
+	#[must_use]
+	pub fn test(&self, view: &PredicateView<'_>) -> bool {
+		match (&self.path, &self.op, view) {
+			(
+				FieldPath::RemoteIp,
+				CompiledOperator::Equals(CompiledValue::Addr(expected)),
+				PredicateView::L4 { conn, .. } | PredicateView::L7Req { conn, .. },
+			) => conn.remote.ip() == *expected,
+
+			(
+				FieldPath::HttpMethod,
+				CompiledOperator::Equals(CompiledValue::Str(expected)),
+				PredicateView::L7Req { req, .. },
+			) => req.method().as_str() == expected.as_ref(),
+
+			// TODO(predicate-matrix): full operator × field-path dispatch per
+			// 18-predicate-schema.md. Unsupported combinations are sound-by-
+			// default: they always miss, never spuriously match.
+			_ => false,
+		}
 	}
 }
 
