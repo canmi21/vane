@@ -83,7 +83,7 @@ Post-MVP optimizations (subtree sharing, dead-node elimination) are additional p
 - Every `Node::Fetch`'s `id` resolves. `next_response` and `next_tunnel` are each `Some(valid NodeId)` or `None` consistent with the Fetch variant's output modes (`HttpProxy` / `HttpSynthesize` → `next_response` required, `next_tunnel` forbidden; `L4Forward` → `next_tunnel` required, `next_response` forbidden; `WebSocketUpgrade` → both required). Referenced upstream addresses, WASM modules, and CGI binary paths exist and type-check.
 - Every `Node::Terminate`'s referenced Terminator exists.
 - The graph is acyclic.
-- **Phase consistency** — every walk from an entry to a Terminator respects the phase state machine. `L4PeekMiddleware` / `L4BytesMiddleware` appear only on pre-Fetch L4 paths; `L7RequestMiddleware` only between L4→L7 upgrade and Fetch; `L7ResponseMiddleware` only between Fetch and `Terminator::WriteHttpResponse`; `Terminator::ByteTunnel` follows only `Fetch::L4Forward` or `Fetch::WebSocketUpgrade`. Violations are compile errors with the offending node and source rule named.
+- **Phase consistency** — every walk from an entry to a Terminator respects the phase state machine. The authoritative rules (accepted in-phases, out-phase) live in the [Phase state machine](#phase-state-machine) section below; the validator is a DFS from each `entries[addr]` starting in `Phase::L4Raw` that looks up each node in the transition table. Violations name the offending node, the source rule, and the expected vs. actual phase.
 
 On any validation failure, compilation aborts with the offending node ID and source rule name. No partial `FlowGraph` is exposed.
 
@@ -183,6 +183,82 @@ pub struct FlowGraphMeta {
 ```
 
 `version_hash` is returned by the management API's `get_active_config` verb and gates reload idempotency — `ArcSwap::store` runs only when the new graph's hash differs from the currently active one.
+
+## Phase state machine
+
+Every position in a compiled graph belongs to exactly one **phase**. Phases define which middleware kinds and which Fetch / Terminator variants are legal at a given point. The state machine is the authoritative contract that the `validate` pass enforces and that the four middleware traits (see `04-middleware.md`) make compile-checkable.
+
+```rust
+pub enum Phase {
+    L4Raw,       // pre-peek: TCP/UDP socket exists, no bytes read, no TLS
+    L4Peeked,    // PeekResult.buffer populated; TLS ClientHello may be parsed
+    L7Request,   // Request decoded from HTTP; entering request middleware chain
+    L7Response,  // Response produced by Fetch; entering response middleware chain
+    Tunnel,      // byte-bidirectional forwarding handed to Terminator::ByteTunnel
+}
+```
+
+### Transition table
+
+A single table drives both the validator and the runtime walker. Reading this table top-down: for a given `Node`, the "In-phase(s)" column lists phases the walker may be in when it reaches that node, and "Out-phase" is the phase it transitions into after executing the node.
+
+| Node kind                            | In-phase(s) accepted  | Out-phase                             |
+| ------------------------------------ | --------------------- | ------------------------------------- |
+| `Check`                              | any                   | `= In` (phase is pass-through)        |
+| `Middleware(L4Peek)`                 | `L4Raw` \| `L4Peeked` | `L4Peeked` (forces peek buffer)       |
+| `Middleware(L4Bytes)`                | `L4Raw` \| `L4Peeked` | `= In`                                |
+| (implicit L4→L7 upgrade edge)        | `L4Peeked`            | `L7Request`                           |
+| `Middleware(L7Request)`              | `L7Request`           | `L7Request`                           |
+| `Middleware(L7Response)`             | `L7Response`          | `L7Response`                          |
+| `Fetch(HttpProxy \| HttpSynthesize)` | `L7Request`           | `L7Response`                          |
+| `Fetch(L4Forward)`                   | `L4Raw` \| `L4Peeked` | `Tunnel`                              |
+| `Fetch(WebSocketUpgrade)`            | `L7Request`           | `L7Response` \| `Tunnel` (bi-outcome) |
+| `Terminate(WriteHttpResponse)`       | `L7Response`          | (terminal — ends execution)           |
+| `Terminate(ByteTunnel)`              | `Tunnel`              | (terminal — ends execution)           |
+
+The L4→L7 upgrade is not a standalone node; it is an implicit edge the `lower` pass inserts at the boundary between L4-scoped rules and L7-scoped rules on a listener that mixes both. The validator recognizes this edge and bumps the phase from `L4Peeked` to `L7Request`.
+
+Entries always start in phase `L4Raw`. `FlowGraph::entries` maps each listener's `SocketAddr` to a `NodeId` whose accepted in-phase must include `L4Raw`.
+
+### Validator algorithm
+
+```
+for (addr, entry) in graph.entries {
+    visit(entry, Phase::L4Raw)
+}
+
+fn visit(node_id, phase):
+    if (node_id, phase) in seen: return        // cycle / join: already checked
+    seen.insert((node_id, phase))
+
+    let node = graph[node_id]
+    if phase not in transition_table[node.kind()].in_phases:
+        error(node_id, phase, "phase mismatch")
+
+    let out = transition_table[node.kind()].out_phase(phase)
+    for next in node.successors():
+        visit(next, out)
+```
+
+DFS from each entry. The `seen` set is keyed by `(node_id, phase)` — a shared subgraph may be reachable in more than one phase context (rare, but legal for `Check` nodes that sit on a join point), so the key captures both. Cycles are caught by the preceding acyclicity check in `validate`.
+
+### Error format
+
+Phase violations point at the offending node plus the source rule:
+
+```
+error: phase mismatch at NodeId(42)
+       expected one of: L7Request
+       got: L4Peeked
+       from rule `web-api` at rules/30-api.json:17
+       cause: L7Request middleware placed before L4→L7 upgrade edge
+```
+
+The `source` field on `RawRule` (see `14-presets.md`) plus the `MiddlewareRef::name` on the violating node are the inputs to this message. Preset expansion preserves the original preset's source location, so a bad preset expansion points at the preset invocation, not at synthetic inner names.
+
+### Why a table, not ad-hoc checks
+
+A single transition table is the Rust-proxy analogue of an ISA encoding table or an LLVM IR verifier: adding a new `Node` kind or a new `Fetch` variant requires one table row, and the validator + any future IR dumpers + documentation stay in lockstep. Scattering the same rules across `lower`, `validate`, and executor match arms is where IR checkers grow silent gaps.
 
 ## Execution model
 

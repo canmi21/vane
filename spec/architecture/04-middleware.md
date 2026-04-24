@@ -21,21 +21,25 @@ All four combinations are first-class:
 Four traits, one per input scope. Each signature _is_ the inspection declaration — a middleware's parameter type communicates exactly what it can touch.
 
 ```rust
-pub trait L4PeekMiddleware: Send + Sync {
+#[trait_variant::make(L4PeekMiddleware: Send)]
+pub trait L4PeekMiddlewareLocal {
     async fn run(&self, peek: &[u8], ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
 }
 
-pub trait L4BytesMiddleware: Send + Sync {
+#[trait_variant::make(L4BytesMiddleware: Send)]
+pub trait L4BytesMiddlewareLocal {
     async fn run(&self, conn: &mut L4Conn, ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
 }
 
-pub trait L7RequestMiddleware: Send + Sync {
+#[trait_variant::make(L7RequestMiddleware: Send)]
+pub trait L7RequestMiddlewareLocal {
     async fn run(&self, req: &mut Request, ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
     /// Declared body access. Drives the LazyBuffer compile-time decision.
     fn needs_body(&self) -> bool { false }
 }
 
-pub trait L7ResponseMiddleware: Send + Sync {
+#[trait_variant::make(L7ResponseMiddleware: Send)]
+pub trait L7ResponseMiddlewareLocal {
     async fn run(&self, resp: &mut Response, ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
     /// Declared body access. Drives the LazyBuffer compile-time decision.
     fn needs_body(&self) -> bool { false }
@@ -68,6 +72,37 @@ The trait signature makes phase violations a compile error, not a runtime bug. A
 ### Why `dyn Trait` storage
 
 vtable dispatch on a middleware call is ~1 ns; middleware work (regex match, KV lookup, hashmap ops) is 100× to 10000× more. Dispatch cost is not measurable. `dyn Trait` is type-safe — unlike the rejected `dyn Any`, method signatures stay enforced at the call site.
+
+### Async `Send` via `trait_variant`
+
+Rust 1.95's `async fn` in traits (AFIT) is stable, but the returned future's `Send`-ness is **not** automatically part of the trait contract. Middleware impls that accidentally `await` a non-`Send` value yield a non-`Send` future — which the executor (running in tokio's multi-threaded runtime under `tokio::spawn`) cannot accept. Without a guard, the error surfaces far from the trait definition, in some downstream executor site.
+
+We use [`trait_variant`](https://crates.io/crates/trait-variant) to generate paired traits: one local, one `Send`-bounded. Authors implement the local version; the executor stores and calls the `Send` version.
+
+```rust
+// Declaration produces two traits:
+//   - L4PeekMiddlewareLocal    (no Send requirement on futures)
+//   - L4PeekMiddleware          (Send-bounded; inherits from Local)
+#[trait_variant::make(L4PeekMiddleware: Send)]
+pub trait L4PeekMiddlewareLocal {
+    async fn run(&self, peek: &[u8], ctx: &mut Ctx<'_>) -> Result<Decision, Error>;
+}
+
+// Authors implement Local:
+impl L4PeekMiddlewareLocal for SniMatch { ... }
+
+// MiddlewareInst stores the Send-bounded trait object:
+pub enum MiddlewareInst {
+    L4Peek(Arc<dyn L4PeekMiddleware>),   // Send-bounded
+    ...
+}
+```
+
+The compiler checks at the impl site: if the impl's future happens to be `Send` (which it will be for any middleware using our `Ctx` and the standard types defined in `vane-core`), it automatically also satisfies `L4PeekMiddleware`. If someone writes a middleware holding a non-`Send` type across an `.await`, compilation fails at their impl with a clear error, not deep inside the executor.
+
+Zero runtime overhead — `trait_variant` uses RPITIT (return-position impl Trait in trait) under the hood, not `Box<dyn Future>`.
+
+Dependency: `trait-variant` added to `[workspace.dependencies]` in the root `Cargo.toml`.
 
 ## Phase placement
 
