@@ -76,3 +76,122 @@ pub enum Terminator {
 	WriteHttpResponse,
 	ByteTunnel,
 }
+
+#[cfg(test)]
+mod tests {
+	use serde_json::json;
+	use tokio::net::UnixStream;
+
+	use super::*;
+	use crate::body::{Body, Response};
+
+	// Fetch trait Send variants are designed to back `Arc<dyn L7Fetch>` /
+	// `Arc<dyn L4Fetch>` inside `FetchInst` (spec 05-terminator.md). With the
+	// current `trait_variant::make` shape (-> impl Future + Send) the traits
+	// are not dyn-compatible; resolving that is a spec/impl task for the
+	// main LLM (e.g., dynosaur-style Dyn shim or boxed-future variants).
+
+	#[test]
+	fn async_read_write_blanket_accepts_unix_stream() {
+		// Any `AsyncRead + AsyncWrite` must fit `Pin<Box<dyn AsyncReadWrite + Send>>`
+		// via the blanket impl. UnixStream is the convenient witness on Unix hosts.
+		let (a, _b) = UnixStream::pair().expect("unix pair");
+		let _: Pin<Box<dyn AsyncReadWrite + Send>> = Box::pin(a);
+	}
+
+	#[test]
+	fn l7_fetch_output_response_variant_constructs() {
+		let resp: Response =
+			http::Response::builder().status(200).body(Body::Empty).expect("build response");
+		match L7FetchOutput::Response(resp) {
+			L7FetchOutput::Response(_) => {}
+			L7FetchOutput::Tunnel(_) => panic!("unexpected tunnel variant"),
+		}
+	}
+
+	#[test]
+	fn tunnel_builds_from_paired_unix_streams() {
+		let (client, upstream) = UnixStream::pair().expect("unix pair");
+		let (tx, _rx) = oneshot::channel::<crate::middleware::CloseReason>();
+		let tunnel = Tunnel {
+			client: Box::pin(client) as Pin<Box<dyn AsyncReadWrite + Send>>,
+			upstream: Box::pin(upstream) as Pin<Box<dyn AsyncReadWrite + Send>>,
+			close_reason_tx: Some(tx),
+		};
+		// Routing it through L7FetchOutput::Tunnel exercises the second variant
+		// and confirms Tunnel is usable as the output payload.
+		let _ = L7FetchOutput::Tunnel(tunnel);
+	}
+
+	#[test]
+	fn fetch_kind_serde_round_trip_per_variant() {
+		for k in [
+			FetchKind::HttpProxy,
+			FetchKind::HttpSynthesize,
+			FetchKind::WebSocketUpgrade,
+			FetchKind::L4Forward,
+		] {
+			let encoded = serde_json::to_string(&k).expect("serialize");
+			let decoded: FetchKind = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, k);
+		}
+	}
+
+	#[test]
+	fn fetch_phase_serde_round_trip_per_variant() {
+		for p in [FetchPhase::L4, FetchPhase::L7] {
+			let encoded = serde_json::to_string(&p).expect("serialize");
+			let decoded: FetchPhase = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, p);
+		}
+	}
+
+	#[test]
+	fn terminator_serde_round_trip_per_variant() {
+		for t in [Terminator::WriteHttpResponse, Terminator::ByteTunnel] {
+			let encoded = serde_json::to_string(&t).expect("serialize");
+			let decoded: Terminator = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, t);
+		}
+	}
+
+	#[test]
+	fn fetch_output_modes_serde_round_trip_http_shapes() {
+		// HttpProxy / HttpSynthesize: response-only.
+		let http_only = FetchOutputModes { response: true, tunnel: false };
+		// WebSocketUpgrade: both outputs, per the bi-outcome spec.
+		let ws = FetchOutputModes { response: true, tunnel: true };
+		// L4Forward: tunnel-only.
+		let l4 = FetchOutputModes { response: false, tunnel: true };
+		for modes in [http_only, ws, l4] {
+			let encoded = serde_json::to_string(&modes).expect("serialize");
+			let decoded: FetchOutputModes = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, modes);
+		}
+	}
+
+	#[test]
+	fn symbolic_fetch_ref_clone_preserves_fields() {
+		let r = SymbolicFetchRef {
+			kind: FetchKind::HttpProxy,
+			args: json!({ "upstream": "127.0.0.1:8080" }),
+		};
+		let cloned = r.clone();
+		assert_eq!(cloned.kind, r.kind);
+		assert_eq!(cloned.args, r.args);
+		// Debug must be derivable for diagnostics.
+		let _ = format!("{r:?}");
+	}
+
+	#[test]
+	fn symbolic_fetch_ref_accepts_each_kind() {
+		for kind in [
+			FetchKind::HttpProxy,
+			FetchKind::HttpSynthesize,
+			FetchKind::WebSocketUpgrade,
+			FetchKind::L4Forward,
+		] {
+			let _ = SymbolicFetchRef { kind, args: serde_json::Value::Null };
+		}
+	}
+}

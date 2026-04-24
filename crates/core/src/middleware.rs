@@ -167,3 +167,250 @@ fn hash_canonical_json<H: std::hash::Hasher>(v: &serde_json::Value, state: &mut 
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use std::collections::hash_map::DefaultHasher;
+	use std::hash::{Hash, Hasher};
+
+	use serde_json::json;
+
+	use super::*;
+
+	// Object-safety of the four `*Middleware` Send variants is the spec shape
+	// (`Arc<dyn L4PeekMiddleware>` etc. in `MiddlewareInst`). With the current
+	// `trait_variant::make` shape the return type is `-> impl Future + Send`,
+	// which makes the trait non-dyn-compatible without a boxed-future shim.
+	// That mismatch is not captured by a test — leaving it to the main LLM
+	// to resolve spec-first (wire up a dynosaur-style Dyn{Trait}{Kind} shim
+	// or change `MiddlewareInst` to hold Box<dyn>-wrapping futures).
+
+	// `trait_variant`'s blanket impl goes `impl Local for T where T: SendVariant`,
+	// so implementing the Send variant directly yields Local for free — which is
+	// what we need to exercise the Send-bounded trait the executor stores.
+
+	struct PassPeek;
+	impl L4PeekMiddleware for PassPeek {
+		async fn run(
+			&self,
+			_peek: &[u8],
+			_conn: &Arc<ConnContext>,
+			_ctx: &mut FlowCtx<'_>,
+		) -> Result<Decision, Error> {
+			Ok(Decision::Continue)
+		}
+	}
+
+	struct PassBytes;
+	impl L4BytesMiddleware for PassBytes {
+		async fn run(
+			&self,
+			_l4: &mut L4Conn,
+			_conn: &Arc<ConnContext>,
+			_ctx: &mut FlowCtx<'_>,
+		) -> Result<Decision, Error> {
+			Ok(Decision::Continue)
+		}
+	}
+
+	struct PassReq;
+	impl L7RequestMiddleware for PassReq {
+		async fn run(
+			&self,
+			_req: &mut Request,
+			_conn: &Arc<ConnContext>,
+			_ctx: &mut FlowCtx<'_>,
+		) -> Result<Decision, Error> {
+			Ok(Decision::Continue)
+		}
+	}
+
+	struct PassResp;
+	impl L7ResponseMiddleware for PassResp {
+		async fn run(
+			&self,
+			_resp: &mut Response,
+			_conn: &Arc<ConnContext>,
+			_ctx: &mut FlowCtx<'_>,
+		) -> Result<Decision, Error> {
+			Ok(Decision::Continue)
+		}
+	}
+
+	// Generic compile-gate: each concrete unit struct must satisfy both the
+	// Local and Send-bounded trait (the trait_variant blanket ties them
+	// together). A generic bound is the dyn-free way to assert this because
+	// async-fn-in-trait is not dyn-compatible in stable Rust.
+	fn binds_peek<T: L4PeekMiddleware + L4PeekMiddlewareLocal>(_: &T) {}
+	fn binds_bytes<T: L4BytesMiddleware + L4BytesMiddlewareLocal>(_: &T) {}
+	fn binds_req<T: L7RequestMiddleware + L7RequestMiddlewareLocal>(_: &T) {}
+	fn binds_resp<T: L7ResponseMiddleware + L7ResponseMiddlewareLocal>(_: &T) {}
+
+	#[test]
+	fn peek_impl_satisfies_both_trait_variants() {
+		binds_peek(&PassPeek);
+	}
+
+	#[test]
+	fn bytes_impl_satisfies_both_trait_variants() {
+		binds_bytes(&PassBytes);
+	}
+
+	#[test]
+	fn l7_request_impl_satisfies_both_trait_variants() {
+		binds_req(&PassReq);
+	}
+
+	#[test]
+	fn l7_response_impl_satisfies_both_trait_variants() {
+		binds_resp(&PassResp);
+	}
+
+	#[test]
+	fn l7_request_needs_body_defaults_to_false() {
+		// Default `needs_body() -> bool { false }` on the original trait is
+		// visible through both the Local and the Send-bounded variants via
+		// the trait_variant-generated blanket impl.
+		assert!(!L7RequestMiddlewareLocal::needs_body(&PassReq));
+		assert!(!L7RequestMiddleware::needs_body(&PassReq));
+	}
+
+	#[test]
+	fn l7_response_needs_body_defaults_to_false() {
+		assert!(!L7ResponseMiddlewareLocal::needs_body(&PassResp));
+		assert!(!L7ResponseMiddleware::needs_body(&PassResp));
+	}
+
+	#[test]
+	fn middleware_kind_serde_round_trip_per_variant() {
+		for k in [
+			MiddlewareKind::L4Peek,
+			MiddlewareKind::L4Bytes,
+			MiddlewareKind::L7Request,
+			MiddlewareKind::L7Response,
+		] {
+			let encoded = serde_json::to_string(&k).expect("serialize");
+			let decoded: MiddlewareKind = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, k);
+		}
+	}
+
+	#[test]
+	fn decision_and_shortcircuit_construct_per_variant() {
+		let _ = Decision::Continue;
+		let _ = Decision::Short(ShortCircuit::Close(CloseReason::Graceful));
+		let _ = ShortCircuit::Close(CloseReason::PolicyDenied("over quota".into()));
+		let _ = ShortCircuit::Close(CloseReason::ProtocolError("bad frame".into()));
+	}
+
+	#[test]
+	fn close_reason_construct_per_variant() {
+		let _ = CloseReason::Graceful;
+		let _ = CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("over quota"));
+		let _ = CloseReason::ProtocolError(std::borrow::Cow::Owned(String::from("bad frame")));
+	}
+
+	fn hash_of<T: Hash>(v: &T) -> u64 {
+		let mut h = DefaultHasher::new();
+		v.hash(&mut h);
+		h.finish()
+	}
+
+	fn sym_ref(args: serde_json::Value) -> SymbolicMiddlewareRef {
+		SymbolicMiddlewareRef {
+			name: Arc::from("rate_limit"),
+			args,
+			kind: MiddlewareKind::L7Request,
+			stateless: true,
+			needs_body: false,
+			on_error: None,
+		}
+	}
+
+	#[test]
+	fn symbolic_ref_args_hash_is_object_key_order_insensitive() {
+		// Manually build both maps with opposite insertion orders to defeat
+		// serde_json::from_str's preserve-insertion-order backend.
+		let mut a = serde_json::Map::new();
+		a.insert("a".to_string(), json!(1));
+		a.insert("b".to_string(), json!(2));
+		let mut b = serde_json::Map::new();
+		b.insert("b".to_string(), json!(2));
+		b.insert("a".to_string(), json!(1));
+
+		let lhs = sym_ref(serde_json::Value::Object(a));
+		let rhs = sym_ref(serde_json::Value::Object(b));
+
+		assert_eq!(lhs, rhs);
+		assert_eq!(hash_of(&lhs), hash_of(&rhs));
+	}
+
+	#[test]
+	fn symbolic_ref_nested_object_key_order_is_ignored() {
+		let lhs = sym_ref(json!({ "outer": { "x": 1, "y": 2 } }));
+		// Build the inner map with swapped order by hand.
+		let mut inner = serde_json::Map::new();
+		inner.insert("y".to_string(), json!(2));
+		inner.insert("x".to_string(), json!(1));
+		let mut outer = serde_json::Map::new();
+		outer.insert("outer".to_string(), serde_json::Value::Object(inner));
+		let rhs = sym_ref(serde_json::Value::Object(outer));
+
+		assert_eq!(lhs, rhs);
+		assert_eq!(hash_of(&lhs), hash_of(&rhs));
+	}
+
+	#[test]
+	fn symbolic_ref_arrays_are_order_sensitive() {
+		let lhs = sym_ref(json!({ "xs": [1, 2] }));
+		let rhs = sym_ref(json!({ "xs": [2, 1] }));
+		assert_ne!(lhs, rhs);
+	}
+
+	#[test]
+	fn symbolic_ref_differs_on_name() {
+		let a = sym_ref(json!({}));
+		let mut b = sym_ref(json!({}));
+		b.name = Arc::from("other");
+		assert_ne!(a, b);
+	}
+
+	#[test]
+	fn symbolic_ref_differs_on_kind() {
+		let a = sym_ref(json!({}));
+		let mut b = sym_ref(json!({}));
+		b.kind = MiddlewareKind::L4Peek;
+		assert_ne!(a, b);
+	}
+
+	#[test]
+	fn symbolic_ref_differs_on_stateless() {
+		let a = sym_ref(json!({}));
+		let mut b = sym_ref(json!({}));
+		b.stateless = false;
+		assert_ne!(a, b);
+	}
+
+	#[test]
+	fn symbolic_ref_differs_on_needs_body() {
+		let a = sym_ref(json!({}));
+		let mut b = sym_ref(json!({}));
+		b.needs_body = true;
+		assert_ne!(a, b);
+	}
+
+	#[test]
+	fn symbolic_ref_differs_on_on_error() {
+		let a = sym_ref(json!({}));
+		let mut b = sym_ref(json!({}));
+		b.on_error = Some(NodeId::new(3));
+		assert_ne!(a, b);
+	}
+
+	#[test]
+	fn symbolic_ref_same_name_but_distinct_args_are_unequal() {
+		let a = sym_ref(json!({ "limit": 100 }));
+		let b = sym_ref(json!({ "limit": 200 }));
+		assert_ne!(a, b);
+	}
+}

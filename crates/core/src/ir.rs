@@ -51,4 +51,13 @@ mod tests {
 		let decoded: NodeId = serde_json::from_str(&encoded).expect("deserialize");
 		assert_eq!(decoded, id);
 	}
+
+	#[test]
+	fn body_side_serde_round_trip_per_variant() {
+		for s in [BodySide::Request, BodySide::Response] {
+			let encoded = serde_json::to_string(&s).expect("serialize");
+			let decoded: BodySide = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, s);
+		}
+	}
 }
