@@ -300,16 +300,16 @@ Naming follows ecosystem conventions — short, lowercase, single-word where pos
 
 | Crate         | Feature     | Default | Purpose                                            |
 | ------------- | ----------- | ------- | -------------------------------------------------- |
-| `vane-engine` | `aws-lc-rs` | ✅      | rustls crypto provider = aws-lc-rs                 |
-| `vane-engine` | `ring`      | ❌      | rustls crypto provider = ring (mutually exclusive) |
-| `vane-engine` | `h3`        | ✅      | compile h3 + quinn for HTTP/3 support              |
-| `vane-engine` | `cgi`       | ✅      | compile CGI fork-exec path                         |
-| `vaned`       | `aws-lc-rs` | ✅      | forwards to `vane-engine/aws-lc-rs`                |
-| `vaned`       | `ring`      | ❌      | forwards to `vane-engine/ring`                     |
-| `vaned`       | `h3`        | ✅      | forwards to `vane-engine/h3`                       |
-| `vaned`       | `cgi`       | ✅      | forwards to `vane-engine/cgi`                      |
-| `vaned`       | `wasm`      | ✅      | links `vane-wasm` (pulls wasmtime)                 |
-| `vane` (bin)  | `tui`       | ✅      | compiles ratatui + crossterm TUI code              |
+| `vane-engine` | `aws-lc-rs` | on      | rustls crypto provider = aws-lc-rs                 |
+| `vane-engine` | `ring`      | off     | rustls crypto provider = ring (mutually exclusive) |
+| `vane-engine` | `h3`        | on      | compile h3 + quinn for HTTP/3 support              |
+| `vane-engine` | `cgi`       | on      | compile CGI fork-exec path                         |
+| `vaned`       | `aws-lc-rs` | on      | forwards to `vane-engine/aws-lc-rs`                |
+| `vaned`       | `ring`      | off     | forwards to `vane-engine/ring`                     |
+| `vaned`       | `h3`        | on      | forwards to `vane-engine/h3`                       |
+| `vaned`       | `cgi`       | on      | forwards to `vane-engine/cgi`                      |
+| `vaned`       | `wasm`      | on      | links `vane-wasm` (pulls wasmtime)                 |
+| `vane` (bin)  | `tui`       | on      | compiles ratatui + crossterm TUI code              |
 
 No feature flags on `vane-core`, `vane-wasm`, `vane-mgmt`, `vane-testutil` — they are always-on code.
 

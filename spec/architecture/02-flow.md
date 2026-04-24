@@ -476,10 +476,10 @@ Dedup during `lower` so that two rules expressing the same logical shape share I
 
 | Kind                     | Dedup policy | Key                                             |
 | ------------------------ | ------------ | ----------------------------------------------- |
-| Internal stateless       | ✅ dedup     | `(name, canonical_args_json)`                   |
-| Internal stateful        | ❌ per-site  | — (always distinct `MiddlewareId`)              |
-| External WASM, stateless | ✅ dedup     | `(module_id, export_name, canonical_args_json)` |
-| External WASM, stateful  | ❌ per-site  | — (each site gets its own instance pool)        |
+| Internal stateless       | dedup        | `(name, canonical_args_json)`                   |
+| Internal stateful        | per-site     | — (always distinct `MiddlewareId`)              |
+| External WASM, stateless | dedup        | `(module_id, export_name, canonical_args_json)` |
+| External WASM, stateful  | per-site     | — (each site gets its own instance pool)        |
 
 Stateless dedup is safe because calling the same middleware with the same args from two call sites has no observable difference — there is no per-instance state. Stateful dedup would be **unsafe**: two rules both declaring `rate_limit(rate=100)` each want their own token bucket; collapsing them into one shared bucket silently halves the effective rate across the two rules. The `MiddlewareRegistry` (see `04-middleware.md`) knows each middleware's statefulness and routes construction accordingly.
 

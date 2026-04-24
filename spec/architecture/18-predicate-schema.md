@@ -177,16 +177,15 @@ The compiler's `analyze` pass categorizes each path into one of three inspection
 
 ## Operator × value type compatibility
 
-```
-                       Str  Bytes  Int  IpAddr  enum
-equals / not_equals     ✓    ✓     ✓    ✓       ✓
-contains / not_contains ✓    ✓     —    —       —
-prefix / suffix         ✓    ✓     —    —       —
-matches                 ✓    —     —    —       —
-in / not_in             ✓    ✓     ✓    ✓       ✓
-gt / gte / lt / lte     —    —     ✓    —       —
-cidr                    —    —     —    ✓       —
-```
+| Operator                    | Str | Bytes | Int | IpAddr | enum |
+| --------------------------- | :-: | :---: | :-: | :----: | :--: |
+| `equals` / `not_equals`     | yes |  yes  | yes |  yes   | yes  |
+| `contains` / `not_contains` | yes |  yes  |  —  |   —    |  —   |
+| `prefix` / `suffix`         | yes |  yes  |  —  |   —    |  —   |
+| `matches`                   | yes |   —   |  —  |   —    |  —   |
+| `in` / `not_in`             | yes |  yes  | yes |  yes   | yes  |
+| `gt` / `gte` / `lt` / `lte` |  —  |   —   | yes |   —    |  —   |
+| `cidr`                      |  —  |   —   |  —  |  yes   |  —   |
 
 Compile-time type check: on a `{ "http.body": { "gt": 100 } }`, the compiler sees `http.body: Bytes` and `gt: numeric-only` → rejects with:
 
