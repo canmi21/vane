@@ -105,7 +105,7 @@ Dependencies: `vane-core`, `tokio`, `hyper`, `rustls`.
 
 Only used in `[dev-dependencies]` — never enters release build.
 
-### `vane` (binary)
+### `vane` (binary; folder `crates/cli/`)
 
 User-facing terminal binary. Does **not** depend on `vane-engine`.
 
@@ -120,7 +120,7 @@ Dependencies: `vane-core`, `vane-mgmt` + `clap`, `ratatui`, `crossterm`, `tokio`
 
 This crate must build fast (seconds). Deployment footprint can be a single statically-linked binary ~5–10 MiB.
 
-### `vaned` (binary)
+### `vaned` (binary; folder `crates/daemon/`)
 
 The daemon. Glue between all library crates.
 
@@ -188,13 +188,13 @@ They do **not** need `vane-engine` (no listener, no pool, no executor in this bi
 [workspace]
 resolver = "3" # MSRV-aware resolver, requires Rust 1.84+
 members = [
+	"crates/cli", # binary package `vane`
 	"crates/core",
+	"crates/daemon", # binary package `vaned`
 	"crates/engine",
-	"crates/wasm",
 	"crates/mgmt",
 	"crates/testutil",
-	"crates/vane",
-	"crates/vaned",
+	"crates/wasm",
 	"tests",
 ]
 
