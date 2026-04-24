@@ -140,7 +140,16 @@ impl Index<TerminatorId> for SymbolicFlowGraph {
 
 #[cfg(test)]
 mod tests {
+	use std::collections::hash_map::DefaultHasher;
+	use std::hash::{Hash, Hasher};
+	use std::sync::Arc;
+
+	use serde_json::Value;
+
 	use super::*;
+	use crate::fetch::{FetchKind, SymbolicFetchRef, Terminator};
+	use crate::middleware::{MiddlewareKind, SymbolicMiddlewareRef};
+	use crate::predicate::{CompiledOperator, CompiledValue, FieldPath, PredicateInst};
 
 	#[test]
 	fn new_then_get_round_trips_raw_u32() {
@@ -176,5 +185,355 @@ mod tests {
 			let decoded: BodySide = serde_json::from_str(&encoded).expect("deserialize");
 			assert_eq!(decoded, s);
 		}
+	}
+
+	fn hash_of<T: Hash>(t: &T) -> u64 {
+		let mut h = DefaultHasher::new();
+		t.hash(&mut h);
+		h.finish()
+	}
+
+	#[test]
+	fn predicate_id_new_get_round_trip_and_hash_eq() {
+		for raw in [0_u32, 1, 42, u32::MAX] {
+			let a = PredicateId::new(raw);
+			let b = PredicateId::new(raw);
+			assert_eq!(a.get(), raw);
+			assert_eq!(a, b);
+			assert_eq!(hash_of(&a), hash_of(&b));
+			let encoded = serde_json::to_string(&a).expect("serialize");
+			let decoded: PredicateId = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, a);
+		}
+	}
+
+	#[test]
+	fn middleware_id_new_get_round_trip_and_hash_eq() {
+		for raw in [0_u32, 1, 42, u32::MAX] {
+			let a = MiddlewareId::new(raw);
+			let b = MiddlewareId::new(raw);
+			assert_eq!(a.get(), raw);
+			assert_eq!(a, b);
+			assert_eq!(hash_of(&a), hash_of(&b));
+			let encoded = serde_json::to_string(&a).expect("serialize");
+			let decoded: MiddlewareId = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, a);
+		}
+	}
+
+	#[test]
+	fn fetch_id_new_get_round_trip_and_hash_eq() {
+		for raw in [0_u32, 1, 42, u32::MAX] {
+			let a = FetchId::new(raw);
+			let b = FetchId::new(raw);
+			assert_eq!(a.get(), raw);
+			assert_eq!(a, b);
+			assert_eq!(hash_of(&a), hash_of(&b));
+			let encoded = serde_json::to_string(&a).expect("serialize");
+			let decoded: FetchId = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, a);
+		}
+	}
+
+	#[test]
+	fn terminator_id_new_get_round_trip_and_hash_eq() {
+		for raw in [0_u32, 1, 42, u32::MAX] {
+			let a = TerminatorId::new(raw);
+			let b = TerminatorId::new(raw);
+			assert_eq!(a.get(), raw);
+			assert_eq!(a, b);
+			assert_eq!(hash_of(&a), hash_of(&b));
+			let encoded = serde_json::to_string(&a).expect("serialize");
+			let decoded: TerminatorId = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, a);
+		}
+	}
+
+	// The newtype wrappers are distinct types — a function accepting `NodeId`
+	// refuses a `PredicateId` at compile time. `_id_types_are_distinct` is a
+	// compile-only witness that the signatures pin the right types; any mix-up
+	// at a call site would fail to type-check.
+	fn _id_types_are_distinct(
+		_n: NodeId,
+		_p: PredicateId,
+		_m: MiddlewareId,
+		_f: FetchId,
+		_t: TerminatorId,
+	) {
+	}
+
+	#[test]
+	fn node_check_collect_body_before_returns_stored_flag() {
+		let some = Node::Check {
+			predicate: PredicateId::new(0),
+			on_match: NodeId::new(0),
+			on_miss: NodeId::new(0),
+			collect_body_before: Some(BodySide::Request),
+		};
+		assert_eq!(some.collect_body_before(), Some(BodySide::Request));
+
+		let none = Node::Check {
+			predicate: PredicateId::new(0),
+			on_match: NodeId::new(0),
+			on_miss: NodeId::new(0),
+			collect_body_before: None,
+		};
+		assert_eq!(none.collect_body_before(), None);
+	}
+
+	#[test]
+	fn node_middleware_collect_body_before_returns_stored_flag() {
+		let some = Node::Middleware {
+			id: MiddlewareId::new(0),
+			next: NodeId::new(0),
+			on_error: None,
+			collect_body_before: Some(BodySide::Response),
+		};
+		assert_eq!(some.collect_body_before(), Some(BodySide::Response));
+
+		let none = Node::Middleware {
+			id: MiddlewareId::new(0),
+			next: NodeId::new(0),
+			on_error: None,
+			collect_body_before: None,
+		};
+		assert_eq!(none.collect_body_before(), None);
+	}
+
+	#[test]
+	fn node_fetch_collect_body_before_returns_stored_flag() {
+		let some = Node::Fetch {
+			id: FetchId::new(0),
+			next_response: None,
+			next_tunnel: None,
+			collect_body_before: Some(BodySide::Request),
+		};
+		assert_eq!(some.collect_body_before(), Some(BodySide::Request));
+
+		let none = Node::Fetch {
+			id: FetchId::new(0),
+			next_response: None,
+			next_tunnel: None,
+			collect_body_before: None,
+		};
+		assert_eq!(none.collect_body_before(), None);
+	}
+
+	#[test]
+	fn node_upgrade_collect_body_before_is_always_none() {
+		let n = Node::Upgrade { next: NodeId::new(0) };
+		assert_eq!(n.collect_body_before(), None);
+	}
+
+	#[test]
+	fn node_terminate_collect_body_before_is_always_none() {
+		let n = Node::Terminate(TerminatorId::new(0));
+		assert_eq!(n.collect_body_before(), None);
+	}
+
+	fn sample_predicate() -> PredicateInst {
+		PredicateInst {
+			path: FieldPath::TlsSni,
+			op: CompiledOperator::Equals(CompiledValue::Str(Arc::from("a"))),
+		}
+	}
+
+	fn sample_middleware() -> SymbolicMiddlewareRef {
+		SymbolicMiddlewareRef {
+			name: Arc::from("noop"),
+			args: Value::Null,
+			kind: MiddlewareKind::L7Request,
+			stateless: true,
+			needs_body: false,
+			on_error: None,
+		}
+	}
+
+	fn sample_fetch() -> SymbolicFetchRef {
+		SymbolicFetchRef { kind: FetchKind::HttpProxy, args: Value::Null }
+	}
+
+	fn sample_meta() -> FlowGraphMeta {
+		FlowGraphMeta {
+			version_hash: [0; 32],
+			compiled_at: SystemTime::UNIX_EPOCH,
+			source_files: vec![],
+			feature_set: &[],
+		}
+	}
+
+	fn one_of_each_graph() -> SymbolicFlowGraph {
+		SymbolicFlowGraph {
+			nodes: vec![Node::Terminate(TerminatorId::new(0))],
+			predicates: vec![sample_predicate()],
+			middlewares: vec![sample_middleware()],
+			fetches: vec![sample_fetch()],
+			terminators: vec![Terminator::WriteHttpResponse],
+			entries: HashMap::new(),
+			meta: sample_meta(),
+		}
+	}
+
+	#[test]
+	fn index_by_node_id_returns_matching_node() {
+		let g = one_of_each_graph();
+		match &g[NodeId::new(0)] {
+			Node::Terminate(t) => assert_eq!(*t, TerminatorId::new(0)),
+			other => panic!("expected Terminate, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn index_by_predicate_id_returns_matching_predicate() {
+		let g = one_of_each_graph();
+		assert_eq!(g[PredicateId::new(0)], sample_predicate());
+	}
+
+	#[test]
+	fn index_by_middleware_id_returns_matching_middleware() {
+		let g = one_of_each_graph();
+		assert_eq!(g[MiddlewareId::new(0)], sample_middleware());
+	}
+
+	#[test]
+	fn index_by_fetch_id_returns_matching_fetch() {
+		let g = one_of_each_graph();
+		assert_eq!(g[FetchId::new(0)].kind, FetchKind::HttpProxy);
+	}
+
+	#[test]
+	fn index_by_terminator_id_returns_matching_terminator() {
+		let g = one_of_each_graph();
+		assert_eq!(g[TerminatorId::new(0)], Terminator::WriteHttpResponse);
+	}
+
+	fn node_round_trip(n: &Node) -> Node {
+		let encoded = serde_json::to_string(n).expect("serialize node");
+		serde_json::from_str(&encoded).expect("deserialize node")
+	}
+
+	#[test]
+	fn node_check_serde_round_trip_with_and_without_collect_flag() {
+		let with = Node::Check {
+			predicate: PredicateId::new(3),
+			on_match: NodeId::new(4),
+			on_miss: NodeId::new(5),
+			collect_body_before: Some(BodySide::Request),
+		};
+		match node_round_trip(&with) {
+			Node::Check { predicate, on_match, on_miss, collect_body_before } => {
+				assert_eq!(predicate, PredicateId::new(3));
+				assert_eq!(on_match, NodeId::new(4));
+				assert_eq!(on_miss, NodeId::new(5));
+				assert_eq!(collect_body_before, Some(BodySide::Request));
+			}
+			other => panic!("expected Check, got {other:?}"),
+		}
+
+		let without = Node::Check {
+			predicate: PredicateId::new(0),
+			on_match: NodeId::new(0),
+			on_miss: NodeId::new(0),
+			collect_body_before: None,
+		};
+		match node_round_trip(&without) {
+			Node::Check { collect_body_before, .. } => assert_eq!(collect_body_before, None),
+			other => panic!("expected Check, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn node_middleware_serde_round_trip_with_and_without_collect_flag() {
+		let with = Node::Middleware {
+			id: MiddlewareId::new(1),
+			next: NodeId::new(2),
+			on_error: Some(NodeId::new(9)),
+			collect_body_before: Some(BodySide::Response),
+		};
+		match node_round_trip(&with) {
+			Node::Middleware { id, next, on_error, collect_body_before } => {
+				assert_eq!(id, MiddlewareId::new(1));
+				assert_eq!(next, NodeId::new(2));
+				assert_eq!(on_error, Some(NodeId::new(9)));
+				assert_eq!(collect_body_before, Some(BodySide::Response));
+			}
+			other => panic!("expected Middleware, got {other:?}"),
+		}
+
+		let without = Node::Middleware {
+			id: MiddlewareId::new(0),
+			next: NodeId::new(0),
+			on_error: None,
+			collect_body_before: None,
+		};
+		match node_round_trip(&without) {
+			Node::Middleware { on_error, collect_body_before, .. } => {
+				assert_eq!(on_error, None);
+				assert_eq!(collect_body_before, None);
+			}
+			other => panic!("expected Middleware, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn node_fetch_serde_round_trip_with_and_without_collect_flag() {
+		let with = Node::Fetch {
+			id: FetchId::new(7),
+			next_response: Some(NodeId::new(8)),
+			next_tunnel: Some(NodeId::new(9)),
+			collect_body_before: Some(BodySide::Request),
+		};
+		match node_round_trip(&with) {
+			Node::Fetch { id, next_response, next_tunnel, collect_body_before } => {
+				assert_eq!(id, FetchId::new(7));
+				assert_eq!(next_response, Some(NodeId::new(8)));
+				assert_eq!(next_tunnel, Some(NodeId::new(9)));
+				assert_eq!(collect_body_before, Some(BodySide::Request));
+			}
+			other => panic!("expected Fetch, got {other:?}"),
+		}
+
+		let without = Node::Fetch {
+			id: FetchId::new(0),
+			next_response: None,
+			next_tunnel: None,
+			collect_body_before: None,
+		};
+		match node_round_trip(&without) {
+			Node::Fetch { next_response, next_tunnel, collect_body_before, .. } => {
+				assert_eq!(next_response, None);
+				assert_eq!(next_tunnel, None);
+				assert_eq!(collect_body_before, None);
+			}
+			other => panic!("expected Fetch, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn node_upgrade_serde_round_trip() {
+		let n = Node::Upgrade { next: NodeId::new(11) };
+		match node_round_trip(&n) {
+			Node::Upgrade { next } => assert_eq!(next, NodeId::new(11)),
+			other => panic!("expected Upgrade, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn node_terminate_serde_round_trip() {
+		let n = Node::Terminate(TerminatorId::new(13));
+		match node_round_trip(&n) {
+			Node::Terminate(t) => assert_eq!(t, TerminatorId::new(13)),
+			other => panic!("expected Terminate, got {other:?}"),
+		}
+	}
+
+	// `FlowGraphMeta` derives `Serialize` but not `Deserialize` (the spec
+	// comment in this module notes `Deserialize` lands with S1-32). Assert the
+	// forward direction only.
+	#[test]
+	fn flow_graph_meta_serializes_and_emits_version_hash_field() {
+		let meta = sample_meta();
+		let encoded = serde_json::to_string(&meta).expect("serialize meta");
+		assert!(encoded.contains("version_hash"), "expected version_hash field in {encoded}");
 	}
 }

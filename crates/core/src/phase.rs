@@ -90,3 +90,207 @@ pub fn transition(kind: PhaseNodeKind, cur: Phase) -> Result<Transition, PhaseEr
 		PhaseNodeKind::Terminate(_) => Transition::Terminal,
 	})
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	const ALL_PHASES: [Phase; 5] =
+		[Phase::L4Raw, Phase::L4Peeked, Phase::L7Request, Phase::L7Response, Phase::Tunnel];
+
+	#[test]
+	fn phase_serde_round_trip_per_variant() {
+		for p in ALL_PHASES {
+			let encoded = serde_json::to_string(&p).expect("serialize");
+			let decoded: Phase = serde_json::from_str(&encoded).expect("deserialize");
+			assert_eq!(decoded, p);
+		}
+	}
+
+	#[test]
+	fn check_accepts_any_phase() {
+		assert_eq!(accepted_in_phases(PhaseNodeKind::Check), ANY_PHASE);
+	}
+
+	#[test]
+	fn l4_peek_accepts_l4_phases_only() {
+		assert_eq!(
+			accepted_in_phases(PhaseNodeKind::Middleware(MiddlewareKind::L4Peek)),
+			&[Phase::L4Raw, Phase::L4Peeked] as &[Phase],
+		);
+	}
+
+	#[test]
+	fn l4_bytes_accepts_l4_phases_only() {
+		assert_eq!(
+			accepted_in_phases(PhaseNodeKind::Middleware(MiddlewareKind::L4Bytes)),
+			&[Phase::L4Raw, Phase::L4Peeked] as &[Phase],
+		);
+	}
+
+	#[test]
+	fn l7_request_middleware_accepts_only_l7_request() {
+		assert_eq!(
+			accepted_in_phases(PhaseNodeKind::Middleware(MiddlewareKind::L7Request)),
+			&[Phase::L7Request] as &[Phase],
+		);
+	}
+
+	#[test]
+	fn l7_response_middleware_accepts_only_l7_response() {
+		assert_eq!(
+			accepted_in_phases(PhaseNodeKind::Middleware(MiddlewareKind::L7Response)),
+			&[Phase::L7Response] as &[Phase],
+		);
+	}
+
+	#[test]
+	fn upgrade_accepts_only_l4_peeked() {
+		assert_eq!(accepted_in_phases(PhaseNodeKind::Upgrade), &[Phase::L4Peeked] as &[Phase]);
+	}
+
+	#[test]
+	fn l4_forward_fetch_accepts_l4_phases() {
+		assert_eq!(
+			accepted_in_phases(PhaseNodeKind::Fetch(FetchKind::L4Forward)),
+			&[Phase::L4Raw, Phase::L4Peeked] as &[Phase],
+		);
+	}
+
+	#[test]
+	fn http_fetches_accept_only_l7_request() {
+		for f in [FetchKind::HttpProxy, FetchKind::HttpSynthesize, FetchKind::WebSocketUpgrade] {
+			assert_eq!(accepted_in_phases(PhaseNodeKind::Fetch(f)), &[Phase::L7Request] as &[Phase],);
+		}
+	}
+
+	#[test]
+	fn write_http_response_accepts_only_l7_response() {
+		assert_eq!(
+			accepted_in_phases(PhaseNodeKind::Terminate(Terminator::WriteHttpResponse)),
+			&[Phase::L7Response] as &[Phase],
+		);
+	}
+
+	#[test]
+	fn byte_tunnel_accepts_only_tunnel() {
+		assert_eq!(
+			accepted_in_phases(PhaseNodeKind::Terminate(Terminator::ByteTunnel)),
+			&[Phase::Tunnel] as &[Phase],
+		);
+	}
+
+	#[test]
+	fn check_is_pass_through_at_every_phase() {
+		for cur in ALL_PHASES {
+			assert_eq!(transition(PhaseNodeKind::Check, cur), Ok(Transition::PassThrough));
+		}
+	}
+
+	#[test]
+	fn l4_peek_forces_out_to_l4_peeked() {
+		for cur in [Phase::L4Raw, Phase::L4Peeked] {
+			assert_eq!(
+				transition(PhaseNodeKind::Middleware(MiddlewareKind::L4Peek), cur),
+				Ok(Transition::Into(Phase::L4Peeked)),
+			);
+		}
+	}
+
+	#[test]
+	fn l4_bytes_is_pass_through_on_l4_phases() {
+		for cur in [Phase::L4Raw, Phase::L4Peeked] {
+			assert_eq!(
+				transition(PhaseNodeKind::Middleware(MiddlewareKind::L4Bytes), cur),
+				Ok(Transition::PassThrough),
+			);
+		}
+	}
+
+	#[test]
+	fn upgrade_transitions_l4_peeked_to_l7_request() {
+		assert_eq!(
+			transition(PhaseNodeKind::Upgrade, Phase::L4Peeked),
+			Ok(Transition::Into(Phase::L7Request)),
+		);
+	}
+
+	#[test]
+	fn l7_request_middleware_stays_in_l7_request() {
+		assert_eq!(
+			transition(PhaseNodeKind::Middleware(MiddlewareKind::L7Request), Phase::L7Request),
+			Ok(Transition::Into(Phase::L7Request)),
+		);
+	}
+
+	#[test]
+	fn l7_response_middleware_stays_in_l7_response() {
+		assert_eq!(
+			transition(PhaseNodeKind::Middleware(MiddlewareKind::L7Response), Phase::L7Response),
+			Ok(Transition::Into(Phase::L7Response)),
+		);
+	}
+
+	#[test]
+	fn l4_forward_fetch_goes_to_tunnel_from_any_l4_phase() {
+		for cur in [Phase::L4Raw, Phase::L4Peeked] {
+			assert_eq!(
+				transition(PhaseNodeKind::Fetch(FetchKind::L4Forward), cur),
+				Ok(Transition::Into(Phase::Tunnel)),
+			);
+		}
+	}
+
+	#[test]
+	fn http_fetch_variants_go_to_l7_response() {
+		for f in [FetchKind::HttpProxy, FetchKind::HttpSynthesize] {
+			assert_eq!(
+				transition(PhaseNodeKind::Fetch(f), Phase::L7Request),
+				Ok(Transition::Into(Phase::L7Response)),
+			);
+		}
+	}
+
+	#[test]
+	fn websocket_fetch_is_bi_outcome() {
+		assert_eq!(
+			transition(PhaseNodeKind::Fetch(FetchKind::WebSocketUpgrade), Phase::L7Request),
+			Ok(Transition::BiOutcome { response: Phase::L7Response, tunnel: Phase::Tunnel }),
+		);
+	}
+
+	#[test]
+	fn write_http_response_is_terminal() {
+		assert_eq!(
+			transition(PhaseNodeKind::Terminate(Terminator::WriteHttpResponse), Phase::L7Response),
+			Ok(Transition::Terminal),
+		);
+	}
+
+	#[test]
+	fn byte_tunnel_is_terminal() {
+		assert_eq!(
+			transition(PhaseNodeKind::Terminate(Terminator::ByteTunnel), Phase::Tunnel),
+			Ok(Transition::Terminal),
+		);
+	}
+
+	#[test]
+	fn rejects_out_of_phase_attempts() {
+		let cases: &[(PhaseNodeKind, Phase)] = &[
+			(PhaseNodeKind::Upgrade, Phase::L4Raw),
+			(PhaseNodeKind::Upgrade, Phase::L7Request),
+			(PhaseNodeKind::Middleware(MiddlewareKind::L7Request), Phase::L4Raw),
+			(PhaseNodeKind::Middleware(MiddlewareKind::L7Response), Phase::L7Request),
+			(PhaseNodeKind::Fetch(FetchKind::HttpProxy), Phase::L7Response),
+			(PhaseNodeKind::Fetch(FetchKind::L4Forward), Phase::L7Request),
+			(PhaseNodeKind::Terminate(Terminator::WriteHttpResponse), Phase::Tunnel),
+			(PhaseNodeKind::Terminate(Terminator::ByteTunnel), Phase::L7Response),
+		];
+		for (kind, cur) in cases.iter().copied() {
+			let err = transition(kind, cur).expect_err("out-of-phase must error");
+			assert_eq!(err.got, cur);
+			assert_eq!(err.expected, accepted_in_phases(kind));
+		}
+	}
+}
