@@ -539,4 +539,29 @@ mod tests {
 		let encoded = serde_json::to_string(&meta).expect("serialize meta");
 		assert!(encoded.contains("version_hash"), "expected version_hash field in {encoded}");
 	}
+
+	#[test]
+	fn flow_graph_meta_round_trip_preserves_all_but_feature_set() {
+		// 02-flow.md § _FlowGraph metadata_: feature_set is a compile-time
+		// slice the daemon fills in at link and is NOT emitted to dry-run JSON.
+		// version_hash / compiled_at / source_files must round-trip.
+		use std::time::Duration;
+		let meta = FlowGraphMeta {
+			version_hash: [0x42; 32],
+			compiled_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
+			source_files: vec![PathBuf::from("/a.json"), PathBuf::from("/b.json")],
+			feature_set: &["h3", "wasm"],
+		};
+		let encoded = serde_json::to_string(&meta).expect("serialize meta");
+		assert!(
+			!encoded.contains("feature_set"),
+			"feature_set must be skipped in dry-run JSON, got: {encoded}",
+		);
+		let decoded: FlowGraphMeta = serde_json::from_str(&encoded).expect("deserialize meta");
+		assert_eq!(decoded.version_hash, meta.version_hash);
+		assert_eq!(decoded.compiled_at, meta.compiled_at);
+		assert_eq!(decoded.source_files, meta.source_files);
+		// feature_set is restored to the empty slice by #[serde(skip, default=...)].
+		assert!(decoded.feature_set.is_empty(), "feature_set must default to empty on deserialize");
+	}
 }

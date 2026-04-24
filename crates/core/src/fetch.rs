@@ -316,4 +316,19 @@ mod tests {
 			let _ = SymbolicFetchRef { kind, args: serde_json::Value::Null };
 		}
 	}
+
+	// Dry-run JSON wire-format contract: SymbolicFetchRef participates in
+	// the compiled-form JSON per 02-flow.md § _The compiled form_. Both the
+	// `kind` tag and the opaque `args` payload must round-trip.
+	#[test]
+	fn symbolic_fetch_ref_round_trip_preserves_kind_and_args() {
+		let r = SymbolicFetchRef {
+			kind: FetchKind::WebSocketUpgrade,
+			args: json!({ "upstream": "127.0.0.1:9000" }),
+		};
+		let encoded = serde_json::to_string(&r).expect("serialize");
+		let decoded: SymbolicFetchRef = serde_json::from_str(&encoded).expect("deserialize");
+		assert_eq!(decoded.kind, r.kind);
+		assert_eq!(decoded.args, r.args);
+	}
 }

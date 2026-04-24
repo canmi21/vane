@@ -310,4 +310,89 @@ mod tests {
 		// Running validate again on the returned graph must still succeed.
 		validate::validate(&graph).expect("re-validate");
 	}
+
+	#[test]
+	fn symbolic_flow_graph_round_trip_preserves_structure_and_revalidates() {
+		// Dry-run JSON contract (02-flow.md § _The compiled form_): a compiled
+		// SymbolicFlowGraph serializes to JSON and the result deserializes
+		// back to an equivalent graph that re-`validate()`s green. Slab
+		// contents and `entries` map key set must survive the round-trip.
+		use crate::ir::SymbolicFlowGraph;
+		let r = parse_rule(serde_json::json!({
+			"name": "proxy",
+			"listen": [":443"],
+			"middleware_chain": [{ "use": "forward_client_ip" }, { "use": "rate_limit", "args": { "rate": 100 } }],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+
+		let encoded = serde_json::to_string(&*graph).expect("serialize graph");
+		let decoded: SymbolicFlowGraph = serde_json::from_str(&encoded).expect("deserialize graph");
+
+		// Re-validate the decoded graph: the contract is that dry-run JSON
+		// is a ground-truth snapshot that the engine could rehydrate.
+		validate::validate(&decoded).expect("decoded graph revalidates");
+
+		// Slab lengths survive.
+		assert_eq!(decoded.nodes.len(), graph.nodes.len(), "nodes slab length");
+		assert_eq!(decoded.predicates.len(), graph.predicates.len(), "predicates slab length");
+		assert_eq!(decoded.middlewares.len(), graph.middlewares.len(), "middlewares slab length");
+		assert_eq!(decoded.fetches.len(), graph.fetches.len(), "fetches slab length");
+		assert_eq!(decoded.terminators.len(), graph.terminators.len(), "terminators slab length");
+
+		// `entries` key set (SocketAddr → NodeId) survives.
+		let orig_keys: std::collections::BTreeSet<_> = graph.entries.keys().copied().collect();
+		let dec_keys: std::collections::BTreeSet<_> = decoded.entries.keys().copied().collect();
+		assert_eq!(orig_keys, dec_keys, "entries key set must round-trip");
+
+		// PredicateInst / SymbolicMiddlewareRef / Terminator implement
+		// PartialEq; compare their slabs directly.
+		assert_eq!(decoded.predicates, graph.predicates, "predicates slab content");
+		assert_eq!(decoded.middlewares, graph.middlewares, "middlewares slab content");
+		assert_eq!(decoded.terminators, graph.terminators, "terminators slab content");
+
+		// `Node` does not implement PartialEq (by design — the enum holds
+		// id newtypes and Option<NodeId>s only). Compare node-by-node via
+		// variant destructuring to pin that the control-flow structure
+		// survived the round-trip.
+		for (i, (a, b)) in graph.nodes.iter().zip(decoded.nodes.iter()).enumerate() {
+			match (a, b) {
+				(
+					Node::Check { predicate: pa, on_match: ma, on_miss: sa, collect_body_before: ca },
+					Node::Check { predicate: pb, on_match: mb, on_miss: sb, collect_body_before: cb },
+				) => {
+					assert_eq!(pa, pb, "node[{i}] Check predicate");
+					assert_eq!(ma, mb, "node[{i}] Check on_match");
+					assert_eq!(sa, sb, "node[{i}] Check on_miss");
+					assert_eq!(ca, cb, "node[{i}] Check collect_body_before");
+				}
+				(
+					Node::Middleware { id: ia, next: na, on_error: ea, collect_body_before: ca },
+					Node::Middleware { id: ib, next: nb, on_error: eb, collect_body_before: cb },
+				) => {
+					assert_eq!(ia, ib, "node[{i}] Middleware id");
+					assert_eq!(na, nb, "node[{i}] Middleware next");
+					assert_eq!(ea, eb, "node[{i}] Middleware on_error");
+					assert_eq!(ca, cb, "node[{i}] Middleware collect_body_before");
+				}
+				(
+					Node::Fetch { id: ia, next_response: ra, next_tunnel: ta, collect_body_before: ca },
+					Node::Fetch { id: ib, next_response: rb, next_tunnel: tb, collect_body_before: cb },
+				) => {
+					assert_eq!(ia, ib, "node[{i}] Fetch id");
+					assert_eq!(ra, rb, "node[{i}] Fetch next_response");
+					assert_eq!(ta, tb, "node[{i}] Fetch next_tunnel");
+					assert_eq!(ca, cb, "node[{i}] Fetch collect_body_before");
+				}
+				(Node::Upgrade { next: a }, Node::Upgrade { next: b }) => {
+					assert_eq!(a, b, "node[{i}] Upgrade next");
+				}
+				(Node::Terminate(a), Node::Terminate(b)) => {
+					assert_eq!(a, b, "node[{i}] Terminate");
+				}
+				(a, b) => panic!("node[{i}] variant changed across round-trip: {a:?} -> {b:?}"),
+			}
+		}
+	}
 }

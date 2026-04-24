@@ -489,4 +489,51 @@ mod tests {
 		let b = sym_ref(json!({ "limit": 200 }));
 		assert_ne!(a, b);
 	}
+
+	// Dry-run JSON wire-format contract: SymbolicMiddlewareRef participates
+	// in the compiled-form JSON per 02-flow.md § _The compiled form_. The
+	// whole struct uses derive(Serialize/Deserialize); all fields round-trip.
+	// PartialEq uses canonical-json equality on `args`, so key-order
+	// perturbation must still compare equal after a round-trip.
+
+	#[test]
+	fn symbolic_middleware_ref_round_trip_preserves_all_fields() {
+		let m = SymbolicMiddlewareRef {
+			name: Arc::from("rate_limit"),
+			args: json!({ "rate": 100 }),
+			kind: MiddlewareKind::L7Request,
+			stateless: false,
+			needs_body: false,
+			on_error: Some(NodeId::new(5)),
+		};
+		let encoded = serde_json::to_string(&m).expect("serialize");
+		let decoded: SymbolicMiddlewareRef = serde_json::from_str(&encoded).expect("deserialize");
+		assert_eq!(decoded.name, m.name);
+		assert_eq!(decoded.kind, m.kind);
+		assert_eq!(decoded.stateless, m.stateless);
+		assert_eq!(decoded.needs_body, m.needs_body);
+		assert_eq!(decoded.on_error, m.on_error);
+		assert_eq!(decoded, m);
+	}
+
+	#[test]
+	fn symbolic_middleware_ref_round_trip_args_are_canonical_key_order_insensitive() {
+		// Build an args value whose serialized form has a deliberate key order.
+		let mut obj = serde_json::Map::new();
+		obj.insert("b".to_string(), json!(1));
+		obj.insert("a".to_string(), json!(2));
+		let m = SymbolicMiddlewareRef {
+			name: Arc::from("mw"),
+			args: serde_json::Value::Object(obj),
+			kind: MiddlewareKind::L7Request,
+			stateless: true,
+			needs_body: false,
+			on_error: None,
+		};
+		let encoded = serde_json::to_string(&m).expect("serialize");
+		let decoded: SymbolicMiddlewareRef = serde_json::from_str(&encoded).expect("deserialize");
+		// PartialEq on SymbolicMiddlewareRef uses canonical-json equality on args,
+		// so any post-round-trip key reshuffling remains == to the original.
+		assert_eq!(decoded, m);
+	}
 }

@@ -1005,4 +1005,171 @@ mod tests {
 			"error mentions the limit ({REGEX_PATTERN_MAX_BYTES}): {msg}",
 		);
 	}
+
+	// ──────────────────────────────────────────────────────────────────────
+	// Dry-run JSON wire-format contract (02-flow.md § _The compiled form_).
+	// The compiled IR round-trips through the shadow-enum convention
+	// documented in spec: externally-tagged snake_case for both `FieldPath`
+	// and `CompiledValue` / `CompiledOperator`, bytes as STANDARD base64,
+	// regex as the source string, CIDR as canonical form.
+	// ──────────────────────────────────────────────────────────────────────
+
+	fn value_round_trip(v: &CompiledValue) -> CompiledValue {
+		let encoded = serde_json::to_string(v).expect("serialize value");
+		serde_json::from_str(&encoded).expect("deserialize value")
+	}
+
+	#[test]
+	fn compiled_value_str_round_trip_including_empty() {
+		let non_empty = CompiledValue::Str(Arc::<str>::from("x"));
+		assert_eq!(value_round_trip(&non_empty), non_empty);
+		let empty = CompiledValue::Str(Arc::<str>::from(""));
+		assert_eq!(value_round_trip(&empty), empty);
+	}
+
+	#[test]
+	fn compiled_value_bytes_round_trip_including_empty_and_binary() {
+		let hello = CompiledValue::Bytes(Bytes::from_static(b"hello"));
+		assert_eq!(value_round_trip(&hello), hello);
+		let empty = CompiledValue::Bytes(Bytes::new());
+		assert_eq!(value_round_trip(&empty), empty);
+		let binary = CompiledValue::Bytes(Bytes::from_static(&[0xff, 0x00, 0x13]));
+		assert_eq!(value_round_trip(&binary), binary);
+	}
+
+	#[test]
+	fn compiled_value_int_round_trip_including_extremes() {
+		for i in [0_i64, i64::MIN, i64::MAX] {
+			let v = CompiledValue::Int(i);
+			assert_eq!(value_round_trip(&v), v);
+		}
+	}
+
+	#[test]
+	fn compiled_value_bool_round_trip_both_variants() {
+		for b in [true, false] {
+			let v = CompiledValue::Bool(b);
+			assert_eq!(value_round_trip(&v), v);
+		}
+	}
+
+	#[test]
+	fn compiled_value_addr_round_trip_v4_and_v6() {
+		let v4 = CompiledValue::Addr(Ipv4Addr::LOCALHOST.into());
+		assert_eq!(value_round_trip(&v4), v4);
+		let v6 = CompiledValue::Addr(Ipv6Addr::LOCALHOST.into());
+		assert_eq!(value_round_trip(&v6), v6);
+	}
+
+	#[test]
+	fn compiled_value_bytes_emits_standard_base64_literal() {
+		// STANDARD base64 ("hello" → "aGVsbG8="). Pins the alphabet choice per
+		// 02-flow.md § _The compiled form_ — a url-safe switch would break
+		// external dry-run consumers.
+		let v = CompiledValue::Bytes(Bytes::from_static(b"hello"));
+		let encoded = serde_json::to_string(&v).expect("serialize");
+		assert_eq!(encoded, r#"{"bytes":"aGVsbG8="}"#);
+	}
+
+	fn op_round_trip(op: &CompiledOperator) -> CompiledOperator {
+		let encoded = serde_json::to_string(op).expect("serialize op");
+		serde_json::from_str(&encoded).expect("deserialize op")
+	}
+
+	#[test]
+	fn compiled_operator_equals_and_not_equals_round_trip() {
+		let eq = CompiledOperator::Equals(CompiledValue::Str(Arc::<str>::from("x")));
+		assert_eq!(op_round_trip(&eq), eq);
+		let neq = CompiledOperator::NotEquals(CompiledValue::Str(Arc::<str>::from("x")));
+		assert_eq!(op_round_trip(&neq), neq);
+	}
+
+	#[test]
+	fn compiled_operator_bytes_variants_round_trip() {
+		let payload = Bytes::from_static(b"hello");
+		let ops = [
+			CompiledOperator::Contains(payload.clone()),
+			CompiledOperator::NotContains(payload.clone()),
+			CompiledOperator::Prefix(payload.clone()),
+			CompiledOperator::Suffix(payload),
+		];
+		for op in ops {
+			assert_eq!(op_round_trip(&op), op);
+		}
+	}
+
+	#[test]
+	fn compiled_operator_matches_round_trip_preserves_pattern_source() {
+		let op = CompiledOperator::Matches(Regex::new("^/api/v[0-9]+").expect("compile"));
+		let decoded = op_round_trip(&op);
+		// Regex equality is by source (see `CompiledOperator::eq` above).
+		assert_eq!(decoded, op);
+		match decoded {
+			CompiledOperator::Matches(r) => assert_eq!(r.as_str(), "^/api/v[0-9]+"),
+			other => panic!("expected matches, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn compiled_operator_in_and_not_in_round_trip_mixed_values() {
+		let xs = vec![CompiledValue::Str(Arc::<str>::from("a")), CompiledValue::Int(42)];
+		let in_op = CompiledOperator::In(xs.clone());
+		assert_eq!(op_round_trip(&in_op), in_op);
+		let not_in_op = CompiledOperator::NotIn(xs);
+		assert_eq!(op_round_trip(&not_in_op), not_in_op);
+	}
+
+	#[test]
+	fn compiled_operator_numeric_comparisons_round_trip() {
+		let ops = [
+			CompiledOperator::Gt(100),
+			CompiledOperator::Gte(100),
+			CompiledOperator::Lt(100),
+			CompiledOperator::Lte(100),
+		];
+		for op in ops {
+			assert_eq!(op_round_trip(&op), op);
+		}
+	}
+
+	#[test]
+	fn compiled_operator_cidr_round_trip_preserves_canonical_form() {
+		let op = CompiledOperator::Cidr(IpNet::from_str("10.0.0.0/8").expect("parse"));
+		assert_eq!(op_round_trip(&op), op);
+	}
+
+	#[test]
+	fn compiled_operator_matches_with_invalid_regex_is_rejected() {
+		// An unterminated character class is a classic invalid regex. The
+		// shadow-enum's custom error path surfaces the offending source in
+		// the error message so operators can locate the bad rule.
+		let raw = r#"{"matches":"["}"#;
+		let err = serde_json::from_str::<CompiledOperator>(raw)
+			.expect_err("invalid regex must fail to deserialize");
+		let msg = err.to_string();
+		assert!(msg.contains('['), "error mentions offending regex source: {msg}");
+	}
+
+	#[test]
+	fn predicate_inst_pins_exact_wire_shape_for_http_header_equals() {
+		let inst = PredicateInst {
+			path: FieldPath::HttpHeader(Arc::from("host")),
+			op: CompiledOperator::Equals(CompiledValue::Str(Arc::<str>::from("example.com"))),
+		};
+		let encoded = serde_json::to_string(&inst).expect("serialize");
+		assert_eq!(encoded, r#"{"path":{"http_header":"host"},"op":{"equals":{"str":"example.com"}}}"#,);
+		let decoded: PredicateInst = serde_json::from_str(&encoded).expect("deserialize");
+		assert_eq!(decoded, inst);
+	}
+
+	#[test]
+	fn predicate_inst_round_trip_with_regex_operator() {
+		let inst = PredicateInst {
+			path: FieldPath::HttpUriPath,
+			op: CompiledOperator::Matches(Regex::new("^/api").expect("compile")),
+		};
+		let encoded = serde_json::to_string(&inst).expect("serialize");
+		let decoded: PredicateInst = serde_json::from_str(&encoded).expect("deserialize");
+		assert_eq!(decoded, inst);
+	}
 }
