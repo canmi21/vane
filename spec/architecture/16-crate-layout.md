@@ -11,11 +11,13 @@ crates/
 ├── wasm/          vane-wasm         ── WASM plugin layer (wasmtime, Component Model, host fns)
 ├── mgmt/          vane-mgmt         ── management protocol (wire format, server, client)
 ├── testutil/      vane-testutil     ── dev-only test helpers
-├── vane/          vane              ── binary: CLI + TUI (client of mgmt)
+├── cli/           vane              ── binary: CLI + TUI (client of mgmt)
 └── daemon/        vaned             ── binary: daemon (ties everything together)
 
 tests/                               ── workspace-level integration tests
 ```
+
+Folder names describe each crate's **role**; `package.name` is the **published brand**. The two binary packages (`vane`, `vaned`) keep their short public names while living in functional folders (`cli/`, `daemon/`); the library packages keep the `vane-*` prefix that matches their folder name one-to-one.
 
 Directory names are short; crate names are `vane-*` prefixed (for clarity and eventual publishing).
 
