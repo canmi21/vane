@@ -26,7 +26,7 @@ Streaming verbs (`tail_flow_log`, `tail_log`) follow a minimal contract:
 - **Start** — client sends a POST (HTTP) or a request line (Unix). The daemon begins emitting `{"request_id": ..., "stream": {"seq": N, "data": ...}}` frames.
 - **Cancel** — client closes the TCP (or Unix) connection. No control-frame vocabulary; closing the transport is the cancellation signal. The daemon sees the close, drops its subscriber, and reclaims resources.
 - **Parameter changes** (filter, level, conn-id scope) — **not supported mid-stream**. The client cancels and issues a fresh request with the new args. Reconnection is cheap; the stream has no persistent server-side state beyond the subscriber binding.
-- **Back-pressure and overflow** — when the subscriber cannot keep up, the daemon drops events from that subscriber with a `{"stream": {"dropped": N, "reason": "backpressure"}}` frame and continues. Other subscribers are unaffected.
+- **Back-pressure and overflow** — implemented via `tokio::sync::broadcast` with a bounded channel per stream kind (flow log, structured log). Each subscriber holds its own `broadcast::Receiver`; when it cannot keep up, `Receiver::recv().await` returns `RecvError::Lagged(n)`, which the streamer converts to a `{"stream": {"dropped": N, "reason": "backpressure"}}` frame and continues. Other subscribers are unaffected. Channel capacity defaults: flow log 4096 events, structured log 1024 lines.
 
 This avoids a second protocol layer (WebSocket control frames, SSE event types) and keeps `vane` CLI clients trivial.
 
@@ -77,7 +77,9 @@ Concrete verb names are proposals. The categories are architectural.
 - `list_connections` — snapshot of live connections (remote, local, transport, age, bytes, current node).
 - `tail_flow_log` — stream flow-path events: `"conn X matched predicate Y at node Z, branched to A"`. One event per predicate evaluation or Terminator invocation.
 - `tail_log` — stream the structured log.
-- `get_metrics` — counter/gauge snapshot. The daemon's metrics backend is the [`metrics`](https://crates.io/crates/metrics) crate (facade), with `metrics-exporter-prometheus` recording into a registry. `get_metrics` accepts `format: "prometheus" | "json"` in its args; default `"prometheus"` returns the standard text exposition format suitable for scraping. All counters/gauges defined by vane (error totals, pool events, latency histograms, rate-limit hits, WASM pool events) go through the `metrics::counter!` / `metrics::gauge!` / `metrics::histogram!` macros — no bespoke facade.
+- `get_metrics` — counter/gauge snapshot. The daemon's metrics backend is the [`metrics`](https://crates.io/crates/metrics) crate (facade), with `metrics-exporter-prometheus` recording into a registry exposed via `PrometheusHandle::render()`. `get_metrics` accepts `format: "prometheus" | "json"` in its args; default `"prometheus"` returns the standard text exposition format suitable for scraping. All counters/gauges defined by vane (error totals, pool events, latency histograms, rate-limit hits, WASM pool events) go through the `metrics::counter!` / `metrics::gauge!` / `metrics::histogram!` macros — no bespoke facade.
+
+  **Exposure trade-off**: exposing metrics through the management verb means Prometheus scrapers must authenticate (bearer token on HTTP transport, file-permission boundary on Unix). The standard Prometheus scrape pattern (`GET /metrics` unauthenticated on a dedicated port) is intentionally **not** the default — vane treats metrics as privileged information. Operators who want a scrape-friendly endpoint can bridge via `curl -H "Authorization: Bearer $TOKEN" https://...` piped to a sidecar. A dedicated `VANE_METRICS_HTTP_BIND` is reserved for post-MVP if the scrape-first workflow becomes common.
 
 ### Runtime
 

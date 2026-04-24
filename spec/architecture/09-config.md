@@ -140,7 +140,7 @@ The merge is deterministic and reproducible across machines.
 
 ## Reload
 
-1. File watcher (`notify` crate) observes `/etc/vaned/` recursively.
+1. File watcher (`notify` 6.x + `notify-debouncer-full` 0.3+) observes `/etc/vaned/` recursively. Raw `notify` emits multiple events per editor save on many filesystems (write → rename → chmod); the debouncer collapses a burst into one event. Debounce timeout defaults to **250 ms** (≥ the filesystem's atomic-write tolerance; raise for slow NFS). A batch touching multiple files in one burst merges into a single reload because merge reads the whole directory every time.
 2. Any change triggers re-merge + re-compile.
 3. On success: `ArcSwap` replaces the active FlowGraph. In-flight connections keep the old graph. Old graph drops when its last `Arc` releases.
 4. On failure: error logged to stderr/journal and surfaced via management API. Active FlowGraph unchanged.

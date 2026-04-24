@@ -32,7 +32,7 @@ Listener :443 (HTTPS)     client-TLS→plain  end-to-end TLS verified end-to-end
 
 ### SNI peek (L4)
 
-A built-in L4 middleware reads the ClientHello from the peek buffer and populates `ctx.tls.sni` and `ctx.tls.alpn` **without decrypting**. Uses `rustls`'s low-level parsing APIs; no handshake.
+A built-in L4 middleware reads the ClientHello from the peek buffer and populates `ctx.tls.sni` and `ctx.tls.alpn` **without decrypting**. Uses [`rustls::server::Acceptor`](https://docs.rs/rustls/latest/rustls/server/struct.Acceptor.html): feed bytes via `read_tls`, call `accept()` to get an `Accepted` that exposes `client_hello() -> ClientHello<'_>`. No handshake yet — on the L4 routing path we **abort** here (drop the `Accepted`); on the TLS termination path (see below) we **continue** via `Accepted::into_connection(config)` to start the handshake. Same `Acceptor` serves both roles.
 
 Once populated, L4 predicates match on `tls.sni`, enabling SNI-based L4 forward to different upstreams per tenant — the standard pattern for TLS-passthrough load balancing.
 
@@ -125,7 +125,7 @@ The architecture supports **multiple populators simultaneously** — public-faci
 Built-in implementations:
 
 - **`StaticCertPopulator`** — loads cert/key files from configured paths. Optional OCSP response file paths, or optional OCSP fetch from the cert's AIA URL on refresh.
-- **`ManagedCertPopulator`** (integrated LazyCert) — ACME / Let's Encrypt automatic issuance and renewal. OCSP fetched from the cert's AIA URL automatically.
+- **`ManagedCertPopulator`** (integrated LazyCert) — ACME / Let's Encrypt automatic issuance and renewal via [`instant-acme`](https://crates.io/crates/instant-acme) (pure-Rust RFC 8555 client, rustls-compatible). OCSP fetched from the cert's AIA URL automatically. See "ACME challenge modes" below for DNS-01 / HTTP-01 handling.
 
 `refresh()` runs periodically (default: every 5 minutes). Each populator decides what is stale — near-expiry cert, expired OCSP response. If stale, return a new `CertStore` for `ArcSwap` to install.
 
@@ -302,6 +302,30 @@ These features have architectural positions defined above; MVP implementation or
 - **Session ticket rotation** — `TicketKeyManager` designed; rotation task post-MVP. MVP uses rustls's default static ticket key per daemon.
 - **TLS 1.3 0-RTT** — config flags and runtime check designed; rustls early-data wiring post-MVP. MVP ships with `enable_0rtt: false` hardcoded.
 - **mTLS on listener** — `ClientAuth` enum and `ClientTrustStore` defined; MVP ships `ClientAuth::None` only; `Request` / `Require` post-MVP.
-- **`ManagedCertPopulator` (integrated LazyCert)** — trait defined; MVP ships only `StaticCertPopulator`. ACME integration post-MVP.
+- **`ManagedCertPopulator` (integrated LazyCert)** — trait defined; MVP ships only `StaticCertPopulator`. ACME integration post-MVP (Stage 3) via `instant-acme`.
+
+## ACME challenge modes
+
+`ManagedCertPopulator` supports both RFC 8555 challenge modes:
+
+### HTTP-01
+
+For public-facing domains on port 80. `vaned` listens on `:80` and serves the `/well-known/acme-challenge/<token>` path via an internal synthetic responder during issuance; the response flows through the normal `HttpSynthesize` fetch path so it is visible in flow logs and subject to L1 security floor like any other traffic. No extra port bind.
+
+**Local testing**: [Pebble](https://github.com/letsencrypt/pebble) — Let's Encrypt's official test ACME server — via the `testcontainers` crate. `vane-testutil::pebble()` spins up `letsencrypt/pebble` on a free port, points the `ManagedCertPopulator` at it (via a `directory_url` config override), runs the HTTP-01 dance end-to-end. Integration tests for HTTP-01 live in `tests/engine_acme_http01.rs`.
+
+### DNS-01
+
+For domains where port 80 is unreachable or for wildcard certs. Requires a DNS provider API to create `_acme-challenge.<domain>` TXT records. DNS-01 is gated behind per-provider Cargo features:
+
+| Feature               | Default | Provider           |
+| --------------------- | ------- | ------------------ |
+| `acme-dns-cloudflare` | off     | Cloudflare DNS API |
+
+Additional providers (Route53, DigitalOcean, etc.) land as new features post-MVP — each is a separate `#[cfg(feature = "...")]`-gated module implementing a `DnsProvider` trait (create / delete TXT record, wait for propagation).
+
+**Local testing**: a mock DNS server via [`hickory-server`](https://crates.io/crates/hickory-server) + Pebble pointed at it as its resolver. `vane-testutil::mock_dns()` returns a handle that exposes an API matching the internal `DnsProvider` trait — tests assert the populator requested the right TXT record, the mock serves it, Pebble's challenge validation sees it, issuance completes. Integration tests in `tests/engine_acme_dns01.rs`, gated behind the provider feature they exercise.
+
+Real Cloudflare testing is `#[ignore]`'d by default (requires a real zone + API token); CI runs it on-demand via an opt-in flag.
 
 All of the above can be added without refactoring — interfaces and data structures are in place today.

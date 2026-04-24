@@ -169,7 +169,17 @@ Key design points:
 
 - **Full body, non-streaming**. Streaming inside a plugin is too complex for the `http-fetch` use case (request-response for decisions). `max-body-size` default: 1 MiB request, 1 MiB response, per-plugin configurable.
 - **Failures are typed, not traps**. Plugin handles via `Result` matching — decide to fallback, retry, cache, or fail. Traps are reserved for panic-level plugin bugs.
-- **Shares the daemon's TcpPool** — same fingerprint, same pool, same observability as Fetch upstreams.
+- **Shares the daemon's TcpPool** — same fingerprint, same pool, same observability as Fetch upstreams. Cross-crate wiring goes through a trait defined in `vane-core` so `vane-wasm` does not depend on `vane-engine`:
+
+  ```rust
+  // vane-core
+  #[trait_variant::make(HttpFetchBackend: Send)]
+  pub trait HttpFetchBackendLocal {
+      async fn fetch(&self, req: Request, limits: HttpFetchLimits) -> Result<Response, Error>;
+  }
+  ```
+
+  `vane-engine` provides the concrete impl wrapping `TcpPool`; `vaned`'s startup injects an `Arc<dyn HttpFetchBackend>` into `WasmtimeRuntime` before loading any plugins. Tests substitute a mock backend for isolated `http-fetch` verification.
 - **Default ClientConfig** uses System trust CAs. Per-plugin override: custom CA bundle, mTLS client cert, `VerifyMode`.
 - **`allowed_hosts`** per plugin config; default `["*"]` (no restriction). Narrow as needed (e.g., `["auth.example.com", "*.internal"]`); requests outside the list return `not-allowed`.
 - **Rate limiting** per plugin is architected (daemon-level token bucket keyed by plugin name) but deferred to post-MVP.

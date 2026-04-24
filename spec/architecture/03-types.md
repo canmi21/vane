@@ -197,7 +197,10 @@ L4 connections never construct `http::Request`. L4 middleware operates on `L4Con
 ## Per-connection context: `ConnContext`
 
 ```rust
+pub struct ConnId(pub u64);                 // monotonic, assigned at accept; used in flow log + list_connections
+
 pub struct ConnContext {
+    pub id:         ConnId,
     pub remote:     std::net::SocketAddr,
     pub local:      std::net::SocketAddr,
     pub transport:  Transport,

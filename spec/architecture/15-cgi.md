@@ -6,15 +6,23 @@ CGI is the sole non-socket-based upstream. Every request fork-execs a new proces
 
 Per spec, CGI is inherently per-request fork-exec. "Pooling" would require a different protocol (FastCGI, SCGI, WSGI) — explicitly out of scope.
 
-Each `Fetch::HttpProxy { upstream: HttpUpstream::Cgi { ... } }` invocation:
+Each `Fetch::HttpProxy { upstream: HttpUpstream::Cgi { ... } }` invocation uses `tokio::process::Command` configured with:
 
-1. `fork` child
-2. In child: set env vars, working directory, uid/gid, rlimits
-3. `exec` binary
-4. Parent writes request body → child stdin; closes stdin on EOF
-5. Parent reads child stdout; parses as RFC 3875 response
-6. Wait for child exit; collect exit code
-7. Clean up fds
+- `env_clear()` then `envs(computed_rfc3875_vars)` — no daemon env inherited.
+- `current_dir(working_dir)`.
+- `stdin(Stdio::piped())`, `stdout(Stdio::piped())`, `stderr(Stdio::piped())`.
+- [`std::os::unix::process::CommandExt::pre_exec`](https://doc.rust-lang.org/std/os/unix/process/trait.CommandExt.html) — a closure that runs **after `fork`, before `exec`** in the child process. The closure issues the async-signal-safe syscalls: `setgid`, `setuid`, `setrlimit` for each configured rlimit, optional `chroot`. Errors in the closure are returned as `io::Error` to the parent side of `spawn()`.
+- `spawn()` then await the child's exit.
+
+Steps end-to-end:
+
+1. `spawn()` → kernel `fork` + pre_exec closure runs in child + `exec` binary.
+2. Parent writes request body → child stdin; closes stdin on EOF.
+3. Parent reads child stdout; parses as RFC 3875 response.
+4. Wait for child exit; collect exit code.
+5. Clean up fds.
+
+`pre_exec` requires `unsafe`. The workspace lints forbid `unsafe_code` by default (`16-crate-layout.md`), so the CGI module carries a reviewed `#[allow(unsafe_code)]` with a comment documenting the async-signal-safety discipline of the closure body — **no allocations, no mutex locks, no file I/O beyond the listed syscalls**. Commit metadata records the auditor.
 
 Cost is real — fork + exec is ~1 ms on Linux, plus the binary's own startup (tens of ms for Python / Ruby). Users opt into CGI deliberately (legacy integration, small scripts), accepting the per-request cost.
 

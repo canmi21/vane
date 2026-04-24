@@ -38,7 +38,7 @@ Owns:
 - `WasmRuntime` trait (implementation lives in `vane-wasm`).
 - `FlowCtx`, `PredicateView`.
 
-Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`, `fancy-regex`, `ipnet`.
+Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`, `trait-variant`, `fancy-regex`, `ipnet`, `sha2` (for the SHA-256 `FlowGraphMeta::version_hash`).
 
 No async runtime dependency. No network stack. No TLS. No WASM. `vane lint` / `vane compile --dry-run` link only this crate and serialize its `SymbolicFlowGraph` output — neither needs hyper, rustls, wasmtime, or tokio. Minimal foot-gun surface; this crate should build in <5 seconds cold on a developer laptop.
 
@@ -62,7 +62,7 @@ Owns:
 - DNS: `hickory-resolver` integration.
 - `ArcSwap<FlowGraph>` holds the **linked** graph — that is the one accept loops and the executor read.
 
-Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `h3`, `quinn`, `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` (for file watcher), `metrics` + `metrics-exporter-prometheus`.
+Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `hyper-rustls`, `h3`, `h3-quinn`, `quinn`, `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` + `notify-debouncer-full` (file watcher with debounce), `metrics` + `metrics-exporter-prometheus`, `instant-acme` (gated behind the `acme` feature; `acme-dns-cloudflare` feature pulls the Cloudflare DNS-01 module), `rand` (for session-ticket keys and similar), `libc` (for the CGI `pre_exec` closure's `setuid` / `setgid` / `setrlimit` syscalls, gated behind the `cgi` feature).
 
 ### `vane-wasm`
 
@@ -89,7 +89,7 @@ Owns:
 - `server` module: mounts onto a Unix socket or HTTP-over-TCP; `vaned` uses it.
 - `client` module: typed client against the same verb set; `vane` CLI/TUI uses it.
 
-Dependencies: `vane-core` + `tokio`, `hyper` (for HTTP transport), `serde_json`, `tokio-tungstenite` if streaming needs it (probably not — NDJSON over chunked works).
+Dependencies: `vane-core` + `tokio`, `hyper` (for HTTP transport), `serde_json`. **NDJSON over chunked is the chosen streaming mechanism** — `tokio-tungstenite` is deliberately not a dependency anywhere in the workspace (flagging so reviewers catch accidental imports).
 
 ### `vane-testutil`
 
@@ -101,9 +101,10 @@ Owns:
 - Free port allocator.
 - Tracing init for tests (captures to an in-memory sink).
 - `build_flow(rules)` helper that constructs `FlowGraph` for unit testing without disk I/O.
-- Fixture certs (self-signed; for TLS test paths).
+- Fixture certs (self-signed; for TLS test paths). Generated at **test runtime** by `rcgen` (pure-Rust X.509); bytes are never committed to the repo, so expiry-flake is structurally impossible. Each test's tmpdir gets a fresh CA + leaf.
+- ACME test plumbing: `pebble()` spawns `letsencrypt/pebble` via `testcontainers` for HTTP-01 live tests; `mock_dns()` returns a `hickory-server`-backed in-process DNS mock for DNS-01 live tests. See `spec/architecture/08-tls.md` § _ACME challenge modes_.
 
-Dependencies: `vane-core`, `tokio`, `hyper`, `rustls`.
+Dependencies: `vane-core`, `tokio`, `hyper`, `rustls`, `rcgen`, `testcontainers`, `hickory-server`, `assert_cmd`, `predicates`.
 
 Only used in `[dev-dependencies]` — never enters release build.
 

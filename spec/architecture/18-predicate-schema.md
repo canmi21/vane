@@ -224,7 +224,7 @@ The `Value` serde enum's `untagged` representation auto-infers from JSON type (s
 
 Matched at compile time using `fancy-regex`. Safeguards applied at **compile time** (before the pattern reaches the runtime):
 
-- **Pattern size limit** — compiled NFA ≤ 10 KiB. Rejects pathological patterns early.
+- **Pattern source size limit** — regex pattern string ≤ 4 KiB. `fancy-regex` does not expose the compiled NFA size directly, so we bound the input instead of the compiled artifact; patterns that need more than 4 KiB of source are almost certainly adversarial or misdesigned. Rejected at compile with the rule file + line.
 - **Backtrack step limit** — every `Regex` is constructed with `set_backtrack_limit(1_000_000)` so malformed input cannot consume unbounded CPU at runtime. Patterns not using lookaround / backreferences are delegated to the `regex` crate internally and have no backtracking.
 
 Compile errors on bad patterns name both the rule file and the offending operator:
