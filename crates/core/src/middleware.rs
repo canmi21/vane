@@ -83,7 +83,7 @@ pub enum MiddlewareKind {
 	L7Response,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SymbolicMiddlewareRef {
 	pub name: Arc<str>,
 	pub args: serde_json::Value,

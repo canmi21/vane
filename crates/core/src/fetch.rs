@@ -66,7 +66,7 @@ pub struct FetchOutputModes {
 	pub tunnel: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SymbolicFetchRef {
 	pub kind: FetchKind,
 	pub args: serde_json::Value,

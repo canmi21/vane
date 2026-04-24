@@ -9,6 +9,7 @@ use crate::body::Request;
 use crate::conn_context::ConnContext;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FieldPath {
 	Transport,
 	RemoteIp,
@@ -120,7 +121,7 @@ impl Hash for CompiledOperator {
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PredicateInst {
 	pub path: FieldPath,
 	pub op: CompiledOperator,
@@ -294,6 +295,172 @@ fn validate_operator(op: &Operator) -> Result<(), String> {
 		));
 	}
 	Ok(())
+}
+
+mod serde_impls {
+	use base64::Engine as _;
+	use base64::engine::general_purpose::STANDARD as B64;
+	use bytes::Bytes;
+	use std::net::IpAddr;
+	use std::sync::Arc;
+
+	use super::{CompiledOperator, CompiledValue};
+
+	pub(super) fn ser_bytes<S: serde::Serializer>(b: &Bytes, s: S) -> Result<S::Ok, S::Error> {
+		s.serialize_str(&B64.encode(b))
+	}
+
+	pub(super) fn de_bytes<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Bytes, D::Error> {
+		use serde::Deserialize as _;
+		let s = String::deserialize(d)?;
+		B64.decode(s.as_bytes()).map(Bytes::from).map_err(serde::de::Error::custom)
+	}
+
+	pub(super) fn ser_regex<S: serde::Serializer>(
+		r: &fancy_regex::Regex,
+		s: S,
+	) -> Result<S::Ok, S::Error> {
+		s.serialize_str(r.as_str())
+	}
+
+	pub(super) fn de_regex<'de, D: serde::Deserializer<'de>>(
+		d: D,
+	) -> Result<fancy_regex::Regex, D::Error> {
+		use serde::Deserialize as _;
+		let s = String::deserialize(d)?;
+		fancy_regex::Regex::new(&s)
+			.map_err(|e| serde::de::Error::custom(format!("invalid regex {s:?}: {e}")))
+	}
+
+	// Shadow for CompiledValue — externally-tagged snake_case.
+	#[derive(serde::Serialize, serde::Deserialize)]
+	#[serde(rename_all = "snake_case")]
+	pub(super) enum ValueShadow {
+		Str(Arc<str>),
+		#[serde(serialize_with = "ser_bytes", deserialize_with = "de_bytes")]
+		Bytes(Bytes),
+		Int(i64),
+		Bool(bool),
+		Addr(IpAddr),
+	}
+
+	impl From<&CompiledValue> for ValueShadow {
+		fn from(v: &CompiledValue) -> Self {
+			match v {
+				CompiledValue::Str(s) => Self::Str(Arc::clone(s)),
+				CompiledValue::Bytes(b) => Self::Bytes(b.clone()),
+				CompiledValue::Int(i) => Self::Int(*i),
+				CompiledValue::Bool(b) => Self::Bool(*b),
+				CompiledValue::Addr(a) => Self::Addr(*a),
+			}
+		}
+	}
+
+	impl From<ValueShadow> for CompiledValue {
+		fn from(v: ValueShadow) -> Self {
+			match v {
+				ValueShadow::Str(s) => Self::Str(s),
+				ValueShadow::Bytes(b) => Self::Bytes(b),
+				ValueShadow::Int(i) => Self::Int(i),
+				ValueShadow::Bool(b) => Self::Bool(b),
+				ValueShadow::Addr(a) => Self::Addr(a),
+			}
+		}
+	}
+
+	// Shadow for CompiledOperator — variant names mirror parse-form Operator
+	// (snake_case), so round-tripping a dry-run JSON preserves reader intuition.
+	#[derive(serde::Serialize, serde::Deserialize)]
+	#[serde(rename_all = "snake_case")]
+	pub(super) enum OperatorShadow {
+		Equals(CompiledValue),
+		NotEquals(CompiledValue),
+		#[serde(serialize_with = "ser_bytes", deserialize_with = "de_bytes")]
+		Contains(Bytes),
+		#[serde(serialize_with = "ser_bytes", deserialize_with = "de_bytes")]
+		NotContains(Bytes),
+		#[serde(serialize_with = "ser_bytes", deserialize_with = "de_bytes")]
+		Prefix(Bytes),
+		#[serde(serialize_with = "ser_bytes", deserialize_with = "de_bytes")]
+		Suffix(Bytes),
+		#[serde(serialize_with = "ser_regex", deserialize_with = "de_regex")]
+		Matches(fancy_regex::Regex),
+		In(Vec<CompiledValue>),
+		NotIn(Vec<CompiledValue>),
+		Gt(i64),
+		Gte(i64),
+		Lt(i64),
+		Lte(i64),
+		Cidr(ipnet::IpNet),
+	}
+
+	impl From<&CompiledOperator> for OperatorShadow {
+		fn from(op: &CompiledOperator) -> Self {
+			match op {
+				CompiledOperator::Equals(v) => Self::Equals(v.clone()),
+				CompiledOperator::NotEquals(v) => Self::NotEquals(v.clone()),
+				CompiledOperator::Contains(b) => Self::Contains(b.clone()),
+				CompiledOperator::NotContains(b) => Self::NotContains(b.clone()),
+				CompiledOperator::Prefix(b) => Self::Prefix(b.clone()),
+				CompiledOperator::Suffix(b) => Self::Suffix(b.clone()),
+				CompiledOperator::Matches(r) => {
+					Self::Matches(fancy_regex::Regex::new(r.as_str()).expect("round-trippable"))
+				}
+				CompiledOperator::In(vs) => Self::In(vs.clone()),
+				CompiledOperator::NotIn(vs) => Self::NotIn(vs.clone()),
+				CompiledOperator::Gt(i) => Self::Gt(*i),
+				CompiledOperator::Gte(i) => Self::Gte(*i),
+				CompiledOperator::Lt(i) => Self::Lt(*i),
+				CompiledOperator::Lte(i) => Self::Lte(*i),
+				CompiledOperator::Cidr(n) => Self::Cidr(*n),
+			}
+		}
+	}
+
+	impl From<OperatorShadow> for CompiledOperator {
+		fn from(op: OperatorShadow) -> Self {
+			match op {
+				OperatorShadow::Equals(v) => Self::Equals(v),
+				OperatorShadow::NotEquals(v) => Self::NotEquals(v),
+				OperatorShadow::Contains(b) => Self::Contains(b),
+				OperatorShadow::NotContains(b) => Self::NotContains(b),
+				OperatorShadow::Prefix(b) => Self::Prefix(b),
+				OperatorShadow::Suffix(b) => Self::Suffix(b),
+				OperatorShadow::Matches(r) => Self::Matches(r),
+				OperatorShadow::In(vs) => Self::In(vs),
+				OperatorShadow::NotIn(vs) => Self::NotIn(vs),
+				OperatorShadow::Gt(i) => Self::Gt(i),
+				OperatorShadow::Gte(i) => Self::Gte(i),
+				OperatorShadow::Lt(i) => Self::Lt(i),
+				OperatorShadow::Lte(i) => Self::Lte(i),
+				OperatorShadow::Cidr(n) => Self::Cidr(n),
+			}
+		}
+	}
+}
+
+impl serde::Serialize for CompiledValue {
+	fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+		serde_impls::ValueShadow::from(self).serialize(s)
+	}
+}
+
+impl<'de> serde::Deserialize<'de> for CompiledValue {
+	fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		serde_impls::ValueShadow::deserialize(d).map(Self::from)
+	}
+}
+
+impl serde::Serialize for CompiledOperator {
+	fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+		serde_impls::OperatorShadow::from(self).serialize(s)
+	}
+}
+
+impl<'de> serde::Deserialize<'de> for CompiledOperator {
+	fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		serde_impls::OperatorShadow::deserialize(d).map(Self::from)
+	}
 }
 
 #[cfg(test)]

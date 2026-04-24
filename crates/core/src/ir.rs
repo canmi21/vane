@@ -79,20 +79,23 @@ impl Node {
 	}
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FlowGraphMeta {
 	pub version_hash: [u8; 32],
 	pub compiled_at: SystemTime,
 	pub source_files: Vec<PathBuf>,
+	// `feature_set` is a compile-time slice the daemon fills in at link, not
+	// a user-authored value; dry-run JSON omits it and deserialization
+	// restores the empty slice. Engine's link step installs the real value.
+	#[serde(skip, default = "empty_feature_set")]
 	pub feature_set: &'static [&'static str],
 }
 
-// Full `serde::Serialize` on `SymbolicFlowGraph` lands with `vane compile
-// --dry-run` (S1-32). It requires wiring Serialize through `PredicateInst` /
-// `CompiledOperator::Matches(fancy_regex::Regex)` / `CompiledValue::Bytes`,
-// which are non-trivial. This chunk builds the struct; serialization comes
-// when the CLI needs it.
-#[derive(Clone, Debug)]
+const fn empty_feature_set() -> &'static [&'static str] {
+	&[]
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SymbolicFlowGraph {
 	pub nodes: Vec<Node>,
 	pub predicates: Vec<PredicateInst>,

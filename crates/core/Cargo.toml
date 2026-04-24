@@ -13,11 +13,12 @@ workspace = true
 [dependencies]
 arc-swap = "1.9.1"
 async-trait = { workspace = true }
+base64 = "0.22"
 bytes = "1.11.1"
 fancy-regex = "0.18.0"
 http = "1.4.0"
 http-body = "1.0.1"
-ipnet = "2.12.0"
+ipnet = { version = "2.12.0", features = ["serde"] }
 parking_lot = "0.12.5"
 rustls-pki-types = "1"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
