@@ -4,6 +4,7 @@
 
 pub mod compile;
 pub mod error;
+pub use error::*;
 pub mod fetch;
 pub mod ir;
 pub mod metadata;
