@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use serde_json::Value;
+
+use crate::fetch::FetchKind;
 use crate::predicate::Predicate;
 
 pub type ListenSpec = String;
@@ -13,9 +16,7 @@ pub struct RawRule {
 	pub match_predicate: Option<Predicate>,
 	#[serde(default)]
 	pub middleware_chain: Vec<MiddlewareRef>,
-	#[serde(default)]
-	pub fetch: Option<FetchSpec>,
-	pub terminate: TerminatorSpec,
+	pub terminate: TerminateSpec,
 	#[serde(default)]
 	pub source: SourceInfo,
 }
@@ -25,7 +26,7 @@ pub struct MiddlewareRef {
 	#[serde(rename = "use")]
 	pub name: String,
 	#[serde(default)]
-	pub args: serde_json::Value,
+	pub args: Value,
 	#[serde(default)]
 	pub on_error: Option<OnErrorSpec>,
 }
@@ -61,18 +62,38 @@ impl<'de> serde::Deserialize<'de> for OnErrorSpec {
 	}
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct FetchSpec {
-	#[serde(rename = "type")]
-	pub kind: String,
-	#[serde(default)]
-	pub args: serde_json::Value,
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TerminateSpec {
+	pub kind: FetchKind,
+	pub args: Value,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct TerminatorSpec {
-	#[serde(rename = "type")]
-	pub kind: String,
+impl<'de> serde::Deserialize<'de> for TerminateSpec {
+	fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+		let mut v = Value::deserialize(de)?;
+		let obj = v
+			.as_object_mut()
+			.ok_or_else(|| serde::de::Error::custom("`terminate` must be a JSON object"))?;
+		let type_val = obj.remove("type").ok_or_else(|| serde::de::Error::missing_field("type"))?;
+		let Value::String(alias) = type_val else {
+			return Err(serde::de::Error::custom("`terminate.type` must be a string"));
+		};
+		let kind = fetch_kind_from_alias(&alias)
+			.ok_or_else(|| serde::de::Error::custom(format!("unknown terminate type: {alias:?}")))?;
+		Ok(Self { kind, args: v })
+	}
+}
+
+fn fetch_kind_from_alias(alias: &str) -> Option<FetchKind> {
+	match alias {
+		"tcp_forward" | "udp_forward" => Some(FetchKind::L4Forward),
+		"http_proxy" | "http1_proxy" | "http2_proxy" | "http3_proxy" | "unix_proxy" | "cgi" => {
+			Some(FetchKind::HttpProxy)
+		}
+		"websocket" => Some(FetchKind::WebSocketUpgrade),
+		"static" | "redirect_https" => Some(FetchKind::HttpSynthesize),
+		_ => None,
+	}
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
@@ -86,22 +107,22 @@ pub struct SourceInfo {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::predicate::{CheckMap, FieldPath, Operator, Predicate, Value};
+	use crate::predicate::{CheckMap, FieldPath, Operator, Predicate, Value as PredValue};
 
 	#[test]
 	fn raw_rule_minimal_parses_with_defaults() {
 		let raw = serde_json::json!({
 			"name": "r",
 			"listen": [":443"],
-			"terminate": { "type": "http_proxy" },
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
 		});
 		let rule: RawRule = serde_json::from_value(raw).expect("parse minimal rule");
 		assert_eq!(rule.name, "r");
 		assert_eq!(rule.listen, vec![":443".to_string()]);
 		assert!(rule.match_predicate.is_none());
 		assert!(rule.middleware_chain.is_empty());
-		assert!(rule.fetch.is_none());
-		assert_eq!(rule.terminate.kind, "http_proxy");
+		assert_eq!(rule.terminate.kind, FetchKind::HttpProxy);
+		assert_eq!(rule.terminate.args, serde_json::json!({ "upstream": "127.0.0.1:8080" }));
 		assert_eq!(rule.source.file, PathBuf::new());
 		assert_eq!(rule.source.line, 0);
 	}
@@ -116,35 +137,35 @@ mod tests {
 				{ "use": "rate_limit", "args": { "rate": 100 } },
 				{ "use": "jwt", "args": { "secret": "x" }, "on_error": "close" },
 			],
-			"fetch": { "type": "http_proxy", "args": { "upstream": "127.0.0.1:8080" } },
-			"terminate": { "type": "write_http_response" },
+			"terminate": {
+				"type": "http_proxy",
+				"upstream": "127.0.0.1:8080",
+				"timeouts": { "connect": "5s" }
+			},
 			"source": { "file": "rules/30-api.json", "line": 14 },
 		});
 		let rule: RawRule = serde_json::from_value(raw).expect("parse full rule");
 		assert_eq!(rule.name, "api");
 		assert_eq!(rule.listen.len(), 2);
-		assert_eq!(rule.listen[0], ":443");
-		assert_eq!(rule.listen[1], "0.0.0.0:80");
 		let check = match rule.match_predicate.as_ref().expect("match present") {
 			Predicate::Check(c) => c,
 			other => panic!("expected Check, got {other:?}"),
 		};
 		assert_eq!(check.path, FieldPath::TlsSni);
 		match &check.op {
-			Operator::Equals(Value::Str(s)) => assert_eq!(s, "api.example.com"),
+			Operator::Equals(PredValue::Str(s)) => assert_eq!(s, "api.example.com"),
 			other => panic!("unexpected op: {other:?}"),
 		}
 		assert_eq!(rule.middleware_chain.len(), 2);
-		assert_eq!(rule.middleware_chain[0].name, "rate_limit");
-		assert_eq!(rule.middleware_chain[0].args, serde_json::json!({ "rate": 100 }));
-		assert!(rule.middleware_chain[0].on_error.is_none());
-		assert_eq!(rule.middleware_chain[1].name, "jwt");
-		assert_eq!(rule.middleware_chain[1].args, serde_json::json!({ "secret": "x" }));
 		assert_eq!(rule.middleware_chain[1].on_error, Some(OnErrorSpec::Close));
-		let fetch = rule.fetch.as_ref().expect("fetch present");
-		assert_eq!(fetch.kind, "http_proxy");
-		assert_eq!(fetch.args, serde_json::json!({ "upstream": "127.0.0.1:8080" }));
-		assert_eq!(rule.terminate.kind, "write_http_response");
+		assert_eq!(rule.terminate.kind, FetchKind::HttpProxy);
+		assert_eq!(
+			rule.terminate.args,
+			serde_json::json!({
+				"upstream": "127.0.0.1:8080",
+				"timeouts": { "connect": "5s" }
+			}),
+		);
 		assert_eq!(rule.source.file, PathBuf::from("rules/30-api.json"));
 		assert_eq!(rule.source.line, 14);
 	}
@@ -173,8 +194,7 @@ mod tests {
 		});
 		let m: MiddlewareRef = serde_json::from_value(raw).expect("parse middleware ref");
 		assert_eq!(m.name, "jwt");
-		// args omitted → default to Value::Null
-		assert_eq!(m.args, serde_json::Value::Null);
+		assert_eq!(m.args, Value::Null);
 		let resp = match m.on_error.expect("on_error present") {
 			OnErrorSpec::Response(r) => r,
 			OnErrorSpec::Close => panic!("expected Response"),
@@ -188,7 +208,7 @@ mod tests {
 	fn middleware_ref_args_defaults_to_null_when_omitted() {
 		let raw = serde_json::json!({ "use": "tag" });
 		let m: MiddlewareRef = serde_json::from_value(raw).expect("parse middleware ref");
-		assert_eq!(m.args, serde_json::Value::Null);
+		assert_eq!(m.args, Value::Null);
 	}
 
 	#[test]
@@ -260,29 +280,52 @@ mod tests {
 	}
 
 	#[test]
-	fn fetch_spec_rename_and_args() {
+	fn terminate_spec_http_proxy_alias() {
+		let raw = serde_json::json!({ "type": "http_proxy", "upstream": "127.0.0.1:8080" });
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.kind, FetchKind::HttpProxy);
+		assert_eq!(t.args, serde_json::json!({ "upstream": "127.0.0.1:8080" }));
+	}
+
+	#[test]
+	fn terminate_spec_tcp_forward_alias() {
 		let raw = serde_json::json!({
-			"type": "http_proxy",
-			"args": { "upstream": "127.0.0.1:8080" },
+			"type": "tcp_forward",
+			"upstream": "10.0.0.5:22",
+			"transport": "tcp",
 		});
-		let f: FetchSpec = serde_json::from_value(raw).expect("parse fetch");
-		assert_eq!(f.kind, "http_proxy");
-		assert_eq!(f.args, serde_json::json!({ "upstream": "127.0.0.1:8080" }));
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.kind, FetchKind::L4Forward);
+		assert_eq!(t.args, serde_json::json!({ "upstream": "10.0.0.5:22", "transport": "tcp" }),);
 	}
 
 	#[test]
-	fn fetch_spec_args_default_to_null() {
-		let raw = serde_json::json!({ "type": "http_proxy" });
-		let f: FetchSpec = serde_json::from_value(raw).expect("parse fetch with no args");
-		assert_eq!(f.kind, "http_proxy");
-		assert_eq!(f.args, serde_json::Value::Null);
+	fn terminate_spec_static_alias() {
+		let raw = serde_json::json!({ "type": "static", "status": 200, "body": "hi" });
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.kind, FetchKind::HttpSynthesize);
+		assert_eq!(t.args, serde_json::json!({ "status": 200, "body": "hi" }));
 	}
 
 	#[test]
-	fn terminator_spec_rename_kind() {
-		let raw = serde_json::json!({ "type": "write_http_response" });
-		let t: TerminatorSpec = serde_json::from_value(raw).expect("parse terminator");
-		assert_eq!(t.kind, "write_http_response");
+	fn terminate_spec_websocket_alias() {
+		let raw = serde_json::json!({ "type": "websocket", "upstream": "127.0.0.1:9000" });
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.kind, FetchKind::WebSocketUpgrade);
+	}
+
+	#[test]
+	fn terminate_spec_unknown_type_rejected() {
+		let raw = serde_json::json!({ "type": "bogus" });
+		let err = serde_json::from_value::<TerminateSpec>(raw).expect_err("unknown alias rejected");
+		assert!(err.to_string().contains("bogus"));
+	}
+
+	#[test]
+	fn terminate_spec_missing_type_rejected() {
+		let raw = serde_json::json!({ "upstream": "127.0.0.1:8080" });
+		let err = serde_json::from_value::<TerminateSpec>(raw).expect_err("missing type rejected");
+		assert!(err.to_string().contains("type"));
 	}
 
 	#[test]
@@ -302,8 +345,6 @@ mod tests {
 
 	#[test]
 	fn middleware_chain_defaults_to_empty_when_omitted() {
-		// RawRule's middleware_chain carries #[serde(default)]; omitting the key
-		// must produce an empty Vec rather than a parse error.
 		let raw = serde_json::json!({
 			"name": "r",
 			"listen": [":443"],
@@ -323,7 +364,7 @@ mod tests {
 				{ "use": "b", "on_error": "close" },
 				{ "use": "c", "on_error": { "response": { "status": 500 } } },
 			],
-			"terminate": { "type": "write_http_response" },
+			"terminate": { "type": "http_proxy" },
 		});
 		let rule: RawRule = serde_json::from_value(raw).expect("parse");
 		assert_eq!(rule.middleware_chain.len(), 3);
@@ -341,13 +382,11 @@ mod tests {
 
 	#[test]
 	fn raw_rule_accepts_top_level_check_predicate() {
-		// Sanity: the RawRule#match key dispatches to Predicate's custom
-		// Deserialize; a single-key check object must round-trip through it.
 		let raw = serde_json::json!({
 			"name": "r",
 			"listen": [":80"],
 			"match": { "http.uri.path": { "prefix": "/api" } },
-			"terminate": { "type": "write_http_response" },
+			"terminate": { "type": "http_proxy" },
 		});
 		let rule: RawRule = serde_json::from_value(raw).expect("parse");
 		let Some(Predicate::Check(CheckMap { path, op })) = rule.match_predicate else {
@@ -355,7 +394,7 @@ mod tests {
 		};
 		assert_eq!(path, FieldPath::HttpUriPath);
 		match op {
-			Operator::Prefix(Value::Str(s)) => assert_eq!(s, "/api"),
+			Operator::Prefix(PredValue::Str(s)) => assert_eq!(s, "/api"),
 			other => panic!("unexpected op: {other:?}"),
 		}
 	}

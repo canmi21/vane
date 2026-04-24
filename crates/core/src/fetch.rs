@@ -1,6 +1,7 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::oneshot;
 
@@ -11,8 +12,8 @@ use crate::flow_ctx::FlowCtx;
 use crate::l4::L4Conn;
 use crate::middleware::CloseReason;
 
-#[trait_variant::make(L7Fetch: Send)]
-pub trait L7FetchLocal {
+#[async_trait]
+pub trait L7Fetch: Send + Sync {
 	async fn fetch(
 		&self,
 		req: Request,
@@ -21,8 +22,8 @@ pub trait L7FetchLocal {
 	) -> Result<L7FetchOutput, Error>;
 }
 
-#[trait_variant::make(L4Fetch: Send)]
-pub trait L4FetchLocal {
+#[async_trait]
+pub trait L4Fetch: Send + Sync {
 	async fn fetch(
 		&self,
 		l4: L4Conn,
@@ -87,12 +88,6 @@ mod tests {
 
 	use super::*;
 	use crate::body::{Body, Response};
-
-	// Fetch trait Send variants are designed to back `Arc<dyn L7Fetch>` /
-	// `Arc<dyn L4Fetch>` inside `FetchInst` (spec 05-terminator.md). With the
-	// current `trait_variant::make` shape (-> impl Future + Send) the traits
-	// are not dyn-compatible; resolving that is a spec/impl task for the
-	// main LLM (e.g., dynosaur-style Dyn shim or boxed-future variants).
 
 	// A runtime-free `AsyncRead + AsyncWrite` witness. `UnixStream::pair` and
 	// `tokio::io::duplex` both require a running reactor, which core tests

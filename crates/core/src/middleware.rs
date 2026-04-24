@@ -1,6 +1,8 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
+use async_trait::async_trait;
+
 use crate::body::{Request, Response};
 use crate::conn_context::ConnContext;
 use crate::error::Error;
@@ -8,8 +10,8 @@ use crate::flow_ctx::FlowCtx;
 use crate::ir::NodeId;
 use crate::l4::L4Conn;
 
-#[trait_variant::make(L4PeekMiddleware: Send)]
-pub trait L4PeekMiddlewareLocal {
+#[async_trait]
+pub trait L4PeekMiddleware: Send + Sync {
 	async fn run(
 		&self,
 		peek: &[u8],
@@ -18,8 +20,8 @@ pub trait L4PeekMiddlewareLocal {
 	) -> Result<Decision, Error>;
 }
 
-#[trait_variant::make(L4BytesMiddleware: Send)]
-pub trait L4BytesMiddlewareLocal {
+#[async_trait]
+pub trait L4BytesMiddleware: Send + Sync {
 	async fn run(
 		&self,
 		l4: &mut L4Conn,
@@ -28,8 +30,8 @@ pub trait L4BytesMiddlewareLocal {
 	) -> Result<Decision, Error>;
 }
 
-#[trait_variant::make(L7RequestMiddleware: Send)]
-pub trait L7RequestMiddlewareLocal {
+#[async_trait]
+pub trait L7RequestMiddleware: Send + Sync {
 	async fn run(
 		&self,
 		req: &mut Request,
@@ -42,8 +44,8 @@ pub trait L7RequestMiddlewareLocal {
 	}
 }
 
-#[trait_variant::make(L7ResponseMiddleware: Send)]
-pub trait L7ResponseMiddlewareLocal {
+#[async_trait]
+pub trait L7ResponseMiddleware: Send + Sync {
 	async fn run(
 		&self,
 		resp: &mut Response,
@@ -177,19 +179,8 @@ mod tests {
 
 	use super::*;
 
-	// Object-safety of the four `*Middleware` Send variants is the spec shape
-	// (`Arc<dyn L4PeekMiddleware>` etc. in `MiddlewareInst`). With the current
-	// `trait_variant::make` shape the return type is `-> impl Future + Send`,
-	// which makes the trait non-dyn-compatible without a boxed-future shim.
-	// That mismatch is not captured by a test — leaving it to the main LLM
-	// to resolve spec-first (wire up a dynosaur-style Dyn{Trait}{Kind} shim
-	// or change `MiddlewareInst` to hold Box<dyn>-wrapping futures).
-
-	// `trait_variant`'s blanket impl goes `impl Local for T where T: SendVariant`,
-	// so implementing the Send variant directly yields Local for free — which is
-	// what we need to exercise the Send-bounded trait the executor stores.
-
 	struct PassPeek;
+	#[async_trait]
 	impl L4PeekMiddleware for PassPeek {
 		async fn run(
 			&self,
@@ -202,6 +193,7 @@ mod tests {
 	}
 
 	struct PassBytes;
+	#[async_trait]
 	impl L4BytesMiddleware for PassBytes {
 		async fn run(
 			&self,
@@ -214,6 +206,7 @@ mod tests {
 	}
 
 	struct PassReq;
+	#[async_trait]
 	impl L7RequestMiddleware for PassReq {
 		async fn run(
 			&self,
@@ -226,6 +219,7 @@ mod tests {
 	}
 
 	struct PassResp;
+	#[async_trait]
 	impl L7ResponseMiddleware for PassResp {
 		async fn run(
 			&self,
@@ -237,47 +231,40 @@ mod tests {
 		}
 	}
 
-	// Generic compile-gate: each concrete unit struct must satisfy both the
-	// Local and Send-bounded trait (the trait_variant blanket ties them
-	// together). A generic bound is the dyn-free way to assert this because
-	// async-fn-in-trait is not dyn-compatible in stable Rust.
-	fn binds_peek<T: L4PeekMiddleware + L4PeekMiddlewareLocal>(_: &T) {}
-	fn binds_bytes<T: L4BytesMiddleware + L4BytesMiddlewareLocal>(_: &T) {}
-	fn binds_req<T: L7RequestMiddleware + L7RequestMiddlewareLocal>(_: &T) {}
-	fn binds_resp<T: L7ResponseMiddleware + L7ResponseMiddlewareLocal>(_: &T) {}
+	// `async_trait` makes these traits dyn-compatible — `MiddlewareInst` stores
+	// them as `Arc<dyn Trait>` per 04-middleware.md § _Where the types live_.
+	fn accepts_dyn_peek(_: &dyn L4PeekMiddleware) {}
+	fn accepts_dyn_bytes(_: &dyn L4BytesMiddleware) {}
+	fn accepts_dyn_req(_: &dyn L7RequestMiddleware) {}
+	fn accepts_dyn_resp(_: &dyn L7ResponseMiddleware) {}
 
 	#[test]
-	fn peek_impl_satisfies_both_trait_variants() {
-		binds_peek(&PassPeek);
+	fn peek_trait_is_dyn_compatible() {
+		accepts_dyn_peek(&PassPeek);
 	}
 
 	#[test]
-	fn bytes_impl_satisfies_both_trait_variants() {
-		binds_bytes(&PassBytes);
+	fn bytes_trait_is_dyn_compatible() {
+		accepts_dyn_bytes(&PassBytes);
 	}
 
 	#[test]
-	fn l7_request_impl_satisfies_both_trait_variants() {
-		binds_req(&PassReq);
+	fn l7_request_trait_is_dyn_compatible() {
+		accepts_dyn_req(&PassReq);
 	}
 
 	#[test]
-	fn l7_response_impl_satisfies_both_trait_variants() {
-		binds_resp(&PassResp);
+	fn l7_response_trait_is_dyn_compatible() {
+		accepts_dyn_resp(&PassResp);
 	}
 
 	#[test]
 	fn l7_request_needs_body_defaults_to_false() {
-		// Default `needs_body() -> bool { false }` on the original trait is
-		// visible through both the Local and the Send-bounded variants via
-		// the trait_variant-generated blanket impl.
-		assert!(!L7RequestMiddlewareLocal::needs_body(&PassReq));
 		assert!(!L7RequestMiddleware::needs_body(&PassReq));
 	}
 
 	#[test]
 	fn l7_response_needs_body_defaults_to_false() {
-		assert!(!L7ResponseMiddlewareLocal::needs_body(&PassResp));
 		assert!(!L7ResponseMiddleware::needs_body(&PassResp));
 	}
 
