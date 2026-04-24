@@ -266,24 +266,6 @@ mod tests {
 	}
 
 	#[test]
-	fn any_of_combinator_is_not_supported_in_this_chunk() {
-		let r = parse_rule(serde_json::json!({
-			"name": "r",
-			"listen": [":443"],
-			"match": {
-				"any_of": [
-					{ "tls.sni": { "equals": "a" } },
-					{ "tls.sni": { "equals": "b" } },
-				],
-			},
-			"terminate": { "type": "http_proxy" },
-		}));
-		let err = compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers)
-			.expect_err("any_of not yet lowered");
-		assert!(err.to_string().contains("any_of"));
-	}
-
-	#[test]
 	fn wildcard_port_listen_spec_is_rejected() {
 		let r = parse_rule(serde_json::json!({
 			"name": "r",

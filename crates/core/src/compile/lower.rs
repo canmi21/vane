@@ -295,29 +295,53 @@ impl Builder {
 		}
 		let _ = chain_entry_after_predicate_split;
 
-		// Predicate Check node (single Check supported for now).
+		// Lower the match predicate (Check / AnyOf / Not) recursively. Each
+		// emitted Check node carries its own on_match / on_miss edges; the
+		// combinator tree reshapes those edges per the spec equivalences in
+		// C5.5 task 2.
 		if let Some(pred) = &rule.raw.match_predicate {
-			let inst = compile_predicate(pred)?;
-			let pid = self.intern_predicate(inst);
-			// Determine whether the Check sits before or after Upgrade.
-			// For L4 posture: single chain. For L7 posture: L4 checks sit at
-			// the very top (before Upgrade already inserted above); L7 checks
-			// should sit after Upgrade — but we inserted Upgrade above `head`.
-			// Simplified placement: Check sits above current head.
-			let check =
-				Node::Check { predicate: pid, on_match: head, on_miss, collect_body_before: None };
-			head = self.push_node(check);
-
-			// Flag http.body predicate as request-buffer trigger on this node.
-			if let Predicate::Check(c) = pred
-				&& matches!(c.path, FieldPath::HttpBody)
-				&& let Node::Check { collect_body_before, .. } = &mut self.nodes[head.get() as usize]
-			{
-				*collect_body_before = Some(BodySide::Request);
-			}
+			head = self.lower_predicate(pred, head, on_miss)?;
 		}
 
 		Ok(head)
+	}
+
+	fn lower_predicate(
+		&mut self,
+		pred: &Predicate,
+		on_match: NodeId,
+		on_miss: NodeId,
+	) -> Result<NodeId, Error> {
+		match pred {
+			Predicate::Check(c) => {
+				let inst = PredicateInst { path: c.path.clone(), op: compile_operator(&c.op, &c.path)? };
+				let pid = self.intern_predicate(inst);
+				let collect_body_before =
+					if matches!(c.path, FieldPath::HttpBody) { Some(BodySide::Request) } else { None };
+				let node = Node::Check { predicate: pid, on_match, on_miss, collect_body_before };
+				Ok(self.push_node(node))
+			}
+			Predicate::AnyOf(any_of) => {
+				// any_of [A, B, C] match=>X miss=>Y  ≡
+				//     Check(A) match=>X miss=>Check(B) match=>X miss=>Check(C) match=>X miss=>Y
+				// Build right-to-left so each preceding Check's on_miss points
+				// at the next child's entry.
+				if any_of.any_of.is_empty() {
+					// Empty any_of is an empty OR — always misses. Spec doesn't
+					// call this out; interpret as "never matches" for safety.
+					return Ok(on_miss);
+				}
+				let mut cur_miss = on_miss;
+				for child in any_of.any_of.iter().rev() {
+					cur_miss = self.lower_predicate(child, on_match, cur_miss)?;
+				}
+				Ok(cur_miss)
+			}
+			Predicate::Not(not) => {
+				// not P match=>X miss=>Y  ≡  lower(P, match=>Y, miss=>X)
+				self.lower_predicate(&not.not, on_miss, on_match)
+			}
+		}
 	}
 
 	fn mark_request_reader(
@@ -417,17 +441,6 @@ fn parse_listen(spec: &str) -> Result<Vec<SocketAddr>, Error> {
 	SocketAddr::from_str(s)
 		.map(|a| vec![a])
 		.map_err(|e| Error::compile(format!("bad listen spec {spec:?}: {e}")))
-}
-
-fn compile_predicate(pred: &Predicate) -> Result<PredicateInst, Error> {
-	match pred {
-		Predicate::Check(c) => {
-			Ok(PredicateInst { path: c.path.clone(), op: compile_operator(&c.op, &c.path)? })
-		}
-		Predicate::AnyOf(_) | Predicate::Not(_) => Err(Error::compile(
-			"`any_of` / `not` combinators are not yet supported by lower (S2 scope)".to_string(),
-		)),
-	}
 }
 
 fn compile_operator(op: &Operator, path: &FieldPath) -> Result<CompiledOperator, Error> {
