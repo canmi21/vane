@@ -279,6 +279,21 @@ mod tests {
 	}
 
 	#[test]
+	fn close_is_terminal_at_every_phase() {
+		for p in ALL_PHASES {
+			assert_eq!(
+				transition(PhaseNodeKind::Terminate(Terminator::Close), p),
+				Ok(Transition::Terminal),
+			);
+		}
+	}
+
+	#[test]
+	fn close_accepts_any_phase() {
+		assert_eq!(accepted_in_phases(PhaseNodeKind::Terminate(Terminator::Close)), ANY_PHASE,);
+	}
+
+	#[test]
 	fn rejects_out_of_phase_attempts() {
 		let cases: &[(PhaseNodeKind, Phase)] = &[
 			(PhaseNodeKind::Upgrade, Phase::L4Raw),

@@ -645,8 +645,66 @@ mod tests {
 		assert!(matches!(&graph[*next], Node::Check { .. }));
 	}
 
-	// L4 rule with a predicate needs Terminator::Close as the default-miss;
-	// C5.5 task 4 lands that. Test for L4 placement is in the task-4 commit.
+	#[test]
+	fn pure_l4_rule_with_predicate_synthesises_close_miss() {
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7302"],
+			"match": { "remote.ip": { "cidr": "10.0.0.0/8" } },
+			"terminate": { "type": "tcp_forward", "upstream": "10.0.0.5:22" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let entry = find_entry_check(&graph, 7302);
+		assert!(matches!(&graph[entry], Node::Check { .. }));
+		let upgrades = graph.nodes.iter().filter(|n| matches!(n, Node::Upgrade { .. })).count();
+		assert_eq!(upgrades, 0, "L4 posture never Upgrades");
+		assert!(
+			graph.terminators.iter().any(|t| matches!(t, Terminator::Close)),
+			"default-miss must synthesise a Close terminator",
+		);
+	}
+
+	#[test]
+	fn l7_rule_with_predicate_uses_close_not_500_for_default_miss() {
+		// Pre-task-4 the L7 default-miss was a synthesised 500. Task 4 unified
+		// both postures on `Terminator::Close`, so no HttpSynthesize fetch
+		// should appear in the graph for a rule whose terminator is http_proxy.
+		let r = check_rule("r", 7400, &serde_json::json!({ "tls.sni": { "equals": "api" } }));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		assert!(
+			graph.terminators.iter().any(|t| matches!(t, Terminator::Close)),
+			"default-miss must be Close",
+		);
+		let synth_fetches =
+			graph.fetches.iter().filter(|f| f.kind == FetchKind::HttpSynthesize).count();
+		assert_eq!(synth_fetches, 0, "no 500 synth for unmatched L7 traffic — just Close");
+	}
+
+	#[test]
+	fn catch_all_rule_set_omits_close_fallback() {
+		// A predicate-less rule is always matched; the default-miss is dead
+		// code and must not appear in the graph.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7401"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let close_count = graph.terminators.iter().filter(|t| matches!(t, Terminator::Close)).count();
+		assert_eq!(close_count, 0, "no predicate means no miss path means no Close");
+	}
+
+	#[test]
+	fn close_terminator_serde_round_trip() {
+		// Pin the wire form of the new variant for dry-run JSON.
+		let t = Terminator::Close;
+		let encoded = serde_json::to_string(&t).expect("serialize");
+		let decoded: Terminator = serde_json::from_str(&encoded).expect("deserialize");
+		assert_eq!(decoded, t);
+	}
 
 	#[test]
 	fn l7_rule_without_predicate_has_upgrade_as_entry() {
