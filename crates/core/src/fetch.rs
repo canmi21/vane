@@ -76,6 +76,7 @@ pub struct SymbolicFetchRef {
 pub enum Terminator {
 	WriteHttpResponse,
 	ByteTunnel,
+	Close,
 }
 
 #[cfg(test)]

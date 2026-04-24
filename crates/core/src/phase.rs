@@ -60,6 +60,9 @@ pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 		PhaseNodeKind::Fetch(FetchKind::WebSocketUpgrade) => L7_REQ,
 		PhaseNodeKind::Terminate(Terminator::WriteHttpResponse) => L7_RESP,
 		PhaseNodeKind::Terminate(Terminator::ByteTunnel) => TUNNEL,
+		// `Close` is phase-agnostic per 05-terminator.md — lower emits it on
+		// L4 and L7 paths alike as the default-miss fallback.
+		PhaseNodeKind::Terminate(Terminator::Close) => ANY_PHASE,
 	}
 }
 

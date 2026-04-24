@@ -165,17 +165,14 @@ impl Builder {
 		// Synthesize a default-miss only when at least one rule has a
 		// predicate that could miss and thus needs a fallback target. A set
 		// of catch-all (predicate-less) rules produces a chain whose entry
-		// is the first rule's first node — the default-miss would be dead
-		// code, and L4's default-miss cannot be synthesised today anyway.
+		// is the first rule's first node — the default-miss is dead code.
+		// Both L4 and L7 postures terminate the miss path in `Terminator::Close`
+		// per 05-terminator.md § _Variants_ C5.5 update: unmatched traffic
+		// is silently dropped (port scans, protocol probes, misroutes).
 		let needs_fallback = ordered.iter().any(|r| r.raw.match_predicate.is_some());
-		let fallback_miss = if needs_fallback {
-			self.synthesize_default_miss(posture)?
-		} else {
-			// Use a sentinel; it is never read because no Check node will
-			// point at it. `NodeId::new(u32::MAX)` would also work but picking
-			// the last real fetch-id-less value keeps dumps clean.
-			NodeId::new(0)
-		};
+		let _ = posture;
+		let fallback_miss =
+			if needs_fallback { self.synthesize_default_miss() } else { NodeId::new(0) };
 		let mut current_miss = fallback_miss;
 		for rule in ordered.iter().rev() {
 			let chain_entry = self.lower_rule(rule, current_miss, mw_meta, fetch_meta)?;
@@ -184,27 +181,13 @@ impl Builder {
 		Ok(current_miss)
 	}
 
-	fn synthesize_default_miss(&mut self, posture: Posture) -> Result<NodeId, Error> {
-		match posture {
-			Posture::L7 => {
-				let fid = self.push_fetch(SymbolicFetchRef {
-					kind: FetchKind::HttpSynthesize,
-					args: serde_json::json!({ "status": 500, "body": "Internal Server Error" }),
-				});
-				let tid = self.intern_terminator(Terminator::WriteHttpResponse);
-				let term_node = self.push_node(Node::Terminate(tid));
-				let fetch_node = self.push_node(Node::Fetch {
-					id: fid,
-					next_response: Some(term_node),
-					next_tunnel: None,
-					collect_body_before: None,
-				});
-				Ok(fetch_node)
-			}
-			Posture::L4 => Err(Error::compile(
-				"L4 listener requires a catch-all rule — no default close terminator yet".to_string(),
-			)),
-		}
+	fn synthesize_default_miss(&mut self) -> NodeId {
+		// Unified across postures: unmatched traffic silently drops via
+		// `Terminator::Close`. Operators who want a branded HTTP error for
+		// unmatched L7 requests add an explicit catch-all rule with
+		// `type: "static"` (HttpSynthesize) — spec 05-terminator.md.
+		let tid = self.intern_terminator(Terminator::Close);
+		self.push_node(Node::Terminate(tid))
 	}
 
 	fn lower_rule(
