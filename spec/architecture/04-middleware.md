@@ -75,6 +75,11 @@ pub enum ShortCircuit {
     Close(CloseReason),    // L4 or L7: close the connection
 }
 
+// This enum lives in vane-engine, not vane-core — it holds Arc<dyn Trait>
+// values that only engine can construct from its factory registries.
+// Core's IR references middleware by SymbolicMiddlewareRef { name, args,
+// metadata }; the link pass (see 02-flow.md) instantiates MiddlewareInst
+// from those symbolic refs.
 pub enum MiddlewareInst {
     L4Peek     (Arc<dyn L4PeekMiddleware>),
     L4Bytes    (Arc<dyn L4BytesMiddleware>),
@@ -83,6 +88,18 @@ pub enum MiddlewareInst {
     Wasm       (WasmMiddleware),
 }
 ```
+
+### Where the types live
+
+| Type                                                                | Crate         | Why                                             |
+| ------------------------------------------------------------------- | ------------- | ----------------------------------------------- |
+| The four `*Middleware` traits, `Decision`, `ShortCircuit`           | `vane-core`   | Trait contracts belong with the IR              |
+| `MiddlewareInst`                                                    | `vane-engine` | Holds `Arc<dyn _>` that only engine constructs  |
+| `SymbolicMiddlewareRef` { name, args, kind, stateless, needs_body } | `vane-core`   | The IR reference; what `lower` produces         |
+| `MiddlewareMetadataProvider` trait                                  | `vane-core`   | Compile-time analysis takes it by reference     |
+| Registry of built-in impls + factory functions                      | `vane-engine` | Registers against the provider the daemon wires |
+
+The `lower` pass queries a `&dyn MiddlewareMetadataProvider` for each middleware's `kind` / `stateless` / `needs_body`; it stores these alongside `name` + `args` in the `SymbolicMiddlewareRef`. No trait objects are constructed until engine's `link` step.
 
 ### Why `L7ResponseMiddleware` does not receive `&Request`
 

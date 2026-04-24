@@ -23,39 +23,44 @@ Directory names are short; crate names are `vane-*` prefixed (for clarity and ev
 
 ### `vane-core`
 
-The foundation. **Knows nothing about hyper / quinn / wasmtime / rustls.**
+The foundation and the **symbolic IR**. **Knows nothing about hyper / quinn / wasmtime / rustls** — and, critically, owns no middleware / Fetch **implementations**, only the shape of the compiled IR.
 
 Owns:
 
 - Types: `Request = http::Request<Body>`, `Response`, `Body` enum, `ConnContext`, `Error + ErrorKind`, `L4Conn`.
-- FlowGraph IR: `FlowGraph`, `Node`, `NodeId / PredicateId / MiddlewareId / FetchId / TerminatorId`, `MiddlewareInst`, `FetchInst`, `Terminator`, `PredicateInst`.
-- Compilation pipeline: `merge`, `expand` (preset expansion with string middleware refs), `analyze`, `lower`, `validate`. Pure functions from source config to `Arc<FlowGraph>`.
+- Symbolic IR: `SymbolicFlowGraph`, `Node`, `NodeId / PredicateId / MiddlewareId / FetchId / TerminatorId`, `SymbolicMiddlewareRef`, `SymbolicFetchRef`, `Terminator` (unit enum), `PredicateInst`, `MiddlewareKind`, `FetchKind`, `BodySide`, `FlowGraphMeta`.
+- Metadata registry traits: `MiddlewareMetadataProvider`, `FetchMetadataProvider`, `MiddlewareMetadata`, `FetchMetadata`. Engine implements these and passes them into `compile`; core never sees concrete impls.
+- Compilation pipeline: `merge`, `expand` (preset expansion with string middleware refs), `analyze`, `lower`, IR-level `validate`. Pure functions taking `RawRuleSet` + metadata providers, producing `Arc<SymbolicFlowGraph>`.
 - Middleware traits: `L4PeekMiddleware`, `L4BytesMiddleware`, `L7RequestMiddleware`, `L7ResponseMiddleware`, `Decision`, `ShortCircuit`.
 - Fetch traits: `L7Fetch`, `L4Fetch`, `L7FetchOutput`.
 - `WasmRuntime` trait (implementation lives in `vane-wasm`).
-- `FlowCtx`, `PredicateView`, `BodySide`.
+- `FlowCtx`, `PredicateView`.
 
-Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`.
+Dependencies: `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`, `fancy-regex`, `ipnet`.
 
-No async runtime dependency. No network stack. No TLS. No WASM. Minimal foot-gun surface; this crate should build in <5 seconds cold on a developer laptop.
+No async runtime dependency. No network stack. No TLS. No WASM. `vane lint` / `vane compile --dry-run` link only this crate and serialize its `SymbolicFlowGraph` output — neither needs hyper, rustls, wasmtime, or tokio. Minimal foot-gun surface; this crate should build in <5 seconds cold on a developer laptop.
 
 ### `vane-engine`
 
-The runtime. Implements everything needed to **execute** a compiled FlowGraph against real sockets.
+The **runtime and the linker**. Implements `MiddlewareInst` / `FetchInst`, "links" a symbolic graph into an executable one, owns the listener tasks, owns the executor.
 
 Owns:
 
-- Executor: the iterative walker from `02-flow.md`, implementing `Node::Fetch` dual-output dispatch.
+- Runtime IR: `FlowGraph` (the **linked** form that holds `Vec<MiddlewareInst>` and `Vec<FetchInst>` of trait objects); `MiddlewareInst` enum; `FetchInst` enum.
+- Link pass: `FlowGraph::link(sym: Arc<SymbolicFlowGraph>, mw_factories, fetch_factories) -> Result<Arc<FlowGraph>, LinkError>`. Linking is where feature-availability rejection happens (a `SymbolicMiddlewareRef` for a kind the build disabled fails here, not in core).
+- Factories: `MiddlewareFactories`, `FetchFactories` — registries mapping a `name` to a constructor `fn(args) -> Result<MiddlewareInst, _>`. Engine registers built-ins at startup; WASM factories come from `vane-wasm`.
+- Metadata provider impls: concrete `MiddlewareMetadataProvider` / `FetchMetadataProvider` the daemon passes into core's `compile`. Stateless / `needs_body` / `kind` come from the same registry so compile-time analysis and link-time construction agree.
+- Executor: the iterative walker from `02-flow.md`, dispatching on `MiddlewareInst` / `FetchInst::L4|L7`.
 - Listeners: accept loop per `(transport, addr)`, bind retry, cancellation, drain — per `01-topology.md`.
 - HTTP server integration: hyper for H1/H2, h3 for H3; `udp_dispatch` for QUIC session demux.
 - Fetch implementations: `HttpProxy`, `HttpSynthesize`, `WebSocketUpgrade`, `L4Forward`.
 - Upstream pools: `TcpPool` (hyper-util Client wrapper), `QuicPool` (our h3 client manager); fingerprint-based sharing.
 - TLS: cert resolver, cert store, cert populators (`StaticCertPopulator` + space for `ManagedCertPopulator`); `ClientConfig` fingerprint cache; `TicketKeyManager`.
-- Built-in middleware: SNI match, host header match, path prefix, method match, protocol detect, rate limit, `forward_client_ip`, etc.
-- Middleware registry: resolves string names (from preset expansion) to concrete `MiddlewareInst`.
+- Built-in middleware impls: SNI match, host header match, path prefix, method match, protocol detect, rate limit, `forward_client_ip`, etc.
 - DNS: `hickory-resolver` integration.
+- `ArcSwap<FlowGraph>` holds the **linked** graph — that is the one accept loops and the executor read.
 
-Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `h3`, `quinn`, `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `fancy-regex`, `webpki`, `webpki-roots` (or system roots), `notify` (for file watcher).
+Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `h3`, `quinn`, `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` (for file watcher).
 
 ### `vane-wasm`
 
@@ -447,7 +452,7 @@ Strict order; any failure in steps 1–6 aborts with non-zero exit and a descrip
 3. **Install crypto provider** — `vane_engine::crypto::install_default_provider()`. Must happen before any TLS code runs.
 4. **Initialize tracing** — `tracing-subscriber`, level from `VANE_LOG_LEVEL` (default `info`), output to stderr (journald captures automatically under systemd).
 5. **Scan and parse** `<config-dir>/config.json` and `<config-dir>/rules/*.json`.
-6. **Expand / merge / analyze / lower / validate** to produce `Arc<FlowGraph>`.
+6. **Expand / merge / analyze / lower / validate** (core) to produce `Arc<SymbolicFlowGraph>`, then **link** (engine) to produce the runtime `Arc<FlowGraph>`.
 7. **Bind listeners** (per `01-topology.md`). Individual per-listener bind failures are logged but don't abort boot.
 8. **Start management transports** — Unix socket always (`VANE_MGMT_UNIX`), HTTP-over-TCP only if `VANE_MGMT_HTTP_BIND` is set.
 9. **Spawn file watcher** on `<config-dir>`, enter run loop.

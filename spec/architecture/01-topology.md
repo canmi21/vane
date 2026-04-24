@@ -136,14 +136,19 @@ Live state (connection counts, WASM pool occupancy, per-upstream RTT statistics,
 ## Relationship between configuration files and runtime
 
 ```
-/etc/vaned/rules/*.json  ──(merge)──►  MergedConfig  ──(compile)──►  Arc<FlowGraph>
-                                                                           │
-                                                                     ArcSwap::store
-                                                                           │
-                                                                           ▼
-                                                                   active FlowGraph
-                                                                           │
-                                                            (each new connection reads here)
+/etc/vaned/rules/*.json  ─(merge)─►  MergedConfig  ─(core compile)─►  Arc<SymbolicFlowGraph>
+                                                                               │
+                                                                        (engine link)
+                                                                               │
+                                                                               ▼
+                                                                       Arc<FlowGraph>
+                                                                               │
+                                                                         ArcSwap::store
+                                                                               │
+                                                                               ▼
+                                                                      active FlowGraph
+                                                                               │
+                                                                (each new connection reads here)
 ```
 
 In-flight connections hold an `Arc<FlowGraph>` captured at accept time. A reload that produces a new FlowGraph does not affect them. The old FlowGraph drops when its last `Arc` is released.

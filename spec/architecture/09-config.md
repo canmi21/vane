@@ -149,11 +149,13 @@ The merge is deterministic and reproducible across machines.
 
 ## `vane compile --dry-run`
 
-Reads `/etc/vaned/`, merges, compiles, emits the resulting FlowGraph JSON to stdout. No interaction with a running `vaned`. Used to:
+Reads `/etc/vaned/`, merges, compiles through the core pipeline (`merge → expand → analyze → lower → validate`), and emits the resulting `SymbolicFlowGraph` as JSON to stdout. No interaction with a running `vaned`. Used to:
 
 - Review a proposed merge before committing.
 - Debug unexpected rule interactions.
 - Compare current vs. proposed state.
+
+The output is the **symbolic** form — pure IR, no `Arc<dyn _>` trait objects (which are not serializable anyway). This means dry-run runs against `vane-core` only; it does not link hyper / rustls / wasmtime and does not require an engine build. The same pipeline runs inside `vaned` on boot and reload, after which engine's `link` step constructs the runtime `FlowGraph` from the symbolic one (see `02-flow.md` § _Compile and link_).
 
 The compiled JSON is deterministic given the same input.
 

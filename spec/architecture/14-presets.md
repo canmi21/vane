@@ -8,9 +8,13 @@ Presets are **opinionated compile-stage expansions** that turn high-level intent
 User config (mix of raw rules + presets)
   ↓ preset expansion  ── new pipeline stage
 Canonical raw rules
-  ↓ merge / analyze / lower / validate  ── existing compile pipeline
-FlowGraph
+  ↓ merge / analyze / lower / validate  ── existing core pipeline
+Arc<SymbolicFlowGraph>
+  ↓ link              ── engine-only; resolves names → MiddlewareInst / FetchInst
+Arc<FlowGraph>
 ```
+
+Preset expansion produces **`RawRule`s** — the same shape hand-written raw rules take. No preset ever produces `MiddlewareInst` or `FetchInst` directly; those trait-object types are engine's responsibility and only come into existence at link time. See `02-flow.md` § _Compile and link_ for the full pipeline.
 
 - **Raw rule layer** — what the user writes is exactly what the FlowGraph runs. Zero implicit middleware injection, zero hidden defaults. A raw rule without a `rate_limit` truly has no rate limit. A raw rule without `forward_client_ip` truly does not add `X-Forwarded-For`.
 - **Preset layer** — "usually-on" policies (sensible rate limit, client IP forwarding, WebSocket handling, timeouts) live here. A preset expands to one or more raw rules; the expansion is fully visible via `vane compile --dry-run`.

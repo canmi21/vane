@@ -40,21 +40,35 @@ Configuration is multi-file. Each file contains zero or more rules plus optional
 
 Output: a single canonical `MergedConfig` document, dumpable via `vane compile --dry-run`.
 
-## Compile
+## Compile and link — two stages, two crates
 
-Compilation is a pipeline of pure functions:
+Config becomes an executable graph in **two distinct phases**:
 
 ```
+[vane-core]  (no hyper / rustls / wasmtime / tokio)
 RuleSet
   ↓ merge       (dedup rule names, resolve order, emit conflict log)
 MergedConfig
-  ↓ analyze    (inspection level, specificity, LazyBuffer need per rule)
+  ↓ expand      (preset expansion → RawRules)
+RawRuleSet
+  ↓ analyze     (inspection level, specificity, LazyBuffer tracks per rule; reads metadata provider)
 AnalyzedRuleSet
-  ↓ lower      (group by listener, sort, build tree, flatten to Vec)
-FlowGraph
-  ↓ validate   (every leaf terminates; every reference resolves)
-Arc<FlowGraph>
+  ↓ lower       (group by listener, sort, build tree, flatten to Vec, hash-cons predicates + stateless middleware)
+SymbolicFlowGraph
+  ↓ validate    (IR integrity: NodeId resolution, DAG, phase machine, predicate-field legality)
+Arc<SymbolicFlowGraph>
+
+[vane-engine]  (runtime; holds hyper / rustls / wasmtime / tokio)
+Arc<SymbolicFlowGraph>
+  ↓ link        (resolve SymbolicMiddlewareRef/SymbolicFetchRef names via factory registries;
+                 feature-availability rejection; instantiate trait objects)
+Arc<FlowGraph>  ← ArcSwap target; the executor reads this
 ```
+
+The split resolves the "who owns `Arc<dyn _>`" question: `SymbolicFlowGraph` is pure IR (no trait objects, no Tokio, cheap to build, trivially JSON-serializable). `FlowGraph` is the linked form that embeds `Vec<MiddlewareInst>` and `Vec<FetchInst>` of `Arc<dyn Trait>`; it only exists in engine.
+
+- `vane lint` and `vane compile --dry-run` link only `vane-core`; they produce `SymbolicFlowGraph` and serialize it to JSON. No hyper, no wasmtime, no tokio needed.
+- `vaned` boot and reload run both stages: core `compile` then engine `link`. Both Arcs are cheap to swap; only the linked `FlowGraph` is `ArcSwap`-managed at runtime.
 
 Each stage's input type fully determines its output. Stages are independently testable.
 
@@ -76,34 +90,58 @@ For each rule, compute:
 
 Post-MVP optimizations (subtree sharing, dead-node elimination) are additional passes over the flattened IR.
 
-### validate
+### validate (core, IR-level)
+
+The core validator runs on the freshly lowered `SymbolicFlowGraph` and checks structural correctness that does not depend on which features the final binary linked:
 
 - Every `Node::Check`'s `on_match` and `on_miss` resolve to valid `NodeId`s.
 - Every `Node::Middleware`'s `id` and `next` resolve; `on_error`, if `Some(_)`, resolves to a valid `NodeId` and that target's accepted-phase must include `cur_phase`'s out-phase equivalent (an `on_error` from an L7Request middleware cannot jump into an L4 subgraph).
 - Every `Node::Upgrade`'s `next` resolves and must accept phase `L7Request`. `Upgrade` may only appear on a path between L4-phase execution and an L7-phase sub-graph; the DFS phase walker catches misplacement automatically.
-- Every `Node::Fetch`'s `id` resolves. `next_response` and `next_tunnel` are each `Some(valid NodeId)` or `None` consistent with the Fetch variant's output modes (`HttpProxy` / `HttpSynthesize` → `next_response` required, `next_tunnel` forbidden; `L4Forward` → `next_tunnel` required, `next_response` forbidden; `WebSocketUpgrade` → both required). Referenced upstream addresses, WASM modules, and CGI binary paths exist and type-check.
+- Every `Node::Fetch`'s `id` resolves. `next_response` and `next_tunnel` are each `Some(valid NodeId)` or `None` consistent with the Fetch kind's output modes (`HttpProxy` / `HttpSynthesize` → `next_response` required, `next_tunnel` forbidden; `L4Forward` → `next_tunnel` required, `next_response` forbidden; `WebSocketUpgrade` → both required).
 - Every `Node::Terminate`'s referenced Terminator exists.
 - The graph is acyclic.
-- **Feature availability** — every referenced `FetchInst` / `Terminator` / middleware kind is compiled into this binary. Core parses the raw config regardless of enabled features (JSON shape is universal and buildable on any config), so the rejection happens here in `validate` — not in `merge` or `lower`. A rule using `http/3` on a binary built `--no-default-features` (no `h3` feature) fails with `"this binary was built without the 'h3' feature — rebuild with --features h3 or remove the rule"`. See `16-crate-layout.md` § _Feature-off → rule compile-time rejection_.
 - **Phase consistency** — every walk from an entry to a Terminator respects the phase state machine. The authoritative rules (accepted in-phases, out-phase) live in the [Phase state machine](#phase-state-machine) section below; the validator is a DFS from each `entries[addr]` starting in `Phase::L4Raw` that looks up each node in the transition table. Violations name the offending node, the source rule, and the expected vs. actual phase.
 
-On any validation failure, compilation aborts with the offending node ID and source rule name. No partial `FlowGraph` is exposed.
+On any core validation failure, compilation aborts; no partial `SymbolicFlowGraph` is exposed.
 
-A `FlowGraph` is never mutated after compilation. Reload re-compiles from scratch and `ArcSwap`s in the new `Arc<FlowGraph>`.
+### link (engine, feature + impl availability)
+
+The engine's `FlowGraph::link` takes an `Arc<SymbolicFlowGraph>` and resolves each `SymbolicMiddlewareRef` / `SymbolicFetchRef` by name against the factory registries. This is where the build's actual compiled features decide what runs:
+
+- **Feature availability** — every referenced middleware / Fetch kind must have a factory registered in this binary. A rule using `http/3` on a binary built `--no-default-features` (no `h3` feature) fails with `"this binary was built without the 'h3' feature — rebuild with --features h3 or remove the rule"`. Symbolic compile succeeds on any config; link rejects. See `16-crate-layout.md` § _Feature-off → rule compile-time rejection_.
+- **Referenced resource presence** — upstream addresses parse, WASM module names map to loaded components, CGI binary paths exist.
+- **Factory args acceptance** — each middleware / Fetch factory validates its args at construction; an arg shape the registered impl rejects fails link.
+
+On any link failure, the symbolic graph is discarded; no `FlowGraph` is exposed, and the previously linked graph continues to serve.
+
+Both stages are fail-closed: reload never swaps in a partially valid graph. A `FlowGraph` is never mutated after linking. Reload re-runs both stages from scratch and `ArcSwap`s in the new `Arc<FlowGraph>`.
 
 ## The compiled form
 
-The `FlowGraph` is a **flat, index-based intermediate representation**. Nodes, middleware instances, terminator instances, and predicate instances live in parallel `Vec`s; references between them are typed newtype indices.
+Two graph types, one crate each (see `16-crate-layout.md`):
+
+- `SymbolicFlowGraph` (vane-core) — pure IR, `serde::Serialize`-able, no trait objects. Output of core's compile pipeline; input to engine's `link`. `vane compile --dry-run` outputs this.
+- `FlowGraph` (vane-engine) — linked, executable, holds `Vec<MiddlewareInst>` and `Vec<FetchInst>` of trait objects. Output of `link`. Stored in the daemon's `ArcSwap<FlowGraph>`; read by the executor.
+
+Both share the **flat, index-based** shape. Nodes, predicate instances, and terminator slots live in parallel `Vec`s; references between them are typed newtype indices.
 
 ```rust
-pub struct FlowGraph {
+// vane-core
+pub struct SymbolicFlowGraph {
     nodes:       Vec<Node>,
     predicates:  Vec<PredicateInst>,
-    middlewares: Vec<MiddlewareInst>,
-    fetches:     Vec<FetchInst>,
-    terminators: Vec<Terminator>,
-    entries:     HashMap<SocketAddr, NodeId>,  // per-listener entry points
+    middlewares: Vec<SymbolicMiddlewareRef>,    // name + args + metadata; no impl
+    fetches:     Vec<SymbolicFetchRef>,         // name + args; no impl
+    terminators: Vec<Terminator>,               // unit enum, fully symbolic
+    entries:     HashMap<SocketAddr, NodeId>,   // per-listener entry points
     meta:        FlowGraphMeta,
+}
+
+// vane-engine
+pub struct FlowGraph {
+    symbolic:    Arc<SymbolicFlowGraph>,        // retained for dry-run / metrics attribution / flow log
+    middlewares: Vec<MiddlewareInst>,           // Arc<dyn L4PeekMiddleware> etc. (constructed in link)
+    fetches:     Vec<FetchInst>,                // Arc<dyn L4Fetch> / Arc<dyn L7Fetch> (constructed in link)
 }
 
 pub enum Node {
@@ -151,10 +189,10 @@ Rationale:
 - **Cache locality** — `Node`s are contiguous; the CPU prefetcher loads adjacent nodes as a matter of course.
 - **Subtree sharing** — two rules compiling to the same subgraph share nodes via shared `NodeId`s. Trivial with indices; hard with `Box<>`.
 - **Compact memory** — `NodeId(u32)` is half the size of a pointer on 64-bit.
-- **Stable serialization** — the flat form dumps as `{ nodes: [...], entries: { ... } }`. `vane compile --dry-run` output is diff-friendly JSON that survives `jq`.
+- **Stable serialization** — `SymbolicFlowGraph`'s flat form dumps as `{ nodes: [...], entries: { ... }, middlewares: [...], ... }`. `vane compile --dry-run` serializes this directly — diff-friendly JSON that survives `jq`. `FlowGraph` is not serializable (trait objects); dry-run never needs it.
 - **Single allocation** — `Vec<Node>::with_capacity` then grow. Not N `Box::new` calls.
 
-`impl Index<NodeId> for FlowGraph`, `Index<PredicateId>`, etc. give `graph[id]` ergonomics. The newtype wrappers prevent confusing a `NodeId` with a `PredicateId` at compile time.
+`impl Index<NodeId> for SymbolicFlowGraph` / `Index<PredicateId>` etc. give `graph[id]` ergonomics; engine's `FlowGraph` exposes the same idiom plus `Index<MiddlewareId> -> &MiddlewareInst` and `Index<FetchId> -> &FetchInst` for the executor. The newtype wrappers prevent confusing a `NodeId` with a `PredicateId` at compile time.
 
 ### Compiled predicate instances
 

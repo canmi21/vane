@@ -52,6 +52,10 @@ pub enum L7FetchOutput {
     Tunnel(Tunnel),                    // WebSocketUpgrade-on-101
 }
 
+// Lives in vane-engine, not vane-core — same reason as MiddlewareInst:
+// Arc<dyn _> values only engine can construct. Core's IR references
+// Fetch by SymbolicFetchRef { kind, args }; the link pass instantiates
+// FetchInst during FlowGraph::link.
 pub enum FetchInst {
     L7(Arc<dyn L7Fetch>),              // HttpProxy, HttpSynthesize, WebSocketUpgrade
     L4(Arc<dyn L4Fetch>),              // L4Forward
@@ -68,18 +72,42 @@ pub trait AsyncReadWrite: tokio::io::AsyncRead + tokio::io::AsyncWrite {}
 impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + ?Sized> AsyncReadWrite for T {}
 ```
 
-The executor (`02-flow.md`) dispatches first on `FetchInst::L4 | L7`, then on the output variant of `L7Fetch` (`Response` vs `Tunnel`) to pick the `next_response` or `next_tunnel` edge on the Fetch node. The phase state machine (also in `02-flow.md`) guarantees that `L4Fetch` always sits on an L4 path with `next_tunnel` set, and `L7Fetch::WebSocketUpgrade` has both edges set — validator fails the compile otherwise.
+The executor (`02-flow.md`) dispatches first on `FetchInst::L4 | L7`, then on the output variant of `L7Fetch` (`Response` vs `Tunnel`) to pick the `next_response` or `next_tunnel` edge on the Fetch node. The phase state machine (also in `02-flow.md`) guarantees that `L4Fetch` always sits on an L4 path with `next_tunnel` set, and `L7Fetch::WebSocketUpgrade` has both edges set — the core validator fails the compile otherwise.
 
 `L7Fetch::fetch` consuming `req: Request` also answers "what happens to the request body on a response-middleware path": the request no longer exists. Response-phase middleware works against `&mut Response` only; if it needs request-derived data, request-phase middleware stashes it in `ConnContext.user` (see `04-middleware.md`).
 
-### Variants
+### Where the types live
+
+| Type                                                    | Crate         | Why                                                  |
+| ------------------------------------------------------- | ------------- | ---------------------------------------------------- |
+| `L7Fetch`, `L4Fetch`, `L7FetchOutput`, `Tunnel` traits  | `vane-core`   | Trait contracts are part of the IR                   |
+| `FetchInst`                                             | `vane-engine` | Holds `Arc<dyn _>` that only engine constructs       |
+| `SymbolicFetchRef { kind, args }`                       | `vane-core`   | The IR reference; output of `lower`                  |
+| `FetchKind` (enum: `L4Forward` / `HttpProxy` / ...)     | `vane-core`   | Symbolic discriminant; drives phase table entries    |
+| `FetchMetadataProvider` trait                           | `vane-core`   | Compile-time uses it for kind / output-mode metadata |
+| Built-in `L7Fetch` / `L4Fetch` impls + factory registry | `vane-engine` | Registered at daemon startup, consulted by `link`    |
+
+The same `SymbolicFlowGraph` can be re-linked against a different factory set — useful for test harnesses that want to intercept Fetch, without rebuilding the IR.
+
+### Concrete Fetch kinds
+
+Four built-in Fetch implementations, each a concrete struct that implements either `L7Fetch` or `L4Fetch`:
 
 ```rust
-pub enum FetchInst {
-    HttpProxy        { upstream: HttpUpstream,    timeouts: Timeouts },
-    HttpSynthesize   { status:   StatusCode,      headers: HeaderMap, body: Bytes },
-    WebSocketUpgrade { upstream: WsUpstream,      subprotocol: Option<String> },
-    L4Forward        { upstream: SocketAddr,      transport: Transport, keep_alive: bool, idle_timeout: Duration },
+// Implement L7Fetch (live in vane-engine)
+pub struct HttpProxyFetch        { upstream: HttpUpstream,    timeouts: Timeouts }
+pub struct HttpSynthesizeFetch   { status:   StatusCode,      headers: HeaderMap, body: Bytes }
+pub struct WebSocketUpgradeFetch { upstream: WsUpstream,      subprotocol: Option<String> }
+
+// Implements L4Fetch (lives in vane-engine)
+pub struct L4ForwardFetch        { upstream: SocketAddr,      transport: Transport, keep_alive: bool, idle_timeout: Duration }
+
+// Core-side symbolic discriminant used in SymbolicFetchRef
+pub enum FetchKind {
+    HttpProxy,
+    HttpSynthesize,
+    WebSocketUpgrade,
+    L4Forward,
 }
 
 pub enum HttpUpstream {
