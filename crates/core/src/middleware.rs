@@ -73,6 +73,12 @@ pub enum CloseReason {
 	Graceful,
 	PolicyDenied(std::borrow::Cow<'static, str>),
 	ProtocolError(std::borrow::Cow<'static, str>),
+	/// Daemon-initiated cancellation — listener `force_cancel` fired during
+	/// shutdown drain (01-topology.md § _Listener lifecycle_), or any other
+	/// `ctx.cancel.cancelled()` propagation. Distinct from `Graceful` so
+	/// management observers can distinguish "client EOF'd" from "daemon
+	/// pulled the plug while in-flight."
+	Cancelled,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -399,6 +405,7 @@ mod tests {
 		let _ = CloseReason::Graceful;
 		let _ = CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("over quota"));
 		let _ = CloseReason::ProtocolError(std::borrow::Cow::Owned(String::from("bad frame")));
+		let _ = CloseReason::Cancelled;
 	}
 
 	fn hash_of<T: Hash>(v: &T) -> u64 {
