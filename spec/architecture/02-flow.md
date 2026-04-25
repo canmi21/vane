@@ -468,6 +468,56 @@ Why iterative, not recursive:
 
 The `tracing` integration emits one event per loop iteration: `trace!(node_id = ?cur, kind = "check" | "mid" | "fetch" | "terminate")`. This is the flow log that shows "connection X visited node 42, matched predicate, moved to node 43."
 
+## Flow log verbosity
+
+The walker emits two structured streams into `ctx.log: &mut dyn FlowLogSink`:
+
+| Mode (`FlowLogVerbosity`) | What lands in the sink                                                                                                                                                                                                                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Trajectory` (default)    | Per request: one `FlowLogKind::Trajectory` event whose `data` carries a serialised `FlowTrajectory` (entry + step list + outcome + timings). Plus the existing per-connection milestone events: `Terminate`, `Error`, `Upgrade`, `SecurityLimit`. The trajectory replaces the per-step stream. |
+| `Debug` (mgmt-API toggle) | Everything `Trajectory` emits, plus one `FlowLogEvent` per walker step (`Check` / `Middleware` / `Fetch` / `Upgrade`). Used for incident-time inspection; not for production volumes.                                                                                                          |
+
+`tracing::trace!` per-step is independent of this knob — it always fires, gated only by `RUST_LOG`. Verbosity gates only the structured `ctx.log` stream that flows out to management-API consumers.
+
+The verbosity is read once when the listener constructs `FlowCtx` for a new connection, from a daemon-global `engine::VerbosityState` (`AtomicU8`). In-flight connections retain whatever verbosity they were built with; the toggle only affects connections accepted after the flip.
+
+`FlowTrajectory` shape (defined in `vane_core::flow_log`):
+
+```rust
+pub struct FlowTrajectory {
+    pub conn:           ConnId,
+    pub entry:          NodeId,
+    pub steps:          Vec<TrajectoryStep>,
+    pub outcome:        TrajectoryOutcome,
+    pub started_at_ms:  u64,
+    pub finished_at_ms: u64,
+}
+
+pub struct TrajectoryStep {
+    pub node:   NodeId,
+    pub kind:   FlowLogKind,        // Check / Middleware / Fetch / Upgrade
+    pub branch: Option<bool>,       // Check: Some(matched); other steps: None
+}
+
+pub enum TrajectoryOutcome {
+    Terminated { node: NodeId, terminator: TerminatorOutcomeKind },
+    Error      { node: NodeId, message: Cow<'static, str> },
+}
+
+pub enum TerminatorOutcomeKind { Close, WriteHttpResponse, ByteTunnel }
+```
+
+Granularity is **node-level** — `predicate_id` and middleware/fetch instance arguments are not on the trajectory. Operators trace by node id; if they need predicate detail, they look up `graph[node].predicate_id` against the symbolic graph.
+
+### Default sink composition
+
+The daemon's `FlowLogSink` is a `FanoutSink` of:
+
+1. `RingBufferSink` (10_000-entry / 60-second sliding window). Always present. Backs the management API's `tail_flow_log` verb — both the live tail and the recent-window backfill.
+2. `FileSink` — opt-in via `VANE_FLOW_LOG_FILE=<path>`. Append-only NDJSON. Writes go through a tokio mpsc channel into a background writer task so `emit` never blocks the executor on disk I/O.
+
+`Trajectory` is a single-event-per-request summary that fits a one-line view; the management UI's default panel shows the latest N trajectories from the ring buffer. `Debug` mode supplements this for live incident drilling.
+
 ## Hash-consing
 
 Dedup during `lower` so that two rules expressing the same logical shape share IR storage. Two tables, one per kind:
