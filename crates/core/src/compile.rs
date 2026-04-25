@@ -99,7 +99,8 @@ mod tests {
 	}
 
 	fn rule_file(path: &str, rules: Vec<RawRule>) -> RawRuleFile {
-		RawRuleFile { path: PathBuf::from(path), order: 0, rules }
+		let entries = rules.into_iter().map(crate::preset::RuleEntry::Raw).collect();
+		RawRuleFile { path: PathBuf::from(path), order: 0, rules: entries }
 	}
 
 	fn _unused_mentions() {

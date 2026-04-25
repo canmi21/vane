@@ -27,6 +27,8 @@ pub use middleware::*;
 pub mod phase;
 pub mod predicate;
 pub use predicate::*;
+pub mod preset;
+pub use preset::{PresetInvocation, RuleEntry, expand_invocation};
 pub mod rule;
 
 pub mod meta {
