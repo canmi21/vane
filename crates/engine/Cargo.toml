@@ -29,6 +29,7 @@ acme-dns-cloudflare = ["acme"]
 
 [dependencies]
 arc-swap = "1.9.1"
+async-trait = { workspace = true }
 bytes = "1.11.1"
 dashmap = "6.1.0"
 http = "1.4.0"
