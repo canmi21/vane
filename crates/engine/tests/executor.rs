@@ -1504,3 +1504,68 @@ async fn execute_close_terminator_returns_closed_output() {
 		"expected at least one Terminate event, got {kinds:?}",
 	);
 }
+
+// ---------------------------------------------------------------------------
+// 21. execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cancel
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cancel() {
+	// 01-topology.md § _Listener lifecycle_ step 3 + 05-terminator.md §
+	// _Variants_: when `ctx.cancel.cancelled()` fires while a `ByteTunnel`
+	// is mid-copy, the executor's biased `tokio::select!` exits the copy,
+	// sends `CloseReason::Cancelled` through `Tunnel.close_reason_tx`, and
+	// returns `Ok(ExecutorOutput::Tunneled)`. The duplex halves are kept
+	// open so `tokio::io::copy_bidirectional` would otherwise block forever
+	// — only cancellation can unblock the executor.
+	let (_client_outer, client_inner) = tokio::io::duplex(1024);
+	let (_upstream_outer, upstream_inner) = tokio::io::duplex(1024);
+	let (close_tx, close_rx) = tokio::sync::oneshot::channel::<CloseReason>();
+	let tunnel = Tunnel {
+		client: Box::new(client_inner) as Box<dyn AsyncReadWrite + Send>,
+		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
+		close_reason_tx: Some(close_tx),
+	};
+	let graph = byte_tunnel_graph(tunnel);
+	let conn = make_conn("127.0.0.1:0");
+	let l4 = L4Conn::Tcp(throwaway_tcp_stream().await);
+
+	let cancel = CancellationToken::new();
+	let cancel_for_exec = cancel.clone();
+	let conn_for_exec = Arc::clone(&conn);
+	let graph_for_exec = Arc::clone(&graph);
+	let executor = tokio::spawn(async move {
+		let mut sink = NullSink::new();
+		let mut span = tracing::Span::none();
+		let mut ctx = FlowCtx {
+			span: &mut span,
+			log: &mut sink as &mut dyn FlowLogSink,
+			cancel: &cancel_for_exec,
+			verbosity: FlowLogVerbosity::Trajectory,
+			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
+		};
+		execute(
+			&graph_for_exec,
+			NodeId::new(0),
+			ExecutorInput::L4(Box::new(l4)),
+			&conn_for_exec,
+			&mut ctx,
+		)
+		.await
+	});
+
+	// Let the executor reach `copy_bidirectional`, then fire cancel.
+	tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+	cancel.cancel();
+
+	let result = executor.await.expect("executor task panicked");
+	match result {
+		Ok(ExecutorOutput::Tunneled) => {}
+		other => panic!("cancelled tunnel must return Ok(ExecutorOutput::Tunneled); got {other:?}"),
+	}
+	let reason = close_rx.await.expect("close_reason_tx must fire on cancel");
+	match reason {
+		CloseReason::Cancelled => {}
+		other => panic!("expected CloseReason::Cancelled, got {other:?}"),
+	}
+}
