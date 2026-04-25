@@ -29,12 +29,11 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
-	ConnContext, ConnId, FlowCtx, FlowLogSink, L4Conn, MiddlewareKind, Node, NodeId,
-	TrajectoryBuilder, Transport,
+	ConnContext, ConnId, FlowCtx, FlowLogSink, L4Conn, NodeId, TrajectoryBuilder, Transport,
 };
 
 use crate::executor::{ExecutorInput, execute};
-use crate::flow_graph::{FetchInst, FlowGraph};
+use crate::flow_graph::FlowGraph;
 use crate::verbosity::VerbosityState;
 
 // 01-topology.md § _Bind_ / _Daemon lifecycle_:
@@ -103,12 +102,12 @@ impl ListenerSet {
 		let entries: Vec<(SocketAddr, NodeId)> =
 			graph.symbolic().entries.iter().map(|(a, n)| (*a, *n)).collect();
 
+		// Every entry binds. The lower pass guarantees entry nodes start in
+		// phase L4Raw (02-flow.md § _Phase state machine_), so the executor
+		// always sees the L4 input shape it expects. L4 → L7 transitions
+		// happen inside the executor at `Node::Upgrade`, which now hands
+		// the stream to `drive_h1_server` for hyper to decode.
 		for (addr, entry) in entries {
-			if is_l7_only_entry(&graph, entry) {
-				tracing::debug!(?addr, "skipping L7-only entry — hyper integration lands with S1-17",);
-				continue;
-			}
-
 			let mut running = self.running.lock();
 			if running.contains_key(&addr) {
 				tracing::warn!(?addr, "listener already running for this address; skipping");
@@ -224,25 +223,6 @@ async fn drain_in_flight(set: &AsyncMutex<JoinSet<()>>) {
 	// lock across `join_next` is safe — there are no contending spawners.
 	let mut g = set.lock().await;
 	while g.join_next().await.is_some() {}
-}
-
-/// Whether the entry node forces L7 phase, in which case the L4 listener
-/// can't feed it `ExecutorInput::L4(..)` without hitting an executor
-/// phase-invariant panic. Entries flagged here are skipped until S1-17
-/// wires hyper to consume `ExecutorOutput::HttpResponse`.
-fn is_l7_only_entry(graph: &FlowGraph, entry: NodeId) -> bool {
-	let sym = graph.symbolic();
-	if (entry.get() as usize) >= sym.nodes.len() {
-		return false;
-	}
-	match &sym[entry] {
-		Node::Middleware { id, .. } => {
-			matches!(graph[*id].kind(), MiddlewareKind::L7Request | MiddlewareKind::L7Response,)
-		}
-		Node::Fetch { id, .. } => matches!(graph[*id], FetchInst::L7(_)),
-		// Check / Upgrade / Terminate are all valid as an L4 entry.
-		Node::Check { .. } | Node::Upgrade { .. } | Node::Terminate(_) => false,
-	}
 }
 
 #[allow(clippy::too_many_arguments)]

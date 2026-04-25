@@ -664,45 +664,10 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 }
 
 // ---------------------------------------------------------------------------
-// 9. execute_upgrade_node_errors_as_unsupported
+// (Test 9 — `execute_upgrade_node_errors_as_unsupported` — was removed when
+// `Node::Upgrade` stopped being a stub. Real H1 upgrade behavior is covered
+// end-to-end in `tests/hyper_upgrade.rs`.)
 // ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn execute_upgrade_node_errors_as_unsupported() {
-	// The S1-15 executor defers L4→L7 upgrade to a later chunk (per the
-	// spec the Upgrade node spawns an HTTP server; the stub returns an
-	// Error::internal with an "L4→L7 upgrade not yet wired" marker).
-	// Assert the error text mentions "upgrade" case-insensitively.
-	let sym = build_graph(
-		vec![
-			Node::Upgrade { next: NodeId::new(1) },
-			// Unreachable but structurally valid.
-			Node::Terminate(TerminatorId::new(0)),
-		],
-		vec![],
-		vec![],
-		vec![],
-		vec![Terminator::Close],
-	);
-	let mw = MiddlewareFactories::new();
-	let fetch = FetchFactories::new();
-	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
-	let conn = make_conn("127.0.0.1:0");
-	let sink = Arc::new(NullSink::new());
-
-	let result = run_execute(
-		&graph,
-		NodeId::new(0),
-		ExecutorInput::L7(Box::new(empty_l7_request())),
-		&conn,
-		&sink,
-	)
-	.await;
-
-	let err = result.expect_err("Upgrade stub must return Err");
-	let rendered = err.to_string().to_lowercase();
-	assert!(rendered.contains("upgrade"), "error must reference upgrade; got {rendered:?}");
-}
 
 // ---------------------------------------------------------------------------
 // 10. execute_collect_body_before_errors_as_unsupported

@@ -197,12 +197,42 @@ pub async fn execute(
 				}
 			}
 
-			Node::Upgrade { .. } => {
+			Node::Upgrade { next } => {
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Upgrade, None);
-				let e = Error::internal(
-					"L4→L7 upgrade not yet wired — lands with S1-16 protocol_detect + hyper server integration",
-				);
-				return finish_error(ctx, conn, &mut seq, cur, e);
+				// Hand the L4 connection to the H1 server. Each decoded request
+				// constructs a fresh `FlowCtx` and re-enters `execute` from
+				// `*next`. See 02-flow.md § _Execution model_ (Upgrade arm).
+				let stream = match l4.take().expect("phase invariant: Upgrade needs L4Conn") {
+					L4Conn::Tcp(s) => s,
+					L4Conn::Udp(_) => {
+						let e = Error::internal(
+							"UDP upgrade not supported in S1 — QUIC integration lands with H3 / S2",
+						);
+						return finish_error(ctx, conn, &mut seq, cur, e);
+					}
+				};
+				let result = crate::upgrade::drive_h1_server(
+					stream,
+					Arc::clone(graph),
+					*next,
+					Arc::clone(conn),
+					Arc::clone(&ctx.log),
+					ctx.cancel.clone(),
+					ctx.verbosity,
+				)
+				.await;
+				return match result {
+					Ok(out) => {
+						emit_trajectory(
+							ctx,
+							conn,
+							&mut seq,
+							TrajectoryOutcome::Terminated { node: cur, terminator: TerminatorOutcomeKind::Close },
+						);
+						Ok(out)
+					}
+					Err(e) => finish_error(ctx, conn, &mut seq, cur, e),
+				};
 			}
 
 			Node::Terminate(tid) => {
