@@ -205,7 +205,7 @@ async fn run_execute(
 	input: ExecutorInput,
 	conn: &Arc<ConnContext>,
 	sink: &mut NullSink,
-) -> Result<(), Error> {
+) -> Result<vane_engine::executor::ExecutorOutput, Error> {
 	let mut span = tracing::Span::none();
 	let cancel = CancellationToken::new();
 	let mut ctx = FlowCtx {
@@ -819,7 +819,7 @@ async fn run_execute_with_verbosity(
 	conn: &Arc<ConnContext>,
 	sink: &mut NullSink,
 	verbosity: FlowLogVerbosity,
-) -> Result<(), Error> {
+) -> Result<vane_engine::executor::ExecutorOutput, Error> {
 	let mut span = tracing::Span::none();
 	let cancel = CancellationToken::new();
 	let mut ctx = FlowCtx {

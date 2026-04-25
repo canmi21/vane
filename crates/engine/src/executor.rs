@@ -2,9 +2,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vane_core::{
-	ConnContext, Decision, Error, FlowCtx, FlowLogEvent, FlowLogKind, FlowLogVerbosity, L4Conn, Node,
-	NodeId, PredicateView, Request, Response, SerializedError, ShortCircuit, TerminatorOutcomeKind,
-	TrajectoryOutcome, TrajectoryStep, Tunnel,
+	CloseReason, ConnContext, Decision, Error, FlowCtx, FlowLogEvent, FlowLogKind, FlowLogVerbosity,
+	L4Conn, Node, NodeId, PredicateView, Request, Response, SerializedError, ShortCircuit,
+	TerminatorOutcomeKind, TrajectoryOutcome, TrajectoryStep, Tunnel,
 };
 
 use crate::flow_graph::{FetchInst, FlowGraph, MiddlewareInst};
@@ -16,6 +16,48 @@ use crate::flow_graph::{FetchInst, FlowGraph, MiddlewareInst};
 pub enum ExecutorInput {
 	L4(Box<L4Conn>),
 	L7(Box<Request>),
+}
+
+/// What the walker hands back to the listener / hyper service-fn that
+/// drove `execute`.
+///
+/// The split exists because each terminator has a different "what's left
+/// to do" answer: `Close` is fully done, `ByteTunnel` already drove the
+/// copy in-executor, but `WriteHttpResponse` needs the caller to serialise
+/// the `Response` onto a socket (hyper service-fn returns it from the H1/H2
+/// handler; H3 is the same shape). 02-flow.md § _Execution model_'s
+/// pseudocode currently shows `write_http_response(resp, conn, ctx).await`
+/// as an internal helper — this design moves that write to the caller; see
+/// the SPEC DEVIATION note in this chunk's report.
+pub enum ExecutorOutput {
+	/// `Terminator::Close` walked, or any path the executor finalised
+	/// without producing a response or tunnel. Caller does nothing
+	/// further; transport drop-glue closes.
+	Closed,
+	/// `Terminator::WriteHttpResponse` walked. Caller serialises this
+	/// `Response` to the client socket (hyper / h3).
+	HttpResponse(Response),
+	/// `Terminator::ByteTunnel` walked. Executor already drove
+	/// `tokio::io::copy_bidirectional` to completion; the close reason
+	/// (graceful or io-error) was sent through `Tunnel.close_reason_tx`.
+	/// Caller does nothing further.
+	Tunneled,
+}
+
+// Manual `Debug` because `Response` (i.e. `http::Response<Body>`) doesn't
+// derive Debug — `Body::Stream(Pin<Box<dyn HttpBody>>)` has no Debug. We
+// only need the variant name for `Result::expect_err` / `assert!` debug
+// formatting in tests.
+impl std::fmt::Debug for ExecutorOutput {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Closed => f.write_str("ExecutorOutput::Closed"),
+			Self::HttpResponse(r) => {
+				write!(f, "ExecutorOutput::HttpResponse(status={})", r.status().as_u16())
+			}
+			Self::Tunneled => f.write_str("ExecutorOutput::Tunneled"),
+		}
+	}
 }
 
 /// Iterative walker per 02-flow.md § _Execution model_ + § _Flow log
@@ -45,7 +87,7 @@ pub async fn execute(
 	input: ExecutorInput,
 	conn: &Arc<ConnContext>,
 	ctx: &mut FlowCtx<'_>,
-) -> Result<(), Error> {
+) -> Result<ExecutorOutput, Error> {
 	let mut l4: Option<L4Conn> = None;
 	let mut req: Option<Request> = None;
 	let mut resp: Option<Response> = None;
@@ -165,12 +207,65 @@ pub async fn execute(
 
 			Node::Terminate(tid) => {
 				let term = sym[*tid];
-				let kind = match term {
-					vane_core::Terminator::Close => TerminatorOutcomeKind::Close,
-					vane_core::Terminator::WriteHttpResponse => TerminatorOutcomeKind::WriteHttpResponse,
-					vane_core::Terminator::ByteTunnel => TerminatorOutcomeKind::ByteTunnel,
+				return match term {
+					vane_core::Terminator::Close => {
+						drop((l4.take(), req.take(), resp.take(), tunnel.take()));
+						// Connection-level Terminate milestone (verbosity-
+						// independent per 02-flow.md § _Flow log verbosity_).
+						ctx.log.emit(FlowLogEvent {
+							t: now_ms(),
+							conn: conn.id,
+							seq: bump(&mut seq),
+							kind: FlowLogKind::Terminate,
+							node: Some(cur),
+							error: None,
+							data: Some(serde_json::json!({
+								"terminator": "close",
+								"reason": "no matching rule",
+							})),
+						});
+						emit_trajectory(
+							ctx,
+							conn,
+							&mut seq,
+							TrajectoryOutcome::Terminated { node: cur, terminator: TerminatorOutcomeKind::Close },
+						);
+						Ok(ExecutorOutput::Closed)
+					}
+
+					vane_core::Terminator::WriteHttpResponse => {
+						let r = resp
+							.take()
+							.expect("phase invariant: WriteHttpResponse reached without a Response in scope");
+						emit_trajectory(
+							ctx,
+							conn,
+							&mut seq,
+							TrajectoryOutcome::Terminated {
+								node: cur,
+								terminator: TerminatorOutcomeKind::WriteHttpResponse,
+							},
+						);
+						Ok(ExecutorOutput::HttpResponse(r))
+					}
+
+					vane_core::Terminator::ByteTunnel => {
+						drive_byte_tunnel(
+							tunnel.take().expect("phase invariant: ByteTunnel reached without a Tunnel in scope"),
+						)
+						.await;
+						emit_trajectory(
+							ctx,
+							conn,
+							&mut seq,
+							TrajectoryOutcome::Terminated {
+								node: cur,
+								terminator: TerminatorOutcomeKind::ByteTunnel,
+							},
+						);
+						Ok(ExecutorOutput::Tunneled)
+					}
 				};
-				return finish_terminated(ctx, conn, &mut seq, cur, term, kind, &mut resp, &mut tunnel);
 			}
 		}
 	}
@@ -204,53 +299,27 @@ fn record_step(
 	}
 }
 
-// --- Terminate / Error finalisation ------------------------------------
+// --- ByteTunnel drive ---------------------------------------------------
 
-// Signature kept `Result<(), Error>` for the real terminators that land at
-// S1-23 / S1-24 — the write path can fail (client hangup, H2 stream reset,
-// etc.) and the executor still needs to propagate. `too_many_arguments` is
-// a stylistic warning; bundling these into a struct buys nothing.
-#[allow(clippy::too_many_arguments, clippy::unnecessary_wraps)]
-fn finish_terminated(
-	ctx: &mut FlowCtx<'_>,
-	conn: &Arc<ConnContext>,
-	seq: &mut u32,
-	cur: NodeId,
-	term: vane_core::Terminator,
-	outcome_kind: TerminatorOutcomeKind,
-	resp: &mut Option<Response>,
-	tunnel: &mut Option<Tunnel>,
-) -> Result<(), Error> {
-	// Run the terminator (stub today — drops payload + traces).
-	terminate_action(term, cur, resp, tunnel);
+async fn drive_byte_tunnel(mut t: Tunnel) {
+	// `copy_bidirectional` runs until both sides hit EOF or one errors.
+	// TODO(s1-late): integrate `ctx.cancel` via `tokio::select!` so a
+	// management-API drain can interrupt long-lived tunnels.
+	let copy_result = tokio::io::copy_bidirectional(&mut *t.client, &mut *t.upstream).await;
 
-	// Connection-level milestone — kept independent of verbosity per
-	// 02-flow.md § _Flow log verbosity_: Terminate / Error / Upgrade /
-	// SecurityLimit always land in the sink.
-	if matches!(term, vane_core::Terminator::Close) {
-		ctx.log.emit(FlowLogEvent {
-			t: now_ms(),
-			conn: conn.id,
-			seq: bump(seq),
-			kind: FlowLogKind::Terminate,
-			node: Some(cur),
-			error: None,
-			data: Some(serde_json::json!({
-				"terminator": "close",
-				"reason": "no matching rule",
-			})),
-		});
+	let reason = match &copy_result {
+		Ok(_) => CloseReason::Graceful,
+		Err(e) => CloseReason::ProtocolError(std::borrow::Cow::Owned(format!("byte tunnel io: {e}"))),
+	};
+
+	if let Some(tx) = t.close_reason_tx.take() {
+		// Receiver dropped is fine — Fetch may have moved on; the tunnel
+		// io result is still observable in tracing if anyone wants it.
+		let _ = tx.send(reason);
 	}
-
-	// One Trajectory event per request, always.
-	emit_trajectory(
-		ctx,
-		conn,
-		seq,
-		TrajectoryOutcome::Terminated { node: cur, terminator: outcome_kind },
-	);
-	Ok(())
 }
+
+// --- Trajectory + error finalisation -----------------------------------
 
 fn finish_error(
 	ctx: &mut FlowCtx<'_>,
@@ -258,7 +327,7 @@ fn finish_error(
 	seq: &mut u32,
 	cur: NodeId,
 	err: Error,
-) -> Result<(), Error> {
+) -> Result<ExecutorOutput, Error> {
 	let message = std::borrow::Cow::Owned(err.to_string());
 	emit_trajectory(ctx, conn, seq, TrajectoryOutcome::Error { node: cur, message });
 	Err(err)
@@ -290,30 +359,6 @@ fn emit_trajectory(
 		error: None,
 		data,
 	});
-}
-
-fn terminate_action(
-	which: vane_core::Terminator,
-	cur: NodeId,
-	resp: &mut Option<Response>,
-	tunnel: &mut Option<Tunnel>,
-) {
-	match which {
-		vane_core::Terminator::Close => {
-			// No socket work yet; full close happens once listener owns the
-			// transport (S1-13/14).
-		}
-		// TODO(s1-23): replace stub with hyper response writer.
-		vane_core::Terminator::WriteHttpResponse => {
-			let _ = resp.take().expect("phase invariant: WriteHttpResponse needs Response");
-			tracing::trace!(node_id = ?cur, "stub write_http_response");
-		}
-		// TODO(s1-24): replace stub with tokio::io::copy_bidirectional.
-		vane_core::Terminator::ByteTunnel => {
-			let _ = tunnel.take().expect("phase invariant: ByteTunnel needs Tunnel");
-			tracing::trace!(node_id = ?cur, "stub byte_tunnel");
-		}
-	}
 }
 
 fn emit_error_event(
