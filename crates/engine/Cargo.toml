@@ -48,3 +48,4 @@ vane-core = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+http-body-util = "0.1"
