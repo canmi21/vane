@@ -1,11 +1,23 @@
+use std::sync::Arc;
+
 use tokio_util::sync::CancellationToken;
 
 use crate::flow_log::{FlowLogSink, FlowLogVerbosity, TrajectoryBuilder};
 
-pub struct FlowCtx<'a> {
-	pub span: &'a mut tracing::Span,
-	pub log: &'a mut dyn FlowLogSink,
-	pub cancel: &'a CancellationToken,
+/// Per-walk execution context. Constructed once per L4 connection (and
+/// re-constructed per L7 request when a hyper service-fn dispatches into
+/// the L7 sub-graph). Fields are *owned* — no lifetime parameter — so the
+/// struct survives `tokio::spawn` and `move` closures (notably hyper's
+/// service-fn closure at `Node::Upgrade`, which captures `log` / `cancel`
+/// / `verbosity` per request).
+///
+/// `Arc<dyn FlowLogSink>` and `CancellationToken` clone cheaply (each is
+/// internally an `Arc`), and `tracing::Span` is also `Arc`-backed; the
+/// per-request clones in the hyper bridge are O(1).
+pub struct FlowCtx {
+	pub span: tracing::Span,
+	pub log: Arc<dyn FlowLogSink>,
+	pub cancel: CancellationToken,
 	/// Verbosity selected when this connection was accepted. The listener
 	/// reads `engine::VerbosityState` once at `FlowCtx` construction;
 	/// in-flight connections retain the value they were built with.
@@ -36,18 +48,18 @@ mod tests {
 	}
 
 	// Compile-gate: a FlowCtx must be constructible from a concrete sink
-	// coerced to `&mut dyn FlowLogSink`, alongside a borrowed tracing::Span
+	// wrapped in `Arc<dyn FlowLogSink>`, alongside an owned tracing::Span
 	// and CancellationToken, plus the verbosity / trajectory fields the
 	// walker reads. Field visibility regressions break this.
 	#[test]
-	fn flow_ctx_accepts_dyn_sink_and_borrowed_fields() {
-		let mut sink = NullSink { count: Mutex::new(0) };
-		let mut span = tracing::Span::none();
+	fn flow_ctx_accepts_arc_dyn_sink_and_owned_fields() {
+		let sink: Arc<dyn FlowLogSink> = Arc::new(NullSink { count: Mutex::new(0) });
+		let span = tracing::Span::none();
 		let cancel = CancellationToken::new();
 		let ctx = FlowCtx {
-			span: &mut span,
-			log: &mut sink as &mut dyn FlowLogSink,
-			cancel: &cancel,
+			span,
+			log: sink,
+			cancel,
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: TrajectoryBuilder::new(ConnId(0), NodeId::new(0), 0),
 		};

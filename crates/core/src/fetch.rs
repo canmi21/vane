@@ -17,7 +17,7 @@ pub trait L7Fetch: Send + Sync {
 		&self,
 		req: Request,
 		conn: &Arc<ConnContext>,
-		ctx: &mut FlowCtx<'_>,
+		ctx: &mut FlowCtx,
 	) -> Result<L7FetchOutput, Error>;
 }
 
@@ -27,7 +27,7 @@ pub trait L4Fetch: Send + Sync {
 		&self,
 		l4: L4Conn,
 		conn: &Arc<ConnContext>,
-		ctx: &mut FlowCtx<'_>,
+		ctx: &mut FlowCtx,
 	) -> Result<Tunnel, Error>;
 }
 
@@ -147,7 +147,7 @@ mod tests {
 			&self,
 			_req: Request,
 			_conn: &Arc<ConnContext>,
-			_ctx: &mut FlowCtx<'_>,
+			_ctx: &mut FlowCtx,
 		) -> Result<L7FetchOutput, Error> {
 			let resp: Response = http::Response::builder().status(200).body(Body::Empty).expect("build");
 			Ok(L7FetchOutput::Response(resp))
@@ -161,7 +161,7 @@ mod tests {
 			&self,
 			_l4: L4Conn,
 			_conn: &Arc<ConnContext>,
-			_ctx: &mut FlowCtx<'_>,
+			_ctx: &mut FlowCtx,
 		) -> Result<Tunnel, Error> {
 			let (tx, _rx) = oneshot::channel::<crate::middleware::CloseReason>();
 			Ok(Tunnel {
@@ -235,13 +235,10 @@ mod tests {
 	fn l7_fetch_fetch_returns_send_future() {
 		let f: Arc<dyn L7Fetch> = Arc::new(SynthOk);
 		let conn = make_conn_context();
-		let mut sink = NullSink;
-		let mut span = tracing::Span::none();
-		let cancel = CancellationToken::new();
 		let mut ctx = FlowCtx {
-			span: &mut span,
-			log: &mut sink as &mut dyn FlowLogSink,
-			cancel: &cancel,
+			span: tracing::Span::none(),
+			log: Arc::new(NullSink),
+			cancel: CancellationToken::new(),
 			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
 			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
 		};

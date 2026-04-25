@@ -16,7 +16,7 @@ pub trait L4PeekMiddleware: Send + Sync {
 		&self,
 		peek: &[u8],
 		conn: &Arc<ConnContext>,
-		ctx: &mut FlowCtx<'_>,
+		ctx: &mut FlowCtx,
 	) -> Result<Decision, Error>;
 }
 
@@ -26,7 +26,7 @@ pub trait L4BytesMiddleware: Send + Sync {
 		&self,
 		l4: &mut L4Conn,
 		conn: &Arc<ConnContext>,
-		ctx: &mut FlowCtx<'_>,
+		ctx: &mut FlowCtx,
 	) -> Result<Decision, Error>;
 }
 
@@ -36,7 +36,7 @@ pub trait L7RequestMiddleware: Send + Sync {
 		&self,
 		req: &mut Request,
 		conn: &Arc<ConnContext>,
-		ctx: &mut FlowCtx<'_>,
+		ctx: &mut FlowCtx,
 	) -> Result<Decision, Error>;
 
 	fn needs_body(&self) -> bool {
@@ -50,7 +50,7 @@ pub trait L7ResponseMiddleware: Send + Sync {
 		&self,
 		resp: &mut Response,
 		conn: &Arc<ConnContext>,
-		ctx: &mut FlowCtx<'_>,
+		ctx: &mut FlowCtx,
 	) -> Result<Decision, Error>;
 
 	fn needs_body(&self) -> bool {
@@ -200,7 +200,7 @@ mod tests {
 			&self,
 			_peek: &[u8],
 			_conn: &Arc<ConnContext>,
-			_ctx: &mut FlowCtx<'_>,
+			_ctx: &mut FlowCtx,
 		) -> Result<Decision, Error> {
 			Ok(Decision::Continue)
 		}
@@ -213,7 +213,7 @@ mod tests {
 			&self,
 			_l4: &mut L4Conn,
 			_conn: &Arc<ConnContext>,
-			_ctx: &mut FlowCtx<'_>,
+			_ctx: &mut FlowCtx,
 		) -> Result<Decision, Error> {
 			Ok(Decision::Continue)
 		}
@@ -226,7 +226,7 @@ mod tests {
 			&self,
 			_req: &mut Request,
 			_conn: &Arc<ConnContext>,
-			_ctx: &mut FlowCtx<'_>,
+			_ctx: &mut FlowCtx,
 		) -> Result<Decision, Error> {
 			Ok(Decision::Continue)
 		}
@@ -239,7 +239,7 @@ mod tests {
 			&self,
 			_resp: &mut Response,
 			_conn: &Arc<ConnContext>,
-			_ctx: &mut FlowCtx<'_>,
+			_ctx: &mut FlowCtx,
 		) -> Result<Decision, Error> {
 			Ok(Decision::Continue)
 		}
@@ -301,20 +301,21 @@ mod tests {
 		let _: Arc<dyn L7ResponseMiddleware> = m;
 	}
 
+	fn make_flow_ctx(conn_id: ConnId) -> FlowCtx {
+		FlowCtx {
+			span: tracing::Span::none(),
+			log: Arc::new(NullSink),
+			cancel: CancellationToken::new(),
+			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
+			trajectory: crate::flow_log::TrajectoryBuilder::new(conn_id, crate::ir::NodeId::new(0), 0),
+		}
+	}
+
 	#[test]
 	fn l4_peek_run_returns_send_future() {
 		let m: Arc<dyn L4PeekMiddleware> = Arc::new(PassPeek);
 		let conn = make_conn_context();
-		let mut sink = NullSink;
-		let mut span = tracing::Span::none();
-		let cancel = CancellationToken::new();
-		let mut ctx = FlowCtx {
-			span: &mut span,
-			log: &mut sink as &mut dyn FlowLogSink,
-			cancel: &cancel,
-			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
-			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
-		};
+		let mut ctx = make_flow_ctx(conn.id);
 		let peek: &[u8] = &[];
 		// Exact-type coercion into `Pin<Box<dyn Future + Send>>` — the async_trait
 		// signature. Fails to compile if a future becomes `!Send`.
@@ -328,16 +329,7 @@ mod tests {
 	fn l7_request_run_returns_send_future() {
 		let m: Arc<dyn L7RequestMiddleware> = Arc::new(PassReq);
 		let conn = make_conn_context();
-		let mut sink = NullSink;
-		let mut span = tracing::Span::none();
-		let cancel = CancellationToken::new();
-		let mut ctx = FlowCtx {
-			span: &mut span,
-			log: &mut sink as &mut dyn FlowLogSink,
-			cancel: &cancel,
-			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
-			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
-		};
+		let mut ctx = make_flow_ctx(conn.id);
 		let mut req: Request =
 			http::Request::builder().uri("/").body(crate::body::Body::Empty).expect("build req");
 		let fut: Pin<Box<dyn Future<Output = Result<Decision, Error>> + Send + '_>> =
@@ -350,16 +342,7 @@ mod tests {
 	fn l7_response_run_returns_send_future() {
 		let m: Arc<dyn L7ResponseMiddleware> = Arc::new(PassResp);
 		let conn = make_conn_context();
-		let mut sink = NullSink;
-		let mut span = tracing::Span::none();
-		let cancel = CancellationToken::new();
-		let mut ctx = FlowCtx {
-			span: &mut span,
-			log: &mut sink as &mut dyn FlowLogSink,
-			cancel: &cancel,
-			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
-			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
-		};
+		let mut ctx = make_flow_ctx(conn.id);
 		let mut resp: Response =
 			http::Response::builder().status(200).body(crate::body::Body::Empty).expect("build resp");
 		let fut: Pin<Box<dyn Future<Output = Result<Decision, Error>> + Send + '_>> =
