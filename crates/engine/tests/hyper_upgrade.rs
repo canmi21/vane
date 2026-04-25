@@ -135,6 +135,32 @@ fn upgrade_fetch_terminate_graph(
 	FlowGraph::link(sym, &mw, &fetch).expect("link upgrade-fetch-terminate graph")
 }
 
+// L7 path that reaches Terminate(Close) without producing a Response.
+// Shape:
+//
+//   entry(Upgrade { next: 1 })
+//     -> Terminate(Close)
+//
+// Used by the no-route synthesis test — `drive_h1_server` translates the
+// resulting `ExecutorOutput::Closed` to 404 + `Connection: close` for
+// HTTP/1 clients (HTTP/2 / HTTP/3 will pick 421 once those drivers land).
+fn upgrade_close_graph(addr: SocketAddr) -> Arc<FlowGraph> {
+	let mut entries = HashMap::new();
+	entries.insert(addr, NodeId::new(0));
+	let sym = Arc::new(SymbolicFlowGraph {
+		nodes: vec![Node::Upgrade { next: NodeId::new(1) }, Node::Terminate(TerminatorId::new(0))],
+		predicates: vec![],
+		middlewares: vec![],
+		fetches: vec![],
+		terminators: vec![Terminator::Close],
+		entries,
+		meta: sample_meta(),
+	});
+	let mw = MiddlewareFactories::new();
+	let fetch = FetchFactories::new();
+	FlowGraph::link(sym, &mw, &fetch).expect("link upgrade-close graph")
+}
+
 // ---------------------------------------------------------------------------
 // Spawn the listener and wait briefly for the accept loop to bind.
 // ---------------------------------------------------------------------------
@@ -526,6 +552,46 @@ async fn h1_l7_fetch_error_surfaces_as_500() {
 	let _ = resp.into_body().collect().await;
 
 	assert_eq!(hits.load(Ordering::SeqCst), 1, "L7Fetch must run exactly once before the 500");
+
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+// 7. h1_no_route_returns_404_with_connection_close
+//
+// Spec anchor: 02-flow.md § _Execution model_ — `Terminate(Close)` is a
+// proxy-layer "no route" signal. Inside an H1 connection the L4 RST
+// analogue is "synthesise 404 + Connection: close" so the H1 socket
+// terminates cleanly without leaking origin-server semantics. (HTTP/2
+// and HTTP/3 will pick 421 Misdirected Request once those drivers land;
+// see `drive_h1_server`'s `Closed` arm.)
+#[tokio::test]
+async fn h1_no_route_returns_404_with_connection_close() {
+	let addr = pick_port().await;
+	let graph = upgrade_close_graph(addr);
+
+	let (set, addr) = start_listener(graph).await;
+
+	let mut sender = h1_client_handshake_empty(addr).await;
+	let req = hyper::Request::builder()
+		.method("GET")
+		.uri("/no-rule-covers-this")
+		.header("host", "test.local")
+		.body(Empty::<Bytes>::new())
+		.expect("build no-route GET request");
+
+	let resp = sender.send_request(req).await.expect("send_request must not hang");
+	assert_eq!(
+		resp.status().as_u16(),
+		404,
+		"H1 unmatched path must surface as 404; H2/H3 will pick 421 in their drivers",
+	);
+	assert_eq!(
+		resp.headers().get("connection").and_then(|v| v.to_str().ok()),
+		Some("close"),
+		"Closed-arm response must carry Connection: close to terminate the H1 connection",
+	);
+	let body = resp.into_body().collect().await.expect("collect").to_bytes();
+	assert!(body.is_empty(), "Closed-arm response body must be empty");
 
 	set.shutdown(Duration::from_secs(2)).await;
 }

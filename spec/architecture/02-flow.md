@@ -563,6 +563,19 @@ pub async fn execute(
 }
 ```
 
+### `Terminator::Close` at L4 vs inside an HTTP server
+
+`Close` is phase-agnostic at the IR level — but its wire-level manifestation depends on where the cursor is when the executor returns `Ok(ExecutorOutput::Closed)`:
+
+| Where the executor returned                                            | Wire-level manifestation                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **L4 path** (executor returned to the listener's accept loop)          | TCP RST / QUIC stream reset / Unix shutdown. The `L4Conn` was either taken into `Tunnel.client` and dropped, or left in the `l4` slot which `drop` releases — the socket closes immediately, no HTTP framing is ever spoken.                                                                                   |
+| **L7 path inside `drive_h1_server`** (an H1 request walked into Close) | The H1 server-fn synthesises a status response and sets `Connection: close` so hyper writes the response, flushes, and closes the H1 connection. Status is **404** for HTTP/1.0 / HTTP/1.1 and **421 Misdirected Request** for HTTP/2 / HTTP/3 (the latter two via future driver siblings). The body is empty. |
+
+The L7 status choice is a **proxy-layer "no route" signal**, not an origin-server "resource not found": vane is a gateway, so 421 ("the server is not configured to produce responses for this URI") is RFC-accurate. 404 is the H1 fallback because RFC 9110 § 15.5.20 introduced 421 alongside HTTP/2 — H1-only clients may handle a 421 oddly, while 404 + `Connection: close` is universally understood. The 5xx-class codes (502 / 503) read as "we tried something downstream and it failed", which is wrong here — no upstream was contacted.
+
+`drive_h1_server` reads the HTTP version from `conn.http_version` (set at server construction) so the choice is future-proof when the H2 / H3 server-fn siblings land.
+
 Ownership summary — every owned resource has exactly one consumer (type system enforced, not a convention):
 
 | Resource   | Created by                                                     | Consumed by                                                      |

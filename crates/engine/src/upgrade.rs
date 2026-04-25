@@ -18,6 +18,7 @@ use http_body::{Body as HttpBody, Frame, SizeHint};
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use pin_project_lite::pin_project;
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 use vane_core::{
@@ -65,7 +66,7 @@ pub(crate) async fn drive_h1_server(
 		let cancel = cancel.clone();
 		async move {
 			let vane_req: Request =
-				req.map(|incoming| Body::Stream(Box::pin(IncomingAdapter { inner: Box::pin(incoming) })));
+				req.map(|incoming| Body::Stream(Box::pin(IncomingAdapter { inner: incoming })));
 
 			let span = tracing::info_span!(
 				"request",
@@ -89,9 +90,35 @@ pub(crate) async fn drive_h1_server(
 				Ok(ExecutorOutput::HttpResponse(r)) => Ok::<Response, std::convert::Infallible>(r),
 				Ok(ExecutorOutput::Closed) => {
 					// L7 path ended via Terminate(Close) without producing a
-					// Response. Synthesise a 204 — the client expects some
-					// HTTP reply on a decoded request.
-					Ok(http::Response::builder().status(204).body(Body::Empty).expect("static"))
+					// Response. The L4 analogue is TCP RST; the L7 analogue
+					// inside hyper is "synthesise a status that signals
+					// proxy-layer no-route, then close the H1 connection so
+					// the next request on the same socket doesn't see a
+					// stale rule-set":
+					//
+					//   - 404 for HTTP/1.x clients (broadest compatibility;
+					//     RFC 9110 § 15.5.5 — origin sense is technically
+					//     wrong but H1 clients react sanely).
+					//   - 421 Misdirected Request for HTTP/2 / HTTP/3 (RFC
+					//     9110 § 15.5.20 — "the server is not configured to
+					//     produce responses for this URI"; semantically the
+					//     accurate match for proxy-layer no-route).
+					//
+					// We're inside `drive_h1_server`, so `conn.http_version`
+					// is always `Http1_1` here — but reading the OnceLock
+					// keeps the choice future-proof when H2 / H3 driver
+					// siblings land.
+					let status = match conn.http_version.get() {
+						Some(HttpVersion::Http2 | HttpVersion::Http3) => 421,
+						_ => 404,
+					};
+					Ok(
+						http::Response::builder()
+							.status(status)
+							.header("connection", "close")
+							.body(Body::Empty)
+							.expect("static"),
+					)
 				}
 				Ok(ExecutorOutput::Tunneled) => {
 					// WS-101 lands here; not in MVP scope. Surface a 500 so
@@ -123,13 +150,15 @@ fn unix_ms_now() -> u64 {
 		.unwrap_or_default()
 }
 
-/// Adapts `hyper::body::Incoming` into the `HttpBody<Data = Bytes,
-/// Error = vane_core::Error>` shape required by `vane_core::Body::Stream`.
-/// `inner` is `Pin<Box<Incoming>>` rather than `Incoming` so we can poll
-/// without unsafe pin projection (CLAUDE.md `unsafe_code = "deny"` —
-/// same pattern as `vane_core::body::BodyStreamAdapter`).
-struct IncomingAdapter {
-	inner: Pin<Box<Incoming>>,
+pin_project! {
+	/// Adapts `hyper::body::Incoming` into the `HttpBody<Data = Bytes,
+	/// Error = vane_core::Error>` shape required by `vane_core::Body::Stream`.
+	/// `pin_project_lite` generates a safe `project()` so we project to
+	/// `inner` without an `unsafe` block (CLAUDE.md `unsafe_code = "deny"`).
+	struct IncomingAdapter {
+		#[pin]
+		inner: Incoming,
+	}
 }
 
 impl HttpBody for IncomingAdapter {
@@ -140,7 +169,7 @@ impl HttpBody for IncomingAdapter {
 		self: Pin<&mut Self>,
 		cx: &mut Context<'_>,
 	) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-		match self.get_mut().inner.as_mut().poll_frame(cx) {
+		match self.project().inner.poll_frame(cx) {
 			Poll::Pending => Poll::Pending,
 			Poll::Ready(None) => Poll::Ready(None),
 			Poll::Ready(Some(Ok(f))) => Poll::Ready(Some(Ok(f))),

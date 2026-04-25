@@ -1085,6 +1085,7 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "parking_lot",
+ "pin-project-lite",
  "serde_json",
  "thiserror",
  "tokio",
