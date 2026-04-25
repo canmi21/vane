@@ -413,10 +413,18 @@ async fn bind_with_retry(
 	None
 }
 
-/// Test-only entry point: drive `bind_with_retry` with a custom attempt cap
-/// and zero-duration retry budget. Tests use this to exercise the
-/// "give-up after MAX_BIND_ATTEMPTS" branch without relying on the
-/// production backoff schedule.
+/// Test-only entry point: drive `bind_with_retry` with a custom attempt
+/// cap. Tests use this to exercise the "give-up after `MAX_BIND_ATTEMPTS`"
+/// branch without relying on the production backoff schedule.
+///
+/// Exposed as `pub` (not `#[cfg(test)]`) because integration tests live
+/// in `crates/engine/tests/` — a separate crate per Cargo's test layout —
+/// and can only access this crate's *public* surface. `#[cfg(test)]` only
+/// activates inside the unit-test build of this crate, not in dependent
+/// test crates. `#[doc(hidden)]` keeps the symbol out of rustdoc; the
+/// `_for_test` suffix and this note discourage downstream use. Revisit if
+/// listener internals get refactored into a shape where the test hook can
+/// move under a feature gate.
 #[doc(hidden)]
 pub async fn bind_with_retry_for_test(addr: SocketAddr, max_attempts: u32) -> Option<TcpListener> {
 	let cancel = CancellationToken::new();
