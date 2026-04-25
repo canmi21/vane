@@ -29,7 +29,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
-	ConnContext, ConnId, FlowCtx, FlowLogEvent, FlowLogSink, L4Conn, MiddlewareKind, Node, NodeId,
+	ConnContext, ConnId, FlowCtx, FlowLogSink, L4Conn, MiddlewareKind, Node, NodeId,
 	TrajectoryBuilder, Transport,
 };
 
@@ -60,17 +60,6 @@ fn unix_ms_now() -> u64 {
 		.duration_since(UNIX_EPOCH)
 		.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 		.unwrap_or_default()
-}
-
-/// `Arc<dyn FlowLogSink>` adaptor so the per-connection task can borrow it
-/// as the `&mut dyn FlowLogSink` slot `FlowCtx::log` requires. The trait's
-/// `emit` is `&self`, so the wrapper is purely a borrow-shape adjustment.
-struct LogSinkArcRef(Arc<dyn FlowLogSink>);
-
-impl FlowLogSink for LogSinkArcRef {
-	fn emit(&self, event: FlowLogEvent) {
-		self.0.emit(event);
-	}
 }
 
 /// Per-(transport, address) listener registry. Today: TCP only.
@@ -338,13 +327,11 @@ async fn handle_connection(
 		user: parking_lot::Mutex::new(http::Extensions::new()),
 	});
 
-	let mut span = tracing::info_span!("conn", id = %conn.id);
-	let mut sink_ref = LogSinkArcRef(Arc::clone(&log_sink));
-	let cancel_for_ctx = force_cancel;
+	let span = tracing::info_span!("conn", id = %conn.id);
 	let mut ctx = FlowCtx {
-		span: &mut span,
-		log: &mut sink_ref as &mut dyn FlowLogSink,
-		cancel: &cancel_for_ctx,
+		span,
+		log: log_sink,
+		cancel: force_cancel,
 		verbosity: verbosity.current(),
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};

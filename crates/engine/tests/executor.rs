@@ -147,7 +147,7 @@ impl L7RequestMiddleware for CountAndContinue {
 		&self,
 		_req: &mut Request,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Decision, Error> {
 		self.0.fetch_add(1, Ordering::SeqCst);
 		Ok(Decision::Continue)
@@ -162,7 +162,7 @@ impl L7RequestMiddleware for ShortClose {
 		&self,
 		_req: &mut Request,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Decision, Error> {
 		Ok(Decision::Short(ShortCircuit::Close(CloseReason::PolicyDenied(self.0.clone()))))
 	}
@@ -176,7 +176,7 @@ impl L7RequestMiddleware for FailMiddleware {
 		&self,
 		_req: &mut Request,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Decision, Error> {
 		self.0.fetch_add(1, Ordering::SeqCst);
 		Err(Error::middleware("simulated"))
@@ -191,7 +191,7 @@ impl L7Fetch for SynthOkFetch {
 		&self,
 		_req: Request,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<L7FetchOutput, Error> {
 		self.0.fetch_add(1, Ordering::SeqCst);
 		let resp: Response =
@@ -206,18 +206,16 @@ impl L7Fetch for SynthOkFetch {
 // ---------------------------------------------------------------------------
 
 async fn run_execute(
-	graph: &FlowGraph,
+	graph: &Arc<FlowGraph>,
 	entry: NodeId,
 	input: ExecutorInput,
 	conn: &Arc<ConnContext>,
-	sink: &mut NullSink,
+	sink: &Arc<NullSink>,
 ) -> Result<vane_engine::executor::ExecutorOutput, Error> {
-	let mut span = tracing::Span::none();
-	let cancel = CancellationToken::new();
 	let mut ctx = FlowCtx {
-		span: &mut span,
-		log: sink as &mut dyn FlowLogSink,
-		cancel: &cancel,
+		span: tracing::Span::none(),
+		log: Arc::clone(sink) as Arc<dyn FlowLogSink>,
+		cancel: CancellationToken::new(),
 		verbosity: vane_core::FlowLogVerbosity::Trajectory,
 		trajectory: vane_core::TrajectoryBuilder::new(conn.id, entry, 0),
 	};
@@ -260,14 +258,14 @@ async fn execute_middleware_continue_advances_cursor() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -310,14 +308,14 @@ async fn execute_middleware_short_close_returns_err() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -365,14 +363,14 @@ async fn execute_middleware_err_routes_via_on_error() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -414,14 +412,14 @@ async fn execute_middleware_err_without_on_error_propagates() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -501,13 +499,13 @@ async fn execute_check_routes_by_predicate_remote_ip_equals() {
 
 	// Matching case: remote.ip == 127.0.0.1 → on_match branch.
 	let conn_match = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 	let r = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn_match,
-		&mut sink,
+		&sink,
 	)
 	.await;
 	assert!(r.is_ok(), "match branch must complete via Close: {r:?}");
@@ -516,13 +514,13 @@ async fn execute_check_routes_by_predicate_remote_ip_equals() {
 
 	// Non-matching case: remote.ip = 10.0.0.1 → on_miss branch.
 	let conn_miss = make_conn("10.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 	let r = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn_miss,
-		&mut sink,
+		&sink,
 	)
 	.await;
 	assert!(r.is_ok(), "miss branch must complete via Close: {r:?}");
@@ -594,10 +592,9 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 	// GET → on_match.
 	let get_req: Request =
 		http::Request::builder().method("GET").uri("/").body(Body::Empty).expect("build GET");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 	let r =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(get_req)), &conn, &mut sink)
-			.await;
+		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(get_req)), &conn, &sink).await;
 	assert!(r.is_ok(), "GET must traverse the match branch: {r:?}");
 	assert_eq!(hit_match.load(Ordering::SeqCst), 1, "GET runs the match branch once");
 	assert_eq!(hit_miss.load(Ordering::SeqCst), 0, "GET must not run the miss branch");
@@ -605,10 +602,9 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 	// POST → on_miss.
 	let post_req: Request =
 		http::Request::builder().method("POST").uri("/").body(Body::Empty).expect("build POST");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 	let r =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(post_req)), &conn, &mut sink)
-			.await;
+		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(post_req)), &conn, &sink).await;
 	assert!(r.is_ok(), "POST must traverse the miss branch: {r:?}");
 	assert_eq!(hit_match.load(Ordering::SeqCst), 1, "match counter unchanged");
 	assert_eq!(hit_miss.load(Ordering::SeqCst), 1, "POST runs the miss branch once");
@@ -652,14 +648,14 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 	}
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -692,14 +688,14 @@ async fn execute_upgrade_node_errors_as_unsupported() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -746,14 +742,14 @@ async fn execute_collect_body_before_errors_as_unsupported() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -781,19 +777,17 @@ async fn execute_collect_body_before_errors_as_unsupported() {
 // ---------------------------------------------------------------------------
 
 async fn run_execute_with_verbosity(
-	graph: &FlowGraph,
+	graph: &Arc<FlowGraph>,
 	entry: NodeId,
 	input: ExecutorInput,
 	conn: &Arc<ConnContext>,
-	sink: &mut NullSink,
+	sink: &Arc<NullSink>,
 	verbosity: FlowLogVerbosity,
 ) -> Result<vane_engine::executor::ExecutorOutput, Error> {
-	let mut span = tracing::Span::none();
-	let cancel = CancellationToken::new();
 	let mut ctx = FlowCtx {
-		span: &mut span,
-		log: sink as &mut dyn FlowLogSink,
-		cancel: &cancel,
+		span: tracing::Span::none(),
+		log: Arc::clone(sink) as Arc<dyn FlowLogSink>,
+		cancel: CancellationToken::new(),
 		verbosity,
 		trajectory: vane_core::TrajectoryBuilder::new(conn.id, entry, 0),
 	};
@@ -871,14 +865,14 @@ async fn execute_emits_one_trajectory_event_in_default_mode() {
 	let b = Arc::new(AtomicUsize::new(0));
 	let graph = two_middleware_close_graph(Arc::clone(&a), Arc::clone(&b));
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute_with_verbosity(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 		FlowLogVerbosity::Trajectory,
 	)
 	.await;
@@ -915,14 +909,14 @@ async fn execute_emits_per_step_events_in_debug_mode() {
 	let b = Arc::new(AtomicUsize::new(0));
 	let graph = two_middleware_close_graph(Arc::clone(&a), Arc::clone(&b));
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute_with_verbosity(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 		FlowLogVerbosity::Debug,
 	)
 	.await;
@@ -958,14 +952,14 @@ async fn execute_trajectory_outcome_records_terminator_kind() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute_with_verbosity(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 		FlowLogVerbosity::Trajectory,
 	)
 	.await;
@@ -1022,14 +1016,14 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute_with_verbosity(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 		FlowLogVerbosity::Trajectory,
 	)
 	.await;
@@ -1073,7 +1067,7 @@ impl L7Fetch for CannedResponseFetch {
 		&self,
 		_req: Request,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<L7FetchOutput, Error> {
 		let resp = self.0.lock().take().expect("CannedResponseFetch must be invoked at most once");
 		Ok(L7FetchOutput::Response(resp))
@@ -1090,7 +1084,7 @@ impl L4Fetch for CannedTunnelFetch {
 		&self,
 		_l4: L4Conn,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Tunnel, Error> {
 		let tunnel = self.0.lock().take().expect("CannedTunnelFetch must be invoked at most once");
 		Ok(tunnel)
@@ -1178,14 +1172,14 @@ async fn execute_write_http_response_returns_response_output() {
 	}
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -1238,14 +1232,14 @@ async fn execute_write_http_response_preserves_body_payload() {
 	}
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -1286,13 +1280,11 @@ async fn execute_byte_tunnel_drives_copy_bidirectional() {
 	let conn_for_exec = Arc::clone(&conn);
 	let graph_for_exec = Arc::clone(&graph);
 	let executor = tokio::spawn(async move {
-		let mut sink = NullSink::new();
-		let mut span = tracing::Span::none();
-		let cancel = CancellationToken::new();
+		let sink: Arc<dyn FlowLogSink> = Arc::new(NullSink::new());
 		let mut ctx = FlowCtx {
-			span: &mut span,
-			log: &mut sink as &mut dyn FlowLogSink,
-			cancel: &cancel,
+			span: tracing::Span::none(),
+			log: sink,
+			cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
 		};
@@ -1351,13 +1343,11 @@ async fn execute_byte_tunnel_sends_graceful_close_reason() {
 	let conn_for_exec = Arc::clone(&conn);
 	let graph_for_exec = Arc::clone(&graph);
 	let executor = tokio::spawn(async move {
-		let mut sink = NullSink::new();
-		let mut span = tracing::Span::none();
-		let cancel = CancellationToken::new();
+		let sink: Arc<dyn FlowLogSink> = Arc::new(NullSink::new());
 		let mut ctx = FlowCtx {
-			span: &mut span,
-			log: &mut sink as &mut dyn FlowLogSink,
-			cancel: &cancel,
+			span: tracing::Span::none(),
+			log: sink,
+			cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
 		};
@@ -1446,10 +1436,10 @@ async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
 	let graph = byte_tunnel_graph(tunnel);
 	let conn = make_conn("127.0.0.1:0");
 	let l4 = L4Conn::Tcp(throwaway_tcp_stream().await);
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L4(Box::new(l4)), &conn, &mut sink).await;
+		run_execute(&graph, NodeId::new(0), ExecutorInput::L4(Box::new(l4)), &conn, &sink).await;
 
 	match result {
 		Ok(ExecutorOutput::Tunneled) => {}
@@ -1483,14 +1473,14 @@ async fn execute_close_terminator_returns_closed_output() {
 	let fetch = FetchFactories::new();
 	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
 	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
+	let sink = Arc::new(NullSink::new());
 
 	let result = run_execute(
 		&graph,
 		NodeId::new(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
-		&mut sink,
+		&sink,
 	)
 	.await;
 
@@ -1525,7 +1515,7 @@ impl L4Fetch for NotifyingTunnelFetch {
 		&self,
 		_l4: L4Conn,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Tunnel, Error> {
 		let tunnel = self.tunnel.lock().take().expect("NotifyingTunnelFetch invoked more than once");
 		self.notify.notify_one();
@@ -1604,12 +1594,11 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 	let conn_for_exec = Arc::clone(&conn);
 	let graph_for_exec = Arc::clone(&graph);
 	let executor = tokio::spawn(async move {
-		let mut sink = NullSink::new();
-		let mut span = tracing::Span::none();
+		let sink: Arc<dyn FlowLogSink> = Arc::new(NullSink::new());
 		let mut ctx = FlowCtx {
-			span: &mut span,
-			log: &mut sink as &mut dyn FlowLogSink,
-			cancel: &cancel_for_exec,
+			span: tracing::Span::none(),
+			log: sink,
+			cancel: cancel_for_exec,
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
 		};

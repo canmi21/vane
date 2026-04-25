@@ -32,7 +32,7 @@ impl L4PeekMiddleware for NoopL4Peek {
 		&self,
 		_peek: &[u8],
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Decision, Error> {
 		unreachable!("link tests never drive middleware")
 	}
@@ -45,7 +45,7 @@ impl L4BytesMiddleware for NoopL4Bytes {
 		&self,
 		_l4: &mut L4Conn,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Decision, Error> {
 		unreachable!("link tests never drive middleware")
 	}
@@ -58,7 +58,7 @@ impl L7RequestMiddleware for NoopL7Req {
 		&self,
 		_req: &mut Request,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Decision, Error> {
 		unreachable!("link tests never drive middleware")
 	}
@@ -71,7 +71,7 @@ impl L7ResponseMiddleware for NoopL7Resp {
 		&self,
 		_resp: &mut Response,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Decision, Error> {
 		unreachable!("link tests never drive middleware")
 	}
@@ -345,7 +345,7 @@ fn index_fetch_id_returns_inst() {
 			&self,
 			_req: Request,
 			_conn: &Arc<ConnContext>,
-			_ctx: &mut FlowCtx<'_>,
+			_ctx: &mut FlowCtx,
 		) -> Result<vane_core::L7FetchOutput, Error> {
 			unreachable!("link tests never drive fetches")
 		}

@@ -165,7 +165,7 @@ impl L4BytesMiddleware for SleepBytes {
 		&self,
 		_l4: &mut L4Conn,
 		_conn: &Arc<ConnContext>,
-		_ctx: &mut FlowCtx<'_>,
+		_ctx: &mut FlowCtx,
 	) -> Result<Decision, Error> {
 		tokio::time::sleep(self.delay).await;
 		Ok(Decision::Continue)

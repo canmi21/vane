@@ -82,11 +82,11 @@ impl std::fmt::Debug for ExecutorOutput {
 /// or hand-forged graph may hit these; don't.
 #[allow(clippy::too_many_lines)]
 pub async fn execute(
-	graph: &FlowGraph,
+	graph: &Arc<FlowGraph>,
 	entry: NodeId,
 	input: ExecutorInput,
 	conn: &Arc<ConnContext>,
-	ctx: &mut FlowCtx<'_>,
+	ctx: &mut FlowCtx,
 ) -> Result<ExecutorOutput, Error> {
 	let mut l4: Option<L4Conn> = None;
 	let mut req: Option<Request> = None;
@@ -252,7 +252,7 @@ pub async fn execute(
 					vane_core::Terminator::ByteTunnel => {
 						drive_byte_tunnel(
 							tunnel.take().expect("phase invariant: ByteTunnel reached without a Tunnel in scope"),
-							ctx.cancel,
+							&ctx.cancel,
 						)
 						.await;
 						emit_trajectory(
@@ -275,7 +275,7 @@ pub async fn execute(
 // --- Step recording -----------------------------------------------------
 
 fn record_step(
-	ctx: &mut FlowCtx<'_>,
+	ctx: &mut FlowCtx,
 	conn: &Arc<ConnContext>,
 	seq: &mut u32,
 	cur: NodeId,
@@ -327,7 +327,7 @@ async fn drive_byte_tunnel(mut t: Tunnel, cancel: &tokio_util::sync::Cancellatio
 // --- Trajectory + error finalisation -----------------------------------
 
 fn finish_error(
-	ctx: &mut FlowCtx<'_>,
+	ctx: &mut FlowCtx,
 	conn: &Arc<ConnContext>,
 	seq: &mut u32,
 	cur: NodeId,
@@ -339,7 +339,7 @@ fn finish_error(
 }
 
 fn emit_trajectory(
-	ctx: &mut FlowCtx<'_>,
+	ctx: &mut FlowCtx,
 	conn: &Arc<ConnContext>,
 	seq: &mut u32,
 	outcome: TrajectoryOutcome,
@@ -367,7 +367,7 @@ fn emit_trajectory(
 }
 
 fn emit_error_event(
-	ctx: &mut FlowCtx<'_>,
+	ctx: &mut FlowCtx,
 	cur: NodeId,
 	seq: &mut u32,
 	conn: &Arc<ConnContext>,
