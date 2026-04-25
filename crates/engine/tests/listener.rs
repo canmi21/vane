@@ -201,6 +201,12 @@ async fn listener_accepts_tcp_and_routes_to_executor() {
 	let client = tokio::net::TcpStream::connect(addr).await.expect("client connects to listener");
 	drop(client);
 
+	// Yield to the runtime so the accept loop polls `listener.accept()` and
+	// spawns the per-connection task BEFORE shutdown fires `accept_cancel`.
+	// With a `biased` select, a connected-but-unaccepted client would
+	// otherwise lose to the cancel branch and never reach the executor.
+	tokio::time::sleep(Duration::from_millis(50)).await;
+
 	// Soft-drain shutdown lets the executor finish naturally — the Close
 	// terminator path is microseconds, so the drain wait won't elapse.
 	set.shutdown(Duration::from_secs(2)).await;
