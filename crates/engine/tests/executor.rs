@@ -14,25 +14,31 @@
 #![allow(clippy::too_many_lines)]
 
 use std::collections::HashMap;
+use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Context, Poll};
 use std::time::{Instant, SystemTime};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use parking_lot::Mutex;
 use serde_json::Value;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
-	Body, CloseReason, CompiledOperator, CompiledValue, ConnContext, ConnId, Decision, Error,
-	FetchId, FetchKind, FieldPath, FlowCtx, FlowGraphMeta, FlowLogEvent, FlowLogKind, FlowLogSink,
-	FlowLogVerbosity, FlowTrajectory, L7Fetch, L7FetchOutput, L7RequestMiddleware, MiddlewareId,
-	MiddlewareKind, Node, NodeId, PredicateId, PredicateInst, Request, Response, ShortCircuit,
-	SymbolicFetchRef, SymbolicFlowGraph, SymbolicMiddlewareRef, Terminator, TerminatorId,
-	TerminatorOutcomeKind, TrajectoryOutcome, Transport,
+	AsyncReadWrite, Body, CloseReason, CompiledOperator, CompiledValue, ConnContext, ConnId,
+	Decision, Error, FetchId, FetchKind, FieldPath, FlowCtx, FlowGraphMeta, FlowLogEvent,
+	FlowLogKind, FlowLogSink, FlowLogVerbosity, FlowTrajectory, L4Conn, L4Fetch, L7Fetch,
+	L7FetchOutput, L7RequestMiddleware, MiddlewareId, MiddlewareKind, Node, NodeId, PredicateId,
+	PredicateInst, Request, Response, ShortCircuit, SymbolicFetchRef, SymbolicFlowGraph,
+	SymbolicMiddlewareRef, Terminator, TerminatorId, TerminatorOutcomeKind, TrajectoryOutcome,
+	Transport, Tunnel,
 };
-use vane_engine::executor::{ExecutorInput, execute};
+use vane_engine::executor::{ExecutorInput, ExecutorOutput, execute};
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph, MiddlewareInst};
 
@@ -1083,4 +1089,451 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 			panic!("expected Error outcome, got {other:?}")
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// C8a contract tests (15-20). These pin the ExecutorOutput shape introduced
+// in commit 85cfd470: WriteHttpResponse hands back the Response verbatim,
+// ByteTunnel drives `tokio::io::copy_bidirectional` to completion and reports
+// the close reason out-of-band. Per 05-terminator.md § _Variants_ and
+// 02-flow.md § _Execution model_.
+// ---------------------------------------------------------------------------
+
+/// `L7Fetch` fixture that returns a caller-supplied `Response`. The response
+/// is moved out on first invocation; subsequent calls panic. Used to assert
+/// that the executor preserves the exact `Response` value through the
+/// `WriteHttpResponse` terminator.
+struct CannedResponseFetch(Mutex<Option<Response>>);
+
+#[async_trait]
+impl L7Fetch for CannedResponseFetch {
+	async fn fetch(
+		&self,
+		_req: Request,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx<'_>,
+	) -> Result<L7FetchOutput, Error> {
+		let resp = self.0.lock().take().expect("CannedResponseFetch must be invoked at most once");
+		Ok(L7FetchOutput::Response(resp))
+	}
+}
+
+/// `L4Fetch` fixture that hands the executor a caller-supplied `Tunnel`.
+/// Same single-shot semantics as `CannedResponseFetch`.
+struct CannedTunnelFetch(Mutex<Option<Tunnel>>);
+
+#[async_trait]
+impl L4Fetch for CannedTunnelFetch {
+	async fn fetch(
+		&self,
+		_l4: L4Conn,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx<'_>,
+	) -> Result<Tunnel, Error> {
+		let tunnel = self.0.lock().take().expect("CannedTunnelFetch must be invoked at most once");
+		Ok(tunnel)
+	}
+}
+
+/// Build the L4-entry tunnel graph used by tests 17-19:
+///   0: `Fetch(L4Forward)` { `next_tunnel` = 1 } -> 1: `Terminate(ByteTunnel)`
+fn byte_tunnel_graph(tunnel: Tunnel) -> Arc<FlowGraph> {
+	let sym = build_graph(
+		vec![
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: None,
+				next_tunnel: Some(NodeId::new(1)),
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![],
+		vec![SymbolicFetchRef { kind: FetchKind::L4Forward, args: Value::Null }],
+		vec![Terminator::ByteTunnel],
+	);
+	let mw = MiddlewareFactories::new();
+	let mut fetch = FetchFactories::new();
+	let slot = Arc::new(Mutex::new(Some(tunnel)));
+	{
+		let slot = Arc::clone(&slot);
+		fetch.register(FetchKind::L4Forward, move |_args| {
+			let tunnel = slot.lock().take().expect("L4Forward factory invoked more than once");
+			Ok(FetchInst::L4(Arc::new(CannedTunnelFetch(Mutex::new(Some(tunnel))))))
+		});
+	}
+	FlowGraph::link(sym, &mw, &fetch).expect("link")
+}
+
+/// Spin up a throwaway `TcpStream` so the L4 executor branch has a real
+/// `L4Conn::Tcp` value to consume. The stream is fed to the L4 fetch
+/// factory and dropped there — the bytes never matter; only the type
+/// shape does.
+async fn throwaway_tcp_stream() -> tokio::net::TcpStream {
+	let listener =
+		tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral listener");
+	let addr = listener.local_addr().expect("local_addr");
+	let connect = tokio::net::TcpStream::connect(addr);
+	let accept = listener.accept();
+	let (client, _server) = tokio::join!(connect, accept);
+	client.expect("connect to ephemeral listener")
+}
+
+// ---------------------------------------------------------------------------
+// 15. execute_write_http_response_returns_response_output
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_write_http_response_returns_response_output() {
+	// 05-terminator.md § _Variants_: WriteHttpResponse consumes the Response
+	// produced by the preceding L7Fetch and hands it to the caller verbatim.
+	// The executor must surface `Ok(ExecutorOutput::HttpResponse(r))` whose
+	// `r.status()` matches what the fetch produced.
+	let fetch_counter = Arc::new(AtomicUsize::new(0));
+	let sym = build_graph(
+		vec![
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: Some(NodeId::new(1)),
+				next_tunnel: None,
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![],
+		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![Terminator::WriteHttpResponse],
+	);
+	let mw = MiddlewareFactories::new();
+	let mut fetch = FetchFactories::new();
+	{
+		let counter = Arc::clone(&fetch_counter);
+		fetch.register(FetchKind::HttpSynthesize, move |_args| {
+			Ok(FetchInst::L7(Arc::new(SynthOkFetch(Arc::clone(&counter)))))
+		});
+	}
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let mut sink = NullSink::new();
+
+	let result = run_execute(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&mut sink,
+	)
+	.await;
+
+	match result {
+		Ok(ExecutorOutput::HttpResponse(r)) => {
+			assert_eq!(r.status().as_u16(), 200, "WriteHttpResponse must preserve status verbatim");
+		}
+		other => panic!("expected Ok(ExecutorOutput::HttpResponse), got {other:?}"),
+	}
+	assert_eq!(fetch_counter.load(Ordering::SeqCst), 1, "fetch must run exactly once");
+}
+
+// ---------------------------------------------------------------------------
+// 16. execute_write_http_response_preserves_body_payload
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_write_http_response_preserves_body_payload() {
+	// 05-terminator.md § _Variants_: the executor does not mutate the
+	// Response. A `Body::Static(Bytes)` body produced by the fetch must
+	// arrive at the caller byte-for-byte.
+	let canned: Response = http::Response::builder()
+		.status(201)
+		.body(Body::Static(Bytes::from_static(b"hello")))
+		.expect("build canned response");
+	let sym = build_graph(
+		vec![
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: Some(NodeId::new(1)),
+				next_tunnel: None,
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![],
+		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![Terminator::WriteHttpResponse],
+	);
+	let mw = MiddlewareFactories::new();
+	let mut fetch = FetchFactories::new();
+	let slot = Arc::new(Mutex::new(Some(canned)));
+	{
+		let slot = Arc::clone(&slot);
+		fetch.register(FetchKind::HttpSynthesize, move |_args| {
+			let resp = slot.lock().take().expect("canned response factory invoked twice");
+			Ok(FetchInst::L7(Arc::new(CannedResponseFetch(Mutex::new(Some(resp))))))
+		});
+	}
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let mut sink = NullSink::new();
+
+	let result = run_execute(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&mut sink,
+	)
+	.await;
+
+	match result {
+		Ok(ExecutorOutput::HttpResponse(r)) => {
+			assert_eq!(r.status().as_u16(), 201, "status preserved");
+			let bytes = r.body().as_static().expect("body must remain Body::Static");
+			assert_eq!(bytes.as_ref(), b"hello", "body payload preserved verbatim");
+		}
+		other => panic!("expected Ok(ExecutorOutput::HttpResponse), got {other:?}"),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 17. execute_byte_tunnel_drives_copy_bidirectional
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_byte_tunnel_drives_copy_bidirectional() {
+	// 05-terminator.md § _Variants_ + 02-flow.md § _Execution model_:
+	// `Terminator::ByteTunnel` hands the Tunnel's two halves to
+	// `tokio::io::copy_bidirectional`. Bytes written into either outer
+	// half must surface on the opposite outer half. The executor returns
+	// `Ok(ExecutorOutput::Tunneled)` once both directions reach EOF.
+	let (mut client_outer, client_inner) = tokio::io::duplex(1024);
+	let (mut upstream_outer, upstream_inner) = tokio::io::duplex(1024);
+	let tunnel = Tunnel {
+		client: Box::new(client_inner) as Box<dyn AsyncReadWrite + Send>,
+		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
+		close_reason_tx: None,
+	};
+	let graph = byte_tunnel_graph(tunnel);
+	let conn = make_conn("127.0.0.1:0");
+	let l4 = L4Conn::Tcp(throwaway_tcp_stream().await);
+
+	// Spawn the executor; it owns its own NullSink + FlowCtx so the test
+	// thread can drive the duplex pairs concurrently.
+	let conn_for_exec = Arc::clone(&conn);
+	let graph_for_exec = Arc::clone(&graph);
+	let executor = tokio::spawn(async move {
+		let mut sink = NullSink::new();
+		let mut span = tracing::Span::none();
+		let cancel = CancellationToken::new();
+		let mut ctx = FlowCtx {
+			span: &mut span,
+			log: &mut sink as &mut dyn FlowLogSink,
+			cancel: &cancel,
+			verbosity: FlowLogVerbosity::Trajectory,
+			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
+		};
+		execute(
+			&graph_for_exec,
+			NodeId::new(0),
+			ExecutorInput::L4(Box::new(l4)),
+			&conn_for_exec,
+			&mut ctx,
+		)
+		.await
+	});
+
+	// Client → upstream direction.
+	client_outer.write_all(b"ping").await.expect("write client side");
+	client_outer.shutdown().await.expect("shutdown client side");
+	let mut from_upstream = Vec::new();
+	upstream_outer.read_to_end(&mut from_upstream).await.expect("read upstream side");
+	assert_eq!(from_upstream, b"ping", "client→upstream bytes copied verbatim");
+
+	// Upstream → client direction.
+	upstream_outer.write_all(b"pong").await.expect("write upstream side");
+	upstream_outer.shutdown().await.expect("shutdown upstream side");
+	let mut from_client = Vec::new();
+	client_outer.read_to_end(&mut from_client).await.expect("read client side");
+	assert_eq!(from_client, b"pong", "upstream→client bytes copied verbatim");
+
+	let result = executor.await.expect("executor task panicked");
+	match result {
+		Ok(ExecutorOutput::Tunneled) => {}
+		other => panic!("expected Ok(ExecutorOutput::Tunneled), got {other:?}"),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 18. execute_byte_tunnel_sends_graceful_close_reason
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_byte_tunnel_sends_graceful_close_reason() {
+	// 02-flow.md § _Execution model_ + 05-terminator.md § _Variants_:
+	// when both sides EOF cleanly, the executor sends
+	// `CloseReason::Graceful` through `Tunnel.close_reason_tx`.
+	let (mut client_outer, client_inner) = tokio::io::duplex(1024);
+	let (mut upstream_outer, upstream_inner) = tokio::io::duplex(1024);
+	let (tx, rx) = tokio::sync::oneshot::channel::<CloseReason>();
+	let tunnel = Tunnel {
+		client: Box::new(client_inner) as Box<dyn AsyncReadWrite + Send>,
+		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
+		close_reason_tx: Some(tx),
+	};
+	let graph = byte_tunnel_graph(tunnel);
+	let conn = make_conn("127.0.0.1:0");
+	let l4 = L4Conn::Tcp(throwaway_tcp_stream().await);
+
+	let conn_for_exec = Arc::clone(&conn);
+	let graph_for_exec = Arc::clone(&graph);
+	let executor = tokio::spawn(async move {
+		let mut sink = NullSink::new();
+		let mut span = tracing::Span::none();
+		let cancel = CancellationToken::new();
+		let mut ctx = FlowCtx {
+			span: &mut span,
+			log: &mut sink as &mut dyn FlowLogSink,
+			cancel: &cancel,
+			verbosity: FlowLogVerbosity::Trajectory,
+			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
+		};
+		execute(
+			&graph_for_exec,
+			NodeId::new(0),
+			ExecutorInput::L4(Box::new(l4)),
+			&conn_for_exec,
+			&mut ctx,
+		)
+		.await
+	});
+
+	// Both sides shut down cleanly; copy_bidirectional sees Ok on each half.
+	client_outer.shutdown().await.expect("shutdown client");
+	upstream_outer.shutdown().await.expect("shutdown upstream");
+	// Drain any residual bytes so the inner halves observe EOF without error.
+	let mut buf = Vec::new();
+	client_outer.read_to_end(&mut buf).await.expect("drain client side");
+	upstream_outer.read_to_end(&mut buf).await.expect("drain upstream side");
+
+	let result = executor.await.expect("executor task panicked");
+	match result {
+		Ok(ExecutorOutput::Tunneled) => {}
+		other => panic!("expected Ok(ExecutorOutput::Tunneled), got {other:?}"),
+	}
+	let reason = rx.await.expect("close_reason_tx must fire on graceful EOF");
+	match reason {
+		CloseReason::Graceful => {}
+		other => panic!("expected CloseReason::Graceful, got {other:?}"),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 19. execute_byte_tunnel_propagates_io_error_via_close_reason
+// ---------------------------------------------------------------------------
+
+/// `AsyncRead` impl that errors on every read. Paired with a no-op `AsyncWrite`
+/// so it satisfies `AsyncReadWrite + Send + Unpin`. Used to force
+/// `tokio::io::copy_bidirectional` into the io-error branch.
+struct ErrorOnRead;
+
+impl AsyncRead for ErrorOnRead {
+	fn poll_read(
+		self: Pin<&mut Self>,
+		_cx: &mut Context<'_>,
+		_buf: &mut ReadBuf<'_>,
+	) -> Poll<io::Result<()>> {
+		Poll::Ready(Err(io::Error::other("synthetic")))
+	}
+}
+
+impl AsyncWrite for ErrorOnRead {
+	fn poll_write(
+		self: Pin<&mut Self>,
+		_cx: &mut Context<'_>,
+		buf: &[u8],
+	) -> Poll<io::Result<usize>> {
+		Poll::Ready(Ok(buf.len()))
+	}
+
+	fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+		Poll::Ready(Ok(()))
+	}
+
+	fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+		Poll::Ready(Ok(()))
+	}
+}
+
+#[tokio::test]
+async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
+	// 02-flow.md § _Execution model_ + 05-terminator.md § _Variants_ + this
+	// chunk's behavior contract: when the inner copy_bidirectional returns
+	// Err, the executor sends `CloseReason::ProtocolError(_)` through
+	// `Tunnel.close_reason_tx` and STILL returns
+	// `Ok(ExecutorOutput::Tunneled)` — io errors do not bubble out as
+	// walker `Err`.
+	let (tx, rx) = tokio::sync::oneshot::channel::<CloseReason>();
+	let (_upstream_outer, upstream_inner) = tokio::io::duplex(1024);
+	let tunnel = Tunnel {
+		client: Box::new(ErrorOnRead) as Box<dyn AsyncReadWrite + Send>,
+		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
+		close_reason_tx: Some(tx),
+	};
+	let graph = byte_tunnel_graph(tunnel);
+	let conn = make_conn("127.0.0.1:0");
+	let l4 = L4Conn::Tcp(throwaway_tcp_stream().await);
+	let mut sink = NullSink::new();
+
+	let result =
+		run_execute(&graph, NodeId::new(0), ExecutorInput::L4(Box::new(l4)), &conn, &mut sink).await;
+
+	match result {
+		Ok(ExecutorOutput::Tunneled) => {}
+		other => panic!("io errors must NOT bubble out; got {other:?}"),
+	}
+	let reason = rx.await.expect("close_reason_tx must fire on io error");
+	match reason {
+		CloseReason::ProtocolError(_) => {}
+		other => panic!("expected CloseReason::ProtocolError, got {other:?}"),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 20. execute_close_terminator_returns_closed_output
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_close_terminator_returns_closed_output() {
+	// Tightening of test 1 (which asserted `result.is_ok()`): per the C8a
+	// contract the precise success value is `ExecutorOutput::Closed`.
+	// Kept as a separate test so the existing happy-path coverage stays
+	// untouched.
+	let sym = build_graph(
+		vec![Node::Terminate(TerminatorId::new(0))],
+		vec![],
+		vec![],
+		vec![],
+		vec![Terminator::Close],
+	);
+	let mw = MiddlewareFactories::new();
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let mut sink = NullSink::new();
+
+	let result = run_execute(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&mut sink,
+	)
+	.await;
+
+	assert!(
+		matches!(result, Ok(ExecutorOutput::Closed)),
+		"Close terminator must return Ok(ExecutorOutput::Closed); got {result:?}",
+	);
 }
