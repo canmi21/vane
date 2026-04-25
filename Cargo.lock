@@ -1074,6 +1074,7 @@ version = "0.10.0"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "base64",
  "bytes",
  "dashmap",
  "http",
