@@ -225,45 +225,7 @@ async fn run_execute(
 }
 
 // ---------------------------------------------------------------------------
-// 1. execute_close_terminator_returns_ok
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn execute_close_terminator_returns_ok() {
-	// Entry = Terminate(Close). 05-terminator.md § _Variants_: Close drops
-	// the transport silently and emits a FlowLogKind::Terminate event.
-	let sym = build_graph(
-		vec![Node::Terminate(TerminatorId::new(0))],
-		vec![],
-		vec![],
-		vec![],
-		vec![Terminator::Close],
-	);
-	let mw = MiddlewareFactories::new();
-	let fetch = FetchFactories::new();
-	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
-	let conn = make_conn("127.0.0.1:0");
-	let mut sink = NullSink::new();
-
-	let result = run_execute(
-		&graph,
-		NodeId::new(0),
-		ExecutorInput::L7(Box::new(empty_l7_request())),
-		&conn,
-		&mut sink,
-	)
-	.await;
-
-	assert!(result.is_ok(), "Close terminator must return Ok(()), got {result:?}");
-	let kinds = sink.kinds();
-	assert!(
-		kinds.contains(&FlowLogKind::Terminate),
-		"expected at least one Terminate event, got {kinds:?}",
-	);
-}
-
-// ---------------------------------------------------------------------------
-// 2. execute_middleware_continue_advances_cursor
+// 1. execute_middleware_continue_advances_cursor
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1506,10 +1468,10 @@ async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
 
 #[tokio::test]
 async fn execute_close_terminator_returns_closed_output() {
-	// Tightening of test 1 (which asserted `result.is_ok()`): per the C8a
-	// contract the precise success value is `ExecutorOutput::Closed`.
-	// Kept as a separate test so the existing happy-path coverage stays
-	// untouched.
+	// Entry = Terminate(Close). 05-terminator.md § _Variants_: Close drops
+	// the transport silently and emits a FlowLogKind::Terminate event.
+	// Per the C8a contract the precise success value is
+	// `ExecutorOutput::Closed`.
 	let sym = build_graph(
 		vec![Node::Terminate(TerminatorId::new(0))],
 		vec![],
@@ -1535,5 +1497,10 @@ async fn execute_close_terminator_returns_closed_output() {
 	assert!(
 		matches!(result, Ok(ExecutorOutput::Closed)),
 		"Close terminator must return Ok(ExecutorOutput::Closed); got {result:?}",
+	);
+	let kinds = sink.kinds();
+	assert!(
+		kinds.contains(&FlowLogKind::Terminate),
+		"expected at least one Terminate event, got {kinds:?}",
 	);
 }
