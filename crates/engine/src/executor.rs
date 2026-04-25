@@ -154,8 +154,55 @@ pub async fn execute(
 						return finish_error(ctx, conn, &mut seq, cur, e);
 					}
 					Ok(Decision::Short(ShortCircuit::Close(reason))) => {
-						let e = Error::middleware(format!("short-close: {reason:?}"));
-						return finish_error(ctx, conn, &mut seq, cur, e);
+						// Route by CloseReason variant: routing-level refusals
+						// (PolicyDenied / Graceful / Cancelled) are not errors
+						// — hand back to the caller as `Ok(Closed)`. The H1
+						// service-fn maps that to 404 + `Connection: close`
+						// (see `02-flow.md` § _`Terminator::Close` at L4 vs
+						// inside an HTTP server_); the L4 listener drops the
+						// socket. Only ProtocolError represents a genuine
+						// anomaly that should surface as 500.
+						match reason {
+							CloseReason::PolicyDenied(_) | CloseReason::Graceful | CloseReason::Cancelled => {
+								drop((l4.take(), req.take(), resp.take(), tunnel.take()));
+								// Connection-level Terminate milestone — same shape
+								// as the `Terminator::Close` arm so the wire-level
+								// view is uniform whether the close was a synth
+								// default-miss or a middleware short-circuit.
+								let reason_text: std::borrow::Cow<'static, str> = match &reason {
+									CloseReason::PolicyDenied(s) => s.clone(),
+									CloseReason::Graceful => std::borrow::Cow::Borrowed("graceful"),
+									CloseReason::Cancelled => std::borrow::Cow::Borrowed("cancelled"),
+									CloseReason::ProtocolError(_) => unreachable!(),
+								};
+								ctx.log.emit(FlowLogEvent {
+									t: now_ms(),
+									conn: conn.id,
+									seq: bump(&mut seq),
+									kind: FlowLogKind::Terminate,
+									node: Some(cur),
+									error: None,
+									data: Some(serde_json::json!({
+										"terminator": "short_close",
+										"reason": reason_text,
+									})),
+								});
+								emit_trajectory(
+									ctx,
+									conn,
+									&mut seq,
+									TrajectoryOutcome::Terminated {
+										node: cur,
+										terminator: TerminatorOutcomeKind::Close,
+									},
+								);
+								return Ok(ExecutorOutput::Closed);
+							}
+							CloseReason::ProtocolError(_) => {
+								let e = Error::middleware(format!("short-close: {reason:?}"));
+								return finish_error(ctx, conn, &mut seq, cur, e);
+							}
+						}
 					}
 					Err(e) => {
 						emit_error_event(ctx, cur, &mut seq, conn, &e);

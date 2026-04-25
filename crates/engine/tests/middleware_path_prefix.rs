@@ -32,7 +32,7 @@ use vane_core::{
 	Request, Response, SymbolicFetchRef, SymbolicFlowGraph, SymbolicMiddlewareRef, Terminator,
 	TerminatorId, Transport,
 };
-use vane_engine::executor::{ExecutorInput, execute};
+use vane_engine::executor::{ExecutorInput, ExecutorOutput, execute};
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph};
 use vane_engine::middleware::path_prefix;
@@ -263,8 +263,10 @@ async fn path_prefix_continues_when_any_of_multiple_prefixes_matches() {
 
 #[tokio::test]
 async fn path_prefix_short_close_when_no_prefix_matches() {
-	// FIXME(executor-short-close-routing): client should see 404 once
-	// executor refines Short(Close) routing.
+	// Per 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP
+	// server_, a `Short(Close(PolicyDenied))` routing-level refusal flows
+	// back as `Ok(ExecutorOutput::Closed)`. The H1 service-fn maps that
+	// to 404 + `Connection: close` for the wire client.
 	let (graph, counter) = link_graph(json!({ "prefixes": ["/api"] }));
 	let conn = make_conn("127.0.0.1:0");
 	let sink = Arc::new(NullSink::new());
@@ -276,21 +278,28 @@ async fn path_prefix_short_close_when_no_prefix_matches() {
 		&sink,
 	)
 	.await;
-	assert!(result.is_err(), "non-matching path must short-close; got {result:?}");
+	assert!(
+		matches!(result, Ok(ExecutorOutput::Closed)),
+		"non-matching path must surface as Ok(Closed); got {result:?}",
+	);
 	assert_eq!(counter.load(Ordering::SeqCst), 0, "fetch must not run on a prefix miss");
 	let kinds = sink.kinds();
 	assert!(
 		kinds.contains(&FlowLogKind::Trajectory),
 		"short-close still emits a Trajectory event; got {kinds:?}",
 	);
+	assert!(
+		kinds.contains(&FlowLogKind::Terminate),
+		"PolicyDenied path must emit a Terminate milestone; got {kinds:?}",
+	);
 }
 
 #[tokio::test]
 async fn path_prefix_case_sensitive_no_match() {
-	// FIXME(executor-short-close-routing): client should see 404 once
-	// executor refines Short(Close) routing.
-	// Doc-comment is explicit: path comparison is case-sensitive
-	// (RFC 3986 path is case-sensitive unlike scheme/authority).
+	// Doc-comment is explicit: path comparison is case-sensitive (RFC
+	// 3986 path is case-sensitive unlike scheme/authority). Miss flows
+	// back as `Ok(ExecutorOutput::Closed)` per the routing-refusal
+	// contract.
 	let (graph, counter) = link_graph(json!({ "prefixes": ["/API"] }));
 	let conn = make_conn("127.0.0.1:0");
 	let sink = Arc::new(NullSink::new());
@@ -302,7 +311,10 @@ async fn path_prefix_case_sensitive_no_match() {
 		&sink,
 	)
 	.await;
-	assert!(result.is_err(), "lower-case path must not match upper-case prefix; got {result:?}");
+	assert!(
+		matches!(result, Ok(ExecutorOutput::Closed)),
+		"lower-case path must not match upper-case prefix; got {result:?}",
+	);
 	assert_eq!(counter.load(Ordering::SeqCst), 0, "fetch must not run on case mismatch");
 }
 

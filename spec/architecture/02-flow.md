@@ -462,7 +462,28 @@ pub async fn execute(
                         resp = Some(r);
                         cur = graph.meta.short_circuit_response_entry(entry);
                     }
-                    Ok(Decision::Short(Short::Close(reason))) => return Err(Error::closed(reason)),
+                    // CloseReason variant decides Ok vs Err: routing-level
+                    // refusals (PolicyDenied / Graceful / Cancelled) are
+                    // not errors and surface as `Ok(ExecutorOutput::Closed)`,
+                    // indistinguishable on the wire from a synth-default
+                    // `Terminate(Close)` (see § _`Terminator::Close` at L4
+                    // vs inside an HTTP server_). Only `ProtocolError`
+                    // surfaces as `Err`, mapping to 500 in the H1 server-fn.
+                    Ok(Decision::Short(Short::Close(reason))) => match reason {
+                        CloseReason::PolicyDenied(_)
+                        | CloseReason::Graceful
+                        | CloseReason::Cancelled => {
+                            drop((l4.take(), req.take(), resp.take(), tunnel.take()));
+                            // Emit a Terminate milestone so wire-level no-route
+                            // signals flow through the same operator-visible
+                            // event as `Terminator::Close`.
+                            ctx.log.emit_terminate(cur, &reason);
+                            return Ok(ExecutorOutput::Closed);
+                        }
+                        CloseReason::ProtocolError(_) => {
+                            return Err(Error::closed(reason));
+                        }
+                    },
                     Err(e) => {
                         ctx.log.emit_middleware_error(*id, &e);
                         cur = match on_error {

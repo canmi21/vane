@@ -31,7 +31,7 @@ use vane_core::{
 	Request, Response, SymbolicFetchRef, SymbolicFlowGraph, SymbolicMiddlewareRef, Terminator,
 	TerminatorId, Transport,
 };
-use vane_engine::executor::{ExecutorInput, execute};
+use vane_engine::executor::{ExecutorInput, ExecutorOutput, execute};
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph};
 use vane_engine::middleware::host_header_match;
@@ -274,9 +274,10 @@ async fn host_match_case_insensitive_match() {
 
 #[tokio::test]
 async fn host_match_short_close_when_host_missing() {
-	// FIXME(executor-short-close-routing): client should see 404 once
-	// executor refines Short(Close) routing; for now the executor surfaces
-	// short-close as Err.
+	// Per 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP
+	// server_, `Short(Close(PolicyDenied))` flows back as
+	// `Ok(ExecutorOutput::Closed)`; the H1 service-fn maps that to 404
+	// + `Connection: close` on the wire.
 	let (graph, counter) = link_graph(json!({ "hosts": ["api.example.com"] }));
 	let conn = make_conn("127.0.0.1:0");
 	let sink = Arc::new(NullSink::new());
@@ -288,19 +289,24 @@ async fn host_match_short_close_when_host_missing() {
 		&sink,
 	)
 	.await;
-	assert!(result.is_err(), "missing Host header must short-close; got {result:?}");
+	assert!(
+		matches!(result, Ok(ExecutorOutput::Closed)),
+		"missing Host header must surface as Ok(Closed); got {result:?}",
+	);
 	assert_eq!(counter.load(Ordering::SeqCst), 0, "fetch must not run when middleware short-closes");
 	let kinds = sink.kinds();
 	assert!(
 		kinds.contains(&FlowLogKind::Trajectory),
 		"short-close still emits a Trajectory event; got {kinds:?}",
 	);
+	assert!(
+		kinds.contains(&FlowLogKind::Terminate),
+		"PolicyDenied path must emit a Terminate milestone; got {kinds:?}",
+	);
 }
 
 #[tokio::test]
 async fn host_match_short_close_when_no_host_matches() {
-	// FIXME(executor-short-close-routing): client should see 404 once
-	// executor refines Short(Close) routing.
 	let (graph, counter) = link_graph(json!({ "hosts": ["api.example.com"] }));
 	let conn = make_conn("127.0.0.1:0");
 	let sink = Arc::new(NullSink::new());
@@ -312,7 +318,10 @@ async fn host_match_short_close_when_no_host_matches() {
 		&sink,
 	)
 	.await;
-	assert!(result.is_err(), "non-matching Host must short-close; got {result:?}");
+	assert!(
+		matches!(result, Ok(ExecutorOutput::Closed)),
+		"non-matching Host must surface as Ok(Closed); got {result:?}",
+	);
 	assert_eq!(counter.load(Ordering::SeqCst), 0, "fetch must not run on host miss");
 	let kinds = sink.kinds();
 	assert!(

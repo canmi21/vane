@@ -168,6 +168,20 @@ impl L7RequestMiddleware for ShortClose {
 	}
 }
 
+struct ShortCloseProtocolError(std::borrow::Cow<'static, str>);
+
+#[async_trait]
+impl L7RequestMiddleware for ShortCloseProtocolError {
+	async fn run(
+		&self,
+		_req: &mut Request,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx,
+	) -> Result<Decision, Error> {
+		Ok(Decision::Short(ShortCircuit::Close(CloseReason::ProtocolError(self.0.clone()))))
+	}
+}
+
 struct FailMiddleware(Arc<AtomicUsize>);
 
 #[async_trait]
@@ -274,14 +288,18 @@ async fn execute_middleware_continue_advances_cursor() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. execute_middleware_short_close_returns_err
+// 3. execute_middleware_short_close_policy_denied_returns_closed
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn execute_middleware_short_close_returns_err() {
-	// 04-middleware.md § _Two error channels_: Short(Close(reason)) is an
-	// application-level refusal; executor surfaces it as an Err whose
-	// Display contains the reason payload.
+async fn execute_middleware_short_close_policy_denied_returns_closed() {
+	// 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP server_:
+	// `Short(Close(PolicyDenied(_)))` is a routing-level refusal, not an
+	// error. The executor returns `Ok(ExecutorOutput::Closed)`; downstream
+	// the H1 service-fn maps that to 404 + `Connection: close`, and the L4
+	// listener drops the socket. Trajectory carries
+	// `Terminated { terminator: Close }` — uniform with the synth-default
+	// `Terminate(Close)` arm so wire-level and log-level behaviour match.
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
@@ -319,11 +337,66 @@ async fn execute_middleware_short_close_returns_err() {
 	)
 	.await;
 
-	let err = result.expect_err("Short(Close) must surface as Err");
+	assert!(
+		matches!(result, Ok(ExecutorOutput::Closed)),
+		"Short(Close(PolicyDenied)) must surface as Ok(Closed); got {result:?}",
+	);
+	let kinds = sink.kinds();
+	assert!(
+		kinds.contains(&FlowLogKind::Terminate),
+		"PolicyDenied path must emit a Terminate milestone; got {kinds:?}",
+	);
+	assert!(
+		kinds.contains(&FlowLogKind::Trajectory),
+		"trajectory must finalise on a Short(Close) exit; got {kinds:?}",
+	);
+}
+
+#[tokio::test]
+async fn execute_middleware_short_close_protocol_error_returns_err() {
+	// Sibling of the PolicyDenied test: `ProtocolError` is the only
+	// `CloseReason` variant that maps back to `Err`. It reaches the H1
+	// service-fn as Err and surfaces as 500.
+	let sym = build_graph(
+		vec![
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(1),
+				on_error: None,
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![l7_req_ref("short_close_protocol_err")],
+		vec![],
+		vec![Terminator::Close],
+	);
+	let mut mw = MiddlewareFactories::new();
+	mw.register("short_close_protocol_err", MiddlewareKind::L7Request, |_args| {
+		Ok(MiddlewareInst::L7Request(Arc::new(ShortCloseProtocolError(std::borrow::Cow::Borrowed(
+			"client framing busted",
+		)))))
+	});
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let result = run_execute(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&sink,
+	)
+	.await;
+
+	let err = result.expect_err("Short(Close(ProtocolError)) must surface as Err");
 	let rendered = err.to_string();
 	assert!(
-		rendered.contains("denied by policy"),
-		"error Display must carry the reason payload; got {rendered:?}",
+		rendered.contains("client framing busted"),
+		"Err Display must carry the reason payload; got {rendered:?}",
 	);
 }
 

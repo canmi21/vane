@@ -46,9 +46,10 @@ use http_body_util::{BodyExt, Empty, Full};
 use hyper_util::rt::TokioIo;
 use serde_json::Value;
 use vane_core::{
-	Body, ConnContext, Error, FetchId, FetchKind, FlowCtx, FlowGraphMeta, FlowLogEvent, FlowLogSink,
-	L7Fetch, L7FetchOutput, Node, NodeId, Request, Response, SymbolicFetchRef, SymbolicFlowGraph,
-	Terminator, TerminatorId, UpstreamReason,
+	Body, CloseReason, ConnContext, Decision, Error, FetchId, FetchKind, FlowCtx, FlowGraphMeta,
+	FlowLogEvent, FlowLogSink, L7Fetch, L7FetchOutput, L7RequestMiddleware, MiddlewareId,
+	MiddlewareKind, Node, NodeId, Request, Response, ShortCircuit, SymbolicFetchRef,
+	SymbolicFlowGraph, SymbolicMiddlewareRef, Terminator, TerminatorId, UpstreamReason,
 };
 use vane_engine::ListenerSet;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
@@ -133,6 +134,92 @@ fn upgrade_fetch_terminate_graph(
 	let factory = Arc::new(fetch_factory);
 	fetch.register(FetchKind::HttpSynthesize, move |_args| Ok((factory)()));
 	FlowGraph::link(sym, &mw, &fetch).expect("link upgrade-fetch-terminate graph")
+}
+
+// L7 path with a middleware that always `Short(Close(PolicyDenied))`s
+// before any fetch can run. Shape:
+//
+//   entry(Upgrade { next: 1 })
+//     -> Middleware(L7Request: PolicyDeniedMw)
+//       -> Fetch(L7, never reached)
+//         -> Terminate(WriteHttpResponse)
+//
+// Used by the middleware-short-close test to verify the end-to-end path
+// from middleware short-circuit through the executor's CloseReason
+// router into the H1 service-fn's 404 + `Connection: close` synthesis.
+fn upgrade_short_close_middleware_graph(addr: SocketAddr) -> Arc<FlowGraph> {
+	let mut entries = HashMap::new();
+	entries.insert(addr, NodeId::new(0));
+	let sym = Arc::new(SymbolicFlowGraph {
+		nodes: vec![
+			Node::Upgrade { next: NodeId::new(1) },
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(2),
+				on_error: None,
+				collect_body_before: None,
+			},
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: Some(NodeId::new(3)),
+				next_tunnel: None,
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		predicates: vec![],
+		middlewares: vec![SymbolicMiddlewareRef {
+			name: Arc::from("policy_denied"),
+			args: Value::Null,
+			kind: MiddlewareKind::L7Request,
+			stateless: true,
+			needs_body: false,
+			on_error: None,
+		}],
+		fetches: vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		terminators: vec![Terminator::WriteHttpResponse],
+		entries,
+		meta: sample_meta(),
+	});
+	let mut mw = MiddlewareFactories::new();
+	mw.register("policy_denied", MiddlewareKind::L7Request, |_args| {
+		Ok(vane_engine::flow_graph::MiddlewareInst::L7Request(Arc::new(PolicyDeniedMw)))
+	});
+	let mut fetch = FetchFactories::new();
+	// Factory exists but should never be invoked at runtime — the
+	// middleware short-closes before the fetch node is visited.
+	fetch.register(FetchKind::HttpSynthesize, |_args| Ok(FetchInst::L7(Arc::new(UnreachableFetch))));
+	FlowGraph::link(sym, &mw, &fetch).expect("link upgrade-short-close graph")
+}
+
+struct PolicyDeniedMw;
+
+#[async_trait]
+impl L7RequestMiddleware for PolicyDeniedMw {
+	async fn run(
+		&self,
+		_req: &mut Request,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx,
+	) -> Result<Decision, Error> {
+		Ok(Decision::Short(ShortCircuit::Close(CloseReason::PolicyDenied(std::borrow::Cow::Borrowed(
+			"denied by middleware",
+		)))))
+	}
+}
+
+struct UnreachableFetch;
+
+#[async_trait]
+impl L7Fetch for UnreachableFetch {
+	async fn fetch(
+		&self,
+		_req: Request,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx,
+	) -> Result<L7FetchOutput, Error> {
+		panic!("fetch must not run when an upstream middleware short-closes")
+	}
 }
 
 // L7 path that reaches Terminate(Close) without producing a Response.
@@ -592,6 +679,48 @@ async fn h1_no_route_returns_404_with_connection_close() {
 	);
 	let body = resp.into_body().collect().await.expect("collect").to_bytes();
 	assert!(body.is_empty(), "Closed-arm response body must be empty");
+
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+// 8. h1_middleware_policy_denied_short_close_returns_404
+//
+// Spec anchor: 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP
+// server_. A `Decision::Short(Close(PolicyDenied))` from a middleware
+// flows through the executor's CloseReason router as
+// `Ok(ExecutorOutput::Closed)`, indistinguishable on the wire from a
+// `Terminate(Close)` synth-default-miss: 404 + `Connection: close`.
+// Establishes that wire-level no-route signalling is uniform whether
+// the refusal comes from a synth fallback or an explicit middleware
+// short-circuit.
+#[tokio::test]
+async fn h1_middleware_policy_denied_short_close_returns_404() {
+	let addr = pick_port().await;
+	let graph = upgrade_short_close_middleware_graph(addr);
+
+	let (set, addr) = start_listener(graph).await;
+
+	let mut sender = h1_client_handshake_empty(addr).await;
+	let req = hyper::Request::builder()
+		.method("GET")
+		.uri("/anything")
+		.header("host", "test.local")
+		.body(Empty::<Bytes>::new())
+		.expect("build short-close GET request");
+
+	let resp = sender.send_request(req).await.expect("send_request must not hang");
+	assert_eq!(
+		resp.status().as_u16(),
+		404,
+		"middleware Short(Close(PolicyDenied)) must surface as 404 on the wire",
+	);
+	assert_eq!(
+		resp.headers().get("connection").and_then(|v| v.to_str().ok()),
+		Some("close"),
+		"PolicyDenied path must carry Connection: close",
+	);
+	let body = resp.into_body().collect().await.expect("collect").to_bytes();
+	assert!(body.is_empty(), "PolicyDenied response body must be empty");
 
 	set.shutdown(Duration::from_secs(2)).await;
 }

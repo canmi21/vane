@@ -29,7 +29,7 @@ use vane_core::{
 	Request, Response, SymbolicFetchRef, SymbolicFlowGraph, SymbolicMiddlewareRef, Terminator,
 	TerminatorId, Transport,
 };
-use vane_engine::executor::{ExecutorInput, execute};
+use vane_engine::executor::{ExecutorInput, ExecutorOutput, execute};
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph};
 use vane_engine::middleware::method_match;
@@ -243,8 +243,13 @@ async fn method_match_continues_when_method_in_list() {
 
 #[tokio::test]
 async fn method_match_short_close_when_method_not_in_list() {
-	// FIXME(executor-short-close-routing): client should see 404 once
-	// executor refines Short(Close) routing.
+	// Per 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP
+	// server_, a `Short(Close(PolicyDenied))` refusal flows back as
+	// `Ok(ExecutorOutput::Closed)`; the H1 service-fn maps that to 404
+	// + `Connection: close`. (Method-not-allowed is conventionally 405,
+	// but the executor's no-route signal is uniform across host / path
+	// / method misses; users wanting the 405 distinction declare
+	// explicit predicate routing.)
 	let (graph, counter) = link_graph(json!({ "methods": ["GET"] }));
 	let conn = make_conn("127.0.0.1:0");
 	let sink = Arc::new(NullSink::new());
@@ -256,12 +261,19 @@ async fn method_match_short_close_when_method_not_in_list() {
 		&sink,
 	)
 	.await;
-	assert!(result.is_err(), "POST must short-close when only GET is allowed; got {result:?}");
+	assert!(
+		matches!(result, Ok(ExecutorOutput::Closed)),
+		"POST must surface as Ok(Closed) when only GET is allowed; got {result:?}",
+	);
 	assert_eq!(counter.load(Ordering::SeqCst), 0, "fetch must not run on method miss");
 	let kinds = sink.kinds();
 	assert!(
 		kinds.contains(&FlowLogKind::Trajectory),
 		"short-close still emits a Trajectory event; got {kinds:?}",
+	);
+	assert!(
+		kinds.contains(&FlowLogKind::Terminate),
+		"PolicyDenied path must emit a Terminate milestone; got {kinds:?}",
 	);
 }
 
