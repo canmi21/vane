@@ -24,6 +24,7 @@ pub mod tracing_init;
 pub mod upgrade;
 pub mod verbosity;
 
+pub use listener::ListenerSet;
 pub use verbosity::VerbosityState;
 
 pub mod crypto {
