@@ -12,6 +12,7 @@ pub mod executor;
 pub mod factories;
 pub mod fetch;
 pub mod flow_graph;
+pub mod flow_log_sink;
 pub mod hot_reload;
 pub mod listener;
 pub mod middleware;
@@ -21,6 +22,9 @@ pub mod security;
 pub mod terminator;
 pub mod tracing_init;
 pub mod upgrade;
+pub mod verbosity;
+
+pub use verbosity::VerbosityState;
 
 pub mod crypto {
 	pub const BACKEND_NAME: &str = {
