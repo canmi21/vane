@@ -27,9 +27,10 @@ use tokio_util::sync::CancellationToken;
 use vane_core::{
 	Body, CloseReason, CompiledOperator, CompiledValue, ConnContext, ConnId, Decision, Error,
 	FetchId, FetchKind, FieldPath, FlowCtx, FlowGraphMeta, FlowLogEvent, FlowLogKind, FlowLogSink,
-	L7Fetch, L7FetchOutput, L7RequestMiddleware, MiddlewareId, MiddlewareKind, Node, NodeId,
-	PredicateId, PredicateInst, Request, Response, ShortCircuit, SymbolicFetchRef, SymbolicFlowGraph,
-	SymbolicMiddlewareRef, Terminator, TerminatorId, Transport,
+	FlowLogVerbosity, FlowTrajectory, L7Fetch, L7FetchOutput, L7RequestMiddleware, MiddlewareId,
+	MiddlewareKind, Node, NodeId, PredicateId, PredicateInst, Request, Response, ShortCircuit,
+	SymbolicFetchRef, SymbolicFlowGraph, SymbolicMiddlewareRef, Terminator, TerminatorId,
+	TerminatorOutcomeKind, TrajectoryOutcome, Transport,
 };
 use vane_engine::executor::{ExecutorInput, execute};
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
@@ -802,4 +803,284 @@ async fn execute_collect_body_before_errors_as_unsupported() {
 	);
 	// Silence the otherwise-unused sink handle; assertion is on the error.
 	let _ = sink.count();
+}
+
+// ---------------------------------------------------------------------------
+// Verbosity-mode tests (12-15). The existing `run_execute` always builds
+// `FlowCtx` with `FlowLogVerbosity::Trajectory`; the helper below is its
+// twin that takes the verbosity as an argument so we can drive the
+// debug-mode path without disturbing the original ten tests.
+// ---------------------------------------------------------------------------
+
+async fn run_execute_with_verbosity(
+	graph: &FlowGraph,
+	entry: NodeId,
+	input: ExecutorInput,
+	conn: &Arc<ConnContext>,
+	sink: &mut NullSink,
+	verbosity: FlowLogVerbosity,
+) -> Result<(), Error> {
+	let mut span = tracing::Span::none();
+	let cancel = CancellationToken::new();
+	let mut ctx = FlowCtx {
+		span: &mut span,
+		log: sink as &mut dyn FlowLogSink,
+		cancel: &cancel,
+		verbosity,
+		trajectory: vane_core::TrajectoryBuilder::new(conn.id, entry, 0),
+	};
+	execute(graph, entry, input, conn, &mut ctx).await
+}
+
+/// Pull the single `FlowLogKind::Trajectory` event out of `sink` and
+/// deserialize its `data` field into a `FlowTrajectory`. Panics on any
+/// shape violation — the spec (`02-flow.md` § _Flow log verbosity_) says
+/// exactly one such event lands per request.
+fn extract_trajectory(sink: &NullSink) -> FlowTrajectory {
+	let events = sink.events.lock();
+	let mut iter = events.iter().filter(|e| e.kind == FlowLogKind::Trajectory);
+	let event = iter.next().expect("exactly one Trajectory event must land");
+	assert!(iter.next().is_none(), "no more than one Trajectory event per request");
+	let data = event.data.as_ref().expect("Trajectory event must carry serialized data");
+	serde_json::from_value::<FlowTrajectory>(data.clone()).expect("decode FlowTrajectory")
+}
+
+// Two-middleware Continue→Continue→Terminate(Close) graph used by tests 12
+// and 13. Inlined per call so the linked counters stay test-local.
+fn two_middleware_close_graph(
+	a_counter: Arc<AtomicUsize>,
+	b_counter: Arc<AtomicUsize>,
+) -> Arc<FlowGraph> {
+	let sym = build_graph(
+		vec![
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(1),
+				on_error: None,
+				collect_body_before: None,
+			},
+			Node::Middleware {
+				id: MiddlewareId::new(1),
+				next: NodeId::new(2),
+				on_error: None,
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![l7_req_ref("first_continue"), l7_req_ref("second_continue")],
+		vec![],
+		vec![Terminator::Close],
+	);
+	let mut mw = MiddlewareFactories::new();
+	{
+		let counter = a_counter;
+		mw.register("first_continue", MiddlewareKind::L7Request, move |_args| {
+			Ok(MiddlewareInst::L7Request(Arc::new(CountAndContinue(Arc::clone(&counter)))))
+		});
+	}
+	{
+		let counter = b_counter;
+		mw.register("second_continue", MiddlewareKind::L7Request, move |_args| {
+			Ok(MiddlewareInst::L7Request(Arc::new(CountAndContinue(Arc::clone(&counter)))))
+		});
+	}
+	let fetch = FetchFactories::new();
+	FlowGraph::link(sym, &mw, &fetch).expect("link")
+}
+
+// ---------------------------------------------------------------------------
+// 12. execute_emits_one_trajectory_event_in_default_mode
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_emits_one_trajectory_event_in_default_mode() {
+	// Spec (02-flow.md § _Flow log verbosity_, Trajectory mode): per
+	// request, exactly one `FlowLogKind::Trajectory` event lands in
+	// `ctx.log`. Per-step middleware events are suppressed; connection-
+	// level milestone events (`Terminate`) still fire.
+	let a = Arc::new(AtomicUsize::new(0));
+	let b = Arc::new(AtomicUsize::new(0));
+	let graph = two_middleware_close_graph(Arc::clone(&a), Arc::clone(&b));
+	let conn = make_conn("127.0.0.1:0");
+	let mut sink = NullSink::new();
+
+	let result = run_execute_with_verbosity(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&mut sink,
+		FlowLogVerbosity::Trajectory,
+	)
+	.await;
+	assert!(result.is_ok(), "two-middleware happy path must succeed: {result:?}");
+	assert_eq!(a.load(Ordering::SeqCst), 1);
+	assert_eq!(b.load(Ordering::SeqCst), 1);
+
+	let kinds = sink.kinds();
+	let traj_count = kinds.iter().filter(|k| **k == FlowLogKind::Trajectory).count();
+	assert_eq!(traj_count, 1, "exactly one Trajectory event in Trajectory mode; got {kinds:?}");
+	let mw_count = kinds.iter().filter(|k| **k == FlowLogKind::Middleware).count();
+	assert_eq!(
+		mw_count, 0,
+		"per-step Middleware events suppressed in Trajectory mode; got {kinds:?}"
+	);
+
+	// The trajectory's step list contains the two middleware visits.
+	// Terminate is reflected by the outcome, not by an extra step.
+	let traj = extract_trajectory(&sink);
+	assert_eq!(traj.steps.len(), 2, "two middleware visits → two trajectory steps");
+}
+
+// ---------------------------------------------------------------------------
+// 13. execute_emits_per_step_events_in_debug_mode
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_emits_per_step_events_in_debug_mode() {
+	// Spec (02-flow.md § _Flow log verbosity_, Debug mode): the per-step
+	// stream lands in addition to the trajectory. For the same two-
+	// middleware graph this is: 2 Middleware + 1 Terminate (milestone) +
+	// 1 Trajectory = 4 total events.
+	let a = Arc::new(AtomicUsize::new(0));
+	let b = Arc::new(AtomicUsize::new(0));
+	let graph = two_middleware_close_graph(Arc::clone(&a), Arc::clone(&b));
+	let conn = make_conn("127.0.0.1:0");
+	let mut sink = NullSink::new();
+
+	let result = run_execute_with_verbosity(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&mut sink,
+		FlowLogVerbosity::Debug,
+	)
+	.await;
+	assert!(result.is_ok(), "Debug mode must not change happy-path outcome: {result:?}");
+
+	let kinds = sink.kinds();
+	let traj_count = kinds.iter().filter(|k| **k == FlowLogKind::Trajectory).count();
+	let mw_count = kinds.iter().filter(|k| **k == FlowLogKind::Middleware).count();
+	let term_count = kinds.iter().filter(|k| **k == FlowLogKind::Terminate).count();
+	assert_eq!(traj_count, 1, "still exactly one Trajectory event; got {kinds:?}");
+	assert_eq!(mw_count, 2, "two middleware visits → two Middleware events; got {kinds:?}");
+	assert_eq!(term_count, 1, "Close terminator emits one Terminate milestone; got {kinds:?}");
+	assert_eq!(kinds.len(), 4, "Debug-mode total = 1T + 2M + 1Term; got {kinds:?}");
+}
+
+// ---------------------------------------------------------------------------
+// 14. execute_trajectory_outcome_records_terminator_kind
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_trajectory_outcome_records_terminator_kind() {
+	// Spec (02-flow.md § _Flow log verbosity_): on the happy path the
+	// trajectory's `outcome` is `Terminated { terminator: <kind> }`.
+	// `Terminator::Close` maps to `TerminatorOutcomeKind::Close`.
+	let sym = build_graph(
+		vec![Node::Terminate(TerminatorId::new(0))],
+		vec![],
+		vec![],
+		vec![],
+		vec![Terminator::Close],
+	);
+	let mw = MiddlewareFactories::new();
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let mut sink = NullSink::new();
+
+	let result = run_execute_with_verbosity(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&mut sink,
+		FlowLogVerbosity::Trajectory,
+	)
+	.await;
+	assert!(result.is_ok(), "Close terminator must succeed: {result:?}");
+
+	let traj = extract_trajectory(&sink);
+	match traj.outcome {
+		TrajectoryOutcome::Terminated { terminator, .. } => {
+			assert_eq!(
+				terminator,
+				TerminatorOutcomeKind::Close,
+				"Close terminator → TerminatorOutcomeKind::Close",
+			);
+		}
+		other @ TrajectoryOutcome::Error { .. } => {
+			panic!("expected Terminated outcome, got {other:?}")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 15. execute_trajectory_outcome_records_error_when_propagating
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_trajectory_outcome_records_error_when_propagating() {
+	// Spec (02-flow.md § _Flow log verbosity_): on the error path the
+	// trajectory's `outcome` is `Error { message }` whose payload contains
+	// the error's Display. With `on_error: None` the Err propagates and
+	// the executor must still emit one Trajectory event before returning.
+	let counter = Arc::new(AtomicUsize::new(0));
+	let sym = build_graph(
+		vec![
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(1),
+				on_error: None,
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![l7_req_ref("fail")],
+		vec![],
+		vec![Terminator::Close],
+	);
+	let mut mw = MiddlewareFactories::new();
+	{
+		let counter = Arc::clone(&counter);
+		mw.register("fail", MiddlewareKind::L7Request, move |_args| {
+			Ok(MiddlewareInst::L7Request(Arc::new(FailMiddleware(Arc::clone(&counter)))))
+		});
+	}
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let mut sink = NullSink::new();
+
+	let result = run_execute_with_verbosity(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&mut sink,
+		FlowLogVerbosity::Trajectory,
+	)
+	.await;
+	let _ = result.expect_err("Err without on_error must propagate");
+
+	let kinds = sink.kinds();
+	let traj_count = kinds.iter().filter(|k| **k == FlowLogKind::Trajectory).count();
+	assert_eq!(traj_count, 1, "exactly one Trajectory event even on error path; got {kinds:?}");
+
+	let traj = extract_trajectory(&sink);
+	match &traj.outcome {
+		TrajectoryOutcome::Error { message, .. } => {
+			assert!(
+				message.as_ref().contains("simulated"),
+				"trajectory error message must contain the middleware's Display payload; got {message:?}",
+			);
+		}
+		other @ TrajectoryOutcome::Terminated { .. } => {
+			panic!("expected Error outcome, got {other:?}")
+		}
+	}
 }
