@@ -2,10 +2,15 @@
 name = "vaned"
 version.workspace = true
 authors.workspace = true
+categories = ["network-programming", "web-programming::http-server"]
 edition.workspace = true
+homepage.workspace = true
+keywords = ["vane", "proxy", "daemon", "reverse-proxy", "http"]
 license.workspace = true
+readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
+description = "vane proxy daemon: L4 forwarding, HTTP any-bridge, WebSocket, CGI and WASM plugins"
 
 [lints]
 workspace = true

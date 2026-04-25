@@ -2,13 +2,21 @@
 name = "vane-core"
 version.workspace = true
 authors.workspace = true
+categories = ["network-programming", "web-programming"]
 edition.workspace = true
+homepage.workspace = true
+keywords = ["vane", "proxy", "http", "reverse-proxy", "flow-graph"]
 license.workspace = true
+readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
+description = "Core types, FlowGraph IR, and compilation pipeline for the vane proxy engine"
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 arc-swap = "1.9.1"

@@ -2,13 +2,21 @@
 name = "vane-wasm"
 version.workspace = true
 authors.workspace = true
+categories = ["network-programming", "wasm"]
 edition.workspace = true
+homepage.workspace = true
+keywords = ["vane", "proxy", "wasm", "wasmtime", "plugin"]
 license.workspace = true
+readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
+description = "WASM plugin runtime for the vane proxy, built on wasmtime and the Component Model"
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 vane-core = { workspace = true }

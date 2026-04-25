@@ -2,13 +2,21 @@
 name = "vane-engine"
 version.workspace = true
 authors.workspace = true
+categories = ["network-programming", "web-programming::http-server"]
 edition.workspace = true
+homepage.workspace = true
+keywords = ["vane", "proxy", "reverse-proxy", "http", "tls"]
 license.workspace = true
+readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
+description = "Runtime engine for the vane proxy: executor, listeners, TLS, and built-in middleware"
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+features = ["aws-lc-rs", "h3", "cgi"]
 
 [features]
 default = ["aws-lc-rs", "h3", "cgi"]

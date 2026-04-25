@@ -2,10 +2,15 @@
 name = "vane"
 version.workspace = true
 authors.workspace = true
+categories = ["command-line-utilities", "network-programming"]
 edition.workspace = true
+homepage.workspace = true
+keywords = ["vane", "proxy", "cli", "tui", "reverse-proxy"]
 license.workspace = true
+readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
+description = "Command-line interface for the vane proxy daemon"
 
 [lints]
 workspace = true

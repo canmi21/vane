@@ -15,6 +15,7 @@ members = [
 version = "0.10.0"
 authors = ["Canmi <t@canmi.icu>"]
 edition = "2024"
+homepage = "https://vane.canmi.app"
 license = "MIT"
 repository = "https://github.com/canmi21/vane"
 rust-version = "1.95"
