@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vane_core::{
-	ConnContext, Decision, Error, FlowCtx, FlowLogEvent, FlowLogKind, L4Conn, Node, NodeId,
-	PredicateView, Request, Response, SerializedError, ShortCircuit, Terminator, Tunnel,
+	ConnContext, Decision, Error, FlowCtx, FlowLogEvent, FlowLogKind, FlowLogVerbosity, L4Conn, Node,
+	NodeId, PredicateView, Request, Response, SerializedError, ShortCircuit, TerminatorOutcomeKind,
+	TrajectoryOutcome, TrajectoryStep, Tunnel,
 };
 
 use crate::flow_graph::{FetchInst, FlowGraph, MiddlewareInst};
@@ -17,11 +18,12 @@ pub enum ExecutorInput {
 	L7(Box<Request>),
 }
 
-/// Iterative walker per 02-flow.md § _Execution model_. A single async loop
-/// holds a `NodeId` cursor and four phase-scoped owned slots; the phase
-/// state machine (enforced in core's `validate`) guarantees that at most
-/// one slot is `Some` at any point and that `.take().expect("phase
-/// invariant")` is sound at each consumption site.
+/// Iterative walker per 02-flow.md § _Execution model_ + § _Flow log
+/// verbosity_. A single async loop holds a `NodeId` cursor and four
+/// phase-scoped owned slots; the phase state machine (enforced in core's
+/// `validate`) guarantees that at most one slot is `Some` at any point and
+/// that `.take().expect("phase invariant")` is sound at each consumption
+/// site.
 ///
 /// # Errors
 /// Surfaces any middleware / fetch `Err(_)` that isn't routed via a
@@ -62,34 +64,29 @@ pub async fn execute(
 		let node = &sym[cur];
 
 		// Body-collect trigger is a compile-time decision landed by lower's
-		// LazyBuffer pass (see 02-flow.md § _LazyBuffer_). Wiring the
-		// actual `Body::collect().await` lands with the first middleware
-		// that sets the flag (S1-21).
+		// LazyBuffer pass. Real wiring lands at S1-21.
 		if node.collect_body_before().is_some() {
-			return Err(Error::internal(
+			let e = Error::internal(
 				"collect_body_before not yet wired — lands with S1-21 middleware that needs body",
-			));
+			);
+			return finish_error(ctx, conn, &mut seq, cur, e);
 		}
 
 		match node {
 			Node::Check { predicate, on_match, on_miss, .. } => {
-				trace_step(ctx, cur, &mut seq, "check", conn);
 				let view = PredicateView::build(conn, req.as_ref(), l4.as_ref());
 				let matched = sym[*predicate].test(&view);
+				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Check, Some(matched));
 				cur = if matched { *on_match } else { *on_miss };
 			}
 
 			Node::Middleware { id, next, on_error, .. } => {
-				trace_step(ctx, cur, &mut seq, "mid", conn);
+				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Middleware, None);
 				let outcome = match &graph[*id] {
-					// L4Peek dispatch needs the peek buffer on ConnContext —
-					// that wiring lands with `protocol_detect` (S1-16). Until
-					// then we refuse fast rather than pass an empty slice and
-					// silently look matched.
 					MiddlewareInst::L4Peek(_) => {
-						return Err(Error::internal(
-							"L4Peek dispatch deferred — peek buffer wiring lands with S1-16",
-						));
+						let e =
+							Error::internal("L4Peek dispatch deferred — peek buffer wiring lands with S1-16");
+						return finish_error(ctx, conn, &mut seq, cur, e);
 					}
 					MiddlewareInst::L4Bytes(m) => {
 						let l4_ref = l4.as_mut().expect("phase invariant: L4Bytes needs L4Conn");
@@ -108,153 +105,215 @@ pub async fn execute(
 				match outcome {
 					Ok(Decision::Continue) => cur = *next,
 					Ok(Decision::Short(ShortCircuit::Response(_))) => {
-						// TODO(s1-22): Ok(Short(Response)) should jump to
-						// `graph.meta.short_circuit_response_entry(entry)` so
-						// response-phase middleware still runs. The helper
-						// doesn't exist yet — defer.
 						drop(req.take());
-						return Err(Error::internal(
+						let e = Error::internal(
 							"short-circuit response routing deferred — no short_circuit_response_entry metadata yet",
-						));
+						);
+						return finish_error(ctx, conn, &mut seq, cur, e);
 					}
 					Ok(Decision::Short(ShortCircuit::Close(reason))) => {
-						return Err(Error::middleware(format!("short-close: {reason:?}")));
+						let e = Error::middleware(format!("short-close: {reason:?}"));
+						return finish_error(ctx, conn, &mut seq, cur, e);
 					}
 					Err(e) => {
 						emit_error_event(ctx, cur, &mut seq, conn, &e);
 						match on_error {
 							Some(target) => cur = *target,
-							// TODO(s1-late): route through
-							// `graph.meta.default_fallback(phase)` once lower
-							// synthesizes per-phase fallback tombstones (spec
-							// 02-flow.md § _Execution model_ line 403).
-							None => return Err(e),
+							None => return finish_error(ctx, conn, &mut seq, cur, e),
 						}
 					}
 				}
 			}
 
 			Node::Fetch { id, next_response, next_tunnel, .. } => {
-				trace_step(ctx, cur, &mut seq, "fetch", conn);
+				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Fetch, None);
 				match &graph[*id] {
 					FetchInst::L7(f) => {
 						let r = req.take().expect("phase invariant: L7Fetch needs Request");
-						match f.fetch(r, conn, ctx).await? {
-							vane_core::L7FetchOutput::Response(rp) => {
+						match f.fetch(r, conn, ctx).await {
+							Ok(vane_core::L7FetchOutput::Response(rp)) => {
 								resp = Some(rp);
 								cur = next_response.expect("validator guarantees Some on L7 paths for Response");
 							}
-							vane_core::L7FetchOutput::Tunnel(t) => {
+							Ok(vane_core::L7FetchOutput::Tunnel(t)) => {
 								tunnel = Some(t);
 								cur = next_tunnel.expect("validator guarantees Some for WebSocketUpgrade");
 							}
+							Err(e) => return finish_error(ctx, conn, &mut seq, cur, e),
 						}
 					}
 					FetchInst::L4(f) => {
 						let c = l4.take().expect("phase invariant: L4Fetch needs L4Conn");
-						let t = f.fetch(c, conn, ctx).await?;
-						tunnel = Some(t);
-						cur = next_tunnel.expect("validator guarantees Some on L4 paths");
+						match f.fetch(c, conn, ctx).await {
+							Ok(t) => {
+								tunnel = Some(t);
+								cur = next_tunnel.expect("validator guarantees Some on L4 paths");
+							}
+							Err(e) => return finish_error(ctx, conn, &mut seq, cur, e),
+						}
 					}
 				}
 			}
 
 			Node::Upgrade { .. } => {
-				trace_step(ctx, cur, &mut seq, "upgrade", conn);
-				// TODO(s1-16/s1-17): hand L4Conn to hyper::server and respawn
-				// `execute` per decoded Request. This is the L4→L7 boundary;
-				// the pseudocode in 02-flow.md references
-				// `spawn_http_server(l4, graph, *next, conn.clone())`.
-				return Err(Error::internal(
+				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Upgrade, None);
+				let e = Error::internal(
 					"L4→L7 upgrade not yet wired — lands with S1-16 protocol_detect + hyper server integration",
-				));
+				);
+				return finish_error(ctx, conn, &mut seq, cur, e);
 			}
 
 			Node::Terminate(tid) => {
-				trace_step(ctx, cur, &mut seq, "terminate", conn);
-				return terminate(sym[*tid], conn, ctx, &mut seq, cur, &mut resp, &mut tunnel);
+				let term = sym[*tid];
+				let kind = match term {
+					vane_core::Terminator::Close => TerminatorOutcomeKind::Close,
+					vane_core::Terminator::WriteHttpResponse => TerminatorOutcomeKind::WriteHttpResponse,
+					vane_core::Terminator::ByteTunnel => TerminatorOutcomeKind::ByteTunnel,
+				};
+				return finish_terminated(ctx, conn, &mut seq, cur, term, kind, &mut resp, &mut tunnel);
 			}
 		}
 	}
 }
 
-// Signature keeps `Result<(), Error>` for the real terminators that land at
-// S1-23 / S1-24 — the write path can fail (client hangup, H2 stream reset,
-// etc.) and the executor still needs to propagate.
-#[allow(clippy::unnecessary_wraps)]
-fn terminate(
-	which: Terminator,
-	conn: &Arc<ConnContext>,
+// --- Step recording -----------------------------------------------------
+
+fn record_step(
 	ctx: &mut FlowCtx<'_>,
+	conn: &Arc<ConnContext>,
 	seq: &mut u32,
 	cur: NodeId,
-	resp: &mut Option<Response>,
-	tunnel: &mut Option<Tunnel>,
-) -> Result<(), Error> {
-	match which {
-		Terminator::Close => {
-			// Silent drop — emit a Terminate event so operators see the
-			// traffic did reach the daemon. Full `CloseReason::PolicyDenied`
-			// payload lands on the event's `data` field rather than on the
-			// transport; there's no socket-level work yet.
-			ctx.log.emit(FlowLogEvent {
-				t: now_ms(),
-				conn: conn.id,
-				seq: bump(seq),
-				kind: FlowLogKind::Terminate,
-				node: Some(cur),
-				error: None,
-				data: Some(serde_json::json!({
-					"terminator": "close",
-					"reason": "no matching rule",
-				})),
-			});
-			Ok(())
-		}
-		// TODO(s1-23): replace stub with hyper response writer.
-		Terminator::WriteHttpResponse => {
-			let _ = resp.take().expect("phase invariant: WriteHttpResponse needs Response");
-			tracing::trace!(node_id = ?cur, "stub write_http_response");
-			Ok(())
-		}
-		// TODO(s1-24): replace stub with tokio::io::copy_bidirectional.
-		Terminator::ByteTunnel => {
-			let _ = tunnel.take().expect("phase invariant: ByteTunnel needs Tunnel");
-			tracing::trace!(node_id = ?cur, "stub byte_tunnel");
-			Ok(())
-		}
+	kind: FlowLogKind,
+	branch: Option<bool>,
+) {
+	// 02-flow.md line 469: one `tracing::trace!` per iter, always on (gated
+	// only by RUST_LOG).
+	tracing::trace!(node_id = ?cur, kind = ?kind);
+	ctx.trajectory.push(TrajectoryStep { node: cur, kind, branch });
+
+	if matches!(ctx.verbosity, FlowLogVerbosity::Debug) {
+		ctx.log.emit(FlowLogEvent {
+			t: now_ms(),
+			conn: conn.id,
+			seq: bump(seq),
+			kind,
+			node: Some(cur),
+			error: None,
+			data: None,
+		});
 	}
 }
 
-fn trace_step(
+// --- Terminate / Error finalisation ------------------------------------
+
+// Signature kept `Result<(), Error>` for the real terminators that land at
+// S1-23 / S1-24 — the write path can fail (client hangup, H2 stream reset,
+// etc.) and the executor still needs to propagate. `too_many_arguments` is
+// a stylistic warning; bundling these into a struct buys nothing.
+#[allow(clippy::too_many_arguments, clippy::unnecessary_wraps)]
+fn finish_terminated(
 	ctx: &mut FlowCtx<'_>,
-	cur: NodeId,
-	seq: &mut u32,
-	kind: &'static str,
 	conn: &Arc<ConnContext>,
+	seq: &mut u32,
+	cur: NodeId,
+	term: vane_core::Terminator,
+	outcome_kind: TerminatorOutcomeKind,
+	resp: &mut Option<Response>,
+	tunnel: &mut Option<Tunnel>,
+) -> Result<(), Error> {
+	// Run the terminator (stub today — drops payload + traces).
+	terminate_action(term, cur, resp, tunnel);
+
+	// Connection-level milestone — kept independent of verbosity per
+	// 02-flow.md § _Flow log verbosity_: Terminate / Error / Upgrade /
+	// SecurityLimit always land in the sink.
+	if matches!(term, vane_core::Terminator::Close) {
+		ctx.log.emit(FlowLogEvent {
+			t: now_ms(),
+			conn: conn.id,
+			seq: bump(seq),
+			kind: FlowLogKind::Terminate,
+			node: Some(cur),
+			error: None,
+			data: Some(serde_json::json!({
+				"terminator": "close",
+				"reason": "no matching rule",
+			})),
+		});
+	}
+
+	// One Trajectory event per request, always.
+	emit_trajectory(
+		ctx,
+		conn,
+		seq,
+		TrajectoryOutcome::Terminated { node: cur, terminator: outcome_kind },
+	);
+	Ok(())
+}
+
+fn finish_error(
+	ctx: &mut FlowCtx<'_>,
+	conn: &Arc<ConnContext>,
+	seq: &mut u32,
+	cur: NodeId,
+	err: Error,
+) -> Result<(), Error> {
+	let message = std::borrow::Cow::Owned(err.to_string());
+	emit_trajectory(ctx, conn, seq, TrajectoryOutcome::Error { node: cur, message });
+	Err(err)
+}
+
+fn emit_trajectory(
+	ctx: &mut FlowCtx<'_>,
+	conn: &Arc<ConnContext>,
+	seq: &mut u32,
+	outcome: TrajectoryOutcome,
 ) {
-	// Spec 02-flow.md line 469: one `tracing::trace!` event per loop iter.
-	// We additionally mirror the step into `ctx.log` (via the appropriate
-	// FlowLogKind) for Check / Middleware / Fetch / Terminate / Upgrade —
-	// management-API consumers read the same stream.
-	tracing::trace!(node_id = ?cur, kind = kind);
-	let flow_kind = match kind {
-		"check" => FlowLogKind::Check,
-		"mid" => FlowLogKind::Middleware,
-		"fetch" => FlowLogKind::Fetch,
-		"terminate" => FlowLogKind::Terminate,
-		"upgrade" => FlowLogKind::Upgrade,
-		_ => return,
-	};
+	// `ctx.trajectory` is moved out via swap so we can call `finalize`
+	// (which consumes by value). Replace with a fresh empty builder so the
+	// `FlowCtx` stays in a valid state — same conn, same entry, no steps.
+	let conn_id = conn.id;
+	let traj = std::mem::replace(
+		&mut ctx.trajectory,
+		vane_core::TrajectoryBuilder::new(conn_id, NodeId::new(0), now_ms()),
+	)
+	.finalize(outcome, now_ms());
+
+	let data = serde_json::to_value(&traj).ok();
 	ctx.log.emit(FlowLogEvent {
 		t: now_ms(),
-		conn: conn.id,
+		conn: conn_id,
 		seq: bump(seq),
-		kind: flow_kind,
-		node: Some(cur),
+		kind: FlowLogKind::Trajectory,
+		node: None,
 		error: None,
-		data: None,
+		data,
 	});
+}
+
+fn terminate_action(
+	which: vane_core::Terminator,
+	cur: NodeId,
+	resp: &mut Option<Response>,
+	tunnel: &mut Option<Tunnel>,
+) {
+	match which {
+		vane_core::Terminator::Close => {
+			// No socket work yet; full close happens once listener owns the
+			// transport (S1-13/14).
+		}
+		// TODO(s1-23): replace stub with hyper response writer.
+		vane_core::Terminator::WriteHttpResponse => {
+			let _ = resp.take().expect("phase invariant: WriteHttpResponse needs Response");
+			tracing::trace!(node_id = ?cur, "stub write_http_response");
+		}
+		// TODO(s1-24): replace stub with tokio::io::copy_bidirectional.
+		vane_core::Terminator::ByteTunnel => {
+			let _ = tunnel.take().expect("phase invariant: ByteTunnel needs Tunnel");
+			tracing::trace!(node_id = ?cur, "stub byte_tunnel");
+		}
+	}
 }
 
 fn emit_error_event(
