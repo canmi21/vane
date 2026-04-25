@@ -1,4 +1,3 @@
-use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -38,13 +37,17 @@ pub enum L7FetchOutput {
 }
 
 pub struct Tunnel {
-	pub client: Pin<Box<dyn AsyncReadWrite + Send>>,
-	pub upstream: Pin<Box<dyn AsyncReadWrite + Send>>,
+	pub client: Box<dyn AsyncReadWrite + Send>,
+	pub upstream: Box<dyn AsyncReadWrite + Send>,
 	pub close_reason_tx: Option<oneshot::Sender<CloseReason>>,
 }
 
-pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
-impl<T: AsyncRead + AsyncWrite + ?Sized> AsyncReadWrite for T {}
+// `Unpin` is in the trait bound so `tokio::io::copy_bidirectional`
+// (used by `Terminator::ByteTunnel` in the engine) can drive the streams
+// directly. `TcpStream` / `UnixStream` / `tokio::io::DuplexStream` /
+// `tokio_rustls::TlsStream<T: Unpin>` all satisfy it.
+pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin {}
+impl<T: AsyncRead + AsyncWrite + Unpin + ?Sized> AsyncReadWrite for T {}
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum FetchKind {
@@ -84,6 +87,7 @@ mod tests {
 	use std::future::Future;
 	use std::io;
 	use std::net::SocketAddr;
+	use std::pin::Pin;
 	use std::task::{Context, Poll};
 	use std::time::Instant;
 
@@ -161,8 +165,8 @@ mod tests {
 		) -> Result<Tunnel, Error> {
 			let (tx, _rx) = oneshot::channel::<crate::middleware::CloseReason>();
 			Ok(Tunnel {
-				client: Box::pin(NoopStream) as Pin<Box<dyn AsyncReadWrite + Send>>,
-				upstream: Box::pin(NoopStream) as Pin<Box<dyn AsyncReadWrite + Send>>,
+				client: Box::new(NoopStream) as Box<dyn AsyncReadWrite + Send>,
+				upstream: Box::new(NoopStream) as Box<dyn AsyncReadWrite + Send>,
 				close_reason_tx: Some(tx),
 			})
 		}
@@ -186,7 +190,7 @@ mod tests {
 
 	#[test]
 	fn async_read_write_blanket_accepts_async_io_type() {
-		let _: Pin<Box<dyn AsyncReadWrite + Send>> = Box::pin(NoopStream);
+		let _: Box<dyn AsyncReadWrite + Send> = Box::new(NoopStream);
 	}
 
 	#[test]
@@ -203,8 +207,8 @@ mod tests {
 	fn tunnel_builds_from_paired_async_io_streams() {
 		let (tx, _rx) = oneshot::channel::<crate::middleware::CloseReason>();
 		let tunnel = Tunnel {
-			client: Box::pin(NoopStream) as Pin<Box<dyn AsyncReadWrite + Send>>,
-			upstream: Box::pin(NoopStream) as Pin<Box<dyn AsyncReadWrite + Send>>,
+			client: Box::new(NoopStream) as Box<dyn AsyncReadWrite + Send>,
+			upstream: Box::new(NoopStream) as Box<dyn AsyncReadWrite + Send>,
 			close_reason_tx: Some(tx),
 		};
 		let _ = L7FetchOutput::Tunnel(tunnel);
