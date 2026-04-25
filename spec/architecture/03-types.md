@@ -240,21 +240,25 @@ Every `Request` on this connection carries `Arc<ConnContext>` in `request.extens
 `ConnContext` is the connection-level, mostly-immutable shared state (one `Arc` per TCP/QUIC connection, read by all middleware on all multiplexed streams). `FlowCtx` is the complementary **per-execution, mutable** state — one `FlowCtx` per executor invocation, owned on the executor's stack and borrowed `&mut` to every middleware / Fetch call.
 
 ```rust
-pub struct FlowCtx<'a> {
-    pub span:   &'a mut tracing::Span,       // current flow-log span; middleware may enter children
-    pub log:    &'a mut dyn FlowLogSink,     // structured event sink for this execution
-    pub cancel: &'a tokio_util::sync::CancellationToken,
+pub struct FlowCtx {
+    pub span:       tracing::Span,                       // current flow-log span; middleware may enter children
+    pub log:        Arc<dyn FlowLogSink>,                // structured event sink for this execution
+    pub cancel:     tokio_util::sync::CancellationToken, // listener-driven force_cancel propagates here
+    pub verbosity:  FlowLogVerbosity,                    // captured at construction; in-flight calls retain it
+    pub trajectory: TrajectoryBuilder,                   // walker step accumulator
 }
 ```
 
-**`FlowCtx` deliberately does not carry a graph reference.** Middleware and Fetch do not need the FlowGraph — routing is the executor's job. The executor holds its own `&FlowGraph` on its own stack frame; it passes only the execution-mutable bits to user code. This also avoids a circular crate dependency (the linked `FlowGraph` lives in `vane-engine`, which already depends on `vane-core`; if `FlowCtx` named `FlowGraph`, `vane-core` would need to name an engine-side type).
+Fields are _owned_, not borrowed — `FlowCtx` carries no lifetime. `tracing::Span` and `CancellationToken` are internally `Arc`-backed so clones are O(1); `Arc<dyn FlowLogSink>` is the natural shape for sharing a sink across the executor and any per-request task spawned from it (notably the hyper service-fn at `Node::Upgrade`, which builds a fresh `FlowCtx` per decoded request and needs to hand the same sink down).
+
+**`FlowCtx` deliberately does not carry a graph reference.** Middleware and Fetch do not need the FlowGraph — routing is the executor's job. The executor holds its own `&Arc<FlowGraph>` on its own stack frame; it passes only the execution-mutable bits to user code. This also avoids a circular crate dependency (the linked `FlowGraph` lives in `vane-engine`, which already depends on `vane-core`; if `FlowCtx` named `FlowGraph`, `vane-core` would need to name an engine-side type).
 
 If a middleware truly needs graph metadata (`version_hash`, `feature_set`, etc.), the correct channel is a structured flow-log event the executor emits, not direct graph access.
 
 Every async trait in `04-middleware.md` and `05-terminator.md` takes two context parameters:
 
 - `conn: &Arc<ConnContext>` — connection-shared state (read, and `user`-extensions write)
-- `ctx:  &mut FlowCtx<'_>` — execution-scoped state (span nesting, log emission, cancel observation)
+- `ctx:  &mut FlowCtx` — execution-scoped state (span nesting, log emission, cancel observation)
 
 The split makes the two axes explicit: **shared/unchanging vs. execution/mutable**. It also makes the `&mut` meaningful — previously a single `&mut Ctx` existed but none of its fields were actually mutable, which confused both trait authors and the executor.
 

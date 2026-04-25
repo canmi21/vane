@@ -374,14 +374,38 @@ A single transition table is the Rust-proxy analogue of an ISA encoding table or
 
 The executor is an **iterative walker**. A single `async fn` holds a loop; the loop walks the flat graph by updating a `NodeId` cursor and maintaining the per-phase owned state slots.
 
+`execute` returns an `ExecutorOutput` describing what the caller — listener accept-loop task for L4 entries, hyper service-fn for L7 sub-graph dispatch — must do next:
+
+```rust
+pub enum ExecutorOutput {
+    /// `Terminator::Close` walked, or any path the executor finalised
+    /// without producing a response or tunnel. Caller does nothing
+    /// further; transport drop-glue closes.
+    Closed,
+    /// `Terminator::WriteHttpResponse` walked. Caller serialises this
+    /// `Response` onto the client socket. The hyper service-fn returns
+    /// it from the H1 (and later H2 / H3) handler; the executor itself
+    /// is socket-free in the L7 path.
+    HttpResponse(Response),
+    /// `Terminator::ByteTunnel` walked. Executor already drove
+    /// `tokio::io::copy_bidirectional` (raced against `ctx.cancel`)
+    /// to completion; the close reason — `Graceful` / `ProtocolError` /
+    /// `Cancelled` — was sent through `Tunnel.close_reason_tx`. Caller
+    /// does nothing further.
+    Tunneled,
+}
+```
+
+The `Closed` variant is also produced by the `Node::Upgrade` arm: once `drive_h1_server` finishes (client EOF or last `Connection: close` response written), the outer L4 `execute` propagates `Ok(ExecutorOutput::Closed)` back to the listener.
+
 ```rust
 pub async fn execute(
-    graph: &FlowGraph,
+    graph: &Arc<FlowGraph>,          // Arc so the Upgrade arm can clone it into a hyper service-fn closure
     entry: NodeId,
     input: ExecutorInput,            // L4Conn (L4 entries) or Request (L7 entries)
     conn:  &Arc<ConnContext>,
-    ctx:   &mut FlowCtx<'_>,
-) -> Result<(), Error> {
+    ctx:   &mut FlowCtx,
+) -> Result<ExecutorOutput, Error> {
     // Phase-scoped owned slots. The phase state machine guarantees at most one
     // is `Some` at any time; `.take().expect("phase invariant")` is sound.
     let mut l4:     Option<L4Conn>  = /* from input if L4 entry */;
@@ -477,20 +501,52 @@ pub async fn execute(
             },
 
             Node::Upgrade { next } => {
-                // L4Peeked → L7Request. The L4 connection is handed to the HTTP server
-                // (hyper for H1/H2, h3::server for H3). Per decoded Request, the server
-                // spawns a task that calls `execute(graph, *next, Request, conn.clone(), ctx)` —
-                // i.e., each request / H2 stream / H3 stream walks the L7 sub-graph
-                // independently from `*next`. The present L4 executor returns here.
+                // L4Raw / L4Peeked → L7Request. The L4 connection is handed
+                // to a protocol-specific HTTP server driver. For each decoded
+                // request, the driver constructs a fresh `FlowCtx` (sharing
+                // the outer ctx's `log` / `cancel` / `verbosity` but with a
+                // fresh `TrajectoryBuilder`) and calls
+                // `execute(&graph, *next, ExecutorInput::L7(req), &conn,
+                // &mut ctx)`. The L7 path's `ExecutorOutput::HttpResponse(r)`
+                // flows back to the driver, which serialises `r` onto the
+                // wire. When the underlying connection ends, the driver
+                // returns `Ok(ExecutorOutput::Closed)` and the outer L4
+                // `execute` returns it too.
+                //
+                // S1-17 ships H1 cleartext via `hyper::server::conn::http1`.
+                // H2 sits next to H1 once TLS / ALPN are wired (S1-26); H3
+                // follows the same shape via `h3::server::Connection` on a
+                // `quinn::Endpoint`.
                 let l4_conn = l4.take().expect("phase invariant");
-                return spawn_http_server(l4_conn, graph, *next, Arc::clone(conn)).await;
+                return drive_h1_server(
+                    l4_conn, Arc::clone(graph), *next, Arc::clone(conn),
+                    Arc::clone(&ctx.log), ctx.cancel.clone(), ctx.verbosity,
+                ).await;
             }
 
             Node::Terminate(t) => return match &graph[*t] {
-                Terminator::WriteHttpResponse =>
-                    write_http_response(resp.take().expect("phase invariant"), conn, ctx).await,
-                Terminator::ByteTunnel =>
-                    drive_byte_tunnel(tunnel.take().expect("phase invariant"), conn, ctx).await,
+                Terminator::WriteHttpResponse => {
+                    // Hand the Response back to the caller via the
+                    // `ExecutorOutput::HttpResponse` variant. The caller —
+                    // typically the hyper service-fn spawned at
+                    // `Node::Upgrade` — returns the Response to its protocol
+                    // stack which serialises it onto the wire. The executor
+                    // itself is socket-free in the L7 path; this keeps it
+                    // composable with hyper's request-response model and
+                    // the future `h3::server` analogue.
+                    let r = resp.take().expect("phase invariant");
+                    Ok(ExecutorOutput::HttpResponse(r))
+                }
+                Terminator::ByteTunnel => {
+                    // Driven inside the executor (`tokio::io::copy_bidirectional`
+                    // raced against `ctx.cancel.cancelled()`). Caller does
+                    // nothing further; the close reason is sent through
+                    // `Tunnel.close_reason_tx` out-of-band.
+                    drive_byte_tunnel(
+                        tunnel.take().expect("phase invariant"), &ctx.cancel,
+                    ).await;
+                    Ok(ExecutorOutput::Tunneled)
+                }
                 Terminator::Close => {
                     // Phase-agnostic silent drop. Drop any owned slot; the
                     // accept-loop's drop-glue closes the underlying socket
@@ -499,7 +555,7 @@ pub async fn execute(
                     // matching rule") so operators see the drop. No body
                     // ever travels through this terminator.
                     drop((l4.take(), req.take(), resp.take(), tunnel.take()));
-                    Ok(())
+                    Ok(ExecutorOutput::Closed)
                 }
             },
         }
