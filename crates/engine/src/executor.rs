@@ -252,6 +252,7 @@ pub async fn execute(
 					vane_core::Terminator::ByteTunnel => {
 						drive_byte_tunnel(
 							tunnel.take().expect("phase invariant: ByteTunnel reached without a Tunnel in scope"),
+							ctx.cancel,
 						)
 						.await;
 						emit_trajectory(
@@ -301,15 +302,19 @@ fn record_step(
 
 // --- ByteTunnel drive ---------------------------------------------------
 
-async fn drive_byte_tunnel(mut t: Tunnel) {
+async fn drive_byte_tunnel(mut t: Tunnel, cancel: &tokio_util::sync::CancellationToken) {
 	// `copy_bidirectional` runs until both sides hit EOF or one errors.
-	// TODO(s1-late): integrate `ctx.cancel` via `tokio::select!` so a
-	// management-API drain can interrupt long-lived tunnels.
-	let copy_result = tokio::io::copy_bidirectional(&mut *t.client, &mut *t.upstream).await;
-
-	let reason = match &copy_result {
-		Ok(_) => CloseReason::Graceful,
-		Err(e) => CloseReason::ProtocolError(std::borrow::Cow::Owned(format!("byte tunnel io: {e}"))),
+	// `tokio::select!` adds a third axis: when `cancel` fires (listener
+	// drain timeout, daemon shutdown), drop the copy future — the streams
+	// are dropped along with it, the OS-level sockets close, and the peer
+	// observes a reset. See 01-topology.md § _Listener lifecycle_ step 3.
+	let reason = tokio::select! {
+		biased;
+		() = cancel.cancelled() => CloseReason::Cancelled,
+		res = tokio::io::copy_bidirectional(&mut *t.client, &mut *t.upstream) => match res {
+			Ok(_) => CloseReason::Graceful,
+			Err(e) => CloseReason::ProtocolError(std::borrow::Cow::Owned(format!("byte tunnel io: {e}"))),
+		},
 	};
 
 	if let Some(tx) = t.close_reason_tx.take() {
