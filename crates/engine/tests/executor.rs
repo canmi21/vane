@@ -207,7 +207,13 @@ async fn run_execute(
 ) -> Result<(), Error> {
 	let mut span = tracing::Span::none();
 	let cancel = CancellationToken::new();
-	let mut ctx = FlowCtx { span: &mut span, log: sink as &mut dyn FlowLogSink, cancel: &cancel };
+	let mut ctx = FlowCtx {
+		span: &mut span,
+		log: sink as &mut dyn FlowLogSink,
+		cancel: &cancel,
+		verbosity: vane_core::FlowLogVerbosity::Trajectory,
+		trajectory: vane_core::TrajectoryBuilder::new(conn.id, entry, 0),
+	};
 	execute(graph, entry, input, conn, &mut ctx).await
 }
 

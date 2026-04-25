@@ -28,6 +28,88 @@ pub enum FlowLogKind {
 	Error,
 	SecurityLimit,
 	Upgrade,
+	/// Per-request summary event. The `data` field carries a serialized
+	/// [`FlowTrajectory`]. Always emitted exactly once per request,
+	/// regardless of verbosity.
+	Trajectory,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum FlowLogVerbosity {
+	/// Default. One `Trajectory` event per request, plus the existing
+	/// per-connection milestone events (`Terminate`, `Error`, `Upgrade`,
+	/// `SecurityLimit`).
+	Trajectory,
+	/// Adds a per-step event for each `Check` / `Middleware` / `Fetch` /
+	/// `Upgrade` node. Used at incident time; not for production volumes.
+	Debug,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TrajectoryStep {
+	pub node: NodeId,
+	pub kind: FlowLogKind,
+	/// `Some(true)` = Check matched, `Some(false)` = Check missed; `None`
+	/// for non-Check steps.
+	pub branch: Option<bool>,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum TerminatorOutcomeKind {
+	Close,
+	WriteHttpResponse,
+	ByteTunnel,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum TrajectoryOutcome {
+	Terminated { node: NodeId, terminator: TerminatorOutcomeKind },
+	Error { node: NodeId, message: std::borrow::Cow<'static, str> },
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct FlowTrajectory {
+	pub conn: ConnId,
+	pub entry: NodeId,
+	pub steps: Vec<TrajectoryStep>,
+	pub outcome: TrajectoryOutcome,
+	pub started_at_ms: u64,
+	pub finished_at_ms: u64,
+}
+
+/// Per-walker accumulator that the executor pushes steps into and
+/// converts to a [`FlowTrajectory`] at terminate/error time. Not a
+/// `FlowLogSink` — the executor explicitly emits one event from the
+/// finalized trajectory.
+#[derive(Debug)]
+pub struct TrajectoryBuilder {
+	conn: ConnId,
+	entry: NodeId,
+	started_at_ms: u64,
+	steps: Vec<TrajectoryStep>,
+}
+
+impl TrajectoryBuilder {
+	#[must_use]
+	pub fn new(conn: ConnId, entry: NodeId, started_at_ms: u64) -> Self {
+		Self { conn, entry, started_at_ms, steps: Vec::new() }
+	}
+
+	pub fn push(&mut self, step: TrajectoryStep) {
+		self.steps.push(step);
+	}
+
+	#[must_use]
+	pub fn finalize(self, outcome: TrajectoryOutcome, finished_at_ms: u64) -> FlowTrajectory {
+		FlowTrajectory {
+			conn: self.conn,
+			entry: self.entry,
+			steps: self.steps,
+			outcome,
+			started_at_ms: self.started_at_ms,
+			finished_at_ms,
+		}
+	}
 }
 
 #[cfg(test)]

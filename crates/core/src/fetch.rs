@@ -234,8 +234,13 @@ mod tests {
 		let mut sink = NullSink;
 		let mut span = tracing::Span::none();
 		let cancel = CancellationToken::new();
-		let mut ctx =
-			FlowCtx { span: &mut span, log: &mut sink as &mut dyn FlowLogSink, cancel: &cancel };
+		let mut ctx = FlowCtx {
+			span: &mut span,
+			log: &mut sink as &mut dyn FlowLogSink,
+			cancel: &cancel,
+			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
+			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
+		};
 		let req: Request = http::Request::builder().uri("/").body(Body::Empty).expect("build req");
 		// Exact-type coercion — async_trait rewrites `fetch` to return
 		// `Pin<Box<dyn Future + Send>>`; this binding fails to compile if the

@@ -302,8 +302,13 @@ mod tests {
 		let mut sink = NullSink;
 		let mut span = tracing::Span::none();
 		let cancel = CancellationToken::new();
-		let mut ctx =
-			FlowCtx { span: &mut span, log: &mut sink as &mut dyn FlowLogSink, cancel: &cancel };
+		let mut ctx = FlowCtx {
+			span: &mut span,
+			log: &mut sink as &mut dyn FlowLogSink,
+			cancel: &cancel,
+			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
+			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
+		};
 		let peek: &[u8] = &[];
 		// Exact-type coercion into `Pin<Box<dyn Future + Send>>` — the async_trait
 		// signature. Fails to compile if a future becomes `!Send`.
@@ -320,8 +325,13 @@ mod tests {
 		let mut sink = NullSink;
 		let mut span = tracing::Span::none();
 		let cancel = CancellationToken::new();
-		let mut ctx =
-			FlowCtx { span: &mut span, log: &mut sink as &mut dyn FlowLogSink, cancel: &cancel };
+		let mut ctx = FlowCtx {
+			span: &mut span,
+			log: &mut sink as &mut dyn FlowLogSink,
+			cancel: &cancel,
+			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
+			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
+		};
 		let mut req: Request =
 			http::Request::builder().uri("/").body(crate::body::Body::Empty).expect("build req");
 		let fut: Pin<Box<dyn Future<Output = Result<Decision, Error>> + Send + '_>> =
@@ -337,8 +347,13 @@ mod tests {
 		let mut sink = NullSink;
 		let mut span = tracing::Span::none();
 		let cancel = CancellationToken::new();
-		let mut ctx =
-			FlowCtx { span: &mut span, log: &mut sink as &mut dyn FlowLogSink, cancel: &cancel };
+		let mut ctx = FlowCtx {
+			span: &mut span,
+			log: &mut sink as &mut dyn FlowLogSink,
+			cancel: &cancel,
+			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
+			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
+		};
 		let mut resp: Response =
 			http::Response::builder().status(200).body(crate::body::Body::Empty).expect("build resp");
 		let fut: Pin<Box<dyn Future<Output = Result<Decision, Error>> + Send + '_>> =
