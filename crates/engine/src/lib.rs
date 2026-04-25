@@ -8,6 +8,7 @@ compile_error!("`aws-lc-rs` and `ring` features are mutually exclusive — pick 
 #[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
 compile_error!("one of `aws-lc-rs` or `ring` must be enabled");
 
+pub(crate) mod body_adapter;
 pub mod executor;
 pub mod factories;
 pub mod fetch;

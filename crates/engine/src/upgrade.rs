@@ -8,17 +8,12 @@
 //!
 //! Out of MVP scope (separately tracked): H2 / H3 / WS-101 / TLS / ALPN.
 
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use bytes::Bytes;
-use http_body::{Body as HttpBody, Frame, SizeHint};
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use pin_project_lite::pin_project;
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 use vane_core::{
@@ -26,6 +21,7 @@ use vane_core::{
 	Response, TrajectoryBuilder,
 };
 
+use crate::body_adapter::IncomingAdapter;
 use crate::executor::{ExecutorInput, ExecutorOutput, execute};
 use crate::flow_graph::FlowGraph;
 
@@ -66,7 +62,7 @@ pub(crate) async fn drive_h1_server(
 		let cancel = cancel.clone();
 		async move {
 			let vane_req: Request =
-				req.map(|incoming| Body::Stream(Box::pin(IncomingAdapter { inner: incoming })));
+				req.map(|incoming| Body::Stream(Box::pin(IncomingAdapter::new(incoming))));
 
 			let span = tracing::info_span!(
 				"request",
@@ -148,42 +144,4 @@ fn unix_ms_now() -> u64 {
 		.duration_since(UNIX_EPOCH)
 		.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 		.unwrap_or_default()
-}
-
-pin_project! {
-	/// Adapts `hyper::body::Incoming` into the `HttpBody<Data = Bytes,
-	/// Error = vane_core::Error>` shape required by `vane_core::Body::Stream`.
-	/// `pin_project_lite` generates a safe `project()` so we project to
-	/// `inner` without an `unsafe` block (CLAUDE.md `unsafe_code = "deny"`).
-	struct IncomingAdapter {
-		#[pin]
-		inner: Incoming,
-	}
-}
-
-impl HttpBody for IncomingAdapter {
-	type Data = Bytes;
-	type Error = Error;
-
-	fn poll_frame(
-		self: Pin<&mut Self>,
-		cx: &mut Context<'_>,
-	) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-		match self.project().inner.poll_frame(cx) {
-			Poll::Pending => Poll::Pending,
-			Poll::Ready(None) => Poll::Ready(None),
-			Poll::Ready(Some(Ok(f))) => Poll::Ready(Some(Ok(f))),
-			Poll::Ready(Some(Err(e))) => {
-				Poll::Ready(Some(Err(Error::protocol("h1 incoming body").with_source(e))))
-			}
-		}
-	}
-
-	fn is_end_stream(&self) -> bool {
-		self.inner.is_end_stream()
-	}
-
-	fn size_hint(&self) -> SizeHint {
-		self.inner.size_hint()
-	}
 }
