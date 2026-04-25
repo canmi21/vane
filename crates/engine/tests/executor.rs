@@ -1509,6 +1509,66 @@ async fn execute_close_terminator_returns_closed_output() {
 // 21. execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cancel
 // ---------------------------------------------------------------------------
 
+/// L4 fetch fixture that pulses `notify_one` immediately before handing
+/// the canned `Tunnel` to the executor. The test's main task awaits
+/// `notified()` to anchor on "fetch resolved → executor about to enter
+/// `Terminator::ByteTunnel`'s `copy_bidirectional`," eliminating the
+/// timing-based `tokio::time::sleep` the previous revision relied on.
+struct NotifyingTunnelFetch {
+	tunnel: Mutex<Option<Tunnel>>,
+	notify: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl L4Fetch for NotifyingTunnelFetch {
+	async fn fetch(
+		&self,
+		_l4: L4Conn,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx<'_>,
+	) -> Result<Tunnel, Error> {
+		let tunnel = self.tunnel.lock().take().expect("NotifyingTunnelFetch invoked more than once");
+		self.notify.notify_one();
+		Ok(tunnel)
+	}
+}
+
+fn byte_tunnel_graph_with_notify(
+	tunnel: Tunnel,
+	notify: &Arc<tokio::sync::Notify>,
+) -> Arc<FlowGraph> {
+	let sym = build_graph(
+		vec![
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: None,
+				next_tunnel: Some(NodeId::new(1)),
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![],
+		vec![SymbolicFetchRef { kind: FetchKind::L4Forward, args: Value::Null }],
+		vec![Terminator::ByteTunnel],
+	);
+	let mw = MiddlewareFactories::new();
+	let mut fetch = FetchFactories::new();
+	let slot = Arc::new(Mutex::new(Some(tunnel)));
+	{
+		let slot = Arc::clone(&slot);
+		let notify = Arc::clone(notify);
+		fetch.register(FetchKind::L4Forward, move |_args| {
+			let tunnel = slot.lock().take().expect("L4Forward factory invoked more than once");
+			Ok(FetchInst::L4(Arc::new(NotifyingTunnelFetch {
+				tunnel: Mutex::new(Some(tunnel)),
+				notify: Arc::clone(&notify),
+			})))
+		});
+	}
+	FlowGraph::link(sym, &mw, &fetch).expect("link")
+}
+
 #[tokio::test]
 async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cancel() {
 	// 01-topology.md § _Listener lifecycle_ step 3 + 05-terminator.md §
@@ -1518,6 +1578,14 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 	// returns `Ok(ExecutorOutput::Tunneled)`. The duplex halves are kept
 	// open so `tokio::io::copy_bidirectional` would otherwise block forever
 	// — only cancellation can unblock the executor.
+	//
+	// Synchronisation: the L4 fetch fixture pulses `notify_one` before
+	// returning the `Tunnel`. The test thread awaits `notified()` so it
+	// only fires `cancel` once the executor has actually consumed the
+	// fetch result. A single `yield_now()` then lets the executor advance
+	// from "fetch returned" to "parked in `copy_bidirectional`'s
+	// `tokio::select!`" before the cancel hits — replacing the wall-clock
+	// sleep the prior revision relied on.
 	let (_client_outer, client_inner) = tokio::io::duplex(1024);
 	let (_upstream_outer, upstream_inner) = tokio::io::duplex(1024);
 	let (close_tx, close_rx) = tokio::sync::oneshot::channel::<CloseReason>();
@@ -1526,7 +1594,8 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
 		close_reason_tx: Some(close_tx),
 	};
-	let graph = byte_tunnel_graph(tunnel);
+	let notify = Arc::new(tokio::sync::Notify::new());
+	let graph = byte_tunnel_graph_with_notify(tunnel, &notify);
 	let conn = make_conn("127.0.0.1:0");
 	let l4 = L4Conn::Tcp(throwaway_tcp_stream().await);
 
@@ -1554,8 +1623,11 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 		.await
 	});
 
-	// Let the executor reach `copy_bidirectional`, then fire cancel.
-	tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+	// Anchor on "fetch resolved" instead of wall-clock time. After notify,
+	// yield once so the executor can step from the fetch return into the
+	// `copy_bidirectional` select! before the cancel arrives.
+	notify.notified().await;
+	tokio::task::yield_now().await;
 	cancel.cancel();
 
 	let result = executor.await.expect("executor task panicked");
