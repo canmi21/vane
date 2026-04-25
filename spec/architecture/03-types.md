@@ -193,9 +193,20 @@ pub struct ConnContext {
     pub tls:          parking_lot::Mutex<Option<TlsInfo>>,
     pub http_version: std::sync::OnceLock<HttpVersion>,
 
+    // L4 peek buffer. `None` in phase L4Raw; populated by `protocol_detect`
+    // (or any L4Peek middleware) on first peek and read by subsequent
+    // L4Peek middleware + L4-level predicates. The bytes are exactly what
+    // `TcpStream::peek()` returned — not yet consumed from the socket, so
+    // the eventual L4→L7 upgrade still sees the full client byte stream.
+    pub peek:         parking_lot::Mutex<Option<PeekBuffer>>,
+
     // User-defined typed slots. Lock is cheap (parking_lot); contention is rare
     // because only middleware writes, and at most one middleware writes per hop.
     pub user: parking_lot::Mutex<http::Extensions>,
+}
+
+pub struct PeekBuffer {
+    pub buffer: bytes::Bytes,         // exactly the bytes peeked from the socket
 }
 
 pub struct TlsInfo {
@@ -216,8 +227,11 @@ Invariants:
 
 - `remote`, `local`, `transport`, `entered_at` are set at accept and never mutate.
 - `tls` uses `Mutex<Option<TlsInfo>>` to allow progressive population across phase transitions. Readers (predicates, middleware) observe `None` until the first write (peek) and a progressively-filled `Some(TlsInfo)` thereafter.
+- `peek` uses the same `Mutex<Option<_>>` shape and lifecycle. Set exactly once at the L4Raw → L4Peeked phase transition by `protocol_detect` (or any other L4Peek middleware that runs first); read by subsequent L4Peek middleware + L4-level predicates (`tls.sni`, `tls.alpn`, custom byte-prefix checks). `None` is the sound default — predicates over peek-derived fields read as `false` until peek populates.
 - `http_version` uses `OnceLock` — set exactly once during L4→L7 upgrade, read freely afterward.
 - `user` is a typed anymap. Read is cheap; write is guarded by a lock that is essentially uncontended in practice.
+
+The `peek` field's shape is pinned by spec; the field's addition to `ConnContext` and the population path both land with `protocol_detect` in S1-16. The S1-15 executor stubs L4Peek middleware dispatch with an `Error::internal` placeholder until then.
 
 Every `Request` on this connection carries `Arc<ConnContext>` in `request.extensions()`. H2 and H3 streams multiplexed on one connection share the same `Arc`. Refcount reaching zero releases the context.
 

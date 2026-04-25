@@ -241,10 +241,53 @@ pub struct FlowGraphMeta {
     pub compiled_at:  std::time::SystemTime,
     pub source_files: Vec<std::path::PathBuf>,  // files that contributed to this graph
     pub feature_set:  &'static [&'static str],  // snapshot of daemon-enabled Cargo features
+
+    // Routing helpers populated by the lower pass; queried by the executor.
+    // Both maps key on the original entry NodeId passed to execute(), so a
+    // graph with multiple listener entries can route each entry's fallback
+    // / short-circuit independently.
+    pub short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
+    pub default_fallback_l4:          std::collections::BTreeMap<NodeId, NodeId>,
+    pub default_fallback_l7:          std::collections::BTreeMap<NodeId, NodeId>,
+}
+
+impl FlowGraphMeta {
+    /// Where to jump when an `L7RequestMiddleware` returns
+    /// `Decision::Short(Response)`. The lower pass populates one entry per
+    /// L7 entry; an L4-only entry has no response phase so the lookup is
+    /// never reached at runtime (validator confirms).
+    pub fn short_circuit_response_entry(&self, entry: NodeId) -> NodeId {
+        self.short_circuit_response_entry.get(&entry).copied()
+            .expect("lower invariant: every L7 entry has a response-side entry")
+    }
+
+    /// Where to jump when a middleware returns `Err(_)` and its IR
+    /// `on_error` is `None`. Phase-aware: L4 phases land at a synthesised
+    /// `Terminate(Close)`; L7 phases land at a synthesised
+    /// `Terminate(WriteHttpResponse)` carrying a 500 body. Lower
+    /// synthesises one fallback node per (entry, phase-side) and records
+    /// the NodeId here; nodes are hash-consed across entries that share
+    /// a fallback shape.
+    pub fn default_fallback(&self, entry: NodeId, phase: Phase) -> NodeId {
+        match phase {
+            Phase::L4Raw | Phase::L4Peeked | Phase::Tunnel => {
+                self.default_fallback_l4.get(&entry).copied()
+                    .expect("lower invariant: every entry has an L4 fallback")
+            }
+            Phase::L7Request | Phase::L7Response => {
+                self.default_fallback_l7.get(&entry).copied()
+                    .expect("lower invariant: every L7 entry has an L7 fallback")
+            }
+        }
+    }
 }
 ```
 
 `version_hash` is returned by the management API's `get_active_config` verb and gates reload idempotency — `ArcSwap::store` runs only when the new graph's hash differs from the currently active one.
+
+The two routing helpers (`short_circuit_response_entry`, `default_fallback`) are the bridge between the lower pass's synth nodes and the executor's hot path. Lower-pass synthesis is keyed on the `entry: NodeId` that `FlowGraph::entries` maps a listener `SocketAddr` to; the executor receives the same `entry` value as a function parameter and uses it as the lookup key. Future synthesis modes (e.g. user-supplied `on_error: { response: ... }` blocks generating per-call-site fallbacks) are additive — they extend lower without changing the helper shape.
+
+These helpers are stubbed in the S1-15 executor (the `Short(Response)` arm and the `on_error == None` arm both return `Error::internal(..)` placeholders); the wiring lands when the lower pass synthesises the fallback subgraphs in a later S1 chunk.
 
 ## Phase state machine
 
@@ -400,9 +443,12 @@ pub async fn execute(
                         ctx.log.emit_middleware_error(*id, &e);
                         cur = match on_error {
                             Some(target) => *target,
-                            None         => graph.meta.default_fallback(cur_phase()),
-                            // default_fallback produces a Terminate(WriteHttpResponse with 500)
-                            // on L7 paths and Terminate(close) on L4 paths; see lower pass.
+                            None         => graph.meta.default_fallback(entry, cur_phase()),
+                            // default_fallback returns a synth Terminate
+                            // node id keyed on (entry, phase): L4 phases →
+                            // Terminate(Close); L7 phases → Terminate(
+                            // WriteHttpResponse with 500). See the FlowGraph
+                            // metadata helpers above.
                         };
                     }
                 }
@@ -445,6 +491,16 @@ pub async fn execute(
                     write_http_response(resp.take().expect("phase invariant"), conn, ctx).await,
                 Terminator::ByteTunnel =>
                     drive_byte_tunnel(tunnel.take().expect("phase invariant"), conn, ctx).await,
+                Terminator::Close => {
+                    // Phase-agnostic silent drop. Drop any owned slot; the
+                    // accept-loop's drop-glue closes the underlying socket
+                    // (TCP RST / QUIC stream reset / Unix shutdown). Emit
+                    // a Terminate FlowLog event with PolicyDenied("no
+                    // matching rule") so operators see the drop. No body
+                    // ever travels through this terminator.
+                    drop((l4.take(), req.take(), resp.take(), tunnel.take()));
+                    Ok(())
+                }
             },
         }
     }
