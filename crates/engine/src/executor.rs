@@ -272,44 +272,55 @@ pub async fn execute(
 
 			Node::Upgrade { next } => {
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Upgrade, None);
-				// Hand the L4 connection to the H1 server. Each decoded request
-				// constructs a fresh `FlowCtx` and re-enters `execute` from
-				// `*next`. See 02-flow.md § _Execution model_ (Upgrade arm).
+				// Hand the L4 connection to the H1 or H2 server. Each decoded
+				// request constructs a fresh `FlowCtx` and re-enters `execute`
+				// from `*next`. See 02-flow.md § _Execution model_ (Upgrade arm).
 				//
-				// Plain TCP and TLS-terminated streams feed the same generic
-				// `drive_h1_server`; the listener has already consumed the TLS
-				// handshake and populated `ConnContext.tls` for predicates.
-				let result = match l4.take().expect("phase invariant: Upgrade needs L4Conn") {
-					L4Conn::Tcp(s) => {
-						crate::upgrade::drive_h1_server(
-							s,
-							Arc::clone(graph),
-							*next,
-							Arc::clone(conn),
-							Arc::clone(&ctx.log),
-							ctx.cancel.clone(),
-							ctx.verbosity,
-						)
-						.await
-					}
-					L4Conn::Tls(s) => {
-						crate::upgrade::drive_h1_server(
-							s,
-							Arc::clone(graph),
-							*next,
-							Arc::clone(conn),
-							Arc::clone(&ctx.log),
-							ctx.cancel.clone(),
-							ctx.verbosity,
-						)
-						.await
-					}
+				// Plain TCP, TLS-terminated H1, and TLS-terminated H2 all feed
+				// the generic stream drivers; the listener has already consumed
+				// the TLS handshake (when applicable) and populated
+				// `ConnContext.tls` and `conn.http_version` from the negotiated
+				// ALPN. We re-read ALPN here so the dispatch is local to this
+				// arm rather than spread across the L4Conn variants.
+				let l4 = l4.take().expect("phase invariant: Upgrade needs L4Conn");
+				// Box each variant uniformly so both drivers see the same
+				// trait-object IO type.
+				let stream: Box<dyn vane_core::AsyncReadWrite + Send + 'static> = match l4 {
+					L4Conn::Tcp(s) => Box::new(s),
+					L4Conn::Tls(s) => s,
 					L4Conn::Udp(_) => {
 						let e = Error::internal(
 							"UDP upgrade not supported in S1 — QUIC integration lands with H3 / S2",
 						);
 						return finish_error(ctx, conn, &mut seq, cur, e);
 					}
+				};
+				let alpn = conn.tls.lock().as_ref().and_then(|t| t.alpn.clone());
+				let result = if alpn.as_deref() == Some(b"h2") {
+					crate::upgrade::drive_h2_server(
+						stream,
+						Arc::clone(graph),
+						*next,
+						Arc::clone(conn),
+						Arc::clone(&ctx.log),
+						ctx.cancel.clone(),
+						ctx.verbosity,
+					)
+					.await
+				} else {
+					// No ALPN, ALPN == "http/1.1", or any non-h2 ALPN value:
+					// fall back to H1. Cleartext listeners always reach this
+					// branch because they never populate `conn.tls`.
+					crate::upgrade::drive_h1_server(
+						stream,
+						Arc::clone(graph),
+						*next,
+						Arc::clone(conn),
+						Arc::clone(&ctx.log),
+						ctx.cancel.clone(),
+						ctx.verbosity,
+					)
+					.await
 				};
 				return match result {
 					Ok(out) => {

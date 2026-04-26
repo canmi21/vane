@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::net::SocketAddr;
 use std::ops::Index;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use vane_core::{
 	FetchId, FetchKind, FlowGraphMeta, L4BytesMiddleware, L4Fetch, L4PeekMiddleware, L7Fetch,
 	L7RequestMiddleware, L7ResponseMiddleware, MiddlewareId, MiddlewareKind, SymbolicFlowGraph,
-	rule::TlsConfig,
+	rule::{ListenerTlsSpec, TlsConfig},
 };
 
 use crate::factories::{
@@ -135,11 +135,11 @@ impl FlowGraph {
 		// `rustls::ServerConfig`. PEM I/O happens here (link stage) so a
 		// missing or malformed cert/key is caught at config-load time
 		// rather than per-accept. See 08-tls.md § _TLS termination
-		// (L4 → L7 upgrade)_.
+		// (L4 → L7 upgrade)_ and § _Certificate resolver_.
 		let mut listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>> = BTreeMap::new();
-		for (addr, cfg) in &sym.meta.listener_tls {
-			let server_config =
-				build_server_config(cfg).map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
+		for (addr, spec) in &sym.meta.listener_tls {
+			let server_config = build_listener_server_config(spec)
+				.map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
 			listener_tls.insert(*addr, Arc::new(server_config));
 		}
 
@@ -160,38 +160,95 @@ impl FlowGraph {
 	}
 }
 
-/// Read PEM cert chain + private key, build a `rustls::ServerConfig` with
-/// `http/1.1` advertised in ALPN. SNI multi-cert resolution and cert hot
-/// reload are deferred (08-tls.md § _Cert resolver and rotation_); one
-/// chain + one key per listener is the MVP shape.
-fn build_server_config(cfg: &TlsConfig) -> Result<rustls::ServerConfig, String> {
-	let cert_bytes = fs::read(&cfg.cert_file)
-		.map_err(|e| format!("read cert_file {}: {e}", cfg.cert_file.display()))?;
-	let key_bytes = fs::read(&cfg.key_file)
-		.map_err(|e| format!("read key_file {}: {e}", cfg.key_file.display()))?;
+/// Build a `rustls::ServerConfig` for a listener's cert pool. ALPN
+/// advertises `["h2", "http/1.1"]`; the executor's `Node::Upgrade` arm
+/// dispatches to `drive_h2_server` or `drive_h1_server` based on the
+/// negotiated ALPN. SNI dispatch lives in [`SniResolver::resolve`].
+fn build_listener_server_config(spec: &ListenerTlsSpec) -> Result<rustls::ServerConfig, String> {
+	let default = spec.default.as_ref().map(load_certified_key).transpose()?.map(Arc::new);
+
+	let mut by_sni: HashMap<String, Arc<rustls::sign::CertifiedKey>> = HashMap::new();
+	for (sni, tls) in &spec.sni_certs {
+		let ck = load_certified_key(tls)?;
+		// Lower has already lowercased the key — assert it as a
+		// belt-and-suspenders for any post-lower meta tampering.
+		debug_assert_eq!(sni, &sni.to_ascii_lowercase());
+		by_sni.insert(sni.clone(), Arc::new(ck));
+	}
+
+	if default.is_none() && by_sni.is_empty() {
+		return Err("listener TLS spec is empty (no default + no sni certs)".to_owned());
+	}
+
+	let resolver = Arc::new(SniResolver { by_sni, default });
+
+	let mut server_config =
+		rustls::ServerConfig::builder().with_no_client_auth().with_cert_resolver(resolver);
+	// Two-protocol ALPN — h2 preferred, http/1.1 fallback. The executor's
+	// Upgrade arm reads the negotiated protocol off `ConnContext.tls.alpn`
+	// and routes to the matching driver.
+	server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+	Ok(server_config)
+}
+
+/// Custom rustls cert resolver: SNI lookup with default-cert fallback.
+///
+/// rustls 0.23's built-in `ResolvesServerCertUsingSni` errors on
+/// unmatched SNI rather than falling back; spec 08-tls.md
+/// § _Certificate resolver_ requires a default-cert fallback for
+/// `ClientHello`s with missing or unknown SNI, so we wrap the lookup
+/// with our own resolver.
+#[derive(Debug)]
+struct SniResolver {
+	by_sni: HashMap<String, Arc<rustls::sign::CertifiedKey>>,
+	default: Option<Arc<rustls::sign::CertifiedKey>>,
+}
+
+impl rustls::server::ResolvesServerCert for SniResolver {
+	fn resolve(
+		&self,
+		hello: rustls::server::ClientHello<'_>,
+	) -> Option<Arc<rustls::sign::CertifiedKey>> {
+		// `server_name()` is already ASCII-lowercased by rustls per
+		// RFC 6066 § 3, so a direct map lookup suffices.
+		if let Some(sni) = hello.server_name()
+			&& let Some(ck) = self.by_sni.get(sni)
+		{
+			return Some(Arc::clone(ck));
+		}
+		self.default.clone()
+	}
+}
+
+/// Read PEM, parse cert chain + private key, sign with the installed
+/// crypto provider's key loader. Errors are stringly-typed so the
+/// caller can wrap with `LinkError::TlsConfig { addr, cause }`.
+fn load_certified_key(tls: &TlsConfig) -> Result<rustls::sign::CertifiedKey, String> {
+	let cert_bytes = fs::read(&tls.cert_file)
+		.map_err(|e| format!("read cert_file {}: {e}", tls.cert_file.display()))?;
+	let key_bytes = fs::read(&tls.key_file)
+		.map_err(|e| format!("read key_file {}: {e}", tls.key_file.display()))?;
 
 	let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> =
 		rustls_pemfile::certs(&mut cert_bytes.as_slice())
 			.collect::<Result<_, _>>()
-			.map_err(|e| format!("parse cert_file {}: {e}", cfg.cert_file.display()))?;
+			.map_err(|e| format!("parse cert_file {}: {e}", tls.cert_file.display()))?;
 	if cert_chain.is_empty() {
-		return Err(format!("cert_file {} contained no certificates", cfg.cert_file.display()));
+		return Err(format!("cert_file {} contained no certificates", tls.cert_file.display()));
 	}
 
 	let private_key = rustls_pemfile::private_key(&mut key_bytes.as_slice())
-		.map_err(|e| format!("parse key_file {}: {e}", cfg.key_file.display()))?
-		.ok_or_else(|| format!("key_file {} contained no private key", cfg.key_file.display()))?;
+		.map_err(|e| format!("parse key_file {}: {e}", tls.key_file.display()))?
+		.ok_or_else(|| format!("key_file {} contained no private key", tls.key_file.display()))?;
 
-	let mut server_config = rustls::ServerConfig::builder()
-		.with_no_client_auth()
-		.with_single_cert(cert_chain, private_key)
-		.map_err(|e| format!("build rustls::ServerConfig: {e}"))?;
-	// Single-protocol ALPN this round — H2 ALPN lands with the H2 server
-	// driver. Advertising only `http/1.1` lets clients that won't speak
-	// plain H1 fail fast instead of negotiating a protocol the listener
-	// has no driver for.
-	server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
-	Ok(server_config)
+	let provider = rustls::crypto::CryptoProvider::get_default()
+		.ok_or_else(|| "rustls crypto provider not installed".to_owned())?;
+	let signing_key = provider
+		.key_provider
+		.load_private_key(private_key)
+		.map_err(|e| format!("load_private_key {}: {e}", tls.key_file.display()))?;
+
+	Ok(rustls::sign::CertifiedKey::new(cert_chain, signing_key))
 }
 
 impl Index<MiddlewareId> for FlowGraph {
@@ -264,44 +321,64 @@ mod tests {
 		(issued.cert.pem(), issued.signing_key.serialize_pem())
 	}
 
+	fn default_only_spec(
+		cert: NamedTempFile,
+		key: NamedTempFile,
+	) -> (ListenerTlsSpec, NamedTempFile, NamedTempFile) {
+		let spec = ListenerTlsSpec {
+			default: Some(TlsConfig {
+				sni: None,
+				cert_file: cert.path().to_path_buf(),
+				key_file: key.path().to_path_buf(),
+			}),
+			sni_certs: BTreeMap::new(),
+		};
+		(spec, cert, key)
+	}
+
 	#[test]
-	fn build_server_config_loads_valid_pem_and_advertises_h1_alpn() {
+	fn build_listener_server_config_advertises_h2_and_h1_alpn() {
 		install_crypto_for_test();
 		let (cert_pem, key_pem) = rcgen_self_signed();
 		let cert_file = write_pem(&cert_pem);
 		let key_file = write_pem(&key_pem);
-		let cfg = TlsConfig {
-			cert_file: cert_file.path().to_path_buf(),
-			key_file: key_file.path().to_path_buf(),
-		};
-		let server = build_server_config(&cfg).expect("build_server_config");
-		assert_eq!(server.alpn_protocols, vec![b"http/1.1".to_vec()]);
+		let (spec, _cert, _key) = default_only_spec(cert_file, key_file);
+		let server = build_listener_server_config(&spec).expect("build_listener_server_config");
+		assert_eq!(server.alpn_protocols, vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
 	}
 
 	#[test]
-	fn build_server_config_errors_when_cert_file_missing() {
+	fn build_listener_server_config_errors_when_cert_file_missing() {
 		install_crypto_for_test();
 		let (_, key_pem) = rcgen_self_signed();
 		let key_file = write_pem(&key_pem);
-		let cfg = TlsConfig {
-			cert_file: "/nonexistent/path/to/cert.pem".into(),
-			key_file: key_file.path().to_path_buf(),
+		let spec = ListenerTlsSpec {
+			default: Some(TlsConfig {
+				sni: None,
+				cert_file: "/nonexistent/path/to/cert.pem".into(),
+				key_file: key_file.path().to_path_buf(),
+			}),
+			sni_certs: BTreeMap::new(),
 		};
-		let err = build_server_config(&cfg).expect_err("missing cert must error");
+		let err = build_listener_server_config(&spec).expect_err("missing cert must error");
 		assert!(err.contains("read cert_file"), "error mentions cert_file read failure: {err}");
 	}
 
 	#[test]
-	fn build_server_config_errors_on_garbage_cert_pem() {
+	fn build_listener_server_config_errors_on_garbage_cert_pem() {
 		install_crypto_for_test();
 		let (_, key_pem) = rcgen_self_signed();
 		let cert_file = write_pem("this is not a PEM cert\n");
 		let key_file = write_pem(&key_pem);
-		let cfg = TlsConfig {
-			cert_file: cert_file.path().to_path_buf(),
-			key_file: key_file.path().to_path_buf(),
+		let spec = ListenerTlsSpec {
+			default: Some(TlsConfig {
+				sni: None,
+				cert_file: cert_file.path().to_path_buf(),
+				key_file: key_file.path().to_path_buf(),
+			}),
+			sni_certs: BTreeMap::new(),
 		};
-		let err = build_server_config(&cfg).expect_err("garbage cert must error");
+		let err = build_listener_server_config(&spec).expect_err("garbage cert must error");
 		assert!(
 			err.contains("contained no certificates") || err.contains("parse cert_file"),
 			"error explains the cert parse failure: {err}",

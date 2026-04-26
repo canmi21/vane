@@ -1,14 +1,16 @@
 //! `Node::Upgrade` execution — L4 → L7 bridge. Hands a byte stream
-//! (plain TCP or TLS-terminated) to `hyper::server::conn::http1::Builder`;
-//! each decoded `Request` walks the L7 sub-graph from the `Upgrade.next`
-//! node.
+//! (plain TCP or TLS-terminated) to a hyper H1 or H2 server builder;
+//! each decoded `Request` walks the L7 sub-graph from the
+//! `Upgrade.next` node.
 //!
 //! See `spec/architecture/06-l4.md` § _L4 → L7 upgrade_,
-//! `spec/architecture/02-flow.md` § _Execution model_ (Upgrade arm).
-//! Feature: S1-17.
+//! `spec/architecture/02-flow.md` § _Execution model_ (Upgrade arm),
+//! `spec/architecture/07-l7.md` (H1 / H2 paths). Feature: S1-17.
 //!
-//! Out of MVP scope (separately tracked): H2 / H3 / WS-101.
+//! Out of MVP scope (separately tracked): H3, WS-over-h2 (RFC 8441).
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -212,6 +214,132 @@ where
 		.map_err(|e| Error::protocol("h1 serve_connection").with_source(e))?;
 
 	Ok(ExecutorOutput::Closed)
+}
+
+/// Drive a byte stream as an H2 server. Same per-request executor
+/// re-entry pattern as [`drive_h1_server`]; differences:
+///
+/// 1. Driven by `hyper::server::conn::http2::Builder` with a
+///    `hyper_util::rt::TokioExecutor` for stream-task spawning.
+/// 2. No `OnUpgrade` dance — h2 has no 101 status; WS-over-h2
+///    (RFC 8441) is out of this round's scope, so an executor that
+///    returns a 101 here gets translated to a 500 (h2 clients never
+///    expect 101).
+/// 3. Closed → 421 Misdirected Request (RFC 9110 § 15.5.20). h2
+///    clients understand this as "this server isn't authoritative for
+///    this URI"; the H1 driver picks 404 instead per its own contract.
+///
+/// `S` is generic on the same trait set as the H1 driver so a
+/// `tokio_rustls::server::TlsStream<TcpStream>` (the only path that
+/// reaches H2 today, since H2 cleartext requires explicit prior
+/// knowledge or a 101 upgrade and we don't advertise it) can drive
+/// this directly.
+///
+/// # Errors
+/// Surfaces hyper-level connection failures as
+/// `Error::protocol("h2 serve_connection").with_source(...)`.
+/// Per-request executor errors are translated to a synthetic 500
+/// inside the service-fn so the connection itself stays alive.
+pub(crate) fn drive_h2_server<S>(
+	stream: S,
+	graph: Arc<FlowGraph>,
+	l7_entry: NodeId,
+	conn: Arc<ConnContext>,
+	log: Arc<dyn FlowLogSink>,
+	cancel: CancellationToken,
+	verbosity: FlowLogVerbosity,
+) -> Pin<Box<dyn Future<Output = Result<ExecutorOutput, Error>> + Send + 'static>>
+where
+	S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
+	// Returning `Pin<Box<dyn Future + Send>>` (rather than `async fn`)
+	// breaks an infinite-`Send`-bounded type that arises from the
+	// `execute → drive_h2_server → service_fn → execute` cycle. Hyper's
+	// h2 builder requires the service-fn future to be `Send`, which
+	// recursively forces `execute`'s future to be `Send`, which contains
+	// `drive_h2_server`'s future via the `Node::Upgrade` arm. With an
+	// opaque async-fn return, the compiler cannot prove this; with a
+	// boxed dyn-future, the recursion goes through a sized erased type
+	// and resolves cleanly.
+	Box::pin(async move {
+		// The listener has usually already populated this from the
+		// negotiated ALPN; a redundant set is a silent no-op (`OnceLock`).
+		let _ = conn.http_version.set(HttpVersion::Http2);
+
+		let svc = service_fn(move |req: hyper::Request<Incoming>| {
+			let graph = Arc::clone(&graph);
+			let conn = Arc::clone(&conn);
+			let log = Arc::clone(&log);
+			let cancel = cancel.clone();
+			async move {
+				let vane_req: Request =
+					req.map(|incoming| Body::Stream(Box::pin(IncomingAdapter::new(incoming))));
+
+				let span = tracing::info_span!(
+					"request",
+					conn = %conn.id,
+					version = "h2",
+					method = %vane_req.method(),
+					path = %vane_req.uri().path(),
+				);
+
+				let mut ctx = FlowCtx {
+					span,
+					log,
+					cancel,
+					verbosity,
+					trajectory: TrajectoryBuilder::new(conn.id, l7_entry, unix_ms_now()),
+				};
+
+				let result =
+					execute(&graph, l7_entry, ExecutorInput::L7(Box::new(vane_req)), &conn, &mut ctx).await;
+
+				match result {
+					Ok(ExecutorOutput::HttpResponse(r))
+						if r.status() == http::StatusCode::SWITCHING_PROTOCOLS =>
+					{
+						// 101 over h2 is a protocol violation — h2 clients
+						// never expect the Upgrade handshake. WS-over-h2
+						// (RFC 8441) is a separate codepath we don't yet
+						// implement; surface a 500 so the client gets a
+						// pointed signal instead of a malformed response.
+						tracing::warn!(
+							conn_id = %conn.id,
+							"h2 service-fn received 101 from executor; synthesising 500 (WS-over-h2 unsupported)",
+						);
+						Ok::<Response, std::convert::Infallible>(
+							http::Response::builder().status(500).body(Body::Empty).expect("static"),
+						)
+					}
+					Ok(ExecutorOutput::HttpResponse(r)) => Ok::<Response, std::convert::Infallible>(r),
+					Ok(ExecutorOutput::Closed) => {
+						// L7 no-route in h2 land — 421 Misdirected Request
+						// is the semantically accurate match (RFC 9110
+						// § 15.5.20). Mirrors the H1 driver's 404, but
+						// uses h2-native semantics so clients can retry
+						// against a different authority.
+						Ok(http::Response::builder().status(421).body(Body::Empty).expect("static"))
+					}
+					Ok(ExecutorOutput::Tunneled) => {
+						tracing::warn!("L7 tunnel terminator over h2 unsupported — synthesising 500");
+						Ok(http::Response::builder().status(500).body(Body::Empty).expect("static"))
+					}
+					Err(e) => {
+						tracing::warn!(error = %e, "L7 execute returned Err — synthesising 500");
+						Ok(http::Response::builder().status(500).body(Body::Empty).expect("static"))
+					}
+				}
+			}
+		});
+
+		let io = TokioIo::new(stream);
+		hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+			.serve_connection(io, svc)
+			.await
+			.map_err(|e| Error::protocol("h2 serve_connection").with_source(e))?;
+
+		Ok(ExecutorOutput::Closed)
+	})
 }
 
 fn unix_ms_now() -> u64 {

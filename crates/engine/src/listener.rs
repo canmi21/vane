@@ -30,7 +30,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
-	ConnContext, ConnId, FlowCtx, FlowLogSink, L4Conn, NodeId, TlsInfo, TlsVersion,
+	ConnContext, ConnId, FlowCtx, FlowLogSink, HttpVersion, L4Conn, NodeId, TlsInfo, TlsVersion,
 	TrajectoryBuilder, Transport,
 };
 
@@ -500,17 +500,32 @@ async fn handle_connection(
 
 	{
 		let (_io, server_conn) = tls_stream.get_ref();
+		let alpn = server_conn.alpn_protocol().map(<[u8]>::to_vec);
+		// Seed `conn.http_version` from negotiated ALPN so the executor's
+		// Upgrade arm can dispatch H1 vs H2 without re-reading the TLS
+		// session. Skipped for unknown ALPN (or no ALPN — cleartext-style
+		// TLS connections without an ALPN extension); the H1/H2 driver
+		// then sets it as before. See 08-tls.md § _ALPN_.
+		match alpn.as_deref() {
+			Some(b"h2") => {
+				let _ = conn.http_version.set(HttpVersion::Http2);
+			}
+			Some(b"http/1.1") => {
+				let _ = conn.http_version.set(HttpVersion::Http1_1);
+			}
+			_ => {}
+		}
 		let info = TlsInfo {
 			sni: server_conn.server_name().map(str::to_owned),
-			alpn: server_conn.alpn_protocol().map(<[u8]>::to_vec),
+			alpn,
 			version: server_conn.protocol_version().and_then(|v| match v {
 				rustls::ProtocolVersion::TLSv1_2 => Some(TlsVersion::Tls12),
 				rustls::ProtocolVersion::TLSv1_3 => Some(TlsVersion::Tls13),
 				_ => None,
 			}),
-			// Single-cert MVP: no client cert request, so peer_cert is
-			// always `None`. mTLS lands in TLS part 2 (08-tls.md
-			// § _Client cert verification_).
+			// No mTLS this round — `with_no_client_auth()` means
+			// peer_cert is always `None` (08-tls.md § _Client cert
+			// verification_).
 			peer_cert: None,
 		};
 		*conn.tls.lock() = Some(info);
