@@ -26,10 +26,12 @@
 //!    not yet registered. This preset only emits the middleware ref
 //!    when the user explicitly provides `args.rate_limit`. Once S1-30
 //!    lands, the default re-enables.
-//! 2. **`${host}${uri}` template substitution** — spec uses
-//!    `[upgrade == websocket]` shorthand; we emit the literal field path
-//!    `http.header.upgrade equals "websocket"`. The engine's predicate
-//!    grammar does not support the spec's terse form.
+//! 2. **Predicate shorthand.** Spec uses `[upgrade == websocket]` /
+//!    `[path.prefix in [...]]` shorthand; we emit the field-path form
+//!    (`http.header.upgrade equals "websocket"` and `http.uri.path
+//!    prefix p_i` inside an `any_of`). The shorthand is documentation,
+//!    not a literal grammar requirement — the field-path form is the
+//!    canonical wire shape.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -221,31 +223,24 @@ fn ws_passthrough_rule(
 ) -> RawRule {
 	let predicate_value = match paths {
 		Some(prefixes) => {
-			// any_of over each (upgrade==websocket AND path.prefix == p) — but
-			// our predicate grammar does not have AND inside any_of (the
-			// `cross-level` validator rejects mixing levels). Lift instead:
-			// any_of of paths AND upgrade-check is decomposed across two rules
-			// at lowering. For now emit the conjunction-equivalent shape we
-			// can express: a single Check on the upgrade header alone, plus
-			// a path filter encoded as a separate any_of in `match`.
-			//
-			// Concretely: emit two separate rules in the future once an `all`
-			// combinator lands. For S1-22 the simplest expression that matches
-			// the spec's intent is a single header check; the path prefix is
-			// folded into the rule name (so dry-run reads correctly) and a
-			// runtime-side check lands later.
-			//
-			// SPEC DEVIATION (already noted in module docs): the path-prefix
-			// arm of `websocket` currently behaves as `websocket: true` —
-			// path filtering is deferred. Using `paths` to disambiguate the
-			// emitted rule names is still useful for dry-run inspection.
-			let _ = prefixes;
-			ws_upgrade_predicate()
+			// all_of [ upgrade == "websocket", any_of [ path.prefix = p_i ... ] ].
+			// Both leaves sit at the L7Header level so the cross-level
+			// validator accepts the combinator (C13.5 added `all_of`).
+			let prefix_branches: Vec<serde_json::Value> = prefixes
+				.into_iter()
+				.map(|p| serde_json::json!({ "http.uri.path": { "prefix": p } }))
+				.collect();
+			serde_json::json!({
+				"all_of": [
+					{ "http.header.upgrade": { "equals": "websocket" } },
+					{ "any_of": prefix_branches },
+				],
+			})
 		}
 		None => ws_upgrade_predicate(),
 	};
 	let predicate = serde_json::from_value(predicate_value)
-		.expect("upgrade predicate is a hand-built valid CheckMap");
+		.expect("upgrade predicate is a hand-built valid CheckMap or AllOf");
 	RawRule {
 		name: name.to_string(),
 		listen: listen.to_vec(),

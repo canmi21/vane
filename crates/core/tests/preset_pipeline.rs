@@ -159,35 +159,15 @@ fn redirect_https_preset_compiles_to_graph_with_308_synth() {
 }
 
 // ---------------------------------------------------------------------------
-// 4-7. reverse_proxy variants
+// 4-7. reverse_proxy variants — multi-rule L7 listener compilation.
 //
-// FIXME(C13 follow-up): every `reverse_proxy` preset emission produces two
-// or three rules sharing the same listener (e.g. `:443`). All emitted rules
-// are L7 (HttpProxy / HttpSynthesize / WebSocketUpgrade), so each lowers
-// with its own `Upgrade` node above its chain. `compile/lower.rs::lower_port`
-// links rules via `on_miss`: the first rule's `Check` miss-path points at
-// the next rule's chain entry. That entry IS another `Upgrade`. The phase
-// validator (`compile/validate.rs::check_phases`) then walks the second
-// `Upgrade` from `Phase::L7Request` (set by the first `Upgrade`) and rejects
-// it because `Upgrade` only accepts `[L4Raw, L4Peeked]`. Concrete failure
-// from `cargo test`:
-//
-//   Error { kind: Compile, ctx: Some("phase mismatch at NodeId(N): expected
-//     one of [L4Raw, L4Peeked], got L7Request"), source: None }
-//
-// This is a real lower-stage bug surfaced by integration: every `reverse_proxy`
-// preset invocation currently fails `compile()`. The bug is **not** in the
-// preset expander — `expand()` produces the rules the spec describes
-// (14-presets.md § _`reverse_proxy`_) and the existing unit tests in
-// `crates/core/src/preset/reverse_proxy.rs` all pass. The bug is that
-// `lower_port` does not deduplicate `Upgrade` nodes when stitching multiple
-// L7 rules onto a single listener. Tests below are intentionally `#[ignore]`d
-// pending that fix; remove the `#[ignore]` once `lower` shares one Upgrade
-// across same-listener L7 rules (or analyze coalesces them earlier).
+// Originally `#[ignore]`d on a lower-stage Upgrade-chaining bug discovered
+// by these tests; C13.5 (single shared Upgrade per L7 listener +
+// WebSocketUpgrade dual terminator) fixed both root causes and the tests
+// went green without body changes.
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "lower-stage bug: shared-listener L7 rules emit chained Upgrades; phase validator rejects"]
 fn reverse_proxy_default_compiles_to_graph_with_http_proxy() {
 	// Spec § _`reverse_proxy`_: minimal args produce a `<name>.main`
 	// (`HttpProxy`) and a `<name>.ws` reject (`HttpSynthesize` 400) when
@@ -206,7 +186,6 @@ fn reverse_proxy_default_compiles_to_graph_with_http_proxy() {
 }
 
 #[test]
-#[ignore = "lower-stage bug: shared-listener L7 rules emit chained Upgrades; phase validator rejects"]
 fn reverse_proxy_websocket_true_compiles_with_websocket_upgrade_fetch() {
 	// Spec § _WebSocket handling_: `websocket: true` swaps the WS reject
 	// for a `WebSocketUpgrade` fetch routed at upgrade-bearing requests.
@@ -229,7 +208,6 @@ fn reverse_proxy_websocket_true_compiles_with_websocket_upgrade_fetch() {
 }
 
 #[test]
-#[ignore = "lower-stage bug: shared-listener L7 rules emit chained Upgrades; phase validator rejects"]
 fn reverse_proxy_websocket_paths_compiles_with_three_rules_present() {
 	// Spec § _WebSocket handling_ (path-prefix array): three rules —
 	// `<name>.ws-allow` (`WebSocketUpgrade`), `<name>.ws-deny`
@@ -258,7 +236,6 @@ fn reverse_proxy_websocket_paths_compiles_with_three_rules_present() {
 }
 
 #[test]
-#[ignore = "lower-stage bug: shared-listener L7 rules emit chained Upgrades; phase validator rejects"]
 fn reverse_proxy_with_rate_limit_emits_middleware_in_graph() {
 	// Spec § _`reverse_proxy`_: a `rate_limit` arg emits a `rate_limit`
 	// middleware in the main rule's chain. The `Providers` fixture
@@ -282,7 +259,6 @@ fn reverse_proxy_with_rate_limit_emits_middleware_in_graph() {
 }
 
 #[test]
-#[ignore = "lower-stage bug: shared-listener L7 rules emit chained Upgrades; phase validator rejects"]
 fn reverse_proxy_forward_client_ip_default_emits_middleware() {
 	// Spec § _`reverse_proxy`_: `forward_client_ip` defaults to true. The
 	// preset must emit it without an explicit arg.
@@ -297,7 +273,6 @@ fn reverse_proxy_forward_client_ip_default_emits_middleware() {
 }
 
 #[test]
-#[ignore = "lower-stage bug: shared-listener L7 rules emit chained Upgrades; phase validator rejects"]
 fn reverse_proxy_forward_client_ip_false_no_middleware() {
 	// Opt-out: `forward_client_ip: false` must remove the middleware.
 	// The rest of the graph still compiles.
