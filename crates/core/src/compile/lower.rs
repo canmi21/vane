@@ -1017,6 +1017,79 @@ mod compat_tests {
 	}
 
 	#[test]
+	fn cidr_on_bytes_field_rejected() {
+		let err =
+			compile_operator(&Operator::Cidr("10.0.0.0/8".to_string()), &FieldPath::TlsAlpn, &src())
+				.expect_err("cidr on tls.alpn must reject");
+		assert!(err.to_string().contains("expected IpAddr"));
+	}
+
+	#[test]
+	fn substring_on_ip_field_rejected() {
+		let err = compile_operator(
+			&Operator::Contains(Value::Str("10.".to_string())),
+			&FieldPath::RemoteIp,
+			&src(),
+		)
+		.expect_err("contains on remote.ip must reject");
+		assert!(err.to_string().contains("`contains`"));
+		assert!(err.to_string().contains("Str or Bytes"));
+	}
+
+	#[test]
+	fn substring_on_enum_field_rejected() {
+		let err = compile_operator(
+			&Operator::NotContains(Value::Str("p".to_string())),
+			&FieldPath::Transport,
+			&src(),
+		)
+		.expect_err("not_contains on transport must reject");
+		assert!(err.to_string().contains("`not_contains`"));
+	}
+
+	#[test]
+	fn prefix_suffix_on_int_field_rejected() {
+		let err = compile_operator(
+			&Operator::Prefix(Value::Str("80".to_string())),
+			&FieldPath::RemotePort,
+			&src(),
+		)
+		.expect_err("prefix on remote.port must reject");
+		assert!(err.to_string().contains("`prefix`"));
+		assert!(err.to_string().contains("Str or Bytes"));
+	}
+
+	#[test]
+	fn matches_on_ip_field_rejected() {
+		let err = compile_operator(&Operator::Matches("^10".to_string()), &FieldPath::RemoteIp, &src())
+			.expect_err("matches on remote.ip must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("`matches`"), "{msg}");
+		assert!(msg.contains("expected Str"), "{msg}");
+	}
+
+	#[test]
+	fn matches_on_enum_field_rejected() {
+		let err = compile_operator(&Operator::Matches("^t".to_string()), &FieldPath::Transport, &src())
+			.expect_err("matches on transport must reject");
+		assert!(err.to_string().contains("expected Str"));
+	}
+
+	#[test]
+	fn numeric_cmp_on_ip_field_rejected() {
+		let err = compile_operator(&Operator::Lt(0), &FieldPath::RemoteIp, &src())
+			.expect_err("lt on remote.ip must reject");
+		assert!(err.to_string().contains("expected numeric"));
+	}
+
+	#[test]
+	fn numeric_cmp_on_enum_field_rejected() {
+		let err = compile_operator(&Operator::Gte(0), &FieldPath::TlsVersion, &src())
+			.expect_err("gte on tls.version must reject");
+		assert!(err.to_string().contains("expected numeric"));
+	}
+
+	#[test]
 	fn invalid_regex_carries_source_and_field() {
 		let err =
 			compile_operator(&Operator::Matches("[".to_string()), &FieldPath::HttpUriPath, &src())

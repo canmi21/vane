@@ -336,6 +336,16 @@ impl PredicateInst {
 	/// Reads that need an absent piece of state (e.g. `tls.sni` on a
 	/// cleartext connection, `http.header.upgrade` from an `L4` view)
 	/// also miss rather than panic.
+	/// # Panics
+	/// On the `http.body` arm, the path-reader calls
+	/// `Body::as_static().expect("lazy-buffer invariant")`. The compile
+	/// pass marks the incoming edge of every `http.body` Check with
+	/// `collect_body_before = Some(BodySide::Request)`, so by the time
+	/// `test()` runs the executor has already collected the request
+	/// body into `Body::Static`. A `Body::Stream` / `Body::Empty`
+	/// reaching this arm therefore signals a `FlowGraph` compile bug and
+	/// is surfaced as a clear panic instead of a silent miss. All other
+	/// arms are panic-free; absent state misses sound-by-default.
 	#[must_use]
 	pub fn test(&self, view: &PredicateView<'_>) -> bool {
 		match &self.path {
@@ -418,9 +428,19 @@ impl PredicateInst {
 				};
 				test_str(&self.op, s)
 			}
-			// `http.body` dispatch lands in commit 4 (needs the executor
-			// to enforce LazyBuffer collection before the Check).
-			FieldPath::HttpBody => false,
+			// `http.body` reads the request body bytes. Per
+			// 18-predicate-schema.md § _Runtime_, the analyze pass marks
+			// the incoming edge of any `http.body` Check with
+			// `collect_body_before = Some(BodySide::Request)`, so by the
+			// time `test()` runs the executor has already collected
+			// `Body::Stream` into `Body::Static`. The `.expect` therefore
+			// reflects an invariant of the compiled FlowGraph, not a
+			// caller-side assumption.
+			FieldPath::HttpBody => {
+				let Some(req) = view.request() else { return false };
+				let bytes = req.body().as_static().expect("lazy-buffer invariant");
+				test_bytes(&self.op, bytes.as_ref())
+			}
 		}
 	}
 }
@@ -2387,21 +2407,144 @@ mod tests {
 		);
 	}
 
+	// ── http.body (Bytes-typed) ──────────────────────────────────────────
+	//
+	// Spec 18 § _Runtime_: the executor collects request body via
+	// LazyBuffer before walking a Check on `http.body`, so by the time
+	// the dispatch fires the body is `Body::Static(bytes)`. The tests
+	// hand-build `Body::Static` directly to skip the LazyBuffer chain.
+
+	fn req_with_body(body_bytes: &[u8]) -> Request {
+		http::Request::builder()
+			.method("POST")
+			.uri("/upload")
+			.body(Body::Static(Bytes::copy_from_slice(body_bytes)))
+			.expect("build req with body")
+	}
+
 	#[test]
-	fn http_body_path_misses_until_commit_4() {
-		// Body dispatch is not wired in commit 2; reader returns false.
+	fn matrix_http_body_equality_happy_and_miss() {
 		let conn = make_conn();
-		let req = http::Request::builder().method("POST").uri("/").body(Body::Empty).unwrap();
+		let req = req_with_body(b"hello world");
 		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(
+			pred(FieldPath::HttpBody, CompiledOperator::Equals(bytes_val(b"hello world"))).test(&v)
+		);
+		assert!(!pred(FieldPath::HttpBody, CompiledOperator::Equals(bytes_val(b"wrong"))).test(&v));
+		assert!(pred(FieldPath::HttpBody, CompiledOperator::NotEquals(bytes_val(b"wrong"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_http_body_substring_happy_and_miss() {
+		let conn = make_conn();
+		let req = req_with_body(b"prelude payload trailer");
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(pred(FieldPath::HttpBody, CompiledOperator::Contains(b(b"payload"))).test(&v));
+		assert!(!pred(FieldPath::HttpBody, CompiledOperator::Contains(b(b"missing"))).test(&v));
+		assert!(pred(FieldPath::HttpBody, CompiledOperator::NotContains(b(b"missing"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_http_body_prefix_suffix_happy_and_miss() {
+		let conn = make_conn();
+		let req = req_with_body(b"START middle END");
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(pred(FieldPath::HttpBody, CompiledOperator::Prefix(b(b"START"))).test(&v));
+		assert!(!pred(FieldPath::HttpBody, CompiledOperator::Prefix(b(b"BEGIN"))).test(&v));
+		assert!(pred(FieldPath::HttpBody, CompiledOperator::Suffix(b(b"END"))).test(&v));
+		assert!(!pred(FieldPath::HttpBody, CompiledOperator::Suffix(b(b"FIN"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_http_body_in_list_happy_and_miss() {
+		let conn = make_conn();
+		let req = req_with_body(b"one");
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		let list = vec![bytes_val(b"two"), bytes_val(b"one")];
+		assert!(pred(FieldPath::HttpBody, CompiledOperator::In(list)).test(&v));
+		let miss = vec![bytes_val(b"two"), bytes_val(b"three")];
+		assert!(!pred(FieldPath::HttpBody, CompiledOperator::In(miss.clone())).test(&v));
+		assert!(pred(FieldPath::HttpBody, CompiledOperator::NotIn(miss)).test(&v));
+	}
+
+	#[test]
+	fn http_body_misses_on_l4_view() {
+		// L4 view has no `Request`; sound-by-default miss instead of
+		// panicking on the lazy-buffer invariant.
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: None };
 		assert!(!pred(FieldPath::HttpBody, CompiledOperator::Contains(b(b"x"))).test(&v));
 	}
 
 	#[test]
-	fn peek_path_misses_when_buffer_absent() {
-		// PredicateView::build hardcodes peek to None until protocol_detect
-		// lands; the reader must miss rather than spuriously match.
+	#[should_panic(expected = "lazy-buffer invariant")]
+	fn http_body_panics_when_lazy_buffer_invariant_violated() {
+		// Spec invariant: the executor MUST collect the request body
+		// before reaching a Check on `http.body`. If a caller hands the
+		// dispatch a `Body::Empty` (or `Body::Stream`) the predicate
+		// path-reader trips `.expect("lazy-buffer invariant")`. This is
+		// load-bearing: it surfaces FlowGraph compile bugs (forgotten
+		// `collect_body_before` mark) as a clear panic instead of a
+		// silent miss.
+		let conn = make_conn();
+		let req = http::Request::builder().method("POST").uri("/").body(Body::Empty).unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		let _ = pred(FieldPath::HttpBody, CompiledOperator::Contains(b(b"x"))).test(&v);
+	}
+
+	// ── peek (Bytes-typed) ───────────────────────────────────────────────
+	//
+	// `peek` reads the buffered ClientHello bytes captured by
+	// `protocol_detect` before the L4→L7 upgrade. The reader returns
+	// `false` when the buffer slot on the L4 view is `None` (already
+	// covered above). When the slot is `Some(...)`, the bytes-family
+	// operators apply.
+
+	#[test]
+	fn matrix_peek_substring_happy_and_miss() {
+		// TLS ClientHello opens with handshake type 0x16, version 0x0301.
+		let buf: &[u8] = &[0x16, 0x03, 0x01, 0x00, 0x40, 0x01];
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: Some(buf) };
+		assert!(pred(FieldPath::Peek, CompiledOperator::Prefix(b(b"\x16\x03"))).test(&v));
+		assert!(!pred(FieldPath::Peek, CompiledOperator::Prefix(b(b"\x14\x03"))).test(&v));
+		assert!(pred(FieldPath::Peek, CompiledOperator::Contains(b(b"\x03\x01"))).test(&v));
+		assert!(!pred(FieldPath::Peek, CompiledOperator::Contains(b(b"\xff\xff"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_peek_equality_happy_and_miss() {
+		let buf: &[u8] = b"GET";
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: Some(buf) };
+		assert!(pred(FieldPath::Peek, CompiledOperator::Equals(bytes_val(b"GET"))).test(&v));
+		assert!(!pred(FieldPath::Peek, CompiledOperator::Equals(bytes_val(b"PUT"))).test(&v));
+		assert!(pred(FieldPath::Peek, CompiledOperator::NotEquals(bytes_val(b"PUT"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_peek_in_list_happy_and_miss() {
+		let buf: &[u8] = b"PRI ";
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: Some(buf) };
+		// HTTP/2 prior-knowledge magic prefix begins with "PRI ".
+		let list = vec![bytes_val(b"GET "), bytes_val(b"PRI ")];
+		assert!(pred(FieldPath::Peek, CompiledOperator::In(list)).test(&v));
+		let miss = vec![bytes_val(b"POST"), bytes_val(b"HEAD")];
+		assert!(!pred(FieldPath::Peek, CompiledOperator::In(miss.clone())).test(&v));
+		assert!(pred(FieldPath::Peek, CompiledOperator::NotIn(miss)).test(&v));
+	}
+
+	#[test]
+	fn peek_misses_when_buffer_absent_on_l4_view() {
+		// When peek slot is None (cleartext listener pre-protocol_detect,
+		// or L7Req view), the reader must miss rather than panic.
 		let conn = make_conn();
 		let v = PredicateView::L4 { conn: &conn, peek: None };
-		assert!(!pred(FieldPath::Peek, CompiledOperator::Prefix(b(b"\x16\x03"))).test(&v));
+		assert!(!pred(FieldPath::Peek, CompiledOperator::Prefix(b(b"\x16"))).test(&v));
+		// Also confirm an L7Req view can never satisfy a peek predicate.
+		let req = http::Request::builder().method("GET").uri("/").body(Body::Empty).unwrap();
+		let v7 = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(!pred(FieldPath::Peek, CompiledOperator::Prefix(b(b"\x16"))).test(&v7));
 	}
 }
