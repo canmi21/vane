@@ -6,6 +6,8 @@ pub mod body;
 pub use body::*;
 pub mod compile;
 pub use compile::compile;
+pub mod config;
+pub use config::{Env, EnvReader, LoadedConfig, ProcessEnv, load, scan_rules_dir};
 pub mod conn_context;
 pub use conn_context::*;
 pub mod error;

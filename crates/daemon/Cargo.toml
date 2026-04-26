@@ -28,7 +28,6 @@ wasm = ["dep:vane-wasm"]
 [dependencies]
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive"] }
-dotenvy = "0.15.7"
 tokio = { version = "1.52.1", features = ["full"] }
 tokio-util = "0.7.18"
 tracing = "0.1.44"

@@ -5,6 +5,10 @@ use crate::preset::RuleEntry;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct RawRuleFile {
+	/// Set by `crate::config::scan_rules_dir` from the on-disk filename.
+	/// User-authored rule JSON does not include this — the field defaults
+	/// to an empty `PathBuf` at parse time and the loader overwrites it.
+	#[serde(default)]
 	pub path: PathBuf,
 	#[serde(default)]
 	pub order: i32,

@@ -23,6 +23,7 @@ arc-swap = "1.9.1"
 async-trait = { workspace = true }
 base64 = "0.22"
 bytes = "1.11.1"
+dotenvy = "0.15.7"
 fancy-regex = "0.18.0"
 http = "1.4.0"
 http-body = "1.0.1"
@@ -36,3 +37,7 @@ thiserror = "2.0.18"
 tokio = { version = "1.52.1", default-features = false, features = ["net", "sync", "time"] }
 tokio-util = { version = "0.7", default-features = false }
 tracing = "0.1.44"
+
+[dev-dependencies]
+serial_test = "3"
+tempfile = "3"
