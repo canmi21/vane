@@ -146,12 +146,38 @@ pub async fn execute(
 
 				match outcome {
 					Ok(Decision::Continue) => cur = *next,
-					Ok(Decision::Short(ShortCircuit::Response(_))) => {
+					Ok(Decision::Short(ShortCircuit::Response(r))) => {
+						// 02-flow.md § _Execution model_: an L7 request
+						// middleware that returns `Short(Response)` parks
+						// the response in `resp` and jumps to the
+						// listener-level synth `Terminate(WriteHttpResponse)`
+						// installed by the lower pass (see § _`FlowGraph`
+						// metadata_). The `request` slot is dropped because
+						// the L7 chain is bypassed; the synth terminator's
+						// caller-writes path emits the pre-built response
+						// verbatim.
+						//
+						// Spec method `short_circuit_response_entry(entry)`
+						// is documented as panicking via
+						// `expect("lower invariant: ...")`. We use a
+						// fallible `get` + `Error::internal` instead: lower
+						// is best-effort sync and a missing map entry
+						// should propagate as a typed error (caught by the
+						// H1 service-fn → 500), not a panic that kills the
+						// whole accept loop. Spec deviation flagged.
 						drop(req.take());
-						let e = Error::internal(
-							"short-circuit response routing deferred — no short_circuit_response_entry metadata yet",
-						);
-						return finish_error(ctx, conn, &mut seq, cur, e);
+						let target_opt =
+							graph.symbolic().meta.short_circuit_response_entry.get(&entry).copied();
+						let Some(target) = target_opt else {
+							let e = Error::internal(format!(
+								"short-circuit response: entry NodeId({}) has no synth target — lower invariant violated (L7 entry without WriteHttpResponse synth)",
+								entry.get(),
+							));
+							return finish_error(ctx, conn, &mut seq, cur, e);
+						};
+						resp = Some(r);
+						record_step(ctx, conn, &mut seq, cur, FlowLogKind::Middleware, None);
+						cur = target;
 					}
 					Ok(Decision::Short(ShortCircuit::Close(reason))) => {
 						// Route by CloseReason variant: routing-level refusals

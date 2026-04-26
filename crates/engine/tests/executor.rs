@@ -94,6 +94,7 @@ fn sample_meta() -> FlowGraphMeta {
 		compiled_at: SystemTime::UNIX_EPOCH,
 		source_files: vec![],
 		feature_set: &[],
+		short_circuit_response_entry: std::collections::BTreeMap::new(),
 	}
 }
 
@@ -1667,4 +1668,128 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 		CloseReason::Cancelled => {}
 		other => panic!("expected CloseReason::Cancelled, got {other:?}"),
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Short(Response) routing through `meta.short_circuit_response_entry`
+// ---------------------------------------------------------------------------
+
+/// Fixture middleware that returns `Decision::Short(ShortCircuit::Response)`
+/// with a fixed status. The executor must set the response slot, jump to
+/// the listener-level synth target, and fall through to the
+/// `WriteHttpResponse` write path.
+struct ShortResponseFixed(u16);
+
+#[async_trait]
+impl L7RequestMiddleware for ShortResponseFixed {
+	async fn run(
+		&self,
+		_req: &mut Request,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx,
+	) -> Result<Decision, Error> {
+		let resp = http::Response::builder().status(self.0).body(Body::Empty).expect("build resp");
+		Ok(Decision::Short(ShortCircuit::Response(resp)))
+	}
+}
+
+#[tokio::test]
+async fn execute_middleware_short_response_routes_through_synth_target() {
+	// 02-flow.md § _Execution model_ + § _FlowGraph metadata_: an L7
+	// request middleware returning Short(Response) sets the response
+	// slot and jumps to the synth Terminate(WriteHttpResponse) keyed
+	// off `meta.short_circuit_response_entry[entry]`. Result: the
+	// executor returns Ok(HttpResponse(r)) carrying the middleware's
+	// Response — same wire shape as a normal proxy hit.
+	let entry = NodeId::new(0);
+	let synth = NodeId::new(2);
+	let nodes = vec![
+		// Entry: the L7 middleware that emits Short(Response).
+		Node::Middleware {
+			id: MiddlewareId::new(0),
+			next: NodeId::new(1),
+			on_error: None,
+			collect_body_before: None,
+		},
+		// Unreachable on the Short(Response) path; included to keep the
+		// chain shape that a real `lower_rule` produces.
+		Node::Terminate(TerminatorId::new(0)),
+		// Synth Terminate(WriteHttpResponse) — the executor jumps here.
+		Node::Terminate(TerminatorId::new(1)),
+	];
+	let mut sym = build_graph(
+		nodes,
+		vec![],
+		vec![l7_req_ref("short_response_418")],
+		vec![],
+		vec![Terminator::Close, Terminator::WriteHttpResponse],
+	);
+	let mut sym_mut = (*sym).clone();
+	sym_mut.meta.short_circuit_response_entry.insert(entry, synth);
+	sym = Arc::new(sym_mut);
+
+	let mut mw = MiddlewareFactories::new();
+	mw.register("short_response_418", MiddlewareKind::L7Request, |_args| {
+		Ok(MiddlewareInst::L7Request(Arc::new(ShortResponseFixed(418))))
+	});
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let result =
+		run_execute(&graph, entry, ExecutorInput::L7(Box::new(empty_l7_request())), &conn, &sink)
+			.await
+			.expect("Short(Response) routes cleanly");
+	match result {
+		ExecutorOutput::HttpResponse(r) => {
+			assert_eq!(r.status().as_u16(), 418, "synth target wrote middleware's response");
+		}
+		other => panic!("expected HttpResponse, got {other:?}"),
+	}
+}
+
+#[tokio::test]
+async fn execute_short_circuit_response_with_no_synth_target_errors() {
+	// If the meta map is missing an entry that an L7 chain emits a
+	// Short(Response) for, the executor surfaces an internal error
+	// rather than panicking. This is a regression guard — a future
+	// `lower` change that forgets to populate the map should fail
+	// loud at runtime, not silently mis-route.
+	let entry = NodeId::new(0);
+	let nodes = vec![
+		Node::Middleware {
+			id: MiddlewareId::new(0),
+			next: NodeId::new(1),
+			on_error: None,
+			collect_body_before: None,
+		},
+		Node::Terminate(TerminatorId::new(0)),
+	];
+	// Note: NO `short_circuit_response_entry` insertion.
+	let sym = build_graph(
+		nodes,
+		vec![],
+		vec![l7_req_ref("short_response_418")],
+		vec![],
+		vec![Terminator::Close],
+	);
+
+	let mut mw = MiddlewareFactories::new();
+	mw.register("short_response_418", MiddlewareKind::L7Request, |_args| {
+		Ok(MiddlewareInst::L7Request(Arc::new(ShortResponseFixed(418))))
+	});
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let err =
+		run_execute(&graph, entry, ExecutorInput::L7(Box::new(empty_l7_request())), &conn, &sink)
+			.await
+			.expect_err("missing synth target must error");
+	assert!(
+		err.to_string().contains("lower invariant violated"),
+		"error names the lower invariant: {err}",
+	);
 }
