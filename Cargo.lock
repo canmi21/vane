@@ -1783,6 +1783,7 @@ dependencies = [
  "rcgen",
  "rustls",
  "rustls-pemfile",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",
@@ -1790,6 +1791,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "vane-core",
 ]
 
