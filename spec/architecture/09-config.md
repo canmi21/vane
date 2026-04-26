@@ -234,6 +234,14 @@ VANE_LOG_LEVEL=info
 VANE_BIND_IPV4=1
 VANE_BIND_IPV6=1
 
+# Boot health watchdog. After listeners.start, the daemon polls each
+# listener's bind-ready flag for up to this many seconds. If zero
+# listeners have bound by the deadline, vaned exits non-zero (no point
+# running with no service). Partial bind (some succeeded, some failed)
+# logs WARN and the daemon continues. Default 60s — covers the
+# bind-retry budget (10 attempts × 5s exp-backoff cap).
+VANE_BOOT_HEALTH_TIMEOUT_SECS=60
+
 # L1 security floors (configurable upward, floors enforced at compile)
 VANE_SEC_MAX_HEADER_BYTES=65536
 VANE_SEC_MAX_HEADERS_COUNT=100
