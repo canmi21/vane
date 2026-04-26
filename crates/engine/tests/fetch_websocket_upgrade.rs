@@ -31,8 +31,10 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use arc_swap::ArcSwap;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::TlsAcceptor;
 use vane_core::{
 	FetchId, FetchKind, FlowGraphMeta, FlowLogEvent, FlowLogSink, Node, NodeId, SymbolicFetchRef,
 	SymbolicFlowGraph, Terminator, TerminatorId,
@@ -114,6 +116,51 @@ fn ws_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	FlowGraph::link(sym, &mw, &fetch).expect("link ws graph")
 }
 
+/// Same shape as [`ws_graph`] but the WS fetch's args carry a `tls`
+/// block, so the factory builds a `WebSocketUpgradeFetch` whose
+/// upstream dial flips to `tokio_rustls`. `insecure_skip_verify` keeps
+/// the fixture independent of the host trust store; `verify_hostname`
+/// is `localhost` to match the rcgen cert SAN.
+fn wss_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
+	let mut entries = HashMap::new();
+	entries.insert(listen, NodeId::new(0));
+
+	let mut meta = sample_meta();
+	meta.short_circuit_response_entry.insert(NodeId::new(1), NodeId::new(2));
+
+	let sym = Arc::new(SymbolicFlowGraph {
+		nodes: vec![
+			Node::Upgrade { next: NodeId::new(1) },
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: Some(NodeId::new(2)),
+				next_tunnel: Some(NodeId::new(2)),
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		predicates: vec![],
+		middlewares: vec![],
+		fetches: vec![SymbolicFetchRef {
+			kind: FetchKind::WebSocketUpgrade,
+			args: serde_json::json!({
+				"upstream": upstream,
+				"tls": {
+					"insecure_skip_verify": true,
+					"verify_hostname": "localhost",
+				},
+			}),
+		}],
+		terminators: vec![Terminator::WriteHttpResponse],
+		entries,
+		meta,
+	});
+	let mw = MiddlewareFactories::new();
+	let mut fetch = FetchFactories::new();
+	register_ws(&mut fetch);
+	FlowGraph::link(sym, &mw, &fetch).expect("link wss graph")
+}
+
 async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	let addr = *graph.symbolic().entries.iter().next().expect("entry present").0;
 	let verbosity = Arc::new(VerbosityState::new());
@@ -170,6 +217,73 @@ async fn spawn_fake_ws_upstream_echo() -> SocketAddr {
 				Ok(n) => n,
 			};
 			if sock.write_all(&buf[..n]).await.is_err() {
+				break;
+			}
+		}
+	});
+	addr
+}
+
+/// rcgen-issued self-signed leaf for `localhost`, packaged as a
+/// `rustls::ServerConfig`. Mirrors the helper in
+/// `tests/fetch_upstream_tls.rs`. Inlined here so this test file stays
+/// self-contained.
+fn rcgen_server_config() -> Arc<rustls::ServerConfig> {
+	let issued =
+		rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).expect("self-signed cert");
+	let cert_der: CertificateDer<'static> = issued.cert.der().clone();
+	let key_der: PrivateKeyDer<'static> =
+		PrivateKeyDer::Pkcs8(issued.signing_key.serialize_der().into());
+	let cfg = rustls::ServerConfig::builder()
+		.with_no_client_auth()
+		.with_single_cert(vec![cert_der], key_der)
+		.expect("build server config");
+	Arc::new(cfg)
+}
+
+/// TLS-terminating analogue of [`spawn_fake_ws_upstream_echo`]. Accepts
+/// one TCP connection, completes a `tokio_rustls::TlsAcceptor`
+/// handshake, then runs the same handshake-response + echo loop on the
+/// resulting `TlsStream`. This is the fixture the WSS-upstream test
+/// pins against — vane sees a `tokio_rustls::client::TlsStream` erased
+/// through `Box<dyn AsyncReadWrite + Send>`, then runs hyper's H1
+/// `with_upgrades()` handshake + `hyper::upgrade::on(...).await` over
+/// it, then `copy_bidirectional` of the post-101 byte tunnel.
+async fn spawn_fake_wss_upstream_echo() -> SocketAddr {
+	vane_engine::crypto::install_default_provider();
+	let server_config = rcgen_server_config();
+	let listener = TcpListener::bind("127.0.0.1:0").await.expect("upstream bind");
+	let addr = listener.local_addr().expect("addr");
+	let acceptor = TlsAcceptor::from(server_config);
+	tokio::spawn(async move {
+		let (sock, _peer) = listener.accept().await.expect("accept");
+		let mut tls = acceptor.accept(sock).await.expect("server tls handshake");
+		// Read the WS handshake headers off the encrypted stream.
+		let mut buf = Vec::new();
+		let mut tmp = [0u8; 1024];
+		loop {
+			let n = tls.read(&mut tmp).await.unwrap_or(0);
+			if n == 0 {
+				break;
+			}
+			buf.extend_from_slice(&tmp[..n]);
+			if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+				break;
+			}
+		}
+		let resp = b"HTTP/1.1 101 Switching Protocols\r\n\
+			Upgrade: websocket\r\n\
+			Connection: Upgrade\r\n\
+			Sec-WebSocket-Accept: RXEW6ax6BNRmDSUkBxiKlPFAoUM=\r\n\
+			\r\n";
+		tls.write_all(resp).await.expect("write 101");
+		let mut buf = [0u8; 4096];
+		loop {
+			let n = match tls.read(&mut buf).await {
+				Ok(0) | Err(_) => break,
+				Ok(n) => n,
+			};
+			if tls.write_all(&buf[..n]).await.is_err() {
 				break;
 			}
 		}
@@ -295,6 +409,59 @@ async fn ws_upstream_unreachable_surfaces_as_500() {
 	let head = read_until_headers_end(&mut client).await;
 	let s = String::from_utf8_lossy(&head);
 	assert!(s.starts_with("HTTP/1.1 500"), "expected 500 from driver, got: {s}");
+
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+/// Pins the WSS upstream path: client speaks cleartext WS to vane,
+/// vane dials the upstream over TLS, hyper's H1 client + upgrade
+/// machinery runs over a `tokio_rustls::client::TlsStream` erased
+/// through `Box<dyn AsyncReadWrite + Send>`. After the upstream 101,
+/// the post-upgrade byte tunnel is bridged by `copy_bidirectional`
+/// between the (cleartext) client socket and the (encrypted) upstream
+/// stream — vane never inspects the payload, but the wrapper must
+/// transparently relay reads/writes in both directions for the WS
+/// frames to round-trip.
+///
+/// Failure modes this test catches:
+/// - hyper's `with_upgrades()` returning IO that drops a buffered
+///   prefix when the inner type is erased + TLS-wrapped (would surface
+///   as a hung read on `client.read_exact`).
+/// - Send / `'static` regression on `dial_upstream`'s return type
+///   breaking the conn-task spawn (compile-time, but covered for
+///   runtime regressions too).
+#[tokio::test]
+async fn wss_upstream_handshake_success_then_byte_tunnel_echoes() {
+	let upstream = spawn_fake_wss_upstream_echo().await;
+	let listen = pick_port().await;
+	let graph = wss_graph(listen, &upstream.to_string());
+	let (set, addr) = start_listener(graph).await;
+
+	let mut client = TcpStream::connect(addr).await.expect("client connect");
+	let req = b"GET / HTTP/1.1\r\n\
+		Host: example\r\n\
+		Upgrade: websocket\r\n\
+		Connection: Upgrade\r\n\
+		Sec-WebSocket-Key: dGVzdGtleQ==\r\n\
+		Sec-WebSocket-Version: 13\r\n\
+		\r\n";
+	client.write_all(req).await.expect("client write req");
+
+	let buf = read_until_headers_end(&mut client).await;
+	let head = std::str::from_utf8(&buf).expect("ascii head");
+	assert!(head.starts_with("HTTP/1.1 101"), "expected 101 over wss upstream, got: {head}");
+	assert!(
+		head.to_lowercase().contains("upgrade: websocket"),
+		"upstream upgrade headers should round-trip across TLS: {head}",
+	);
+
+	client.write_all(b"hello").await.expect("client write payload");
+	let mut got = vec![0u8; 5];
+	tokio::time::timeout(Duration::from_secs(2), client.read_exact(&mut got))
+		.await
+		.expect("wss echo read timeout — post-upgrade byte tunnel did not relay")
+		.expect("wss echo read");
+	assert_eq!(&got, b"hello", "post-101 bytes must round-trip through the TLS upstream tunnel");
 
 	set.shutdown(Duration::from_secs(2)).await;
 }
