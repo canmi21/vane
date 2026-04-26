@@ -2,8 +2,9 @@
 //!
 //! Boot flow per `spec/architecture/01-topology.md` § _Daemon lifecycle_:
 //! parse args → init tracing → load config (rules + env) → compile core
-//! pipeline → link engine factories → start listeners → wait for signal
-//! → drain.
+//! pipeline → link engine factories → wrap into `ArcSwap` → start
+//! listeners → spawn file watcher (best-effort) → wait for signal →
+//! cancel watcher → drain listeners.
 //!
 //! The CLI accepts:
 //! - `--version` / `-v` — print build banner and exit (preserved from
@@ -12,8 +13,6 @@
 //!   `/etc/vaned`. Walked by `vane_core::config::load`.
 //!
 //! Several capabilities are intentionally not wired in this stage:
-//! TODO(reload): SIGHUP / file-watch reload — the runtime is a single
-//!   static `Arc<FlowGraph>`. Operators must restart on config change.
 //! TODO(mgmt): Unix / HTTP management socket binding — see
 //!   `spec/architecture/01-topology.md` § _Management plane_.
 //! TODO(tls): TLS termination at the listener layer — bytes flow as
@@ -28,25 +27,36 @@
 //!   serving nothing. Operators see "all listener bind failures" only
 //!   in `tracing` output. A future change should propagate
 //!   "all listeners dead" upward and exit.
+//! TODO(listener-set-diff): the file watcher refreshes the runtime
+//!   `Arc<FlowGraph>` atomically, but `ListenerSet` does not add/remove
+//!   sockets across reloads. Editing rules to introduce a new `listen`
+//!   port still requires a daemon restart; the new port won't bind
+//!   until then.
+
+mod providers;
+mod reload;
+mod watcher;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use clap::Parser;
 use tokio::signal::unix::{SignalKind, signal};
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
+use vane_core::FlowLogSink;
 use vane_core::compile::compile;
 use vane_core::version::{BuildInfo, format_version};
-use vane_core::{
-	Error, FetchKind, FetchMetadata, FetchMetadataProvider, FetchOutputModes, FetchPhase,
-	FlowLogSink, MiddlewareKind, MiddlewareMetadata, MiddlewareMetadataProvider,
-};
 use vane_engine::ListenerSet;
 use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::default_sink_from_env;
+
+use crate::providers::MetadataProviders;
+use crate::watcher::spawn_watcher;
 
 const FEATURES: &[&str] = &[
 	#[cfg(feature = "aws-lc-rs")]
@@ -135,19 +145,41 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		"compiled symbolic flow graph",
 	);
 
-	let mw_factories = build_middleware_factories();
-	let fetch_factories = build_fetch_factories();
-	let graph = FlowGraph::link(symbolic, &mw_factories, &fetch_factories)?;
+	let mw_factories = Arc::new(build_middleware_factories());
+	let fetch_factories = Arc::new(build_fetch_factories());
+	let initial_graph = FlowGraph::link(symbolic, &mw_factories, &fetch_factories)?;
+	let graph_swap: Arc<ArcSwap<FlowGraph>> = Arc::new(ArcSwap::new(initial_graph));
 	tracing::info!("linked flow graph");
 
 	let sink: Arc<dyn FlowLogSink> = default_sink_from_env().await?;
 	let verbosity = Arc::new(VerbosityState::new());
 
 	let listeners = ListenerSet::new();
-	listeners.start(Arc::clone(&graph), Arc::clone(&verbosity), Arc::clone(&sink));
+	listeners.start(Arc::clone(&graph_swap), Arc::clone(&verbosity), Arc::clone(&sink));
 	tracing::info!(active = listeners.len(), "listeners started");
 
-	wait_for_shutdown_signal(listeners).await;
+	// File watcher: best-effort. Init failure is logged and the daemon
+	// continues without auto-reload — operators relying on watcher-driven
+	// reload have to fix the underlying problem and restart.
+	let watcher_cancel = CancellationToken::new();
+	let watcher_handle = match spawn_watcher(
+		args.config_dir.clone(),
+		Arc::clone(&graph_swap),
+		Arc::clone(&mw_factories),
+		Arc::clone(&fetch_factories),
+		watcher_cancel.clone(),
+	) {
+		Ok(h) => {
+			tracing::info!("file watcher armed");
+			Some(h)
+		}
+		Err(e) => {
+			tracing::warn!(error = %e, "file watcher disabled — auto-reload unavailable");
+			None
+		}
+	};
+
+	wait_for_shutdown_signal(listeners, watcher_cancel, watcher_handle).await;
 	Ok(())
 }
 
@@ -175,60 +207,30 @@ fn build_fetch_factories() -> FetchFactories {
 	fetch
 }
 
-async fn wait_for_shutdown_signal(listeners: ListenerSet) {
+async fn wait_for_shutdown_signal(
+	listeners: ListenerSet,
+	watcher_cancel: CancellationToken,
+	watcher_handle: Option<tokio::task::JoinHandle<()>>,
+) {
 	let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
 	let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
 	tokio::select! {
 		_ = sigterm.recv() => {
 			tracing::info!("SIGTERM received — soft drain (30s)");
+			watcher_cancel.cancel();
+			if let Some(h) = watcher_handle {
+				let _ = h.await;
+			}
 			listeners.shutdown(Duration::from_secs(30)).await;
 		}
 		_ = sigint.recv() => {
 			tracing::info!("SIGINT received — immediate shutdown");
+			watcher_cancel.cancel();
+			if let Some(h) = watcher_handle {
+				let _ = h.await;
+			}
 			listeners.shutdown(Duration::from_secs(0)).await;
 		}
 	}
 	tracing::info!("vaned exited cleanly");
-}
-
-/// Daemon-side metadata provider that lists exactly the middleware /
-/// fetch shapes registered in [`build_middleware_factories`] +
-/// [`build_fetch_factories`]. Compile-time and link-time always agree:
-/// every name compile reports as registered also has a factory.
-struct MetadataProviders;
-
-#[allow(clippy::unnecessary_wraps)]
-fn validate_args_pass(_: &serde_json::Value) -> Result<(), Error> {
-	// Per-factory args validation lives inside each factory at link
-	// time. The compile pipeline only needs `Some(meta)` to confirm the
-	// name is registered — schema violations surface as `LinkError`
-	// later via the engine factory's args-parse path.
-	Ok(())
-}
-
-impl MiddlewareMetadataProvider for MetadataProviders {
-	fn get(&self, name: &str) -> Option<MiddlewareMetadata> {
-		let (kind, stateless, needs_body) = match name {
-			"host_header_match" | "path_prefix" | "method_match" | "forward_client_ip" => {
-				(MiddlewareKind::L7Request, true, false)
-			}
-			_ => return None,
-		};
-		Some(MiddlewareMetadata { kind, stateless, needs_body, validate_args: validate_args_pass })
-	}
-}
-
-impl FetchMetadataProvider for MetadataProviders {
-	fn get(&self, kind: FetchKind) -> Option<FetchMetadata> {
-		let (phase, output_modes) = match kind {
-			FetchKind::L4Forward => (FetchPhase::L4, FetchOutputModes { response: false, tunnel: true }),
-			FetchKind::HttpProxy | FetchKind::HttpSynthesize => {
-				(FetchPhase::L7, FetchOutputModes { response: true, tunnel: false })
-			}
-			FetchKind::WebSocketUpgrade => {
-				(FetchPhase::L7, FetchOutputModes { response: true, tunnel: true })
-			}
-		};
-		Some(FetchMetadata { kind, phase, output_modes, validate_args: validate_args_pass })
-	}
 }
