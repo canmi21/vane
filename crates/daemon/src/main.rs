@@ -154,7 +154,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let sink: Arc<dyn FlowLogSink> = default_sink_from_env().await?;
 	let verbosity = Arc::new(VerbosityState::new());
 
-	let listeners = ListenerSet::new();
+	let listeners = Arc::new(ListenerSet::new());
 	listeners.start(Arc::clone(&graph_swap), Arc::clone(&verbosity), Arc::clone(&sink));
 	tracing::info!(active = listeners.len(), "listeners started");
 
@@ -165,6 +165,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let watcher_handle = match spawn_watcher(
 		args.config_dir.clone(),
 		Arc::clone(&graph_swap),
+		Arc::clone(&listeners),
+		Arc::clone(&verbosity),
+		Arc::clone(&sink),
 		Arc::clone(&mw_factories),
 		Arc::clone(&fetch_factories),
 		watcher_cancel.clone(),
@@ -208,7 +211,7 @@ fn build_fetch_factories() -> FetchFactories {
 }
 
 async fn wait_for_shutdown_signal(
-	listeners: ListenerSet,
+	listeners: Arc<ListenerSet>,
 	watcher_cancel: CancellationToken,
 	watcher_handle: Option<tokio::task::JoinHandle<()>>,
 ) {

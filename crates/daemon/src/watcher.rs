@@ -20,6 +20,9 @@ use notify::RecursiveMode;
 use notify::event::{EventKind, ModifyKind};
 use notify_debouncer_full::{DebounceEventResult, DebouncedEvent, new_debouncer};
 use tokio_util::sync::CancellationToken;
+use vane_core::FlowLogSink;
+use vane_engine::ListenerSet;
+use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 
@@ -41,9 +44,13 @@ const DEBOUNCE_MS: u64 = 250;
 /// level). The daemon logs and continues without auto-reload — there's
 /// no useful retry; the operator has to fix the underlying problem
 /// before a daemon restart picks up the watcher again.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_watcher(
 	config_dir: PathBuf,
 	graph: Arc<ArcSwap<FlowGraph>>,
+	listeners: Arc<ListenerSet>,
+	verbosity: Arc<VerbosityState>,
+	log_sink: Arc<dyn FlowLogSink>,
 	mw_factories: Arc<MiddlewareFactories>,
 	fetch_factories: Arc<FetchFactories>,
 	cancel: CancellationToken,
@@ -91,9 +98,21 @@ pub(crate) fn spawn_watcher(
 						return;
 					}
 					match reload_once(&config_dir, &graph, &mw_factories, &fetch_factories) {
-						Ok(ReloadOutcome::Swapped { hash }) => tracing::info!(
-							hash = %hex32(&hash), "reloaded — flow graph swapped",
-						),
+						Ok(ReloadOutcome::Swapped { hash }) => {
+							tracing::info!(
+								hash = %hex32(&hash), "reloaded — flow graph swapped",
+							);
+							// Bring the listener set up to date with the new
+							// graph's `entries`: bind any added addresses,
+							// background-drain any removed ones. Unchanged
+							// addresses are picked up by the existing
+							// per-accept entry lookup.
+							listeners.reconcile(
+								Arc::clone(&graph),
+								Arc::clone(&verbosity),
+								Arc::clone(&log_sink),
+							);
+						}
 						Ok(ReloadOutcome::Unchanged { .. }) => tracing::debug!(
 							"reloaded — no semantic change, swap skipped",
 						),
@@ -281,6 +300,21 @@ mod tests {
 		FlowGraph::link(symbolic, &mw, &fetch).expect("link")
 	}
 
+	/// In-memory `FlowLogSink` used by the watcher integration tests —
+	/// the watcher passes one through to `reconcile`, which never
+	/// actually emits to it, so the impl is a no-op.
+	struct NullSink;
+	impl vane_core::FlowLogSink for NullSink {
+		fn emit(&self, _event: vane_core::FlowLogEvent) {}
+	}
+
+	fn watcher_extras() -> (Arc<ListenerSet>, Arc<VerbosityState>, Arc<dyn vane_core::FlowLogSink>) {
+		let listeners = Arc::new(ListenerSet::new());
+		let verbosity = Arc::new(VerbosityState::new());
+		let sink: Arc<dyn vane_core::FlowLogSink> = Arc::new(NullSink);
+		(listeners, verbosity, sink)
+	}
+
 	#[tokio::test]
 	async fn watcher_triggers_reload_on_rule_file_write() {
 		let tmp = tempfile::tempdir().expect("tempdir");
@@ -292,10 +326,19 @@ mod tests {
 		let swap = Arc::new(ArcSwap::new(initial));
 		let (mw, fetch) = build_factories();
 		let cancel = CancellationToken::new();
+		let (listeners, verbosity, sink) = watcher_extras();
 
-		let _handle =
-			spawn_watcher(tmp.path().to_path_buf(), Arc::clone(&swap), mw, fetch, cancel.clone())
-				.expect("watcher init");
+		let _handle = spawn_watcher(
+			tmp.path().to_path_buf(),
+			Arc::clone(&swap),
+			listeners,
+			verbosity,
+			sink,
+			mw,
+			fetch,
+			cancel.clone(),
+		)
+		.expect("watcher init");
 
 		// Give notify a moment to register on the path before mutating.
 		tokio::time::sleep(Duration::from_millis(200)).await;
@@ -326,9 +369,19 @@ mod tests {
 		let swap = Arc::new(ArcSwap::new(initial));
 		let (mw, fetch) = build_factories();
 		let cancel = CancellationToken::new();
+		let (listeners, verbosity, sink) = watcher_extras();
 
-		let handle = spawn_watcher(tmp.path().to_path_buf(), swap, mw, fetch, cancel.clone())
-			.expect("watcher init");
+		let handle = spawn_watcher(
+			tmp.path().to_path_buf(),
+			swap,
+			listeners,
+			verbosity,
+			sink,
+			mw,
+			fetch,
+			cancel.clone(),
+		)
+		.expect("watcher init");
 
 		cancel.cancel();
 		// Watcher task should join within 1s after cancellation.
