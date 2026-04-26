@@ -287,10 +287,9 @@ impl<'a> PredicateView<'a> {
 	/// `PredicateInst::test`. Picks `L7Req` when a `Request` is in scope
 	/// (phase `L7Request`), otherwise falls back to `L4`.
 	///
-	/// `peek` is hardcoded to `None` for C7 — the peek buffer wiring on
-	/// `ConnContext` lands with `protocol_detect` (S1-16). Predicates on
-	/// `FieldPath::Peek` consequently evaluate to `false` until then; the
-	/// operator-matrix stub already returns `false` for unsupported cases.
+	/// `peek` defaults to `None`; the peek buffer wiring on
+	/// `ConnContext` is owned by `protocol_detect` (S1-16). Predicates
+	/// on `FieldPath::Peek` evaluate to `false` until that lands.
 	#[must_use]
 	pub fn build(
 		conn: &'a Arc<ConnContext>,
@@ -302,88 +301,217 @@ impl<'a> PredicateView<'a> {
 			None => Self::L4 { conn, peek: None },
 		}
 	}
+
+	fn conn(&self) -> &Arc<ConnContext> {
+		match self {
+			Self::L4 { conn, .. } | Self::L7Req { conn, .. } => conn,
+		}
+	}
+
+	fn request(&self) -> Option<&Request> {
+		match self {
+			Self::L7Req { req, .. } => Some(req),
+			Self::L4 { .. } => None,
+		}
+	}
+
+	fn peek_buffer(&self) -> Option<&[u8]> {
+		match self {
+			Self::L4 { peek, .. } => *peek,
+			Self::L7Req { .. } => None,
+		}
+	}
 }
 
 impl PredicateInst {
-	/// Evaluate the predicate against a phase-typed view.
+	/// Evaluate the predicate against a phase-typed view. Path-reader →
+	/// operator-family dispatch; the matrix of legal `(path, op)` pairs
+	/// is enforced at compile (see [`Operator::family`] and
+	/// [`OperatorFamily::accepts`]). Illegal pairs cannot reach this
+	/// function in any compiled `FlowGraph`; they would have failed
+	/// `compile_operator`. Hand-built `PredicateInst`s in tests that
+	/// supply an unreachable pair fall through to `false` — sound-by-
+	/// default per the spec's "missing fields miss" contract.
 	///
-	/// C7 minimal matrix — two combinations are wired today, everything
-	/// else returns `false` with a TODO. The full operator × field-path
-	/// matrix from `18-predicate-schema.md` is a separate task (~14 ops
-	/// across a dozen field paths).
+	/// Reads that need an absent piece of state (e.g. `tls.sni` on a
+	/// cleartext connection, `http.header.upgrade` from an `L4` view)
+	/// also miss rather than panic.
 	#[must_use]
+	#[allow(clippy::match_same_arms)] // peer_cert / body stubs land in follow-up commits.
 	pub fn test(&self, view: &PredicateView<'_>) -> bool {
-		match (&self.path, &self.op, view) {
-			(
-				FieldPath::RemoteIp,
-				CompiledOperator::Equals(CompiledValue::Addr(expected)),
-				PredicateView::L4 { conn, .. } | PredicateView::L7Req { conn, .. },
-			) => conn.remote.ip() == *expected,
-
-			(
-				FieldPath::HttpMethod,
-				CompiledOperator::Equals(CompiledValue::Str(expected)),
-				PredicateView::L7Req { req, .. },
-			) => req.method().as_str() == expected.as_ref(),
-
-			// `http.header.<name>` is critical for `Upgrade: websocket`
-			// routing in `reverse_proxy.websocket: true` and any other
-			// header-driven gate. Header lookups are case-insensitive per
-			// RFC 9110 § 5.1 — `parse_field_path` lowercases the name at
-			// compile, and `http::HeaderMap::get` handles case folding on
-			// the read side. Value comparison is case-sensitive (RFC 9110
-			// § 5.5: header values are opaque strings).
-			//
-			// Multi-value headers expose only the first value. Predicates
-			// needing "any of the values" should use the existing `any_of`
-			// combinator over distinct value matchers (16-predicate-schema
-			// § _http.header.<name>_).
-			(
-				FieldPath::HttpHeader(name),
-				CompiledOperator::Equals(CompiledValue::Str(expected)),
-				PredicateView::L7Req { req, .. },
-			) => req
-				.headers()
-				.get(name.as_ref())
-				.and_then(|v| v.to_str().ok())
-				.is_some_and(|got| got == expected.as_ref()),
-
-			(
-				FieldPath::HttpUriPath,
-				CompiledOperator::Equals(CompiledValue::Str(expected)),
-				PredicateView::L7Req { req, .. },
-			) => req.uri().path() == expected.as_ref(),
-
-			(
-				FieldPath::HttpUriPath,
-				CompiledOperator::Prefix(expected_bytes),
-				PredicateView::L7Req { req, .. },
-			) => req.uri().path().as_bytes().starts_with(expected_bytes.as_ref()),
-
-			// `tls.sni` reads the SNI hostname captured by the listener at
-			// TLS handshake. Both `PredicateView::L7Req { conn, .. }` and
-			// `PredicateView::L4 { conn, .. }` carry `conn`, so SNI predicates
-			// work in either phase. The listener stores SNI ASCII-lowercase
-			// per spec 08-tls.md § _SNI normalization_, and
-			// `parse_field_path` lowercases the args side, so byte equality
-			// is correct.
-			(
-				FieldPath::TlsSni,
-				CompiledOperator::Equals(CompiledValue::Str(expected)),
-				PredicateView::L7Req { conn, .. } | PredicateView::L4 { conn, .. },
-			) => conn
+		match &self.path {
+			FieldPath::Transport => {
+				let s = match view.conn().transport {
+					crate::conn_context::Transport::Tcp => "tcp",
+					crate::conn_context::Transport::Udp => "udp",
+				};
+				test_str(&self.op, s)
+			}
+			FieldPath::RemoteIp => test_addr(&self.op, view.conn().remote.ip()),
+			FieldPath::RemotePort => test_int(&self.op, i64::from(view.conn().remote.port())),
+			FieldPath::LocalIp => test_addr(&self.op, view.conn().local.ip()),
+			FieldPath::LocalPort => test_int(&self.op, i64::from(view.conn().local.port())),
+			FieldPath::Peek => view.peek_buffer().is_some_and(|b| test_bytes(&self.op, b)),
+			FieldPath::TlsSni => view
+				.conn()
 				.tls
 				.lock()
 				.as_ref()
-				.and_then(|t| t.sni.as_deref())
-				.is_some_and(|got| got == expected.as_ref()),
-
-			// TODO(predicate-matrix): full operator × field-path dispatch per
-			// 18-predicate-schema.md. Unsupported combinations are sound-by-
-			// default: they always miss, never spuriously match.
-			_ => false,
+				.and_then(|t| t.sni.clone())
+				.is_some_and(|got| test_str(&self.op, got.as_str())),
+			FieldPath::TlsAlpn => view
+				.conn()
+				.tls
+				.lock()
+				.as_ref()
+				.and_then(|t| t.alpn.clone())
+				.is_some_and(|got| test_bytes(&self.op, got.as_slice())),
+			FieldPath::TlsVersion => view
+				.conn()
+				.tls
+				.lock()
+				.as_ref()
+				.and_then(|t| t.version)
+				.is_some_and(|v| test_str(&self.op, tls_version_str(v))),
+			// `tls.peer_cert.subject_cn` parsing lands in commit 3.
+			// Stage-1 listeners don't request client certs, so `peer_cert`
+			// is always `None` and the predicate misses today.
+			FieldPath::TlsPeerCertSubjectCn => false,
+			FieldPath::HttpMethod => {
+				let Some(req) = view.request() else { return false };
+				test_str(&self.op, req.method().as_str())
+			}
+			FieldPath::HttpUriPath => {
+				let Some(req) = view.request() else { return false };
+				test_str(&self.op, req.uri().path())
+			}
+			FieldPath::HttpUriQuery => {
+				let Some(req) = view.request() else { return false };
+				test_str(&self.op, req.uri().query().unwrap_or(""))
+			}
+			// Header lookup: name is already lowercased at compile via
+			// `parse_field_path`, and `HeaderMap::get` folds case on
+			// the read side (RFC 9110 § 5.1). Value comparison is
+			// byte-exact (RFC 9110 § 5.5). Multi-value headers expose
+			// the first value only — predicates wanting "any of the
+			// values" compose with `any_of` per
+			// 18-predicate-schema.md § _http.header.<name>_.
+			FieldPath::HttpHeader(name) => {
+				let Some(req) = view.request() else { return false };
+				let Some(value) = req.headers().get(name.as_ref()) else { return false };
+				let Ok(s) = value.to_str() else {
+					// Header values are byte-strings; non-UTF-8 misses
+					// (Str-typed predicates can't compare to non-UTF-8
+					// without lossy coercion, and silent loss is worse
+					// than a miss).
+					return false;
+				};
+				test_str(&self.op, s)
+			}
+			// `http.body` dispatch lands in commit 4 (needs the executor
+			// to enforce LazyBuffer collection before the Check).
+			FieldPath::HttpBody => false,
 		}
 	}
+}
+
+fn tls_version_str(v: crate::conn_context::TlsVersion) -> &'static str {
+	match v {
+		crate::conn_context::TlsVersion::Tls12 => "1.2",
+		crate::conn_context::TlsVersion::Tls13 => "1.3",
+	}
+}
+
+/// String-typed reader. Handles `equals`/`not_equals`,
+/// `contains`/`not_contains`, `prefix`/`suffix`, `matches`,
+/// `in`/`not_in`. Numeric and CIDR operators are matrix-rejected at
+/// compile and fall through to `false` here as a sound default.
+fn test_str(op: &CompiledOperator, value: &str) -> bool {
+	match op {
+		CompiledOperator::Equals(CompiledValue::Str(expected)) => value == expected.as_ref(),
+		CompiledOperator::NotEquals(CompiledValue::Str(expected)) => value != expected.as_ref(),
+		CompiledOperator::Contains(b) => contains_bytes(value.as_bytes(), b),
+		CompiledOperator::NotContains(b) => !contains_bytes(value.as_bytes(), b),
+		CompiledOperator::Prefix(b) => value.as_bytes().starts_with(b.as_ref()),
+		CompiledOperator::Suffix(b) => value.as_bytes().ends_with(b.as_ref()),
+		CompiledOperator::Matches(re) => re.is_match(value).unwrap_or(false),
+		CompiledOperator::In(values) => {
+			values.iter().any(|v| matches!(v, CompiledValue::Str(s) if value == s.as_ref()))
+		}
+		CompiledOperator::NotIn(values) => {
+			!values.iter().any(|v| matches!(v, CompiledValue::Str(s) if value == s.as_ref()))
+		}
+		_ => false,
+	}
+}
+
+/// Bytes-typed reader. `matches` (regex) is matrix-rejected; numeric/CIDR too.
+/// `equals`/`in` compare against `CompiledValue::Bytes`; lower's
+/// `coerce_value` produces that variant for Bytes-typed paths.
+fn test_bytes(op: &CompiledOperator, value: &[u8]) -> bool {
+	match op {
+		CompiledOperator::Equals(CompiledValue::Bytes(expected)) => value == expected.as_ref(),
+		CompiledOperator::NotEquals(CompiledValue::Bytes(expected)) => value != expected.as_ref(),
+		CompiledOperator::Contains(b) => contains_bytes(value, b),
+		CompiledOperator::NotContains(b) => !contains_bytes(value, b),
+		CompiledOperator::Prefix(b) => value.starts_with(b.as_ref()),
+		CompiledOperator::Suffix(b) => value.ends_with(b.as_ref()),
+		CompiledOperator::In(values) => {
+			values.iter().any(|v| matches!(v, CompiledValue::Bytes(b) if value == b.as_ref()))
+		}
+		CompiledOperator::NotIn(values) => {
+			!values.iter().any(|v| matches!(v, CompiledValue::Bytes(b) if value == b.as_ref()))
+		}
+		_ => false,
+	}
+}
+
+/// Int-typed reader. Handles `equals`/`not_equals`, `gt`/`gte`/`lt`/`lte`,
+/// `in`/`not_in`. The remaining ops are matrix-rejected.
+fn test_int(op: &CompiledOperator, value: i64) -> bool {
+	match op {
+		CompiledOperator::Equals(CompiledValue::Int(expected)) => value == *expected,
+		CompiledOperator::NotEquals(CompiledValue::Int(expected)) => value != *expected,
+		CompiledOperator::Gt(n) => value > *n,
+		CompiledOperator::Gte(n) => value >= *n,
+		CompiledOperator::Lt(n) => value < *n,
+		CompiledOperator::Lte(n) => value <= *n,
+		CompiledOperator::In(values) => {
+			values.iter().any(|v| matches!(v, CompiledValue::Int(i) if value == *i))
+		}
+		CompiledOperator::NotIn(values) => {
+			!values.iter().any(|v| matches!(v, CompiledValue::Int(i) if value == *i))
+		}
+		_ => false,
+	}
+}
+
+/// IpAddr-typed reader. `equals`/`not_equals`, `in`/`not_in`, `cidr`.
+/// Cross-family `in` lists (e.g. v4+v6) match iff any element matches —
+/// a single `cidr` is single-family per spec 18 § _CIDR specifics_.
+fn test_addr(op: &CompiledOperator, value: std::net::IpAddr) -> bool {
+	match op {
+		CompiledOperator::Equals(CompiledValue::Addr(expected)) => value == *expected,
+		CompiledOperator::NotEquals(CompiledValue::Addr(expected)) => value != *expected,
+		CompiledOperator::Cidr(net) => net.contains(&value),
+		CompiledOperator::In(values) => {
+			values.iter().any(|v| matches!(v, CompiledValue::Addr(a) if value == *a))
+		}
+		CompiledOperator::NotIn(values) => {
+			!values.iter().any(|v| matches!(v, CompiledValue::Addr(a) if value == *a))
+		}
+		_ => false,
+	}
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+	if needle.is_empty() {
+		return true;
+	}
+	if needle.len() > haystack.len() {
+		return false;
+	}
+	haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 pub const REGEX_PATTERN_MAX_BYTES: usize = 4 * 1024;
@@ -1677,5 +1805,468 @@ mod tests {
 		let conn = conn_with_sni("api.example.com");
 		let view = PredicateView::L4 { conn: &conn, peek: None };
 		assert!(tls_sni_equals("api.example.com").test(&view));
+	}
+
+	// ──────────────────────────────────────────────────────────────────────
+	// Full operator × value-type matrix coverage. Each cell marked `yes` in
+	// spec/architecture/18-predicate-schema.md § _Operator × value type
+	// compatibility_ has a happy + miss test below. Field paths are picked
+	// representatively per value type — string-family ops on tls.sni cover
+	// every Str-typed path because the runtime reads them all via the same
+	// `test_str` helper.
+	// ──────────────────────────────────────────────────────────────────────
+
+	fn pred(path: FieldPath, op: CompiledOperator) -> PredicateInst {
+		PredicateInst { path, op }
+	}
+
+	fn str_val(s: &str) -> CompiledValue {
+		CompiledValue::Str(Arc::<str>::from(s))
+	}
+
+	fn bytes_val(b: &[u8]) -> CompiledValue {
+		CompiledValue::Bytes(Bytes::copy_from_slice(b))
+	}
+
+	fn b(b: &[u8]) -> Bytes {
+		Bytes::copy_from_slice(b)
+	}
+
+	fn make_conn_with(remote: &str, local: &str) -> Arc<ConnContext> {
+		Arc::new(ConnContext {
+			id: ConnId(1),
+			remote: remote.parse().expect("parse remote"),
+			local: local.parse().expect("parse local"),
+			transport: Transport::Tcp,
+			entered_at: Instant::now(),
+			tls: Mutex::new(None),
+			http_version: OnceLock::new(),
+			user: Mutex::new(http::Extensions::new()),
+		})
+	}
+
+	fn make_conn_with_transport(t: Transport) -> Arc<ConnContext> {
+		Arc::new(ConnContext {
+			id: ConnId(1),
+			remote: "127.0.0.1:0".parse().expect("remote"),
+			local: "127.0.0.1:0".parse().expect("local"),
+			transport: t,
+			entered_at: Instant::now(),
+			tls: Mutex::new(None),
+			http_version: OnceLock::new(),
+			user: Mutex::new(http::Extensions::new()),
+		})
+	}
+
+	fn conn_with_tls_alpn(alpn: &[u8]) -> Arc<ConnContext> {
+		let conn = make_conn();
+		*conn.tls.lock() = Some(crate::conn_context::TlsInfo {
+			sni: None,
+			alpn: Some(alpn.to_vec()),
+			version: None,
+			peer_cert: None,
+		});
+		conn
+	}
+
+	fn conn_with_tls_version(v: crate::conn_context::TlsVersion) -> Arc<ConnContext> {
+		let conn = make_conn();
+		*conn.tls.lock() = Some(crate::conn_context::TlsInfo {
+			sni: None,
+			alpn: None,
+			version: Some(v),
+			peer_cert: None,
+		});
+		conn
+	}
+
+	// ── Equality family × every value type ────────────────────────────────
+
+	#[test]
+	fn matrix_equality_str_happy_and_miss() {
+		// FieldPath::TlsSni; ops Equals/NotEquals/In/NotIn covered by Str helpers.
+		let conn = conn_with_sni("api.example.com");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(pred(FieldPath::TlsSni, CompiledOperator::Equals(str_val("api.example.com"))).test(&v));
+		assert!(
+			!pred(FieldPath::TlsSni, CompiledOperator::Equals(str_val("other.example.com"))).test(&v)
+		);
+		assert!(
+			pred(FieldPath::TlsSni, CompiledOperator::NotEquals(str_val("other.example.com"))).test(&v)
+		);
+		assert!(
+			!pred(FieldPath::TlsSni, CompiledOperator::NotEquals(str_val("api.example.com"))).test(&v)
+		);
+	}
+
+	#[test]
+	fn matrix_equality_bytes_happy_and_miss() {
+		// FieldPath::TlsAlpn (Bytes-typed) with CompiledValue::Bytes.
+		let conn = conn_with_tls_alpn(b"h2");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::Equals(bytes_val(b"h2"))).test(&v));
+		assert!(!pred(FieldPath::TlsAlpn, CompiledOperator::Equals(bytes_val(b"http/1.1"))).test(&v));
+		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::NotEquals(bytes_val(b"http/1.1"))).test(&v));
+		assert!(!pred(FieldPath::TlsAlpn, CompiledOperator::NotEquals(bytes_val(b"h2"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_equality_int_happy_and_miss() {
+		let conn = make_conn_with("127.0.0.1:9090", "127.0.0.1:80");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			pred(FieldPath::RemotePort, CompiledOperator::Equals(CompiledValue::Int(9090))).test(&v)
+		);
+		assert!(
+			!pred(FieldPath::RemotePort, CompiledOperator::Equals(CompiledValue::Int(81))).test(&v)
+		);
+		assert!(
+			pred(FieldPath::RemotePort, CompiledOperator::NotEquals(CompiledValue::Int(81))).test(&v)
+		);
+		assert!(
+			!pred(FieldPath::RemotePort, CompiledOperator::NotEquals(CompiledValue::Int(9090))).test(&v)
+		);
+	}
+
+	#[test]
+	fn matrix_equality_addr_happy_and_miss() {
+		let conn = make_conn_with("10.0.0.5:55555", "127.0.0.1:80");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let ten: std::net::IpAddr = "10.0.0.5".parse().unwrap();
+		let other: std::net::IpAddr = "10.0.0.6".parse().unwrap();
+		assert!(pred(FieldPath::RemoteIp, CompiledOperator::Equals(CompiledValue::Addr(ten))).test(&v));
+		assert!(
+			!pred(FieldPath::RemoteIp, CompiledOperator::Equals(CompiledValue::Addr(other))).test(&v)
+		);
+		assert!(
+			pred(FieldPath::RemoteIp, CompiledOperator::NotEquals(CompiledValue::Addr(other))).test(&v)
+		);
+		assert!(
+			!pred(FieldPath::RemoteIp, CompiledOperator::NotEquals(CompiledValue::Addr(ten))).test(&v)
+		);
+	}
+
+	#[test]
+	fn matrix_equality_enum_transport_happy_and_miss() {
+		let tcp = make_conn_with_transport(Transport::Tcp);
+		let udp = make_conn_with_transport(Transport::Udp);
+		let v_tcp = PredicateView::L4 { conn: &tcp, peek: None };
+		let v_udp = PredicateView::L4 { conn: &udp, peek: None };
+		assert!(pred(FieldPath::Transport, CompiledOperator::Equals(str_val("tcp"))).test(&v_tcp));
+		assert!(!pred(FieldPath::Transport, CompiledOperator::Equals(str_val("udp"))).test(&v_tcp));
+		assert!(pred(FieldPath::Transport, CompiledOperator::Equals(str_val("udp"))).test(&v_udp));
+	}
+
+	#[test]
+	fn matrix_equality_enum_tls_version_happy_and_miss() {
+		let conn = conn_with_tls_version(crate::conn_context::TlsVersion::Tls13);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(pred(FieldPath::TlsVersion, CompiledOperator::Equals(str_val("1.3"))).test(&v));
+		assert!(!pred(FieldPath::TlsVersion, CompiledOperator::Equals(str_val("1.2"))).test(&v));
+		assert!(pred(FieldPath::TlsVersion, CompiledOperator::NotEquals(str_val("1.2"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_equality_enum_tls_version_misses_when_absent() {
+		// Cleartext listener — `tls` is None. equals must miss.
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(!pred(FieldPath::TlsVersion, CompiledOperator::Equals(str_val("1.3"))).test(&v));
+		// not_equals also misses on absent state — sound by default.
+		assert!(!pred(FieldPath::TlsVersion, CompiledOperator::NotEquals(str_val("1.3"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_equality_enum_http_method_happy_and_miss() {
+		let conn = make_conn();
+		let req = http::Request::builder().method("POST").uri("/").body(Body::Empty).unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(pred(FieldPath::HttpMethod, CompiledOperator::Equals(str_val("POST"))).test(&v));
+		assert!(!pred(FieldPath::HttpMethod, CompiledOperator::Equals(str_val("GET"))).test(&v));
+		assert!(pred(FieldPath::HttpMethod, CompiledOperator::NotEquals(str_val("GET"))).test(&v));
+	}
+
+	// ── InList family × every value type ───────────────────────────────────
+
+	#[test]
+	fn matrix_in_list_str_happy_and_miss() {
+		let conn = conn_with_sni("api.example.com");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let list = vec![str_val("a.example.com"), str_val("api.example.com")];
+		assert!(pred(FieldPath::TlsSni, CompiledOperator::In(list.clone())).test(&v));
+		let list_miss = vec![str_val("a.example.com"), str_val("b.example.com")];
+		assert!(!pred(FieldPath::TlsSni, CompiledOperator::In(list_miss.clone())).test(&v));
+		assert!(pred(FieldPath::TlsSni, CompiledOperator::NotIn(list_miss)).test(&v));
+		assert!(!pred(FieldPath::TlsSni, CompiledOperator::NotIn(list)).test(&v));
+	}
+
+	#[test]
+	fn matrix_in_list_bytes_happy_and_miss() {
+		let conn = conn_with_tls_alpn(b"h2");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let list = vec![bytes_val(b"http/1.1"), bytes_val(b"h2")];
+		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::In(list.clone())).test(&v));
+		let list_miss = vec![bytes_val(b"http/1.0"), bytes_val(b"http/1.1")];
+		assert!(!pred(FieldPath::TlsAlpn, CompiledOperator::In(list_miss.clone())).test(&v));
+		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::NotIn(list_miss)).test(&v));
+	}
+
+	#[test]
+	fn matrix_in_list_int_happy_and_miss() {
+		let conn = make_conn_with("127.0.0.1:443", "127.0.0.1:80");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let in_list = vec![CompiledValue::Int(80), CompiledValue::Int(443)];
+		assert!(pred(FieldPath::RemotePort, CompiledOperator::In(in_list.clone())).test(&v));
+		let miss_list = vec![CompiledValue::Int(80), CompiledValue::Int(81)];
+		assert!(!pred(FieldPath::RemotePort, CompiledOperator::In(miss_list.clone())).test(&v));
+		assert!(pred(FieldPath::RemotePort, CompiledOperator::NotIn(miss_list)).test(&v));
+	}
+
+	#[test]
+	fn matrix_in_list_addr_happy_and_miss_mixed_family() {
+		let conn = make_conn_with("10.0.0.5:55555", "127.0.0.1:80");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let v4: std::net::IpAddr = "10.0.0.5".parse().unwrap();
+		let v6: std::net::IpAddr = "::1".parse().unwrap();
+		let list = vec![CompiledValue::Addr(v6), CompiledValue::Addr(v4)];
+		assert!(pred(FieldPath::RemoteIp, CompiledOperator::In(list.clone())).test(&v));
+		let miss = vec![CompiledValue::Addr(v6)];
+		assert!(!pred(FieldPath::RemoteIp, CompiledOperator::In(miss.clone())).test(&v));
+		assert!(pred(FieldPath::RemoteIp, CompiledOperator::NotIn(miss)).test(&v));
+	}
+
+	#[test]
+	fn matrix_in_list_enum_transport_happy_and_miss() {
+		let conn = make_conn_with_transport(Transport::Udp);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let list = vec![str_val("tcp"), str_val("udp")];
+		assert!(pred(FieldPath::Transport, CompiledOperator::In(list)).test(&v));
+		let miss = vec![str_val("tcp")];
+		assert!(!pred(FieldPath::Transport, CompiledOperator::In(miss.clone())).test(&v));
+		assert!(pred(FieldPath::Transport, CompiledOperator::NotIn(miss)).test(&v));
+	}
+
+	// ── StringSubstr family × Str/Bytes ────────────────────────────────────
+
+	#[test]
+	fn matrix_substring_on_str_happy_and_miss() {
+		let conn = make_conn();
+		let req =
+			http::Request::builder().method("GET").uri("/api/v1/users").body(Body::Empty).unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(pred(FieldPath::HttpUriPath, CompiledOperator::Contains(b(b"/v1/"))).test(&v));
+		assert!(!pred(FieldPath::HttpUriPath, CompiledOperator::Contains(b(b"/v2/"))).test(&v));
+		assert!(pred(FieldPath::HttpUriPath, CompiledOperator::NotContains(b(b"/v2/"))).test(&v));
+		assert!(!pred(FieldPath::HttpUriPath, CompiledOperator::NotContains(b(b"/v1/"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_substring_on_bytes_happy_and_miss() {
+		let conn = conn_with_tls_alpn(b"http/1.1");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::Contains(b(b"/1."))).test(&v));
+		assert!(!pred(FieldPath::TlsAlpn, CompiledOperator::Contains(b(b"/2."))).test(&v));
+		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::NotContains(b(b"/2."))).test(&v));
+	}
+
+	// ── StringPrefSuf family × Str/Bytes ───────────────────────────────────
+
+	#[test]
+	fn matrix_prefix_suffix_on_str_happy_and_miss() {
+		let conn = make_conn();
+		let req =
+			http::Request::builder().method("GET").uri("/api/file.json?q=1").body(Body::Empty).unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(pred(FieldPath::HttpUriPath, CompiledOperator::Prefix(b(b"/api"))).test(&v));
+		assert!(!pred(FieldPath::HttpUriPath, CompiledOperator::Prefix(b(b"/admin"))).test(&v));
+		assert!(pred(FieldPath::HttpUriPath, CompiledOperator::Suffix(b(b".json"))).test(&v));
+		assert!(!pred(FieldPath::HttpUriPath, CompiledOperator::Suffix(b(b".html"))).test(&v));
+	}
+
+	#[test]
+	fn matrix_prefix_suffix_on_bytes_happy_and_miss() {
+		let conn = conn_with_tls_alpn(b"http/1.1");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::Prefix(b(b"http"))).test(&v));
+		assert!(!pred(FieldPath::TlsAlpn, CompiledOperator::Prefix(b(b"h2"))).test(&v));
+		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::Suffix(b(b"1.1"))).test(&v));
+		assert!(!pred(FieldPath::TlsAlpn, CompiledOperator::Suffix(b(b"2.0"))).test(&v));
+	}
+
+	// ── RegexMatches × Str ─────────────────────────────────────────────────
+
+	#[test]
+	fn matrix_regex_matches_on_str_happy_and_miss() {
+		let conn = make_conn();
+		let req =
+			http::Request::builder().method("GET").uri("/api/v3/orders").body(Body::Empty).unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		let re = Regex::new(r"^/api/v\d+/orders").expect("compile regex");
+		assert!(pred(FieldPath::HttpUriPath, CompiledOperator::Matches(re)).test(&v));
+		let re_miss = Regex::new(r"^/admin").expect("compile regex");
+		assert!(!pred(FieldPath::HttpUriPath, CompiledOperator::Matches(re_miss)).test(&v));
+	}
+
+	#[test]
+	fn matrix_regex_matches_on_header_happy_and_miss() {
+		let conn = make_conn();
+		let req = http::Request::builder()
+			.method("GET")
+			.uri("/")
+			.header("user-agent", "Mozilla/5.0 (Macintosh; Intel)")
+			.body(Body::Empty)
+			.unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		let re = Regex::new(r"(?i)mozilla").expect("compile");
+		assert!(
+			pred(FieldPath::HttpHeader(Arc::from("user-agent")), CompiledOperator::Matches(re)).test(&v)
+		);
+		let re_miss = Regex::new(r"^curl").expect("compile");
+		assert!(
+			!pred(FieldPath::HttpHeader(Arc::from("user-agent")), CompiledOperator::Matches(re_miss))
+				.test(&v)
+		);
+	}
+
+	// ── NumericCmp × Int ───────────────────────────────────────────────────
+
+	#[test]
+	fn matrix_numeric_cmp_gt_gte_lt_lte_happy_and_miss() {
+		let conn = make_conn_with("127.0.0.1:1024", "127.0.0.1:443");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		// Gt
+		assert!(pred(FieldPath::RemotePort, CompiledOperator::Gt(1023)).test(&v));
+		assert!(!pred(FieldPath::RemotePort, CompiledOperator::Gt(1024)).test(&v));
+		// Gte
+		assert!(pred(FieldPath::RemotePort, CompiledOperator::Gte(1024)).test(&v));
+		assert!(!pred(FieldPath::RemotePort, CompiledOperator::Gte(1025)).test(&v));
+		// Lt
+		assert!(pred(FieldPath::RemotePort, CompiledOperator::Lt(1025)).test(&v));
+		assert!(!pred(FieldPath::RemotePort, CompiledOperator::Lt(1024)).test(&v));
+		// Lte
+		assert!(pred(FieldPath::RemotePort, CompiledOperator::Lte(1024)).test(&v));
+		assert!(!pred(FieldPath::RemotePort, CompiledOperator::Lte(1023)).test(&v));
+	}
+
+	#[test]
+	fn matrix_numeric_cmp_local_port_too() {
+		// Same family, exercise local.port to confirm both Int paths work.
+		let conn = make_conn_with("127.0.0.1:0", "127.0.0.1:8443");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(pred(FieldPath::LocalPort, CompiledOperator::Gt(8000)).test(&v));
+		assert!(!pred(FieldPath::LocalPort, CompiledOperator::Gt(9000)).test(&v));
+	}
+
+	// ── CidrMatch × IpAddr ─────────────────────────────────────────────────
+
+	#[test]
+	fn matrix_cidr_v4_happy_and_miss() {
+		let conn = make_conn_with("10.0.5.7:0", "127.0.0.1:0");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let ten = IpNet::from_str("10.0.0.0/8").unwrap();
+		let nineteen2 = IpNet::from_str("192.168.0.0/16").unwrap();
+		assert!(pred(FieldPath::RemoteIp, CompiledOperator::Cidr(ten)).test(&v));
+		assert!(!pred(FieldPath::RemoteIp, CompiledOperator::Cidr(nineteen2)).test(&v));
+	}
+
+	#[test]
+	fn matrix_cidr_v6_happy_and_miss() {
+		let conn = make_conn_with("[2001:db8::5]:0", "127.0.0.1:0");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let net = IpNet::from_str("2001:db8::/32").unwrap();
+		let other = IpNet::from_str("2001:dead::/32").unwrap();
+		assert!(pred(FieldPath::RemoteIp, CompiledOperator::Cidr(net)).test(&v));
+		assert!(!pred(FieldPath::RemoteIp, CompiledOperator::Cidr(other)).test(&v));
+	}
+
+	#[test]
+	fn matrix_cidr_v4_against_v6_addr_misses() {
+		// Spec 18 § _CIDR specifics_: a single cidr matches only its family.
+		let conn = make_conn_with("[2001:db8::5]:0", "127.0.0.1:0");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let v4 = IpNet::from_str("0.0.0.0/0").unwrap();
+		assert!(!pred(FieldPath::RemoteIp, CompiledOperator::Cidr(v4)).test(&v));
+	}
+
+	// ── Field-coverage spotchecks (paths the helpers exercise but whose own
+	//    reader path needs explicit coverage) ──────────────────────────────
+
+	#[test]
+	fn http_uri_query_reader_returns_empty_when_query_absent() {
+		// Spec: `Request.uri().query().unwrap_or("")`. So `equals ""` matches
+		// when there is no query.
+		let conn = make_conn();
+		let req = http::Request::builder().method("GET").uri("/no-q").body(Body::Empty).unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(pred(FieldPath::HttpUriQuery, CompiledOperator::Equals(str_val(""))).test(&v));
+		assert!(!pred(FieldPath::HttpUriQuery, CompiledOperator::Equals(str_val("q=1"))).test(&v));
+	}
+
+	#[test]
+	fn http_uri_query_reader_matches_present_query() {
+		let conn = make_conn();
+		let req = http::Request::builder().method("GET").uri("/x?a=1&b=2").body(Body::Empty).unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(pred(FieldPath::HttpUriQuery, CompiledOperator::Equals(str_val("a=1&b=2"))).test(&v));
+		assert!(pred(FieldPath::HttpUriQuery, CompiledOperator::Contains(b(b"b=2"))).test(&v));
+	}
+
+	#[test]
+	fn local_ip_reader_uses_local_socket() {
+		let conn = make_conn_with("10.0.0.5:0", "127.0.0.1:8443");
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		let local: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+		assert!(
+			pred(FieldPath::LocalIp, CompiledOperator::Equals(CompiledValue::Addr(local))).test(&v)
+		);
+	}
+
+	#[test]
+	fn http_header_lookup_misses_for_non_utf8_value() {
+		// HeaderValue::from_bytes accepts non-UTF-8 bytes; `to_str()` then
+		// errors. The reader must miss rather than panic.
+		let conn = make_conn();
+		let bad =
+			http::HeaderValue::from_bytes(&[0xff, 0xfe, 0xfd]).expect("non-utf8 header value parses");
+		let mut builder = http::Request::builder().method("GET").uri("/");
+		builder.headers_mut().expect("headers").insert("x-bad", bad);
+		let req: Request = builder.body(Body::Empty).expect("build request");
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(
+			!pred(
+				FieldPath::HttpHeader(Arc::from("x-bad")),
+				CompiledOperator::Equals(str_val("anything")),
+			)
+			.test(&v)
+		);
+	}
+
+	#[test]
+	fn tls_peer_cert_subject_cn_is_stub_until_commit_3() {
+		// `tls.peer_cert.subject_cn` parsing isn't wired yet; the reader
+		// returns false unconditionally. Ensures sound-by-default behavior.
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			!pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Equals(str_val("CN=foo"))).test(&v)
+		);
+	}
+
+	#[test]
+	fn http_body_path_misses_until_commit_4() {
+		// Body dispatch is not wired in commit 2; reader returns false.
+		let conn = make_conn();
+		let req = http::Request::builder().method("POST").uri("/").body(Body::Empty).unwrap();
+		let v = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(!pred(FieldPath::HttpBody, CompiledOperator::Contains(b(b"x"))).test(&v));
+	}
+
+	#[test]
+	fn peek_path_misses_when_buffer_absent() {
+		// PredicateView::build hardcodes peek to None until protocol_detect
+		// lands; the reader must miss rather than spuriously match.
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(!pred(FieldPath::Peek, CompiledOperator::Prefix(b(b"\x16\x03"))).test(&v));
 	}
 }
