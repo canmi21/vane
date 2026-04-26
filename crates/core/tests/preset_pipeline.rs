@@ -376,12 +376,12 @@ fn tls_preset_entry(
 }
 
 #[test]
-fn reverse_proxy_preset_propagates_tls_to_listener_meta() {
+fn reverse_proxy_preset_propagates_tls_default_into_pool() {
 	// The reverse_proxy expander emits up to three rules (.main / .ws-allow
-	// / .ws-deny). Each must carry the same `tls` block so the per-listener
-	// resolver agrees and the symbolic meta records exactly one entry per
-	// bind address.
+	// / .ws-deny). Each carries the same `tls` block; the lower-stage
+	// resolver hash-cons-dedups the identical entries into one pool slot.
 	let tls = vane_core::rule::TlsConfig {
+		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
 	};
@@ -394,16 +394,16 @@ fn reverse_proxy_preset_propagates_tls_to_listener_meta() {
 	);
 	let graph = compile(vec![rule_file("a.json", vec![entry])], &Providers, &Providers)
 		.expect("reverse_proxy with tls compiles");
-	// `:443` shorthand expands to v4 + v6 — both addresses must agree on
-	// the same TlsConfig.
+	// `:443` shorthand expands to v4 + v6.
 	assert_eq!(graph.meta.listener_tls.len(), 2);
-	for cfg in graph.meta.listener_tls.values() {
-		assert_eq!(cfg, &tls);
+	for spec in graph.meta.listener_tls.values() {
+		assert_eq!(spec.default.as_ref(), Some(&tls));
+		assert!(spec.sni_certs.is_empty());
 	}
 }
 
 #[test]
-fn raw_rule_with_tls_aggregates_into_listener_meta() {
+fn raw_rule_with_tls_aggregates_into_listener_pool() {
 	let raw_entry: RuleEntry = serde_json::from_value(json!({
 		"name": "api",
 		"listen": [":443"],
@@ -414,42 +414,120 @@ fn raw_rule_with_tls_aggregates_into_listener_meta() {
 	let graph = compile(vec![rule_file("a.json", vec![raw_entry])], &Providers, &Providers)
 		.expect("raw rule with tls compiles");
 	let expected = vane_core::rule::TlsConfig {
+		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
 	};
 	assert_eq!(graph.meta.listener_tls.len(), 2);
-	for cfg in graph.meta.listener_tls.values() {
-		assert_eq!(cfg, &expected);
+	for spec in graph.meta.listener_tls.values() {
+		assert_eq!(spec.default.as_ref(), Some(&expected));
 	}
 }
 
 #[test]
-fn mixed_tls_and_cleartext_on_same_listener_is_rejected() {
-	// Two raw rules on `:443` — one with tls, one without. The lower
-	// resolver must reject this (one socket can't serve both).
-	let with_tls: RuleEntry = serde_json::from_value(json!({
+fn lower_aggregates_two_rules_same_port_distinct_sni_into_pool() {
+	// Two rules on `:443` with distinct `sni` values — the lower stage
+	// must keep both certs in the pool keyed by their SNI.
+	let api: RuleEntry = serde_json::from_value(json!({
 		"name": "api",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
-		"tls": { "cert_file": "/tmp/cert.pem", "key_file": "/tmp/key.pem" },
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key" },
 	}))
 	.expect("parse");
-	let without_tls: RuleEntry = serde_json::from_value(json!({
-		"name": "api2",
+	let admin: RuleEntry = serde_json::from_value(json!({
+		"name": "admin",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
+		"tls": { "sni": "admin.example.com", "cert_file": "/tmp/admin.pem", "key_file": "/tmp/admin.key" },
 	}))
 	.expect("parse");
-	let err = compile(vec![rule_file("a.json", vec![with_tls, without_tls])], &Providers, &Providers)
-		.expect_err("mixed tls/cleartext on same listener must fail");
-	let msg = err.to_string();
-	assert!(msg.contains("disagree on TLS"), "error mentions TLS disagreement: {msg}");
+	let graph = compile(vec![rule_file("a.json", vec![api, admin])], &Providers, &Providers)
+		.expect("two distinct-sni rules compile");
+	for spec in graph.meta.listener_tls.values() {
+		assert!(spec.default.is_none(), "no rule supplied a sni-less default");
+		assert_eq!(spec.sni_certs.len(), 2, "both SNIs land in the pool");
+		assert!(spec.sni_certs.contains_key("api.example.com"));
+		assert!(spec.sni_certs.contains_key("admin.example.com"));
+	}
 }
 
 #[test]
-fn two_distinct_tls_configs_on_same_listener_is_rejected() {
-	let a: RuleEntry = serde_json::from_value(json!({
+fn lower_lowercases_sni_keys_in_pool() {
+	// SNI hostnames are normalised to ASCII-lowercase per
+	// 08-tls.md § _SNI normalization_.
+	let entry: RuleEntry = serde_json::from_value(json!({
 		"name": "api",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		"tls": { "sni": "API.Example.COM", "cert_file": "/tmp/c.pem", "key_file": "/tmp/k.pem" },
+	}))
+	.expect("parse");
+	let graph =
+		compile(vec![rule_file("a.json", vec![entry])], &Providers, &Providers).expect("compile");
+	for spec in graph.meta.listener_tls.values() {
+		assert!(spec.sni_certs.contains_key("api.example.com"));
+		assert!(!spec.sni_certs.contains_key("API.Example.COM"));
+	}
+}
+
+#[test]
+fn lower_dedups_two_rules_same_port_identical_tls() {
+	// Two rules pointing at the same `(sni, cert_file, key_file)` triple
+	// should hash-cons into one pool entry, not two — and certainly
+	// shouldn't error.
+	let a: RuleEntry = serde_json::from_value(json!({
+		"name": "api1",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key" },
+	}))
+	.expect("parse");
+	let b: RuleEntry = serde_json::from_value(json!({
+		"name": "api2",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key" },
+	}))
+	.expect("parse");
+	let graph = compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
+		.expect("identical TLS triples must dedup, not error");
+	for spec in graph.meta.listener_tls.values() {
+		assert_eq!(spec.sni_certs.len(), 1);
+	}
+}
+
+#[test]
+fn lower_rejects_two_rules_same_port_same_sni_different_certs() {
+	let a: RuleEntry = serde_json::from_value(json!({
+		"name": "api1",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/a.pem", "key_file": "/tmp/a.key" },
+	}))
+	.expect("parse");
+	let b: RuleEntry = serde_json::from_value(json!({
+		"name": "api2",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/b.pem", "key_file": "/tmp/b.key" },
+	}))
+	.expect("parse");
+	let err = compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
+		.expect_err("same SNI different certs must fail");
+	let msg = err.to_string();
+	assert!(msg.contains("api.example.com"), "error names the SNI: {msg}");
+	assert!(
+		msg.contains("/tmp/a.pem") && msg.contains("/tmp/b.pem"),
+		"error names both cert paths: {msg}"
+	);
+}
+
+#[test]
+fn lower_rejects_two_rules_same_port_both_sniless_different_certs() {
+	// A listener has at most one default (sni-less) cert.
+	let a: RuleEntry = serde_json::from_value(json!({
+		"name": "api1",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
 		"tls": { "cert_file": "/tmp/a.pem", "key_file": "/tmp/a.key" },
@@ -463,9 +541,9 @@ fn two_distinct_tls_configs_on_same_listener_is_rejected() {
 	}))
 	.expect("parse");
 	let err = compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
-		.expect_err("two distinct TlsConfigs on same listener must fail");
+		.expect_err("two distinct sni-less certs must fail");
 	let msg = err.to_string();
-	assert!(msg.contains("disagree on TLS"), "error mentions TLS disagreement: {msg}");
+	assert!(msg.contains("more than one default"), "error mentions multiple defaults: {msg}");
 }
 
 #[test]
@@ -474,6 +552,7 @@ fn l4_listener_with_tls_block_is_rejected() {
 	// pure-byte-tunnel listener makes no sense (vane would terminate TLS
 	// then re-emit plaintext to the upstream).
 	let tls = vane_core::rule::TlsConfig {
+		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
 	};

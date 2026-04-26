@@ -12,8 +12,12 @@
 //! * `spec/architecture/08-tls.md` § _TLS termination (L4 → L7 upgrade)_ —
 //!   the listener wraps the accepted `TcpStream` in a server-side rustls
 //!   handshake before dispatching `L4Conn::Tls(Box<dyn AsyncReadWrite>)`.
-//! * `spec/architecture/08-tls.md` § _ALPN_ — single-protocol ALPN this
-//!   round; the server advertises `["http/1.1"]`.
+//! * `spec/architecture/08-tls.md` § _Certificate resolver_ — multi-cert
+//!   listeners pick by SNI (lowercased) with the sni-less default cert
+//!   as the fallback.
+//! * `spec/architecture/08-tls.md` § _ALPN_ — server advertises
+//!   `["h2", "http/1.1"]`; the executor's Upgrade arm dispatches to the
+//!   matching driver.
 
 #![allow(clippy::too_many_lines)]
 
@@ -73,6 +77,7 @@ fn rcgen_self_signed_for_localhost() -> TlsFixture {
 	key_file.write_all(key_pem.as_bytes()).expect("write key pem");
 
 	let tls_cfg = vane_core::rule::TlsConfig {
+		sni: None,
 		cert_file: cert_file.path().to_path_buf(),
 		key_file: key_file.path().to_path_buf(),
 	};
@@ -81,13 +86,16 @@ fn rcgen_self_signed_for_localhost() -> TlsFixture {
 }
 
 /// Symbolic graph: `Upgrade -> Fetch(StaticOk) -> Terminate(WriteHttpResponse)`,
-/// with `meta.listener_tls[addr] = tls_cfg`.
+/// with `meta.listener_tls[addr] = ListenerTlsSpec { default: Some(tls_cfg), .. }`.
 fn tls_static_ok_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
 	entries.insert(addr, NodeId::new(0));
 
 	let mut listener_tls = BTreeMap::new();
-	listener_tls.insert(addr, tls_cfg);
+	listener_tls.insert(
+		addr,
+		vane_core::rule::ListenerTlsSpec { default: Some(tls_cfg), sni_certs: BTreeMap::new() },
+	);
 
 	let meta = FlowGraphMeta {
 		version_hash: [0; 32],
@@ -227,7 +235,7 @@ async fn tls_listener_drops_invalid_handshake() {
 }
 
 #[tokio::test]
-async fn tls_listener_alpn_negotiation_returns_http_1_1() {
+async fn tls_listener_negotiates_h2_when_alpn_offered() {
 	vane_engine::crypto::install_default_provider();
 
 	let fixture = rcgen_self_signed_for_localhost();
@@ -235,10 +243,36 @@ async fn tls_listener_alpn_negotiation_returns_http_1_1() {
 	let graph = tls_static_ok_graph(addr, fixture.tls_cfg.clone());
 	let (set, addr) = start_listener(graph).await;
 
-	// Client offers both `h2` and `http/1.1`; the server only advertises
-	// `http/1.1`, so the negotiated protocol must be `http/1.1`.
+	// Client offers `h2` first, `http/1.1` second; the server advertises
+	// `["h2", "http/1.1"]`, so the first overlap is `h2`.
 	let client_cfg =
 		build_client_config(&fixture.cert_pem, vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
+	let connector = tokio_rustls::TlsConnector::from(Arc::new(client_cfg));
+
+	let tcp = tokio::net::TcpStream::connect(addr).await.expect("client tcp connect");
+	let server_name = rustls::pki_types::ServerName::try_from("localhost").expect("server name");
+	let tls_stream = connector.connect(server_name, tcp).await.expect("tls handshake");
+
+	let alpn = tls_stream.get_ref().1.alpn_protocol().map(<[u8]>::to_vec);
+	assert_eq!(alpn, Some(b"h2".to_vec()), "server must pick h2 when both client + server offer it");
+
+	drop(tls_stream);
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+#[tokio::test]
+async fn tls_listener_negotiates_h1_when_only_h1_offered() {
+	vane_engine::crypto::install_default_provider();
+
+	let fixture = rcgen_self_signed_for_localhost();
+	let addr = pick_port().await;
+	let graph = tls_static_ok_graph(addr, fixture.tls_cfg.clone());
+	let (set, addr) = start_listener(graph).await;
+
+	// Client offers only `http/1.1`; the server has both, so negotiation
+	// picks `http/1.1` (the only overlap). h1-only legacy clients are the
+	// base case here.
+	let client_cfg = build_client_config(&fixture.cert_pem, vec![b"http/1.1".to_vec()]);
 	let connector = tokio_rustls::TlsConnector::from(Arc::new(client_cfg));
 
 	let tcp = tokio::net::TcpStream::connect(addr).await.expect("client tcp connect");
@@ -249,9 +283,260 @@ async fn tls_listener_alpn_negotiation_returns_http_1_1() {
 	assert_eq!(
 		alpn,
 		Some(b"http/1.1".to_vec()),
-		"server-side ALPN must pick http/1.1 even when client also offers h2",
+		"server must pick http/1.1 when client only offers it"
 	);
 
 	drop(tls_stream);
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+// ---------------------------------------------------------------------------
+// SNI multi-cert + h2 e2e
+// ---------------------------------------------------------------------------
+
+struct NamedCert {
+	cert_file: NamedTempFile,
+	key_file: NamedTempFile,
+	cert_der: rustls::pki_types::CertificateDer<'static>,
+}
+
+fn rcgen_cert_for(host: &str) -> NamedCert {
+	let issued = rcgen::generate_simple_self_signed(vec![host.to_owned()]).expect("self-signed cert");
+	let cert_pem = issued.cert.pem();
+	let key_pem = issued.signing_key.serialize_pem();
+	let mut cert_file = NamedTempFile::new().expect("cert tmp");
+	cert_file.write_all(cert_pem.as_bytes()).expect("write cert pem");
+	let mut key_file = NamedTempFile::new().expect("key tmp");
+	key_file.write_all(key_pem.as_bytes()).expect("write key pem");
+	let cert_der = rustls_pemfile::certs(&mut cert_pem.as_bytes())
+		.next()
+		.expect("at least one cert")
+		.expect("valid cert");
+	NamedCert { cert_file, key_file, cert_der }
+}
+
+/// Symbolic graph: same `Upgrade -> Fetch -> Terminate` shape, but with
+/// a multi-cert pool. `default` is sni-less; each `(sni, NamedCert)`
+/// entry contributes one keyed cert.
+fn tls_multi_sni_graph(
+	addr: SocketAddr,
+	default: Option<&NamedCert>,
+	sni_certs: &[(&str, &NamedCert)],
+) -> Arc<FlowGraph> {
+	let mut entries = HashMap::new();
+	entries.insert(addr, NodeId::new(0));
+
+	let mut spec_sni: BTreeMap<String, vane_core::rule::TlsConfig> = BTreeMap::new();
+	for (sni, c) in sni_certs {
+		spec_sni.insert(
+			(*sni).to_owned(),
+			vane_core::rule::TlsConfig {
+				sni: Some((*sni).to_owned()),
+				cert_file: c.cert_file.path().to_path_buf(),
+				key_file: c.key_file.path().to_path_buf(),
+			},
+		);
+	}
+	let spec = vane_core::rule::ListenerTlsSpec {
+		default: default.map(|c| vane_core::rule::TlsConfig {
+			sni: None,
+			cert_file: c.cert_file.path().to_path_buf(),
+			key_file: c.key_file.path().to_path_buf(),
+		}),
+		sni_certs: spec_sni,
+	};
+
+	let mut listener_tls = BTreeMap::new();
+	listener_tls.insert(addr, spec);
+
+	let meta = FlowGraphMeta {
+		version_hash: [0; 32],
+		compiled_at: SystemTime::UNIX_EPOCH,
+		source_files: vec![],
+		feature_set: &[],
+		short_circuit_response_entry: BTreeMap::new(),
+		listener_tls,
+	};
+
+	let sym = Arc::new(SymbolicFlowGraph {
+		nodes: vec![
+			Node::Upgrade { next: NodeId::new(1) },
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: Some(NodeId::new(2)),
+				next_tunnel: None,
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		predicates: vec![],
+		middlewares: vec![],
+		fetches: vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		terminators: vec![Terminator::WriteHttpResponse],
+		entries,
+		meta,
+	});
+
+	let mw = MiddlewareFactories::new();
+	let mut fetch = FetchFactories::new();
+	fetch.register(FetchKind::HttpSynthesize, |_args| Ok(FetchInst::L7(Arc::new(StaticOkFetch))));
+	FlowGraph::link(sym, &mw, &fetch).expect("link multi-cert tls graph")
+}
+
+/// Test-only client cert verifier that accepts any cert. Lets us inspect
+/// the leaf cert the server sent under arbitrary SNI without rustls's
+/// hostname-vs-SAN check rejecting handshakes where SNI is intentionally
+/// unrelated to the cert (e.g. the default-cert fallback path).
+#[derive(Debug)]
+struct NoVerify;
+
+impl rustls::client::danger::ServerCertVerifier for NoVerify {
+	fn verify_server_cert(
+		&self,
+		_end_entity: &rustls::pki_types::CertificateDer<'_>,
+		_intermediates: &[rustls::pki_types::CertificateDer<'_>],
+		_server_name: &rustls::pki_types::ServerName<'_>,
+		_ocsp_response: &[u8],
+		_now: rustls::pki_types::UnixTime,
+	) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+		Ok(rustls::client::danger::ServerCertVerified::assertion())
+	}
+
+	fn verify_tls12_signature(
+		&self,
+		_message: &[u8],
+		_cert: &rustls::pki_types::CertificateDer<'_>,
+		_dss: &rustls::DigitallySignedStruct,
+	) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+		Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+	}
+
+	fn verify_tls13_signature(
+		&self,
+		_message: &[u8],
+		_cert: &rustls::pki_types::CertificateDer<'_>,
+		_dss: &rustls::DigitallySignedStruct,
+	) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+		Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+	}
+
+	fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+		rustls::crypto::CryptoProvider::get_default()
+			.expect("crypto provider")
+			.signature_verification_algorithms
+			.supported_schemes()
+	}
+}
+
+fn no_verify_client_config(alpn: Vec<Vec<u8>>) -> rustls::ClientConfig {
+	let mut cfg = rustls::ClientConfig::builder()
+		.dangerous()
+		.with_custom_certificate_verifier(Arc::new(NoVerify))
+		.with_no_client_auth();
+	cfg.alpn_protocols = alpn;
+	cfg
+}
+
+#[tokio::test]
+async fn tls_listener_resolves_cert_by_sni() {
+	vane_engine::crypto::install_default_provider();
+
+	let api = rcgen_cert_for("api.example.com");
+	let admin = rcgen_cert_for("admin.example.com");
+	let addr = pick_port().await;
+	let graph =
+		tls_multi_sni_graph(addr, None, &[("api.example.com", &api), ("admin.example.com", &admin)]);
+	let (set, addr) = start_listener(graph).await;
+
+	for (sni, expected_der) in
+		[("api.example.com", &api.cert_der), ("admin.example.com", &admin.cert_der)]
+	{
+		let client_cfg = no_verify_client_config(vec![b"http/1.1".to_vec()]);
+		let connector = tokio_rustls::TlsConnector::from(Arc::new(client_cfg));
+		let tcp = tokio::net::TcpStream::connect(addr).await.expect("tcp connect");
+		let server_name = rustls::pki_types::ServerName::try_from(sni.to_owned()).expect("server name");
+		let tls_stream = connector.connect(server_name, tcp).await.expect("tls handshake");
+
+		let chain = tls_stream
+			.get_ref()
+			.1
+			.peer_certificates()
+			.expect("client receives server cert chain")
+			.to_vec();
+		let leaf = chain.first().expect("leaf cert");
+		assert_eq!(leaf.as_ref(), expected_der.as_ref(), "SNI {sni} must resolve to its own cert");
+		drop(tls_stream);
+	}
+
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+#[tokio::test]
+async fn tls_listener_falls_back_to_default_cert_for_unknown_sni() {
+	vane_engine::crypto::install_default_provider();
+
+	let api = rcgen_cert_for("api.example.com");
+	let default = rcgen_cert_for("default.example.com");
+	let addr = pick_port().await;
+	let graph = tls_multi_sni_graph(addr, Some(&default), &[("api.example.com", &api)]);
+	let (set, addr) = start_listener(graph).await;
+
+	let client_cfg = no_verify_client_config(vec![b"http/1.1".to_vec()]);
+	let connector = tokio_rustls::TlsConnector::from(Arc::new(client_cfg));
+	let tcp = tokio::net::TcpStream::connect(addr).await.expect("tcp connect");
+	let server_name =
+		rustls::pki_types::ServerName::try_from("unknown.example.com").expect("server name");
+	let tls_stream = connector.connect(server_name, tcp).await.expect("handshake fallback succeeds");
+
+	let chain = tls_stream.get_ref().1.peer_certificates().expect("server cert").to_vec();
+	let leaf = chain.first().expect("leaf");
+	assert_eq!(
+		leaf.as_ref(),
+		default.cert_der.as_ref(),
+		"unknown SNI must fall back to the default cert",
+	);
+
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+#[tokio::test]
+async fn tls_listener_h2_request_serves_through_executor() {
+	vane_engine::crypto::install_default_provider();
+
+	let fixture = rcgen_self_signed_for_localhost();
+	let addr = pick_port().await;
+	let graph = tls_static_ok_graph(addr, fixture.tls_cfg.clone());
+	let (set, addr) = start_listener(graph).await;
+
+	let client_cfg = build_client_config(&fixture.cert_pem, vec![b"h2".to_vec()]);
+	let connector = tokio_rustls::TlsConnector::from(Arc::new(client_cfg));
+	let tcp = tokio::net::TcpStream::connect(addr).await.expect("tcp connect");
+	let server_name = rustls::pki_types::ServerName::try_from("localhost").expect("server name");
+	let tls_stream = connector.connect(server_name, tcp).await.expect("tls handshake");
+
+	let alpn = tls_stream.get_ref().1.alpn_protocol().map(<[u8]>::to_vec);
+	assert_eq!(alpn, Some(b"h2".to_vec()), "negotiated h2 ALPN");
+
+	let io = TokioIo::new(tls_stream);
+	let (mut sender, conn) = hyper::client::conn::http2::handshake::<_, _, Empty<Bytes>>(
+		hyper_util::rt::TokioExecutor::new(),
+		io,
+	)
+	.await
+	.expect("h2 handshake");
+	tokio::spawn(async move {
+		let _ = conn.await;
+	});
+
+	let req = hyper::Request::builder()
+		.method("GET")
+		.uri("https://localhost/")
+		.body(Empty::<Bytes>::new())
+		.expect("build h2 GET");
+	let resp = sender.send_request(req).await.expect("h2 send_request");
+	assert_eq!(resp.status().as_u16(), 200, "h2-wrapped GET must yield 200");
+	let body = resp.into_body().collect().await.expect("collect").to_bytes();
+	assert_eq!(body.as_ref(), b"ok");
+
 	set.shutdown(Duration::from_secs(2)).await;
 }
