@@ -28,6 +28,10 @@ Conventional Commits (see `commitlint.config.js`). Subject ≤ 72 chars, lower-c
 
 Do **not** reference internal task or chunk identifiers (`S1-NN`, `C-NN`, `C13.5`, etc.) in commit subjects or bodies. They are transient planning artifacts that don't belong in the permanent git history. The link between a commit and the spec feature it implements lives in `spec/roadmap.md` (which the commit may cite by feature name) or in the surrounding code's doc comments. The same applies to "lands later" / "deferred to S1-NN" prose: deferral notes belong in `// TODO(<short-tag>):` source comments or in spec files, not in commit messages.
 
+## Workflow boundaries
+
+- Do **not** propose `/schedule` (or any other Claude Code background-agent invocation) in chunk reports, commit messages, or in-source comments. This project does not use Claude Code's scheduling features. Future-work suggestions belong in `// TODO(<tag>):` source comments or in the relevant `spec/*.md` file.
+
 ## Spec index
 
 Each file below is the authoritative source for its topic. Edit there, not here.

@@ -147,6 +147,53 @@ The merge is deterministic and reproducible across machines.
 
 `vane reload` triggers the same pipeline without waiting for the file watcher.
 
+### Watcher arm-up ordering
+
+The file watcher **must not** observe filesystem events until `ListenerSet::start` has returned and at least the initial `Arc<FlowGraph>` is installed in the daemon's `ArcSwap`. Boot sequence is therefore strict:
+
+```
+parse args → init tracing → load + compile + link  (initial graph)
+           → ListenerSet::start                    (accept loops spawned)
+           → spawn_watcher                         (debouncer registered)
+           → wait_for_shutdown_signal
+```
+
+`spawn_watcher` is the last setup step. Any reload event raced ahead of listener bind would have nothing useful to do — the active graph is the boot graph either way — but the strict ordering rules out malformed states where the watcher fires before the daemon is internally consistent. If the watcher's underlying notify registration fails (typically permission-denied at the directory level), the daemon logs a warning and continues without auto-reload; reload is then driven by `vane reload` against the management socket, or by daemon restart.
+
+### Watched events: filtered to file-level mutations only
+
+The watcher cares about exactly three filesystem signals on `<config_dir>/`:
+
+| Signal                | Reload action                    |
+| --------------------- | -------------------------------- |
+| File created          | re-run merge → may add a rule    |
+| File content modified | re-run merge → rule body change  |
+| File deleted          | re-run merge → may remove a rule |
+
+All other notify events — directory metadata changes, attribute changes (chmod, chown), access timestamps, mount events, sub-directory changes outside `rules/` — are **ignored**. The debouncer collapses bursts inside the 250ms window; the post-debounce filter keeps only file-level mutations under the watched tree before invoking `reload_once`. Spurious events that pass notify (e.g., editor swap-file dance) are tolerated because the post-reload `version_hash` idempotency check skips the `ArcSwap::store` when content is semantically unchanged — but at the watcher layer we still want minimal noise reaching `reload_once` to keep the CPU cost of "no-op" reloads low.
+
+### NodeId stability across reloads
+
+`SymbolicFlowGraph::entries` maps `SocketAddr → NodeId`. Two successive compiles on related-but-different rule sets allocate `NodeId`s independently — the lower pass numbers nodes in iteration order, and a single edited rule shifts every later allocation. **Listener accept loops therefore must not capture a boot-time `NodeId` and reuse it across reloads.** The contract is:
+
+- The accept loop holds an `Arc<ArcSwap<FlowGraph>>` (cheap to clone, lock-free to `load`).
+- On each accept: load the current graph (`load_full()`), then look up the entry by the listener's `local_addr` in `graph.symbolic().entries`. The result is a fresh `NodeId` valid against the graph the connection will execute on.
+- If the address is no longer present in the active graph (the rule was deleted or moved to a different listener spec by a reload), the connection is closed immediately — the client sees a TCP RST, just as it would for a no-rule listener at boot.
+
+This rule covers two failure modes that captured-NodeId-at-boot would silently mishandle: an edited rule whose graph re-allocates `NodeId`s (incoming traffic would route through whichever node now happens to occupy the old id — typically wrong), and a deleted rule whose listener is still bound on the daemon side (incoming traffic would walk a graph that has no entry for it — undefined).
+
+Listener-set diff (binding new addresses introduced by reload, draining ports removed by reload) is the next reload concern beyond NodeId stability — it requires `ListenerSet` to add/remove sockets across reloads. Until that lands, new listen ports introduced by an edited rule still require a daemon restart; existing-port edits and rule deletions are handled correctly by the per-accept lookup above.
+
+### Compiled artifact: in-memory only
+
+`vaned` re-runs the full compile pipeline (`merge → expand → analyze → lower → validate → link`) on every boot and on every reload. The compiled `FlowGraph` exists only in process memory and is never persisted to disk. Rationale:
+
+- **Single source of truth.** JSON files are the authoritative configuration; the in-memory graph is derived. A persisted compiled artifact would be a third state that can desynchronise from either.
+- **Schema fragility.** Every IR change (new node kind, new field, hash-cons key change) would require explicit cache versioning + invalidation. Forgetting once produces silent miscompiles in production.
+- **Performance is a non-issue.** The pipeline is sub-millisecond for typical rule counts and dominated by JSON parsing, which is already the same work `dry-run` does. Saving boot time at the cost of a persistence layer is a wrong trade for a network-proxy daemon.
+
+Operators who want to inspect the compiled state query the management API (`get_active_config` returns the active `SymbolicFlowGraph` as JSON). `vane compile --dry-run /path/to/dir` runs the same pipeline without binding listeners, producing the same JSON, for review of a proposed deploy before swap.
+
 ## `vane compile --dry-run`
 
 Reads `/etc/vaned/`, merges, compiles through the core pipeline (`merge → expand → analyze → lower → validate`), and emits the resulting `SymbolicFlowGraph` as JSON to stdout. No interaction with a running `vaned`. Used to:
