@@ -176,6 +176,40 @@ impl PredicateInst {
 				PredicateView::L7Req { req, .. },
 			) => req.method().as_str() == expected.as_ref(),
 
+			// `http.header.<name>` is critical for `Upgrade: websocket`
+			// routing in `reverse_proxy.websocket: true` and any other
+			// header-driven gate. Header lookups are case-insensitive per
+			// RFC 9110 § 5.1 — `parse_field_path` lowercases the name at
+			// compile, and `http::HeaderMap::get` handles case folding on
+			// the read side. Value comparison is case-sensitive (RFC 9110
+			// § 5.5: header values are opaque strings).
+			//
+			// Multi-value headers expose only the first value. Predicates
+			// needing "any of the values" should use the existing `any_of`
+			// combinator over distinct value matchers (16-predicate-schema
+			// § _http.header.<name>_).
+			(
+				FieldPath::HttpHeader(name),
+				CompiledOperator::Equals(CompiledValue::Str(expected)),
+				PredicateView::L7Req { req, .. },
+			) => req
+				.headers()
+				.get(name.as_ref())
+				.and_then(|v| v.to_str().ok())
+				.is_some_and(|got| got == expected.as_ref()),
+
+			(
+				FieldPath::HttpUriPath,
+				CompiledOperator::Equals(CompiledValue::Str(expected)),
+				PredicateView::L7Req { req, .. },
+			) => req.uri().path() == expected.as_ref(),
+
+			(
+				FieldPath::HttpUriPath,
+				CompiledOperator::Prefix(expected_bytes),
+				PredicateView::L7Req { req, .. },
+			) => req.uri().path().as_bytes().starts_with(expected_bytes.as_ref()),
+
 			// TODO(predicate-matrix): full operator × field-path dispatch per
 			// 18-predicate-schema.md. Unsupported combinations are sound-by-
 			// default: they always miss, never spuriously match.
