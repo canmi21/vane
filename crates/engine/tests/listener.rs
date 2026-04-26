@@ -23,6 +23,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use serde_json::Value;
@@ -192,7 +193,7 @@ async fn listener_accepts_tcp_and_routes_to_executor() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::clone(&graph), Arc::clone(&verbosity), sink_dyn);
+	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
 	assert!(set.is_running(&addr), "start must register a running listener for the entry addr");
 	assert_eq!(set.len(), 1, "exactly one entry → one running listener");
 
@@ -257,7 +258,7 @@ async fn listener_drains_in_flight_within_timeout() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::clone(&graph), Arc::clone(&verbosity), sink_dyn);
+	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
 
 	// Wait briefly so the accept loop binds, then connect.
 	tokio::time::sleep(Duration::from_millis(50)).await;
@@ -309,7 +310,7 @@ async fn listener_set_starts_multiple_entries_independently() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::clone(&graph), Arc::clone(&verbosity), sink_dyn);
+	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
 
 	assert_eq!(set.len(), 2, "two entries → two running listeners");
 	assert!(set.is_running(&addr1), "addr1 listener must be registered");
@@ -346,7 +347,7 @@ async fn listener_shutdown_idempotent_or_after_empty_start() {
 	let sink = Arc::new(RecordingSink::new());
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
-	set.start(Arc::clone(&graph), Arc::clone(&verbosity), sink_dyn);
+	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
 	assert!(set.is_empty(), "no entries → no listeners spawned");
 
 	let started = Instant::now();

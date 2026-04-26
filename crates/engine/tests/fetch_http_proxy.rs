@@ -39,6 +39,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
 
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use http_body::{Body as HttpBody, Frame, SizeHint};
 use http_body_util::{BodyExt, Empty, Full};
@@ -142,7 +143,7 @@ async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	let sink: Arc<dyn FlowLogSink> = Arc::new(DropSink);
 
 	let set = ListenerSet::new();
-	set.start(graph, verbosity, sink);
+	set.start(Arc::new(ArcSwap::new(graph)), verbosity, sink);
 
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	(set, addr)

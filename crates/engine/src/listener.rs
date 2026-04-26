@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use arc_swap::ArcSwap;
 use parking_lot::Mutex;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::Mutex as AsyncMutex;
@@ -84,10 +85,19 @@ impl ListenerSet {
 		Self { running: Mutex::new(HashMap::new()) }
 	}
 
-	/// Spawn one TCP accept task per L4-compatible entry in
-	/// `graph.symbolic().entries`. Entries whose first node forces L7 phase
-	/// are skipped — those need hyper integration (S1-17) before they can
-	/// serve. Caller must already be inside a tokio runtime.
+	/// Spawn one TCP accept task per L4-compatible entry in the **initial
+	/// snapshot** of `graph`. Each accept loop captures the
+	/// `Arc<ArcSwap<FlowGraph>>` and refreshes its working
+	/// `Arc<FlowGraph>` per accepted connection via `load_full()`, so
+	/// `ArcSwap::store` in the reload pipeline picks up immediately for
+	/// new connections while in-flight connections keep their captured
+	/// snapshot to natural completion (09-config.md § _Reload_).
+	///
+	/// The set of `SocketAddr` listeners is taken from the initial
+	/// snapshot only — `start` does not add or remove listeners on swap.
+	/// Listener-set diffing on reload is a separate future change; today,
+	/// editing rules to introduce a new `listen` port requires a daemon
+	/// restart.
 	///
 	/// Spawning is fire-and-forget; bind failures and accept-loop errors
 	/// surface only via `tracing` events. The handle stored in `running`
@@ -95,12 +105,14 @@ impl ListenerSet {
 	#[allow(clippy::needless_pass_by_value)]
 	pub fn start(
 		&self,
-		graph: Arc<FlowGraph>,
+		graph: Arc<ArcSwap<FlowGraph>>,
 		verbosity: Arc<VerbosityState>,
 		log_sink: Arc<dyn FlowLogSink>,
 	) {
-		let entries: Vec<(SocketAddr, NodeId)> =
-			graph.symbolic().entries.iter().map(|(a, n)| (*a, *n)).collect();
+		let entries: Vec<(SocketAddr, NodeId)> = {
+			let initial = graph.load_full();
+			initial.symbolic().entries.iter().map(|(a, n)| (*a, *n)).collect()
+		};
 
 		// Every entry binds. The lower pass guarantees entry nodes start in
 		// phase L4Raw (02-flow.md § _Phase state machine_), so the executor
@@ -229,7 +241,7 @@ async fn drain_in_flight(set: &AsyncMutex<JoinSet<()>>) {
 async fn run_accept_loop(
 	addr: SocketAddr,
 	entry: NodeId,
-	graph: Arc<FlowGraph>,
+	graph: Arc<ArcSwap<FlowGraph>>,
 	verbosity: Arc<VerbosityState>,
 	log_sink: Arc<dyn FlowLogSink>,
 	accept_cancel: CancellationToken,
@@ -263,12 +275,16 @@ async fn run_accept_loop(
 					}
 				};
 
-				let graph = Arc::clone(&graph);
+				// Per-accept snapshot of the active graph: 09-config.md
+				// § _Reload_ — `ArcSwap::store` from the reload pipeline
+				// picks up here for new connections; in-flight connections
+				// keep their captured `Arc<FlowGraph>` to natural completion.
+				let captured: Arc<FlowGraph> = graph.load_full();
 				let verbosity = Arc::clone(&verbosity);
 				let log_sink = Arc::clone(&log_sink);
 				let force = force_cancel.clone();
 				in_flight.lock().await.spawn(handle_connection(
-					stream, remote, addr, entry, graph, verbosity, log_sink, force,
+					stream, remote, addr, entry, captured, verbosity, log_sink, force,
 				));
 			}
 		}
