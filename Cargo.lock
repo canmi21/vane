@@ -1815,6 +1815,7 @@ dependencies = [
  "http-body",
  "ipnet",
  "parking_lot",
+ "rcgen",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -1825,6 +1826,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "x509-parser",
 ]
 
 [[package]]

@@ -337,7 +337,6 @@ impl PredicateInst {
 	/// cleartext connection, `http.header.upgrade` from an `L4` view)
 	/// also miss rather than panic.
 	#[must_use]
-	#[allow(clippy::match_same_arms)] // peer_cert / body stubs land in follow-up commits.
 	pub fn test(&self, view: &PredicateView<'_>) -> bool {
 		match &self.path {
 			FieldPath::Transport => {
@@ -373,10 +372,21 @@ impl PredicateInst {
 				.as_ref()
 				.and_then(|t| t.version)
 				.is_some_and(|v| test_str(&self.op, tls_version_str(v))),
-			// `tls.peer_cert.subject_cn` parsing lands in commit 3.
-			// Stage-1 listeners don't request client certs, so `peer_cert`
-			// is always `None` and the predicate misses today.
-			FieldPath::TlsPeerCertSubjectCn => false,
+			// `tls.peer_cert.subject_cn` reads the client certificate
+			// captured at the TLS handshake. Stage-1 listeners don't
+			// request mTLS so `peer_cert` is `None` in production; the
+			// reader still parses the X.509 subject CN via x509-parser
+			// when a cert is present so mTLS work won't need to revisit
+			// this arm. Sound-by-default: missing cert / no CN /
+			// malformed cert all miss.
+			FieldPath::TlsPeerCertSubjectCn => {
+				let cert_der = view.conn().tls.lock().as_ref().and_then(|t| t.peer_cert.clone());
+				let Some(cert) = cert_der else { return false };
+				match peer_cert_subject_cn(cert.as_ref()) {
+					Some(cn) => test_str(&self.op, cn.as_str()),
+					None => false,
+				}
+			}
 			FieldPath::HttpMethod => {
 				let Some(req) = view.request() else { return false };
 				test_str(&self.op, req.method().as_str())
@@ -420,6 +430,25 @@ fn tls_version_str(v: crate::conn_context::TlsVersion) -> &'static str {
 		crate::conn_context::TlsVersion::Tls12 => "1.2",
 		crate::conn_context::TlsVersion::Tls13 => "1.3",
 	}
+}
+
+/// Extract the subject Common Name (CN, OID 2.5.4.3) from a DER-encoded
+/// X.509 certificate. Returns `None` when:
+/// - the bytes do not parse as an X.509 v3 certificate (malformed cert)
+/// - the subject contains no CN attribute (modern certs frequently
+///   put hostnames in `subjectAltName` only)
+/// - the CN value is non-UTF-8 (`PrintableString` / `IA5String` /
+///   `UTF8String` are accepted; `BMPString` and rarer ASN.1 strings
+///   fall through)
+///
+/// The function is small and pure so the matrix dispatch stays
+/// allocation-light per Check evaluation.
+fn peer_cert_subject_cn(der: &[u8]) -> Option<String> {
+	use x509_parser::prelude::*;
+	let (_, cert) = X509Certificate::from_der(der).ok()?;
+	let subject = cert.tbs_certificate.subject();
+	let cn_attr = subject.iter_common_name().next()?;
+	cn_attr.as_str().ok().map(ToString::to_string)
 }
 
 /// String-typed reader. Handles `equals`/`not_equals`,
@@ -2241,14 +2270,120 @@ mod tests {
 		);
 	}
 
+	// ── tls.peer_cert.subject_cn (Str-typed) ──────────────────────────────
+
+	fn rcgen_cert_with_cn(cn: &str) -> rustls_pki_types::CertificateDer<'static> {
+		let mut params = rcgen::CertificateParams::default();
+		params.distinguished_name = rcgen::DistinguishedName::new();
+		params.distinguished_name.push(rcgen::DnType::CommonName, cn);
+		let key = rcgen::KeyPair::generate().expect("rcgen keypair");
+		let cert = params.self_signed(&key).expect("self-sign cert");
+		cert.der().clone()
+	}
+
+	fn rcgen_cert_no_cn() -> rustls_pki_types::CertificateDer<'static> {
+		// Build a cert whose Subject DN is empty (no CN). x509-parser
+		// then returns no CommonName attribute; the reader must miss.
+		let params = rcgen::CertificateParams::default();
+		// Default DistinguishedName from rcgen actually carries a default
+		// CN, so we replace it with an empty DN explicitly.
+		let mut params = params;
+		params.distinguished_name = rcgen::DistinguishedName::new();
+		let key = rcgen::KeyPair::generate().expect("rcgen keypair");
+		let cert = params.self_signed(&key).expect("self-sign cert");
+		cert.der().clone()
+	}
+
+	fn conn_with_peer_cert(cert: rustls_pki_types::CertificateDer<'static>) -> Arc<ConnContext> {
+		let conn = make_conn();
+		*conn.tls.lock() = Some(crate::conn_context::TlsInfo {
+			sni: None,
+			alpn: None,
+			version: None,
+			peer_cert: Some(cert),
+		});
+		conn
+	}
+
 	#[test]
-	fn tls_peer_cert_subject_cn_is_stub_until_commit_3() {
-		// `tls.peer_cert.subject_cn` parsing isn't wired yet; the reader
-		// returns false unconditionally. Ensures sound-by-default behavior.
+	fn peer_cert_subject_cn_extraction_returns_cn_string() {
+		// Direct unit test on the X.509 helper — bypass the dispatch.
+		let cert = rcgen_cert_with_cn("client.internal");
+		assert_eq!(peer_cert_subject_cn(cert.as_ref()), Some("client.internal".to_string()));
+	}
+
+	#[test]
+	fn peer_cert_subject_cn_returns_none_for_malformed_der() {
+		// Random non-DER bytes must yield None, not panic.
+		assert_eq!(peer_cert_subject_cn(&[0x30, 0x80, 0x00, 0x00]), None);
+		assert_eq!(peer_cert_subject_cn(b"not a cert at all"), None);
+	}
+
+	#[test]
+	fn peer_cert_subject_cn_returns_none_when_dn_has_no_cn() {
+		let cert = rcgen_cert_no_cn();
+		assert_eq!(peer_cert_subject_cn(cert.as_ref()), None);
+	}
+
+	#[test]
+	fn matrix_peer_cert_subject_cn_equals_happy_and_miss() {
+		let cert = rcgen_cert_with_cn("ops-bot");
+		let conn = conn_with_peer_cert(cert);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Equals(str_val("ops-bot"))).test(&v)
+		);
+		assert!(
+			!pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Equals(str_val("attacker")))
+				.test(&v)
+		);
+	}
+
+	#[test]
+	fn matrix_peer_cert_subject_cn_string_ops_happy_and_miss() {
+		let cert = rcgen_cert_with_cn("svc-payments-prod");
+		let conn = conn_with_peer_cert(cert);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		// Prefix
+		assert!(pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Prefix(b(b"svc-"))).test(&v));
+		assert!(
+			!pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Prefix(b(b"client-"))).test(&v)
+		);
+		// Suffix
+		assert!(pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Suffix(b(b"-prod"))).test(&v));
+		// Contains
+		assert!(
+			pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Contains(b(b"payments"))).test(&v)
+		);
+		// Matches
+		let re = Regex::new(r"^svc-[a-z]+-(prod|stg)$").expect("regex");
+		assert!(pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Matches(re)).test(&v));
+		// In-list
+		let list = vec![str_val("svc-other-prod"), str_val("svc-payments-prod")];
+		assert!(pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::In(list)).test(&v));
+	}
+
+	#[test]
+	fn peer_cert_subject_cn_misses_when_cert_absent() {
+		// Cleartext or no-mTLS handshake: tls.peer_cert is None. Reader
+		// must miss instead of panicking on missing state.
 		let conn = make_conn();
 		let v = PredicateView::L4 { conn: &conn, peek: None };
 		assert!(
-			!pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Equals(str_val("CN=foo"))).test(&v)
+			!pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Equals(str_val("anything")))
+				.test(&v)
+		);
+	}
+
+	#[test]
+	fn peer_cert_subject_cn_misses_when_cert_has_no_cn() {
+		// Sound-by-default for certs whose Subject DN omits CN entirely
+		// (e.g. modern profile that puts identity in subjectAltName).
+		let cert = rcgen_cert_no_cn();
+		let conn = conn_with_peer_cert(cert);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			!pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Equals(str_val("ops-bot"))).test(&v)
 		);
 	}
 

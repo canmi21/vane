@@ -37,7 +37,9 @@ thiserror = "2.0.18"
 tokio = { version = "1.52.1", default-features = false, features = ["net", "sync", "time"] }
 tokio-util = { version = "0.7", default-features = false }
 tracing = "0.1.44"
+x509-parser = "0.18"
 
 [dev-dependencies]
+rcgen = "0.14"
 serial_test = "3"
 tempfile = "3"
