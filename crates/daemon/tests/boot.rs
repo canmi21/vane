@@ -10,12 +10,9 @@
 //! - SIGTERM triggers the soft-drain shutdown and the process exits
 //!   cleanly within a few seconds.
 //!
-//! The signal-driven tests use `libc::kill` directly. The workspace
-//! lint `unsafe_code = "deny"` is relaxed locally — there is no
-//! safe-Rust equivalent for sending POSIX signals to a child process,
-//! and the surrounding test infrastructure (single test binary, no
-//! cross-thread access to `Child`) makes the unsafe sound.
-#![allow(unsafe_code)]
+//! Signal-driven tests use `nix::sys::signal::kill` so the file stays
+//! within the workspace's `unsafe_code = "deny"` lint. `Pid` / `Signal`
+//! are typed wrappers around the POSIX primitives.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -24,6 +21,8 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use nix::sys::signal::{Signal, kill};
+use nix::unistd::Pid;
 use predicates::prelude::*;
 use predicates::str::contains;
 
@@ -84,13 +83,9 @@ fn wait_for_port_open(port: u16, timeout: Duration) {
 }
 
 /// Send a POSIX signal to the child process.
-fn kill_signal(child: &Child, sig: i32) {
-	#[allow(clippy::cast_possible_wrap)]
-	let pid = child.id() as libc::pid_t;
-	// SAFETY: PID was just reported by a live `Child` we own; libc::kill
-	// with a valid signal is sound.
-	let rc = unsafe { libc::kill(pid, sig) };
-	assert_eq!(rc, 0, "libc::kill returned {rc}");
+fn kill_signal(child: &Child, sig: Signal) {
+	let pid_raw: i32 = child.id().try_into().expect("child pid fits i32");
+	kill(Pid::from_raw(pid_raw), sig).expect("nix::kill");
 }
 
 /// Wait for the child to exit, with a timeout. Returns the exit status.
@@ -191,7 +186,7 @@ fn boot_with_static_site_serves_response_and_drains_on_sigterm() {
 
 	// SIGTERM kicks soft-drain (30s timeout); without in-flight work it
 	// completes immediately.
-	kill_signal(&child, libc::SIGTERM);
+	kill_signal(&child, Signal::SIGTERM);
 	let status = wait_with_timeout(&mut child, Duration::from_secs(5));
 	assert!(status.success(), "SIGTERM exit status: {status:?}");
 }
@@ -219,7 +214,7 @@ fn sigint_immediate_shutdown_under_one_second() {
 	wait_for_port_open(port, Duration::from_secs(10));
 
 	let started = Instant::now();
-	kill_signal(&child, libc::SIGINT);
+	kill_signal(&child, Signal::SIGINT);
 	let status = wait_with_timeout(&mut child, Duration::from_secs(3));
 	let elapsed = started.elapsed();
 	assert!(status.success(), "SIGINT exit status: {status:?}");
