@@ -392,7 +392,14 @@ mod tests {
 
 	fn find_entry_check(graph: &SymbolicFlowGraph, port: u16) -> NodeId {
 		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
-		*graph.entries.get(&v4).expect("entry present")
+		let entry = *graph.entries.get(&v4).expect("entry present");
+		// Per 02-flow.md § _Listener-level Upgrade placement_, every L7
+		// listener carries one shared Upgrade above the rule chains. Tests
+		// that probe Check structure below the Upgrade skip past it here.
+		match &graph[entry] {
+			Node::Upgrade { next } => *next,
+			_ => entry,
+		}
 	}
 
 	fn unwrap_check(node: &Node) -> (PredicateId, NodeId, NodeId) {
@@ -563,69 +570,33 @@ mod tests {
 		assert_eq!(graph.predicates.len(), 1);
 	}
 
-	// --- Task 3: phase-split Check placement --------------------------------
-
-	fn node_successors(n: &Node) -> Vec<NodeId> {
-		match n {
-			Node::Check { on_match, on_miss, .. } => vec![*on_match, *on_miss],
-			Node::Middleware { next, on_error, .. } => {
-				let mut v = vec![*next];
-				if let Some(e) = on_error {
-					v.push(*e);
-				}
-				v
-			}
-			Node::Fetch { next_response, next_tunnel, .. } => {
-				let mut v = Vec::new();
-				if let Some(r) = next_response {
-					v.push(*r);
-				}
-				if let Some(t) = next_tunnel {
-					v.push(*t);
-				}
-				v
-			}
-			Node::Upgrade { next } => vec![*next],
-			Node::Terminate(_) => Vec::new(),
-		}
-	}
-
-	fn walk_reachable(graph: &SymbolicFlowGraph, from: NodeId) -> std::collections::HashSet<NodeId> {
-		let mut seen = std::collections::HashSet::new();
-		let mut stack = vec![from];
-		while let Some(id) = stack.pop() {
-			if !seen.insert(id) {
-				continue;
-			}
-			for s in node_successors(&graph[id]) {
-				stack.push(s);
-			}
-		}
-		seen
-	}
+	// --- Phase-split Check placement (C13.5: single shared Upgrade) --------
 
 	#[test]
-	fn l4_predicate_on_l7_rule_sits_before_upgrade() {
-		// `tls.sni == "a"` is L4Peek level. On an L7 posture rule it must be
-		// reachable BEFORE the Upgrade node so the predicate evaluates while
-		// no Request has been decoded yet.
+	fn l4_predicate_on_l7_rule_sits_post_upgrade() {
+		// 02-flow.md § _Listener-level Upgrade placement_ (C13.5): the
+		// C5.5-era "L4-level Check fails fast before HTTP decode" optimisation
+		// is gone. Every L7 listener carries one shared Upgrade above the
+		// rule chains, so L4-level Check leaves on L7 rules now sit AFTER
+		// the Upgrade. PredicateView's `L7Req` variant still carries `conn`,
+		// so reads of `tls.sni` / `remote.ip` remain functionally correct.
 		let r = check_rule("r", 7300, &serde_json::json!({ "tls.sni": { "equals": "a" } }));
 		let graph =
 			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
-		let entry = find_entry_check(&graph, 7300);
-		// Entry must be a Check node.
-		assert!(matches!(&graph[entry], Node::Check { .. }));
-		// Walk from the Check's on_match — it should eventually pass through an Upgrade.
-		let (_, on_match, _) = unwrap_check(&graph[entry]);
-		let reached = walk_reachable(&graph, on_match);
-		let upgrade_reached = reached.iter().any(|id| matches!(&graph[*id], Node::Upgrade { .. }));
-		assert!(upgrade_reached, "Upgrade must sit below the L4-level Check");
+		// Listener entry is the shared Upgrade.
+		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7300);
+		let listener_entry = *graph.entries.get(&v4).expect("entry present");
+		assert!(matches!(&graph[listener_entry], Node::Upgrade { .. }));
+		// One step below the Upgrade is the Check.
+		let check_below = find_entry_check(&graph, 7300);
+		assert!(matches!(&graph[check_below], Node::Check { .. }));
 	}
 
 	#[test]
 	fn l7_predicate_on_l7_rule_sits_after_upgrade() {
-		// `http.header.host == "x"` is L7Header level. Placement requires
-		// Upgrade above the Check.
+		// L7-level checks have always sat after Upgrade. The C13.5 refactor
+		// preserves that — Upgrade is now listener-level rather than
+		// per-rule, but Checks still descend from it.
 		let r = check_rule(
 			"r",
 			7301,
@@ -633,14 +604,13 @@ mod tests {
 		);
 		let graph =
 			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
-		let entry = find_entry_check(&graph, 7301);
-		// Entry must be an Upgrade node for an L7-level check on an L7 rule.
+		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7301);
+		let listener_entry = *graph.entries.get(&v4).expect("entry present");
 		assert!(
-			matches!(&graph[entry], Node::Upgrade { .. }),
-			"L7-level check must sit below Upgrade, so listener entry is the Upgrade itself",
+			matches!(&graph[listener_entry], Node::Upgrade { .. }),
+			"L7 listener entry is the shared Upgrade",
 		);
-		// The Upgrade's `next` is a Check node reading http.header.host.
-		let Node::Upgrade { next } = &graph[entry] else {
+		let Node::Upgrade { next } = &graph[listener_entry] else {
 			panic!("expected Upgrade");
 		};
 		assert!(matches!(&graph[*next], Node::Check { .. }));
@@ -716,8 +686,9 @@ mod tests {
 		}));
 		let graph =
 			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
-		let entry = find_entry_check(&graph, 7303);
-		assert!(matches!(&graph[entry], Node::Upgrade { .. }));
+		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7303);
+		let listener_entry = *graph.entries.get(&v4).expect("entry present");
+		assert!(matches!(&graph[listener_entry], Node::Upgrade { .. }));
 	}
 
 	#[test]
@@ -795,6 +766,20 @@ mod tests {
 					],
 				},
 			}),
+			serde_json::json!({
+				"all_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "tls.sni": { "equals": "b" } },
+				],
+			}),
+			serde_json::json!({
+				"not": {
+					"all_of": [
+						{ "tls.sni": { "equals": "a" } },
+						{ "tls.sni": { "equals": "b" } },
+					],
+				},
+			}),
 		];
 		for (i, m) in shapes.iter().enumerate() {
 			let port = 7200 + u16::try_from(i).expect("fits u16");
@@ -803,5 +788,141 @@ mod tests {
 				compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
 			validate::validate(&graph).expect("validate");
 		}
+	}
+
+	// --- C13.5: AllOf lowering + listener-level shared Upgrade -----------
+
+	#[test]
+	fn all_of_two_checks_chains_left_match_to_right_entry() {
+		// all_of [A, B] match=>X miss=>Y  ≡
+		//   Check(A) match=>Check(B) match=>X miss=>Y, miss=>Y
+		// Both Checks share on_miss; the first Check's on_match points at
+		// the second Check's entry, not at X directly.
+		let r = check_rule(
+			"r",
+			7500,
+			&serde_json::json!({
+				"all_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "tls.sni": { "equals": "b" } },
+				],
+			}),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let entry = find_entry_check(&graph, 7500);
+		let (_, match_a, miss_a) = unwrap_check(&graph[entry]);
+		let (_, _match_b, miss_b) = unwrap_check(&graph[match_a]);
+		assert_eq!(miss_a, miss_b, "both all_of branches share on_miss");
+		assert_eq!(graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count(), 2);
+	}
+
+	#[test]
+	fn all_of_empty_array_short_circuits_to_on_match() {
+		// `all_of: []` is vacuously true → no Check emitted, the rule's
+		// chain entry equals on_match (the rule body).
+		let r = check_rule("r", 7501, &serde_json::json!({ "all_of": [] }));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let check_count = graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count();
+		assert_eq!(check_count, 0, "empty all_of must not emit a Check node");
+	}
+
+	#[test]
+	fn all_of_cross_level_combinator_is_rejected() {
+		// Same uniform-level rule as any_of: AllOf can't mix L4 and L7 leaves.
+		let r = check_rule(
+			"r",
+			7502,
+			&serde_json::json!({
+				"all_of": [
+					{ "tls.sni": { "equals": "a" } },
+					{ "http.method": { "equals": "GET" } },
+				],
+			}),
+		);
+		let err = compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers)
+			.expect_err("cross-level all_of must fail");
+		let msg = err.to_string();
+		assert!(msg.contains("cross-level"), "error names the constraint: {msg}");
+		assert!(msg.contains("all_of"), "error mentions all_of: {msg}");
+	}
+
+	#[test]
+	fn all_of_nested_inside_any_of_works() {
+		let r = check_rule(
+			"r",
+			7503,
+			&serde_json::json!({
+				"any_of": [
+					{ "all_of": [
+						{ "http.header.upgrade": { "equals": "websocket" } },
+						{ "http.uri.path": { "prefix": "/ws" } },
+					]},
+					{ "all_of": [
+						{ "http.header.upgrade": { "equals": "websocket" } },
+						{ "http.uri.path": { "prefix": "/api/stream" } },
+					]},
+				],
+			}),
+		);
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		assert_eq!(graph.nodes.iter().filter(|n| matches!(n, Node::Check { .. })).count(), 4);
+	}
+
+	#[test]
+	fn l7_listener_emits_single_upgrade_at_top_for_two_rules() {
+		// 02-flow.md § _Listener-level Upgrade placement_: two L7 rules on
+		// the same listener share one Upgrade — the entire graph must
+		// contain exactly one Upgrade node, not two.
+		let a = parse_rule(serde_json::json!({
+			"name": "a",
+			"listen": [":7600"],
+			"match": { "http.header.host": { "equals": "a.example.com" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "b",
+			"listen": [":7600"],
+			"match": { "http.header.host": { "equals": "b.example.com" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers).expect("compile");
+		let upgrades = graph.nodes.iter().filter(|n| matches!(n, Node::Upgrade { .. })).count();
+		assert_eq!(upgrades, 1, "exactly one Upgrade per L7 listener regardless of rule count");
+	}
+
+	#[test]
+	fn l4_listener_has_no_upgrade() {
+		// L4 posture stays as-is — no Upgrade emitted.
+		let r = parse_rule(serde_json::json!({
+			"name": "fwd",
+			"listen": [":7601"],
+			"terminate": { "type": "tcp_forward", "upstream": "10.0.0.5:22" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let upgrades = graph.nodes.iter().filter(|n| matches!(n, Node::Upgrade { .. })).count();
+		assert_eq!(upgrades, 0);
+	}
+
+	#[test]
+	fn websocket_upgrade_emits_two_distinct_terminators() {
+		// C13.5 fix: WebSocketUpgrade is dual-output — response branch goes
+		// through WriteHttpResponse (rejection), tunnel branch through
+		// ByteTunnel (101-Switching handoff).
+		let r = parse_rule(serde_json::json!({
+			"name": "ws",
+			"listen": [":7602"],
+			"match": { "http.header.upgrade": { "equals": "websocket" } },
+			"terminate": { "type": "websocket", "upstream": "127.0.0.1:8080" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let terms: std::collections::HashSet<_> = graph.terminators.iter().copied().collect();
+		assert!(terms.contains(&Terminator::WriteHttpResponse), "response branch terminator");
+		assert!(terms.contains(&Terminator::ByteTunnel), "tunnel branch terminator");
 	}
 }

@@ -189,6 +189,7 @@ pub const REGEX_PATTERN_MAX_BYTES: usize = 4 * 1024;
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum Predicate {
 	AnyOf(AnyOfP),
+	AllOf(AllOfP),
 	Not(NotP),
 	Check(CheckMap),
 }
@@ -197,6 +198,12 @@ pub enum Predicate {
 #[serde(deny_unknown_fields)]
 pub struct AnyOfP {
 	pub any_of: Vec<Predicate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AllOfP {
+	pub all_of: Vec<Predicate>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -250,6 +257,11 @@ impl<'de> serde::Deserialize<'de> for Predicate {
 				"any_of" => {
 					return serde_json::from_value::<AnyOfP>(v)
 						.map(Predicate::AnyOf)
+						.map_err(serde::de::Error::custom);
+				}
+				"all_of" => {
+					return serde_json::from_value::<AllOfP>(v)
+						.map(Predicate::AllOf)
 						.map_err(serde::de::Error::custom);
 				}
 				"not" => {
@@ -819,6 +831,78 @@ mod tests {
 			Operator::Equals(Value::Str(s)) => assert_eq!(s, "internal"),
 			other => panic!("unexpected op: {other:?}"),
 		}
+	}
+
+	#[test]
+	fn parse_all_of_happy_path() {
+		let raw = serde_json::json!({
+			"all_of": [
+				{ "http.header.upgrade": { "equals": "websocket" } },
+				{ "http.uri.path": { "prefix": "/ws" } },
+			],
+		});
+		let p = parse_predicate(raw).expect("parse all_of");
+		let Predicate::AllOf(AllOfP { all_of }) = p else {
+			panic!("expected AllOf");
+		};
+		assert_eq!(all_of.len(), 2);
+		let c0 = expect_check(&all_of[0]);
+		let c1 = expect_check(&all_of[1]);
+		assert_eq!(c0.path, FieldPath::HttpHeader(Arc::from("upgrade")));
+		assert_eq!(c1.path, FieldPath::HttpUriPath);
+	}
+
+	#[test]
+	fn parse_all_of_empty_array_parses() {
+		// `all_of: []` is an empty conjunction — vacuously true. Parse must
+		// succeed; the `lower` pass folds it to `on_match` directly.
+		let raw = serde_json::json!({ "all_of": [] });
+		let p = parse_predicate(raw).expect("empty all_of parses");
+		let Predicate::AllOf(AllOfP { all_of }) = p else {
+			panic!("expected AllOf");
+		};
+		assert!(all_of.is_empty());
+	}
+
+	#[test]
+	fn parse_all_of_nested_with_check_and_any_of() {
+		let raw = serde_json::json!({
+			"all_of": [
+				{ "tls.sni": { "equals": "api.example.com" } },
+				{ "any_of": [
+					{ "remote.ip": { "cidr": "10.0.0.0/8" } },
+					{ "remote.ip": { "cidr": "192.168.0.0/16" } },
+				]},
+			],
+		});
+		let p = parse_predicate(raw).expect("parse nested all_of/any_of");
+		let Predicate::AllOf(AllOfP { all_of }) = p else {
+			panic!("expected AllOf");
+		};
+		assert_eq!(all_of.len(), 2);
+		assert!(matches!(all_of[0], Predicate::Check(_)));
+		assert!(matches!(all_of[1], Predicate::AnyOf(_)));
+	}
+
+	#[test]
+	fn parse_all_of_with_extra_key_is_rejected() {
+		// AllOfP carries deny_unknown_fields like AnyOfP.
+		let raw = serde_json::json!({
+			"all_of": [ { "tls.sni": { "equals": "a" } } ],
+			"extra": "unwanted",
+		});
+		let err = parse_predicate(raw).expect_err("must reject extra key on all_of");
+		let _ = err.to_string();
+	}
+
+	#[test]
+	fn parse_http_header_all_of_is_a_check_not_combinator() {
+		// A header literally named "all_of" parses as a Check via the
+		// multi-segment dotted-path path, mirroring the AnyOf treatment.
+		let raw = serde_json::json!({ "http.header.all_of": { "equals": "x" } });
+		let p = parse_predicate(raw).expect("parse http.header.all_of");
+		let c = expect_check(&p);
+		assert_eq!(c.path, FieldPath::HttpHeader(Arc::from("all_of")));
 	}
 
 	#[test]

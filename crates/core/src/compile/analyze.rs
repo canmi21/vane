@@ -77,7 +77,7 @@ fn analyze_rule(
 					reads_http_body = true;
 				}
 			}
-			Predicate::AnyOf(_) | Predicate::Not(_) => {}
+			Predicate::AnyOf(_) | Predicate::AllOf(_) | Predicate::Not(_) => {}
 		});
 	}
 
@@ -140,6 +140,11 @@ fn walk_predicate(p: &Predicate, f: &mut impl FnMut(&Predicate)) {
 	match p {
 		Predicate::AnyOf(a) => {
 			for child in &a.any_of {
+				walk_predicate(child, f);
+			}
+		}
+		Predicate::AllOf(a) => {
+			for child in &a.all_of {
 				walk_predicate(child, f);
 			}
 		}

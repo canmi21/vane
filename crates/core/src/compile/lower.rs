@@ -170,15 +170,27 @@ impl Builder {
 		// per 05-terminator.md § _Variants_ C5.5 update: unmatched traffic
 		// is silently dropped (port scans, protocol probes, misroutes).
 		let needs_fallback = ordered.iter().any(|r| r.raw.match_predicate.is_some());
-		let _ = posture;
 		let fallback_miss =
 			if needs_fallback { self.synthesize_default_miss() } else { NodeId::new(0) };
+
+		// Build the inner chain (no per-rule Upgrade). For an L7 listener
+		// we wrap the resulting entry in ONE shared `Node::Upgrade` below.
+		// 02-flow.md § _Listener-level Upgrade placement_: emitting one
+		// Upgrade per rule and stitching them via on_miss puts the second
+		// Upgrade in `Phase::L7Request`, which the validator rejects. A
+		// single listener-level Upgrade keeps every cross-rule on_miss edge
+		// in the post-Upgrade phase.
 		let mut current_miss = fallback_miss;
 		for rule in ordered.iter().rev() {
 			let chain_entry = self.lower_rule(rule, current_miss, mw_meta, fetch_meta)?;
 			current_miss = chain_entry;
 		}
-		Ok(current_miss)
+		let inner_entry = current_miss;
+
+		match posture {
+			Posture::L7 => Ok(self.push_node(Node::Upgrade { next: inner_entry })),
+			Posture::L4 => Ok(inner_entry),
+		}
 	}
 
 	fn synthesize_default_miss(&mut self) -> NodeId {
@@ -198,20 +210,32 @@ impl Builder {
 		fetch_meta: &dyn FetchMetadataProvider,
 	) -> Result<NodeId, Error> {
 		// Build tail-first so on_* edges point at already-allocated NodeIds.
-		let terminator_variant = terminator_for_fetch(rule.raw.terminate.kind);
-		let tid = self.intern_terminator(terminator_variant);
-		let term_node = self.push_node(Node::Terminate(tid));
-
-		// Fetch node. LazyBuffer response-side flag attaches here if the
-		// response track has no earlier reader (S1-22 middleware introduces
-		// response-side nodes; for now the fetch is the only candidate).
+		// `WebSocketUpgrade` is dual-output: the response branch emits a
+		// WriteHttpResponse terminator (for rejection / 4xx), the tunnel
+		// branch emits a ByteTunnel terminator (for the 101-Switching
+		// handoff). Single-output fetches reuse one terminator node on the
+		// active branch only.
 		let fetch_kind = rule.raw.terminate.kind;
 		let fid =
 			self.push_fetch(SymbolicFetchRef { kind: fetch_kind, args: rule.raw.terminate.args.clone() });
 		let (next_response, next_tunnel) = match fetch_kind {
-			FetchKind::HttpProxy | FetchKind::HttpSynthesize => (Some(term_node), None),
-			FetchKind::L4Forward => (None, Some(term_node)),
-			FetchKind::WebSocketUpgrade => (Some(term_node), Some(term_node)),
+			FetchKind::HttpProxy | FetchKind::HttpSynthesize => {
+				let tid = self.intern_terminator(Terminator::WriteHttpResponse);
+				let term_node = self.push_node(Node::Terminate(tid));
+				(Some(term_node), None)
+			}
+			FetchKind::L4Forward => {
+				let tid = self.intern_terminator(Terminator::ByteTunnel);
+				let term_node = self.push_node(Node::Terminate(tid));
+				(None, Some(term_node))
+			}
+			FetchKind::WebSocketUpgrade => {
+				let resp_tid = self.intern_terminator(Terminator::WriteHttpResponse);
+				let resp_node = self.push_node(Node::Terminate(resp_tid));
+				let tun_tid = self.intern_terminator(Terminator::ByteTunnel);
+				let tun_node = self.push_node(Node::Terminate(tun_tid));
+				(Some(resp_node), Some(tun_node))
+			}
 		};
 		let _ = fetch_meta;
 		let fetch_node_idx = self.nodes.len();
@@ -256,44 +280,23 @@ impl Builder {
 			// can set it post-Fetch in the response sub-chain (S2 scope).
 		}
 
-		// Place the match predicate's Check nodes per their inspection level.
-		// L4-level checks sit before Upgrade (so they evaluate in L4Raw /
-		// L4Peeked — no Request is available yet). L7-level checks sit after
-		// Upgrade so they see the decoded Request. The user-facing simplification
-		// for C5.5: the entire match_predicate inherits ONE level derived from
-		// the union of its Check leaves; cross-level combinators are rejected
-		// with a spec-quoted error so users get a clear explanation. See task 3
-		// of the C5.5 brief.
-		let pred_level = rule.raw.match_predicate.as_ref().map(predicate_uniform_level).transpose()?;
+		// Validate the predicate's leaves are uniform-level (cross-level
+		// combinators still rejected per C5.5 § _Predicate uniform level_).
+		// Placement no longer depends on level — the listener-level Upgrade
+		// (added by `lower_port`) sits above the entire inner chain, so every
+		// Check sits in the post-Upgrade phase regardless of leaf level.
+		// PredicateView's `L7Req` variant carries `conn`, so L4-only fields
+		// (`remote.ip`, `tls.sni`) remain readable here.
+		//
+		// SPEC DEVIATION (intentional, documented in 02-flow.md § _Listener-
+		// level Upgrade placement_): the C5.5-era "L4-level Check fails fast
+		// before HTTP decode" optimisation is lost — L7 listeners now decode
+		// the request before evaluating L4-level predicates. See spec for
+		// the trade-off.
+		let _ = rule.raw.match_predicate.as_ref().map(predicate_uniform_level).transpose()?;
 
-		match (rule.posture, pred_level) {
-			(Posture::L7, Some(Level::L7Header | Level::L7Body)) => {
-				// L7 Check sits BETWEEN Upgrade (above) and the L7 chain (below).
-				if let Some(pred) = &rule.raw.match_predicate {
-					head = self.lower_predicate(pred, head, on_miss)?;
-				}
-				let upgrade = self.push_node(Node::Upgrade { next: head });
-				head = upgrade;
-			}
-			(Posture::L7, Some(Level::L4Only | Level::L4Peek)) => {
-				// L4 Check sits ABOVE Upgrade; Upgrade wraps the L7 chain below.
-				let upgrade = self.push_node(Node::Upgrade { next: head });
-				head = upgrade;
-				if let Some(pred) = &rule.raw.match_predicate {
-					head = self.lower_predicate(pred, head, on_miss)?;
-				}
-			}
-			(Posture::L7, None) => {
-				// No predicates; still need Upgrade to enter L7 phase.
-				let upgrade = self.push_node(Node::Upgrade { next: head });
-				head = upgrade;
-			}
-			(Posture::L4, _) => {
-				// L4 rules never Upgrade; Check (if any) sits directly on top.
-				if let Some(pred) = &rule.raw.match_predicate {
-					head = self.lower_predicate(pred, head, on_miss)?;
-				}
-			}
+		if let Some(pred) = &rule.raw.match_predicate {
+			head = self.lower_predicate(pred, head, on_miss)?;
 		}
 
 		Ok(head)
@@ -320,8 +323,7 @@ impl Builder {
 				// Build right-to-left so each preceding Check's on_miss points
 				// at the next child's entry.
 				if any_of.any_of.is_empty() {
-					// Empty any_of is an empty OR — always misses. Spec doesn't
-					// call this out; interpret as "never matches" for safety.
+					// Empty any_of is an empty OR — always misses (vacuous false).
 					return Ok(on_miss);
 				}
 				let mut cur_miss = on_miss;
@@ -329,6 +331,21 @@ impl Builder {
 					cur_miss = self.lower_predicate(child, on_match, cur_miss)?;
 				}
 				Ok(cur_miss)
+			}
+			Predicate::AllOf(all_of) => {
+				// all_of [A, B, C] match=>X miss=>Y  ≡
+				//     Check(A) match=>Check(B) match=>Check(C) match=>X miss=>Y, miss=>Y, miss=>Y
+				// Dual of AnyOf: chain `on_match` forward through children; the
+				// shared `on_miss` short-circuits the whole conjunction.
+				if all_of.all_of.is_empty() {
+					// Empty all_of is an empty AND — always matches (vacuous true).
+					return Ok(on_match);
+				}
+				let mut cur_match = on_match;
+				for child in all_of.all_of.iter().rev() {
+					cur_match = self.lower_predicate(child, cur_match, on_miss)?;
+				}
+				Ok(cur_match)
 			}
 			Predicate::Not(not) => {
 				// not P match=>X miss=>Y  ≡  lower(P, match=>Y, miss=>X)
@@ -426,7 +443,7 @@ fn collect_levels(pred: &Predicate, acc: &mut Option<Level>) -> Result<(), Error
 				}
 				Some(existing) => {
 					return Err(Error::compile(format!(
-						"cross-level any_of / not not supported: predicate mixes {existing:?} and {leaf:?} leaves"
+						"cross-level any_of / all_of / not not supported: predicate mixes {existing:?} and {leaf:?} leaves"
 					)));
 				}
 			}
@@ -434,6 +451,12 @@ fn collect_levels(pred: &Predicate, acc: &mut Option<Level>) -> Result<(), Error
 		}
 		Predicate::AnyOf(a) => {
 			for child in &a.any_of {
+				collect_levels(child, acc)?;
+			}
+			Ok(())
+		}
+		Predicate::AllOf(a) => {
+			for child in &a.all_of {
 				collect_levels(child, acc)?;
 			}
 			Ok(())
@@ -460,13 +483,6 @@ fn predicate_is_l4(pred: Option<&Predicate>) -> bool {
 			| FieldPath::TlsVersion
 			| FieldPath::TlsPeerCertSubjectCn
 	)
-}
-
-fn terminator_for_fetch(kind: FetchKind) -> Terminator {
-	match kind {
-		FetchKind::HttpProxy | FetchKind::HttpSynthesize => Terminator::WriteHttpResponse,
-		FetchKind::L4Forward | FetchKind::WebSocketUpgrade => Terminator::ByteTunnel,
-	}
 }
 
 type ListenerGroup<'a> = (Vec<SocketAddr>, Vec<&'a AnalyzedRule>);
