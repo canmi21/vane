@@ -28,14 +28,21 @@ wasm = ["dep:vane-wasm"]
 [dependencies]
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive"] }
+serde_json = "1.0.149"
 tokio = { version = "1.52.1", features = ["full"] }
 tokio-util = "0.7.18"
 tracing = "0.1.44"
-tracing-subscriber = "0.3.23"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 vane-core = { workspace = true }
 vane-engine = { path = "../engine", version = "0.10.0", default-features = false }
 vane-mgmt = { workspace = true }
 vane-wasm = { workspace = true, optional = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+libc = "0.2"
+predicates = "3"
+tempfile = "3"
 
 [[bin]]
 name = "vaned"
