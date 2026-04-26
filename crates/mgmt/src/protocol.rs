@@ -39,16 +39,31 @@ pub struct Response {
 /// so the wire shape is `{"id":N,"result":{...}}` or
 /// `{"id":N,"error":{...}}` rather than a nested `outcome` key.
 ///
+/// Streaming verbs use the additional `Event` and `End` variants:
+///
+/// - `Event { event }` — one frame in a streaming response. The server
+///   may emit zero or more of these per request.
+/// - `End {}` — terminates a streaming response normally. Encoded as
+///   `{"id":N,"end":{}}` so the client can match on the field name.
+///
 /// `#[serde(untagged)]` collapses each variant to its single field —
-/// the keys (`result`, `error`) are mutually exclusive, so the
-/// discriminator is the field name itself rather than a separate
-/// `"kind"` tag.
+/// the keys (`result`, `error`, `event`, `end`) are mutually
+/// exclusive, so the discriminator is the field name itself rather
+/// than a separate `"kind"` tag.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ResponseOutcome {
 	Result { result: serde_json::Value },
 	Error { error: WireError },
+	Event { event: serde_json::Value },
+	End { end: EndMarker },
 }
+
+/// Empty marker payload for the `End` outcome. Encoded as `{}` so
+/// future fields (e.g. a final summary) can be added without breaking
+/// the wire shape.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EndMarker {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WireError {
@@ -149,6 +164,52 @@ mod tests {
 			serde_json::to_string(&WireErrorKind::NotImplemented).unwrap(),
 			"\"not_implemented\""
 		);
+	}
+
+	#[test]
+	fn response_event_outcome_serializes_with_event_key() {
+		let resp = Response {
+			id: 9,
+			outcome: ResponseOutcome::Event { event: serde_json::json!({ "kind": "trajectory" }) },
+		};
+		let value = serde_json::to_value(&resp).expect("to_value");
+		assert_eq!(value["id"], 9);
+		assert_eq!(value["event"]["kind"], "trajectory");
+		assert!(value.get("result").is_none());
+		assert!(value.get("error").is_none());
+		assert!(value.get("end").is_none());
+	}
+
+	#[test]
+	fn response_end_outcome_serializes_as_empty_end_object() {
+		let resp = Response { id: 4, outcome: ResponseOutcome::End { end: EndMarker {} } };
+		let value = serde_json::to_value(&resp).expect("to_value");
+		assert_eq!(value["id"], 4);
+		assert_eq!(value["end"], serde_json::json!({}));
+		assert!(value.get("event").is_none());
+	}
+
+	#[test]
+	fn response_event_round_trips_through_json() {
+		// Round-trip a few mixed outcomes to confirm the untagged enum
+		// disambiguates by the field name (`result` / `error` / `event`
+		// / `end`) and not by ordering.
+		let frames = vec![
+			Response { id: 1, outcome: ResponseOutcome::Result { result: serde_json::json!(42) } },
+			Response { id: 2, outcome: ResponseOutcome::Event { event: serde_json::json!("hi") } },
+			Response { id: 3, outcome: ResponseOutcome::End { end: EndMarker {} } },
+		];
+		for f in frames {
+			let s = serde_json::to_string(&f).expect("serialize");
+			let back: Response = serde_json::from_str(&s).expect("deserialize");
+			assert_eq!(back.id, f.id);
+			match (&f.outcome, &back.outcome) {
+				(ResponseOutcome::Result { .. }, ResponseOutcome::Result { .. })
+				| (ResponseOutcome::Event { .. }, ResponseOutcome::Event { .. })
+				| (ResponseOutcome::End { .. }, ResponseOutcome::End { .. }) => {}
+				other => panic!("variant changed: {other:?}"),
+			}
+		}
 	}
 
 	#[test]

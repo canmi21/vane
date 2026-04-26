@@ -19,6 +19,7 @@ pub const VERB_GET_ACTIVE_CONFIG: &str = "get_active_config";
 pub const VERB_RELOAD: &str = "reload";
 pub const VERB_COMPILE_DRY_RUN: &str = "compile_dry_run";
 pub const VERB_LIST_CONNECTIONS: &str = "list_connections";
+pub const VERB_TAIL_FLOW_LOG: &str = "tail_flow_log";
 
 // ─── Empty args sentinel ────────────────────────────────────────────────
 /// Placeholder for verbs that accept no arguments. Round-trips as `{}`.
@@ -95,12 +96,23 @@ pub struct CompileDryRunResult {
 }
 
 // ─── list_connections ──────────────────────────────────────────────────
-/// Per-listener summary. Per-connection details require the listener
-/// set to register `ConnContext`s in a registry — deferred to a later
-/// chunk. For now this returns the same shape as `StatsResult.listeners`.
+/// One in-flight connection on the wire. `conn_id` is hex (16 chars,
+/// matches `ConnId`'s `Display`); addresses use the standard
+/// `SocketAddr` Display form.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConnectionInfo {
+	pub conn_id: String,
+	pub listener_addr: String,
+	pub remote: String,
+	pub age_ms: u64,
+}
+
+/// Per-listener summary plus the live in-flight connection list.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ListConnectionsResult {
 	pub listeners: Vec<ListenerStatus>,
+	#[serde(default)]
+	pub connections: Vec<ConnectionInfo>,
 }
 
 #[cfg(test)]
@@ -173,8 +185,25 @@ mod tests {
 				ListenerStatus { addr: "127.0.0.1:1".to_string(), bound: true, in_flight_count: 0 },
 				ListenerStatus { addr: "127.0.0.1:2".to_string(), bound: false, in_flight_count: 9 },
 			],
+			connections: vec![ConnectionInfo {
+				conn_id: "00000000deadbeef".to_string(),
+				listener_addr: "127.0.0.1:1".to_string(),
+				remote: "203.0.113.7:54321".to_string(),
+				age_ms: 1234,
+			}],
 		};
 		assert_eq!(round_trip(&r), r);
+	}
+
+	#[test]
+	fn list_connections_result_deserialises_legacy_payload_without_connections() {
+		// Older daemons may emit `{"listeners": [...]}` with no
+		// `connections` key. The new client must still decode them —
+		// `#[serde(default)]` on the field provides that.
+		let raw = r#"{"listeners":[{"addr":"127.0.0.1:1","bound":true,"in_flight_count":0}]}"#;
+		let r: ListConnectionsResult = serde_json::from_str(raw).expect("decode legacy");
+		assert_eq!(r.listeners.len(), 1);
+		assert!(r.connections.is_empty());
 	}
 
 	#[test]

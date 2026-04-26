@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use arc_swap::ArcSwap;
+use dashmap::DashMap;
 use parking_lot::Mutex;
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::Mutex as AsyncMutex;
@@ -75,6 +76,38 @@ fn unix_ms_now() -> u64 {
 /// reload's reconcile pass lands in S1-28 and replaces this).
 pub struct ListenerSet {
 	running: Mutex<HashMap<SocketAddr, ListenerHandle>>,
+	/// Daemon-wide live-connection registry. Populated at accept time
+	/// and cleaned up via [`ConnRegistration`] when the per-connection
+	/// task ends. Read by the mgmt `list_connections` verb.
+	connections: Arc<DashMap<ConnId, ConnEntry>>,
+}
+
+/// One in-flight connection's projection for the management plane.
+/// Lives in [`ListenerSet::connections`] for the duration of the
+/// per-connection task; the [`ConnRegistration`] guard removes it on
+/// any exit path (success, panic, cancellation).
+#[derive(Clone, Debug)]
+pub struct ConnEntry {
+	pub conn_id: ConnId,
+	/// Local address of the listener that accepted this connection.
+	pub listener_addr: SocketAddr,
+	pub remote: SocketAddr,
+	pub accepted_at: Instant,
+}
+
+/// RAII guard: removes `conn_id` from the daemon-wide connection
+/// registry when dropped. One guard per spawned `handle_connection`
+/// task — ensures the registry doesn't leak entries on panic /
+/// cancellation, just like [`InFlightGuard`] for the counter.
+struct ConnRegistration {
+	registry: Arc<DashMap<ConnId, ConnEntry>>,
+	conn_id: ConnId,
+}
+
+impl Drop for ConnRegistration {
+	fn drop(&mut self) {
+		self.registry.remove(&self.conn_id);
+	}
 }
 
 struct ListenerHandle {
@@ -110,7 +143,15 @@ impl Drop for InFlightGuard {
 impl ListenerSet {
 	#[must_use]
 	pub fn new() -> Self {
-		Self { running: Mutex::new(HashMap::new()) }
+		Self { running: Mutex::new(HashMap::new()), connections: Arc::new(DashMap::new()) }
+	}
+
+	/// Snapshot the in-flight connection registry. Each entry is cloned
+	/// from the shared [`DashMap`]; the snapshot is independent of the
+	/// underlying registry once the call returns.
+	#[must_use]
+	pub fn list_connections(&self) -> Vec<ConnEntry> {
+		self.connections.iter().map(|kv| kv.value().clone()).collect()
 	}
 
 	/// Spawn one TCP accept task per `SocketAddr` in the **initial
@@ -178,6 +219,7 @@ impl ListenerSet {
 				Arc::clone(&in_flight),
 				Arc::clone(&in_flight_count),
 				Arc::clone(&bind_ready),
+				Arc::clone(&self.connections),
 			));
 
 			running.insert(
@@ -401,6 +443,7 @@ impl ListenerSet {
 				Arc::clone(&in_flight),
 				Arc::clone(&in_flight_count),
 				Arc::clone(&bind_ready),
+				Arc::clone(&self.connections),
 			));
 			running.insert(
 				addr,
@@ -478,6 +521,7 @@ async fn run_accept_loop(
 	in_flight: Arc<AsyncMutex<JoinSet<()>>>,
 	in_flight_count: Arc<AtomicUsize>,
 	bind_ready: Arc<AtomicBool>,
+	connections: Arc<DashMap<ConnId, ConnEntry>>,
 ) {
 	let Some(listener) = bind_with_retry(addr, &accept_cancel, MAX_BIND_ATTEMPTS).await else {
 		tracing::error!(
@@ -542,9 +586,20 @@ async fn run_accept_loop(
 				// task so the matching decrement runs on any exit path
 				// (success, panic, cancellation).
 				in_flight_count.fetch_add(1, Ordering::Relaxed);
-				let guard = InFlightGuard(Arc::clone(&in_flight_count));
+				let in_flight_guard = InFlightGuard(Arc::clone(&in_flight_count));
+				let registry = Arc::clone(&connections);
 				in_flight.lock().await.spawn(handle_connection(
-					stream, remote, addr, entry, captured, tls_cfg, verbosity, log_sink, force, guard,
+					stream,
+					remote,
+					addr,
+					entry,
+					captured,
+					tls_cfg,
+					verbosity,
+					log_sink,
+					force,
+					in_flight_guard,
+					registry,
 				));
 			}
 		}
@@ -575,13 +630,22 @@ async fn handle_connection(
 	// Held purely for its `Drop` impl — the in-flight counter
 	// decrement runs on every exit path including panics and cancellation.
 	_in_flight_guard: InFlightGuard,
+	registry: Arc<DashMap<ConnId, ConnEntry>>,
 ) {
+	let conn_id = next_conn_id();
+	// Register before any further work, hold the deregister guard for
+	// the rest of the function. `DashMap::insert` does not panic and
+	// `ConnRegistration` construction is panic-free, so the registry
+	// can never see a stranded entry — the guard's `Drop` always runs.
+	let accepted_at = Instant::now();
+	registry.insert(conn_id, ConnEntry { conn_id, listener_addr: local, remote, accepted_at });
+	let _conn_registration = ConnRegistration { registry: Arc::clone(&registry), conn_id };
 	let conn = Arc::new(ConnContext {
-		id: next_conn_id(),
+		id: conn_id,
 		remote,
 		local,
 		transport: Transport::Tcp,
-		entered_at: Instant::now(),
+		entered_at: accepted_at,
 		tls: parking_lot::Mutex::new(None),
 		http_version: std::sync::OnceLock::new(),
 		user: parking_lot::Mutex::new(http::Extensions::new()),

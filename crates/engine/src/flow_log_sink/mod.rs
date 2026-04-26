@@ -1,3 +1,4 @@
+mod broadcast;
 mod fanout;
 mod file;
 mod ring_buffer;
@@ -6,6 +7,7 @@ use std::sync::Arc;
 
 use vane_core::FlowLogSink;
 
+pub use broadcast::BroadcastSink;
 pub use fanout::FanoutSink;
 pub use file::FileSink;
 pub use ring_buffer::RingBufferSink;

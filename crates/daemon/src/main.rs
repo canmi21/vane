@@ -49,7 +49,7 @@ use vane_engine::ListenerSet;
 use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
-use vane_engine::flow_log_sink::default_sink_from_env;
+use vane_engine::flow_log_sink::{BroadcastSink, FanoutSink, default_sink_from_env};
 
 use crate::mgmt_handlers::MgmtState;
 use crate::providers::MetadataProviders;
@@ -171,7 +171,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let graph_swap: Arc<ArcSwap<FlowGraph>> = Arc::new(ArcSwap::new(initial_graph));
 	tracing::info!("linked flow graph");
 
-	let sink: Arc<dyn FlowLogSink> = default_sink_from_env().await?;
+	// Compose the runtime flow-log sink. The default (`RingBufferSink`,
+	// optionally an env-driven `FileSink`) is wrapped in a `FanoutSink`
+	// alongside a `BroadcastSink` so the mgmt `tail_flow_log` verb has a
+	// live event source. The `BroadcastSink` is held separately on
+	// `MgmtState` so handlers can call `subscribe()` directly.
+	let default_sink = default_sink_from_env().await?;
+	let broadcast_sink = Arc::new(BroadcastSink::new());
+	let sink: Arc<dyn FlowLogSink> = Arc::new(FanoutSink::new(vec![
+		default_sink,
+		Arc::clone(&broadcast_sink) as Arc<dyn FlowLogSink>,
+	]));
 	let verbosity = Arc::new(VerbosityState::new());
 
 	let listeners = Arc::new(ListenerSet::new());
@@ -235,6 +245,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		config_dir: args.config_dir.clone(),
 		verbosity: Arc::clone(&verbosity),
 		log_sink: Arc::clone(&sink),
+		broadcast: Arc::clone(&broadcast_sink),
 		shutdown_trigger: shutdown_trigger.clone(),
 	});
 	let (mgmt_cancel, mgmt_handle) = bind_mgmt_server(Arc::clone(&mgmt_state)).await;

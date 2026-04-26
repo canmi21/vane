@@ -11,10 +11,10 @@ use clap::{Parser, Subcommand};
 use vane_core::version::{BuildInfo, format_version};
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
-	CompileDryRunArgs, CompileDryRunResult, GetActiveConfigResult, ListConnectionsResult,
-	ListenerStatus, NoArgs, PingResult, ReloadResult, ShutdownResult, StatsResult,
-	VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD,
-	VERB_SHUTDOWN, VERB_STATS,
+	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetActiveConfigResult,
+	ListConnectionsResult, ListenerStatus, NoArgs, PingResult, ReloadResult, ShutdownResult,
+	StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_LIST_CONNECTIONS, VERB_PING,
+	VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
 };
 
 const BUILD_INFO: BuildInfo = BuildInfo {
@@ -84,6 +84,10 @@ enum Cmd {
 	},
 	/// Per-listener in-flight connection counts.
 	ListConnections,
+	/// Subscribe to the daemon's live `FlowLogEvent` broadcast — one
+	/// NDJSON frame per emitted event. Stays connected until the
+	/// terminal interrupts (Ctrl-C) or the daemon ends the stream.
+	TailFlowLog,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -111,6 +115,7 @@ async fn main() -> std::process::ExitCode {
 		Cmd::Reload => run_reload(&client, cli.json).await,
 		Cmd::Compile { config_dir, .. } => run_compile_dry_run(&client, &config_dir).await,
 		Cmd::ListConnections => run_list_connections(&client, cli.json).await,
+		Cmd::TailFlowLog => run_tail_flow_log(&client, cli.json).await,
 	};
 	match result {
 		Ok(()) => std::process::ExitCode::SUCCESS,
@@ -194,8 +199,57 @@ async fn run_list_connections(client: &UnixMgmtClient, json: bool) -> anyhow::Re
 	} else {
 		println!("listeners:");
 		print_listener_rows(&r.listeners);
+		println!("connections:");
+		print_connection_rows(&r.connections);
 	}
 	Ok(())
+}
+
+async fn run_tail_flow_log(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+	// Race the streaming call against Ctrl-C. The streaming verb returns
+	// `Ok(())` on a clean End frame; Ctrl-C aborts the future, which
+	// drops the socket and lets the daemon notice the disconnect.
+	let stream_fut = client.call_stream(VERB_TAIL_FLOW_LOG, &NoArgs {}, |frame| {
+		if json {
+			// One NDJSON line per event — operators pipe to `jq -c .`
+			// or similar. Encoding failures fall back to a debug print
+			// rather than tearing the stream down.
+			match serde_json::to_string(&frame) {
+				Ok(s) => println!("{s}"),
+				Err(e) => eprintln!("vane: encode error: {e}"),
+			}
+		} else {
+			print_flow_event_pretty(&frame);
+		}
+	});
+	tokio::select! {
+		result = stream_fut => Ok(result?),
+		_ = tokio::signal::ctrl_c() => {
+			// Drop the future so its socket closes; the daemon will see
+			// the disconnect and stop pushing events. We exit `Ok` so
+			// shells don't show an error on the operator-initiated cancel.
+			Ok(())
+		}
+	}
+}
+
+/// Render one `FlowLogEvent`-shaped JSON value as a human-readable row.
+/// Falls back to JSON for the `data` blob since its shape varies per
+/// `kind` (`Trajectory` carries a list of steps, `Error` a serialized
+/// error, etc.).
+fn print_flow_event_pretty(frame: &serde_json::Value) {
+	let kind = frame.get("kind").and_then(serde_json::Value::as_str).unwrap_or("?");
+	let conn = frame.get("conn").and_then(serde_json::Value::as_u64).unwrap_or(0);
+	let t = frame.get("t").and_then(serde_json::Value::as_u64).unwrap_or(0);
+	let seq = frame.get("seq").and_then(serde_json::Value::as_u64).unwrap_or(0);
+	let node = frame
+		.get("node")
+		.and_then(serde_json::Value::as_u64)
+		.map(|n| format!(" node={n}"))
+		.unwrap_or_default();
+	let data =
+		frame.get("data").filter(|v| !v.is_null()).map(|v| format!(" data={v}")).unwrap_or_default();
+	println!("t={t:>13} conn={conn:016x} seq={seq:>3} kind={kind}{node}{data}");
 }
 
 fn print_json<T: serde::Serialize>(value: &T) -> anyhow::Result<()> {
@@ -220,6 +274,33 @@ fn print_listener_rows(rows: &[ListenerStatus]) {
 			count = row.in_flight_count,
 		);
 	}
+}
+
+fn print_connection_rows(rows: &[ConnectionInfo]) {
+	if rows.is_empty() {
+		println!("  (none)");
+		return;
+	}
+	let max_remote = rows.iter().map(|r| r.remote.len()).max().unwrap_or(0);
+	let max_listener = rows.iter().map(|r| r.listener_addr.len()).max().unwrap_or(0);
+	for row in rows {
+		println!(
+			"  {conn_id}  {remote:<rw$} → {listener:<lw$}  age={age}",
+			conn_id = row.conn_id,
+			remote = row.remote,
+			rw = max_remote,
+			listener = row.listener_addr,
+			lw = max_listener,
+			age = format_age_ms(row.age_ms),
+		);
+	}
+}
+
+/// Compact age renderer for CLI rows. Falls back to ms / s / m+s
+/// depending on magnitude so long-lived connections show "5m 12s"
+/// rather than "312123ms".
+fn format_age_ms(ms: u64) -> String {
+	if ms < 1_000 { format!("{ms}ms") } else { format_uptime(Duration::from_millis(ms)) }
 }
 
 /// Render a SHA-256 hash with the leading 12 hex chars + ellipsis. Full
@@ -264,6 +345,14 @@ mod tests {
 		assert_eq!(format_uptime(Duration::from_secs(3725)), "1h 2m 5s");
 		assert_eq!(format_uptime(Duration::from_hours(24)), "1d 0h 0m 0s");
 		assert_eq!(format_uptime(Duration::from_secs(90_061)), "1d 1h 1m 1s");
+	}
+
+	#[test]
+	fn format_age_ms_picks_unit_by_magnitude() {
+		assert_eq!(format_age_ms(0), "0ms");
+		assert_eq!(format_age_ms(345), "345ms");
+		assert_eq!(format_age_ms(1_500), "1s");
+		assert_eq!(format_age_ms(60_500), "1m 0s");
 	}
 
 	#[test]

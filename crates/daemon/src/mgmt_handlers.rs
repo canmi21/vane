@@ -15,19 +15,22 @@ use std::time::Instant;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use vane_core::FlowLogSink;
 use vane_core::compile::compile;
+use vane_core::{FlowLogEvent, FlowLogSink};
 use vane_engine::ListenerSet;
 use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
+use vane_engine::flow_log_sink::BroadcastSink;
 use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
-use vane_mgmt::server::Handler;
+use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
 use vane_mgmt::verb::{
-	CompileDryRunArgs, CompileDryRunResult, GetActiveConfigResult, ListConnectionsResult,
-	ListenerStatus, PingResult, ReloadResult, ShutdownResult, StatsResult, VERB_COMPILE_DRY_RUN,
-	VERB_GET_ACTIVE_CONFIG, VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS,
+	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetActiveConfigResult,
+	ListConnectionsResult, ListenerStatus, PingResult, ReloadResult, ShutdownResult, StatsResult,
+	VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD,
+	VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
 };
 
 use crate::providers::MetadataProviders;
@@ -45,6 +48,9 @@ pub(crate) struct MgmtState {
 	pub config_dir: PathBuf,
 	pub verbosity: Arc<VerbosityState>,
 	pub log_sink: Arc<dyn FlowLogSink>,
+	/// Live broadcast handle. `tail_flow_log` subscribes here for
+	/// incident-time event streaming.
+	pub broadcast: Arc<BroadcastSink>,
 	/// Fired by the `shutdown` verb. The daemon's main signal loop
 	/// awaits this alongside SIGINT/SIGTERM.
 	pub shutdown_trigger: CancellationToken,
@@ -52,8 +58,15 @@ pub(crate) struct MgmtState {
 
 #[async_trait]
 impl Handler for MgmtState {
-	async fn dispatch(&self, req: Request) -> Result<serde_json::Value, WireError> {
-		match req.verb.as_str() {
+	async fn dispatch(&self, req: Request) -> DispatchOutcome {
+		// Streaming verbs are dispatched first because their return type
+		// is `Stream`, not `OneShot`. Everything else funnels through the
+		// shared one-shot path below.
+		if req.verb == VERB_TAIL_FLOW_LOG {
+			let rx = self.broadcast.subscribe();
+			return DispatchOutcome::Stream(Box::new(FlowLogStream { rx }));
+		}
+		let result: Result<serde_json::Value, WireError> = match req.verb.as_str() {
 			VERB_PING => self.handle_ping(),
 			VERB_STATS => self.handle_stats(),
 			VERB_SHUTDOWN => self.handle_shutdown(),
@@ -65,6 +78,45 @@ impl Handler for MgmtState {
 				kind: WireErrorKind::UnknownVerb,
 				message: format!("unknown verb {other:?}"),
 			}),
+		};
+		DispatchOutcome::OneShot(result)
+	}
+}
+
+/// Streaming source for the `tail_flow_log` verb. Wraps a per-call
+/// broadcast receiver; encodes each `FlowLogEvent` to JSON; surfaces
+/// `Lagged` as a synthetic sentinel event so operators can see when
+/// they're getting a sampled view.
+pub(crate) struct FlowLogStream {
+	rx: broadcast::Receiver<FlowLogEvent>,
+}
+
+#[async_trait]
+impl EventStream for FlowLogStream {
+	async fn next_event(&mut self) -> Option<serde_json::Value> {
+		loop {
+			match self.rx.recv().await {
+				Ok(event) => match serde_json::to_value(&event) {
+					Ok(v) => return Some(v),
+					Err(e) => {
+						// A FlowLogEvent that fails to serialize is a bug
+						// somewhere in the engine — log and skip rather
+						// than tearing down the whole stream.
+						tracing::warn!(?e, "flow log event encode failed; dropping frame");
+					}
+				},
+				Err(broadcast::error::RecvError::Lagged(n)) => {
+					// Slow subscriber dropped n events. Surface a
+					// synthetic sentinel so the operator notices the
+					// gap rather than seeing a "smooth" stream.
+					tracing::warn!(dropped = n, "tail_flow_log subscriber lagged");
+					return Some(serde_json::json!({
+						"kind": "lagged",
+						"dropped": n,
+					}));
+				}
+				Err(broadcast::error::RecvError::Closed) => return None,
+			}
 		}
 	}
 }
@@ -164,7 +216,20 @@ impl MgmtState {
 	}
 
 	fn handle_list_connections(&self) -> Result<serde_json::Value, WireError> {
-		json(&ListConnectionsResult { listeners: self.listener_status() })
+		let now = Instant::now();
+		let connections = self
+			.listeners
+			.list_connections()
+			.into_iter()
+			.map(|c| ConnectionInfo {
+				conn_id: c.conn_id.to_string(),
+				listener_addr: c.listener_addr.to_string(),
+				remote: c.remote.to_string(),
+				age_ms: u64::try_from(now.saturating_duration_since(c.accepted_at).as_millis())
+					.unwrap_or(u64::MAX),
+			})
+			.collect();
+		json(&ListConnectionsResult { listeners: self.listener_status(), connections })
 	}
 
 	/// Walk the active graph's `entries` and report each listener's
@@ -227,6 +292,16 @@ mod tests {
 		)
 	}
 
+	/// Drive `dispatch` and assert the outcome was a one-shot, returning
+	/// the inner result. Streaming verbs are unwrapped separately by
+	/// the dedicated `tail_flow_log` test below.
+	async fn one_shot(state: &MgmtState, req: Request) -> Result<serde_json::Value, WireError> {
+		match state.dispatch(req).await {
+			DispatchOutcome::OneShot(r) => r,
+			DispatchOutcome::Stream(_) => panic!("expected OneShot, got Stream"),
+		}
+	}
+
 	fn initial_state(tmp: &tempfile::TempDir, port: u16) -> Arc<MgmtState> {
 		fs::create_dir(tmp.path().join("rules")).unwrap();
 		fs::write(tmp.path().join("rules").join("site.json"), rule(port, "v1")).unwrap();
@@ -247,6 +322,7 @@ mod tests {
 			config_dir: tmp.path().to_path_buf(),
 			verbosity: Arc::new(VerbosityState::new()),
 			log_sink: Arc::new(NullSink),
+			broadcast: Arc::new(BroadcastSink::new()),
 			shutdown_trigger: CancellationToken::new(),
 		})
 	}
@@ -255,10 +331,10 @@ mod tests {
 	async fn dispatch_unknown_verb_returns_unknown_verb_error() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41001);
-		let err = state
-			.dispatch(Request { id: 1, verb: "wat".to_string(), args: serde_json::Value::Null })
-			.await
-			.expect_err("must error");
+		let err =
+			one_shot(&state, Request { id: 1, verb: "wat".to_string(), args: serde_json::Value::Null })
+				.await
+				.expect_err("must error");
 		assert_eq!(err.kind, WireErrorKind::UnknownVerb);
 	}
 
@@ -266,10 +342,10 @@ mod tests {
 	async fn dispatch_ping_returns_pong_with_version() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41002);
-		let value = state
-			.dispatch(Request { id: 1, verb: VERB_PING.into(), args: serde_json::Value::Null })
-			.await
-			.expect("ok");
+		let value =
+			one_shot(&state, Request { id: 1, verb: VERB_PING.into(), args: serde_json::Value::Null })
+				.await
+				.expect("ok");
 		let r: PingResult = serde_json::from_value(value).expect("decode");
 		assert!(r.pong);
 		assert_eq!(r.version, env!("CARGO_PKG_VERSION"));
@@ -279,10 +355,10 @@ mod tests {
 	async fn dispatch_stats_includes_listener_addresses_from_graph() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41003);
-		let value = state
-			.dispatch(Request { id: 1, verb: VERB_STATS.into(), args: serde_json::Value::Null })
-			.await
-			.expect("ok");
+		let value =
+			one_shot(&state, Request { id: 1, verb: VERB_STATS.into(), args: serde_json::Value::Null })
+				.await
+				.expect("ok");
 		let r: StatsResult = serde_json::from_value(value).expect("decode");
 		assert_eq!(r.graph_version_hash.len(), 64, "hash hex must be 64 chars");
 		assert_eq!(r.listeners.len(), 1);
@@ -297,10 +373,12 @@ mod tests {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41004);
 		assert!(!state.shutdown_trigger.is_cancelled());
-		let value = state
-			.dispatch(Request { id: 1, verb: VERB_SHUTDOWN.into(), args: serde_json::Value::Null })
-			.await
-			.expect("ok");
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_SHUTDOWN.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
 		let r: ShutdownResult = serde_json::from_value(value).expect("decode");
 		assert!(r.draining);
 		assert!(state.shutdown_trigger.is_cancelled(), "trigger fired");
@@ -311,10 +389,10 @@ mod tests {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41005);
 		let h0 = state.graph_swap.load().meta().version_hash;
-		let value = state
-			.dispatch(Request { id: 1, verb: VERB_RELOAD.into(), args: serde_json::Value::Null })
-			.await
-			.expect("ok");
+		let value =
+			one_shot(&state, Request { id: 1, verb: VERB_RELOAD.into(), args: serde_json::Value::Null })
+				.await
+				.expect("ok");
 		let r: ReloadResult = serde_json::from_value(value).expect("decode");
 		match r {
 			ReloadResult::Unchanged { hash } => assert_eq!(hash, hex32(&h0)),
@@ -330,10 +408,10 @@ mod tests {
 		// Rewrite with a different body.
 		fs::write(tmp.path().join("rules").join("site.json"), rule(41006, "v2")).unwrap();
 
-		let value = state
-			.dispatch(Request { id: 1, verb: VERB_RELOAD.into(), args: serde_json::Value::Null })
-			.await
-			.expect("ok");
+		let value =
+			one_shot(&state, Request { id: 1, verb: VERB_RELOAD.into(), args: serde_json::Value::Null })
+				.await
+				.expect("ok");
 		let r: ReloadResult = serde_json::from_value(value).expect("decode");
 		match r {
 			ReloadResult::Swapped { hash } => {
@@ -359,8 +437,9 @@ mod tests {
 			config_dir: tmp_b.path().to_string_lossy().into_owned(),
 		})
 		.unwrap();
-		let value =
-			state.dispatch(Request { id: 1, verb: VERB_COMPILE_DRY_RUN.into(), args }).await.expect("ok");
+		let value = one_shot(&state, Request { id: 1, verb: VERB_COMPILE_DRY_RUN.into(), args })
+			.await
+			.expect("ok");
 		let r: CompileDryRunResult = serde_json::from_value(value).expect("decode");
 		assert!(r.graph.is_object(), "graph payload is a JSON object");
 		assert!(r.graph.get("entries").is_some(), "symbolic graph carries `entries`");
@@ -372,14 +451,12 @@ mod tests {
 	async fn dispatch_get_active_config_returns_symbolic_graph() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41009);
-		let value = state
-			.dispatch(Request {
-				id: 1,
-				verb: VERB_GET_ACTIVE_CONFIG.into(),
-				args: serde_json::Value::Null,
-			})
-			.await
-			.expect("ok");
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_GET_ACTIVE_CONFIG.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
 		let r: GetActiveConfigResult = serde_json::from_value(value).expect("decode");
 		assert!(r.graph.get("entries").is_some());
 		assert!(r.graph.get("nodes").is_some());
@@ -390,14 +467,12 @@ mod tests {
 	async fn dispatch_list_connections_returns_per_listener_summary() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41010);
-		let value = state
-			.dispatch(Request {
-				id: 1,
-				verb: VERB_LIST_CONNECTIONS.into(),
-				args: serde_json::Value::Null,
-			})
-			.await
-			.expect("ok");
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_LIST_CONNECTIONS.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
 		let r: ListConnectionsResult = serde_json::from_value(value).expect("decode");
 		assert_eq!(r.listeners.len(), 1);
 		assert_eq!(r.listeners[0].addr, "127.0.0.1:41010");
@@ -407,15 +482,53 @@ mod tests {
 	async fn dispatch_compile_dry_run_bad_args_kind_is_bad_args() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41011);
-		let err = state
-			.dispatch(Request {
+		let err = one_shot(
+			&state,
+			Request {
 				id: 1,
 				verb: VERB_COMPILE_DRY_RUN.into(),
 				// Missing `config_dir` key.
 				args: serde_json::json!({}),
-			})
-			.await
-			.expect_err("must error");
+			},
+		)
+		.await
+		.expect_err("must error");
 		assert_eq!(err.kind, WireErrorKind::BadArgs);
+	}
+
+	#[tokio::test]
+	async fn dispatch_tail_flow_log_returns_stream_that_yields_emitted_events() {
+		use vane_core::{ConnId, FlowLogEvent, FlowLogKind};
+
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41012);
+
+		// Pull a Stream out of the dispatcher.
+		let outcome = state
+			.dispatch(Request { id: 1, verb: VERB_TAIL_FLOW_LOG.into(), args: serde_json::Value::Null })
+			.await;
+		let mut stream = match outcome {
+			DispatchOutcome::Stream(s) => s,
+			DispatchOutcome::OneShot(_) => panic!("tail_flow_log must produce a Stream"),
+		};
+
+		// Emit a FlowLogEvent through the broadcast sink and observe it
+		// pop out as a wire-shape JSON object on the stream.
+		let evt = FlowLogEvent {
+			t: 0,
+			conn: ConnId(0xFEED),
+			seq: 0,
+			kind: FlowLogKind::Trajectory,
+			node: None,
+			error: None,
+			data: None,
+		};
+		<BroadcastSink as FlowLogSink>::emit(&state.broadcast, evt);
+		let value = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next_event())
+			.await
+			.expect("event arrives within 1s")
+			.expect("stream still open");
+		assert_eq!(value["kind"], "Trajectory");
+		assert_eq!(value["conn"], 0xFEED);
 	}
 }

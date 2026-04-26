@@ -18,7 +18,7 @@ use assert_cmd::cargo::CommandCargoExt;
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
 	ListConnectionsResult, NoArgs, PingResult, ReloadResult, ShutdownResult, StatsResult,
-	VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS,
+	VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
 };
 
 struct Daemon {
@@ -207,6 +207,51 @@ async fn mgmt_list_connections_returns_per_listener_summary() {
 	assert_eq!(r.listeners.len(), 1);
 	assert_eq!(r.listeners[0].addr, "127.0.0.1:43007");
 	assert!(r.listeners[0].bound);
+	// `connections` is present (default-empty Vec). We don't assert
+	// emptiness because the wait_for_listener probe leaves a brief
+	// in-flight tail; a strong assertion would race the registry's
+	// deregister guard. Per-conn detail under load is covered by
+	// `mgmt_list_connections_returns_per_conn_detail_for_in_flight_connection`.
+}
+
+#[tokio::test]
+async fn mgmt_list_connections_returns_per_conn_detail_for_in_flight_connection() {
+	let d = spawn_daemon_with_rule(43_011, "v1");
+	let listen_addr: std::net::SocketAddr = "127.0.0.1:43011".parse().unwrap();
+	wait_for_listener(listen_addr, Duration::from_secs(3));
+
+	// Hold a partial HTTP request open (same trick as the in-flight
+	// counter test) so the connection stays in the registry while we
+	// query the mgmt verb.
+	let mut stream = TcpStream::connect(listen_addr).expect("connect");
+	let client_local = stream.local_addr().expect("local_addr");
+	stream.write_all(b"GET / HTTP/1.1\r\nHost: ").expect("partial write");
+	tokio::time::sleep(Duration::from_millis(150)).await;
+
+	// Use the CLI binary so we cover the JSON output path end-to-end.
+	let mut cmd = std::process::Command::cargo_bin("vane").expect("vane binary");
+	let output = cmd
+		.arg("list-connections")
+		.arg("--json")
+		.arg("--socket")
+		.arg(&d.socket)
+		.output()
+		.expect("run vane list-connections");
+	assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+	let stdout = String::from_utf8(output.stdout).expect("utf8");
+	let value: serde_json::Value = serde_json::from_str(&stdout).expect("parse JSON");
+	let connections =
+		value.get("connections").and_then(|v| v.as_array()).expect("connections array present");
+	assert!(!connections.is_empty(), "at least one connection in registry");
+	let entry = &connections[0];
+	let remote = entry.get("remote").and_then(|v| v.as_str()).expect("remote string");
+	assert_eq!(remote, client_local.to_string(), "remote matches client's local addr");
+	let listener_addr = entry.get("listener_addr").and_then(|v| v.as_str()).expect("listener_addr");
+	assert_eq!(listener_addr, "127.0.0.1:43011");
+	let conn_id = entry.get("conn_id").and_then(|v| v.as_str()).expect("conn_id");
+	assert_eq!(conn_id.len(), 16, "ConnId Display is 16 hex chars");
+	assert!(entry.get("age_ms").is_some(), "age_ms field present");
+	drop(stream);
 }
 
 #[tokio::test]
@@ -257,6 +302,110 @@ async fn mgmt_shutdown_drains_daemon() {
 		}
 	}
 	panic!("vaned did not exit within 5s after mgmt shutdown");
+}
+
+#[tokio::test]
+async fn mgmt_tail_flow_log_streams_events_via_cli() {
+	use std::io::{BufRead, BufReader as StdBufReader};
+	use std::process::Stdio;
+
+	let d = spawn_daemon_with_rule(43_012, "v1");
+	let listen_addr: std::net::SocketAddr = "127.0.0.1:43012".parse().unwrap();
+	wait_for_listener(listen_addr, Duration::from_secs(3));
+
+	// Spawn the streaming CLI subprocess with stdout piped. Capture
+	// stdout in a background thread so we can deadline-poll it from
+	// the main test task without blocking on `Read` indefinitely.
+	let mut tail = std::process::Command::cargo_bin("vane")
+		.expect("vane binary")
+		.arg("tail-flow-log")
+		.arg("--json")
+		.arg("--socket")
+		.arg(&d.socket)
+		.stdout(Stdio::piped())
+		.stderr(Stdio::null())
+		.spawn()
+		.expect("spawn vane tail-flow-log");
+
+	let stdout = tail.stdout.take().expect("piped stdout");
+	let (line_tx, line_rx) = std::sync::mpsc::channel::<String>();
+	std::thread::spawn(move || {
+		let reader = StdBufReader::new(stdout);
+		for line in reader.lines().map_while(Result::ok) {
+			if line_tx.send(line).is_err() {
+				break;
+			}
+		}
+	});
+
+	// Give the streaming subscriber a moment to land on the broadcast
+	// channel before driving traffic. Without this, the request races
+	// the subscriber registration and the events reach an empty channel.
+	tokio::time::sleep(Duration::from_millis(300)).await;
+
+	// Trigger one request — static_site preset emits at least one
+	// FlowLogEvent (the per-request `Trajectory` summary) per request.
+	let mut stream = TcpStream::connect(listen_addr).expect("connect");
+	stream.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").expect("write");
+	let mut sink = Vec::new();
+	let _ = std::io::Read::read_to_end(&mut stream, &mut sink);
+
+	// Deadline-poll for at least one NDJSON line carrying `kind`. 5s
+	// budget covers slow CI; the typical wallclock is <100ms.
+	let deadline = std::time::Instant::now() + Duration::from_secs(5);
+	let mut got_trajectory = false;
+	while std::time::Instant::now() < deadline {
+		match line_rx.recv_timeout(Duration::from_millis(200)) {
+			Ok(line) => {
+				let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+				if let Some(kind) = v.get("kind").and_then(serde_json::Value::as_str)
+					&& kind == "Trajectory"
+				{
+					got_trajectory = true;
+					break;
+				}
+			}
+			Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+			Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+		}
+	}
+	let _ = tail.kill();
+	let _ = tail.wait();
+	assert!(got_trajectory, "expected at least one Trajectory event from tail-flow-log stream");
+}
+
+#[tokio::test]
+async fn mgmt_streaming_does_not_block_concurrent_one_shot_call() {
+	// While one client is parked on a streaming verb (`tail_flow_log`)
+	// holding its socket open, an independent client must still be able
+	// to issue and receive a one-shot verb (`ping`) on a *separate*
+	// socket. This is the per-conn-task isolation contract of the
+	// server's accept loop.
+	let d = spawn_daemon_with_rule(43_013, "v1");
+	let listen_addr: std::net::SocketAddr = "127.0.0.1:43013".parse().unwrap();
+	wait_for_listener(listen_addr, Duration::from_secs(3));
+
+	let stream_socket = d.socket.clone();
+	let stream_task = tokio::spawn(async move {
+		let client = UnixMgmtClient::new(&stream_socket);
+		// Park inside the streaming call. We never expect events here
+		// (no request is fired against the data plane) — the future
+		// runs until the test drops it.
+		let _ = client.call_stream(VERB_TAIL_FLOW_LOG, &NoArgs {}, |_event| {}).await;
+	});
+	tokio::time::sleep(Duration::from_millis(200)).await;
+
+	// One-shot ping on an independent socket must succeed promptly.
+	let one_shot_client = UnixMgmtClient::new(&d.socket);
+	let r = tokio::time::timeout(
+		Duration::from_secs(2),
+		one_shot_client.call::<_, PingResult>(VERB_PING, &NoArgs {}),
+	)
+	.await
+	.expect("one-shot ping should not be blocked by streaming client")
+	.expect("ping result");
+	assert!(r.pong);
+	stream_task.abort();
 }
 
 #[tokio::test]

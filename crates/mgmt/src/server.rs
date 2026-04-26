@@ -18,17 +18,40 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::protocol::{Request, Response, ResponseOutcome, WireError, WireErrorKind, encode_line};
+use crate::protocol::{
+	EndMarker, Request, Response, ResponseOutcome, WireError, WireErrorKind, encode_line,
+};
 
 /// Server-side dispatcher. The daemon implements this against its own
 /// state — graph swap, listener set, factories, shutdown trigger —
 /// keeping `vane-mgmt` free of any engine dependency.
 #[async_trait]
 pub trait Handler: Send + Sync + 'static {
-	/// Dispatch a parsed request. Return the JSON-encoded result on
-	/// success, or a [`WireError`] on failure. The server frames the
-	/// outcome and writes the response line.
-	async fn dispatch(&self, req: Request) -> Result<serde_json::Value, WireError>;
+	/// Dispatch a parsed request to either a one-shot result or a
+	/// streaming event source. The server frames whichever outcome the
+	/// handler returns.
+	async fn dispatch(&self, req: Request) -> DispatchOutcome;
+}
+
+/// What `dispatch` returns. One-shot verbs (`ping`, `stats`, ...)
+/// produce a single result/error frame; streaming verbs
+/// (`tail_flow_log`) produce a sequence of `Event` frames terminated
+/// by an `End` frame.
+pub enum DispatchOutcome {
+	/// One-shot reply: a single JSON value or a structured error.
+	OneShot(Result<serde_json::Value, WireError>),
+	/// Streaming reply: each call to `next_event` yields the next
+	/// `Event` payload, or `None` to terminate with an `End` frame.
+	Stream(Box<dyn EventStream + Send>),
+}
+
+/// A streaming event source. The server polls `next_event` until the
+/// client disconnects or the stream returns `None`.
+#[async_trait]
+pub trait EventStream: Send {
+	/// `Some(event)` = next event payload to write as `Event { event }`.
+	/// `None` = stream terminated normally; the server writes `End`.
+	async fn next_event(&mut self) -> Option<serde_json::Value>;
 }
 
 /// Bind a Unix socket and serve mgmt requests until `cancel` fires.
@@ -109,34 +132,75 @@ where
 		if line.is_empty() {
 			continue;
 		}
-		let response = match serde_json::from_str::<Request>(&line) {
+		match serde_json::from_str::<Request>(&line) {
 			Ok(req) => {
 				let id = req.id;
 				match handler.dispatch(req).await {
-					Ok(value) => Response { id, outcome: ResponseOutcome::Result { result: value } },
-					Err(error) => Response { id, outcome: ResponseOutcome::Error { error } },
+					DispatchOutcome::OneShot(Ok(value)) => {
+						let frame = Response { id, outcome: ResponseOutcome::Result { result: value } };
+						if write_frame(&mut write, &frame).await.is_err() {
+							return;
+						}
+					}
+					DispatchOutcome::OneShot(Err(error)) => {
+						let frame = Response { id, outcome: ResponseOutcome::Error { error } };
+						if write_frame(&mut write, &frame).await.is_err() {
+							return;
+						}
+					}
+					DispatchOutcome::Stream(mut stream) => {
+						// Streaming verbs consume the connection — once we
+						// start streaming we don't read more requests on
+						// this socket. Client disconnects by closing the
+						// socket; server detects that via write failure
+						// or the read-side seeing EOF.
+						loop {
+							let Some(event) = stream.next_event().await else {
+								let end =
+									Response { id, outcome: ResponseOutcome::End { end: EndMarker::default() } };
+								let _ = write_frame(&mut write, &end).await;
+								return;
+							};
+							let frame = Response { id, outcome: ResponseOutcome::Event { event } };
+							if write_frame(&mut write, &frame).await.is_err() {
+								return;
+							}
+						}
+					}
 				}
 			}
-			Err(e) => Response {
-				// id is unknown when the frame fails to parse — `0` is the
-				// documented sentinel for "no correlation possible".
-				id: 0,
-				outcome: ResponseOutcome::Error {
-					error: WireError { kind: WireErrorKind::BadArgs, message: format!("parse: {e}") },
-				},
-			},
-		};
-		let bytes = match encode_line(&response) {
-			Ok(b) => b,
 			Err(e) => {
-				tracing::error!(?e, "mgmt response encode failed");
-				return;
+				let frame = Response {
+					// id is unknown when the frame fails to parse — `0` is
+					// the documented sentinel for "no correlation possible".
+					id: 0,
+					outcome: ResponseOutcome::Error {
+						error: WireError { kind: WireErrorKind::BadArgs, message: format!("parse: {e}") },
+					},
+				};
+				if write_frame(&mut write, &frame).await.is_err() {
+					return;
+				}
 			}
-		};
-		if write.write_all(&bytes).await.is_err() {
-			return;
 		}
 	}
+}
+
+/// Encode a response and write it as one NDJSON line. Wraps the two
+/// fallible sub-steps (encode → write) so the streaming loop has a
+/// single error path.
+async fn write_frame<W: AsyncWrite + Unpin>(
+	write: &mut W,
+	frame: &Response,
+) -> Result<(), std::io::Error> {
+	let bytes = match encode_line(frame) {
+		Ok(b) => b,
+		Err(e) => {
+			tracing::error!(?e, "mgmt response encode failed");
+			return Err(std::io::Error::other(e));
+		}
+	};
+	write.write_all(&bytes).await
 }
 
 #[cfg(test)]
@@ -151,16 +215,42 @@ mod tests {
 
 	#[async_trait]
 	impl Handler for StubHandler {
-		async fn dispatch(&self, req: Request) -> Result<serde_json::Value, WireError> {
+		async fn dispatch(&self, req: Request) -> DispatchOutcome {
 			*self.last_verb.lock().unwrap() = Some(req.verb.clone());
-			match req.verb.as_str() {
+			let result: Result<serde_json::Value, WireError> = match req.verb.as_str() {
 				"ping" => Ok(serde_json::json!({ "pong": true })),
 				"echo" => Ok(req.args),
+				"stream2" => {
+					return DispatchOutcome::Stream(Box::new(MockStream::with_two_events()));
+				}
 				_ => Err(WireError {
 					kind: WireErrorKind::UnknownVerb,
 					message: format!("unknown {}", req.verb),
 				}),
-			}
+			};
+			DispatchOutcome::OneShot(result)
+		}
+	}
+
+	/// Trivial event stream: emits two events then terminates with `None`,
+	/// modelling the smallest possible streaming verb.
+	struct MockStream {
+		remaining: Vec<serde_json::Value>,
+	}
+
+	impl MockStream {
+		fn with_two_events() -> Self {
+			// Pop returns the last element first; queue events in reverse
+			// so the wire ordering observed by the client matches the
+			// natural reading order (n=2 then n=1).
+			Self { remaining: vec![serde_json::json!({ "n": 1 }), serde_json::json!({ "n": 2 })] }
+		}
+	}
+
+	#[async_trait]
+	impl EventStream for MockStream {
+		async fn next_event(&mut self) -> Option<serde_json::Value> {
+			self.remaining.pop()
 		}
 	}
 
@@ -204,7 +294,7 @@ mod tests {
 		assert_eq!(responses[0].id, 11);
 		match &responses[0].outcome {
 			ResponseOutcome::Result { result } => assert_eq!(result["pong"], true),
-			ResponseOutcome::Error { error } => panic!("unexpected error: {error:?}"),
+			other => panic!("unexpected outcome: {other:?}"),
 		}
 		assert_eq!(handler.last_verb.lock().unwrap().as_deref(), Some("ping"));
 	}
@@ -223,7 +313,7 @@ mod tests {
 				assert_eq!(error.kind, WireErrorKind::UnknownVerb);
 				assert!(error.message.contains("wat"));
 			}
-			ResponseOutcome::Result { .. } => panic!("expected error"),
+			other => panic!("expected error, got {other:?}"),
 		}
 	}
 
@@ -238,7 +328,31 @@ mod tests {
 		assert_eq!(responses[0].id, 0);
 		match &responses[0].outcome {
 			ResponseOutcome::Error { error } => assert_eq!(error.kind, WireErrorKind::BadArgs),
-			ResponseOutcome::Result { .. } => panic!("expected error"),
+			other => panic!("expected error, got {other:?}"),
+		}
+	}
+
+	#[tokio::test]
+	async fn server_dispatches_streaming_verb_writes_event_then_end() {
+		let handler = Arc::new(StubHandler { last_verb: Mutex::new(None) });
+		let req = Request { id: 99, verb: "stream2".to_string(), args: serde_json::Value::Null };
+		let raw = serde_json::to_string(&req).unwrap() + "\n";
+		let bytes = drive(handler, &raw).await;
+		let responses = parse_responses(&bytes);
+		// 2 events + 1 end = 3 frames, all carrying id=99.
+		assert_eq!(responses.len(), 3, "two events plus a terminating End frame");
+		for r in &responses {
+			assert_eq!(r.id, 99, "streaming frames echo the request id");
+		}
+		assert!(matches!(responses[0].outcome, ResponseOutcome::Event { .. }));
+		assert!(matches!(responses[1].outcome, ResponseOutcome::Event { .. }));
+		assert!(matches!(responses[2].outcome, ResponseOutcome::End { .. }));
+		// Exact event payloads in order.
+		if let ResponseOutcome::Event { event } = &responses[0].outcome {
+			assert_eq!(event["n"], 2);
+		}
+		if let ResponseOutcome::Event { event } = &responses[1].outcome {
+			assert_eq!(event["n"], 1);
 		}
 	}
 

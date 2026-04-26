@@ -12,7 +12,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
-use vane_mgmt::server::Handler;
+use vane_mgmt::server::{DispatchOutcome, Handler};
 use vane_mgmt::verb::{NoArgs, PingResult};
 use vane_mgmt::{UnixMgmtClient, spawn_unix_server};
 
@@ -20,14 +20,15 @@ struct StubHandler;
 
 #[async_trait]
 impl Handler for StubHandler {
-	async fn dispatch(&self, req: Request) -> Result<serde_json::Value, WireError> {
-		match req.verb.as_str() {
+	async fn dispatch(&self, req: Request) -> DispatchOutcome {
+		let result: Result<serde_json::Value, WireError> = match req.verb.as_str() {
 			"ping" => Ok(serde_json::json!({ "pong": true, "version": "test-0.0.0" })),
 			_ => Err(WireError {
 				kind: WireErrorKind::UnknownVerb,
 				message: format!("unknown {}", req.verb),
 			}),
-		}
+		};
+		DispatchOutcome::OneShot(result)
 	}
 }
 

@@ -522,6 +522,59 @@ async fn bound_count_flips_to_expected_after_bind_succeeds() {
 }
 
 #[tokio::test]
+async fn list_connections_registers_on_accept_and_deregisters_on_task_end() {
+	// Use the sleep-bytes graph so a connected client stays in the
+	// registry long enough for us to observe it. The middleware sleeps
+	// 200ms then the close terminator runs; the per-conn handler task
+	// ends immediately after, dropping the `ConnRegistration` guard.
+	let addr = pick_port().await;
+	let graph = sleep_bytes_graph(addr, NodeId::new(0), Duration::from_millis(200));
+
+	let verbosity = Arc::new(VerbosityState::new());
+	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
+	let set = ListenerSet::new();
+	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink);
+	tokio::time::sleep(Duration::from_millis(50)).await;
+	assert!(set.is_bound(&addr), "listener bound before client connects");
+	assert_eq!(set.list_connections().len(), 0, "no clients yet");
+
+	// Connect and observe the registry while the sleep middleware
+	// is still in-flight.
+	let client_stream = tokio::net::TcpStream::connect(addr).await.expect("client connect");
+	let client_local = client_stream.local_addr().expect("client local_addr");
+
+	// Poll briefly until the accept loop has registered the entry.
+	let deadline = Instant::now() + Duration::from_secs(1);
+	let mut entries: Vec<_> = Vec::new();
+	while Instant::now() < deadline {
+		entries = set.list_connections();
+		if !entries.is_empty() {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(10)).await;
+	}
+	assert_eq!(entries.len(), 1, "exactly one in-flight connection registered");
+	let entry = &entries[0];
+	assert_eq!(entry.listener_addr, addr, "registry tags the listener that accepted");
+	assert_eq!(entry.remote, client_local, "registry remote matches client's local addr");
+
+	// Drop client: the connection terminates after the sleep middleware
+	// completes; the per-conn task ends; the guard runs Drop. Poll until
+	// the registry empties.
+	drop(client_stream);
+	let deadline = Instant::now() + Duration::from_secs(2);
+	while Instant::now() < deadline {
+		if set.list_connections().is_empty() {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(20)).await;
+	}
+	assert_eq!(set.list_connections().len(), 0, "deregister on per-conn task end");
+
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+#[tokio::test]
 async fn bound_count_stays_zero_when_address_is_already_in_use() {
 	// Pre-bind the test address ourselves so the listener-set's accept
 	// loop hits EADDRINUSE on every retry. After exhausting retries the
