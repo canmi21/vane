@@ -8,3 +8,4 @@
 pub mod http_proxy;
 pub mod http_synthesize;
 pub mod l4_forward;
+pub mod websocket_upgrade;
