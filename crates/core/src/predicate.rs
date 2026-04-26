@@ -28,6 +28,156 @@ pub enum FieldPath {
 	HttpBody,
 }
 
+/// Value type a [`FieldPath`] reads from. Drives the operator
+/// compatibility matrix in `spec/architecture/18-predicate-schema.md`
+/// § _Operator × value type compatibility_ and the `coerce_value`
+/// validator in the lower pass.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum FieldValueType {
+	Str,
+	Bytes,
+	Int,
+	IpAddr,
+	Enum,
+}
+
+impl FieldValueType {
+	#[must_use]
+	pub fn name(self) -> &'static str {
+		match self {
+			Self::Str => "Str",
+			Self::Bytes => "Bytes",
+			Self::Int => "Int",
+			Self::IpAddr => "IpAddr",
+			Self::Enum => "enum",
+		}
+	}
+}
+
+impl FieldPath {
+	/// Authoritative `FieldPath` → value type mapping. Mirrors the
+	/// "Authoritative field paths" table in
+	/// `spec/architecture/18-predicate-schema.md`.
+	#[must_use]
+	pub fn value_type(&self) -> FieldValueType {
+		match self {
+			Self::Transport | Self::TlsVersion | Self::HttpMethod => FieldValueType::Enum,
+			Self::RemoteIp | Self::LocalIp => FieldValueType::IpAddr,
+			Self::RemotePort | Self::LocalPort => FieldValueType::Int,
+			Self::Peek | Self::TlsAlpn | Self::HttpBody => FieldValueType::Bytes,
+			Self::TlsSni
+			| Self::TlsPeerCertSubjectCn
+			| Self::HttpUriPath
+			| Self::HttpUriQuery
+			| Self::HttpHeader(_) => FieldValueType::Str,
+		}
+	}
+
+	/// Stable display label for diagnostic messages.
+	#[must_use]
+	pub fn display_name(&self) -> String {
+		match self {
+			Self::Transport => "transport".to_string(),
+			Self::RemoteIp => "remote.ip".to_string(),
+			Self::RemotePort => "remote.port".to_string(),
+			Self::LocalIp => "local.ip".to_string(),
+			Self::LocalPort => "local.port".to_string(),
+			Self::Peek => "peek".to_string(),
+			Self::TlsSni => "tls.sni".to_string(),
+			Self::TlsAlpn => "tls.alpn".to_string(),
+			Self::TlsVersion => "tls.version".to_string(),
+			Self::TlsPeerCertSubjectCn => "tls.peer_cert.subject_cn".to_string(),
+			Self::HttpMethod => "http.method".to_string(),
+			Self::HttpUriPath => "http.uri.path".to_string(),
+			Self::HttpUriQuery => "http.uri.query".to_string(),
+			Self::HttpHeader(name) => format!("http.header.{name}"),
+			Self::HttpBody => "http.body".to_string(),
+		}
+	}
+}
+
+/// Operator family used by the type-compatibility matrix. Mirrors the
+/// rows of `spec/architecture/18-predicate-schema.md`'s "Operator ×
+/// value type compatibility" table — operators in the same row share a
+/// compatibility set.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum OperatorFamily {
+	Equality,
+	StringSubstr,
+	StringPrefSuf,
+	RegexMatches,
+	InList,
+	NumericCmp,
+	CidrMatch,
+}
+
+impl Operator {
+	#[must_use]
+	pub fn family(&self) -> OperatorFamily {
+		match self {
+			Self::Equals(_) | Self::NotEquals(_) => OperatorFamily::Equality,
+			Self::Contains(_) | Self::NotContains(_) => OperatorFamily::StringSubstr,
+			Self::Prefix(_) | Self::Suffix(_) => OperatorFamily::StringPrefSuf,
+			Self::Matches(_) => OperatorFamily::RegexMatches,
+			Self::In(_) | Self::NotIn(_) => OperatorFamily::InList,
+			Self::Gt(_) | Self::Gte(_) | Self::Lt(_) | Self::Lte(_) => OperatorFamily::NumericCmp,
+			Self::Cidr(_) => OperatorFamily::CidrMatch,
+		}
+	}
+
+	#[must_use]
+	pub fn name(&self) -> &'static str {
+		match self {
+			Self::Equals(_) => "equals",
+			Self::NotEquals(_) => "not_equals",
+			Self::Contains(_) => "contains",
+			Self::NotContains(_) => "not_contains",
+			Self::Prefix(_) => "prefix",
+			Self::Suffix(_) => "suffix",
+			Self::Matches(_) => "matches",
+			Self::In(_) => "in",
+			Self::NotIn(_) => "not_in",
+			Self::Gt(_) => "gt",
+			Self::Gte(_) => "gte",
+			Self::Lt(_) => "lt",
+			Self::Lte(_) => "lte",
+			Self::Cidr(_) => "cidr",
+		}
+	}
+}
+
+impl OperatorFamily {
+	/// Compatibility check from `spec/architecture/18-predicate-schema.md`
+	/// § _Operator × value type compatibility_. The matrix is small and
+	/// closed; enumerated here rather than data-driven so a future spec
+	/// change forces a recompile-sized review.
+	#[must_use]
+	pub fn accepts(self, vt: FieldValueType) -> bool {
+		use FieldValueType as V;
+		use OperatorFamily as F;
+		matches!(
+			(self, vt),
+			(F::Equality | F::InList, _)
+				| (F::StringSubstr | F::StringPrefSuf, V::Str | V::Bytes)
+				| (F::RegexMatches, V::Str)
+				| (F::NumericCmp, V::Int)
+				| (F::CidrMatch, V::IpAddr),
+		)
+	}
+
+	/// Short human label for diagnostic messages.
+	#[must_use]
+	pub fn family_expectation(self) -> &'static str {
+		match self {
+			Self::Equality | Self::InList => "any of Str/Bytes/Int/IpAddr/enum",
+			Self::StringSubstr | Self::StringPrefSuf => "Str or Bytes",
+			Self::RegexMatches => "Str",
+			Self::NumericCmp => "numeric",
+			Self::CidrMatch => "IpAddr",
+		}
+	}
+}
+
 #[derive(Clone, Debug)]
 pub enum CompiledValue {
 	Str(Arc<str>),

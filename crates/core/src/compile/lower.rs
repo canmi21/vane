@@ -17,8 +17,10 @@ use crate::ir::{
 use crate::metadata::{FetchMetadataProvider, MiddlewareMetadataProvider};
 use crate::middleware::{MiddlewareKind, SymbolicMiddlewareRef};
 use crate::predicate::{
-	CompiledOperator, CompiledValue, FieldPath, Operator, Predicate, PredicateInst, Value,
+	CompiledOperator, CompiledValue, FieldPath, FieldValueType, Operator, Predicate, PredicateInst,
+	Value,
 };
+use crate::rule::SourceInfo;
 
 /// Lower an analyzed rule set to a `SymbolicFlowGraph`.
 ///
@@ -343,7 +345,7 @@ impl Builder {
 		let _ = rule.raw.match_predicate.as_ref().map(predicate_uniform_level).transpose()?;
 
 		if let Some(pred) = &rule.raw.match_predicate {
-			head = self.lower_predicate(pred, head, on_miss)?;
+			head = self.lower_predicate(pred, head, on_miss, &rule.raw.source)?;
 		}
 
 		Ok(head)
@@ -354,10 +356,12 @@ impl Builder {
 		pred: &Predicate,
 		on_match: NodeId,
 		on_miss: NodeId,
+		source: &SourceInfo,
 	) -> Result<NodeId, Error> {
 		match pred {
 			Predicate::Check(c) => {
-				let inst = PredicateInst { path: c.path.clone(), op: compile_operator(&c.op, &c.path)? };
+				let inst =
+					PredicateInst { path: c.path.clone(), op: compile_operator(&c.op, &c.path, source)? };
 				let pid = self.intern_predicate(inst);
 				let collect_body_before =
 					if matches!(c.path, FieldPath::HttpBody) { Some(BodySide::Request) } else { None };
@@ -375,7 +379,7 @@ impl Builder {
 				}
 				let mut cur_miss = on_miss;
 				for child in any_of.any_of.iter().rev() {
-					cur_miss = self.lower_predicate(child, on_match, cur_miss)?;
+					cur_miss = self.lower_predicate(child, on_match, cur_miss, source)?;
 				}
 				Ok(cur_miss)
 			}
@@ -390,13 +394,13 @@ impl Builder {
 				}
 				let mut cur_match = on_match;
 				for child in all_of.all_of.iter().rev() {
-					cur_match = self.lower_predicate(child, cur_match, on_miss)?;
+					cur_match = self.lower_predicate(child, cur_match, on_miss, source)?;
 				}
 				Ok(cur_match)
 			}
 			Predicate::Not(not) => {
 				// not P match=>X miss=>Y  ≡  lower(P, match=>Y, miss=>X)
-				self.lower_predicate(&not.not, on_miss, on_match)
+				self.lower_predicate(&not.not, on_miss, on_match, source)
 			}
 		}
 	}
@@ -656,28 +660,62 @@ fn parse_listen(spec: &str) -> Result<Vec<SocketAddr>, Error> {
 		.map_err(|e| Error::compile(format!("bad listen spec {spec:?}: {e}")))
 }
 
-fn compile_operator(op: &Operator, path: &FieldPath) -> Result<CompiledOperator, Error> {
+fn compile_operator(
+	op: &Operator,
+	path: &FieldPath,
+	source: &SourceInfo,
+) -> Result<CompiledOperator, Error> {
+	// Spec 18 § _Operator × value type compatibility_: reject any
+	// (path, op) pair that the matrix marks `—`. The (path, op) pair
+	// uniquely picks an OperatorFamily row and the field's value-type
+	// column, so a single matrix lookup covers every illegal case
+	// before we touch the operator-specific coerce path.
+	let family = op.family();
+	let vt = path.value_type();
+	if !family.accepts(vt) {
+		return Err(Error::compile(format!(
+			"{}operator `{}` cannot apply to field `{}` (expected {}, got {})",
+			source_prefix(source),
+			op.name(),
+			path.display_name(),
+			family.family_expectation(),
+			vt.name(),
+		)));
+	}
+
 	Ok(match op {
-		Operator::Equals(v) => CompiledOperator::Equals(coerce_value(v, path)?),
-		Operator::NotEquals(v) => CompiledOperator::NotEquals(coerce_value(v, path)?),
-		Operator::Contains(v) => CompiledOperator::Contains(value_to_bytes(v)?),
-		Operator::NotContains(v) => CompiledOperator::NotContains(value_to_bytes(v)?),
-		Operator::Prefix(v) => CompiledOperator::Prefix(value_to_bytes(v)?),
-		Operator::Suffix(v) => CompiledOperator::Suffix(value_to_bytes(v)?),
-		Operator::Matches(pat) => CompiledOperator::Matches(
-			fancy_regex::Regex::new(pat).map_err(|e| Error::compile(format!("regex: {e}")))?,
-		),
+		Operator::Equals(v) => CompiledOperator::Equals(coerce_value(v, path, op.name(), source)?),
+		Operator::NotEquals(v) => {
+			CompiledOperator::NotEquals(coerce_value(v, path, op.name(), source)?)
+		}
+		Operator::Contains(v) => {
+			CompiledOperator::Contains(value_to_bytes(v, path, op.name(), source)?)
+		}
+		Operator::NotContains(v) => {
+			CompiledOperator::NotContains(value_to_bytes(v, path, op.name(), source)?)
+		}
+		Operator::Prefix(v) => CompiledOperator::Prefix(value_to_bytes(v, path, op.name(), source)?),
+		Operator::Suffix(v) => CompiledOperator::Suffix(value_to_bytes(v, path, op.name(), source)?),
+		Operator::Matches(pat) => {
+			CompiledOperator::Matches(fancy_regex::Regex::new(pat).map_err(|e| {
+				Error::compile(format!(
+					"{}invalid regex in `matches` operator on field `{}`: {e}",
+					source_prefix(source),
+					path.display_name(),
+				))
+			})?)
+		}
 		Operator::In(vs) => {
 			let mut out = Vec::with_capacity(vs.len());
 			for v in vs {
-				out.push(coerce_value(v, path)?);
+				out.push(coerce_value(v, path, op.name(), source)?);
 			}
 			CompiledOperator::In(out)
 		}
 		Operator::NotIn(vs) => {
 			let mut out = Vec::with_capacity(vs.len());
 			for v in vs {
-				out.push(coerce_value(v, path)?);
+				out.push(coerce_value(v, path, op.name(), source)?);
 			}
 			CompiledOperator::NotIn(out)
 		}
@@ -685,38 +723,133 @@ fn compile_operator(op: &Operator, path: &FieldPath) -> Result<CompiledOperator,
 		Operator::Gte(n) => CompiledOperator::Gte(*n),
 		Operator::Lt(n) => CompiledOperator::Lt(*n),
 		Operator::Lte(n) => CompiledOperator::Lte(*n),
-		Operator::Cidr(s) => CompiledOperator::Cidr(
-			ipnet::IpNet::from_str(s).map_err(|e| Error::compile(format!("cidr: {e}")))?,
-		),
+		Operator::Cidr(s) => CompiledOperator::Cidr(ipnet::IpNet::from_str(s).map_err(|e| {
+			Error::compile(format!(
+				"{}invalid cidr `{s}` on field `{}`: {e}",
+				source_prefix(source),
+				path.display_name(),
+			))
+		})?),
 	})
 }
 
-fn coerce_value(v: &Value, path: &FieldPath) -> Result<CompiledValue, Error> {
-	// IP-typed paths: parse str → IpAddr.
-	let ip_typed = matches!(path, FieldPath::RemoteIp | FieldPath::LocalIp);
-	if ip_typed {
-		let Value::Str(s) = v else {
-			return Err(Error::compile(format!(
-				"field {path:?} expects an ip-address string, got {v:?}"
-			)));
-		};
-		return IpAddr::from_str(s)
-			.map(CompiledValue::Addr)
-			.map_err(|e| Error::compile(format!("bad ip addr: {e}")));
+fn coerce_value(
+	v: &Value,
+	path: &FieldPath,
+	op_name: &'static str,
+	source: &SourceInfo,
+) -> Result<CompiledValue, Error> {
+	let mismatch = || {
+		Error::compile(format!(
+			"{}field `{}` ({}) is not compatible with `{op_name}` value {}",
+			source_prefix(source),
+			path.display_name(),
+			path.value_type().name(),
+			value_kind(v),
+		))
+	};
+	match path.value_type() {
+		FieldValueType::IpAddr => {
+			let Value::Str(s) = v else {
+				return Err(mismatch());
+			};
+			IpAddr::from_str(s).map(CompiledValue::Addr).map_err(|e| {
+				Error::compile(format!(
+					"{}field `{}` expects an ip-address string, got {s:?}: {e}",
+					source_prefix(source),
+					path.display_name(),
+				))
+			})
+		}
+		FieldValueType::Int => {
+			let Value::Int(n) = v else {
+				return Err(mismatch());
+			};
+			Ok(CompiledValue::Int(*n))
+		}
+		FieldValueType::Bytes => {
+			// Spec encodes bytes-typed values as base64 strings. Existing
+			// preset compile / round-trip tests rely on the simpler "raw
+			// bytes from the JSON string literal" coercion; that pre-
+			// existing shortcut is preserved here. Round-tripping the IR
+			// through the shadow-enum (de_bytes) does decode base64 on
+			// the IR side — only the lower-time path is the shortcut.
+			let Value::Str(s) = v else {
+				return Err(mismatch());
+			};
+			Ok(CompiledValue::Bytes(bytes::Bytes::copy_from_slice(s.as_bytes())))
+		}
+		FieldValueType::Str => {
+			let Value::Str(s) = v else {
+				return Err(mismatch());
+			};
+			Ok(CompiledValue::Str(Arc::from(s.as_str())))
+		}
+		FieldValueType::Enum => {
+			let Value::Str(s) = v else {
+				return Err(mismatch());
+			};
+			coerce_enum_value(path, s, source)
+		}
 	}
-	Ok(match v {
-		Value::Str(s) => CompiledValue::Str(Arc::from(s.as_str())),
-		Value::Int(n) => CompiledValue::Int(*n),
-		Value::Bool(b) => CompiledValue::Bool(*b),
-	})
 }
 
-fn value_to_bytes(v: &Value) -> Result<bytes::Bytes, Error> {
+fn coerce_enum_value(
+	path: &FieldPath,
+	s: &str,
+	source: &SourceInfo,
+) -> Result<CompiledValue, Error> {
+	let allowed: Option<&[&str]> = match path {
+		FieldPath::Transport => Some(&["tcp", "udp"]),
+		FieldPath::TlsVersion => Some(&["1.2", "1.3"]),
+		// `http.method` is open per spec — any HTTP token is admissible
+		// at compile; runtime byte-compares to `Request.method().as_str()`.
+		FieldPath::HttpMethod => None,
+		_ => unreachable!("non-enum path reached coerce_enum_value: {path:?}"),
+	};
+	if let Some(values) = allowed
+		&& !values.contains(&s)
+	{
+		return Err(Error::compile(format!(
+			"{}field `{}` accepts {:?}, got {s:?}",
+			source_prefix(source),
+			path.display_name(),
+			values,
+		)));
+	}
+	Ok(CompiledValue::Str(Arc::from(s)))
+}
+
+fn value_to_bytes(
+	v: &Value,
+	path: &FieldPath,
+	op_name: &'static str,
+	source: &SourceInfo,
+) -> Result<bytes::Bytes, Error> {
 	match v {
 		Value::Str(s) => Ok(bytes::Bytes::copy_from_slice(s.as_bytes())),
 		Value::Int(_) | Value::Bool(_) => Err(Error::compile(format!(
-			"contains/prefix/suffix expect a string or bytes value, got {v:?}"
+			"{}operator `{op_name}` on field `{}` expects a string value, got {}",
+			source_prefix(source),
+			path.display_name(),
+			value_kind(v),
 		))),
+	}
+}
+
+fn value_kind(v: &Value) -> &'static str {
+	match v {
+		Value::Str(_) => "Str",
+		Value::Int(_) => "Int",
+		Value::Bool(_) => "Bool",
+	}
+}
+
+fn source_prefix(source: &SourceInfo) -> String {
+	if source.file.as_os_str().is_empty() {
+		String::new()
+	} else {
+		format!("{}:{}: ", source.file.display(), source.line)
 	}
 }
 
@@ -760,4 +893,230 @@ fn hash_rules(rules: &[AnalyzedRule]) -> [u8; 32] {
 	}
 	let _ = PathBuf::new;
 	hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod compat_tests {
+	//! Per-cell coverage of spec 18 § _Operator × value type
+	//! compatibility_. Each illegal cell (marked `—` in the matrix) gets
+	//! at least one rejected sample, and the diagnostic carries the rule
+	//! file + line. Legal cells are exercised indirectly by the runtime
+	//! dispatch tests in `crate::predicate`.
+	use std::path::PathBuf;
+	use std::sync::Arc;
+
+	use super::{SourceInfo, compile_operator};
+	use crate::predicate::{FieldPath, Operator, Value};
+
+	fn src() -> SourceInfo {
+		SourceInfo { file: PathBuf::from("rules/30-api.json"), line: 14 }
+	}
+
+	fn assert_rejected_with_source(err: &crate::error::Error) {
+		let msg = err.to_string();
+		assert!(msg.contains("rules/30-api.json:14"), "error must carry rule source: {msg}");
+	}
+
+	#[test]
+	fn gt_on_bytes_field_rejected() {
+		let err = compile_operator(&Operator::Gt(100), &FieldPath::HttpBody, &src())
+			.expect_err("gt on http.body must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("`gt`"), "{msg}");
+		assert!(msg.contains("http.body"), "{msg}");
+		assert!(msg.contains("expected numeric"), "{msg}");
+		assert_rejected_with_source(&err);
+	}
+
+	#[test]
+	fn cidr_on_string_field_rejected() {
+		let err =
+			compile_operator(&Operator::Cidr("10.0.0.0/8".to_string()), &FieldPath::HttpUriPath, &src())
+				.expect_err("cidr on http.uri.path must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("`cidr`"), "{msg}");
+		assert!(msg.contains("http.uri.path"), "{msg}");
+		assert!(msg.contains("expected IpAddr"), "{msg}");
+		assert_rejected_with_source(&err);
+	}
+
+	#[test]
+	fn matches_on_bytes_field_rejected() {
+		let err = compile_operator(&Operator::Matches("^a".to_string()), &FieldPath::TlsAlpn, &src())
+			.expect_err("matches on tls.alpn must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("`matches`"), "{msg}");
+		assert!(msg.contains("expected Str"), "{msg}");
+	}
+
+	#[test]
+	fn matches_on_int_field_rejected() {
+		let err =
+			compile_operator(&Operator::Matches("^1".to_string()), &FieldPath::RemotePort, &src())
+				.expect_err("matches on remote.port must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("`matches`"), "{msg}");
+		assert!(msg.contains("expected Str"), "{msg}");
+	}
+
+	#[test]
+	fn contains_on_int_field_rejected() {
+		let err = compile_operator(&Operator::Contains(Value::Int(1)), &FieldPath::RemotePort, &src())
+			.expect_err("contains on remote.port must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("`contains`"), "{msg}");
+		assert!(msg.contains("Str or Bytes"), "{msg}");
+	}
+
+	#[test]
+	fn prefix_on_ip_field_rejected() {
+		let err = compile_operator(
+			&Operator::Prefix(Value::Str("10.".to_string())),
+			&FieldPath::RemoteIp,
+			&src(),
+		)
+		.expect_err("prefix on remote.ip must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("`prefix`"), "{msg}");
+		assert!(msg.contains("Str or Bytes"), "{msg}");
+	}
+
+	#[test]
+	fn suffix_on_enum_field_rejected() {
+		let err = compile_operator(
+			&Operator::Suffix(Value::Str("p".to_string())),
+			&FieldPath::Transport,
+			&src(),
+		)
+		.expect_err("suffix on transport must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("`suffix`"), "{msg}");
+	}
+
+	#[test]
+	fn gt_on_str_field_rejected() {
+		let err = compile_operator(&Operator::Gt(0), &FieldPath::TlsSni, &src())
+			.expect_err("gt on tls.sni must reject");
+		assert!(err.to_string().contains("expected numeric"));
+	}
+
+	#[test]
+	fn cidr_on_int_field_rejected() {
+		let err =
+			compile_operator(&Operator::Cidr("10.0.0.0/8".to_string()), &FieldPath::RemotePort, &src())
+				.expect_err("cidr on remote.port must reject");
+		assert!(err.to_string().contains("expected IpAddr"));
+	}
+
+	#[test]
+	fn cidr_on_enum_field_rejected() {
+		let err =
+			compile_operator(&Operator::Cidr("0.0.0.0/0".to_string()), &FieldPath::HttpMethod, &src())
+				.expect_err("cidr on http.method must reject");
+		assert!(err.to_string().contains("expected IpAddr"));
+	}
+
+	#[test]
+	fn invalid_regex_carries_source_and_field() {
+		let err =
+			compile_operator(&Operator::Matches("[".to_string()), &FieldPath::HttpUriPath, &src())
+				.expect_err("unbalanced [ must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("rules/30-api.json:14"), "{msg}");
+		assert!(msg.contains("`matches`"), "{msg}");
+		assert!(msg.contains("http.uri.path"), "{msg}");
+	}
+
+	#[test]
+	fn transport_enum_rejects_unknown_literal() {
+		let err = compile_operator(
+			&Operator::Equals(Value::Str("ftp".to_string())),
+			&FieldPath::Transport,
+			&src(),
+		)
+		.expect_err("transport == \"ftp\" must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("transport"), "{msg}");
+		assert!(msg.contains("\"ftp\""), "{msg}");
+	}
+
+	#[test]
+	fn transport_enum_accepts_known_literals() {
+		for v in ["tcp", "udp"] {
+			compile_operator(&Operator::Equals(Value::Str(v.to_string())), &FieldPath::Transport, &src())
+				.unwrap_or_else(|e| panic!("transport == {v:?} must compile: {e}"));
+		}
+	}
+
+	#[test]
+	fn tls_version_enum_rejects_unknown_literal() {
+		let err = compile_operator(
+			&Operator::Equals(Value::Str("0.9".to_string())),
+			&FieldPath::TlsVersion,
+			&src(),
+		)
+		.expect_err("tls.version == \"0.9\" must reject");
+		assert!(err.to_string().contains("tls.version"));
+	}
+
+	#[test]
+	fn http_method_enum_accepts_any_string() {
+		// Spec leaves http.method as an open enum — any Str literal
+		// compiles, the runtime byte-compares to Request::method().as_str().
+		compile_operator(
+			&Operator::Equals(Value::Str("CONNECT".to_string())),
+			&FieldPath::HttpMethod,
+			&src(),
+		)
+		.expect("http.method == CONNECT must compile");
+	}
+
+	#[test]
+	fn equals_int_value_on_string_field_rejected() {
+		// equals/in are matrix-legal on every column, but the value-type
+		// coerce still enforces shape: an Int literal on a Str-typed
+		// field can't be coerced.
+		let err = compile_operator(&Operator::Equals(Value::Int(1)), &FieldPath::TlsSni, &src())
+			.expect_err("equals(int) on str field must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("tls.sni"), "{msg}");
+		assert!(msg.contains("Str"), "{msg}");
+	}
+
+	#[test]
+	fn in_list_with_mixed_types_rejected_on_int_field() {
+		let err = compile_operator(
+			&Operator::In(vec![Value::Int(1), Value::Str("x".to_string())]),
+			&FieldPath::RemotePort,
+			&src(),
+		)
+		.expect_err("in([int,str]) on int field must reject");
+		assert!(err.to_string().contains("remote.port"));
+	}
+
+	#[test]
+	fn empty_source_info_omits_prefix() {
+		// SourceInfo::default() carries an empty PathBuf; the prefix
+		// helper must collapse to a clean message rather than ":0:".
+		let empty = SourceInfo::default();
+		let err = compile_operator(&Operator::Gt(100), &FieldPath::HttpBody, &empty)
+			.expect_err("gt on http.body must reject");
+		let msg = err.to_string();
+		assert!(!msg.contains(":0:"), "default source must not leak `:0:` prefix: {msg}");
+	}
+
+	#[test]
+	fn arc_compiled_for_str_field_uses_string_arc() {
+		// Quick sanity that legal Str-field compile path produces an
+		// Arc<str> CompiledValue::Str and not a raw String somewhere.
+		let op =
+			compile_operator(&Operator::Equals(Value::Str("x".to_string())), &FieldPath::TlsSni, &src())
+				.expect("legal equals/str compiles");
+		match op {
+			crate::predicate::CompiledOperator::Equals(crate::predicate::CompiledValue::Str(arc)) => {
+				let _: Arc<str> = arc;
+			}
+			other => panic!("unexpected compiled op: {other:?}"),
+		}
+	}
 }
