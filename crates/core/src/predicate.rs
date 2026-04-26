@@ -1332,4 +1332,131 @@ mod tests {
 		let decoded: PredicateInst = serde_json::from_str(&encoded).expect("deserialize");
 		assert_eq!(decoded, inst);
 	}
+
+	// --- PredicateInst::test matrix coverage ----------------------------------
+	//
+	// Pin the runtime evaluation of the three arms wired in C19's WS chunk:
+	// HttpHeader/Equals, HttpUriPath/Equals, HttpUriPath/Prefix. These were
+	// only indirectly covered by the WS e2e — explicit unit tests guard
+	// against future regressions in `PredicateInst::test`'s match arms.
+
+	fn http_header_equals(name: &str, value: &str) -> PredicateInst {
+		PredicateInst {
+			path: FieldPath::HttpHeader(Arc::from(name)),
+			op: CompiledOperator::Equals(CompiledValue::Str(Arc::<str>::from(value))),
+		}
+	}
+
+	fn http_uri_path_equals(value: &str) -> PredicateInst {
+		PredicateInst {
+			path: FieldPath::HttpUriPath,
+			op: CompiledOperator::Equals(CompiledValue::Str(Arc::<str>::from(value))),
+		}
+	}
+
+	fn http_uri_path_prefix(value: &str) -> PredicateInst {
+		PredicateInst {
+			path: FieldPath::HttpUriPath,
+			op: CompiledOperator::Prefix(Bytes::copy_from_slice(value.as_bytes())),
+		}
+	}
+
+	fn req_with_header(name: &str, value: &str) -> Request {
+		http::Request::builder()
+			.method("GET")
+			.uri("/")
+			.header(name, value)
+			.body(Body::Empty)
+			.expect("build req")
+	}
+
+	fn req_with_uri(uri: &str) -> Request {
+		http::Request::builder().method("GET").uri(uri).body(Body::Empty).expect("build req")
+	}
+
+	#[test]
+	fn predicate_test_http_header_equals_matches_when_present_and_equal() {
+		let conn = make_conn();
+		let req = req_with_header("upgrade", "websocket");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(http_header_equals("upgrade", "websocket").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_http_header_equals_misses_when_header_absent() {
+		let conn = make_conn();
+		let req = req_with_header("host", "example.com");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(!http_header_equals("upgrade", "websocket").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_http_header_equals_value_is_case_sensitive() {
+		// RFC 9110 § 5.5: header values are opaque strings, comparison
+		// is byte-exact. `WebSocket` (uppercase W, S) must NOT match
+		// `websocket`. Operators wanting case-insensitive value comparison
+		// use a regex with `(?i)…`.
+		let conn = make_conn();
+		let req = req_with_header("upgrade", "WebSocket");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(!http_header_equals("upgrade", "websocket").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_http_header_equals_name_lookup_is_case_insensitive() {
+		// RFC 9110 § 5.1: header NAMES are case-insensitive. The compiled
+		// `FieldPath::HttpHeader(Arc<str>)` is already lowercased by
+		// `parse_field_path`, and `HeaderMap::get` folds case on read,
+		// so `Upgrade` in the request still matches the lowercased
+		// `upgrade` in the predicate.
+		let conn = make_conn();
+		let req = req_with_header("Upgrade", "websocket");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(http_header_equals("upgrade", "websocket").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_http_header_equals_misses_on_l4_view() {
+		// L4 view has no `Request`; header lookups can't fire. Sound by
+		// default: the predicate misses rather than spuriously matching
+		// or panicking.
+		let conn = make_conn();
+		let view = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(!http_header_equals("upgrade", "websocket").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_http_uri_path_equals_matches_exact() {
+		let conn = make_conn();
+		let req = req_with_uri("/api/v1/users");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(http_uri_path_equals("/api/v1/users").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_http_uri_path_equals_misses_on_substring() {
+		// `Equals` is exact-match. `/api/v1` is a prefix of `/api/v1/users`
+		// but not equal — the path-prefix middleware uses the dedicated
+		// `Prefix` operator below.
+		let conn = make_conn();
+		let req = req_with_uri("/api/v1/users");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(!http_uri_path_equals("/api").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_http_uri_path_prefix_matches_when_path_starts_with() {
+		let conn = make_conn();
+		let req = req_with_uri("/api/v1/users");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(http_uri_path_prefix("/api").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_http_uri_path_prefix_misses_when_no_prefix() {
+		let conn = make_conn();
+		let req = req_with_uri("/admin");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(!http_uri_path_prefix("/api").test(&view));
+	}
 }
