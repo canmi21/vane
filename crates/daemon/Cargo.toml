@@ -45,11 +45,19 @@ vane-wasm = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"
+http-body-util = "0.1"
+hyper = { version = "1.9.0", features = ["server", "http1"] }
+hyper-util = { version = "0.1.20", features = ["tokio"] }
 nix = { version = "0.31", features = ["signal"] }
 predicates = "3"
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls-pki-types = "1"
 serde_json = "1.0.149"
 tempfile = "3"
 tokio = { version = "1.52.1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false }
+vane-engine = { path = "../engine", version = "0.10.0", default-features = false }
 vane-mgmt = { workspace = true }
 
 [[bin]]

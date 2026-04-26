@@ -51,24 +51,29 @@ pub async fn dial_upstream(
 	upstream: &str,
 	tls: Option<&UpstreamTls>,
 ) -> Result<Box<dyn AsyncReadWrite + Send>, Error> {
-	let tcp = TcpStream::connect(upstream)
-		.await
-		.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
+	tracing::debug!(?upstream, has_tls = tls.is_some(), "dial_upstream");
+	let tcp = TcpStream::connect(upstream).await.map_err(|e| {
+		tracing::debug!(?upstream, ?e, "dial_upstream tcp connect failed");
+		Error::upstream(UpstreamReason::Unreachable).with_source(e)
+	})?;
 	let _ = tcp.set_nodelay(true);
 
 	let Some(tls) = tls else {
+		tracing::debug!(?upstream, "dial_upstream cleartext ready");
 		return Ok(Box::new(tcp));
 	};
 	let connector = tokio_rustls::TlsConnector::from(Arc::clone(&tls.client_config));
 	let server_name =
 		rustls_pki_types::ServerName::try_from(tls.verify_hostname.clone()).map_err(|e| {
+			tracing::debug!(?upstream, hostname = %tls.verify_hostname, ?e, "dial_upstream sni parse failed");
 			Error::upstream(UpstreamReason::TlsHandshake)
 				.with_source(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()))
 		})?;
-	let tls_stream = connector
-		.connect(server_name, tcp)
-		.await
-		.map_err(|e| Error::upstream(UpstreamReason::TlsHandshake).with_source(e))?;
+	let tls_stream = connector.connect(server_name, tcp).await.map_err(|e| {
+		tracing::debug!(?upstream, hostname = %tls.verify_hostname, ?e, "dial_upstream tls handshake failed");
+		Error::upstream(UpstreamReason::TlsHandshake).with_source(e)
+	})?;
+	tracing::debug!(?upstream, "dial_upstream tls ready");
 	Ok(Box::new(tls_stream))
 }
 
