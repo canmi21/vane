@@ -28,9 +28,11 @@ wasm = ["dep:vane-wasm"]
 [dependencies]
 anyhow = "1.0.102"
 arc-swap = "1.9.1"
+async-trait = { workspace = true }
 clap = { version = "4.6.1", features = ["derive"] }
 notify = "8.2.0"
 notify-debouncer-full = "0.7.0"
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.52.1", features = ["full"] }
 tokio-util = "0.7.18"
@@ -45,7 +47,10 @@ vane-wasm = { workspace = true, optional = true }
 assert_cmd = "2"
 nix = { version = "0.31", features = ["signal"] }
 predicates = "3"
+serde_json = "1.0.149"
 tempfile = "3"
+tokio = { version = "1.52.1", features = ["full"] }
+vane-mgmt = { workspace = true }
 
 [[bin]]
 name = "vaned"

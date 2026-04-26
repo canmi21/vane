@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use arc_swap::ArcSwap;
@@ -81,7 +81,24 @@ struct ListenerHandle {
 	accept_cancel: CancellationToken,
 	force_cancel: CancellationToken,
 	in_flight: Arc<AsyncMutex<JoinSet<()>>>,
+	/// Live count of accepted-but-not-yet-completed connections on this
+	/// listener. Bumped at spawn, decremented via RAII guard so panics
+	/// and cancellations don't leak the counter. Surfaced through
+	/// [`ListenerSet::in_flight_count`] for the mgmt `stats` /
+	/// `list_connections` verbs.
+	in_flight_count: Arc<AtomicUsize>,
 	join: JoinHandle<()>,
+}
+
+/// RAII guard: decrements the per-listener in-flight counter when
+/// dropped. Construct one per spawned `handle_connection` call so the
+/// counter survives panics, cancellations, and `?`-early-returns.
+struct InFlightGuard(Arc<AtomicUsize>);
+
+impl Drop for InFlightGuard {
+	fn drop(&mut self) {
+		self.0.fetch_sub(1, Ordering::Relaxed);
+	}
 }
 
 impl ListenerSet {
@@ -142,6 +159,7 @@ impl ListenerSet {
 			let accept_cancel = CancellationToken::new();
 			let force_cancel = CancellationToken::new();
 			let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
+			let in_flight_count = Arc::new(AtomicUsize::new(0));
 
 			let join = tokio::spawn(run_accept_loop(
 				addr,
@@ -151,9 +169,13 @@ impl ListenerSet {
 				accept_cancel.clone(),
 				force_cancel.clone(),
 				Arc::clone(&in_flight),
+				Arc::clone(&in_flight_count),
 			));
 
-			running.insert(addr, ListenerHandle { accept_cancel, force_cancel, in_flight, join });
+			running.insert(
+				addr,
+				ListenerHandle { accept_cancel, force_cancel, in_flight, in_flight_count, join },
+			);
 		}
 	}
 
@@ -162,6 +184,18 @@ impl ListenerSet {
 	#[must_use]
 	pub fn is_running(&self, addr: &SocketAddr) -> bool {
 		self.running.lock().contains_key(addr)
+	}
+
+	/// Live count of in-flight connections accepted by the listener at
+	/// `addr`. Returns `None` if no listener is currently bound there.
+	///
+	/// Surfaces through the management plane (`stats`,
+	/// `list_connections`). The count is updated with `Ordering::Relaxed`
+	/// because consumers want a recent value, not a synchronization
+	/// guarantee against other memory.
+	#[must_use]
+	pub fn in_flight_count(&self, addr: &SocketAddr) -> Option<usize> {
+		self.running.lock().get(addr).map(|h| h.in_flight_count.load(Ordering::Relaxed))
 	}
 
 	/// Number of running listeners.
@@ -211,7 +245,8 @@ impl ListenerSet {
 		}
 
 		for (addr, handle) in handles {
-			let ListenerHandle { accept_cancel: _, force_cancel, in_flight, join } = handle;
+			let ListenerHandle { accept_cancel: _, force_cancel, in_flight, in_flight_count: _, join } =
+				handle;
 
 			// Wait for the accept loop to wind down. It only needs to
 			// complete one select! cycle to observe accept_cancel; if the
@@ -296,6 +331,7 @@ impl ListenerSet {
 			let accept_cancel = CancellationToken::new();
 			let force_cancel = CancellationToken::new();
 			let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
+			let in_flight_count = Arc::new(AtomicUsize::new(0));
 			let join = tokio::spawn(run_accept_loop(
 				addr,
 				Arc::clone(&graph),
@@ -304,8 +340,12 @@ impl ListenerSet {
 				accept_cancel.clone(),
 				force_cancel.clone(),
 				Arc::clone(&in_flight),
+				Arc::clone(&in_flight_count),
 			));
-			running.insert(addr, ListenerHandle { accept_cancel, force_cancel, in_flight, join });
+			running.insert(
+				addr,
+				ListenerHandle { accept_cancel, force_cancel, in_flight, in_flight_count, join },
+			);
 		}
 		// Unchanged addresses: the per-accept `entries.get(&addr)` in
 		// `run_accept_loop` already picks up the post-swap NodeId on
@@ -318,7 +358,7 @@ impl ListenerSet {
 /// `tokio::spawn`'d task so [`ListenerSet::reconcile`] returns
 /// immediately.
 async fn drain_handle_async(addr: SocketAddr, handle: ListenerHandle) {
-	let ListenerHandle { accept_cancel, force_cancel, in_flight, join } = handle;
+	let ListenerHandle { accept_cancel, force_cancel, in_flight, in_flight_count: _, join } = handle;
 
 	// Stop accepting new connections.
 	accept_cancel.cancel();
@@ -353,6 +393,7 @@ async fn drain_in_flight(set: &AsyncMutex<JoinSet<()>>) {
 	while g.join_next().await.is_some() {}
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_accept_loop(
 	addr: SocketAddr,
 	graph: Arc<ArcSwap<FlowGraph>>,
@@ -361,6 +402,7 @@ async fn run_accept_loop(
 	accept_cancel: CancellationToken,
 	force_cancel: CancellationToken,
 	in_flight: Arc<AsyncMutex<JoinSet<()>>>,
+	in_flight_count: Arc<AtomicUsize>,
 ) {
 	let Some(listener) = bind_with_retry(addr, &accept_cancel, MAX_BIND_ATTEMPTS).await else {
 		tracing::error!(
@@ -418,8 +460,13 @@ async fn run_accept_loop(
 				// every fresh accept (existing connections retain their
 				// captured `Arc<FlowGraph>`).
 				let tls_cfg = captured.listener_tls(&addr).cloned();
+				// Bump the in-flight counter and hand the guard to the spawned
+				// task so the matching decrement runs on any exit path
+				// (success, panic, cancellation).
+				in_flight_count.fetch_add(1, Ordering::Relaxed);
+				let guard = InFlightGuard(Arc::clone(&in_flight_count));
 				in_flight.lock().await.spawn(handle_connection(
-					stream, remote, addr, entry, captured, tls_cfg, verbosity, log_sink, force,
+					stream, remote, addr, entry, captured, tls_cfg, verbosity, log_sink, force, guard,
 				));
 			}
 		}
@@ -447,6 +494,9 @@ async fn handle_connection(
 	verbosity: Arc<VerbosityState>,
 	log_sink: Arc<dyn FlowLogSink>,
 	force_cancel: CancellationToken,
+	// Held purely for its `Drop` impl — the in-flight counter
+	// decrement runs on every exit path including panics and cancellation.
+	_in_flight_guard: InFlightGuard,
 ) {
 	let conn = Arc::new(ConnContext {
 		id: next_conn_id(),

@@ -13,8 +13,6 @@
 //!   `/etc/vaned`. Walked by `vane_core::config::load`.
 //!
 //! Several capabilities are intentionally not wired in this stage:
-//! TODO(mgmt): Unix / HTTP management socket binding — see
-//!   `spec/architecture/01-topology.md` § _Management plane_.
 //! TODO(bind-failure-exit): when every listener's bind fails, the
 //!   accept loop tasks exit individually but the daemon stays alive
 //!   serving nothing. Operators see "all listener bind failures" only
@@ -26,13 +24,14 @@
 //!   port still requires a daemon restart; the new port won't bind
 //!   until then.
 
+mod mgmt_handlers;
 mod providers;
 mod reload;
 mod watcher;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use clap::Parser;
@@ -48,6 +47,7 @@ use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::default_sink_from_env;
 
+use crate::mgmt_handlers::MgmtState;
 use crate::providers::MetadataProviders;
 use crate::watcher::spawn_watcher;
 
@@ -181,7 +181,56 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		}
 	};
 
-	wait_for_shutdown_signal(listeners, watcher_cancel, watcher_handle).await;
+	// Management plane: bind the Unix mgmt socket and dispatch verbs to
+	// `MgmtState`. Bind failures (e.g. directory missing, perms denied)
+	// are logged and the daemon continues serving traffic without mgmt
+	// — the operator can fix the path and restart. `VANE_MGMT_HTTP_BIND`
+	// is reserved for Stage 2 and currently ignored with a warn.
+	let shutdown_trigger = CancellationToken::new();
+	let mgmt_state = Arc::new(MgmtState {
+		started_at: Instant::now(),
+		graph_swap: Arc::clone(&graph_swap),
+		listeners: Arc::clone(&listeners),
+		mw_factories: Arc::clone(&mw_factories),
+		fetch_factories: Arc::clone(&fetch_factories),
+		config_dir: args.config_dir.clone(),
+		verbosity: Arc::clone(&verbosity),
+		log_sink: Arc::clone(&sink),
+		shutdown_trigger: shutdown_trigger.clone(),
+	});
+
+	if std::env::var("VANE_MGMT_HTTP_BIND").is_ok() {
+		tracing::warn!("VANE_MGMT_HTTP_BIND is reserved for Stage 2 — ignoring for now");
+	}
+	let mgmt_socket =
+		std::env::var("VANE_MGMT_UNIX").unwrap_or_else(|_| "/tmp/vaned.sock".to_string());
+	let mgmt_cancel = CancellationToken::new();
+	let mgmt_handle = match vane_mgmt::spawn_unix_server(
+		std::path::Path::new(&mgmt_socket),
+		Arc::clone(&mgmt_state),
+		mgmt_cancel.clone(),
+	)
+	.await
+	{
+		Ok(h) => {
+			tracing::info!(socket = %mgmt_socket, "mgmt unix server bound");
+			Some(h)
+		}
+		Err(e) => {
+			tracing::warn!(socket = %mgmt_socket, error = %e, "mgmt unix server bind failed; daemon continues without mgmt");
+			None
+		}
+	};
+
+	wait_for_shutdown_signal(
+		listeners,
+		watcher_cancel,
+		watcher_handle,
+		mgmt_cancel,
+		mgmt_handle,
+		shutdown_trigger,
+	)
+	.await;
 	Ok(())
 }
 
@@ -215,26 +264,34 @@ async fn wait_for_shutdown_signal(
 	listeners: Arc<ListenerSet>,
 	watcher_cancel: CancellationToken,
 	watcher_handle: Option<tokio::task::JoinHandle<()>>,
+	mgmt_cancel: CancellationToken,
+	mgmt_handle: Option<tokio::task::JoinHandle<()>>,
+	mgmt_shutdown_trigger: CancellationToken,
 ) {
 	let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
 	let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
-	tokio::select! {
+	let drain = tokio::select! {
 		_ = sigterm.recv() => {
 			tracing::info!("SIGTERM received — soft drain (30s)");
-			watcher_cancel.cancel();
-			if let Some(h) = watcher_handle {
-				let _ = h.await;
-			}
-			listeners.shutdown(Duration::from_secs(30)).await;
+			Duration::from_secs(30)
 		}
 		_ = sigint.recv() => {
 			tracing::info!("SIGINT received — immediate shutdown");
-			watcher_cancel.cancel();
-			if let Some(h) = watcher_handle {
-				let _ = h.await;
-			}
-			listeners.shutdown(Duration::from_secs(0)).await;
+			Duration::from_secs(0)
 		}
+		() = mgmt_shutdown_trigger.cancelled() => {
+			tracing::info!("mgmt shutdown verb received — soft drain (30s)");
+			Duration::from_secs(30)
+		}
+	};
+	watcher_cancel.cancel();
+	mgmt_cancel.cancel();
+	if let Some(h) = watcher_handle {
+		let _ = h.await;
 	}
+	if let Some(h) = mgmt_handle {
+		let _ = h.await;
+	}
+	listeners.shutdown(drain).await;
 	tracing::info!("vaned exited cleanly");
 }
