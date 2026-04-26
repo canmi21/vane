@@ -130,6 +130,8 @@ Start with unit tests. Introduce integration or network tests when a feature gen
 Testability is asymmetric across the three deliverables:
 
 - **`vaned` (daemon binary)** — full sub-agent automation. The sub-agent can spawn `vaned --config <tmpdir>` as a subprocess, drive `curl` / `wget` / `jq` / `websocat` / `nc` via `std::process::Command`, use `testcontainers` to bring up upstream fixtures (e.g., real nginx as a cross-version H2 upstream). End-to-end tests spin up a real `vaned`, drive traffic, assert on management-API state and flow-log events.
+
+  **Readiness detection — never parse stderr.** `tracing-subscriber`'s default `fmt` subscriber writes block-buffered when stderr is not a TTY; lines like `"listeners started"` may not flush until the process exits, and tests waiting on stderr text deadlock. Poll the listener port with `TcpStream::connect_timeout` in a short loop instead — the connect-success signal mirrors what real clients see, and the lag between "log emitted" and "listener accepting" is the load-bearing one anyway. The same caution applies to log-driven assertions about subsequent lifecycle events: gate on observable state (port closes, file appears, mgmt verb returns), not on log text.
 - **`vane` CLI** — full sub-agent automation. `clap`-dispatched subcommands each have two output modes:
   - `--json` — emits the management verb's `result` verbatim (or a defined machine-readable shape for CLI-local commands). Assertable via `jq` piping and `assert_cmd::Command::cargo_bin("vane")`.
   - Default (pretty) — human-friendly tables/trees. Auto-disabled under `!isatty(stdout)`. Test via `assert_cmd` + `predicates` on stdout fragments.
