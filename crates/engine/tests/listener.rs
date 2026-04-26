@@ -358,3 +358,125 @@ async fn listener_shutdown_idempotent_or_after_empty_start() {
 		"empty-set shutdown returns promptly; elapsed = {elapsed:?}",
 	);
 }
+
+// ---------------------------------------------------------------------------
+// reconcile: listener-set diff after hot reload (09-config.md § _NodeId
+// stability across reloads_).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn reconcile_adds_listener_for_new_address() {
+	// Boot with one listener; after `ArcSwap::store` of a graph that
+	// adds a second entry, `reconcile()` should bind the new address
+	// without disturbing the existing one.
+	let addr_a = pick_port().await;
+	let addr_b = pick_port().await;
+	assert_ne!(addr_a, addr_b);
+
+	let mut entries = HashMap::new();
+	entries.insert(addr_a, NodeId::new(0));
+	let graph_a = close_only_graph(entries);
+
+	let verbosity = Arc::new(VerbosityState::new());
+	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
+	let swap = Arc::new(ArcSwap::new(Arc::clone(&graph_a)));
+
+	let set = ListenerSet::new();
+	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	tokio::time::sleep(Duration::from_millis(50)).await;
+	assert!(set.is_running(&addr_a));
+	assert_eq!(set.len(), 1);
+
+	// Swap in a graph that also has addr_b.
+	let mut entries_ab = HashMap::new();
+	entries_ab.insert(addr_a, NodeId::new(0));
+	entries_ab.insert(addr_b, NodeId::new(0));
+	swap.store(close_only_graph(entries_ab));
+	set.reconcile(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	tokio::time::sleep(Duration::from_millis(100)).await;
+
+	assert!(set.is_running(&addr_a), "unchanged listener kept running");
+	assert!(set.is_running(&addr_b), "new listener bound by reconcile");
+	assert_eq!(set.len(), 2);
+
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+#[tokio::test]
+async fn reconcile_removes_listener_for_deleted_address() {
+	// Boot with two listeners; after `ArcSwap::store` of a graph that
+	// drops the second entry, `reconcile()` should drain the removed
+	// address in the background. Polling `is_running` after a short
+	// settle window must show `addr_b` gone, `addr_a` still running.
+	let addr_a = pick_port().await;
+	let addr_b = pick_port().await;
+	assert_ne!(addr_a, addr_b);
+
+	let mut entries_ab = HashMap::new();
+	entries_ab.insert(addr_a, NodeId::new(0));
+	entries_ab.insert(addr_b, NodeId::new(0));
+	let graph_ab = close_only_graph(entries_ab);
+
+	let verbosity = Arc::new(VerbosityState::new());
+	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
+	let swap = Arc::new(ArcSwap::new(Arc::clone(&graph_ab)));
+
+	let set = ListenerSet::new();
+	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	tokio::time::sleep(Duration::from_millis(50)).await;
+	assert_eq!(set.len(), 2);
+	assert!(set.is_running(&addr_a));
+	assert!(set.is_running(&addr_b));
+
+	// Swap in a graph with only addr_a; reconcile should background-drain addr_b.
+	let mut entries_a = HashMap::new();
+	entries_a.insert(addr_a, NodeId::new(0));
+	swap.store(close_only_graph(entries_a));
+	set.reconcile(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+
+	// `reconcile` is sync; the actual drain task runs `tokio::spawn`'d.
+	// Reconcile removes the handle from the registry synchronously, so
+	// `is_running(&addr_b)` flips false immediately. A small yield is
+	// belt-and-braces against scheduler ordering.
+	tokio::time::sleep(Duration::from_millis(50)).await;
+	assert!(set.is_running(&addr_a), "kept-address listener still running");
+	assert!(!set.is_running(&addr_b), "removed-address listener gone from registry");
+	assert_eq!(set.len(), 1);
+
+	set.shutdown(Duration::from_secs(2)).await;
+}
+
+#[tokio::test]
+async fn reconcile_noop_for_unchanged_address_set() {
+	// A reload that re-emits the same set of addresses (only the graph
+	// internals changed: e.g. a rule's `body` was edited but `listen`
+	// didn't move) must not tear down + rebuild listeners. The
+	// per-accept entry lookup picks up the new graph on the next
+	// connection.
+	let addr_a = pick_port().await;
+	let mut entries = HashMap::new();
+	entries.insert(addr_a, NodeId::new(0));
+	let graph_v1 = close_only_graph(entries.clone());
+
+	let verbosity = Arc::new(VerbosityState::new());
+	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
+	let swap = Arc::new(ArcSwap::new(Arc::clone(&graph_v1)));
+
+	let set = ListenerSet::new();
+	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	tokio::time::sleep(Duration::from_millis(50)).await;
+	assert!(set.is_running(&addr_a));
+	assert_eq!(set.len(), 1);
+
+	// Build a "new" graph with the same address set (different Arc
+	// identity, same `entries` keys).
+	let graph_v2 = close_only_graph(entries);
+	swap.store(graph_v2);
+	set.reconcile(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	tokio::time::sleep(Duration::from_millis(50)).await;
+
+	assert!(set.is_running(&addr_a), "unchanged address kept running");
+	assert_eq!(set.len(), 1, "no spurious bind/drain on identical address set");
+
+	set.shutdown(Duration::from_secs(2)).await;
+}

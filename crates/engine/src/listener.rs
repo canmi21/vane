@@ -47,6 +47,10 @@ const MAX_BIND_ATTEMPTS: u32 = 10;
 const BIND_BACKOFF_INITIAL: Duration = Duration::from_millis(100);
 const BIND_BACKOFF_MAX: Duration = Duration::from_secs(5);
 const FORCE_CANCEL_GRACE: Duration = Duration::from_secs(5);
+/// Per-listener drain budget when an address is removed across a hot
+/// reload. Mirrors the SIGTERM drain default — operators can rely on
+/// the same time bound for both shutdown and removed-listener drain.
+const RECONCILE_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 const TCP_LISTEN_BACKLOG: u32 = 1024;
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
@@ -187,8 +191,13 @@ impl ListenerSet {
 	/// 4. After a short secondary grace window, abort anything still alive
 	///    so the call returns within `drain_timeout + FORCE_CANCEL_GRACE`.
 	///
-	/// Calling `shutdown` consumes `self`; the registry is destroyed.
-	pub async fn shutdown(self, drain_timeout: Duration) {
+	/// `&self` so the registry can be reached through `Arc<ListenerSet>`
+	/// without consuming the wrapper — the watcher's reload pipeline
+	/// holds one such `Arc` for `reconcile()` and the daemon main holds
+	/// another for shutdown. Internally `running.lock().drain()` empties
+	/// the registry as a side effect, so a second `shutdown` call is a
+	/// cheap no-op.
+	pub async fn shutdown(&self, drain_timeout: Duration) {
 		let handles: Vec<(SocketAddr, ListenerHandle)> = {
 			let mut running = self.running.lock();
 			running.drain().collect()
@@ -228,6 +237,105 @@ impl ListenerSet {
 			}
 		}
 	}
+
+	/// Diff the active graph's `entries` keys against currently bound
+	/// listeners and bring the registry up to date with the post-reload
+	/// snapshot.
+	///
+	/// - **Added** addresses (in new graph, not currently bound): spawn
+	///   a fresh `run_accept_loop` task with the same wiring as
+	///   [`Self::start`], including bind-retry.
+	/// - **Removed** addresses (currently bound, not in new graph): pop
+	///   the handle and `tokio::spawn` a background drain that fires
+	///   `accept_cancel`, waits up to [`RECONCILE_DRAIN_TIMEOUT`] for
+	///   in-flight connections to finish, then escalates to
+	///   `force_cancel` and abort if needed.
+	/// - **Unchanged** addresses: untouched. The accept loop's per-accept
+	///   `entries.get(&addr)` lookup picks up the new graph's `NodeId`
+	///   on the next accepted connection (09-config.md § _`NodeId`
+	///   stability across reloads_).
+	///
+	/// Returns immediately — the per-listener drain runs in the
+	/// background so file-watcher reloads never stall on long-lived
+	/// `ByteTunnel` connections. Caller invokes this after a successful
+	/// `ArcSwap::store` of a reload's new graph; in-flight connections
+	/// accepted before this call retain their captured
+	/// `Arc<FlowGraph>` and run to completion regardless of the diff.
+	#[allow(clippy::needless_pass_by_value)]
+	pub fn reconcile(
+		&self,
+		graph: Arc<ArcSwap<FlowGraph>>,
+		verbosity: Arc<VerbosityState>,
+		log_sink: Arc<dyn FlowLogSink>,
+	) {
+		let target: std::collections::HashSet<SocketAddr> = {
+			let g = graph.load_full();
+			g.symbolic().entries.keys().copied().collect()
+		};
+
+		let mut running = self.running.lock();
+		let current: std::collections::HashSet<SocketAddr> = running.keys().copied().collect();
+
+		// Removed: collect addresses up front so we can `remove()` from
+		// `running` inside the loop without aliasing.
+		let removed: Vec<SocketAddr> = current.difference(&target).copied().collect();
+		for addr in removed {
+			if let Some(handle) = running.remove(&addr) {
+				tracing::info!(?addr, "reconcile: removing listener");
+				tokio::spawn(drain_handle_async(addr, handle));
+			}
+		}
+
+		// Added: same wiring as `start()`. `run_accept_loop` does its
+		// own bind-with-retry; failure surfaces via `tracing::error!`
+		// without poisoning the rest of the registry.
+		let added: Vec<SocketAddr> = target.difference(&current).copied().collect();
+		for addr in added {
+			tracing::info!(?addr, "reconcile: adding listener");
+			let accept_cancel = CancellationToken::new();
+			let force_cancel = CancellationToken::new();
+			let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
+			let join = tokio::spawn(run_accept_loop(
+				addr,
+				Arc::clone(&graph),
+				Arc::clone(&verbosity),
+				Arc::clone(&log_sink),
+				accept_cancel.clone(),
+				force_cancel.clone(),
+				Arc::clone(&in_flight),
+			));
+			running.insert(addr, ListenerHandle { accept_cancel, force_cancel, in_flight, join });
+		}
+		// Unchanged addresses: the per-accept `entries.get(&addr)` in
+		// `run_accept_loop` already picks up the post-swap NodeId on
+		// the next connection — nothing to do here.
+	}
+}
+
+/// Background drain of a removed listener's handle. Mirrors the
+/// per-listener stages of [`ListenerSet::shutdown`] but runs as a
+/// `tokio::spawn`'d task so [`ListenerSet::reconcile`] returns
+/// immediately.
+async fn drain_handle_async(addr: SocketAddr, handle: ListenerHandle) {
+	let ListenerHandle { accept_cancel, force_cancel, in_flight, join } = handle;
+
+	// Stop accepting new connections.
+	accept_cancel.cancel();
+	let _ = join.await;
+
+	// Soft drain.
+	if tokio::time::timeout(RECONCILE_DRAIN_TIMEOUT, drain_in_flight(&in_flight)).await.is_ok() {
+		tracing::info!(?addr, "reconcile drain complete");
+		return;
+	}
+
+	tracing::warn!(?addr, "reconcile drain timed out; firing force_cancel for in-flight");
+	force_cancel.cancel();
+	let _ = tokio::time::timeout(FORCE_CANCEL_GRACE, drain_in_flight(&in_flight)).await;
+	let mut g = in_flight.lock().await;
+	g.abort_all();
+	while g.join_next().await.is_some() {}
+	tracing::info!(?addr, "reconcile drain complete (forced)");
 }
 
 impl Default for ListenerSet {
