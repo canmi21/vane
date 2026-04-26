@@ -89,6 +89,23 @@ pub struct FlowGraphMeta {
 	// restores the empty slice. Engine's link step installs the real value.
 	#[serde(skip, default = "empty_feature_set")]
 	pub feature_set: &'static [&'static str],
+
+	/// Map of L7-listener entry `NodeId` → synthesised
+	/// `Terminate(WriteHttpResponse)` `NodeId`. The executor jumps here
+	/// when an L7 request middleware returns
+	/// `Decision::Short(ShortCircuit::Response(_))`: it sets the response
+	/// slot and walks to the synth target so the response runs through
+	/// the standard `WriteHttpResponse` write path. Empty for L4-only
+	/// graphs and for any L7 entry whose listener is not bound to a
+	/// post-`Upgrade` chain (which the lower pass guarantees never
+	/// happens for legal L7 listeners). See spec/architecture/02-flow.md
+	/// § _`FlowGraph` metadata_.
+	///
+	/// `#[serde(default)]` keeps older dry-run JSON snapshots
+	/// deserializable: missing field decodes as an empty map, which
+	/// matches the legacy "no L7 listeners" graph shape.
+	#[serde(default)]
+	pub short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
 }
 
 const fn empty_feature_set() -> &'static [&'static str] {
@@ -362,6 +379,7 @@ mod tests {
 			compiled_at: SystemTime::UNIX_EPOCH,
 			source_files: vec![],
 			feature_set: &[],
+			short_circuit_response_entry: std::collections::BTreeMap::new(),
 		}
 	}
 
@@ -551,6 +569,7 @@ mod tests {
 			compiled_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000),
 			source_files: vec![PathBuf::from("/a.json"), PathBuf::from("/b.json")],
 			feature_set: &["h3", "wasm"],
+			short_circuit_response_entry: std::collections::BTreeMap::new(),
 		};
 		let encoded = serde_json::to_string(&meta).expect("serialize meta");
 		assert!(

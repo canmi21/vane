@@ -56,6 +56,7 @@ pub fn lower(
 			compiled_at: SystemTime::now(),
 			source_files: set.source_files,
 			feature_set: &[],
+			short_circuit_response_entry: builder.short_circuit_response_entry,
 		},
 	})
 }
@@ -70,6 +71,12 @@ struct Builder {
 	terminators: Vec<Terminator>,
 	term_dedup: HashMap<Terminator, TerminatorId>,
 	entries: HashMap<SocketAddr, NodeId>,
+	/// L7 listener entry `NodeId` → synthesised
+	/// `Terminate(WriteHttpResponse)` `NodeId`. Populated by `lower_port`
+	/// for each listener that emits an `Upgrade`; consumed by the
+	/// executor when a request middleware returns `Short(Response(_))`.
+	/// See spec/architecture/02-flow.md § _`FlowGraph` metadata_.
+	short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
 }
 
 impl Builder {
@@ -84,6 +91,7 @@ impl Builder {
 			terminators: Vec::new(),
 			term_dedup: HashMap::new(),
 			entries: HashMap::new(),
+			short_circuit_response_entry: std::collections::BTreeMap::new(),
 		}
 	}
 
@@ -188,7 +196,29 @@ impl Builder {
 		let inner_entry = current_miss;
 
 		match posture {
-			Posture::L7 => Ok(self.push_node(Node::Upgrade { next: inner_entry })),
+			Posture::L7 => {
+				// Synthesize a `Terminate(WriteHttpResponse)` so an L7 request
+				// middleware that returns `Short(ShortCircuit::Response(_))`
+				// has somewhere to land. The executor sets the response slot
+				// on the `Decision::Short` arm and jumps to this synth target;
+				// the standard `WriteHttpResponse` write path emits the bytes.
+				// See spec/architecture/02-flow.md § _`FlowGraph` metadata_.
+				//
+				// The map key is `inner_entry` — the node Upgrade's `next`
+				// points at — *not* the listener-level Upgrade NodeId.
+				// Reason: `drive_h1_server` re-enters `execute` with the
+				// post-Upgrade entry as the `entry` parameter (see
+				// `executor.rs::Node::Upgrade` arm: `drive_h1_server(stream,
+				// graph, *next, ...)`), and the executor's
+				// Short(Response) arm looks the synth target up by *that*
+				// `entry`. Keying by the Upgrade NodeId would miss every
+				// real lookup.
+				let synth_tid = self.intern_terminator(Terminator::WriteHttpResponse);
+				let synth_node = self.push_node(Node::Terminate(synth_tid));
+				let listener_entry = self.push_node(Node::Upgrade { next: inner_entry });
+				self.short_circuit_response_entry.insert(inner_entry, synth_node);
+				Ok(listener_entry)
+			}
 			Posture::L4 => Ok(inner_entry),
 		}
 	}

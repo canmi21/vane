@@ -925,4 +925,77 @@ mod tests {
 		assert!(terms.contains(&Terminator::WriteHttpResponse), "response branch terminator");
 		assert!(terms.contains(&Terminator::ByteTunnel), "tunnel branch terminator");
 	}
+
+	// --- Short(Response) synth target -------------------------------------
+
+	#[test]
+	fn lower_l7_listener_synthesizes_short_circuit_response_target() {
+		// Every L7 listener gets a synth `Terminate(WriteHttpResponse)` that
+		// `meta.short_circuit_response_entry` maps the listener entry to.
+		// Without this synth, an L7 request middleware returning
+		// `Decision::Short(ShortCircuit::Response(_))` has nowhere to land.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7700"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		// L7 listener → exactly one synth target per *unique* entry NodeId.
+		// Dual-stack `:N` shorthand maps both v4 and v6 SocketAddrs to the
+		// same listener NodeId, so the synth map keys by NodeId and is
+		// smaller than `entries.len()` for the dual-stack case.
+		let unique_entries: std::collections::HashSet<_> = graph.entries.values().copied().collect();
+		assert_eq!(graph.meta.short_circuit_response_entry.len(), unique_entries.len());
+		// Every value points at a `Terminate(WriteHttpResponse)`.
+		for synth in graph.meta.short_circuit_response_entry.values() {
+			let Node::Terminate(tid) = &graph[*synth] else {
+				panic!("synth node is not a Terminate: {:?}", &graph[*synth]);
+			};
+			assert_eq!(graph.terminators[tid.get() as usize], Terminator::WriteHttpResponse);
+		}
+	}
+
+	#[test]
+	fn lower_l4_listener_has_no_short_circuit_response_target() {
+		// Pure L4 (port_forward) listeners never go through Upgrade — no
+		// L7Request middleware can run, so no synth target is needed.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7701"],
+			"terminate": { "type": "tcp_forward", "upstream": "10.0.0.5:22" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		assert!(graph.meta.short_circuit_response_entry.is_empty());
+	}
+
+	#[test]
+	fn lower_two_l7_listeners_have_independent_synth_entries() {
+		// Two L7 listeners on distinct ports each get their own synth
+		// target keyed by their listener entry. (Whether the synth nodes
+		// collapse via terminator-id hash-cons is an internal detail; the
+		// public contract is one map entry per listener entry.)
+		let a = parse_rule(serde_json::json!({
+			"name": "a",
+			"listen": [":7702"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "b",
+			"listen": [":7703"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers).expect("compile");
+		// One synth entry per listener entry — the dual-stack `:7702`
+		// expands to v4+v6 sharing one entry NodeId, so map size matches
+		// the number of *unique* entry NodeIds in the graph.
+		let unique_entries: std::collections::HashSet<_> = graph.entries.values().copied().collect();
+		assert_eq!(graph.meta.short_circuit_response_entry.len(), unique_entries.len());
+		assert!(
+			graph.meta.short_circuit_response_entry.len() >= 2,
+			"two listeners → at least two synth entries"
+		);
+	}
 }

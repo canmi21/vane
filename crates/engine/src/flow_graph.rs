@@ -121,6 +121,7 @@ impl FlowGraph {
 			compiled_at: sym.meta.compiled_at,
 			source_files: sym.meta.source_files.clone(),
 			feature_set: crate::ENGINE_FEATURE_SET,
+			short_circuit_response_entry: sym.meta.short_circuit_response_entry.clone(),
 		};
 
 		Ok(Arc::new(Self { symbolic: sym, middlewares, fetches, meta }))

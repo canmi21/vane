@@ -209,6 +209,16 @@ pub fn check_phases(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 	for &entry in graph.entries.values() {
 		visit_phase(graph, entry, Phase::L4Raw, &mut seen)?;
 	}
+	// Walk every L7 listener's synthesised `Short(Response)` target as a
+	// second-class entry rooted at `Phase::L7Response`. The lower pass
+	// always emits these as `Terminate(WriteHttpResponse)` nodes —
+	// `WriteHttpResponse` accepts `L7Response` per the transition
+	// table, so a clean lower produces a clean walk. Bogus entries
+	// (a synth target whose terminator is not `WriteHttpResponse`) get
+	// caught here with the same "phase mismatch" error shape.
+	for &synth in graph.meta.short_circuit_response_entry.values() {
+		visit_phase(graph, synth, Phase::L7Response, &mut seen)?;
+	}
 	Ok(())
 }
 
@@ -279,6 +289,7 @@ mod tests {
 			compiled_at: SystemTime::UNIX_EPOCH,
 			source_files: vec![PathBuf::new()],
 			feature_set: &[],
+			short_circuit_response_entry: std::collections::BTreeMap::new(),
 		}
 	}
 
@@ -415,6 +426,31 @@ mod tests {
 		};
 		let err = check_phases(&graph).expect_err("must error");
 		assert!(err.to_string().contains("phase mismatch"));
+	}
+
+	#[test]
+	fn phase_check_rejects_short_circuit_synth_with_wrong_terminator() {
+		// `meta.short_circuit_response_entry` values are walked at
+		// `Phase::L7Response`. A synth target whose terminator does not
+		// accept that phase must trip the same "phase mismatch" error
+		// the standard walker uses. `Terminator::Close` is phase-agnostic
+		// so it would never trip this check; `ByteTunnel` only accepts
+		// `Phase::Tunnel` and is the right negative-test fixture.
+		let bad_tid = TerminatorId::new(0);
+		let mut meta = empty_meta();
+		meta.short_circuit_response_entry.insert(NodeId::new(1), NodeId::new(0));
+		let graph = SymbolicFlowGraph {
+			nodes: vec![Node::Terminate(bad_tid), Node::Upgrade { next: NodeId::new(0) }],
+			predicates: vec![],
+			middlewares: vec![],
+			fetches: vec![],
+			terminators: vec![Terminator::ByteTunnel],
+			// No `entries` — exercise the synth walk in isolation.
+			entries: HashMap::new(),
+			meta,
+		};
+		let err = check_phases(&graph).expect_err("must error on bad synth phase");
+		assert!(err.to_string().contains("phase mismatch"), "{err}");
 	}
 
 	fn dummy_predicate() -> crate::predicate::PredicateInst {

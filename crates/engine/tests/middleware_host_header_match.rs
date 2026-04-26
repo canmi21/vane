@@ -81,6 +81,7 @@ fn sample_meta() -> FlowGraphMeta {
 		compiled_at: SystemTime::UNIX_EPOCH,
 		source_files: vec![],
 		feature_set: &[],
+		short_circuit_response_entry: std::collections::BTreeMap::new(),
 	}
 }
 
