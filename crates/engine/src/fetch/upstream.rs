@@ -1,0 +1,265 @@
+//! Upstream dial helper. Both [`super::http_proxy::HttpProxyFetch`]
+//! and [`super::websocket_upgrade::WebSocketUpgradeFetch`] need to
+//! optionally wrap a TCP stream in tokio-rustls before handing it to a
+//! hyper client. Centralising the dial path keeps the TLS-config build
+//! logic in one place and matches the spec's "rustls-only — no
+//! native-tls / openssl / boring / hyper-tls" rule
+//! (`spec/architecture/08-tls.md` § _Provider banking_).
+//!
+//! Trust roots come from the system store via `rustls-native-certs`.
+//! `insecure_skip_verify` short-circuits the verifier — it's intended
+//! for testing against self-signed upstreams and is documented as
+//! such in the rule schema; production deployments should leave it
+//! `false`.
+//!
+//! Stage 1 is intentionally narrow: H1 over TLS is plumbed; H2/H3
+//! upstream paths and pinned-cert / private-CA configurations are
+//! deferred to follow-up chunks.
+
+use std::sync::Arc;
+
+use tokio::net::TcpStream;
+use vane_core::{AsyncReadWrite, Error, UpstreamReason};
+
+/// Built TLS configuration for an upstream dial. Stored on each
+/// fetch's `Arc<…>` so the per-call `dial_upstream` only borrows.
+#[derive(Clone)]
+pub struct UpstreamTls {
+	/// Reusable client config — built once at factory time. Cloning
+	/// the `Arc` is cheap; `rustls::ClientConfig` itself is fine to
+	/// share across handshakes.
+	pub client_config: Arc<rustls::ClientConfig>,
+	/// SNI hostname / certificate-verification target. Defaults to
+	/// the host portion of the upstream address but operators can
+	/// override (e.g. when the upstream is reachable as `127.0.0.1`
+	/// but its certificate is issued for `api.internal`).
+	pub verify_hostname: String,
+}
+
+/// Dial `upstream` and optionally complete a TLS handshake using the
+/// supplied configuration. Returns a boxed [`AsyncReadWrite`] ready
+/// for a hyper H1 client handshake. Best-effort `TCP_NODELAY` is set
+/// on the underlying socket — small request/response cycles
+/// shouldn't sit in Nagle's buffer.
+///
+/// # Errors
+/// - [`UpstreamReason::Unreachable`] if the TCP connect fails.
+/// - [`UpstreamReason::TlsHandshake`] if the SNI name parse or the
+///   rustls handshake fails. The wrapped source carries the original
+///   error message for tracing.
+pub async fn dial_upstream(
+	upstream: &str,
+	tls: Option<&UpstreamTls>,
+) -> Result<Box<dyn AsyncReadWrite + Send>, Error> {
+	let tcp = TcpStream::connect(upstream)
+		.await
+		.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
+	let _ = tcp.set_nodelay(true);
+
+	let Some(tls) = tls else {
+		return Ok(Box::new(tcp));
+	};
+	let connector = tokio_rustls::TlsConnector::from(Arc::clone(&tls.client_config));
+	let server_name =
+		rustls_pki_types::ServerName::try_from(tls.verify_hostname.clone()).map_err(|e| {
+			Error::upstream(UpstreamReason::TlsHandshake)
+				.with_source(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()))
+		})?;
+	let tls_stream = connector
+		.connect(server_name, tcp)
+		.await
+		.map_err(|e| Error::upstream(UpstreamReason::TlsHandshake).with_source(e))?;
+	Ok(Box::new(tls_stream))
+}
+
+/// Build a [`rustls::ClientConfig`] once at fetch factory time.
+///
+/// `insecure == false` (the default): load trust anchors from the
+/// system store via `rustls-native-certs::load_native_certs`.
+///
+/// `insecure == true`: install [`NoVerify`], a verifier that accepts
+/// every certificate. Documented as testing-only in the rule schema;
+/// the engine doesn't gate it but operators are responsible for not
+/// shipping `insecure_skip_verify: true` to production.
+///
+/// # Errors
+/// String description of any failure to load the system trust store
+/// or add a certificate. Returned as `String` because this happens at
+/// factory-link time (compile/link errors prefer the lighter-weight
+/// shape over a full `Error`).
+pub fn build_client_config(insecure: bool) -> Result<Arc<rustls::ClientConfig>, String> {
+	if insecure {
+		let cfg = rustls::ClientConfig::builder()
+			.dangerous()
+			.with_custom_certificate_verifier(Arc::new(NoVerify))
+			.with_no_client_auth();
+		return Ok(Arc::new(cfg));
+	}
+
+	let mut roots = rustls::RootCertStore::empty();
+	let native = rustls_native_certs::load_native_certs();
+	if !native.errors.is_empty() {
+		return Err(format!("load native certs: {:?}", native.errors));
+	}
+	for cert in native.certs {
+		roots.add(cert).map_err(|e| format!("add native cert: {e}"))?;
+	}
+	let cfg = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
+	Ok(Arc::new(cfg))
+}
+
+/// `ServerCertVerifier` that accepts any certificate. **Testing only.**
+/// Activated by `insecure_skip_verify: true` in the upstream TLS args.
+#[derive(Debug)]
+struct NoVerify;
+
+impl rustls::client::danger::ServerCertVerifier for NoVerify {
+	fn verify_server_cert(
+		&self,
+		_end_entity: &rustls_pki_types::CertificateDer<'_>,
+		_intermediates: &[rustls_pki_types::CertificateDer<'_>],
+		_server_name: &rustls_pki_types::ServerName<'_>,
+		_ocsp_response: &[u8],
+		_now: rustls_pki_types::UnixTime,
+	) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+		Ok(rustls::client::danger::ServerCertVerified::assertion())
+	}
+
+	fn verify_tls12_signature(
+		&self,
+		_message: &[u8],
+		_cert: &rustls_pki_types::CertificateDer<'_>,
+		_dss: &rustls::DigitallySignedStruct,
+	) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+		Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+	}
+
+	fn verify_tls13_signature(
+		&self,
+		_message: &[u8],
+		_cert: &rustls_pki_types::CertificateDer<'_>,
+		_dss: &rustls::DigitallySignedStruct,
+	) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+		Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+	}
+
+	fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+		// Defer to the active crypto provider's supported set so we
+		// don't accidentally narrow what a non-skip handshake would
+		// accept. The provider is installed once at daemon boot via
+		// `vane_engine::crypto::install_default_provider`.
+		rustls::crypto::CryptoProvider::get_default()
+			.expect("rustls crypto provider installed at boot")
+			.signature_verification_algorithms
+			.supported_schemes()
+	}
+}
+
+/// Helper for fetch factories: parse an `args.tls` JSON object into
+/// an [`UpstreamTls`]. Returns `Ok(None)` when the field is absent
+/// (cleartext upstream). The default `verify_hostname` is the host
+/// portion of `upstream` (everything before the trailing `:port`); an
+/// explicit `verify_hostname` in the args overrides that.
+///
+/// # Errors
+/// String description of any failure — bad shape, unbuildable client
+/// config. Returned as `String` to fit the existing factory error
+/// pattern.
+pub fn parse_tls_args(
+	upstream: &str,
+	tls_args: Option<&serde_json::Value>,
+) -> Result<Option<UpstreamTls>, String> {
+	let Some(tls_args) = tls_args else {
+		return Ok(None);
+	};
+	let verify_hostname =
+		tls_args.get("verify_hostname").and_then(serde_json::Value::as_str).map_or_else(
+			|| {
+				// Default: strip the trailing `:port` if present. `rsplit_once`
+				// keeps the whole string when there's no `:` (rare for TCP
+				// upstreams but worth the defensive fall-through).
+				upstream.rsplit_once(':').map_or(upstream, |(host, _)| host).to_string()
+			},
+			String::from,
+		);
+	let insecure =
+		tls_args.get("insecure_skip_verify").and_then(serde_json::Value::as_bool).unwrap_or(false);
+	let client_config =
+		build_client_config(insecure).map_err(|e| format!("build tls client config: {e}"))?;
+	Ok(Some(UpstreamTls { client_config, verify_hostname }))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use tokio::io::{AsyncReadExt, AsyncWriteExt};
+	use tokio::net::TcpListener;
+
+	#[tokio::test]
+	async fn upstream_dial_cleartext_returns_box_async_read_write() {
+		// Bind a trivial echo server, dial it without TLS, exchange a few
+		// bytes — the dial path that matters here is the `tls.is_none()`
+		// branch returning a `Box<dyn AsyncReadWrite>` over the raw
+		// TcpStream.
+		let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+		let addr = listener.local_addr().expect("local_addr");
+		let server = tokio::spawn(async move {
+			let (mut sock, _) = listener.accept().await.expect("accept");
+			let mut buf = [0u8; 5];
+			sock.read_exact(&mut buf).await.expect("read");
+			sock.write_all(&buf).await.expect("write");
+		});
+
+		let mut conn = dial_upstream(&addr.to_string(), None).await.expect("dial");
+		conn.write_all(b"hello").await.expect("write");
+		let mut echoed = [0u8; 5];
+		conn.read_exact(&mut echoed).await.expect("read echo");
+		assert_eq!(&echoed, b"hello");
+		server.await.expect("server task");
+	}
+
+	#[tokio::test]
+	async fn upstream_dial_returns_unreachable_when_port_is_closed() {
+		// Ephemeral bind + drop yields an address that's almost certainly
+		// closed for the next moment. Dial should surface
+		// `UpstreamReason::Unreachable`, not panic.
+		let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+		let addr = listener.local_addr().expect("local_addr");
+		drop(listener);
+
+		match dial_upstream(&addr.to_string(), None).await {
+			Ok(_) => panic!("dial against closed port should fail"),
+			Err(e) => assert!(e.to_string().contains("upstream"), "{e}"),
+		}
+	}
+
+	#[test]
+	fn parse_tls_args_returns_none_when_field_absent() {
+		assert!(parse_tls_args("api.example.com:443", None).expect("ok").is_none());
+	}
+
+	#[test]
+	fn parse_tls_args_defaults_verify_hostname_to_host_portion() {
+		let parsed = parse_tls_args(
+			"api.example.com:443",
+			Some(&serde_json::json!({ "insecure_skip_verify": true })),
+		)
+		.expect("ok")
+		.expect("Some");
+		assert_eq!(parsed.verify_hostname, "api.example.com");
+	}
+
+	#[test]
+	fn parse_tls_args_explicit_verify_hostname_overrides_default() {
+		let parsed = parse_tls_args(
+			"127.0.0.1:9443",
+			Some(&serde_json::json!({
+				"verify_hostname": "api.internal",
+				"insecure_skip_verify": true,
+			})),
+		)
+		.expect("ok")
+		.expect("Some");
+		assert_eq!(parsed.verify_hostname, "api.internal");
+	}
+}

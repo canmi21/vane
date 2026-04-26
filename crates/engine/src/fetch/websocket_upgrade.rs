@@ -16,8 +16,12 @@
 //! - `Sec-WebSocket-Protocol` / `Sec-WebSocket-Extensions` /
 //!   `Sec-WebSocket-Accept` are entirely upstream's responsibility;
 //!   vane neither validates nor rewrites them.
-//! - WSS (WebSocket over TLS) is out of scope for this round —
-//!   upstream and client are cleartext.
+//! - The upstream dial path runs through
+//!   [`crate::fetch::upstream::dial_upstream`], so an `args.tls`
+//!   block flips the upstream socket from cleartext TCP to a
+//!   `tokio_rustls::client::TlsStream` (`wss://upstream`). The
+//!   client-side scheme is independent — vane terminates either
+//!   cleartext WS or WSS at the L4→L7 handshake.
 //!
 //! See `spec/architecture/05-terminator.md` § _`WebSocketUpgrade`_,
 //! `spec/architecture/14-presets.md` § _WebSocket handling_.
@@ -27,7 +31,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use hyper_util::rt::TokioIo;
 use parking_lot::Mutex;
-use tokio::net::TcpStream;
 use vane_core::{
 	AsyncReadWrite, Body, ConnContext, Error, FetchKind, FlowCtx, L7Fetch, L7FetchOutput, Request,
 	Response, UpstreamReason,
@@ -35,6 +38,7 @@ use vane_core::{
 
 use crate::body_adapter::IncomingAdapter;
 use crate::factories::{FactoryError, FetchFactories};
+use crate::fetch::upstream::{UpstreamTls, dial_upstream, parse_tls_args};
 use crate::flow_graph::FetchInst;
 
 /// `ConnContext.user` extension that hands the upgraded upstream IO
@@ -72,6 +76,9 @@ impl StashedUpstreamUpgrade {
 pub struct WebSocketUpgradeFetch {
 	/// `host:port` literal substituted into the forwarded request URI.
 	upstream: Arc<str>,
+	/// Optional TLS configuration for the upstream dial. `None` means
+	/// cleartext WS upstream; `Some(_)` flips to WSS.
+	tls: Option<UpstreamTls>,
 }
 
 #[async_trait]
@@ -91,15 +98,12 @@ impl L7Fetch for WebSocketUpgradeFetch {
 		*req.uri_mut() =
 			new_uri.parse().map_err(|e| Error::protocol("ws upstream uri rewrite").with_source(e))?;
 
-		// Cleartext H1 dial. We hand the connection to a one-shot
-		// `hyper::client::conn::http1::handshake` rather than the legacy
-		// pooled Client because we need the upgrade channel — pooled
-		// clients close their upgrade channel when they release the
-		// connection back to the pool.
-		let stream = TcpStream::connect(self.upstream.as_ref())
-			.await
-			.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
-		let _ = stream.set_nodelay(true);
+		// One-shot H1 dial via the shared upstream helper — supports
+		// both cleartext WS and WSS depending on `self.tls`. The
+		// pooled `hyper_util::Client` is unsuitable here regardless of
+		// scheme because pooled clients close their upgrade channel
+		// when they release the connection back to the pool.
+		let stream = dial_upstream(&self.upstream, self.tls.as_ref()).await?;
 		let io = TokioIo::new(stream);
 
 		let (mut sender, conn_task) =
@@ -163,14 +167,22 @@ impl L7Fetch for WebSocketUpgradeFetch {
 /// Args shape:
 ///
 /// ```json
-/// { "upstream": "host:port" }
+/// {
+///   "upstream": "host:port",
+///   "tls": {
+///     "verify_hostname":      "ws.example.com",
+///     "insecure_skip_verify": false
+///   }
+/// }
 /// ```
 ///
+/// `tls` is optional — absent means cleartext WS upstream; present
+/// flips the upstream socket to `tokio_rustls` (WSS). The same
+/// schema as `HttpProxyFetch`.
+///
 /// # Errors
-/// Returns [`FactoryError`] when `upstream` is missing, not a string,
-/// or empty. Wider validation (literal `host:port` parse, port range)
-/// is deferred to runtime — `TcpStream::connect` produces a pointed
-/// `UpstreamReason` if the literal is malformed.
+/// [`FactoryError`] when `upstream` is missing/empty or when the TLS
+/// client config fails to build.
 pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 	let upstream = args
 		.get("upstream")
@@ -179,7 +191,9 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 	if upstream.is_empty() {
 		return Err(FactoryError("args.upstream must not be empty".to_string()));
 	}
-	Ok(FetchInst::L7(Arc::new(WebSocketUpgradeFetch { upstream: Arc::from(upstream) })))
+	let tls = parse_tls_args(upstream, args.get("tls"))
+		.map_err(|e| FactoryError(format!("args.tls: {e}")))?;
+	Ok(FetchInst::L7(Arc::new(WebSocketUpgradeFetch { upstream: Arc::from(upstream), tls })))
 }
 
 /// Plug `FetchKind::WebSocketUpgrade` into a `FetchFactories` registry.
