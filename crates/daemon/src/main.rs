@@ -20,8 +20,6 @@
 //! TODO(ws): `WebSocketUpgrade` fetch factory — rules referencing
 //!   `type: "websocket"` fail at link with a pointed `UnknownFetch`
 //!   error.
-//! TODO(rate-limit): `rate_limit` middleware factory — same shape:
-//!   referenced rules fail at link.
 //! TODO(bind-failure-exit): when every listener's bind fails, the
 //!   accept loop tasks exit individually but the daemon stays alive
 //!   serving nothing. Operators see "all listener bind failures" only
@@ -199,6 +197,7 @@ fn build_middleware_factories() -> MiddlewareFactories {
 	vane_engine::middleware::path_prefix::register(&mut mw);
 	vane_engine::middleware::method_match::register(&mut mw);
 	vane_engine::middleware::forward_client_ip::register(&mut mw);
+	vane_engine::middleware::rate_limit::register(&mut mw);
 	mw
 }
 

@@ -33,6 +33,11 @@ impl MiddlewareMetadataProvider for MetadataProviders {
 			"host_header_match" | "path_prefix" | "method_match" | "forward_client_ip" => {
 				(MiddlewareKind::L7Request, true, false)
 			}
+			// `rate_limit` is the canonical stateful middleware — per
+			// spec/architecture/04-middleware.md § _Stateful internal_,
+			// `stateless: false` so `lower::intern_middleware` skips
+			// dedup and every call site gets its own bucket.
+			"rate_limit" => (MiddlewareKind::L7Request, false, false),
 			_ => return None,
 		};
 		Some(MiddlewareMetadata { kind, stateless, needs_body, validate_args: validate_args_pass })
