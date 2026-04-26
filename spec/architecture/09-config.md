@@ -182,7 +182,7 @@ All other notify events — directory metadata changes, attribute changes (chmod
 
 This rule covers two failure modes that captured-NodeId-at-boot would silently mishandle: an edited rule whose graph re-allocates `NodeId`s (incoming traffic would route through whichever node now happens to occupy the old id — typically wrong), and a deleted rule whose listener is still bound on the daemon side (incoming traffic would walk a graph that has no entry for it — undefined).
 
-Listener-set diff (binding new addresses introduced by reload, draining ports removed by reload) is the next reload concern beyond NodeId stability — it requires `ListenerSet` to add/remove sockets across reloads. Until that lands, new listen ports introduced by an edited rule still require a daemon restart; existing-port edits and rule deletions are handled correctly by the per-accept lookup above.
+Listener-set diff is performed by `ListenerSet::reconcile`, called by the watcher's reload pipeline immediately after a successful `ArcSwap::store`. Addresses present in the new graph but not currently bound spawn fresh accept loops (same wiring as boot, including bind-retry); addresses present currently but absent from the new graph fire `accept_cancel`, drain in-flight in the background up to a 30s budget (mirroring the SIGTERM drain default), then escalate to `force_cancel` and abort. The reconcile call itself returns immediately so file-watcher reloads never stall on long-lived tunnels. Addresses unchanged across the reload keep running; their per-accept `entries.get(&addr)` lookup picks up the new graph's `NodeId` on the next accept.
 
 ### Compiled artifact: in-memory only
 
