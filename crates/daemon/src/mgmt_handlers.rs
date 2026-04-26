@@ -180,7 +180,7 @@ impl MgmtState {
 			.keys()
 			.map(|addr| ListenerStatus {
 				addr: addr.to_string(),
-				bound: self.listeners.is_running(addr),
+				bound: self.listeners.is_bound(addr),
 				in_flight_count: self.listeners.in_flight_count(addr).unwrap_or(0),
 			})
 			.collect()

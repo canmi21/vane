@@ -13,16 +13,19 @@
 //!   `/etc/vaned`. Walked by `vane_core::config::load`.
 //!
 //! Several capabilities are intentionally not wired in this stage:
-//! TODO(bind-failure-exit): when every listener's bind fails, the
-//!   accept loop tasks exit individually but the daemon stays alive
-//!   serving nothing. Operators see "all listener bind failures" only
-//!   in `tracing` output. A future change should propagate
-//!   "all listeners dead" upward and exit.
 //! TODO(listener-set-diff): the file watcher refreshes the runtime
 //!   `Arc<FlowGraph>` atomically, but `ListenerSet` does not add/remove
 //!   sockets across reloads. Editing rules to introduce a new `listen`
 //!   port still requires a daemon restart; the new port won't bind
 //!   until then.
+//!
+//! The boot health watchdog (`spawn_boot_health_watchdog`) covers the
+//! "all listeners failed to bind" case: on a configurable timeout
+//! (`VANE_BOOT_HEALTH_TIMEOUT_SECS`, default 60s) with zero successful
+//! binds it fires the shutdown trigger and sets [`BOOT_HEALTH_EXIT`]
+//! so `main` returns a non-zero exit code. Partial bind failure stays
+//! a warn — the daemon serves whatever bound, and operators can read
+//! per-listener status via `vane stats`.
 
 mod mgmt_handlers;
 mod providers;
@@ -31,6 +34,7 @@ mod watcher;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
@@ -97,6 +101,20 @@ struct Args {
 	config_dir: PathBuf,
 }
 
+/// Set by [`spawn_boot_health_watchdog`] when total bind failure forces
+/// a shutdown. `main` reads this after `run()` returns so the process
+/// exits with a non-zero code — supervisors then restart cleanly
+/// instead of leaving an empty daemon up.
+static BOOT_HEALTH_EXIT: AtomicBool = AtomicBool::new(false);
+
+/// Default budget for every expected listener to flip its `bind_ready`
+/// flag. Overridable via `VANE_BOOT_HEALTH_TIMEOUT_SECS` for tests and
+/// for operators on slow networks where a temporarily occupied port
+/// is expected to free up. Total bind retry budget per listener is
+/// already capped by `MAX_BIND_ATTEMPTS` × `BIND_BACKOFF_MAX` inside
+/// the engine.
+const BOOT_HEALTH_TIMEOUT_DEFAULT_SECS: u64 = 60;
+
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
 	// Pre-clap fast path: `--version` / `-v` prints the build banner and
@@ -110,6 +128,9 @@ async fn main() -> std::process::ExitCode {
 
 	if let Err(e) = run().await {
 		eprintln!("vaned: {e}");
+		return std::process::ExitCode::FAILURE;
+	}
+	if BOOT_HEALTH_EXIT.load(Ordering::Acquire) {
 		return std::process::ExitCode::FAILURE;
 	}
 	std::process::ExitCode::SUCCESS
@@ -157,6 +178,26 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	listeners.start(Arc::clone(&graph_swap), Arc::clone(&verbosity), Arc::clone(&sink));
 	tracing::info!(active = listeners.len(), "listeners started");
 
+	// `shutdown_trigger` is shared by the boot health watchdog (fires
+	// it on total bind failure), the mgmt `shutdown` verb, and the
+	// `wait_for_shutdown_signal` select loop. Constructed once here and
+	// cloned into each consumer.
+	let shutdown_trigger = CancellationToken::new();
+
+	// Boot health watchdog: detect "every listener failed to bind"
+	// within a bounded budget and force shutdown with a non-zero exit
+	// code. Partial failures stay warn-only.
+	let expected_listener_count = listeners.expected_count();
+	if expected_listener_count == 0 {
+		tracing::warn!("graph has no listener entries; daemon will serve nothing");
+	} else {
+		spawn_boot_health_watchdog(
+			Arc::clone(&listeners),
+			shutdown_trigger.clone(),
+			expected_listener_count,
+		);
+	}
+
 	// File watcher: best-effort. Init failure is logged and the daemon
 	// continues without auto-reload — operators relying on watcher-driven
 	// reload have to fix the underlying problem and restart.
@@ -184,9 +225,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// Management plane: bind the Unix mgmt socket and dispatch verbs to
 	// `MgmtState`. Bind failures (e.g. directory missing, perms denied)
 	// are logged and the daemon continues serving traffic without mgmt
-	// — the operator can fix the path and restart. `VANE_MGMT_HTTP_BIND`
-	// is reserved for Stage 2 and currently ignored with a warn.
-	let shutdown_trigger = CancellationToken::new();
+	// — the operator can fix the path and restart.
 	let mgmt_state = Arc::new(MgmtState {
 		started_at: Instant::now(),
 		graph_swap: Arc::clone(&graph_swap),
@@ -198,29 +237,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		log_sink: Arc::clone(&sink),
 		shutdown_trigger: shutdown_trigger.clone(),
 	});
-
-	if std::env::var("VANE_MGMT_HTTP_BIND").is_ok() {
-		tracing::warn!("VANE_MGMT_HTTP_BIND is reserved for Stage 2 — ignoring for now");
-	}
-	let mgmt_socket =
-		std::env::var("VANE_MGMT_UNIX").unwrap_or_else(|_| "/tmp/vaned.sock".to_string());
-	let mgmt_cancel = CancellationToken::new();
-	let mgmt_handle = match vane_mgmt::spawn_unix_server(
-		std::path::Path::new(&mgmt_socket),
-		Arc::clone(&mgmt_state),
-		mgmt_cancel.clone(),
-	)
-	.await
-	{
-		Ok(h) => {
-			tracing::info!(socket = %mgmt_socket, "mgmt unix server bound");
-			Some(h)
-		}
-		Err(e) => {
-			tracing::warn!(socket = %mgmt_socket, error = %e, "mgmt unix server bind failed; daemon continues without mgmt");
-			None
-		}
-	};
+	let (mgmt_cancel, mgmt_handle) = bind_mgmt_server(Arc::clone(&mgmt_state)).await;
 
 	wait_for_shutdown_signal(
 		listeners,
@@ -258,6 +275,98 @@ fn build_fetch_factories() -> FetchFactories {
 	vane_engine::fetch::http_synthesize::register(&mut fetch);
 	vane_engine::fetch::websocket_upgrade::register(&mut fetch);
 	fetch
+}
+
+/// Bind the Unix mgmt socket. Returns the cancel token feeding the
+/// server task and the task's `JoinHandle` (or `None` if the bind
+/// failed — the daemon continues serving traffic in that case).
+/// `VANE_MGMT_HTTP_BIND` is reserved for Stage 2 and currently logged
+/// at warn before being ignored.
+async fn bind_mgmt_server(
+	mgmt_state: Arc<MgmtState>,
+) -> (CancellationToken, Option<tokio::task::JoinHandle<()>>) {
+	if std::env::var("VANE_MGMT_HTTP_BIND").is_ok() {
+		tracing::warn!("VANE_MGMT_HTTP_BIND is reserved for Stage 2 — ignoring for now");
+	}
+	let socket = std::env::var("VANE_MGMT_UNIX").unwrap_or_else(|_| "/tmp/vaned.sock".to_string());
+	let cancel = CancellationToken::new();
+	let handle =
+		match vane_mgmt::spawn_unix_server(std::path::Path::new(&socket), mgmt_state, cancel.clone())
+			.await
+		{
+			Ok(h) => {
+				tracing::info!(socket = %socket, "mgmt unix server bound");
+				Some(h)
+			}
+			Err(e) => {
+				tracing::warn!(
+					socket = %socket,
+					error = %e,
+					"mgmt unix server bind failed; daemon continues without mgmt",
+				);
+				None
+			}
+		};
+	(cancel, handle)
+}
+
+/// Boot-time health check. Spawns a background task that polls
+/// `bound_count` against `expected` once per second until either every
+/// listener has bound or the configured budget expires.
+///
+/// Outcomes after timeout:
+/// - **Zero bound** (every listener gave up): set [`BOOT_HEALTH_EXIT`]
+///   and fire `shutdown_trigger`. The shutdown drains through the
+///   normal mgmt-shutdown path and `main` returns
+///   [`std::process::ExitCode::FAILURE`] so supervisors restart.
+/// - **Partial bind** (some succeeded, some failed): warn-log and
+///   leave the daemon running. Per-listener bound state is observable
+///   via `vane stats`.
+///
+/// The 1Hz poll is generous compared to the default 60s budget; a
+/// notification primitive would have to be wired into every status-
+/// transition site (success path, retry-exhaust path) and the bound on
+/// the race window would still be the polling period. Polling reads
+/// the truth regardless of which path got us there.
+fn spawn_boot_health_watchdog(
+	listeners: Arc<ListenerSet>,
+	shutdown_trigger: CancellationToken,
+	expected: usize,
+) {
+	let timeout_secs = std::env::var("VANE_BOOT_HEALTH_TIMEOUT_SECS")
+		.ok()
+		.and_then(|s| s.parse::<u64>().ok())
+		.unwrap_or(BOOT_HEALTH_TIMEOUT_DEFAULT_SECS);
+	tokio::spawn(async move {
+		let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+		loop {
+			let bound = listeners.bound_count();
+			if bound == expected {
+				tracing::info!(bound, expected, "all listeners bound successfully");
+				return;
+			}
+			if Instant::now() >= deadline {
+				if bound == 0 {
+					tracing::error!(
+						expected,
+						timeout_secs,
+						"all listeners failed to bind within boot health timeout — daemon exiting"
+					);
+					BOOT_HEALTH_EXIT.store(true, Ordering::Release);
+					shutdown_trigger.cancel();
+				} else {
+					tracing::warn!(
+						bound,
+						expected,
+						timeout_secs,
+						"boot health timeout reached; daemon continues with partial coverage",
+					);
+				}
+				return;
+			}
+			tokio::time::sleep(Duration::from_secs(1)).await;
+		}
+	});
 }
 
 async fn wait_for_shutdown_signal(
