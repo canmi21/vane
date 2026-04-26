@@ -4,11 +4,14 @@ The wire format and serde design for rule `match` predicates, plus the grammar o
 
 ## Shape overview
 
-A predicate is one of three forms, serialized as JSON:
+A predicate is one of four forms, serialized as JSON:
 
 ```jsonc
 // Combinator: OR over children.
 { "any_of": [ <predicate>, <predicate>, ... ] }
+
+// Combinator: AND over children.
+{ "all_of": [ <predicate>, <predicate>, ... ] }
 
 // Combinator: negation.
 { "not": <predicate> }
@@ -43,11 +46,13 @@ Top-level `match` on a rule is an **implicit AND** — an array of predicates th
 ```rust
 pub enum Predicate {
     AnyOf(AnyOfP),
+    AllOf(AllOfP),
     Not(NotP),
     Check(CheckMap),
 }
 
 pub struct AnyOfP { pub any_of: Vec<Predicate> }
+pub struct AllOfP { pub all_of: Vec<Predicate> }
 pub struct NotP   { pub not:    Box<Predicate> }
 
 /// A single-key map: the key is a field path, the value is the operator.
@@ -92,6 +97,7 @@ The shape is fully derivable with stock serde — no custom `Deserialize` impl:
 #[serde(untagged)]
 pub enum Predicate {
     AnyOf(AnyOfP),
+    AllOf(AllOfP),
     Not(NotP),
     Check(CheckMap),
 }
@@ -99,6 +105,10 @@ pub enum Predicate {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnyOfP { pub any_of: Vec<Predicate> }
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AllOfP { pub all_of: Vec<Predicate> }
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -110,8 +120,9 @@ pub struct NotP { pub not: Box<Predicate> }
 `#[serde(untagged)]` tries variants in declaration order. For an input object:
 
 1. **`AnyOf`** — matches if the object has a single field named `any_of` whose value is an array of predicates. `deny_unknown_fields` ensures it does **not** match an object that has `any_of` plus other keys.
-2. **`Not`** — same pattern with `not`.
-3. **`Check`** — the fallback. Any single-key object with a non-combinator key falls here. `CheckMap` has a custom one-line `Deserialize` that reads the map's only key as `FieldPath` and the value as `Operator`.
+2. **`AllOf`** — same pattern with `all_of`.
+3. **`Not`** — same pattern with `not`.
+4. **`Check`** — the fallback. Any single-key object with a non-combinator key falls here. `CheckMap` has a custom one-line `Deserialize` that reads the map's only key as `FieldPath` and the value as `Operator`.
 
 Only `CheckMap`'s `Deserialize` is custom — and it's ~15 lines. The combinator variants are pure derive.
 
@@ -119,7 +130,17 @@ Only `CheckMap`'s `Deserialize` is custom — and it's ~15 lines. The combinator
 
 The audit initially asked "what if a user has a field named `any_of`?" Looking at the authoritative field-path grammar below: field paths are drawn from a **fixed closed set** (`transport`, `remote.*`, `peek`, `tls.*`, `http.method`, `http.uri.*`, `http.header.<name>`, `http.body`). None of these top-level paths matches `any_of` / `not` / `all_of`. Only nested paths (e.g., `http.header.any_of` — an HTTP header literally named "any_of") are legal in principle, but those are **multi-segment dotted paths**, not bare single-token keys. The untagged deserializer distinguishes them cleanly: `{"any_of": ...}` always means the combinator; `{"http.header.any_of": ...}` always means the Check form.
 
-`all_of` is reserved for future use (grouped AND inside an `any_of`) and will be added to the enum when needed; today, the top-level `match: [A, B, C]` array provides implicit AND.
+### Combinator semantics
+
+`any_of` is the OR combinator: matches if any child matches. Empty `any_of: []` is vacuously **false** (matches nothing).
+
+`all_of` is the AND combinator: matches if every child matches. Empty `all_of: []` is vacuously **true** (matches everything). The top-level `match: [A, B, C]` array remains the user-facing implicit-AND shorthand; `all_of` is the explicit form, useful inside `any_of` (where the top-level array is unavailable) — e.g., `any_of: [ all_of: [upgrade==websocket, path.prefix=/ws], all_of: [upgrade==websocket, path.prefix=/api/stream] ]`.
+
+`not` is negation: swaps the on_match and on_miss edges of its child at lower time, so it never adds a node — it costs zero runtime cycles.
+
+### Cross-level combinators rejected
+
+A combinator (`any_of` / `all_of` / `not`) whose Check leaves mix levels (e.g., `tls.sni` + `http.method`) is rejected by `lower` with a pointed error. Reason: a single Check node has one Phase placement, and the executor's `PredicateView` enum is variant-per-phase — there is no representation for "evaluate this leaf at L4Peeked, that one at L7Request". Users compose cross-level logic at the rule layer (one rule per phase) rather than inside a single combinator.
 
 ## Field path grammar
 

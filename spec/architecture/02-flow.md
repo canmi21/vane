@@ -370,6 +370,12 @@ The `source` field on `RawRule` (see `14-presets.md`) plus the `MiddlewareRef::n
 
 A single transition table is the Rust-proxy analogue of an ISA encoding table or an LLVM IR verifier: adding a new `Node` kind or a new `Fetch` variant requires one table row, and the validator + any future IR dumpers + documentation stay in lockstep. Scattering the same rules across `lower`, `validate`, and executor match arms is where IR checkers grow silent gaps.
 
+### Listener-level Upgrade placement
+
+For L7-posture listeners (any rule on the listener has `posture == L7`), `lower` emits **exactly one** `Node::Upgrade` per listener — at the top of the listener's sub-graph, immediately at the entry. All predicates (L4-level and L7-level alike) sit **after** the shared Upgrade. The `on_miss` chain across rules stays in the post-Upgrade phase (`L7Request`), so the validator's phase walker accepts it without the per-rule Upgrade hops that previously double-fired the L4→L7 transition.
+
+This sacrifices the earlier "L4-level Check fails fast before HTTP decode" optimisation. The trade-off: every byte going to a TLS or HTTP listener pays the protocol-decode cost even when an L4-level predicate would have rejected it. `PredicateView`'s `L7Req` variant preserves access to `conn` so L4-only field reads (`remote.ip`, `tls.sni`) remain functionally correct in this phase. If profiling shows the optimisation matters, a future chunk can re-introduce pre-Upgrade L4 Checks alongside `protocol_detect` — that's the natural place to fold the L4 fast-path back in, since `protocol_detect` already needs to look at peek bytes pre-Upgrade.
+
 ## Execution model
 
 The executor is an **iterative walker**. A single `async fn` holds a loop; the loop walks the flat graph by updating a `NodeId` cursor and maintaining the per-phase owned state slots.
