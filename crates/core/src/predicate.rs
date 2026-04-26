@@ -210,6 +210,24 @@ impl PredicateInst {
 				PredicateView::L7Req { req, .. },
 			) => req.uri().path().as_bytes().starts_with(expected_bytes.as_ref()),
 
+			// `tls.sni` reads the SNI hostname captured by the listener at
+			// TLS handshake. Both `PredicateView::L7Req { conn, .. }` and
+			// `PredicateView::L4 { conn, .. }` carry `conn`, so SNI predicates
+			// work in either phase. The listener stores SNI ASCII-lowercase
+			// per spec 08-tls.md § _SNI normalization_, and
+			// `parse_field_path` lowercases the args side, so byte equality
+			// is correct.
+			(
+				FieldPath::TlsSni,
+				CompiledOperator::Equals(CompiledValue::Str(expected)),
+				PredicateView::L7Req { conn, .. } | PredicateView::L4 { conn, .. },
+			) => conn
+				.tls
+				.lock()
+				.as_ref()
+				.and_then(|t| t.sni.as_deref())
+				.is_some_and(|got| got == expected.as_ref()),
+
 			// TODO(predicate-matrix): full operator × field-path dispatch per
 			// 18-predicate-schema.md. Unsupported combinations are sound-by-
 			// default: they always miss, never spuriously match.
@@ -1361,6 +1379,24 @@ mod tests {
 		}
 	}
 
+	fn tls_sni_equals(value: &str) -> PredicateInst {
+		PredicateInst {
+			path: FieldPath::TlsSni,
+			op: CompiledOperator::Equals(CompiledValue::Str(Arc::<str>::from(value))),
+		}
+	}
+
+	fn conn_with_sni(sni: &str) -> Arc<ConnContext> {
+		let conn = make_conn();
+		*conn.tls.lock() = Some(crate::conn_context::TlsInfo {
+			sni: Some(sni.to_string()),
+			alpn: None,
+			version: None,
+			peer_cert: None,
+		});
+		conn
+	}
+
 	fn req_with_header(name: &str, value: &str) -> Request {
 		http::Request::builder()
 			.method("GET")
@@ -1458,5 +1494,38 @@ mod tests {
 		let req = req_with_uri("/admin");
 		let view = PredicateView::L7Req { conn: &conn, req: &req };
 		assert!(!http_uri_path_prefix("/api").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_tls_sni_equals_matches_when_set() {
+		// SNI multi-cert routing relies on this arm: a rule that filters
+		// `match: { tls.sni: { equals: "api.example.com" } }` should fire
+		// when the listener's TLS handshake captured the matching SNI.
+		let conn = conn_with_sni("api.example.com");
+		let req = req_with_uri("/");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(tls_sni_equals("api.example.com").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_tls_sni_equals_misses_when_unset() {
+		// Cleartext listener — `ConnContext.tls` is `None`. The predicate
+		// must miss rather than spuriously match the empty SNI string.
+		let conn = make_conn();
+		let req = req_with_uri("/");
+		let view = PredicateView::L7Req { conn: &conn, req: &req };
+		assert!(!tls_sni_equals("api.example.com").test(&view));
+	}
+
+	#[test]
+	fn predicate_test_tls_sni_equals_works_in_l4_view_too() {
+		// `tls.sni`'s inspection level is L4-peek per
+		// 18-predicate-schema.md; the predicate must work in both
+		// `PredicateView::L4 { conn, peek }` and `L7Req { conn, .. }`
+		// since both views carry `conn` and post-handshake SNI is
+		// stored on `ConnContext.tls`.
+		let conn = conn_with_sni("api.example.com");
+		let view = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(tls_sni_equals("api.example.com").test(&view));
 	}
 }

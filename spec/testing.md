@@ -147,7 +147,7 @@ Testability is asymmetric across the three deliverables:
 `vane-testutil` owns all shared test fixtures. Concrete crate choices:
 
 - **TLS certs**: `rcgen` generates a CA + leaf at test runtime. Fixture bytes are **not** committed to the repo; expiry-flake is impossible. Each test gets a fresh CA scoped to its tmpdir.
-- **Free port allocation**: bind `:0`, read the assigned port, re-bind in the system under test. (The test-time race between read and re-bind is accepted; alternative is the `listenfd` crate, deferred.)
+- **Free port allocation**: bind `:0`, read the assigned port, re-bind in the system under test. (The test-time race between read and re-bind is accepted; alternative is the `listenfd` crate, deferred.) The race window is widest when many TLS-listener tests run in parallel — handshake setup is heavier than plain TCP, so the per-test interval between port-pick and listener-bind grows. If a TLS-heavy parallel run flakes with `connect: connection refused` or a similar bind-collision symptom, isolate that file with `--test-threads=1` or `cargo test -p <crate> --test <name>` to confirm the flake is collision rather than a real regression. Don't paper over with retries inside the test body.
 - **Echo servers**: `vane-testutil::echo_http()`, `echo_tcp()`, `echo_udp()`. Return an `EchoHandle` that auto-teardowns on `Drop`.
 - **WASM fixtures**: small `.wasm` components built via `cargo build -p vane-wasm-fixture --target wasm32-wasi --release` in a build script; bytes loaded at test start.
 - **CGI fixtures**: small Python scripts shipped under `tests/fixtures/cgi/`; paths handed to `HttpUpstream::Cgi.binary`.

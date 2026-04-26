@@ -99,8 +99,19 @@ The resolver implements rustls's `ResolvesServerCert`:
 ```rust
 impl rustls::server::ResolvesServerCert for VaneCertResolver {
     fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
-        let sni = client_hello.server_name()?;
-        self.store.load().lookup(sni)
+        let store = self.store.load();
+        // Explicit lookup-then-fallback. We do **not** delegate to
+        // `rustls::server::ResolvesServerCertUsingSni` because that
+        // resolver returns `None` (handshake failure) on unmatched
+        // SNI, with no built-in fallback hook. The CertStore's `default`
+        // field is the explicit no-SNI fallback (default: reject; see
+        // _Fallback behavior_ below for opt-in).
+        if let Some(sni) = client_hello.server_name()
+            && let Some(found) = store.by_sni.get(sni)
+        {
+            return Some(Arc::clone(&found.key));
+        }
+        store.default.as_ref().map(|d| Arc::clone(&d.key))
     }
 }
 
@@ -112,6 +123,17 @@ pub struct CertStore {
     by_sni:  HashMap<String, Arc<CertEntry>>,
     default: Option<Arc<CertEntry>>,    // optional no-SNI fallback
 }
+// SNI keys are sourced from the rule layer's explicit `tls.sni` field
+// (see 14-presets.md / 09-config.md `RawRule.tls`), **not** parsed from
+// the cert's SAN/CN. Parsing certs at compile time would couple the
+// config layer to an x509 dependency and silently bind cert content
+// changes to routing changes (a re-issued cert with a different SAN
+// would silently rewrite the SNI map). Operators name the SNI they
+// route on; the cert's contents must agree, but the routing key is
+// the explicit field.
+//
+// A rule whose `tls` has no `sni` field becomes the listener's
+// `default` cert (one default per listener, enforced at lower).
 
 pub struct CertEntry {
     pub key:              Arc<CertifiedKey>,   // CertifiedKey.ocsp carries OCSP stapling data
