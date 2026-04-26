@@ -482,3 +482,72 @@ async fn reconcile_noop_for_unchanged_address_set() {
 
 	set.shutdown(Duration::from_secs(2)).await;
 }
+
+#[tokio::test]
+async fn bound_count_flips_to_expected_after_bind_succeeds() {
+	// `expected_count` reflects the number of `entries` the registry was
+	// asked to manage; `bound_count` only ticks up after each accept
+	// loop's `bind_with_retry` returns a real `TcpListener`. The boot
+	// health watchdog distinguishes "still trying" / "succeeded" /
+	// "gave up" by polling these two together.
+	let addr = pick_port().await;
+	let mut entries = HashMap::new();
+	entries.insert(addr, NodeId::new(0));
+	let verbosity = Arc::new(VerbosityState::new());
+	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
+	let swap = Arc::new(ArcSwap::new(close_only_graph(entries)));
+
+	let set = ListenerSet::new();
+	assert_eq!(set.expected_count(), 0, "fresh set has no listeners");
+	assert_eq!(set.bound_count(), 0);
+
+	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	assert_eq!(set.expected_count(), 1, "registry knows about the listener immediately");
+
+	// Poll until bind_ready flips. The actual bind happens inside the
+	// spawned accept-loop task, so it lags `start()` by a tokio yield.
+	let deadline = Instant::now() + Duration::from_secs(2);
+	while Instant::now() < deadline {
+		if set.bound_count() == 1 {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(10)).await;
+	}
+	assert_eq!(set.bound_count(), 1, "bound_count tracks successful bind within 2s");
+	assert_eq!(set.expected_count(), 1);
+
+	set.shutdown(Duration::from_secs(2)).await;
+	assert_eq!(set.expected_count(), 0, "shutdown drains the registry");
+	assert_eq!(set.bound_count(), 0);
+}
+
+#[tokio::test]
+async fn bound_count_stays_zero_when_address_is_already_in_use() {
+	// Pre-bind the test address ourselves so the listener-set's accept
+	// loop hits EADDRINUSE on every retry. After exhausting retries the
+	// task returns *without* flipping `bind_ready`. We don't wait for
+	// the full retry budget — observing `bound_count == 0` while
+	// `expected_count == 1` is enough to prove the watchdog can detect
+	// the still-trying / failed case.
+	let blocker = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral blocker");
+	let addr = blocker.local_addr().expect("local_addr");
+	let mut entries = HashMap::new();
+	entries.insert(addr, NodeId::new(0));
+	let verbosity = Arc::new(VerbosityState::new());
+	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
+	let swap = Arc::new(ArcSwap::new(close_only_graph(entries)));
+
+	let set = ListenerSet::new();
+	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	assert_eq!(set.expected_count(), 1);
+
+	// Give the accept loop time to attempt at least one bind. Without
+	// freeing the blocker, `bind_ready` must stay `false`.
+	tokio::time::sleep(Duration::from_millis(300)).await;
+	assert_eq!(set.bound_count(), 0, "bind_ready stays false while address is in use");
+
+	// Tear down: drop our blocker first so the accept-loop task's next
+	// `accept_cancel.cancelled()` window can short-circuit cleanly.
+	drop(blocker);
+	set.shutdown(Duration::from_secs(2)).await;
+}

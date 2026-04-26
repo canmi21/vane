@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use arc_swap::ArcSwap;
@@ -87,6 +87,12 @@ struct ListenerHandle {
 	/// [`ListenerSet::in_flight_count`] for the mgmt `stats` /
 	/// `list_connections` verbs.
 	in_flight_count: Arc<AtomicUsize>,
+	/// Flipped to `true` exactly once, by the accept-loop task, after
+	/// its `bind_with_retry` returns a real `TcpListener`. Stays `false`
+	/// when retries exhaust without success. Read by
+	/// [`ListenerSet::bound_count`] so the daemon's boot health watchdog
+	/// can distinguish "still trying" / "succeeded" / "gave up".
+	bind_ready: Arc<AtomicBool>,
 	join: JoinHandle<()>,
 }
 
@@ -160,6 +166,7 @@ impl ListenerSet {
 			let force_cancel = CancellationToken::new();
 			let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
 			let in_flight_count = Arc::new(AtomicUsize::new(0));
+			let bind_ready = Arc::new(AtomicBool::new(false));
 
 			let join = tokio::spawn(run_accept_loop(
 				addr,
@@ -170,20 +177,44 @@ impl ListenerSet {
 				force_cancel.clone(),
 				Arc::clone(&in_flight),
 				Arc::clone(&in_flight_count),
+				Arc::clone(&bind_ready),
 			));
 
 			running.insert(
 				addr,
-				ListenerHandle { accept_cancel, force_cancel, in_flight, in_flight_count, join },
+				ListenerHandle {
+					accept_cancel,
+					force_cancel,
+					in_flight,
+					in_flight_count,
+					bind_ready,
+					join,
+				},
 			);
 		}
 	}
 
 	/// Whether a listener is currently running for `addr`. Useful for tests
 	/// that observe lifecycle transitions.
+	///
+	/// "Running" here means the registry holds a [`ListenerHandle`] for
+	/// `addr` — including listeners that are still in `bind_with_retry`
+	/// or that gave up after exhausting retries. To check whether the
+	/// underlying socket is actually bound and accepting, use
+	/// [`Self::is_bound`].
 	#[must_use]
 	pub fn is_running(&self, addr: &SocketAddr) -> bool {
 		self.running.lock().contains_key(addr)
+	}
+
+	/// Whether the listener at `addr` has reached the bound state — the
+	/// accept loop's `bind_with_retry` returned a real `TcpListener`.
+	/// Distinct from [`Self::is_running`] (which just checks registry
+	/// membership). Surfaced through the mgmt `stats` /
+	/// `list_connections` verbs as the truthful `bound` field.
+	#[must_use]
+	pub fn is_bound(&self, addr: &SocketAddr) -> bool {
+		self.running.lock().get(addr).is_some_and(|h| h.bind_ready.load(Ordering::Acquire))
 	}
 
 	/// Live count of in-flight connections accepted by the listener at
@@ -208,6 +239,27 @@ impl ListenerSet {
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
 		self.running.lock().is_empty()
+	}
+
+	/// Number of listener tasks whose `bind_with_retry` has succeeded —
+	/// i.e. listeners that are actually accepting connections right now.
+	/// The daemon's boot health watchdog uses this to detect the
+	/// "everything failed to bind" case versus "some succeeded" or
+	/// "still trying". `Ordering::Acquire` pairs with the `Release`
+	/// store inside the accept loop so a reader that sees `true` also
+	/// sees the bound socket's effects.
+	#[must_use]
+	pub fn bound_count(&self) -> usize {
+		self.running.lock().values().filter(|h| h.bind_ready.load(Ordering::Acquire)).count()
+	}
+
+	/// Number of listeners managed regardless of bind state. Equal to
+	/// the number of `entries` keys at boot or after the most recent
+	/// reconcile. The boot health watchdog compares this against
+	/// [`Self::bound_count`] to decide whether the boot completed.
+	#[must_use]
+	pub fn expected_count(&self) -> usize {
+		self.running.lock().len()
 	}
 
 	/// Soft-drain shutdown per 01-topology.md § _Listener lifecycle_ step 3.
@@ -245,8 +297,14 @@ impl ListenerSet {
 		}
 
 		for (addr, handle) in handles {
-			let ListenerHandle { accept_cancel: _, force_cancel, in_flight, in_flight_count: _, join } =
-				handle;
+			let ListenerHandle {
+				accept_cancel: _,
+				force_cancel,
+				in_flight,
+				in_flight_count: _,
+				bind_ready: _,
+				join,
+			} = handle;
 
 			// Wait for the accept loop to wind down. It only needs to
 			// complete one select! cycle to observe accept_cancel; if the
@@ -332,6 +390,7 @@ impl ListenerSet {
 			let force_cancel = CancellationToken::new();
 			let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
 			let in_flight_count = Arc::new(AtomicUsize::new(0));
+			let bind_ready = Arc::new(AtomicBool::new(false));
 			let join = tokio::spawn(run_accept_loop(
 				addr,
 				Arc::clone(&graph),
@@ -341,10 +400,18 @@ impl ListenerSet {
 				force_cancel.clone(),
 				Arc::clone(&in_flight),
 				Arc::clone(&in_flight_count),
+				Arc::clone(&bind_ready),
 			));
 			running.insert(
 				addr,
-				ListenerHandle { accept_cancel, force_cancel, in_flight, in_flight_count, join },
+				ListenerHandle {
+					accept_cancel,
+					force_cancel,
+					in_flight,
+					in_flight_count,
+					bind_ready,
+					join,
+				},
 			);
 		}
 		// Unchanged addresses: the per-accept `entries.get(&addr)` in
@@ -358,7 +425,14 @@ impl ListenerSet {
 /// `tokio::spawn`'d task so [`ListenerSet::reconcile`] returns
 /// immediately.
 async fn drain_handle_async(addr: SocketAddr, handle: ListenerHandle) {
-	let ListenerHandle { accept_cancel, force_cancel, in_flight, in_flight_count: _, join } = handle;
+	let ListenerHandle {
+		accept_cancel,
+		force_cancel,
+		in_flight,
+		in_flight_count: _,
+		bind_ready: _,
+		join,
+	} = handle;
 
 	// Stop accepting new connections.
 	accept_cancel.cancel();
@@ -403,6 +477,7 @@ async fn run_accept_loop(
 	force_cancel: CancellationToken,
 	in_flight: Arc<AsyncMutex<JoinSet<()>>>,
 	in_flight_count: Arc<AtomicUsize>,
+	bind_ready: Arc<AtomicBool>,
 ) {
 	let Some(listener) = bind_with_retry(addr, &accept_cancel, MAX_BIND_ATTEMPTS).await else {
 		tracing::error!(
@@ -410,8 +485,11 @@ async fn run_accept_loop(
 			attempts = MAX_BIND_ATTEMPTS,
 			"listener bind failed after exhausting retries — giving up on this address",
 		);
+		// `bind_ready` stays `false` so the daemon's boot health
+		// watchdog observes the failed listener and can react.
 		return;
 	};
+	bind_ready.store(true, Ordering::Release);
 
 	loop {
 		tokio::select! {
