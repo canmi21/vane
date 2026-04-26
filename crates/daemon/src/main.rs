@@ -50,6 +50,7 @@ use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::{BroadcastSink, FanoutSink, default_sink_from_env};
+use vane_engine::tracing_broadcast::BroadcastTracingLayer;
 
 use crate::mgmt_handlers::MgmtState;
 use crate::providers::MetadataProviders;
@@ -138,7 +139,12 @@ async fn main() -> std::process::ExitCode {
 
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let args = Args::parse();
-	init_tracing();
+	// Construct the broadcast tracing layer first so the subscriber
+	// stack composes it alongside the stderr fmt layer. The layer
+	// itself is Clone (cheap — wraps a broadcast::Sender); we hand one
+	// clone to the subscriber and keep the original for `MgmtState`.
+	let tracing_broadcast = BroadcastTracingLayer::new();
+	init_tracing(tracing_broadcast.clone());
 
 	// Install rustls's process-wide default crypto provider before any
 	// `ServerConfig::builder()` runs in `FlowGraph::link`. The selection
@@ -246,6 +252,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		verbosity: Arc::clone(&verbosity),
 		log_sink: Arc::clone(&sink),
 		broadcast: Arc::clone(&broadcast_sink),
+		tracing_broadcast,
 		shutdown_trigger: shutdown_trigger.clone(),
 	});
 	let (mgmt_cancel, mgmt_handle) = bind_mgmt_server(Arc::clone(&mgmt_state)).await;
@@ -262,11 +269,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	Ok(())
 }
 
-fn init_tracing() {
-	// `RUST_LOG` (env-filter) is the operator-facing knob. Default `info`
-	// matches the `VANE_LOG_LEVEL` default surfaced by `Env`.
+fn init_tracing(tail_layer: BroadcastTracingLayer) {
+	// `RUST_LOG` (env-filter) gates only the fmt-to-stderr layer —
+	// the broadcast layer is intentionally unfiltered so that `vane
+	// tail-log` shows every event the daemon emits regardless of how
+	// noisy the operator's terminal is configured to be. Operators
+	// who want to thin the stream client-side can pipe to `jq`.
+	//
+	// Default `info` for the fmt layer matches the `VANE_LOG_LEVEL`
+	// default surfaced by `Env`.
+	use tracing_subscriber::Layer;
+	use tracing_subscriber::layer::SubscriberExt;
+	use tracing_subscriber::util::SubscriberInitExt;
 	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-	tracing_subscriber::fmt().with_env_filter(filter).with_target(true).init();
+	let fmt_layer = tracing_subscriber::fmt::layer().with_target(true).with_filter(filter);
+	tracing_subscriber::registry().with(fmt_layer).with(tail_layer).init();
 }
 
 fn build_middleware_factories() -> MiddlewareFactories {

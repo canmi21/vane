@@ -24,13 +24,14 @@ use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::BroadcastSink;
+use vane_engine::tracing_broadcast::{BroadcastTracingLayer, TracingFrame};
 use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
 use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
 use vane_mgmt::verb::{
 	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetActiveConfigResult,
 	ListConnectionsResult, ListenerStatus, PingResult, ReloadResult, ShutdownResult, StatsResult,
 	VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD,
-	VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
+	VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG, VERB_TAIL_LOG,
 };
 
 use crate::providers::MetadataProviders;
@@ -51,6 +52,9 @@ pub(crate) struct MgmtState {
 	/// Live broadcast handle. `tail_flow_log` subscribes here for
 	/// incident-time event streaming.
 	pub broadcast: Arc<BroadcastSink>,
+	/// Tracing layer that broadcasts every emitted event. `tail_log`
+	/// subscribes here. Cheap to clone (wraps a [`broadcast::Sender`]).
+	pub tracing_broadcast: BroadcastTracingLayer,
 	/// Fired by the `shutdown` verb. The daemon's main signal loop
 	/// awaits this alongside SIGINT/SIGTERM.
 	pub shutdown_trigger: CancellationToken,
@@ -65,6 +69,10 @@ impl Handler for MgmtState {
 		if req.verb == VERB_TAIL_FLOW_LOG {
 			let rx = self.broadcast.subscribe();
 			return DispatchOutcome::Stream(Box::new(FlowLogStream { rx }));
+		}
+		if req.verb == VERB_TAIL_LOG {
+			let rx = self.tracing_broadcast.subscribe();
+			return DispatchOutcome::Stream(Box::new(TailLogStream { rx }));
 		}
 		let result: Result<serde_json::Value, WireError> = match req.verb.as_str() {
 			VERB_PING => self.handle_ping(),
@@ -89,6 +97,37 @@ impl Handler for MgmtState {
 /// they're getting a sampled view.
 pub(crate) struct FlowLogStream {
 	rx: broadcast::Receiver<FlowLogEvent>,
+}
+
+/// Streaming source for the `tail_log` verb. Same pattern as
+/// `FlowLogStream` but the upstream channel carries [`TracingFrame`]s
+/// (RUST_LOG-gated tracing events).
+pub(crate) struct TailLogStream {
+	rx: broadcast::Receiver<TracingFrame>,
+}
+
+#[async_trait]
+impl EventStream for TailLogStream {
+	async fn next_event(&mut self) -> Option<serde_json::Value> {
+		loop {
+			match self.rx.recv().await {
+				Ok(frame) => match serde_json::to_value(&frame) {
+					Ok(v) => return Some(v),
+					Err(e) => {
+						tracing::warn!(?e, "tail_log frame encode failed; dropping");
+					}
+				},
+				Err(broadcast::error::RecvError::Lagged(n)) => {
+					tracing::warn!(dropped = n, "tail_log subscriber lagged");
+					return Some(serde_json::json!({
+						"kind": "lagged",
+						"dropped": n,
+					}));
+				}
+				Err(broadcast::error::RecvError::Closed) => return None,
+			}
+		}
+	}
 }
 
 #[async_trait]
@@ -323,6 +362,7 @@ mod tests {
 			verbosity: Arc::new(VerbosityState::new()),
 			log_sink: Arc::new(NullSink),
 			broadcast: Arc::new(BroadcastSink::new()),
+			tracing_broadcast: BroadcastTracingLayer::new(),
 			shutdown_trigger: CancellationToken::new(),
 		})
 	}

@@ -12,6 +12,7 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use assert_cmd::cargo::CommandCargoExt;
@@ -19,6 +20,7 @@ use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
 	ListConnectionsResult, NoArgs, PingResult, ReloadResult, ShutdownResult, StatsResult,
 	VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
+	VERB_TAIL_LOG,
 };
 
 struct Daemon {
@@ -372,6 +374,119 @@ async fn mgmt_tail_flow_log_streams_events_via_cli() {
 	let _ = tail.kill();
 	let _ = tail.wait();
 	assert!(got_trajectory, "expected at least one Trajectory event from tail-flow-log stream");
+}
+
+#[tokio::test]
+async fn mgmt_tail_log_streams_tracing_events_via_cli() {
+	use std::io::{BufRead, BufReader as StdBufReader};
+	use std::process::Stdio;
+
+	let d = spawn_daemon_with_rule(43_014, "v1");
+
+	// Spawn the streaming CLI subprocess piping stdout. Drain in a
+	// background thread to avoid blocking on `Read` when polling.
+	let mut tail = std::process::Command::cargo_bin("vane")
+		.expect("vane binary")
+		.arg("tail-log")
+		.arg("--json")
+		.arg("--socket")
+		.arg(&d.socket)
+		.stdout(Stdio::piped())
+		.stderr(Stdio::null())
+		.spawn()
+		.expect("spawn vane tail-log");
+
+	let stdout = tail.stdout.take().expect("piped stdout");
+	let (line_tx, line_rx) = std::sync::mpsc::channel::<String>();
+	std::thread::spawn(move || {
+		let reader = StdBufReader::new(stdout);
+		for line in reader.lines().map_while(Result::ok) {
+			if line_tx.send(line).is_err() {
+				break;
+			}
+		}
+	});
+
+	// Let the tail subscriber land on the broadcast channel before
+	// triggering tracing emits — without this the reload events race
+	// the subscribe and reach an empty channel.
+	tokio::time::sleep(Duration::from_millis(300)).await;
+
+	// Mutate the rule body and trigger a reload — the daemon emits
+	// `tracing::info!("reloaded — flow graph swapped")` from the
+	// watcher's handle_reload path. That's a stable anchor for the
+	// test: we know the event will fire, we know it has a `level`
+	// field, and it lands on the live broadcast channel.
+	write_rule(d.config_dir(), 43_014, "v2");
+	let client = UnixMgmtClient::new(&d.socket);
+	let _: ReloadResult = client.call(VERB_RELOAD, &NoArgs {}).await.expect("reload");
+
+	// Deadline-poll for any NDJSON line carrying a `level` field.
+	let deadline = std::time::Instant::now() + Duration::from_secs(5);
+	let mut got_event = false;
+	while std::time::Instant::now() < deadline {
+		match line_rx.recv_timeout(Duration::from_millis(200)) {
+			Ok(line) => {
+				let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+				if v.get("level").and_then(serde_json::Value::as_str).is_some() {
+					got_event = true;
+					break;
+				}
+			}
+			Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+			Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+		}
+	}
+	let _ = tail.kill();
+	let _ = tail.wait();
+	assert!(got_event, "expected at least one tracing event with a level field");
+}
+
+#[tokio::test]
+async fn mgmt_tail_log_via_typed_client_decodes_tracing_frame_shape() {
+	// Subscribe via the typed Rust client and verify the wire shape
+	// matches `TracingFrame` (t / level / target / message / fields).
+	let d = spawn_daemon_with_rule(43_015, "v1");
+	let socket = d.socket.clone();
+	let config_dir = d.config_dir().to_path_buf();
+	let frames: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+	let frames_for_task = Arc::clone(&frames);
+
+	let stream_task = tokio::spawn(async move {
+		let client = UnixMgmtClient::new(&socket);
+		let _ = client
+			.call_stream(VERB_TAIL_LOG, &NoArgs {}, |frame| {
+				frames_for_task.lock().expect("lock").push(frame);
+			})
+			.await;
+	});
+	tokio::time::sleep(Duration::from_millis(300)).await;
+
+	// Trigger a reload to anchor on a known emit.
+	write_rule(&config_dir, 43_015, "v2");
+	let client = UnixMgmtClient::new(&d.socket);
+	let _: ReloadResult = client.call(VERB_RELOAD, &NoArgs {}).await.expect("reload");
+
+	let deadline = std::time::Instant::now() + Duration::from_secs(5);
+	loop {
+		let any = !frames.lock().expect("lock").is_empty();
+		if any || std::time::Instant::now() >= deadline {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
+	stream_task.abort();
+	let captured = frames.lock().expect("lock").clone();
+	assert!(!captured.is_empty(), "expected at least one frame");
+	let frame = &captured[0];
+	assert!(frame.get("t").and_then(serde_json::Value::as_u64).is_some(), "t field present");
+	assert!(frame.get("level").and_then(serde_json::Value::as_str).is_some(), "level field present");
+	assert!(
+		frame.get("target").and_then(serde_json::Value::as_str).is_some(),
+		"target field present"
+	);
+	assert!(frame.get("message").is_some(), "message field present");
+	assert!(frame.get("fields").is_some(), "fields field present");
 }
 
 #[tokio::test]

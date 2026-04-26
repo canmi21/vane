@@ -14,7 +14,7 @@ use vane_mgmt::verb::{
 	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetActiveConfigResult,
 	ListConnectionsResult, ListenerStatus, NoArgs, PingResult, ReloadResult, ShutdownResult,
 	StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_LIST_CONNECTIONS, VERB_PING,
-	VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
+	VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG, VERB_TAIL_LOG,
 };
 
 const BUILD_INFO: BuildInfo = BuildInfo {
@@ -88,6 +88,12 @@ enum Cmd {
 	/// NDJSON frame per emitted event. Stays connected until the
 	/// terminal interrupts (Ctrl-C) or the daemon ends the stream.
 	TailFlowLog,
+	/// Subscribe to the daemon's live `tracing` event stream — one
+	/// NDJSON frame per emitted event (RUST_LOG-gated). Same shape as
+	/// `tail-flow-log` from the operator's perspective; the underlying
+	/// channel is the daemon's tracing-subscriber stack rather than
+	/// per-request `FlowLogEvent`s. Stays connected until Ctrl-C.
+	TailLog,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -116,6 +122,7 @@ async fn main() -> std::process::ExitCode {
 		Cmd::Compile { config_dir, .. } => run_compile_dry_run(&client, &config_dir).await,
 		Cmd::ListConnections => run_list_connections(&client, cli.json).await,
 		Cmd::TailFlowLog => run_tail_flow_log(&client, cli.json).await,
+		Cmd::TailLog => run_tail_log(&client, cli.json).await,
 	};
 	match result {
 		Ok(()) => std::process::ExitCode::SUCCESS,
@@ -231,6 +238,73 @@ async fn run_tail_flow_log(client: &UnixMgmtClient, json: bool) -> anyhow::Resul
 			Ok(())
 		}
 	}
+}
+
+async fn run_tail_log(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+	// Race the streaming call against Ctrl-C — same pattern as
+	// `tail-flow-log`. Each frame matches the wire shape of
+	// `vane_engine::tracing_broadcast::TracingFrame`:
+	// `{ t, level, target, message, fields }`.
+	let stream_fut = client.call_stream(VERB_TAIL_LOG, &NoArgs {}, |frame| {
+		if json {
+			match serde_json::to_string(&frame) {
+				Ok(s) => println!("{s}"),
+				Err(e) => eprintln!("vane: encode error: {e}"),
+			}
+		} else {
+			print_tracing_frame_pretty(&frame);
+		}
+	});
+	tokio::select! {
+		result = stream_fut => Ok(result?),
+		_ = tokio::signal::ctrl_c() => Ok(()),
+	}
+}
+
+/// Render one `TracingFrame`-shaped JSON value as a human-readable row.
+/// Format: `HH:MM:SS.mmm  LEVEL  target: message {key=value, …}`.
+fn print_tracing_frame_pretty(frame: &serde_json::Value) {
+	let t_ms = frame.get("t").and_then(serde_json::Value::as_u64).unwrap_or(0);
+	let level = frame.get("level").and_then(serde_json::Value::as_str).unwrap_or("?");
+	let target = frame.get("target").and_then(serde_json::Value::as_str).unwrap_or("?");
+	let message = frame.get("message").and_then(serde_json::Value::as_str).unwrap_or("");
+	let fields_render = frame
+		.get("fields")
+		.and_then(serde_json::Value::as_object)
+		.filter(|m| !m.is_empty())
+		.map(render_fields)
+		.unwrap_or_default();
+	let ts = format_unix_ms_clock(t_ms);
+	println!("{ts}  {level:<5}  {target}: {message}{fields_render}");
+}
+
+/// Render `key=value` pairs joined by spaces, prefixed by a space when
+/// non-empty. Strings render verbatim (without surrounding quotes);
+/// other types use their JSON form.
+fn render_fields(map: &serde_json::Map<String, serde_json::Value>) -> String {
+	let mut out = String::with_capacity(64);
+	for (k, v) in map {
+		out.push(' ');
+		out.push_str(k);
+		out.push('=');
+		match v {
+			serde_json::Value::String(s) => out.push_str(s),
+			other => out.push_str(&other.to_string()),
+		}
+	}
+	out
+}
+
+/// Format a Unix millis timestamp as `HH:MM:SS.mmm` in UTC. Avoids
+/// pulling in `chrono` for one format call — `tail-log` doesn't need
+/// timezone-aware rendering, just a stable wall-clock anchor.
+fn format_unix_ms_clock(ms: u64) -> String {
+	let secs = ms / 1_000;
+	let millis = ms % 1_000;
+	let hour = (secs / 3_600) % 24;
+	let minute = (secs / 60) % 60;
+	let second = secs % 60;
+	format!("{hour:02}:{minute:02}:{second:02}.{millis:03}")
 }
 
 /// Render one `FlowLogEvent`-shaped JSON value as a human-readable row.

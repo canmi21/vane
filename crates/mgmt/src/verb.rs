@@ -20,6 +20,7 @@ pub const VERB_RELOAD: &str = "reload";
 pub const VERB_COMPILE_DRY_RUN: &str = "compile_dry_run";
 pub const VERB_LIST_CONNECTIONS: &str = "list_connections";
 pub const VERB_TAIL_FLOW_LOG: &str = "tail_flow_log";
+pub const VERB_TAIL_LOG: &str = "tail_log";
 
 // ─── Empty args sentinel ────────────────────────────────────────────────
 /// Placeholder for verbs that accept no arguments. Round-trips as `{}`.
