@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -39,20 +39,17 @@ pub fn lower(
 	let groups = group_by_listener(&set.rules)?;
 	for (addrs, rules) in groups {
 		// TLS termination is per-listener, not per-rule: every rule
-		// sharing an address must agree on `tls` (all `None`, or all
-		// `Some(_)` with byte-identical TlsConfig). 08-tls.md § _TLS
-		// termination_ — vane terminates once at the L4→L7 boundary;
-		// downstream rules see plaintext regardless of which one
-		// matches. A mixed config would be a silent footgun, so we
-		// reject loud at compile.
+		// sharing an address contributes to the listener's cert pool.
+		// `resolve_listener_tls` aggregates and rejects conflicts —
+		// see 08-tls.md § _TLS termination_ + § _Certificate resolver_.
 		let resolved_tls = resolve_listener_tls(&addrs, &rules)?;
 		let entry = builder.lower_port(&rules, mw_meta, fetch_meta)?;
 		for addr in &addrs {
 			builder.entries.insert(*addr, entry);
 		}
-		if let Some(tls) = resolved_tls {
+		if let Some(spec) = resolved_tls {
 			for addr in addrs {
-				builder.listener_tls.insert(addr, tls.clone());
+				builder.listener_tls.insert(addr, spec.clone());
 			}
 		}
 	}
@@ -91,11 +88,11 @@ struct Builder {
 	/// executor when a request middleware returns `Short(Response(_))`.
 	/// See spec/architecture/02-flow.md § _`FlowGraph` metadata_.
 	short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
-	/// Per-listener TLS termination config (symbolic). Populated by
-	/// `lower_port` after the cross-rule consistency check; the engine's
-	/// `link` parses each entry into a `rustls::ServerConfig`.
+	/// Per-listener cert pool (symbolic). Populated by `resolve_listener_tls`
+	/// after aggregating every rule's `tls` block on this address; the
+	/// engine's `link` parses each entry into a `rustls::ServerConfig`.
 	/// See spec/architecture/08-tls.md § _TLS termination_.
-	listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::TlsConfig>,
+	listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::ListenerTlsSpec>,
 }
 
 impl Builder {
@@ -537,21 +534,33 @@ fn predicate_is_l4(pred: Option<&Predicate>) -> bool {
 
 type ListenerGroup<'a> = (Vec<SocketAddr>, Vec<&'a AnalyzedRule>);
 
-/// Per-listener TLS resolution + consistency check.
+/// Per-listener TLS resolution — aggregate every rule's `tls` block
+/// into a `ListenerTlsSpec` cert pool.
 ///
-/// Returns the single agreed-upon `TlsConfig` (or `None` for cleartext)
-/// shared by every rule on this listener group. Errors when:
+/// Each rule with `tls = Some(_)` contributes one cert into the pool,
+/// keyed by `tls.sni` (lowercased ASCII per 08-tls.md § _SNI
+/// normalization_). `sni: None` is the listener's _default_ — at most
+/// one is allowed.
 ///
-/// - Rules disagree (some `None`, some `Some`, or two distinct
-///   `Some(_)`): the listener can only do one thing at the TLS layer.
-/// - Any rule on a pure-L4 listener carries `tls`: TLS termination on a
-///   byte-tunnel makes no sense — vane decrypts the client's TLS, then
-///   forwards plaintext to the upstream. Either omit `tls`, or change
-///   the terminator to an L7 type so termination is meaningful.
+/// Returns `Ok(None)` when no rule on this listener carries TLS
+/// (cleartext listener). Errors when:
+///
+/// - Two rules declare a default cert (sni-less) with different
+///   `cert_file` / `key_file`: a listener has at most one default.
+/// - Two rules declare the same SNI with different cert files: the
+///   resolver can't pick deterministically.
+/// - Any rule on a pure-L4 listener carries `tls`: TLS termination on
+///   a byte-tunnel makes no sense — vane decrypts the client's TLS,
+///   then forwards plaintext to the upstream. Either omit `tls`, or
+///   change the terminator to an L7 type.
+///
+/// Hash-cons: completely identical `(sni, cert_file, key_file)`
+/// triples across rules are deduped (e.g. two rules on the same
+/// listener that point at the same cert paths share one pool entry).
 fn resolve_listener_tls(
 	addrs: &[SocketAddr],
 	rules: &[&AnalyzedRule],
-) -> Result<Option<crate::rule::TlsConfig>, Error> {
+) -> Result<Option<crate::rule::ListenerTlsSpec>, Error> {
 	let any_l4 = rules.iter().any(|r| r.posture == Posture::L4);
 	let any_tls = rules.iter().any(|r| r.raw.tls.is_some());
 	if any_l4 && any_tls {
@@ -560,18 +569,53 @@ fn resolve_listener_tls(
 		)));
 	}
 
-	let mut iter = rules.iter().map(|r| r.raw.tls.as_ref());
-	let Some(first) = iter.next() else {
-		return Ok(None);
-	};
-	for next in iter {
-		if next != first {
-			return Err(Error::compile(format!(
-				"listener {addrs:?}: rules disagree on TLS config — every rule on the same listener must declare the same `tls` block (or all omit it)"
-			)));
+	let mut spec = crate::rule::ListenerTlsSpec { default: None, sni_certs: BTreeMap::new() };
+	for rule in rules {
+		let Some(tls) = rule.raw.tls.as_ref() else { continue };
+		match tls.sni.as_deref() {
+			None => {
+				let normalised = crate::rule::TlsConfig {
+					sni: None,
+					cert_file: tls.cert_file.clone(),
+					key_file: tls.key_file.clone(),
+				};
+				match &spec.default {
+					None => spec.default = Some(normalised),
+					Some(existing) if existing == &normalised => {}
+					Some(existing) => {
+						return Err(Error::compile(format!(
+							"listener {addrs:?}: more than one default (sni-less) cert — {} vs {} — at most one cert may omit `sni`",
+							existing.cert_file.display(),
+							normalised.cert_file.display(),
+						)));
+					}
+				}
+			}
+			Some(sni_raw) => {
+				let sni_key = sni_raw.to_ascii_lowercase();
+				let normalised = crate::rule::TlsConfig {
+					sni: Some(sni_key.clone()),
+					cert_file: tls.cert_file.clone(),
+					key_file: tls.key_file.clone(),
+				};
+				match spec.sni_certs.get(&sni_key) {
+					None => {
+						spec.sni_certs.insert(sni_key, normalised);
+					}
+					Some(existing) if existing == &normalised => {}
+					Some(existing) => {
+						return Err(Error::compile(format!(
+							"listener {addrs:?}: SNI {sni_key:?} mapped to two different certs — {} vs {}",
+							existing.cert_file.display(),
+							normalised.cert_file.display(),
+						)));
+					}
+				}
+			}
 		}
 	}
-	Ok(first.cloned())
+
+	if spec.is_empty() { Ok(None) } else { Ok(Some(spec)) }
 }
 
 fn group_by_listener<'a>(rules: &'a [AnalyzedRule]) -> Result<Vec<ListenerGroup<'a>>, Error> {

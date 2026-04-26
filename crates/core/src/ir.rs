@@ -107,17 +107,19 @@ pub struct FlowGraphMeta {
 	#[serde(default)]
 	pub short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
 
-	/// Per-listener TLS termination config. Symbolic — paths to PEM
-	/// files; the engine's `link` stage parses these into a
-	/// `rustls::ServerConfig`. Listeners absent from this map are
-	/// cleartext. See `spec/architecture/08-tls.md` § _TLS termination
-	/// (L4 → L7 upgrade)_; `lower_port` enforces consistency across
-	/// rules that share a listener.
+	/// Per-listener cert pool. Symbolic — each entry is the aggregated
+	/// `(default, sni_certs)` view across every rule on the bind
+	/// address that carried a `tls` block; the engine's `link` stage
+	/// reads PEM files referenced here and builds a `rustls::ServerConfig`
+	/// with an SNI resolver that falls back to `default` for unmatched
+	/// SNI. Listeners absent from this map are cleartext. See
+	/// `spec/architecture/08-tls.md` § _TLS termination (L4 → L7
+	/// upgrade)_ and § _SNI normalization_.
 	///
 	/// `#[serde(default)]` for the same wire-compat reason as the map
 	/// above.
 	#[serde(default)]
-	pub listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::TlsConfig>,
+	pub listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::ListenerTlsSpec>,
 }
 
 const fn empty_feature_set() -> &'static [&'static str] {

@@ -34,14 +34,46 @@ pub struct RawRule {
 }
 
 /// Listener-side TLS termination config — paths to the cert chain +
-/// private key in PEM. The engine's link stage reads + parses these
-/// into a `rustls::ServerConfig`. Multi-cert SNI resolution is
-/// deferred to a later round; one cert per listener is the MVP shape
-/// (08-tls.md § _Cert resolver and rotation_).
+/// private key in PEM, plus an optional SNI hostname this cert serves.
+///
+/// `sni: None` marks the cert as the listener's _default_ — used when
+/// the `ClientHello` has no SNI extension, or when the SNI doesn't
+/// match any of the listener's `Some(_)` entries. A listener has at
+/// most one default cert.
+///
+/// SNI hostnames are normalised to ASCII-lowercase at every ingest
+/// boundary per 08-tls.md § _SNI normalization_; comparison against
+/// rustls's already-lowercased `ClientHello::server_name()` is then
+/// byte-for-byte.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct TlsConfig {
+	#[serde(default)]
+	pub sni: Option<String>,
 	pub cert_file: PathBuf,
 	pub key_file: PathBuf,
+}
+
+/// Per-listener cert pool — produced by `compile/lower` from every
+/// rule on the bind address that carries a `tls` block, after
+/// hash-consing identical entries and rejecting conflicts.
+///
+/// At most one `default` cert (sni-less); any number of SNI-keyed
+/// certs. The engine's link stage compiles this into a single
+/// `rustls::ServerConfig` whose cert resolver picks by SNI with
+/// `default` as the fallback for unmatched / missing SNI.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct ListenerTlsSpec {
+	#[serde(default)]
+	pub default: Option<TlsConfig>,
+	#[serde(default)]
+	pub sni_certs: BTreeMap<String, TlsConfig>,
+}
+
+impl ListenerTlsSpec {
+	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self.default.is_none() && self.sni_certs.is_empty()
+	}
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -471,11 +503,35 @@ mod tests {
 	#[test]
 	fn tls_config_round_trips_through_json() {
 		let original = TlsConfig {
+			sni: None,
 			cert_file: PathBuf::from("/srv/cert.pem"),
 			key_file: PathBuf::from("/srv/key.pem"),
 		};
 		let encoded = serde_json::to_string(&original).expect("serialize");
 		let decoded: TlsConfig = serde_json::from_str(&encoded).expect("deserialize");
 		assert_eq!(decoded, original);
+	}
+
+	#[test]
+	fn tls_config_with_sni_field_parses() {
+		let raw = serde_json::json!({
+			"sni": "api.example.com",
+			"cert_file": "/etc/vaned/certs/api.pem",
+			"key_file": "/etc/vaned/certs/api.key",
+		});
+		let tls: TlsConfig = serde_json::from_value(raw).expect("parse tls with sni");
+		assert_eq!(tls.sni.as_deref(), Some("api.example.com"));
+	}
+
+	#[test]
+	fn tls_config_without_sni_parses_with_none() {
+		// Wire-compat with TLS part 1 — files written before the `sni`
+		// field existed must still deserialise.
+		let raw = serde_json::json!({
+			"cert_file": "/etc/vaned/certs/default.pem",
+			"key_file": "/etc/vaned/certs/default.key",
+		});
+		let tls: TlsConfig = serde_json::from_value(raw).expect("parse tls without sni");
+		assert!(tls.sni.is_none());
 	}
 }
