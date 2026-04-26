@@ -1,20 +1,24 @@
 //! File watcher: `notify-debouncer-full` observes the config directory
-//! for ~250ms-debounced batches; each batch triggers one
+//! for ~250ms-debounced batches; each reload-worthy batch triggers one
 //! [`reload_once`] call. Watcher lifetime is bound to a
 //! [`CancellationToken`].
 //!
 //! `notify-debouncer-full`'s callback runs in a sync context; we bridge
 //! it into tokio via an unbounded mpsc channel. Each debounced batch
-//! coalesces to a single `()` send — the receiver doesn't care which
-//! file changed, only that *something* changed.
+//! that contains at least one reload-worthy event (file create / modify
+//! data / rename / remove under the watched tree, per
+//! `spec/architecture/09-config.md` § _Watched events_) coalesces to a
+//! single `()` send. Metadata-only / access / unknown events are
+//! filtered out so reload CPU is spent only on real config changes.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use notify::RecursiveMode;
-use notify_debouncer_full::new_debouncer;
+use notify::event::{EventKind, ModifyKind};
+use notify_debouncer_full::{DebounceEventResult, DebouncedEvent, new_debouncer};
 use tokio_util::sync::CancellationToken;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
@@ -51,17 +55,22 @@ pub(crate) fn spawn_watcher(
 	// thread + RecommendedWatcher run in the background; we hold the
 	// Debouncer in the spawned tokio task to keep them alive for the
 	// task's lifetime.
-	let mut debouncer = new_debouncer(
-		Duration::from_millis(DEBOUNCE_MS),
-		None,
-		move |res: notify_debouncer_full::DebounceEventResult| {
-			if res.is_ok() {
+	//
+	// Canonicalize the watch root so `starts_with` in the event filter
+	// matches what notify reports. macOS's FSEvents returns paths under
+	// `/private/var/folders/...` while a `tempfile::tempdir()` may give
+	// the symlinked `/var/folders/...` form; without canonicalization
+	// the prefix check rejects every legitimate event.
+	let watch_root = config_dir.canonicalize().unwrap_or_else(|_| config_dir.clone());
+	let mut debouncer =
+		new_debouncer(Duration::from_millis(DEBOUNCE_MS), None, move |res: DebounceEventResult| {
+			let Ok(events) = res else { return };
+			if is_reloadable_batch(&events, &watch_root) {
 				// Coalesce: a single () per debounce window. Receiver is
 				// unbounded so send is sync-ok.
 				let _ = tx.send(());
 			}
-		},
-	)?;
+		})?;
 	debouncer.watch(&config_dir, RecursiveMode::Recursive)?;
 
 	let handle = tokio::spawn(async move {
@@ -109,17 +118,133 @@ fn hex32(bytes: &[u8; 32]) -> String {
 	s
 }
 
+/// Whether a debounced batch contains at least one event that warrants
+/// recompiling the rule set. Per
+/// `spec/architecture/09-config.md` § _Watched events_, only file-level
+/// mutations under the watched tree are reload-worthy:
+///
+/// - `Create(_)` — a new rule file appeared.
+/// - `Modify(Data(_))` — content was rewritten in place.
+/// - `Modify(Name(_))` — atomic editor save (write to `.tmp` →
+///   rename), and analogous file moves.
+/// - `Remove(_)` — a rule file was deleted.
+///
+/// Events filtered out:
+///
+/// - `Access(_)` — atime / open / close, never affects rule semantics.
+/// - `Modify(Metadata(_))` — chmod / chown / utime, no content change.
+/// - `Modify(Other | Any)` and the top-level `Other` / `Any` — kept
+///   conservative: backends differ, and `version_hash` idempotency in
+///   `reload_once` is the safety net if a real edit ever surfaces with
+///   a fuzzy classification.
+///
+/// Path filter: at least one of the event's paths must live under
+/// `watch_root` so stray events from siblings on the same filesystem
+/// don't drive reloads. `notify`'s recursive watch mostly handles this
+/// at the kernel level, but the path check is cheap and defends
+/// against backends that occasionally bubble up adjacent traffic.
+pub(crate) fn is_reloadable_batch(events: &[DebouncedEvent], watch_root: &Path) -> bool {
+	events.iter().any(|debounced| {
+		is_reloadable_kind(debounced.event.kind)
+			&& debounced.event.paths.iter().any(|p| p.starts_with(watch_root))
+	})
+}
+
+fn is_reloadable_kind(kind: EventKind) -> bool {
+	match kind {
+		EventKind::Create(_)
+		| EventKind::Remove(_)
+		| EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Name(_)) => true,
+		EventKind::Access(_)
+		| EventKind::Modify(ModifyKind::Metadata(_) | ModifyKind::Other | ModifyKind::Any)
+		| EventKind::Any
+		| EventKind::Other => false,
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use std::fs;
 	use std::time::Instant;
 
+	use notify::event::{
+		AccessKind, CreateKind, Event as NotifyEvent, ModifyKind, RemoveKind, RenameMode,
+	};
+	use notify_debouncer_full::DebouncedEvent as DEvent;
 	use vane_engine::fetch::{http_proxy, http_synthesize, l4_forward};
 	use vane_engine::flow_graph::FlowGraph;
 	use vane_engine::middleware::{forward_client_ip, host_header_match, method_match, path_prefix};
 
 	use super::*;
 	use crate::providers::MetadataProviders;
+
+	// ----- pure helper: is_reloadable_batch -------------------------------
+
+	fn ev_under(root: &Path, kind: EventKind) -> DEvent {
+		let event = NotifyEvent::new(kind).add_path(root.join("rules").join("foo.json"));
+		DEvent::new(event, Instant::now())
+	}
+
+	fn ev_outside(kind: EventKind) -> DEvent {
+		let event = NotifyEvent::new(kind).add_path(std::path::PathBuf::from("/elsewhere/file.json"));
+		DEvent::new(event, Instant::now())
+	}
+
+	#[test]
+	fn event_filter_accepts_create_modify_data_rename_remove() {
+		let root = std::path::PathBuf::from("/tmp/vane-cfg-fixture");
+		for kind in [
+			EventKind::Create(CreateKind::File),
+			EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content)),
+			EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+			EventKind::Remove(RemoveKind::File),
+		] {
+			let batch = vec![ev_under(&root, kind)];
+			assert!(is_reloadable_batch(&batch, &root), "reload-worthy kind rejected: {kind:?}");
+		}
+	}
+
+	#[test]
+	fn event_filter_rejects_metadata_access_and_unknown() {
+		let root = std::path::PathBuf::from("/tmp/vane-cfg-fixture");
+		for kind in [
+			EventKind::Access(AccessKind::Read),
+			EventKind::Modify(ModifyKind::Metadata(notify::event::MetadataKind::Permissions)),
+			EventKind::Modify(ModifyKind::Other),
+			EventKind::Modify(ModifyKind::Any),
+			EventKind::Other,
+			EventKind::Any,
+		] {
+			let batch = vec![ev_under(&root, kind)];
+			assert!(!is_reloadable_batch(&batch, &root), "non-reload kind accepted: {kind:?}");
+		}
+	}
+
+	#[test]
+	fn event_filter_rejects_event_outside_watch_root() {
+		// Even a clean file-create event should not trigger a reload if its
+		// path is not under the watched tree.
+		let root = std::path::PathBuf::from("/tmp/vane-cfg-fixture");
+		let batch = vec![ev_outside(EventKind::Create(CreateKind::File))];
+		assert!(!is_reloadable_batch(&batch, &root));
+	}
+
+	#[test]
+	fn event_filter_accepts_when_at_least_one_event_qualifies() {
+		// Mixed batch: a metadata event alone wouldn't trigger; pairing it
+		// with a create event under the watch root must.
+		let root = std::path::PathBuf::from("/tmp/vane-cfg-fixture");
+		let batch = vec![
+			ev_under(
+				&root,
+				EventKind::Modify(ModifyKind::Metadata(notify::event::MetadataKind::Permissions)),
+			),
+			ev_under(&root, EventKind::Create(CreateKind::File)),
+		];
+		assert!(is_reloadable_batch(&batch, &root));
+	}
+
+	// ----- end-to-end watcher integration ---------------------------------
 
 	fn build_factories() -> (Arc<MiddlewareFactories>, Arc<FetchFactories>) {
 		let mut mw = MiddlewareFactories::new();
