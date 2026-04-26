@@ -17,9 +17,6 @@
 //!   `spec/architecture/01-topology.md` § _Management plane_.
 //! TODO(tls): TLS termination at the listener layer — bytes flow as
 //!   plain HTTP/1 today; HTTPS clients hit a hyper parse error.
-//! TODO(ws): `WebSocketUpgrade` fetch factory — rules referencing
-//!   `type: "websocket"` fail at link with a pointed `UnknownFetch`
-//!   error.
 //! TODO(bind-failure-exit): when every listener's bind fails, the
 //!   accept loop tasks exit individually but the daemon stays alive
 //!   serving nothing. Operators see "all listener bind failures" only
@@ -206,6 +203,7 @@ fn build_fetch_factories() -> FetchFactories {
 	vane_engine::fetch::l4_forward::register(&mut fetch);
 	vane_engine::fetch::http_proxy::register(&mut fetch);
 	vane_engine::fetch::http_synthesize::register(&mut fetch);
+	vane_engine::fetch::websocket_upgrade::register(&mut fetch);
 	fetch
 }
 
