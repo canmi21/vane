@@ -106,6 +106,18 @@ pub struct FlowGraphMeta {
 	/// matches the legacy "no L7 listeners" graph shape.
 	#[serde(default)]
 	pub short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
+
+	/// Per-listener TLS termination config. Symbolic — paths to PEM
+	/// files; the engine's `link` stage parses these into a
+	/// `rustls::ServerConfig`. Listeners absent from this map are
+	/// cleartext. See `spec/architecture/08-tls.md` § _TLS termination
+	/// (L4 → L7 upgrade)_; `lower_port` enforces consistency across
+	/// rules that share a listener.
+	///
+	/// `#[serde(default)]` for the same wire-compat reason as the map
+	/// above.
+	#[serde(default)]
+	pub listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::TlsConfig>,
 }
 
 const fn empty_feature_set() -> &'static [&'static str] {
@@ -380,6 +392,7 @@ mod tests {
 			source_files: vec![],
 			feature_set: &[],
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
+			listener_tls: std::collections::BTreeMap::new(),
 		}
 	}
 
@@ -570,6 +583,7 @@ mod tests {
 			source_files: vec![PathBuf::from("/a.json"), PathBuf::from("/b.json")],
 			feature_set: &["h3", "wasm"],
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
+			listener_tls: std::collections::BTreeMap::new(),
 		};
 		let encoded = serde_json::to_string(&meta).expect("serialize meta");
 		assert!(

@@ -30,7 +30,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
-	ConnContext, ConnId, FlowCtx, FlowLogSink, L4Conn, NodeId, TrajectoryBuilder, Transport,
+	ConnContext, ConnId, FlowCtx, FlowLogSink, L4Conn, NodeId, TlsInfo, TlsVersion,
+	TrajectoryBuilder, Transport,
 };
 
 use crate::executor::{ExecutorInput, execute};
@@ -412,8 +413,13 @@ async fn run_accept_loop(
 				let verbosity = Arc::clone(&verbosity);
 				let log_sink = Arc::clone(&log_sink);
 				let force = force_cancel.clone();
+				// Per-accept TLS lookup. `None` for cleartext listeners; on
+				// hot reload the new graph's `listener_tls` is read for
+				// every fresh accept (existing connections retain their
+				// captured `Arc<FlowGraph>`).
+				let tls_cfg = captured.listener_tls(&addr).cloned();
 				in_flight.lock().await.spawn(handle_connection(
-					stream, remote, addr, entry, captured, verbosity, log_sink, force,
+					stream, remote, addr, entry, captured, tls_cfg, verbosity, log_sink, force,
 				));
 			}
 		}
@@ -437,6 +443,7 @@ async fn handle_connection(
 	local: SocketAddr,
 	entry: NodeId,
 	graph: Arc<FlowGraph>,
+	tls_cfg: Option<Arc<rustls::ServerConfig>>,
 	verbosity: Arc<VerbosityState>,
 	log_sink: Arc<dyn FlowLogSink>,
 	force_cancel: CancellationToken,
@@ -461,9 +468,62 @@ async fn handle_connection(
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};
 
-	let result =
-		execute(&graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), &conn, &mut ctx).await;
+	// Cleartext path: hand the raw TcpStream to the executor.
+	let Some(tls_cfg) = tls_cfg else {
+		let result =
+			execute(&graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), &conn, &mut ctx)
+				.await;
+		if let Err(e) = result {
+			tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+		}
+		return;
+	};
 
+	// TLS path: server-side handshake, populate `ConnContext.tls` from the
+	// negotiated session, then dispatch as `L4Conn::Tls(Box<dyn ...>)`.
+	let acceptor = tokio_rustls::TlsAcceptor::from(tls_cfg);
+	let tls_stream = match acceptor.accept(stream).await {
+		Ok(s) => s,
+		Err(e) => {
+			// Bad ClientHello, certificate mismatch, ALPN miss, etc. — log
+			// and drop. The client sees the TCP connection closed mid-
+			// handshake; nothing reaches the L4 / L7 graph.
+			tracing::debug!(
+				error = %e,
+				conn_id = %conn.id,
+				?remote,
+				"tls handshake failed; dropping connection",
+			);
+			return;
+		}
+	};
+
+	{
+		let (_io, server_conn) = tls_stream.get_ref();
+		let info = TlsInfo {
+			sni: server_conn.server_name().map(str::to_owned),
+			alpn: server_conn.alpn_protocol().map(<[u8]>::to_vec),
+			version: server_conn.protocol_version().and_then(|v| match v {
+				rustls::ProtocolVersion::TLSv1_2 => Some(TlsVersion::Tls12),
+				rustls::ProtocolVersion::TLSv1_3 => Some(TlsVersion::Tls13),
+				_ => None,
+			}),
+			// Single-cert MVP: no client cert request, so peer_cert is
+			// always `None`. mTLS lands in TLS part 2 (08-tls.md
+			// § _Client cert verification_).
+			peer_cert: None,
+		};
+		*conn.tls.lock() = Some(info);
+	}
+
+	let result = execute(
+		&graph,
+		entry,
+		ExecutorInput::L4(Box::new(L4Conn::Tls(Box::new(tls_stream)))),
+		&conn,
+		&mut ctx,
+	)
+	.await;
 	if let Err(e) = result {
 		tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
 	}

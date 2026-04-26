@@ -15,8 +15,6 @@
 //! Several capabilities are intentionally not wired in this stage:
 //! TODO(mgmt): Unix / HTTP management socket binding — see
 //!   `spec/architecture/01-topology.md` § _Management plane_.
-//! TODO(tls): TLS termination at the listener layer — bytes flow as
-//!   plain HTTP/1 today; HTTPS clients hit a hyper parse error.
 //! TODO(bind-failure-exit): when every listener's bind fails, the
 //!   accept loop tasks exit individually but the daemon stays alive
 //!   serving nothing. Operators see "all listener bind failures" only
@@ -120,6 +118,12 @@ async fn main() -> std::process::ExitCode {
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let args = Args::parse();
 	init_tracing();
+
+	// Install rustls's process-wide default crypto provider before any
+	// `ServerConfig::builder()` runs in `FlowGraph::link`. The selection
+	// (aws-lc-rs vs ring) is fixed at compile time by the engine's
+	// crypto-backend feature; see 16-crate-layout.md § _Crypto backend_.
+	vane_engine::crypto::install_default_provider();
 
 	tracing::info!(config_dir = %args.config_dir.display(), "loading config");
 	let loaded = vane_core::config::load(&args.config_dir)?;

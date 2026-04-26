@@ -42,6 +42,16 @@ impl L4Fetch for L4ForwardFetch {
 	) -> Result<Tunnel, Error> {
 		let client = match l4 {
 			L4Conn::Tcp(s) => s,
+			L4Conn::Tls(_) => {
+				// `lower_port` rejects L4 listeners that declare `tls`,
+				// so this arm only fires if a future change weakens that
+				// invariant. Surface a pointed error rather than silently
+				// emitting plaintext to an upstream that the operator
+				// configured for cleartext-byte forwarding.
+				return Err(Error::internal(
+					"L4Forward fetch received a TLS-terminated stream — listener-tls + L4 byte forward is rejected by `lower_port`; this is a lower-stage invariant violation",
+				));
+			}
 			L4Conn::Udp(_) => {
 				return Err(Error::internal(
 					"UDP forward not supported in S1 — udp_dispatch + 5-tuple session land with S2-11",

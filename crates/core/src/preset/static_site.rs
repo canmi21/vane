@@ -55,6 +55,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Object(terminate_args),
 		},
+		tls: inv.tls,
 		source: inv.source,
 	}])
 }
@@ -70,6 +71,7 @@ mod tests {
 			preset: "static_site".to_string(),
 			listen: vec![":443".into()],
 			args,
+			tls: None,
 			source: SourceInfo::default(),
 		}
 	}

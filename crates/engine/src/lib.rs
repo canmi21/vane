@@ -66,6 +66,26 @@ pub mod crypto {
 			""
 		}
 	};
+
+	/// Install the compile-time-selected crypto provider as rustls's
+	/// process-wide default. Idempotent: a second call is a logged no-op
+	/// rather than an error so a daemon main and a test harness can both
+	/// invoke this without coordination. Must be called before any
+	/// `rustls::ServerConfig`-using code path runs (the daemon does this
+	/// at the top of `main`; tests call it in their setup).
+	///
+	/// See `spec/architecture/08-tls.md` § _TLS termination_ and
+	/// `spec/architecture/16-crate-layout.md` § _Crypto backend_.
+	pub fn install_default_provider() {
+		#[cfg(feature = "aws-lc-rs")]
+		{
+			let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+		}
+		#[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+		{
+			let _ = rustls::crypto::ring::default_provider().install_default();
+		}
+	}
 }
 
 /// The stable feature-name list that `FlowGraph::link` copies into

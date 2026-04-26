@@ -1,12 +1,13 @@
-//! `Node::Upgrade` execution — L4 → L7 bridge. Hands the TCP stream to
-//! `hyper::server::conn::http1::Builder`; each decoded `Request` walks
-//! the L7 sub-graph from the `Upgrade.next` node.
+//! `Node::Upgrade` execution — L4 → L7 bridge. Hands a byte stream
+//! (plain TCP or TLS-terminated) to `hyper::server::conn::http1::Builder`;
+//! each decoded `Request` walks the L7 sub-graph from the `Upgrade.next`
+//! node.
 //!
 //! See `spec/architecture/06-l4.md` § _L4 → L7 upgrade_,
 //! `spec/architecture/02-flow.md` § _Execution model_ (Upgrade arm).
 //! Feature: S1-17.
 //!
-//! Out of MVP scope (separately tracked): H2 / H3 / WS-101 / TLS / ALPN.
+//! Out of MVP scope (separately tracked): H2 / H3 / WS-101.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,8 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use tokio::io::copy_bidirectional;
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite, copy_bidirectional};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
 	Body, ConnContext, Error, FlowCtx, FlowLogSink, FlowLogVerbosity, HttpVersion, NodeId, Request,
@@ -27,12 +27,17 @@ use crate::executor::{ExecutorInput, ExecutorOutput, execute};
 use crate::fetch::websocket_upgrade::StashedUpstreamUpgrade;
 use crate::flow_graph::FlowGraph;
 
-/// Drive a `TcpStream` as an H1 server. For each decoded request, build a
+/// Drive a byte stream as an H1 server. For each decoded request, build a
 /// fresh `FlowCtx` (sharing `log` / `cancel` / `verbosity` from the outer
 /// L4 ctx, with its own `TrajectoryBuilder`) and call the executor with
 /// the L7 sub-graph entry. The executor's `ExecutorOutput::HttpResponse`
 /// flows back to the service-fn, which returns it to hyper for wire
 /// serialisation.
+///
+/// `S` is generic so a plain `TcpStream` (cleartext listener) and a
+/// `tokio_rustls::server::TlsStream<TcpStream>` (TLS-terminated listener)
+/// can both feed the same H1 driver — the only difference is what the
+/// listener loop hands us.
 ///
 /// `Ok(ExecutorOutput::Closed)` is returned when the H1 connection ends —
 /// either the client EOF'd, or `Connection: close` closed the last
@@ -45,15 +50,18 @@ use crate::flow_graph::FlowGraph;
 /// to a synthetic 500 *inside* the service-fn so the connection itself
 /// can stay alive for the next request on a keep-alive socket.
 #[allow(clippy::too_many_lines)]
-pub(crate) async fn drive_h1_server(
-	stream: TcpStream,
+pub(crate) async fn drive_h1_server<S>(
+	stream: S,
 	graph: Arc<FlowGraph>,
 	l7_entry: NodeId,
 	conn: Arc<ConnContext>,
 	log: Arc<dyn FlowLogSink>,
 	cancel: CancellationToken,
 	verbosity: FlowLogVerbosity,
-) -> Result<ExecutorOutput, Error> {
+) -> Result<ExecutorOutput, Error>
+where
+	S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
 	// Record negotiated HTTP version once on the shared ConnContext so L7
 	// predicates / middleware can read it. H1 only this round.
 	let _ = conn.http_version.set(HttpVersion::Http1_1);

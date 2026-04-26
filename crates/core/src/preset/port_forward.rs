@@ -39,6 +39,12 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		match_predicate: None,
 		middleware_chain: vec![],
 		terminate: TerminateSpec { kind: FetchKind::L4Forward, args: terminate_args },
+		// `lower_port` rejects L4 listeners with `tls` set — TLS
+		// termination on a byte-tunnel makes no sense (vane decrypts
+		// then forwards plaintext to upstream, leaking the channel).
+		// Propagating the user's value here keeps the error message
+		// pointed at the rule rather than silently dropping it.
+		tls: inv.tls,
 		source: inv.source,
 	}])
 }
@@ -58,6 +64,7 @@ mod tests {
 			preset: "port_forward".to_string(),
 			listen: vec![":2222".into()],
 			args,
+			tls: None,
 			source: SourceInfo { file: PathBuf::from("rules/x.json"), line: 3 },
 		}
 	}

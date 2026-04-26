@@ -38,9 +38,22 @@ pub fn lower(
 
 	let groups = group_by_listener(&set.rules)?;
 	for (addrs, rules) in groups {
+		// TLS termination is per-listener, not per-rule: every rule
+		// sharing an address must agree on `tls` (all `None`, or all
+		// `Some(_)` with byte-identical TlsConfig). 08-tls.md § _TLS
+		// termination_ — vane terminates once at the L4→L7 boundary;
+		// downstream rules see plaintext regardless of which one
+		// matches. A mixed config would be a silent footgun, so we
+		// reject loud at compile.
+		let resolved_tls = resolve_listener_tls(&addrs, &rules)?;
 		let entry = builder.lower_port(&rules, mw_meta, fetch_meta)?;
-		for addr in addrs {
-			builder.entries.insert(addr, entry);
+		for addr in &addrs {
+			builder.entries.insert(*addr, entry);
+		}
+		if let Some(tls) = resolved_tls {
+			for addr in addrs {
+				builder.listener_tls.insert(addr, tls.clone());
+			}
 		}
 	}
 
@@ -57,6 +70,7 @@ pub fn lower(
 			source_files: set.source_files,
 			feature_set: &[],
 			short_circuit_response_entry: builder.short_circuit_response_entry,
+			listener_tls: builder.listener_tls,
 		},
 	})
 }
@@ -77,6 +91,11 @@ struct Builder {
 	/// executor when a request middleware returns `Short(Response(_))`.
 	/// See spec/architecture/02-flow.md § _`FlowGraph` metadata_.
 	short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
+	/// Per-listener TLS termination config (symbolic). Populated by
+	/// `lower_port` after the cross-rule consistency check; the engine's
+	/// `link` parses each entry into a `rustls::ServerConfig`.
+	/// See spec/architecture/08-tls.md § _TLS termination_.
+	listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::TlsConfig>,
 }
 
 impl Builder {
@@ -92,6 +111,7 @@ impl Builder {
 			term_dedup: HashMap::new(),
 			entries: HashMap::new(),
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
+			listener_tls: std::collections::BTreeMap::new(),
 		}
 	}
 
@@ -516,6 +536,43 @@ fn predicate_is_l4(pred: Option<&Predicate>) -> bool {
 }
 
 type ListenerGroup<'a> = (Vec<SocketAddr>, Vec<&'a AnalyzedRule>);
+
+/// Per-listener TLS resolution + consistency check.
+///
+/// Returns the single agreed-upon `TlsConfig` (or `None` for cleartext)
+/// shared by every rule on this listener group. Errors when:
+///
+/// - Rules disagree (some `None`, some `Some`, or two distinct
+///   `Some(_)`): the listener can only do one thing at the TLS layer.
+/// - Any rule on a pure-L4 listener carries `tls`: TLS termination on a
+///   byte-tunnel makes no sense — vane decrypts the client's TLS, then
+///   forwards plaintext to the upstream. Either omit `tls`, or change
+///   the terminator to an L7 type so termination is meaningful.
+fn resolve_listener_tls(
+	addrs: &[SocketAddr],
+	rules: &[&AnalyzedRule],
+) -> Result<Option<crate::rule::TlsConfig>, Error> {
+	let any_l4 = rules.iter().any(|r| r.posture == Posture::L4);
+	let any_tls = rules.iter().any(|r| r.raw.tls.is_some());
+	if any_l4 && any_tls {
+		return Err(Error::compile(format!(
+			"listener {addrs:?}: TLS termination is L7-only — remove `tls` or change the terminator to an L7 type (http_proxy / static / websocket / redirect_https)"
+		)));
+	}
+
+	let mut iter = rules.iter().map(|r| r.raw.tls.as_ref());
+	let Some(first) = iter.next() else {
+		return Ok(None);
+	};
+	for next in iter {
+		if next != first {
+			return Err(Error::compile(format!(
+				"listener {addrs:?}: rules disagree on TLS config — every rule on the same listener must declare the same `tls` block (or all omit it)"
+			)));
+		}
+	}
+	Ok(first.cloned())
+}
 
 fn group_by_listener<'a>(rules: &'a [AnalyzedRule]) -> Result<Vec<ListenerGroup<'a>>, Error> {
 	let mut groups: HashMap<Vec<SocketAddr>, Vec<&'a AnalyzedRule>> = HashMap::new();

@@ -20,8 +20,8 @@ features = ["aws-lc-rs", "h3", "cgi"]
 
 [features]
 default = ["aws-lc-rs", "h3", "cgi"]
-aws-lc-rs = []
-ring = []
+aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs"]
+ring = ["rustls/ring", "tokio-rustls/ring"]
 h3 = []
 cgi = []
 acme = []
@@ -42,9 +42,12 @@ notify = "8.2.0"
 notify-debouncer-full = "0.7.0"
 parking_lot = "0.12.5"
 pin-project-lite = "0.2.17"
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls-pemfile = "2"
 serde_json = "1.0.149"
 thiserror = "2.0.18"
 tokio = { version = "1.52.1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false }
 tokio-util = "0.7.18"
 tracing = "0.1.44"
 vane-core = { workspace = true }
@@ -52,3 +55,5 @@ vane-core = { workspace = true }
 [dev-dependencies]
 async-trait = { workspace = true }
 http-body-util = "0.1"
+rcgen = "0.14"
+tempfile = "3"

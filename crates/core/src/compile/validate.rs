@@ -290,6 +290,7 @@ mod tests {
 			source_files: vec![PathBuf::new()],
 			feature_set: &[],
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
+			listener_tls: std::collections::BTreeMap::new(),
 		}
 	}
 

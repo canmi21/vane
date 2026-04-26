@@ -39,7 +39,7 @@ use serde_json::Value;
 use crate::error::Error;
 use crate::fetch::FetchKind;
 use crate::preset::PresetInvocation;
-use crate::rule::{ListenSpec, MiddlewareRef, RawRule, SourceInfo, TerminateSpec};
+use crate::rule::{ListenSpec, MiddlewareRef, RawRule, SourceInfo, TerminateSpec, TlsConfig};
 
 #[derive(Deserialize)]
 struct Args {
@@ -131,7 +131,12 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 	// dry-run readability only.
 	match &args.websocket {
 		WebSocketArg::Disabled => {
-			rules.push(ws_reject_rule(&format!("{}.ws", inv.name), &inv.listen, &inv.source));
+			rules.push(ws_reject_rule(
+				&format!("{}.ws", inv.name),
+				&inv.listen,
+				&inv.source,
+				inv.tls.clone(),
+			));
 		}
 		WebSocketArg::AllowAll => {
 			rules.push(ws_passthrough_rule(
@@ -140,6 +145,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 				&inv.source,
 				&args.upstream,
 				None,
+				inv.tls.clone(),
 			));
 		}
 		WebSocketArg::Paths(paths) => {
@@ -149,8 +155,14 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 				&inv.source,
 				&args.upstream,
 				Some(paths.clone()),
+				inv.tls.clone(),
 			));
-			rules.push(ws_reject_rule(&format!("{}.ws-deny", inv.name), &inv.listen, &inv.source));
+			rules.push(ws_reject_rule(
+				&format!("{}.ws-deny", inv.name),
+				&inv.listen,
+				&inv.source,
+				inv.tls.clone(),
+			));
 		}
 	}
 
@@ -188,6 +200,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		match_predicate: None,
 		middleware_chain: chain,
 		terminate: TerminateSpec { kind: FetchKind::HttpProxy, args: Value::Object(http_proxy_args) },
+		tls: inv.tls,
 		source: inv.source,
 	});
 
@@ -198,7 +211,12 @@ fn ws_upgrade_predicate() -> Value {
 	serde_json::json!({ "http.header.upgrade": { "equals": "websocket" } })
 }
 
-fn ws_reject_rule(name: &str, listen: &[ListenSpec], source: &SourceInfo) -> RawRule {
+fn ws_reject_rule(
+	name: &str,
+	listen: &[ListenSpec],
+	source: &SourceInfo,
+	tls: Option<TlsConfig>,
+) -> RawRule {
 	let predicate = serde_json::from_value(ws_upgrade_predicate())
 		.expect("upgrade predicate is a hand-built valid CheckMap");
 	RawRule {
@@ -210,6 +228,7 @@ fn ws_reject_rule(name: &str, listen: &[ListenSpec], source: &SourceInfo) -> Raw
 			kind: FetchKind::HttpSynthesize,
 			args: serde_json::json!({ "status": 400 }),
 		},
+		tls,
 		source: source.clone(),
 	}
 }
@@ -220,6 +239,7 @@ fn ws_passthrough_rule(
 	source: &SourceInfo,
 	upstream: &str,
 	paths: Option<Vec<String>>,
+	tls: Option<TlsConfig>,
 ) -> RawRule {
 	let predicate_value = match paths {
 		Some(prefixes) => {
@@ -250,6 +270,7 @@ fn ws_passthrough_rule(
 			kind: FetchKind::WebSocketUpgrade,
 			args: serde_json::json!({ "upstream": upstream }),
 		},
+		tls,
 		source: source.clone(),
 	}
 }
@@ -265,6 +286,7 @@ mod tests {
 			preset: "reverse_proxy".to_string(),
 			listen: vec![":443".into()],
 			args,
+			tls: None,
 			source: SourceInfo::default(),
 		}
 	}

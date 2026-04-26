@@ -14,7 +14,7 @@ mod static_site;
 use serde_json::Value;
 
 use crate::error::Error;
-use crate::rule::{ListenSpec, RawRule, SourceInfo};
+use crate::rule::{ListenSpec, RawRule, SourceInfo, TlsConfig};
 
 /// User-authored preset invocation. The `preset` field discriminates
 /// which expander runs; `args` is opaque at parse time and validated
@@ -30,6 +30,13 @@ pub struct PresetInvocation {
 	pub listen: Vec<ListenSpec>,
 	#[serde(default)]
 	pub args: Value,
+	/// Optional TLS termination config — same shape as `RawRule.tls`.
+	/// Each preset's `expand()` propagates this to every emitted
+	/// rule on the listener, so a `reverse_proxy` preset that emits
+	/// `<name>.ws` + `<name>.main` carries the same TLS config on
+	/// both rules and `lower_port`'s consistency check passes.
+	#[serde(default)]
+	pub tls: Option<TlsConfig>,
 	#[serde(default)]
 	pub source: SourceInfo,
 }
@@ -88,6 +95,7 @@ mod tests {
 			preset: "no_such_preset".into(),
 			listen: vec![":443".into()],
 			args: Value::Null,
+			tls: None,
 			source: SourceInfo::default(),
 		};
 		let err = expand_invocation(inv).expect_err("unknown preset must fail");

@@ -33,6 +33,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		match_predicate: None,
 		middleware_chain: vec![],
 		terminate: TerminateSpec { kind: FetchKind::HttpSynthesize, args: terminate_args },
+		tls: inv.tls,
 		source: inv.source,
 	}])
 }
@@ -50,6 +51,7 @@ mod tests {
 			preset: "redirect_https".to_string(),
 			listen: vec![":80".into()],
 			args,
+			tls: None,
 			source: SourceInfo::default(),
 		}
 	}

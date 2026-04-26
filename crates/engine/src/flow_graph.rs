@@ -1,9 +1,13 @@
+use std::collections::BTreeMap;
+use std::fs;
+use std::net::SocketAddr;
 use std::ops::Index;
 use std::sync::Arc;
 
 use vane_core::{
 	FetchId, FetchKind, FlowGraphMeta, L4BytesMiddleware, L4Fetch, L4PeekMiddleware, L7Fetch,
 	L7RequestMiddleware, L7ResponseMiddleware, MiddlewareId, MiddlewareKind, SymbolicFlowGraph,
+	rule::TlsConfig,
 };
 
 use crate::factories::{
@@ -41,6 +45,14 @@ pub struct FlowGraph {
 	middlewares: Vec<MiddlewareInst>,
 	fetches: Vec<FetchInst>,
 	meta: FlowGraphMeta,
+	/// Per-listener parsed TLS server config. Populated from
+	/// `sym.meta.listener_tls`'s symbolic PEM paths during [`Self::link`];
+	/// the listener accept loop looks up the bind address here on each
+	/// accepted connection and, if `Some`, runs a server-side handshake
+	/// before passing the wrapped stream to the executor as
+	/// [`vane_core::L4Conn::Tls`]. See `spec/architecture/08-tls.md`
+	/// § _TLS termination (L4 → L7 upgrade)_.
+	listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>>,
 }
 
 impl FlowGraph {
@@ -52,6 +64,13 @@ impl FlowGraph {
 	#[must_use]
 	pub fn meta(&self) -> &FlowGraphMeta {
 		&self.meta
+	}
+
+	/// Per-listener parsed TLS server config. `None` for cleartext
+	/// listeners. Looked up by bind address in the accept loop.
+	#[must_use]
+	pub fn listener_tls(&self, addr: &SocketAddr) -> Option<&Arc<rustls::ServerConfig>> {
+		self.listener_tls.get(addr)
 	}
 
 	/// Resolve every `SymbolicMiddlewareRef` / `SymbolicFetchRef` against
@@ -112,6 +131,18 @@ impl FlowGraph {
 			fetches.push(inst);
 		}
 
+		// Parse every symbolic-meta `listener_tls` entry into a
+		// `rustls::ServerConfig`. PEM I/O happens here (link stage) so a
+		// missing or malformed cert/key is caught at config-load time
+		// rather than per-accept. See 08-tls.md § _TLS termination
+		// (L4 → L7 upgrade)_.
+		let mut listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>> = BTreeMap::new();
+		for (addr, cfg) in &sym.meta.listener_tls {
+			let server_config =
+				build_server_config(cfg).map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
+			listener_tls.insert(*addr, Arc::new(server_config));
+		}
+
 		// Inherit version_hash / compiled_at / source_files from the symbolic
 		// meta; overwrite feature_set with this binary's snapshot per 02-flow.md
 		// § _FlowGraph metadata_ — `feature_set` is "what the daemon linked",
@@ -122,10 +153,45 @@ impl FlowGraph {
 			source_files: sym.meta.source_files.clone(),
 			feature_set: crate::ENGINE_FEATURE_SET,
 			short_circuit_response_entry: sym.meta.short_circuit_response_entry.clone(),
+			listener_tls: sym.meta.listener_tls.clone(),
 		};
 
-		Ok(Arc::new(Self { symbolic: sym, middlewares, fetches, meta }))
+		Ok(Arc::new(Self { symbolic: sym, middlewares, fetches, meta, listener_tls }))
 	}
+}
+
+/// Read PEM cert chain + private key, build a `rustls::ServerConfig` with
+/// `http/1.1` advertised in ALPN. SNI multi-cert resolution and cert hot
+/// reload are deferred (08-tls.md § _Cert resolver and rotation_); one
+/// chain + one key per listener is the MVP shape.
+fn build_server_config(cfg: &TlsConfig) -> Result<rustls::ServerConfig, String> {
+	let cert_bytes = fs::read(&cfg.cert_file)
+		.map_err(|e| format!("read cert_file {}: {e}", cfg.cert_file.display()))?;
+	let key_bytes = fs::read(&cfg.key_file)
+		.map_err(|e| format!("read key_file {}: {e}", cfg.key_file.display()))?;
+
+	let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> =
+		rustls_pemfile::certs(&mut cert_bytes.as_slice())
+			.collect::<Result<_, _>>()
+			.map_err(|e| format!("parse cert_file {}: {e}", cfg.cert_file.display()))?;
+	if cert_chain.is_empty() {
+		return Err(format!("cert_file {} contained no certificates", cfg.cert_file.display()));
+	}
+
+	let private_key = rustls_pemfile::private_key(&mut key_bytes.as_slice())
+		.map_err(|e| format!("parse key_file {}: {e}", cfg.key_file.display()))?
+		.ok_or_else(|| format!("key_file {} contained no private key", cfg.key_file.display()))?;
+
+	let mut server_config = rustls::ServerConfig::builder()
+		.with_no_client_auth()
+		.with_single_cert(cert_chain, private_key)
+		.map_err(|e| format!("build rustls::ServerConfig: {e}"))?;
+	// Single-protocol ALPN this round — H2 ALPN lands with the H2 server
+	// driver. Advertising only `http/1.1` lets clients that won't speak
+	// plain H1 fail fast instead of negotiating a protocol the listener
+	// has no driver for.
+	server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+	Ok(server_config)
 }
 
 impl Index<MiddlewareId> for FlowGraph {
@@ -169,4 +235,76 @@ pub enum LinkError {
 		"this binary was built without the '{feature}' feature — rebuild with --features {feature} or remove the rule"
 	)]
 	FeatureDisabled { feature: &'static str },
+
+	#[error("listener {addr} TLS config: {cause}")]
+	TlsConfig { addr: SocketAddr, cause: String },
+}
+
+#[cfg(test)]
+mod tests {
+	use std::io::Write as _;
+
+	use tempfile::NamedTempFile;
+
+	use super::*;
+
+	fn install_crypto_for_test() {
+		crate::crypto::install_default_provider();
+	}
+
+	fn write_pem(contents: &str) -> NamedTempFile {
+		let mut f = NamedTempFile::new().expect("tmpfile");
+		f.write_all(contents.as_bytes()).expect("write pem");
+		f
+	}
+
+	fn rcgen_self_signed() -> (String, String) {
+		let issued =
+			rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).expect("self-signed cert");
+		(issued.cert.pem(), issued.signing_key.serialize_pem())
+	}
+
+	#[test]
+	fn build_server_config_loads_valid_pem_and_advertises_h1_alpn() {
+		install_crypto_for_test();
+		let (cert_pem, key_pem) = rcgen_self_signed();
+		let cert_file = write_pem(&cert_pem);
+		let key_file = write_pem(&key_pem);
+		let cfg = TlsConfig {
+			cert_file: cert_file.path().to_path_buf(),
+			key_file: key_file.path().to_path_buf(),
+		};
+		let server = build_server_config(&cfg).expect("build_server_config");
+		assert_eq!(server.alpn_protocols, vec![b"http/1.1".to_vec()]);
+	}
+
+	#[test]
+	fn build_server_config_errors_when_cert_file_missing() {
+		install_crypto_for_test();
+		let (_, key_pem) = rcgen_self_signed();
+		let key_file = write_pem(&key_pem);
+		let cfg = TlsConfig {
+			cert_file: "/nonexistent/path/to/cert.pem".into(),
+			key_file: key_file.path().to_path_buf(),
+		};
+		let err = build_server_config(&cfg).expect_err("missing cert must error");
+		assert!(err.contains("read cert_file"), "error mentions cert_file read failure: {err}");
+	}
+
+	#[test]
+	fn build_server_config_errors_on_garbage_cert_pem() {
+		install_crypto_for_test();
+		let (_, key_pem) = rcgen_self_signed();
+		let cert_file = write_pem("this is not a PEM cert\n");
+		let key_file = write_pem(&key_pem);
+		let cfg = TlsConfig {
+			cert_file: cert_file.path().to_path_buf(),
+			key_file: key_file.path().to_path_buf(),
+		};
+		let err = build_server_config(&cfg).expect_err("garbage cert must error");
+		assert!(
+			err.contains("contained no certificates") || err.contains("parse cert_file"),
+			"error explains the cert parse failure: {err}",
+		);
+	}
 }

@@ -17,8 +17,31 @@ pub struct RawRule {
 	#[serde(default)]
 	pub middleware_chain: Vec<MiddlewareRef>,
 	pub terminate: TerminateSpec,
+	/// Optional TLS termination config. When set, the listener wraps
+	/// each accepted TCP stream in a `rustls` server-side handshake
+	/// before driving the L7 sub-graph; cleartext sockets get
+	/// `Box<dyn AsyncReadWrite>` instead of raw `TcpStream`.
+	///
+	/// `lower_port` enforces consistency: every rule on the same
+	/// listener must agree on `tls` (all `None` or all the same
+	/// `Some(_)`); L4-only listeners cannot carry TLS (terminate +
+	/// re-emit cleartext is not a useful proxy shape — it leaks the
+	/// upstream traffic).
+	#[serde(default)]
+	pub tls: Option<TlsConfig>,
 	#[serde(default)]
 	pub source: SourceInfo,
+}
+
+/// Listener-side TLS termination config — paths to the cert chain +
+/// private key in PEM. The engine's link stage reads + parses these
+/// into a `rustls::ServerConfig`. Multi-cert SNI resolution is
+/// deferred to a later round; one cert per listener is the MVP shape
+/// (08-tls.md § _Cert resolver and rotation_).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct TlsConfig {
+	pub cert_file: PathBuf,
+	pub key_file: PathBuf,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -418,5 +441,41 @@ mod tests {
 			Operator::Prefix(PredValue::Str(s)) => assert_eq!(s, "/api"),
 			other => panic!("unexpected op: {other:?}"),
 		}
+	}
+
+	#[test]
+	fn raw_rule_without_tls_field_defaults_to_none() {
+		let raw = serde_json::json!({
+			"name": "r",
+			"listen": [":80"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		});
+		let rule: RawRule = serde_json::from_value(raw).expect("parse rule without tls");
+		assert!(rule.tls.is_none());
+	}
+
+	#[test]
+	fn raw_rule_with_tls_field_parses_paths() {
+		let raw = serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+			"tls": { "cert_file": "/etc/vaned/certs/api.pem", "key_file": "/etc/vaned/certs/api.key" },
+		});
+		let rule: RawRule = serde_json::from_value(raw).expect("parse rule with tls");
+		let tls = rule.tls.expect("tls present");
+		assert_eq!(tls.cert_file, PathBuf::from("/etc/vaned/certs/api.pem"));
+		assert_eq!(tls.key_file, PathBuf::from("/etc/vaned/certs/api.key"));
+	}
+
+	#[test]
+	fn tls_config_round_trips_through_json() {
+		let original = TlsConfig {
+			cert_file: PathBuf::from("/srv/cert.pem"),
+			key_file: PathBuf::from("/srv/key.pem"),
+		};
+		let encoded = serde_json::to_string(&original).expect("serialize");
+		let decoded: TlsConfig = serde_json::from_str(&encoded).expect("deserialize");
+		assert_eq!(decoded, original);
 	}
 }

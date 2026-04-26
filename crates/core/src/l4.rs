@@ -3,11 +3,22 @@ use std::sync::Arc;
 
 use tokio::net::{TcpStream, UdpSocket};
 
+use crate::fetch::AsyncReadWrite;
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct QuicAssocId(pub u64);
 
 pub enum L4Conn {
 	Tcp(TcpStream),
+	/// TLS-terminated stream after a server-side handshake completed.
+	/// The trait object erases the concrete `tokio_rustls::TlsStream`
+	/// type so that `vane-core` doesn't need to depend on rustls
+	/// (the parsing + termination live in `vane-engine`). `AsyncReadWrite`
+	/// is the same trait `L4ForwardFetch` uses for byte-tunnel I/O,
+	/// auto-impl'd on any `AsyncRead + AsyncWrite + Unpin`. See
+	/// `spec/architecture/08-tls.md` § _TLS termination (L4 → L7
+	/// upgrade)_.
+	Tls(Box<dyn AsyncReadWrite + Send>),
 	Udp(UdpAssoc),
 }
 

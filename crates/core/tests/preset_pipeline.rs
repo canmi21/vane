@@ -85,6 +85,7 @@ fn preset_entry(name: &str, preset: &str, listen: &str, args: serde_json::Value)
 		preset: preset.into(),
 		listen: vec![listen.into()],
 		args,
+		tls: None,
 		source: SourceInfo::default(),
 	})
 }
@@ -351,4 +352,140 @@ fn unknown_preset_name_fails_compile_with_pointed_error() {
 		.expect_err("unknown preset must fail");
 	let msg = err.to_string();
 	assert!(msg.contains("no_such"), "error names the unknown preset: {msg}");
+}
+
+// ---------------------------------------------------------------------------
+// 13. TLS plumbing — preset propagation + lower-stage aggregation / conflicts
+// ---------------------------------------------------------------------------
+
+fn tls_preset_entry(
+	name: &str,
+	preset: &str,
+	listen: &str,
+	args: serde_json::Value,
+	tls: Option<vane_core::rule::TlsConfig>,
+) -> RuleEntry {
+	RuleEntry::Preset(PresetInvocation {
+		name: name.into(),
+		preset: preset.into(),
+		listen: vec![listen.into()],
+		args,
+		tls,
+		source: SourceInfo::default(),
+	})
+}
+
+#[test]
+fn reverse_proxy_preset_propagates_tls_to_listener_meta() {
+	// The reverse_proxy expander emits up to three rules (.main / .ws-allow
+	// / .ws-deny). Each must carry the same `tls` block so the per-listener
+	// resolver agrees and the symbolic meta records exactly one entry per
+	// bind address.
+	let tls = vane_core::rule::TlsConfig {
+		cert_file: "/tmp/cert.pem".into(),
+		key_file: "/tmp/key.pem".into(),
+	};
+	let entry = tls_preset_entry(
+		"api",
+		"reverse_proxy",
+		":443",
+		json!({ "upstream": "127.0.0.1:8080", "websocket": ["/ws"] }),
+		Some(tls.clone()),
+	);
+	let graph = compile(vec![rule_file("a.json", vec![entry])], &Providers, &Providers)
+		.expect("reverse_proxy with tls compiles");
+	// `:443` shorthand expands to v4 + v6 — both addresses must agree on
+	// the same TlsConfig.
+	assert_eq!(graph.meta.listener_tls.len(), 2);
+	for cfg in graph.meta.listener_tls.values() {
+		assert_eq!(cfg, &tls);
+	}
+}
+
+#[test]
+fn raw_rule_with_tls_aggregates_into_listener_meta() {
+	let raw_entry: RuleEntry = serde_json::from_value(json!({
+		"name": "api",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		"tls": { "cert_file": "/tmp/cert.pem", "key_file": "/tmp/key.pem" },
+	}))
+	.expect("parse raw rule with tls");
+	let graph = compile(vec![rule_file("a.json", vec![raw_entry])], &Providers, &Providers)
+		.expect("raw rule with tls compiles");
+	let expected = vane_core::rule::TlsConfig {
+		cert_file: "/tmp/cert.pem".into(),
+		key_file: "/tmp/key.pem".into(),
+	};
+	assert_eq!(graph.meta.listener_tls.len(), 2);
+	for cfg in graph.meta.listener_tls.values() {
+		assert_eq!(cfg, &expected);
+	}
+}
+
+#[test]
+fn mixed_tls_and_cleartext_on_same_listener_is_rejected() {
+	// Two raw rules on `:443` — one with tls, one without. The lower
+	// resolver must reject this (one socket can't serve both).
+	let with_tls: RuleEntry = serde_json::from_value(json!({
+		"name": "api",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		"tls": { "cert_file": "/tmp/cert.pem", "key_file": "/tmp/key.pem" },
+	}))
+	.expect("parse");
+	let without_tls: RuleEntry = serde_json::from_value(json!({
+		"name": "api2",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
+	}))
+	.expect("parse");
+	let err = compile(vec![rule_file("a.json", vec![with_tls, without_tls])], &Providers, &Providers)
+		.expect_err("mixed tls/cleartext on same listener must fail");
+	let msg = err.to_string();
+	assert!(msg.contains("disagree on TLS"), "error mentions TLS disagreement: {msg}");
+}
+
+#[test]
+fn two_distinct_tls_configs_on_same_listener_is_rejected() {
+	let a: RuleEntry = serde_json::from_value(json!({
+		"name": "api",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		"tls": { "cert_file": "/tmp/a.pem", "key_file": "/tmp/a.key" },
+	}))
+	.expect("parse");
+	let b: RuleEntry = serde_json::from_value(json!({
+		"name": "api2",
+		"listen": [":443"],
+		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
+		"tls": { "cert_file": "/tmp/b.pem", "key_file": "/tmp/b.key" },
+	}))
+	.expect("parse");
+	let err = compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
+		.expect_err("two distinct TlsConfigs on same listener must fail");
+	let msg = err.to_string();
+	assert!(msg.contains("disagree on TLS"), "error mentions TLS disagreement: {msg}");
+}
+
+#[test]
+fn l4_listener_with_tls_block_is_rejected() {
+	// `port_forward` produces an L4Forward rule; carrying `tls` on a
+	// pure-byte-tunnel listener makes no sense (vane would terminate TLS
+	// then re-emit plaintext to the upstream).
+	let tls = vane_core::rule::TlsConfig {
+		cert_file: "/tmp/cert.pem".into(),
+		key_file: "/tmp/key.pem".into(),
+	};
+	let entry = tls_preset_entry(
+		"ssh",
+		"port_forward",
+		":2222",
+		json!({ "upstream": "10.0.0.5:22" }),
+		Some(tls),
+	);
+	let err = compile(vec![rule_file("a.json", vec![entry])], &Providers, &Providers)
+		.expect_err("L4 listener with TLS must fail");
+	let msg = err.to_string();
+	assert!(msg.contains("TLS termination is L7-only"), "error explains the L4+TLS shape: {msg}");
 }

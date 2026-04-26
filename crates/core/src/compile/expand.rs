@@ -66,6 +66,7 @@ mod tests {
 			preset: "port_forward".to_string(),
 			listen: vec![":2222".into()],
 			args: serde_json::json!({ "upstream": "10.0.0.5:22" }),
+			tls: None,
 			source: SourceInfo::default(),
 		}
 	}
@@ -103,6 +104,7 @@ mod tests {
 			preset: "reverse_proxy".to_string(),
 			listen: vec![":443".into()],
 			args: serde_json::json!({ "upstream": "u:1" }),
+			tls: None,
 			source: SourceInfo::default(),
 		};
 		let inv_b = PresetInvocation {
@@ -110,6 +112,7 @@ mod tests {
 			preset: "reverse_proxy".to_string(),
 			listen: vec![":443".into()],
 			args: serde_json::json!({ "upstream": "u:2" }),
+			tls: None,
 			source: SourceInfo::default(),
 		};
 		let m = merged(vec![RuleEntry::Preset(inv_a), RuleEntry::Preset(inv_b)]);
