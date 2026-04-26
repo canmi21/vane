@@ -99,13 +99,15 @@ fn http_get(port: u16) -> std::io::Result<String> {
 
 /// Static-site rule fixture. Plain JSON; the watcher's debounce
 /// detects the modify and the reload pipeline rebuilds with a fresh
-/// `version_hash`.
+/// `version_hash`. The rule name embeds the port so multiple fixture
+/// rules in the same config tree don't collide on the merge stage's
+/// duplicate-name check.
 fn static_site_rule(port: u16, body: &str) -> String {
 	format!(
 		r#"{{
 			"rules": [{{
 				"preset": "static_site",
-				"name": "site",
+				"name": "site_{port}",
 				"listen": ["127.0.0.1:{port}"],
 				"args": {{ "status": 200, "body": "{body}" }}
 			}}]
@@ -187,6 +189,76 @@ fn reload_with_deleted_rule_drops_new_connections() {
 		|| http_get(port).map_or_else(|_| true, |r| !r.contains("HTTP/1.1 200")),
 		"connections continued returning 200 after rule removal",
 	);
+
+	kill_signal(&child, Signal::SIGTERM);
+	let status = wait_with_timeout(&mut child, Duration::from_secs(5));
+	assert!(status.success(), "SIGTERM exit: {status:?}");
+}
+
+#[test]
+fn reload_adds_new_listen_port_serves_traffic() {
+	// Start with one rule on port_a; verify "a". Drop a second rule
+	// file introducing port_b. After the watcher debounces and
+	// reconcile binds port_b, both ports must serve their respective
+	// bodies.
+	let tmp = tempfile::tempdir().expect("tempdir");
+	let port_a = ephemeral_port();
+	let port_b = ephemeral_port();
+	assert_ne!(port_a, port_b);
+
+	write_rule(tmp.path(), "a.json", &static_site_rule(port_a, "a"));
+
+	let mut child = spawn_vaned(tmp.path());
+	wait_for_port_open(port_a, Duration::from_secs(10));
+	assert!(http_get(port_a).expect("a").contains('a'));
+
+	// Add a second rule file. Watcher → reload → reconcile binds port_b.
+	write_rule(tmp.path(), "b.json", &static_site_rule(port_b, "b"));
+
+	wait_until(
+		|| http_get(port_b).is_ok_and(|r| r.contains('b')),
+		"reconcile never bound the new listen port",
+	);
+	// Original port still serves.
+	assert!(http_get(port_a).expect("a after reconcile").contains('a'));
+
+	kill_signal(&child, Signal::SIGTERM);
+	let status = wait_with_timeout(&mut child, Duration::from_secs(5));
+	assert!(status.success(), "SIGTERM exit: {status:?}");
+}
+
+#[test]
+fn reload_removes_listen_port_drops_new_connections() {
+	// Start with two rules / two ports; verify both serve. Delete the
+	// second rule. After the watcher debounces and reconcile drains
+	// port_b, port_a must keep serving while port_b refuses new
+	// connections.
+	let tmp = tempfile::tempdir().expect("tempdir");
+	let port_a = ephemeral_port();
+	let port_b = ephemeral_port();
+	assert_ne!(port_a, port_b);
+
+	write_rule(tmp.path(), "a.json", &static_site_rule(port_a, "a"));
+	write_rule(tmp.path(), "b.json", &static_site_rule(port_b, "b"));
+
+	let mut child = spawn_vaned(tmp.path());
+	wait_for_port_open(port_a, Duration::from_secs(10));
+	wait_for_port_open(port_b, Duration::from_secs(10));
+	assert!(http_get(port_a).expect("a").contains('a'));
+	assert!(http_get(port_b).expect("b").contains('b'));
+
+	// Remove b.json; reconcile background-drains port_b's listener.
+	fs::remove_file(tmp.path().join("rules").join("b.json")).expect("rm b");
+
+	// port_b must stop returning 200; the underlying socket eventually
+	// closes (background drain). Either connect-refused or empty body is
+	// acceptable.
+	wait_until(
+		|| http_get(port_b).map_or_else(|_| true, |r| !r.contains("HTTP/1.1 200")),
+		"port_b kept serving after rule removal",
+	);
+	// port_a survives untouched.
+	assert!(http_get(port_a).expect("a after reconcile").contains('a'));
 
 	kill_signal(&child, Signal::SIGTERM);
 	let status = wait_with_timeout(&mut child, Duration::from_secs(5));
