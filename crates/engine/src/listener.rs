@@ -85,19 +85,27 @@ impl ListenerSet {
 		Self { running: Mutex::new(HashMap::new()) }
 	}
 
-	/// Spawn one TCP accept task per L4-compatible entry in the **initial
+	/// Spawn one TCP accept task per `SocketAddr` in the **initial
 	/// snapshot** of `graph`. Each accept loop captures the
-	/// `Arc<ArcSwap<FlowGraph>>` and refreshes its working
-	/// `Arc<FlowGraph>` per accepted connection via `load_full()`, so
-	/// `ArcSwap::store` in the reload pipeline picks up immediately for
-	/// new connections while in-flight connections keep their captured
-	/// snapshot to natural completion (09-config.md § _Reload_).
+	/// `Arc<ArcSwap<FlowGraph>>` and resolves the entry `NodeId` per
+	/// accepted connection by looking the listener's local
+	/// `SocketAddr` up in the active graph's `entries` map.
 	///
-	/// The set of `SocketAddr` listeners is taken from the initial
-	/// snapshot only — `start` does not add or remove listeners on swap.
-	/// Listener-set diffing on reload is a separate future change; today,
-	/// editing rules to introduce a new `listen` port requires a daemon
-	/// restart.
+	/// Per-accept lookup (rather than a baked-in `NodeId` from boot) is
+	/// required because `NodeId` is a slab index that
+	/// `compile/lower.rs::lower_port` reassigns from scratch on every
+	/// recompile — the index in the post-reload graph need not name the
+	/// same logical node as the pre-reload graph (09-config.md
+	/// § _`NodeId` stability across reloads_). `SocketAddr` is the
+	/// stable identifier; the lookup costs an `entries.get(&addr)` per
+	/// connection.
+	///
+	/// If the active graph no longer has an entry for `addr` (operator
+	/// removed the rule that owned the listener), the stream is dropped
+	/// immediately and the client sees TCP RST. The accept socket itself
+	/// stays bound for now — listener-set diffing on reload is a separate
+	/// future change; today, introducing a new `listen` port still
+	/// requires a daemon restart.
 	///
 	/// Spawning is fire-and-forget; bind failures and accept-loop errors
 	/// surface only via `tracing` events. The handle stored in `running`
@@ -109,9 +117,9 @@ impl ListenerSet {
 		verbosity: Arc<VerbosityState>,
 		log_sink: Arc<dyn FlowLogSink>,
 	) {
-		let entries: Vec<(SocketAddr, NodeId)> = {
+		let addrs: Vec<SocketAddr> = {
 			let initial = graph.load_full();
-			initial.symbolic().entries.iter().map(|(a, n)| (*a, *n)).collect()
+			initial.symbolic().entries.keys().copied().collect()
 		};
 
 		// Every entry binds. The lower pass guarantees entry nodes start in
@@ -119,7 +127,7 @@ impl ListenerSet {
 		// always sees the L4 input shape it expects. L4 → L7 transitions
 		// happen inside the executor at `Node::Upgrade`, which now hands
 		// the stream to `drive_h1_server` for hyper to decode.
-		for (addr, entry) in entries {
+		for addr in addrs {
 			let mut running = self.running.lock();
 			if running.contains_key(&addr) {
 				tracing::warn!(?addr, "listener already running for this address; skipping");
@@ -132,7 +140,6 @@ impl ListenerSet {
 
 			let join = tokio::spawn(run_accept_loop(
 				addr,
-				entry,
 				Arc::clone(&graph),
 				Arc::clone(&verbosity),
 				Arc::clone(&log_sink),
@@ -237,10 +244,8 @@ async fn drain_in_flight(set: &AsyncMutex<JoinSet<()>>) {
 	while g.join_next().await.is_some() {}
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_accept_loop(
 	addr: SocketAddr,
-	entry: NodeId,
 	graph: Arc<ArcSwap<FlowGraph>>,
 	verbosity: Arc<VerbosityState>,
 	log_sink: Arc<dyn FlowLogSink>,
@@ -275,11 +280,27 @@ async fn run_accept_loop(
 					}
 				};
 
-				// Per-accept snapshot of the active graph: 09-config.md
-				// § _Reload_ — `ArcSwap::store` from the reload pipeline
-				// picks up here for new connections; in-flight connections
-				// keep their captured `Arc<FlowGraph>` to natural completion.
+				// Per-accept snapshot of the active graph + per-accept
+				// entry lookup by `addr`. `NodeId` is a slab index that
+				// `lower_port` reassigns on every recompile, so a baked-in
+				// boot-time `NodeId` would route post-reload connections to
+				// the wrong logical entry (09-config.md § _NodeId stability
+				// across reloads_). The captured `Arc<FlowGraph>` then
+				// travels with this connection to natural completion;
+				// `ArcSwap::store` from the reload pipeline never disturbs
+				// in-flight work.
 				let captured: Arc<FlowGraph> = graph.load_full();
+				let Some(entry) = captured.symbolic().entries.get(&addr).copied() else {
+					// Active graph has no entry for this listener: a reload
+					// removed the rule that owned the address. Drop the
+					// stream so the client sees TCP RST. The accept socket
+					// itself stays bound until the daemon restarts (no
+					// listener-set diff yet).
+					tracing::debug!(?addr, "no entry in active graph; dropping connection");
+					drop(stream);
+					continue;
+				};
+
 				let verbosity = Arc::clone(&verbosity);
 				let log_sink = Arc::clone(&log_sink);
 				let force = force_cancel.clone();
