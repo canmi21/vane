@@ -19,9 +19,16 @@ workspace = true
 all-features = true
 
 [dependencies]
-hyper = { version = "1.9.0", features = ["server", "http1", "client"] }
+async-trait = { workspace = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-tokio = { version = "1.52.1", features = ["net", "io-util", "rt", "sync"] }
+thiserror = "2"
+tokio = { version = "1.52.1", features = ["net", "io-util", "rt", "sync", "macros"] }
+tokio-util = { version = "0.7.18", default-features = false }
 tracing = "0.1.44"
-vane-core = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+tempfile = "3"
+tokio = { version = "1.52.1", features = ["net", "io-util", "rt", "sync", "macros", "rt-multi-thread", "time"] }
+tokio-util = { version = "0.7.18", default-features = false }
