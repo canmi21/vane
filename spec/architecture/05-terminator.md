@@ -255,12 +255,24 @@ Retry lives inside Fetch. A rule opting in configures:
 
 - `max_attempts` — total attempts including the first. Default: `1` (no retry).
 - `methods` — idempotent-method whitelist (GET / HEAD / PUT / DELETE / OPTIONS by default); POST / PATCH require explicit opt-in.
-- `on` — `ErrorKind` set that triggers retry. Default: `{ Upstream, Timeout }`. Connection-pool failures always retry regardless.
-- `backoff` — `none`, `fixed(Duration)`, or `exponential(base, max, jitter)`. Default: exponential with jitter.
+- `backoff` — `"none"`, `{ "fixed": "<duration>" }`, `"exponential"`, or `{ "exponential": { "base": "<duration>", "max": "<duration>", "jitter": <bool> } }`. Default: `"exponential"` (base `100ms`, max `5s`, full jitter).
+- `buffering` — `"opportunistic"` (default) or `"force"`. See _Retry buffering_ below.
 
-Retry **implicitly forces request-body eager-buffering** (see `03-types.md` and `04-middleware.md`). `Body::Stream(...)` is one-shot — the inner producer (hyper Incoming, H3Body, etc.) cannot be replayed — so retry cannot proceed without buffering. Enabling retry is a deliberate memory-for-reliability tradeoff.
+The retry decision itself consumes [`Error::is_retryable()`](17-error-type.md) — the single source of truth for which `ErrorKind` / reason combinations are retry-eligible. Connection-pool exhaustion is retry-eligible by that table, so the spec's "pool failures always retry regardless" carve-out falls out automatically; there is no separate `on` field.
 
 Retry is scoped to the single `HttpUpstream` configured for this Fetch. Multi-upstream failover is not a Fetch concern — express it via multiple rules with fallback predicates, each with its own Fetch.
+
+#### Retry buffering
+
+`Body::Stream(...)` is one-shot — the inner producer (hyper Incoming, H3Body, etc.) cannot be replayed — so retry only proceeds when the request body is `Body::Static` or `Body::Empty`. The `buffering` knob picks how the runtime gets there:
+
+| `max_attempts` | `buffering`     | Behavior                                                                                                                                                                                                                                                                                                                                                         |
+| -------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `1`            | (irrelevant)    | Retry off. `lower` does not flag this fetch as a buffering trigger; the body posture is decided by other rules (LazyBuffer track per `02-flow.md`).                                                                                                                                                                                                              |
+| `> 1`          | `opportunistic` | **Default sweet spot.** `lower` does **not** flag this fetch as a buffering trigger. If a different reachable node already forces buffering (`needs_body` middleware, `http.body` Check), the fetch sees `Body::Static` and retries. If the body reaches the fetch as `Body::Stream`, the first failure returns immediately — no retry, no surprise memory cost. |
+| `> 1`          | `force`         | **Spec original.** `lower` flags the fetch's incoming edge with `collect_body_before: Some(BodySide::Request)`; the body always arrives as `Body::Static`. Predictable retry, deterministic memory cost.                                                                                                                                                         |
+
+`opportunistic` is the default because most production paths that opt into retry do so on the explicit assumption that the body is small and naturally bufferable; forcing the cost on every path was the spec's original safety choice but it is operationally noisy on streaming-upload routes that opt into retry "just in case."
 
 ---
 

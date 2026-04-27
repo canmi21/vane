@@ -125,7 +125,7 @@ A path is request-buffered iff **any** of the following is reachable from the pa
 
 - a `L7RequestMiddleware` on that path declares `needs_body() == true`, or
 - a `Check` node on that path reads the `http.body` field (request side), or
-- the terminating `L7Fetch` has retry enabled.
+- the terminating `L7Fetch` has retry enabled with `buffering: "force"` (the default `buffering: "opportunistic"` does **not** trigger; that mode replays only when buffering is already forced by one of the two reasons above — see `05-terminator.md` § _Retry buffering_).
 
 A path is response-buffered iff **any** of the following is reachable from the `L7Fetch`'s `next_response` edge to the `WriteHttpResponse` terminator:
 
