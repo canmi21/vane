@@ -72,6 +72,17 @@ A file may contain any subset: just `rules`, just `listeners`, or a mix.
 - `match` (array, optional): zero or more predicates. All must hold. Empty means "always match."
 - `terminate` (object, required): see [`05-terminator.md`](05-terminator.md).
 
+When `terminate.type` is one of the proxy variants (`http_proxy`, `http1_proxy`, `http2_proxy`, `http3_proxy`), the `version` field selects the upstream HTTP version:
+
+| `version` | Wire behavior                                                                                                               |
+| --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"`  | TLS upstream: ALPN offers `["h2", "http/1.1"]`, hyper picks the negotiated version. Cleartext upstream: falls back to `h1`. |
+| `"h1"`    | Force HTTP/1.1. ALPN offers `["http/1.1"]` only on TLS.                                                                     |
+| `"h2"`    | Force HTTP/2. ALPN offers `["h2"]` only on TLS; cleartext uses prior-knowledge h2c (Stage 2).                               |
+| `"h3"`    | Force HTTP/3 over QUIC. Stage 3 only — rules using `"h3"` on a binary built without the `h3` feature fail at compile.       |
+
+Omitting `version` defaults to `"auto"`. The four type aliases (`http_proxy` / `http1_proxy` / `http2_proxy` / `http3_proxy`) are equivalent to `http_proxy` with `version` set to `auto` / `h1` / `h2` / `h3` respectively — see [`05-terminator.md`](05-terminator.md) § _Variant ergonomics in config_.
+
 There is intentionally **no `listener_kind` (or `kind`) field** here. `ListenerKind` is derived from each listener's FlowGraph entry subgraph at compile — `Raw` when only L4 fetches are reachable, `Http` when only L7, `Auto` when both. A rule writer expresses intent by choosing terminators / presets; the listener's runtime posture follows. See [`06-l4.md`](06-l4.md) § _Listener kind derivation_ for the full rule.
 
 ### ListenSpec grammar
