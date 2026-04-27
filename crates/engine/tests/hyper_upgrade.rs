@@ -463,7 +463,7 @@ async fn h1_get_request_returns_synthesized_response() {
 	let body = resp.into_body().collect().await.expect("collect response body").to_bytes();
 	assert_eq!(body, payload, "client must receive the L7Fetch payload bytes verbatim");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // 2. h1_request_body_flows_through_to_l7_fetch
@@ -494,7 +494,7 @@ async fn h1_request_body_flows_through_to_l7_fetch() {
 	let body = resp.into_body().collect().await.expect("collect response body").to_bytes();
 	assert_eq!(body.as_ref(), b"hello", "request bytes must round-trip via the L7 fetch");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // 3. h1_keep_alive_two_requests_share_connection
@@ -535,7 +535,7 @@ async fn h1_keep_alive_two_requests_share_connection() {
 		assert_eq!(body, payload, "keep-alive request #{nth} body must match");
 	}
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // 4. h1_response_body_static_writes_full_payload
@@ -571,7 +571,7 @@ async fn h1_response_body_static_writes_full_payload() {
 	let body = resp.into_body().collect().await.expect("collect response body").to_bytes();
 	assert_eq!(body.len(), 100_000, "client must read exactly 100KB across H1 framing");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // 5. h1_response_body_stream_drains_to_completion
@@ -601,7 +601,7 @@ async fn h1_response_body_stream_drains_to_completion() {
 	let body = resp.into_body().collect().await.expect("collect response body").to_bytes();
 	assert_eq!(body.len(), 5 * 1024, "five 1KB frames must aggregate to 5KB on the client");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // 6. h1_l7_fetch_error_surfaces_as_500
@@ -643,7 +643,7 @@ async fn h1_l7_fetch_error_surfaces_as_500() {
 
 	assert_eq!(hits.load(Ordering::SeqCst), 1, "L7Fetch must run exactly once before the 500");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // 7. h1_no_route_returns_404_with_connection_close
@@ -683,7 +683,7 @@ async fn h1_no_route_returns_404_with_connection_close() {
 	let body = resp.into_body().collect().await.expect("collect").to_bytes();
 	assert!(body.is_empty(), "Closed-arm response body must be empty");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // 8. h1_middleware_policy_denied_short_close_returns_404
@@ -725,5 +725,5 @@ async fn h1_middleware_policy_denied_short_close_returns_404() {
 	let body = resp.into_body().collect().await.expect("collect").to_bytes();
 	assert!(body.is_empty(), "PolicyDenied response body must be empty");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }

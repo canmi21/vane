@@ -204,7 +204,7 @@ async fn tls_listener_completes_handshake_and_serves_h1_response() {
 	let body = resp.into_body().collect().await.expect("collect").to_bytes();
 	assert_eq!(body.as_ref(), b"ok");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -231,7 +231,7 @@ async fn tls_listener_drops_invalid_handshake() {
 	// In neither case should we observe the L7 path's "ok" body.
 	assert!(!buf[..n].windows(2).any(|w| w == b"ok"), "L7 fetch must not run on bad handshake");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -257,7 +257,7 @@ async fn tls_listener_negotiates_h2_when_alpn_offered() {
 	assert_eq!(alpn, Some(b"h2".to_vec()), "server must pick h2 when both client + server offer it");
 
 	drop(tls_stream);
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -287,7 +287,7 @@ async fn tls_listener_negotiates_h1_when_only_h1_offered() {
 	);
 
 	drop(tls_stream);
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -468,7 +468,7 @@ async fn tls_listener_resolves_cert_by_sni() {
 		drop(tls_stream);
 	}
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -496,7 +496,7 @@ async fn tls_listener_falls_back_to_default_cert_for_unknown_sni() {
 		"unknown SNI must fall back to the default cert",
 	);
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -538,5 +538,5 @@ async fn tls_listener_h2_request_serves_through_executor() {
 	let body = resp.into_body().collect().await.expect("collect").to_bytes();
 	assert_eq!(body.as_ref(), b"ok");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }

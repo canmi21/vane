@@ -212,7 +212,7 @@ async fn listener_accepts_tcp_and_routes_to_executor() {
 
 	// Soft-drain shutdown lets the executor finish naturally — the Close
 	// terminator path is microseconds, so the drain wait won't elapse.
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 
 	assert!(
 		sink.has_trajectory(),
@@ -270,7 +270,7 @@ async fn listener_drains_in_flight_within_timeout() {
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	let started = Instant::now();
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 	let elapsed = started.elapsed();
 
 	drop(client);
@@ -326,7 +326,7 @@ async fn listener_set_starts_multiple_entries_independently() {
 	drop(c1);
 	drop(c2);
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +401,7 @@ async fn reconcile_adds_listener_for_new_address() {
 	assert!(set.is_running(&addr_b), "new listener bound by reconcile");
 	assert_eq!(set.len(), 2);
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -445,7 +445,7 @@ async fn reconcile_removes_listener_for_deleted_address() {
 	assert!(!set.is_running(&addr_b), "removed-address listener gone from registry");
 	assert_eq!(set.len(), 1);
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -480,7 +480,7 @@ async fn reconcile_noop_for_unchanged_address_set() {
 	assert!(set.is_running(&addr_a), "unchanged address kept running");
 	assert_eq!(set.len(), 1, "no spurious bind/drain on identical address set");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -516,7 +516,7 @@ async fn bound_count_flips_to_expected_after_bind_succeeds() {
 	assert_eq!(set.bound_count(), 1, "bound_count tracks successful bind within 2s");
 	assert_eq!(set.expected_count(), 1);
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 	assert_eq!(set.expected_count(), 0, "shutdown drains the registry");
 	assert_eq!(set.bound_count(), 0);
 }
@@ -571,7 +571,7 @@ async fn list_connections_registers_on_accept_and_deregisters_on_task_end() {
 	}
 	assert_eq!(set.list_connections().len(), 0, "deregister on per-conn task end");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -602,7 +602,7 @@ async fn bound_count_stays_zero_when_address_is_already_in_use() {
 	// Tear down: drop our blocker first so the accept-loop task's next
 	// `accept_cancel.cancelled()` window can short-circuit cleanly.
 	drop(blocker);
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------

@@ -175,7 +175,7 @@ async fn http_synthesize_returns_static_response() {
 	assert_eq!(body.as_ref(), b"hello", "synthesised body bytes must match the decoded args.body");
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +217,7 @@ async fn http_synthesize_with_headers() {
 	);
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +250,7 @@ async fn http_synthesize_empty_body_writes_empty() {
 	assert_eq!(body.len(), 0, "204 with no body arg must write zero bytes to the wire");
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------

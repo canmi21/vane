@@ -353,7 +353,7 @@ async fn ws_handshake_success_then_byte_tunnel_echoes() {
 		.expect("echo read");
 	assert_eq!(&got, b"hello");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -382,7 +382,7 @@ async fn ws_upstream_rejects_with_403_forwards_to_client() {
 	assert!(s.starts_with("HTTP/1.1 403"), "expected 403, got: {s}");
 	assert!(s.contains("no-auth"), "upstream body should round-trip: {s}");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -410,7 +410,7 @@ async fn ws_upstream_unreachable_surfaces_as_500() {
 	let s = String::from_utf8_lossy(&head);
 	assert!(s.starts_with("HTTP/1.1 500"), "expected 500 from driver, got: {s}");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 /// Pins the WSS upstream path: client speaks cleartext WS to vane,
@@ -463,5 +463,5 @@ async fn wss_upstream_handshake_success_then_byte_tunnel_echoes() {
 		.expect("wss echo read");
 	assert_eq!(&got, b"hello", "post-101 bytes must round-trip through the TLS upstream tunnel");
 
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }

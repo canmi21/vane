@@ -259,7 +259,7 @@ async fn http_proxy_forwards_get_to_upstream() {
 	assert_eq!(body.as_ref(), b"hello from upstream", "upstream body must round-trip byte-for-byte");
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +316,7 @@ async fn http_proxy_preserves_request_headers() {
 	);
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 
 	assert_eq!(
 		observed.lock().as_deref(),
@@ -399,7 +399,7 @@ async fn http_proxy_streams_response_body() {
 	assert_eq!(body.len(), 5 * 1024, "five 1KB upstream frames must aggregate to 5KB on the client");
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +452,7 @@ async fn http_proxy_post_body_flows_to_upstream() {
 	);
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 
 	let observed_payload = observed.lock().clone();
 	assert_eq!(
@@ -503,7 +503,7 @@ async fn http_proxy_unreachable_upstream_surfaces_as_500_via_h1_driver() {
 	let _ = resp.into_body().collect().await;
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -570,7 +570,7 @@ async fn http_proxy_uri_path_and_query_preserved() {
 	let _ = resp.into_body().collect().await;
 
 	tokio::task::yield_now().await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 
 	assert_eq!(
 		observed.lock().as_deref(),

@@ -227,7 +227,7 @@ async fn l4_forward_echoes_bytes_through_upstream() {
 	// Trajectory event before shutdown — see commit 9c10b2f4 ("yield to
 	// accept loop before listener shutdown").
 	tokio::time::sleep(Duration::from_millis(50)).await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,7 +274,7 @@ async fn l4_forward_propagates_upstream_eof_to_client() {
 	assert_eq!(n, 0, "upstream EOF must propagate as a clean client EOF, not an io error");
 
 	tokio::time::sleep(Duration::from_millis(50)).await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +317,7 @@ async fn l4_forward_unreachable_upstream_surfaces_as_walker_err() {
 
 	// Allow the per-connection task to finalize its trajectory.
 	tokio::time::sleep(Duration::from_millis(100)).await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 
 	let traj = first_trajectory(&sink);
 	assert!(
@@ -445,7 +445,7 @@ async fn l4_forward_close_reason_graceful_emits_byte_tunnel_terminate_outcome() 
 	assert_eq!(received, b"ok", "echo upstream must round-trip the payload");
 
 	tokio::time::sleep(Duration::from_millis(50)).await;
-	set.shutdown(Duration::from_secs(2)).await;
+	set.shutdown(Duration::from_millis(500)).await;
 
 	let traj = first_trajectory(&sink);
 	match traj.outcome {
