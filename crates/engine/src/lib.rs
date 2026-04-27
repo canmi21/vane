@@ -32,6 +32,7 @@ pub mod flow_log_sink;
 pub mod hot_reload;
 pub mod listener;
 pub mod middleware;
+pub mod peeked_stream;
 pub mod preset;
 pub mod protocol_detect;
 pub mod security;

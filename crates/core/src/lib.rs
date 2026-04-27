@@ -29,6 +29,8 @@ pub use middleware::*;
 pub mod phase;
 pub mod predicate;
 pub use predicate::*;
+pub mod protocol_detect;
+pub use protocol_detect::*;
 pub mod preset;
 pub use preset::{PresetInvocation, RuleEntry, expand_invocation};
 pub mod rule;
