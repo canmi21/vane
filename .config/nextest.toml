@@ -1,7 +1,7 @@
 [profile.default]
-# 60s soft timeout (warning), terminated after a second 60s window
-# (~120s hard cap). The longest legitimate test in this workspace is
-# under 5s — boot-health watchdog tests at ~3s — so 60/2 is comfortable
-# headroom against CI / machine jitter without letting a wedged test
-# hang a run.
-slow-timeout = { period = "60s", terminate-after = 2 }
+# Warn at 10s, kill at 20s. The slowest legitimate test in this
+# workspace is around 4s (boot-health watchdog tied to its 3s
+# deadline + spawn jitter). Anything past 10s is already off the
+# expected curve; anything past 20s is wedged. terminate-after = 2
+# means the kill lands at 2 × period = 20s.
+slow-timeout = { period = "10s", terminate-after = 2 }
