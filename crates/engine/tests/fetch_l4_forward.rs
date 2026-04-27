@@ -123,6 +123,7 @@ fn make_proxy_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 				next_response: None,
 				next_tunnel: Some(NodeId::new(1)),
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],

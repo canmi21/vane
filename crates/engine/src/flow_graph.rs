@@ -565,6 +565,7 @@ mod tests {
 					next: NodeId::new(1),
 					on_error: None,
 					collect_body_before: None,
+					body_limit: 0,
 				},
 				Node::Terminate(TerminatorId::new(0)),
 			];
@@ -581,6 +582,7 @@ mod tests {
 					next: NodeId::new(1),
 					on_error: None,
 					collect_body_before: None,
+					body_limit: 0,
 				},
 				Node::Terminate(TerminatorId::new(0)),
 			];
@@ -598,6 +600,7 @@ mod tests {
 					on_match: NodeId::new(1),
 					on_miss: NodeId::new(2),
 					collect_body_before: None,
+					body_limit: 0,
 				},
 				Node::Terminate(TerminatorId::new(0)),
 				Node::Middleware {
@@ -605,6 +608,7 @@ mod tests {
 					next: NodeId::new(1),
 					on_error: None,
 					collect_body_before: None,
+					body_limit: 0,
 				},
 			];
 			let mws = vec![mw_ref("sni_peek", MiddlewareKind::L4Peek)];
@@ -626,6 +630,7 @@ mod tests {
 				next: NodeId::new(0),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			}];
 			let mws = vec![mw_ref("rate_limit", MiddlewareKind::L7Request)];
 			let g = flow_from(nodes, mws);

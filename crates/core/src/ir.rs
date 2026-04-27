@@ -48,18 +48,24 @@ pub enum Node {
 		on_match: NodeId,
 		on_miss: NodeId,
 		collect_body_before: Option<BodySide>,
+		#[serde(default)]
+		body_limit: usize,
 	},
 	Middleware {
 		id: MiddlewareId,
 		next: NodeId,
 		on_error: Option<NodeId>,
 		collect_body_before: Option<BodySide>,
+		#[serde(default)]
+		body_limit: usize,
 	},
 	Fetch {
 		id: FetchId,
 		next_response: Option<NodeId>,
 		next_tunnel: Option<NodeId>,
 		collect_body_before: Option<BodySide>,
+		#[serde(default)]
+		body_limit: usize,
 	},
 	Upgrade {
 		next: NodeId,
@@ -75,6 +81,16 @@ impl Node {
 			| Self::Middleware { collect_body_before, .. }
 			| Self::Fetch { collect_body_before, .. } => *collect_body_before,
 			Self::Upgrade { .. } | Self::Terminate(_) => None,
+		}
+	}
+
+	#[must_use]
+	pub const fn body_limit(&self) -> usize {
+		match self {
+			Self::Check { body_limit, .. }
+			| Self::Middleware { body_limit, .. }
+			| Self::Fetch { body_limit, .. } => *body_limit,
+			_ => 0,
 		}
 	}
 }
@@ -303,6 +319,7 @@ mod tests {
 			on_match: NodeId::new(0),
 			on_miss: NodeId::new(0),
 			collect_body_before: Some(BodySide::Request),
+			body_limit: 0,
 		};
 		assert_eq!(some.collect_body_before(), Some(BodySide::Request));
 
@@ -311,6 +328,7 @@ mod tests {
 			on_match: NodeId::new(0),
 			on_miss: NodeId::new(0),
 			collect_body_before: None,
+			body_limit: 0,
 		};
 		assert_eq!(none.collect_body_before(), None);
 	}
@@ -322,6 +340,7 @@ mod tests {
 			next: NodeId::new(0),
 			on_error: None,
 			collect_body_before: Some(BodySide::Response),
+			body_limit: 0,
 		};
 		assert_eq!(some.collect_body_before(), Some(BodySide::Response));
 
@@ -330,6 +349,7 @@ mod tests {
 			next: NodeId::new(0),
 			on_error: None,
 			collect_body_before: None,
+			body_limit: 0,
 		};
 		assert_eq!(none.collect_body_before(), None);
 	}
@@ -341,6 +361,7 @@ mod tests {
 			next_response: None,
 			next_tunnel: None,
 			collect_body_before: Some(BodySide::Request),
+			body_limit: 0,
 		};
 		assert_eq!(some.collect_body_before(), Some(BodySide::Request));
 
@@ -349,6 +370,7 @@ mod tests {
 			next_response: None,
 			next_tunnel: None,
 			collect_body_before: None,
+			body_limit: 0,
 		};
 		assert_eq!(none.collect_body_before(), None);
 	}
@@ -455,9 +477,10 @@ mod tests {
 			on_match: NodeId::new(4),
 			on_miss: NodeId::new(5),
 			collect_body_before: Some(BodySide::Request),
+			body_limit: 0,
 		};
 		match node_round_trip(&with) {
-			Node::Check { predicate, on_match, on_miss, collect_body_before } => {
+			Node::Check { predicate, on_match, on_miss, collect_body_before, .. } => {
 				assert_eq!(predicate, PredicateId::new(3));
 				assert_eq!(on_match, NodeId::new(4));
 				assert_eq!(on_miss, NodeId::new(5));
@@ -471,6 +494,7 @@ mod tests {
 			on_match: NodeId::new(0),
 			on_miss: NodeId::new(0),
 			collect_body_before: None,
+			body_limit: 0,
 		};
 		match node_round_trip(&without) {
 			Node::Check { collect_body_before, .. } => assert_eq!(collect_body_before, None),
@@ -485,9 +509,10 @@ mod tests {
 			next: NodeId::new(2),
 			on_error: Some(NodeId::new(9)),
 			collect_body_before: Some(BodySide::Response),
+			body_limit: 0,
 		};
 		match node_round_trip(&with) {
-			Node::Middleware { id, next, on_error, collect_body_before } => {
+			Node::Middleware { id, next, on_error, collect_body_before, .. } => {
 				assert_eq!(id, MiddlewareId::new(1));
 				assert_eq!(next, NodeId::new(2));
 				assert_eq!(on_error, Some(NodeId::new(9)));
@@ -501,6 +526,7 @@ mod tests {
 			next: NodeId::new(0),
 			on_error: None,
 			collect_body_before: None,
+			body_limit: 0,
 		};
 		match node_round_trip(&without) {
 			Node::Middleware { on_error, collect_body_before, .. } => {
@@ -518,9 +544,10 @@ mod tests {
 			next_response: Some(NodeId::new(8)),
 			next_tunnel: Some(NodeId::new(9)),
 			collect_body_before: Some(BodySide::Request),
+			body_limit: 0,
 		};
 		match node_round_trip(&with) {
-			Node::Fetch { id, next_response, next_tunnel, collect_body_before } => {
+			Node::Fetch { id, next_response, next_tunnel, collect_body_before, .. } => {
 				assert_eq!(id, FetchId::new(7));
 				assert_eq!(next_response, Some(NodeId::new(8)));
 				assert_eq!(next_tunnel, Some(NodeId::new(9)));
@@ -534,6 +561,7 @@ mod tests {
 			next_response: None,
 			next_tunnel: None,
 			collect_body_before: None,
+			body_limit: 0,
 		};
 		match node_round_trip(&without) {
 			Node::Fetch { next_response, next_tunnel, collect_body_before, .. } => {

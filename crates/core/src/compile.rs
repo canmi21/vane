@@ -342,31 +342,70 @@ mod tests {
 		for (i, (a, b)) in graph.nodes.iter().zip(decoded.nodes.iter()).enumerate() {
 			match (a, b) {
 				(
-					Node::Check { predicate: pa, on_match: ma, on_miss: sa, collect_body_before: ca },
-					Node::Check { predicate: pb, on_match: mb, on_miss: sb, collect_body_before: cb },
+					Node::Check {
+						predicate: pa,
+						on_match: ma,
+						on_miss: sa,
+						collect_body_before: ca,
+						body_limit: la,
+					},
+					Node::Check {
+						predicate: pb,
+						on_match: mb,
+						on_miss: sb,
+						collect_body_before: cb,
+						body_limit: lb,
+					},
 				) => {
 					assert_eq!(pa, pb, "node[{i}] Check predicate");
 					assert_eq!(ma, mb, "node[{i}] Check on_match");
 					assert_eq!(sa, sb, "node[{i}] Check on_miss");
 					assert_eq!(ca, cb, "node[{i}] Check collect_body_before");
+					assert_eq!(la, lb, "node[{i}] Check body_limit");
 				}
 				(
-					Node::Middleware { id: ia, next: na, on_error: ea, collect_body_before: ca },
-					Node::Middleware { id: ib, next: nb, on_error: eb, collect_body_before: cb },
+					Node::Middleware {
+						id: ia,
+						next: na,
+						on_error: ea,
+						collect_body_before: ca,
+						body_limit: la,
+					},
+					Node::Middleware {
+						id: ib,
+						next: nb,
+						on_error: eb,
+						collect_body_before: cb,
+						body_limit: lb,
+					},
 				) => {
 					assert_eq!(ia, ib, "node[{i}] Middleware id");
 					assert_eq!(na, nb, "node[{i}] Middleware next");
 					assert_eq!(ea, eb, "node[{i}] Middleware on_error");
 					assert_eq!(ca, cb, "node[{i}] Middleware collect_body_before");
+					assert_eq!(la, lb, "node[{i}] Middleware body_limit");
 				}
 				(
-					Node::Fetch { id: ia, next_response: ra, next_tunnel: ta, collect_body_before: ca },
-					Node::Fetch { id: ib, next_response: rb, next_tunnel: tb, collect_body_before: cb },
+					Node::Fetch {
+						id: ia,
+						next_response: ra,
+						next_tunnel: ta,
+						collect_body_before: ca,
+						body_limit: la,
+					},
+					Node::Fetch {
+						id: ib,
+						next_response: rb,
+						next_tunnel: tb,
+						collect_body_before: cb,
+						body_limit: lb,
+					},
 				) => {
 					assert_eq!(ia, ib, "node[{i}] Fetch id");
 					assert_eq!(ra, rb, "node[{i}] Fetch next_response");
 					assert_eq!(ta, tb, "node[{i}] Fetch next_tunnel");
 					assert_eq!(ca, cb, "node[{i}] Fetch collect_body_before");
+					assert_eq!(la, lb, "node[{i}] Fetch body_limit");
 				}
 				(Node::Upgrade { next: a }, Node::Upgrade { next: b }) => {
 					assert_eq!(a, b, "node[{i}] Upgrade next");

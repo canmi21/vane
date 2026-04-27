@@ -291,7 +291,13 @@ impl Builder {
 		let _ = fetch_meta;
 		let fetch_node_idx = self.nodes.len();
 		let fetch_node_id = NodeId::new(u32::try_from(fetch_node_idx).expect("node id fits u32"));
-		self.nodes.push(Node::Fetch { id: fid, next_response, next_tunnel, collect_body_before: None });
+		self.nodes.push(Node::Fetch {
+			id: fid,
+			next_response,
+			next_tunnel,
+			collect_body_before: None,
+			body_limit: 0,
+		});
 
 		// Middleware chain, reverse-linked so each `next` points at the
 		// already-emitted successor.
@@ -312,7 +318,13 @@ impl Builder {
 				on_error: None,
 			};
 			let id = self.intern_middleware(sym);
-			let node = Node::Middleware { id, next: head, on_error: None, collect_body_before: None };
+			let node = Node::Middleware {
+				id,
+				next: head,
+				on_error: None,
+				collect_body_before: None,
+				body_limit: 0,
+			};
 			head = self.push_node(node);
 		}
 
@@ -322,13 +334,18 @@ impl Builder {
 		let chain_entry_before_upgrade = head;
 		let _ = (&mut req_first_reader_seen, &mut resp_first_reader_seen);
 		if rule.needs_request_body {
-			self.mark_request_reader(chain_entry_before_upgrade, mw_meta)?;
+			self.mark_request_reader(
+				chain_entry_before_upgrade,
+				mw_meta,
+				rule.raw.max_body_bytes_request,
+			)?;
 		}
 		if rule.needs_response_body {
-			// Response side: today the only response-readers are L7Response
-			// middleware past Fetch. No such middleware lands in this chunk;
-			// spec-correctly, leave the flag off until Fetch-adjacent code
-			// can set it post-Fetch in the response sub-chain (S2 scope).
+			self.mark_response_reader(
+				chain_entry_before_upgrade,
+				mw_meta,
+				rule.raw.max_body_bytes_response,
+			)?;
 		}
 
 		// Validate the predicate's leaves are uniform-level (cross-level
@@ -367,7 +384,8 @@ impl Builder {
 				let pid = self.intern_predicate(inst);
 				let collect_body_before =
 					if matches!(c.path, FieldPath::HttpBody) { Some(BodySide::Request) } else { None };
-				let node = Node::Check { predicate: pid, on_match, on_miss, collect_body_before };
+				let node =
+					Node::Check { predicate: pid, on_match, on_miss, collect_body_before, body_limit: 0 };
 				Ok(self.push_node(node))
 			}
 			Predicate::AnyOf(any_of) => {
@@ -411,6 +429,7 @@ impl Builder {
 		&mut self,
 		chain_head: NodeId,
 		_mw_meta: &dyn MiddlewareMetadataProvider,
+		body_limit: usize,
 	) -> Result<(), Error> {
 		// Walk from chain_head forward through Middleware / Fetch nodes and
 		// flag the first reader on the request side. A Check reading http.body
@@ -423,10 +442,44 @@ impl Builder {
 					let is_req_reader = sym.kind == MiddlewareKind::L7Request && sym.needs_body;
 					let next_id = *next;
 					if is_req_reader {
-						if let Node::Middleware { collect_body_before, .. } =
+						if let Node::Middleware { collect_body_before, body_limit: bl, .. } =
 							&mut self.nodes[cur.get() as usize]
 						{
 							*collect_body_before = Some(BodySide::Request);
+							*bl = body_limit;
+						}
+						return Ok(());
+					}
+					cur = next_id;
+				}
+				Node::Fetch { .. } | Node::Terminate(_) | Node::Upgrade { .. } | Node::Check { .. } => {
+					return Ok(());
+				}
+			}
+		}
+	}
+
+	fn mark_response_reader(
+		&mut self,
+		chain_head: NodeId,
+		_mw_meta: &dyn MiddlewareMetadataProvider,
+		body_limit: usize,
+	) -> Result<(), Error> {
+		// Walk from chain_head forward through Middleware nodes, find the first
+		// L7Response middleware that needs_body, and flag it.
+		let mut cur = chain_head;
+		loop {
+			match &self.nodes[cur.get() as usize] {
+				Node::Middleware { id, next, .. } => {
+					let sym = &self.middlewares[id.get() as usize];
+					let is_resp_reader = sym.kind == MiddlewareKind::L7Response && sym.needs_body;
+					let next_id = *next;
+					if is_resp_reader {
+						if let Node::Middleware { collect_body_before, body_limit: bl, .. } =
+							&mut self.nodes[cur.get() as usize]
+						{
+							*collect_body_before = Some(BodySide::Response);
+							*bl = body_limit;
 						}
 						return Ok(());
 					}

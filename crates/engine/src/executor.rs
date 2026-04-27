@@ -2,9 +2,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vane_core::{
-	CloseReason, ConnContext, Decision, Error, FlowCtx, FlowLogEvent, FlowLogKind, FlowLogVerbosity,
-	L4Conn, Node, NodeId, PredicateView, Request, Response, SerializedError, ShortCircuit,
-	TerminatorOutcomeKind, TrajectoryOutcome, TrajectoryStep, Tunnel,
+	Body, BodySide, CloseReason, ConnContext, Decision, Error, FlowCtx, FlowLogEvent, FlowLogKind,
+	FlowLogVerbosity, L4Conn, Node, NodeId, PredicateView, Request, Response, SerializedError,
+	ShortCircuit, TerminatorOutcomeKind, TrajectoryOutcome, TrajectoryStep, Tunnel, UpstreamReason,
 };
 
 use crate::flow_graph::{FetchInst, FlowGraph, MiddlewareInst};
@@ -105,13 +105,52 @@ pub async fn execute(
 	loop {
 		let node = &sym[cur];
 
-		// Body-collect trigger is a compile-time decision landed by lower's
-		// LazyBuffer pass. Real wiring lands at S1-21.
-		if node.collect_body_before().is_some() {
-			let e = Error::internal(
-				"collect_body_before not yet wired — lands with S1-21 middleware that needs body",
-			);
-			return finish_error(ctx, conn, &mut seq, cur, e);
+		if let Some(side) = node.collect_body_before() {
+			let limit = node.body_limit();
+			match side {
+				BodySide::Request => {
+					if let Some(r) = req.as_mut() {
+						match collect_body(r.body_mut(), limit).await {
+							Ok(()) => {}
+							Err(CollectError::TooLarge) => {
+								let over_limit_resp = http::Response::builder()
+									.status(413)
+									.header("connection", "close")
+									.body(Body::Empty)
+									.expect("static 413 response");
+								drop(req.take());
+								let target_opt =
+									graph.symbolic().meta.short_circuit_response_entry.get(&entry).copied();
+								let Some(target) = target_opt else {
+									let e = Error::internal("body limit exceeded: no synth target for 413 response");
+									return finish_error(ctx, conn, &mut seq, cur, e);
+								};
+								resp = Some(over_limit_resp);
+								cur = target;
+								continue;
+							}
+							Err(CollectError::Io(e)) => {
+								return finish_error(ctx, conn, &mut seq, cur, e);
+							}
+						}
+					}
+				}
+				BodySide::Response => {
+					if let Some(r) = resp.as_mut() {
+						match collect_body(r.body_mut(), limit).await {
+							Ok(()) => {}
+							Err(CollectError::TooLarge) => {
+								let e = Error::upstream(UpstreamReason::Malformed)
+									.with_ctx("response body exceeded max_body_bytes limit");
+								return finish_error(ctx, conn, &mut seq, cur, e);
+							}
+							Err(CollectError::Io(e)) => {
+								return finish_error(ctx, conn, &mut seq, cur, e);
+							}
+						}
+					}
+				}
+			}
 		}
 
 		match node {
@@ -548,4 +587,39 @@ fn now_ms() -> u64 {
 		.duration_since(UNIX_EPOCH)
 		.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 		.unwrap_or_default()
+}
+
+// --- Body collection for LazyBuffer middleware ----------------------------
+
+enum CollectError {
+	TooLarge,
+	Io(Error),
+}
+
+async fn collect_body(body: &mut Body, limit: usize) -> Result<(), CollectError> {
+	use http_body::Body as HttpBodyExt;
+	let Body::Stream(s) = body else {
+		return Ok(());
+	};
+	let mut collected = bytes::BytesMut::new();
+	loop {
+		// `s` is `Pin<Box<dyn HttpBody<...>>>`. Use `poll_fn` to drive the
+		// async poll interface without requiring extra dependencies.
+		use std::future::poll_fn;
+		let frame_result = poll_fn(|cx| HttpBodyExt::poll_frame(s.as_mut(), cx)).await;
+		match frame_result {
+			None => break,
+			Some(Err(e)) => return Err(CollectError::Io(e)),
+			Some(Ok(frame)) => {
+				if let Ok(data) = frame.into_data() {
+					if collected.len() + data.len() > limit {
+						return Err(CollectError::TooLarge);
+					}
+					collected.extend_from_slice(&data);
+				}
+			}
+		}
+	}
+	*body = Body::Static(collected.freeze());
+	Ok(())
 }

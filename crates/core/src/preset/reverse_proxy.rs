@@ -201,6 +201,8 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		middleware_chain: chain,
 		terminate: TerminateSpec { kind: FetchKind::HttpProxy, args: Value::Object(http_proxy_args) },
 		tls: inv.tls,
+		max_body_bytes_request: 8 * 1024 * 1024,
+		max_body_bytes_response: 8 * 1024 * 1024,
 		source: inv.source,
 	});
 
@@ -229,6 +231,8 @@ fn ws_reject_rule(
 			args: serde_json::json!({ "status": 400 }),
 		},
 		tls,
+		max_body_bytes_request: 8 * 1024 * 1024,
+		max_body_bytes_response: 8 * 1024 * 1024,
 		source: source.clone(),
 	}
 }
@@ -271,6 +275,8 @@ fn ws_passthrough_rule(
 			args: serde_json::json!({ "upstream": upstream }),
 		},
 		tls,
+		max_body_bytes_request: 8 * 1024 * 1024,
+		max_body_bytes_response: 8 * 1024 * 1024,
 		source: source.clone(),
 	}
 }

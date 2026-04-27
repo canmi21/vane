@@ -29,8 +29,20 @@ pub struct RawRule {
 	/// upstream traffic).
 	#[serde(default)]
 	pub tls: Option<TlsConfig>,
+	/// Maximum bytes to buffer for request body `LazyBuffer` collection.
+	/// Default 8 MiB. Exceeding this produces 413 Payload Too Large.
+	#[serde(default = "default_max_body_bytes")]
+	pub max_body_bytes_request: usize,
+	/// Maximum bytes to buffer for response body `LazyBuffer` collection.
+	/// Default 8 MiB. Exceeding this produces 502 Bad Gateway.
+	#[serde(default = "default_max_body_bytes")]
+	pub max_body_bytes_response: usize,
 	#[serde(default)]
 	pub source: SourceInfo,
+}
+
+fn default_max_body_bytes() -> usize {
+	8 * 1024 * 1024
 }
 
 /// Listener-side TLS termination config — paths to the cert chain +
@@ -180,6 +192,8 @@ mod tests {
 		assert_eq!(rule.terminate.args, serde_json::json!({ "upstream": "127.0.0.1:8080" }));
 		assert_eq!(rule.source.file, PathBuf::new());
 		assert_eq!(rule.source.line, 0);
+		assert_eq!(rule.max_body_bytes_request, 8 * 1024 * 1024);
+		assert_eq!(rule.max_body_bytes_response, 8 * 1024 * 1024);
 	}
 
 	#[test]

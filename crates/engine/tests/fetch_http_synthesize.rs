@@ -97,6 +97,7 @@ fn synth_graph(listen: SocketAddr, args: serde_json::Value) -> Arc<FlowGraph> {
 				next_response: Some(NodeId::new(2)),
 				next_tunnel: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],

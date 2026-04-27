@@ -106,6 +106,7 @@ fn build_graph(listen: SocketAddr, captured: &Arc<Mutex<Vec<Captured>>>) -> Arc<
 				next: NodeId::new(1),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],

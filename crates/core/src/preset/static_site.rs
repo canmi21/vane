@@ -56,6 +56,8 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 			args: Value::Object(terminate_args),
 		},
 		tls: inv.tls,
+		max_body_bytes_request: 8 * 1024 * 1024,
+		max_body_bytes_response: 8 * 1024 * 1024,
 		source: inv.source,
 	}])
 }

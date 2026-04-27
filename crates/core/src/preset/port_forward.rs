@@ -45,6 +45,8 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		// Propagating the user's value here keeps the error message
 		// pointed at the rule rather than silently dropping it.
 		tls: inv.tls,
+		max_body_bytes_request: 8 * 1024 * 1024,
+		max_body_bytes_response: 8 * 1024 * 1024,
 		source: inv.source,
 	}])
 }

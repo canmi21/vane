@@ -33,10 +33,10 @@ use vane_core::{
 	AsyncReadWrite, Body, CloseReason, CompiledOperator, CompiledValue, ConnContext, ConnId,
 	Decision, Error, FetchId, FetchKind, FieldPath, FlowCtx, FlowGraphMeta, FlowLogEvent,
 	FlowLogKind, FlowLogSink, FlowLogVerbosity, FlowTrajectory, L4Conn, L4Fetch, L7Fetch,
-	L7FetchOutput, L7RequestMiddleware, MiddlewareId, MiddlewareKind, Node, NodeId, PredicateId,
-	PredicateInst, Request, Response, ShortCircuit, SymbolicFetchRef, SymbolicFlowGraph,
-	SymbolicMiddlewareRef, Terminator, TerminatorId, TerminatorOutcomeKind, TrajectoryOutcome,
-	Transport, Tunnel,
+	L7FetchOutput, L7RequestMiddleware, L7ResponseMiddleware, MiddlewareId, MiddlewareKind, Node,
+	NodeId, PredicateId, PredicateInst, Request, Response, ShortCircuit, SymbolicFetchRef,
+	SymbolicFlowGraph, SymbolicMiddlewareRef, Terminator, TerminatorId, TerminatorOutcomeKind,
+	TrajectoryOutcome, Transport, Tunnel,
 };
 use vane_engine::executor::{ExecutorInput, ExecutorOutput, execute};
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
@@ -58,6 +58,7 @@ impl NullSink {
 		Self { events: Mutex::new(Vec::new()) }
 	}
 
+	#[allow(dead_code)]
 	fn count(&self) -> usize {
 		self.events.lock().len()
 	}
@@ -256,6 +257,7 @@ async fn execute_middleware_continue_advances_cursor() {
 				next: NodeId::new(1),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -309,6 +311,7 @@ async fn execute_middleware_short_close_policy_denied_returns_closed() {
 				next: NodeId::new(1),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			// `next` is structurally valid but unreachable: the Short(Close)
 			// path returns before advancing.
@@ -366,6 +369,7 @@ async fn execute_middleware_short_close_protocol_error_returns_err() {
 				next: NodeId::new(1),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -420,6 +424,7 @@ async fn execute_middleware_err_routes_via_on_error() {
 				// on_error points at the terminator at NodeId(1).
 				on_error: Some(NodeId::new(1)),
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -469,6 +474,7 @@ async fn execute_middleware_err_without_on_error_propagates() {
 				next: NodeId::new(1),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -531,12 +537,14 @@ async fn execute_check_routes_by_predicate_remote_ip_equals() {
 				on_match: NodeId::new(1),
 				on_miss: NodeId::new(3),
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Middleware {
 				id: MiddlewareId::new(0),
 				next: NodeId::new(2),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 			Node::Middleware {
@@ -544,6 +552,7 @@ async fn execute_check_routes_by_predicate_remote_ip_equals() {
 				next: NodeId::new(4),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -621,12 +630,14 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 				on_match: NodeId::new(1),
 				on_miss: NodeId::new(3),
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Middleware {
 				id: MiddlewareId::new(0),
 				next: NodeId::new(2),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 			Node::Middleware {
@@ -634,6 +645,7 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 				next: NodeId::new(4),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -705,6 +717,7 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 				next_response: Some(NodeId::new(1)),
 				next_tunnel: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -745,15 +758,14 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// 10. execute_collect_body_before_errors_as_unsupported
+// 10. execute_collect_body_static_is_noop
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn execute_collect_body_before_errors_as_unsupported() {
-	// S1-15 stub: `collect_body_before: Some(_)` returns Error::internal
-	// with a "collect_body_before" marker. The surrounding node can be
-	// any variant; we use a Middleware node (which need not be registered
-	// because the stub fires before dispatch).
+async fn execute_collect_body_static_is_noop() {
+	// collect_body_before: Some(Request) on a Body::Static should be a no-op —
+	// the body is already collected, the middleware runs normally.
+	let counter = Arc::new(AtomicUsize::new(0));
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
@@ -761,21 +773,19 @@ async fn execute_collect_body_before_errors_as_unsupported() {
 				next: NodeId::new(1),
 				on_error: None,
 				collect_body_before: Some(vane_core::BodySide::Request),
+				body_limit: 8 * 1024 * 1024,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
 		vec![],
-		// The middleware slab must still parse through link; use a noop that
-		// is never driven (the collect_body_before stub fires first).
-		vec![l7_req_ref("noop_never_run")],
+		vec![l7_req_ref("count_and_continue")],
 		vec![],
 		vec![Terminator::Close],
 	);
-	let counter = Arc::new(AtomicUsize::new(0));
 	let mut mw = MiddlewareFactories::new();
 	{
 		let counter = Arc::clone(&counter);
-		mw.register("noop_never_run", MiddlewareKind::L7Request, move |_args| {
+		mw.register("count_and_continue", MiddlewareKind::L7Request, move |_args| {
 			Ok(MiddlewareInst::L7Request(Arc::new(CountAndContinue(Arc::clone(&counter)))))
 		});
 	}
@@ -784,29 +794,16 @@ async fn execute_collect_body_before_errors_as_unsupported() {
 	let conn = make_conn("127.0.0.1:0");
 	let sink = Arc::new(NullSink::new());
 
-	let result = run_execute(
-		&graph,
-		NodeId::new(0),
-		ExecutorInput::L7(Box::new(empty_l7_request())),
-		&conn,
-		&sink,
-	)
-	.await;
+	let req: Request = http::Request::builder()
+		.method("GET")
+		.uri("/")
+		.body(Body::Static(Bytes::from_static(b"hello")))
+		.expect("build req");
+	let result =
+		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
 
-	let err = result.expect_err("collect_body_before stub must return Err");
-	let rendered = err.to_string();
-	assert!(
-		rendered.contains("collect_body_before"),
-		"error must mention collect_body_before; got {rendered:?}",
-	);
-	// The middleware must never run — the collect stub fires before dispatch.
-	assert_eq!(
-		counter.load(Ordering::SeqCst),
-		0,
-		"middleware must not run when collect_body_before errors first",
-	);
-	// Silence the otherwise-unused sink handle; assertion is on the error.
-	let _ = sink.count();
+	assert!(result.is_ok(), "Static body collect must be a no-op, middleware proceeds: {result:?}");
+	assert_eq!(counter.load(Ordering::SeqCst), 1, "middleware must run once");
 }
 
 // ---------------------------------------------------------------------------
@@ -860,12 +857,14 @@ fn two_middleware_close_graph(
 				next: NodeId::new(1),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Middleware {
 				id: MiddlewareId::new(1),
 				next: NodeId::new(2),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -1038,6 +1037,7 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 				next: NodeId::new(1),
 				on_error: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -1141,6 +1141,7 @@ fn byte_tunnel_graph(tunnel: Tunnel) -> Arc<FlowGraph> {
 				next_response: None,
 				next_tunnel: Some(NodeId::new(1)),
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -1194,6 +1195,7 @@ async fn execute_write_http_response_returns_response_output() {
 				next_response: Some(NodeId::new(1)),
 				next_tunnel: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -1252,6 +1254,7 @@ async fn execute_write_http_response_preserves_body_payload() {
 				next_response: Some(NodeId::new(1)),
 				next_tunnel: None,
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -1574,6 +1577,7 @@ fn byte_tunnel_graph_with_notify(
 				next_response: None,
 				next_tunnel: Some(NodeId::new(1)),
 				collect_body_before: None,
+				body_limit: 0,
 			},
 			Node::Terminate(TerminatorId::new(0)),
 		],
@@ -1711,6 +1715,7 @@ async fn execute_middleware_short_response_routes_through_synth_target() {
 			next: NodeId::new(1),
 			on_error: None,
 			collect_body_before: None,
+			body_limit: 0,
 		},
 		// Unreachable on the Short(Response) path; included to keep the
 		// chain shape that a real `lower_rule` produces.
@@ -1764,6 +1769,7 @@ async fn execute_short_circuit_response_with_no_synth_target_errors() {
 			next: NodeId::new(1),
 			on_error: None,
 			collect_body_before: None,
+			body_limit: 0,
 		},
 		Node::Terminate(TerminatorId::new(0)),
 	];
@@ -1793,4 +1799,331 @@ async fn execute_short_circuit_response_with_no_synth_target_errors() {
 		err.to_string().contains("lower invariant violated"),
 		"error names the lower invariant: {err}",
 	);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for LazyBuffer / body-collect tests
+// ---------------------------------------------------------------------------
+
+/// Single-frame `HttpBody` that yields one data frame then EOF.
+/// Used to build `Body::Stream` without any external stream crate.
+struct OnceBody {
+	data: Option<Bytes>,
+}
+
+impl http_body::Body for OnceBody {
+	type Data = Bytes;
+	type Error = Error;
+
+	fn poll_frame(
+		self: Pin<&mut Self>,
+		_cx: &mut Context<'_>,
+	) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+		let this = self.get_mut();
+		match this.data.take() {
+			Some(b) => Poll::Ready(Some(Ok(http_body::Frame::data(b)))),
+			None => Poll::Ready(None),
+		}
+	}
+}
+
+/// Build a `Body::Stream` from a static byte slice. Used to test that
+/// `collect_body_before` drains the stream into `Body::Static`.
+fn stream_body(data: &'static [u8]) -> Body {
+	Body::from_producer(OnceBody { data: Some(Bytes::from_static(data)) })
+}
+
+/// Middleware that captures whether the body it received was buffered.
+/// `true` = `Body::Static` or `Body::Empty`, `false` = `Body::Stream`.
+struct BodyCapture(Arc<Mutex<Option<bool>>>);
+
+#[async_trait]
+impl L7RequestMiddleware for BodyCapture {
+	async fn run(
+		&self,
+		req: &mut Request,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx,
+	) -> Result<Decision, Error> {
+		let is_buffered = !matches!(req.body(), Body::Stream(_));
+		*self.0.lock() = Some(is_buffered);
+		Ok(Decision::Continue)
+	}
+}
+
+struct ResponseBodyCapture(Arc<Mutex<Option<bool>>>);
+
+#[async_trait]
+impl L7ResponseMiddleware for ResponseBodyCapture {
+	async fn run(
+		&self,
+		resp: &mut Response,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx,
+	) -> Result<Decision, Error> {
+		let is_buffered = !matches!(resp.body(), Body::Stream(_));
+		*self.0.lock() = Some(is_buffered);
+		Ok(Decision::Continue)
+	}
+}
+
+fn l7_resp_ref(name: &str) -> SymbolicMiddlewareRef {
+	SymbolicMiddlewareRef {
+		name: Arc::from(name),
+		args: Value::Null,
+		kind: MiddlewareKind::L7Response,
+		stateless: true,
+		needs_body: false,
+		on_error: None,
+	}
+}
+
+/// `L7Fetch` fixture that returns a stream-body response.
+struct StreamResponseFetch;
+
+#[async_trait]
+impl L7Fetch for StreamResponseFetch {
+	async fn fetch(
+		&self,
+		_req: Request,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx,
+	) -> Result<L7FetchOutput, Error> {
+		let resp: Response = http::Response::builder()
+			.status(200)
+			.body(stream_body(b"response-data"))
+			.expect("build resp");
+		Ok(L7FetchOutput::Response(resp))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LazyBuffer collect tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_collect_request_stream_body_becomes_static() {
+	// collect_body_before = Some(Request) on a Body::Stream must drain the
+	// stream into Body::Static before the middleware runs.
+	let captured = Arc::new(Mutex::new(None::<bool>));
+	let sym = build_graph(
+		vec![
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(1),
+				on_error: None,
+				collect_body_before: Some(vane_core::BodySide::Request),
+				body_limit: 8 * 1024 * 1024,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![SymbolicMiddlewareRef {
+			name: Arc::from("body_capture"),
+			args: Value::Null,
+			kind: MiddlewareKind::L7Request,
+			stateless: true,
+			needs_body: true,
+			on_error: None,
+		}],
+		vec![],
+		vec![Terminator::Close],
+	);
+	let mut mw = MiddlewareFactories::new();
+	{
+		let cap = Arc::clone(&captured);
+		mw.register("body_capture", MiddlewareKind::L7Request, move |_args| {
+			Ok(MiddlewareInst::L7Request(Arc::new(BodyCapture(Arc::clone(&cap)))))
+		});
+	}
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let req: Request = http::Request::builder()
+		.method("POST")
+		.uri("/")
+		.body(stream_body(b"streamed-data"))
+		.expect("build req");
+	let result =
+		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+	assert!(result.is_ok(), "stream collection must succeed: {result:?}");
+	assert_eq!(*captured.lock(), Some(true), "middleware must receive Body::Static after collection");
+}
+
+#[tokio::test]
+async fn execute_collect_request_body_over_limit_returns_413() {
+	// When the request body exceeds body_limit, the executor short-circuits
+	// to the synth WriteHttpResponse terminator with a 413 response.
+	let entry = NodeId::new(0);
+	let synth = NodeId::new(2);
+	let nodes = vec![
+		Node::Middleware {
+			id: MiddlewareId::new(0),
+			next: NodeId::new(1),
+			on_error: None,
+			collect_body_before: Some(vane_core::BodySide::Request),
+			body_limit: 4, // tiny limit — "streamed-data" is 13 bytes
+		},
+		Node::Terminate(TerminatorId::new(0)),
+		Node::Terminate(TerminatorId::new(1)),
+	];
+	let mut sym = build_graph(
+		nodes,
+		vec![],
+		vec![l7_req_ref("never_runs")],
+		vec![],
+		vec![Terminator::Close, Terminator::WriteHttpResponse],
+	);
+	let mut sym_mut = (*sym).clone();
+	sym_mut.meta.short_circuit_response_entry.insert(entry, synth);
+	sym = Arc::new(sym_mut);
+
+	let counter = Arc::new(AtomicUsize::new(0));
+	let mut mw = MiddlewareFactories::new();
+	{
+		let counter = Arc::clone(&counter);
+		mw.register("never_runs", MiddlewareKind::L7Request, move |_args| {
+			Ok(MiddlewareInst::L7Request(Arc::new(CountAndContinue(Arc::clone(&counter)))))
+		});
+	}
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let req: Request = http::Request::builder()
+		.method("POST")
+		.uri("/")
+		.body(stream_body(b"streamed-data"))
+		.expect("build req");
+	let result = run_execute(&graph, entry, ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+
+	match result {
+		Ok(ExecutorOutput::HttpResponse(r)) => {
+			assert_eq!(r.status().as_u16(), 413, "over-limit request body must yield 413");
+		}
+		other => panic!("expected 413 HttpResponse, got {other:?}"),
+	}
+	assert_eq!(counter.load(Ordering::SeqCst), 0, "middleware must not run when body limit exceeded");
+}
+
+#[tokio::test]
+async fn execute_collect_response_stream_body_becomes_static() {
+	// collect_body_before = Some(Response) on a Body::Stream must drain the
+	// stream into Body::Static before the L7Response middleware runs.
+	//
+	// Graph: Fetch(0) -> Middleware(L7Response, collect_body=Response)(1) -> Terminate(2)
+	let captured = Arc::new(Mutex::new(None::<bool>));
+	let sym = build_graph(
+		vec![
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: Some(NodeId::new(1)),
+				next_tunnel: None,
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(2),
+				on_error: None,
+				collect_body_before: Some(vane_core::BodySide::Response),
+				body_limit: 8 * 1024 * 1024,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![SymbolicMiddlewareRef {
+			name: Arc::from("resp_body_capture"),
+			args: Value::Null,
+			kind: MiddlewareKind::L7Response,
+			stateless: true,
+			needs_body: true,
+			on_error: None,
+		}],
+		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![Terminator::WriteHttpResponse],
+	);
+
+	let mut mw = MiddlewareFactories::new();
+	{
+		let cap = Arc::clone(&captured);
+		mw.register("resp_body_capture", MiddlewareKind::L7Response, move |_args| {
+			Ok(MiddlewareInst::L7Response(Arc::new(ResponseBodyCapture(Arc::clone(&cap)))))
+		});
+	}
+	let mut fetch = FetchFactories::new();
+	fetch
+		.register(FetchKind::HttpSynthesize, |_args| Ok(FetchInst::L7(Arc::new(StreamResponseFetch))));
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let result = run_execute(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&sink,
+	)
+	.await;
+	assert!(result.is_ok(), "response stream collection must succeed: {result:?}");
+	assert_eq!(
+		*captured.lock(),
+		Some(true),
+		"L7Response middleware must receive Body::Static after collection",
+	);
+}
+
+#[tokio::test]
+async fn execute_collect_response_body_over_limit_returns_err() {
+	// When the response body exceeds body_limit, the executor returns Err
+	// (upstream protocol violation — 502 semantics via Error::upstream(Malformed)).
+	let sym = build_graph(
+		vec![
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: Some(NodeId::new(1)),
+				next_tunnel: None,
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(2),
+				on_error: None,
+				collect_body_before: Some(vane_core::BodySide::Response),
+				body_limit: 4, // tiny limit
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![l7_resp_ref("never_runs_resp")],
+		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![Terminator::WriteHttpResponse],
+	);
+
+	let mut mw = MiddlewareFactories::new();
+	mw.register("never_runs_resp", MiddlewareKind::L7Response, |_args| {
+		Ok(MiddlewareInst::L7Response(Arc::new(ResponseBodyCapture(Arc::new(Mutex::new(None))))))
+	});
+	let mut fetch = FetchFactories::new();
+	fetch
+		.register(FetchKind::HttpSynthesize, |_args| Ok(FetchInst::L7(Arc::new(StreamResponseFetch))));
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let result = run_execute(
+		&graph,
+		NodeId::new(0),
+		ExecutorInput::L7(Box::new(empty_l7_request())),
+		&conn,
+		&sink,
+	)
+	.await;
+
+	assert!(result.is_err(), "over-limit response body must return Err: {result:?}");
 }
