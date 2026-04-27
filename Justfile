@@ -11,8 +11,12 @@ c:
 b:
 	cargo build --all-targets --workspace
 
-# cargo test across workspace
+# nextest across workspace (default test runner)
 t:
+	cargo nextest run --workspace
+
+# cargo test bypass (doctests, runner-suspect debugging)
+t-cargo:
 	cargo test --workspace
 
 # Format: rustfmt for .rs, dprint for md/json/toml/yaml

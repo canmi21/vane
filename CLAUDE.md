@@ -14,6 +14,8 @@ Gates run on commit via lefthook:
 - `cargo clippy --workspace --all-targets -- -D warnings` — lint
 - `commitlint` — conventional commit format, 72-char header, lower-case subject
 
+Test baseline is `cargo nextest run --workspace` (or `just t`); `cargo test --workspace` (or `just t-cargo`) is the bypass for doctests and runner-suspect debugging. Tests are not gated on commit.
+
 ## Conventions
 
 - **Chat:** Simplified Chinese. **Code / commits / docs-in-repo:** English.

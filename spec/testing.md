@@ -2,11 +2,11 @@
 
 ## Local dev environment
 
-Local development happens on **`aarch64-apple-darwin`** (macOS arm64) exclusively. Every developer — human or LLM — runs `cargo test` against this single platform. Cross-target behaviour is exercised in CI per the Target tier matrix in `spec/architecture/16-crate-layout.md`.
+Local development happens on **`aarch64-apple-darwin`** (macOS arm64) exclusively. Every developer — human or LLM — runs the workspace tests against this single platform. Cross-target behaviour is exercised in CI per the Target tier matrix in `spec/architecture/16-crate-layout.md`.
 
 Code that branches on target at runtime must have a macOS arm64 happy path. Target-gated code (`#[cfg(target_os = "linux")]`, `#[cfg(target_family = "unix")]`, etc.) is acceptable, but the crate must still compile on macOS arm64 — use `compile_error!` in a `#[cfg]` branch only if the target is truly unsupported (e.g., Windows).
 
-`cargo test` is the canonical runner. Unit tests live beside their code in `#[cfg(test)] mod tests` blocks; integration tests live in the workspace-level `tests/` crate. End-to-end daemon tests spawn `vaned` as a subprocess via the `vane-testutil::VanedFixture` harness.
+`cargo nextest run --workspace` (or `just t`) is the canonical runner; its process-per-test scheduling exposes signal-handling and port-collision races that `cargo test`'s shared-binary model masks. `cargo test --workspace` (or `just t-cargo`) remains the bypass for doctests (currently zero in this repo) and for ruling out runner behaviour when a nextest result looks suspect. Unit tests live beside their code in `#[cfg(test)] mod tests` blocks; integration tests live in the workspace-level `tests/` crate. End-to-end daemon tests spawn `vaned` as a subprocess via the `vane-testutil::VanedFixture` harness.
 
 See [`spec/architecture/16-crate-layout.md`](architecture/16-crate-layout.md) § _Tests_ for the test-file layout and the [Fixture management](#fixture-management) section below for helper location.
 
@@ -58,7 +58,7 @@ These are concrete patterns to avoid in this project:
    - The public type signatures of F's implementation — **not** the function bodies.
    - The feature's ID and test-matrix row from `spec/roadmap.md`.
 3. **Sub-agent writes tests from the spec**, not from the implementation. It lands them in the correct location per the test-location rules in this file. The sub-agent **does not run** the tests. It commits the failing tests on a sub-branch.
-4. **Main LLM runs `cargo test`** against its implementation + the sub-agent's tests.
+4. **Main LLM runs `cargo nextest run`** against its implementation + the sub-agent's tests.
 5. **On failure:**
    1. **Do not edit the test first.** A failing test is a signal the implementation is wrong OR the spec is ambiguous.
    2. **Classify the failure**:
