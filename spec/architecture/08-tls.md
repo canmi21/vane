@@ -201,19 +201,15 @@ The populator is responsible for keeping OCSP fresh. OCSP responses typically va
 
 Session tickets let clients resume TLS sessions without a full handshake. The server encrypts session state with a key that must rotate periodically — a leaked key compromises all sessions encrypted with it.
 
-Daemon-level manager:
+`vane` uses [`rustls::TicketRotator`](https://docs.rs/rustls/latest/rustls/struct.TicketRotator.html) via the crypto backend's `Ticketer::new()` constructor (`rustls::crypto::aws_lc_rs::Ticketer::new()` or `rustls::crypto::ring::Ticketer::new()` per the active feature). The constructor returns an `Arc<dyn ProducesTickets>` whose internal `RwLock<{ current, previous, next_switch_time }>` provides the same current/previous semantics as the `TicketKeyManager` shape originally drafted here:
 
-```rust
-pub struct TicketKeyManager {
-    current:         ArcSwap<TicketKey>,
-    previous:        ArcSwap<Option<TicketKey>>,   // accept tickets from previous key during transition
-    rotation_period: Duration,                      // default 24h, configurable
-}
+- new tickets are encrypted with `current`;
+- `current` and `previous` both decrypt incoming tickets;
+- once `next_switch_time` is reached, the next `encrypt` / `decrypt` call lazily demotes `current → previous` and generates a fresh `current` — no background task, no cancellation handling, no `ArcSwap` plumbing.
 
-impl rustls::server::ProducesTickets for TicketKeyManager { /* ... */ }
-```
+The crypto-backend constructors use the RFC 5077 "Recommended Ticket Construction" (AES-256-CBC + HMAC-SHA256, randomly generated keys per rotation), with a 6-hour rotation period and a 12-hour ticket lifetime (a ticket may be accepted up to twice the rotation period).
 
-Background task rotates keys: generate new current, current → previous, drop old previous. All `ServerConfig`s share a single `Arc<TicketKeyManager>` — daemon-wide consistency.
+A daemon-wide `Arc<dyn ProducesTickets>` is installed at boot and shared by every listener's `ServerConfig.ticketer`. Configurable lifetime is post-MVP.
 
 ### TLS 1.3 0-RTT (early data)
 
@@ -361,7 +357,7 @@ These features have architectural positions defined above; MVP implementation or
 
 - **OCSP stapling** — populator framework exists; `ManagedCertPopulator` fetches OCSP on cert issuance in its first release. `StaticCertPopulator` gains optional OCSP fetch later.
 - **CRL checking** — `UpstreamTls.crls` defined; `WebPkiCrlProvider` integration and URL fetcher post-MVP.
-- **Session ticket rotation** — `TicketKeyManager` designed; rotation task post-MVP. MVP uses rustls's default static ticket key per daemon.
+- **Configurable session-ticket lifetime** — MVP uses the crypto-backend `Ticketer::new()` default (12-hour ticket lifetime, 6-hour rotation period). A configurable lifetime knob is post-MVP.
 - **TLS 1.3 0-RTT** — config flags and runtime check designed; rustls early-data wiring post-MVP. MVP ships with `enable_0rtt: false` hardcoded.
 - **mTLS on listener** — `ClientAuth` enum and `ClientTrustStore` defined; MVP ships `ClientAuth::None` only; `Request` / `Require` post-MVP.
 - **`ManagedCertPopulator` (integrated LazyCert)** — trait defined; MVP ships only `StaticCertPopulator`. ACME integration post-MVP (Stage 3) via `instant-acme`.
