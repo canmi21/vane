@@ -671,13 +671,41 @@ async fn handle_connection(
 		return;
 	};
 
-	// TLS path: server-side handshake, populate `ConnContext.tls` from the
-	// negotiated session, then dispatch as `L4Conn::Tls(Box<dyn ...>)`.
-	let acceptor = tokio_rustls::TlsAcceptor::from(tls_cfg);
-	let tls_stream = match acceptor.accept(stream).await {
+	// TLS path: parse the ClientHello via `rustls::server::Acceptor` so
+	// we can populate `ConnContext.tls.sni` *before* the handshake
+	// completes (08-tls.md § _SNI peek (L4)_ — same Acceptor serves the
+	// peek-only and full-termination roles), then drive the handshake
+	// with the matching listener config and dispatch as
+	// `L4Conn::Tls(Box<dyn ...>)`.
+	let lazy = tokio_rustls::LazyConfigAcceptor::new(rustls::server::Acceptor::default(), stream);
+	let start = match lazy.await {
 		Ok(s) => s,
 		Err(e) => {
-			// Bad ClientHello, certificate mismatch, ALPN miss, etc. — log
+			tracing::debug!(
+				error = %e,
+				conn_id = %conn.id,
+				?remote,
+				"tls clientHello read failed; dropping connection",
+			);
+			return;
+		}
+	};
+
+	// Pre-handshake fill: SNI is recoverable without decrypting. Read-
+	// modify-write so a future peek-prelude that already populated
+	// `tls.alpn` (offer side) does not get clobbered.
+	{
+		let hello = start.client_hello();
+		let sni = hello.server_name().map(str::to_ascii_lowercase);
+		let mut guard = conn.tls.lock();
+		let info = guard.get_or_insert_with(TlsInfo::default);
+		info.sni = sni;
+	}
+
+	let tls_stream = match start.into_stream(tls_cfg).await {
+		Ok(s) => s,
+		Err(e) => {
+			// Cert mismatch, ALPN miss, signature failure, etc. — log
 			// and drop. The client sees the TCP connection closed mid-
 			// handshake; nothing reaches the L4 / L7 graph.
 			tracing::debug!(
@@ -690,6 +718,8 @@ async fn handle_connection(
 		}
 	};
 
+	// Post-handshake fill: ALPN (negotiated), version. Read-modify-
+	// write to preserve the pre-handshake SNI written above.
 	{
 		let (_io, server_conn) = tls_stream.get_ref();
 		let alpn = server_conn.alpn_protocol().map(<[u8]>::to_vec);
@@ -707,20 +737,16 @@ async fn handle_connection(
 			}
 			_ => {}
 		}
-		let info = TlsInfo {
-			sni: server_conn.server_name().map(str::to_owned),
-			alpn,
-			version: server_conn.protocol_version().and_then(|v| match v {
-				rustls::ProtocolVersion::TLSv1_2 => Some(TlsVersion::Tls12),
-				rustls::ProtocolVersion::TLSv1_3 => Some(TlsVersion::Tls13),
-				_ => None,
-			}),
-			// No mTLS this round — `with_no_client_auth()` means
-			// peer_cert is always `None` (08-tls.md § _Client cert
-			// verification_).
-			peer_cert: None,
-		};
-		*conn.tls.lock() = Some(info);
+		let mut guard = conn.tls.lock();
+		let info = guard.get_or_insert_with(TlsInfo::default);
+		info.alpn = alpn;
+		info.version = server_conn.protocol_version().and_then(|v| match v {
+			rustls::ProtocolVersion::TLSv1_2 => Some(TlsVersion::Tls12),
+			rustls::ProtocolVersion::TLSv1_3 => Some(TlsVersion::Tls13),
+			_ => None,
+		});
+		// No mTLS this round — `with_no_client_auth()` means peer_cert
+		// stays `None` (08-tls.md § _Client cert verification_).
 	}
 
 	let result = execute(

@@ -34,7 +34,7 @@ pub enum TlsVersion {
 	Tls13,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TlsInfo {
 	pub sni: Option<String>,
 	pub alpn: Option<Vec<u8>>,
