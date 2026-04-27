@@ -44,6 +44,33 @@ These are concrete patterns to avoid in this project:
 - **Re-testing hash-consing in `test()` calls.** Hash-cons tests belong to `lower` unit tests; executor tests should not assert "the result is cached" — hash-consing is a memory property, not a call-count one.
 - **Re-testing `async_trait` macro expansion** or **`fancy_regex` internals** — rely on the upstream crates' own test suites.
 
+## Timing and readiness
+
+A `tokio::time::sleep(N)` used as a happens-before barrier between an async producer and consumer is flake fuel — `N` rarely covers the worst case under workspace-wide parallel load. Gate on observable state. The race shape determines the idiom:
+
+- **Push channel** (`tokio::sync::broadcast`, `mpsc` without replay) — consumer subscribes asynchronously; producer emits exactly once. A trigger fired before the subscriber lands hits an empty channel and the event is gone. **Loop the trigger** on a short cadence inside the deadline; once the subscriber registers, the next trigger is captured. The contract under test is liveness, not event accounting.
+- **Pull channel** (mgmt verb, registry read, file probe) — producer performs an async state transition; observation is idempotent. **Loop the observation** until it returns the target state. The producer fires once — only the observation needs the retry budget.
+- **Negative-space assertion** ("the system did _not_ do X within `N`") — nothing to poll _for_. Use a generous window and inside it keep checking the positive invariant ("v1 still serves") so a regression panics at first divergence rather than at deadline.
+
+Short sleeps **inside** a polling loop (the 50ms cadence below) are fine — they are a backoff, not a barrier.
+
+Trigger-loop idiom — `Option<Instant>` avoids `clippy::unchecked_time_subtraction` and fires on the first iteration:
+
+```rust
+let deadline = Instant::now() + Duration::from_secs(5);
+let mut last_trigger: Option<Instant> = None;
+while Instant::now() < deadline {
+    if last_trigger.is_none_or(|t| t.elapsed() >= Duration::from_millis(200)) {
+        fire_trigger();
+        last_trigger = Some(Instant::now());
+    }
+    if observed() { break; }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+}
+```
+
+Subprocess readiness has its own pitfall — see § _Test surface by binary kind_ on never parsing stderr.
+
 ## Sub-agent testing protocol
 
 **Rule:** the LLM that writes code for feature F does not write tests for feature F. Tests are written by a sub-agent whose only inputs are `spec/` and the public type signatures of the code under test.
