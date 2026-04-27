@@ -10,6 +10,12 @@ pub struct QuicAssocId(pub u64);
 
 pub enum L4Conn {
 	Tcp(TcpStream),
+	/// Cleartext stream that the listener-side peek prelude has already
+	/// drained part of, with those bytes rewound into the read side via
+	/// `PeekedStream`. Type-erased so `vane-core` doesn't need to know
+	/// the concrete adapter; downstream consumers see the connection
+	/// from byte zero.
+	Peeked(Box<dyn AsyncReadWrite + Send>),
 	/// TLS-terminated stream after a server-side handshake completed.
 	/// The trait object erases the concrete `tokio_rustls::TlsStream`
 	/// type so that `vane-core` doesn't need to depend on rustls

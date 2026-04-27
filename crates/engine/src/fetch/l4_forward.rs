@@ -40,8 +40,19 @@ impl L4Fetch for L4ForwardFetch {
 		_conn: &Arc<ConnContext>,
 		_ctx: &mut FlowCtx,
 	) -> Result<Tunnel, Error> {
-		let client = match l4 {
-			L4Conn::Tcp(s) => s,
+		let client: Box<dyn AsyncReadWrite + Send> = match l4 {
+			L4Conn::Tcp(s) => {
+				// Disable Nagle on the client side. Failure is silent
+				// (some platforms / namespaces deny the syscall); it
+				// doesn't affect forwarding correctness.
+				let _ = s.set_nodelay(true);
+				Box::new(s)
+			}
+			// `Peeked` is a TCP stream that already had its prefix drained
+			// into a `PeekedStream` adapter. The listener calls
+			// `set_nodelay` on the underlying TcpStream before the peek
+			// phase runs, so we don't need to re-set it here.
+			L4Conn::Peeked(s) => s,
 			L4Conn::Tls(_) => {
 				// `lower_port` rejects L4 listeners that declare `tls`,
 				// so this arm only fires if a future change weakens that
@@ -62,16 +73,10 @@ impl L4Fetch for L4ForwardFetch {
 		let upstream = TcpStream::connect(&self.upstream)
 			.await
 			.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
-
-		// Disable Nagle on both sides — we're a transparent pipe and want
-		// latency over throughput. Same default as nginx / haproxy L4
-		// forward. Failure is silent (some platforms / namespaces deny
-		// the syscall); it doesn't affect forwarding correctness.
-		let _ = client.set_nodelay(true);
 		let _ = upstream.set_nodelay(true);
 
 		Ok(Tunnel {
-			client: Box::new(client) as Box<dyn AsyncReadWrite + Send>,
+			client,
 			upstream: Box::new(upstream) as Box<dyn AsyncReadWrite + Send>,
 			// L4 forward doesn't observe close reason; the executor's
 			// `Terminator::ByteTunnel` arm sees `None` and skips the

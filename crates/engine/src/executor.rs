@@ -287,7 +287,7 @@ pub async fn execute(
 				// trait-object IO type.
 				let stream: Box<dyn vane_core::AsyncReadWrite + Send + 'static> = match l4 {
 					L4Conn::Tcp(s) => Box::new(s),
-					L4Conn::Tls(s) => s,
+					L4Conn::Peeked(s) | L4Conn::Tls(s) => s,
 					L4Conn::Udp(_) => {
 						let e = Error::internal(
 							"UDP upgrade not supported in S1 — QUIC integration lands with H3 / S2",

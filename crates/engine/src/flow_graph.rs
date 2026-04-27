@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::net::SocketAddr;
 use std::ops::Index;
@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use vane_core::{
 	FetchId, FetchKind, FlowGraphMeta, L4BytesMiddleware, L4Fetch, L4PeekMiddleware, L7Fetch,
-	L7RequestMiddleware, L7ResponseMiddleware, MiddlewareId, MiddlewareKind, SymbolicFlowGraph,
+	L7RequestMiddleware, L7ResponseMiddleware, MiddlewareId, MiddlewareKind, Node, NodeId,
+	SymbolicFlowGraph,
 	rule::{ListenerTlsSpec, TlsConfig},
 };
 
@@ -71,6 +72,58 @@ impl FlowGraph {
 	#[must_use]
 	pub fn listener_tls(&self, addr: &SocketAddr) -> Option<&Arc<rustls::ServerConfig>> {
 		self.listener_tls.get(addr)
+	}
+
+	/// Reachability check: does any node walked from `entry` reference an
+	/// `L4Peek` middleware? The listener uses this at start-up to decide
+	/// whether to enable the peek prelude (the slow path that reads up
+	/// to 8 KiB into a buffer before dispatching). When the answer is
+	/// `false`, accept stays on the zero-copy fast path.
+	///
+	/// BFS with a `visited` set so future graph shapes that introduce
+	/// cycles (none today — `link` rejects them) cannot trip an infinite
+	/// loop here.
+	#[must_use]
+	pub fn needs_peek(&self, entry: NodeId) -> bool {
+		let sym = self.symbolic.as_ref();
+		let mut visited: HashSet<NodeId> = HashSet::new();
+		let mut queue: VecDeque<NodeId> = VecDeque::new();
+		queue.push_back(entry);
+		while let Some(node_id) = queue.pop_front() {
+			if !visited.insert(node_id) {
+				continue;
+			}
+			let Some(node) = sym.nodes.get(node_id.get() as usize) else {
+				continue;
+			};
+			match node {
+				Node::Check { on_match, on_miss, .. } => {
+					queue.push_back(*on_match);
+					queue.push_back(*on_miss);
+				}
+				Node::Middleware { id, next, on_error, .. } => {
+					let kind = sym.middlewares[id.get() as usize].kind;
+					if kind == MiddlewareKind::L4Peek {
+						return true;
+					}
+					queue.push_back(*next);
+					if let Some(e) = on_error {
+						queue.push_back(*e);
+					}
+				}
+				Node::Fetch { next_response, next_tunnel, .. } => {
+					if let Some(n) = next_response {
+						queue.push_back(*n);
+					}
+					if let Some(n) = next_tunnel {
+						queue.push_back(*n);
+					}
+				}
+				Node::Upgrade { next } => queue.push_back(*next),
+				Node::Terminate(_) => {}
+			}
+		}
+		false
 	}
 
 	/// Resolve every `SymbolicMiddlewareRef` / `SymbolicFetchRef` against
@@ -383,5 +436,156 @@ mod tests {
 			err.contains("contained no certificates") || err.contains("parse cert_file"),
 			"error explains the cert parse failure: {err}",
 		);
+	}
+
+	mod needs_peek_tests {
+		use std::time::SystemTime;
+
+		use serde_json::json;
+		use vane_core::{
+			PredicateId, PredicateInst, SymbolicMiddlewareRef, Terminator, TerminatorId,
+			predicate::{CompiledOperator, CompiledValue, FieldPath},
+		};
+
+		use super::*;
+
+		fn dummy_meta() -> FlowGraphMeta {
+			FlowGraphMeta {
+				version_hash: [0u8; 32],
+				compiled_at: SystemTime::UNIX_EPOCH,
+				source_files: Vec::new(),
+				feature_set: &[],
+				short_circuit_response_entry: BTreeMap::new(),
+				listener_tls: BTreeMap::new(),
+			}
+		}
+
+		fn mw_ref(name: &str, kind: MiddlewareKind) -> SymbolicMiddlewareRef {
+			SymbolicMiddlewareRef {
+				name: Arc::from(name),
+				args: json!({}),
+				kind,
+				stateless: true,
+				needs_body: false,
+				on_error: None,
+			}
+		}
+
+		/// Build a [`FlowGraph`] from a hand-rolled symbolic graph,
+		/// skipping the factory-driven `link` path. Tests for the
+		/// reachability walker only need accurate node and middleware
+		/// metadata; the actual `MiddlewareInst` / `FetchInst` slots stay
+		/// empty because `needs_peek` reads kinds from the symbolic refs.
+		fn flow_from_with(
+			nodes: Vec<Node>,
+			middlewares: Vec<SymbolicMiddlewareRef>,
+			predicates: Vec<PredicateInst>,
+		) -> FlowGraph {
+			let sym = SymbolicFlowGraph {
+				nodes,
+				predicates,
+				middlewares,
+				fetches: Vec::new(),
+				terminators: vec![Terminator::Close],
+				entries: HashMap::new(),
+				meta: dummy_meta(),
+			};
+			FlowGraph {
+				symbolic: Arc::new(sym),
+				middlewares: Vec::new(),
+				fetches: Vec::new(),
+				meta: dummy_meta(),
+				listener_tls: BTreeMap::new(),
+			}
+		}
+
+		fn flow_from(nodes: Vec<Node>, middlewares: Vec<SymbolicMiddlewareRef>) -> FlowGraph {
+			flow_from_with(nodes, middlewares, Vec::new())
+		}
+
+		#[test]
+		fn needs_peek_false_when_entry_runs_through_upgrade_to_terminator() {
+			// entry → Upgrade → Terminate. No L4Peek anywhere.
+			let nodes =
+				vec![Node::Upgrade { next: NodeId::new(1) }, Node::Terminate(TerminatorId::new(0))];
+			let g = flow_from(nodes, Vec::new());
+			assert!(!g.needs_peek(NodeId::new(0)));
+		}
+
+		#[test]
+		fn needs_peek_true_when_l4peek_middleware_is_directly_reachable() {
+			// entry → L4Peek middleware → Terminate.
+			let nodes = vec![
+				Node::Middleware {
+					id: MiddlewareId::new(0),
+					next: NodeId::new(1),
+					on_error: None,
+					collect_body_before: None,
+				},
+				Node::Terminate(TerminatorId::new(0)),
+			];
+			let mws = vec![mw_ref("sni_peek", MiddlewareKind::L4Peek)];
+			let g = flow_from(nodes, mws);
+			assert!(g.needs_peek(NodeId::new(0)));
+		}
+
+		#[test]
+		fn needs_peek_false_when_only_non_peek_middleware_is_reachable() {
+			let nodes = vec![
+				Node::Middleware {
+					id: MiddlewareId::new(0),
+					next: NodeId::new(1),
+					on_error: None,
+					collect_body_before: None,
+				},
+				Node::Terminate(TerminatorId::new(0)),
+			];
+			let mws = vec![mw_ref("rate_limit", MiddlewareKind::L7Request)];
+			let g = flow_from(nodes, mws);
+			assert!(!g.needs_peek(NodeId::new(0)));
+		}
+
+		#[test]
+		fn needs_peek_true_when_check_branch_contains_l4peek() {
+			// entry (Check) → on_match: Terminate, on_miss: L4Peek → Terminate.
+			let nodes = vec![
+				Node::Check {
+					predicate: PredicateId::new(0),
+					on_match: NodeId::new(1),
+					on_miss: NodeId::new(2),
+					collect_body_before: None,
+				},
+				Node::Terminate(TerminatorId::new(0)),
+				Node::Middleware {
+					id: MiddlewareId::new(0),
+					next: NodeId::new(1),
+					on_error: None,
+					collect_body_before: None,
+				},
+			];
+			let mws = vec![mw_ref("sni_peek", MiddlewareKind::L4Peek)];
+			let predicates = vec![PredicateInst {
+				path: FieldPath::Transport,
+				op: CompiledOperator::Equals(CompiledValue::Str(Arc::from("tcp"))),
+			}];
+			let g = flow_from_with(nodes, mws, predicates);
+			assert!(g.needs_peek(NodeId::new(0)));
+		}
+
+		#[test]
+		fn needs_peek_visited_set_handles_self_loop_without_diverging() {
+			// Pathological: a Middleware whose `next` points back to itself.
+			// `link` rejects this in production, but the walker must not
+			// hang if a future graph mutation slips one through.
+			let nodes = vec![Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(0),
+				on_error: None,
+				collect_body_before: None,
+			}];
+			let mws = vec![mw_ref("rate_limit", MiddlewareKind::L7Request)];
+			let g = flow_from(nodes, mws);
+			assert!(!g.needs_peek(NodeId::new(0)));
+		}
 	}
 }

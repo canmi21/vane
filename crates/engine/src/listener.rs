@@ -37,7 +37,18 @@ use vane_core::{
 
 use crate::executor::{ExecutorInput, execute};
 use crate::flow_graph::FlowGraph;
+use crate::peeked_stream::PeekedStream;
+use crate::protocol_detect::classify;
 use crate::verbosity::VerbosityState;
+use vane_core::{MAX_PEEK_BYTES, PeekResult};
+
+/// Per-connection budget for the listener-side peek prelude. The
+/// prelude reads at most [`MAX_PEEK_BYTES`] before declaring the
+/// prefix `Unknown`, so a hard wall-clock cap defends only against
+/// pathological clients that establish TCP and then never write.
+// TODO(s1-30): replace with `VANE_SEC_HEADER_TIMEOUT` once the L1
+// security floor lands.
+const PEEK_DEADLINE: Duration = Duration::from_secs(5);
 
 // 01-topology.md § _Bind_ / _Daemon lifecycle_:
 //   max_bind_attempts default 10, exponential backoff 100ms → 5s cap.
@@ -660,23 +671,120 @@ async fn handle_connection(
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};
 
-	// Cleartext path: hand the raw TcpStream to the executor.
+	// Disable Nagle once, before either the peek phase or the TLS
+	// handshake gets a chance to consume the socket. L4Forward used to
+	// own this call, but the peek path erases the concrete TcpStream
+	// behind a `PeekedStream` adapter, so the listener has to do it
+	// while the type is still in scope.
+	let _ = stream.set_nodelay(true);
+
+	// On-demand peek gating: only run the prelude if some node walked
+	// from `entry` references an L4Peek middleware. Listeners whose
+	// graph is L4Peek-free stay on the zero-copy fast path.
+	if !graph.needs_peek(entry) {
+		dispatch_no_peek(stream, tls_cfg, &graph, entry, &conn, &mut ctx, remote).await;
+		return;
+	}
+
+	let (peeked_buffer, peeked_stream, peek_result) =
+		match tokio::time::timeout(PEEK_DEADLINE, run_peek_phase(stream)).await {
+			Ok(Ok(triple)) => triple,
+			Ok(Err(e)) => {
+				tracing::debug!(
+					error = %e,
+					conn_id = %conn.id,
+					?remote,
+					"peek phase read error; dropping connection",
+				);
+				return;
+			}
+			Err(_) => {
+				tracing::debug!(
+					conn_id = %conn.id,
+					?remote,
+					timeout_ms = u64::try_from(PEEK_DEADLINE.as_millis()).unwrap_or(u64::MAX),
+					"peek phase timeout; dropping connection",
+				);
+				return;
+			}
+		};
+
+	// Pre-fill ConnContext.tls.sni from the parsed ClientHello so any
+	// L4 middleware running before the executor reaches an `Upgrade`
+	// node can read it. `tls.alpn` is left untouched because the
+	// pre-handshake offer (a list) does not fit the post-handshake
+	// negotiated single-value slot. TODO(spec-align-alpn-shape).
+	if let Some(tls_hello) = peek_result.tls.as_ref()
+		&& tls_hello.sni.is_some()
+	{
+		let mut guard = conn.tls.lock();
+		let info = guard.get_or_insert_with(TlsInfo::default);
+		info.sni.clone_from(&tls_hello.sni);
+	}
+
+	{
+		let mut user = conn.user.lock();
+		user.insert(peek_result);
+	}
+
+	let peeked = PeekedStream::new(peeked_buffer, peeked_stream);
+
+	if let Some(tls_cfg) = tls_cfg {
+		run_tls(peeked, tls_cfg, &graph, entry, &conn, &mut ctx, remote).await;
+	} else {
+		let result = execute(
+			&graph,
+			entry,
+			ExecutorInput::L4(Box::new(L4Conn::Peeked(Box::new(peeked)))),
+			&conn,
+			&mut ctx,
+		)
+		.await;
+		if let Err(e) = result {
+			tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+		}
+	}
+}
+
+/// Cleartext or TLS dispatch when the listener's `FlowGraph` does
+/// not need the peek prelude. Mirrors the original two-branch shape
+/// from before peek wiring.
+async fn dispatch_no_peek(
+	stream: TcpStream,
+	tls_cfg: Option<Arc<rustls::ServerConfig>>,
+	graph: &Arc<FlowGraph>,
+	entry: NodeId,
+	conn: &Arc<ConnContext>,
+	ctx: &mut FlowCtx,
+	remote: SocketAddr,
+) {
 	let Some(tls_cfg) = tls_cfg else {
 		let result =
-			execute(&graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), &conn, &mut ctx)
-				.await;
+			execute(graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), conn, ctx).await;
 		if let Err(e) = result {
 			tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
 		}
 		return;
 	};
+	run_tls(stream, tls_cfg, graph, entry, conn, ctx, remote).await;
+}
 
-	// TLS path: parse the ClientHello via `rustls::server::Acceptor` so
-	// we can populate `ConnContext.tls.sni` *before* the handshake
-	// completes (08-tls.md § _SNI peek (L4)_ — same Acceptor serves the
-	// peek-only and full-termination roles), then drive the handshake
-	// with the matching listener config and dispatch as
-	// `L4Conn::Tls(Box<dyn ...>)`.
+/// Drive the rustls server handshake with whatever underlying stream
+/// the caller has — raw `TcpStream` for the no-peek path, or a
+/// `PeekedStream<TcpStream>` for the post-peek path. Generic so the
+/// rewind buffer is invisible to rustls: `LazyConfigAcceptor` reads
+/// from offset zero in either case.
+async fn run_tls<S>(
+	stream: S,
+	tls_cfg: Arc<rustls::ServerConfig>,
+	graph: &Arc<FlowGraph>,
+	entry: NodeId,
+	conn: &Arc<ConnContext>,
+	ctx: &mut FlowCtx,
+	remote: SocketAddr,
+) where
+	S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
 	let lazy = tokio_rustls::LazyConfigAcceptor::new(rustls::server::Acceptor::default(), stream);
 	let start = match lazy.await {
 		Ok(s) => s,
@@ -691,9 +799,6 @@ async fn handle_connection(
 		}
 	};
 
-	// Pre-handshake fill: SNI is recoverable without decrypting. Read-
-	// modify-write so a future peek-prelude that already populated
-	// `tls.alpn` (offer side) does not get clobbered.
 	{
 		let hello = start.client_hello();
 		let sni = hello.server_name().map(str::to_ascii_lowercase);
@@ -705,9 +810,6 @@ async fn handle_connection(
 	let tls_stream = match start.into_stream(tls_cfg).await {
 		Ok(s) => s,
 		Err(e) => {
-			// Cert mismatch, ALPN miss, signature failure, etc. — log
-			// and drop. The client sees the TCP connection closed mid-
-			// handshake; nothing reaches the L4 / L7 graph.
 			tracing::debug!(
 				error = %e,
 				conn_id = %conn.id,
@@ -718,16 +820,9 @@ async fn handle_connection(
 		}
 	};
 
-	// Post-handshake fill: ALPN (negotiated), version. Read-modify-
-	// write to preserve the pre-handshake SNI written above.
 	{
 		let (_io, server_conn) = tls_stream.get_ref();
 		let alpn = server_conn.alpn_protocol().map(<[u8]>::to_vec);
-		// Seed `conn.http_version` from negotiated ALPN so the executor's
-		// Upgrade arm can dispatch H1 vs H2 without re-reading the TLS
-		// session. Skipped for unknown ALPN (or no ALPN — cleartext-style
-		// TLS connections without an ALPN extension); the H1/H2 driver
-		// then sets it as before. See 08-tls.md § _ALPN_.
 		match alpn.as_deref() {
 			Some(b"h2") => {
 				let _ = conn.http_version.set(HttpVersion::Http2);
@@ -745,20 +840,66 @@ async fn handle_connection(
 			rustls::ProtocolVersion::TLSv1_3 => Some(TlsVersion::Tls13),
 			_ => None,
 		});
-		// No mTLS this round — `with_no_client_auth()` means peer_cert
-		// stays `None` (08-tls.md § _Client cert verification_).
 	}
 
 	let result = execute(
-		&graph,
+		graph,
 		entry,
 		ExecutorInput::L4(Box::new(L4Conn::Tls(Box::new(tls_stream)))),
-		&conn,
-		&mut ctx,
+		conn,
+		ctx,
 	)
 	.await;
 	if let Err(e) = result {
 		tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+	}
+}
+
+/// Read up to [`MAX_PEEK_BYTES`] from `stream`, calling
+/// [`classify`] after every read until a detector commits or the
+/// buffer fills. Returns the accumulated buffer (as
+/// [`bytes::Bytes`] for the [`PeekedStream`] rewind side), the
+/// original `TcpStream` (so the caller can keep wrapping it), and
+/// the structured [`PeekResult`].
+async fn run_peek_phase(
+	mut stream: TcpStream,
+) -> std::io::Result<(bytes::Bytes, TcpStream, PeekResult)> {
+	use tokio::io::AsyncReadExt;
+
+	let mut buf = Vec::with_capacity(MAX_PEEK_BYTES);
+	loop {
+		let result = classify(&buf);
+		if result.detected.is_some() {
+			return Ok((bytes::Bytes::from(buf), stream, result));
+		}
+		if buf.len() >= MAX_PEEK_BYTES {
+			// Buffer full and no detector committed — declare Unknown.
+			let final_result = PeekResult {
+				buffer: bytes::Bytes::copy_from_slice(&buf),
+				detected: Some(vane_core::DetectedProtocol::Unknown),
+				tls: None,
+			};
+			return Ok((bytes::Bytes::from(buf), stream, final_result));
+		}
+		// Read at least one more byte. `read_buf` would let us reuse
+		// the spare capacity; manually growing keeps the buffer-as-
+		// `Bytes::from` round-trip cheap.
+		let read_at = buf.len();
+		buf.resize(buf.capacity().min(MAX_PEEK_BYTES).max(buf.len() + 1), 0);
+		match stream.read(&mut buf[read_at..]).await {
+			Ok(0) => {
+				// Peer EOF — classify whatever we have.
+				buf.truncate(read_at);
+				let final_result = PeekResult {
+					buffer: bytes::Bytes::copy_from_slice(&buf),
+					detected: Some(vane_core::DetectedProtocol::Unknown),
+					tls: None,
+				};
+				return Ok((bytes::Bytes::from(buf), stream, final_result));
+			}
+			Ok(n) => buf.truncate(read_at + n),
+			Err(e) => return Err(e),
+		}
 	}
 }
 
