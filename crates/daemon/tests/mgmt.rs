@@ -368,24 +368,26 @@ async fn mgmt_tail_flow_log_streams_events_via_cli() {
 		}
 	});
 
-	// Give the streaming subscriber a moment to land on the broadcast
-	// channel before driving traffic. Without this, the request races
-	// the subscriber registration and the events reach an empty channel.
-	tokio::time::sleep(Duration::from_millis(300)).await;
-
-	// Trigger one request — static_site preset emits at least one
-	// FlowLogEvent (the per-request `Trajectory` summary) per request.
-	let mut stream = TcpStream::connect(listen_addr).expect("connect");
-	stream.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").expect("write");
-	let mut sink = Vec::new();
-	let _ = std::io::Read::read_to_end(&mut stream, &mut sink);
-
-	// Deadline-poll for at least one NDJSON line carrying `kind`. 5s
-	// budget covers slow CI; the typical wallclock is <100ms.
-	let deadline = std::time::Instant::now() + Duration::from_secs(5);
+	// Drive traffic on a 200ms cadence until we observe a Trajectory
+	// event or the 5s deadline elapses. The CLI subscriber registers on
+	// the broadcast channel asynchronously after spawn; under heavy
+	// parallel load the wall-clock between spawn and registration is
+	// non-trivial, and `broadcast` does not replay events emitted before
+	// the subscriber joins. Looping the trigger races the subscriber to
+	// catch us up regardless of when registration completes.
+	let deadline = Instant::now() + Duration::from_secs(5);
 	let mut got_trajectory = false;
-	while std::time::Instant::now() < deadline {
-		match line_rx.recv_timeout(Duration::from_millis(200)) {
+	let mut last_trigger: Option<Instant> = None;
+	while Instant::now() < deadline {
+		if last_trigger.is_none_or(|t| t.elapsed() >= Duration::from_millis(200)) {
+			if let Ok(mut stream) = TcpStream::connect(listen_addr) {
+				let _ = stream.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+				let mut sink = Vec::new();
+				let _ = std::io::Read::read_to_end(&mut stream, &mut sink);
+			}
+			last_trigger = Some(Instant::now());
+		}
+		match line_rx.recv_timeout(Duration::from_millis(50)) {
 			Ok(line) => {
 				let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
 				if let Some(kind) = v.get("kind").and_then(serde_json::Value::as_str)
@@ -434,25 +436,26 @@ async fn mgmt_tail_log_streams_tracing_events_via_cli() {
 		}
 	});
 
-	// Let the tail subscriber land on the broadcast channel before
-	// triggering tracing emits — without this the reload events race
-	// the subscribe and reach an empty channel.
-	tokio::time::sleep(Duration::from_millis(300)).await;
-
-	// Mutate the rule body and trigger a reload — the daemon emits
-	// `tracing::info!("reloaded — flow graph swapped")` from the
-	// watcher's handle_reload path. That's a stable anchor for the
-	// test: we know the event will fire, we know it has a `level`
-	// field, and it lands on the live broadcast channel.
-	write_rule(d.config_dir(), 43_014, "v2");
+	// Drive reloads on a 200ms cadence with alternating bodies until
+	// we observe a tracing event or the 5s deadline elapses. Same race
+	// as tail-flow-log: the CLI subscriber registers asynchronously and
+	// `broadcast` does not replay missed events. Body must alternate
+	// because the reload path skips the swap (and the `reloaded` log)
+	// when version_hash is unchanged (S1-28).
 	let client = UnixMgmtClient::new(&d.socket);
-	let _: ReloadResult = client.call(VERB_RELOAD, &NoArgs {}).await.expect("reload");
-
-	// Deadline-poll for any NDJSON line carrying a `level` field.
-	let deadline = std::time::Instant::now() + Duration::from_secs(5);
+	let bodies = ["v2", "v3"];
+	let mut iter = 0_usize;
+	let deadline = Instant::now() + Duration::from_secs(5);
 	let mut got_event = false;
-	while std::time::Instant::now() < deadline {
-		match line_rx.recv_timeout(Duration::from_millis(200)) {
+	let mut last_trigger: Option<Instant> = None;
+	while Instant::now() < deadline {
+		if last_trigger.is_none_or(|t| t.elapsed() >= Duration::from_millis(200)) {
+			write_rule(d.config_dir(), 43_014, bodies[iter % bodies.len()]);
+			iter += 1;
+			let _: ReloadResult = client.call(VERB_RELOAD, &NoArgs {}).await.expect("reload");
+			last_trigger = Some(Instant::now());
+		}
+		match line_rx.recv_timeout(Duration::from_millis(50)) {
 			Ok(line) => {
 				let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
 				if v.get("level").and_then(serde_json::Value::as_str).is_some() {
