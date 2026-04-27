@@ -10,11 +10,11 @@ Everything that can be mechanical is mechanical — treat the gate as authoritat
 
 Gates run on commit via lefthook:
 
-- `cargo fmt --check` — formatting (rustfmt config in `rustfmt.toml`)
+- `cargo fmt --all -- --check` — formatting (rustfmt config in `rustfmt.toml`)
 - `cargo clippy --workspace --all-targets -- -D warnings` — lint
 - `commitlint` — conventional commit format, 72-char header, lower-case subject
 
-Test baseline is `cargo nextest run --workspace` (or `just t`); `cargo test --workspace` (or `just t-cargo`) is the bypass for doctests and runner-suspect debugging. Tests are not gated on commit.
+Test baseline is `cargo nextest run --workspace` (or `just test`); `cargo test --workspace` (or `just test-cargo`) is the bypass for doctests and runner-suspect debugging. Tests are not gated on commit. `just gate` runs lint + test as the pre-push bundle.
 
 ## Conventions
 

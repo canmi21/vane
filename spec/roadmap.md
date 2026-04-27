@@ -128,9 +128,8 @@ CI is **deferred past Stage 1**. This section sketches what CI will check per st
 
 **Stage 1** — single CI job on `x86_64-unknown-linux-gnu`:
 
-- `just fmt` — `cargo fmt --check` + `dprint check`
-- `just lint` — `cargo clippy --workspace --all-targets -- -D warnings`
-- `just test` — `cargo test --workspace`
+- `just lint` — `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --all -- --check` + `dprint check`
+- `just test` — `cargo nextest run --workspace`
 - `commitlint` on every push / pre-merge
 
 **Stage 2** — add the target compile-matrix:
