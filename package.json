@@ -2,7 +2,7 @@
 	"private": true,
 	"type": "module",
 	"devDependencies": {
-		"@commitlint/cli": "^19.8.0",
+		"@commitlint/cli": "^20.5.2",
 		"@commitlint/config-conventional": "^19.8.0",
 		"dprint": "^0.54.0"
 	}
