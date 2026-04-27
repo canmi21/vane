@@ -257,9 +257,25 @@ async fn mgmt_list_connections_returns_per_conn_detail_for_in_flight_connection(
 	let mut stream = TcpStream::connect(listen_addr).expect("connect");
 	let client_local = stream.local_addr().expect("local_addr");
 	stream.write_all(b"GET / HTTP/1.1\r\nHost: ").expect("partial write");
-	tokio::time::sleep(Duration::from_millis(150)).await;
 
-	// Use the CLI binary so we cover the JSON output path end-to-end.
+	// Wait for the daemon to land the new connection in its registry
+	// before we shell out. Accept → register is async; a fixed sleep
+	// races under load. Poll the typed client until at least one
+	// connection appears, then run the cli once for the json shape
+	// assertion below — that's the only path-coverage we need from
+	// the cli here.
+	let typed = UnixMgmtClient::new(&d.socket);
+	let deadline = Instant::now() + Duration::from_secs(3);
+	loop {
+		let r: ListConnectionsResult =
+			typed.call(VERB_LIST_CONNECTIONS, &NoArgs {}).await.expect("list-connections");
+		if !r.connections.is_empty() {
+			break;
+		}
+		assert!(Instant::now() < deadline, "connection never appeared in registry within 3s");
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
+
 	let mut cmd = vane_cli();
 	let output = cmd
 		.arg("list-connections")
@@ -301,16 +317,24 @@ async fn mgmt_in_flight_count_increases_with_long_lived_connection() {
 	// in-flight set.
 	let mut stream = TcpStream::connect(listen_addr).expect("connect");
 	stream.write_all(b"GET / HTTP/1.1\r\nHost: ").expect("partial write");
-	// Give the daemon a moment to register the accept.
-	tokio::time::sleep(Duration::from_millis(150)).await;
 
+	// Poll stats until the in-flight count reflects our held connection.
+	// Accept → register is async; gating on count >= 1 instead of a fixed
+	// sleep removes the wall-clock dependency.
 	let client = UnixMgmtClient::new(&d.socket);
-	let stats: StatsResult = client.call(VERB_STATS, &NoArgs {}).await.expect("stats");
-	assert!(
-		stats.listeners[0].in_flight_count >= 1,
-		"expected at least one in-flight connection, got {}",
-		stats.listeners[0].in_flight_count
-	);
+	let deadline = Instant::now() + Duration::from_secs(3);
+	loop {
+		let stats: StatsResult = client.call(VERB_STATS, &NoArgs {}).await.expect("stats");
+		if stats.listeners[0].in_flight_count >= 1 {
+			break;
+		}
+		assert!(
+			Instant::now() < deadline,
+			"in-flight count never reached 1 within 3s, last seen {}",
+			stats.listeners[0].in_flight_count
+		);
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
 	drop(stream);
 }
 
@@ -490,17 +514,27 @@ async fn mgmt_tail_log_via_typed_client_decodes_tracing_frame_shape() {
 			})
 			.await;
 	});
-	tokio::time::sleep(Duration::from_millis(300)).await;
-
-	// Trigger a reload to anchor on a known emit.
-	write_rule(&config_dir, 43_015, "v2");
+	// Drive reloads on a 200ms cadence with alternating bodies until the
+	// streaming task captures a frame or the 5s deadline elapses. Same
+	// race as the cli tail tests: subscriber registration on the
+	// broadcast channel is async, and `broadcast` does not replay events
+	// emitted before the subscriber joins. Body alternates because the
+	// reload path skips the swap (and the `reloaded` log) when
+	// version_hash is unchanged.
 	let client = UnixMgmtClient::new(&d.socket);
-	let _: ReloadResult = client.call(VERB_RELOAD, &NoArgs {}).await.expect("reload");
-
-	let deadline = std::time::Instant::now() + Duration::from_secs(5);
+	let bodies = ["v2", "v3"];
+	let mut iter = 0_usize;
+	let deadline = Instant::now() + Duration::from_secs(5);
+	let mut last_trigger: Option<Instant> = None;
 	loop {
+		if last_trigger.is_none_or(|t| t.elapsed() >= Duration::from_millis(200)) {
+			write_rule(&config_dir, 43_015, bodies[iter % bodies.len()]);
+			iter += 1;
+			let _: ReloadResult = client.call(VERB_RELOAD, &NoArgs {}).await.expect("reload");
+			last_trigger = Some(Instant::now());
+		}
 		let any = !frames.lock().expect("lock").is_empty();
-		if any || std::time::Instant::now() >= deadline {
+		if any || Instant::now() >= deadline {
 			break;
 		}
 		tokio::time::sleep(Duration::from_millis(50)).await;
@@ -538,6 +572,16 @@ async fn mgmt_streaming_does_not_block_concurrent_one_shot_call() {
 		// runs until the test drops it.
 		let _ = client.call_stream(VERB_TAIL_FLOW_LOG, &NoArgs {}, |_event| {}).await;
 	});
+	// TODO(mgmt-stream-readiness): there is no observable state for "the
+	// streaming verb has reached the daemon and is parked on its
+	// broadcast subscriber". `list_connections` covers proxy connections
+	// only; no mgmt-side verb exposes per-stream subscribers. Until the
+	// mgmt layer grows such a probe, this fixed sleep is the closest we
+	// can get — it is not a flake source (the assertion below succeeds
+	// regardless of whether streaming is parked), but it is silently
+	// degrading: if the streaming task has not reached the daemon by the
+	// time the one-shot fires, the test no longer exercises the
+	// "concurrent with parked stream" contract it claims to test.
 	tokio::time::sleep(Duration::from_millis(200)).await;
 
 	// One-shot ping on an independent socket must succeed promptly.
