@@ -320,6 +320,7 @@ fn build_middleware_factories() -> MiddlewareFactories {
 	vane_engine::middleware::method_match::register(&mut mw);
 	vane_engine::middleware::forward_client_ip::register(&mut mw);
 	vane_engine::middleware::rate_limit::register(&mut mw);
+	vane_engine::middleware::sni_peek::register(&mut mw);
 	mw
 }
 
