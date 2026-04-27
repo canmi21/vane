@@ -68,6 +68,9 @@ where
 	// predicates / middleware can read it. H1 only this round.
 	let _ = conn.http_version.set(HttpVersion::Http1_1);
 
+	// Outer cancel handle drives the connection-level select below.
+	// `svc` keeps its own clone for per-request executor wiring.
+	let conn_cancel = cancel.clone();
 	let svc = service_fn(move |mut req: hyper::Request<Incoming>| {
 		let graph = Arc::clone(&graph);
 		let conn = Arc::clone(&conn);
@@ -207,11 +210,31 @@ where
 	// response; without it, the server-side `OnUpgrade` future the
 	// service-fn captured would close immediately and the
 	// `copy_bidirectional` spawn would never see the upgraded IO.
-	hyper::server::conn::http1::Builder::new()
-		.serve_connection(io, svc)
-		.with_upgrades()
-		.await
-		.map_err(|e| Error::protocol("h1 serve_connection").with_source(e))?;
+	let server_conn =
+		hyper::server::conn::http1::Builder::new().serve_connection(io, svc).with_upgrades();
+	tokio::pin!(server_conn);
+
+	// Watch the cancel token alongside the hyper connection. A
+	// keep-alive idle H1 connection has no server-side IO to drive
+	// `serve_connection` toward EOF — the listener-level
+	// `force_cancel` is therefore the only signal that can pull a
+	// well-behaved client off our process during shutdown. On cancel
+	// we trigger hyper's `graceful_shutdown` (sends `Connection:
+	// close` on the next response and finishes any in-flight
+	// request, then closes the socket) and re-await once to let
+	// hyper finalize. Any post-upgrade WebSocket byte tunnel runs
+	// in its own spawned task that observes `ctx.cancel`
+	// independently, so this graceful_shutdown does not yank the
+	// upgraded socket out from under it.
+	let outcome = tokio::select! {
+		biased;
+		result = server_conn.as_mut() => result,
+		() = conn_cancel.cancelled() => {
+			server_conn.as_mut().graceful_shutdown();
+			server_conn.as_mut().await
+		}
+	};
+	outcome.map_err(|e| Error::protocol("h1 serve_connection").with_source(e))?;
 
 	Ok(ExecutorOutput::Closed)
 }
@@ -266,6 +289,9 @@ where
 		// negotiated ALPN; a redundant set is a silent no-op (`OnceLock`).
 		let _ = conn.http_version.set(HttpVersion::Http2);
 
+		// Outer cancel handle drives the connection-level select below.
+		// `svc` keeps its own clone for per-request executor wiring.
+		let conn_cancel = cancel.clone();
 		let svc = service_fn(move |req: hyper::Request<Incoming>| {
 			let graph = Arc::clone(&graph);
 			let conn = Arc::clone(&conn);
@@ -333,10 +359,26 @@ where
 		});
 
 		let io = TokioIo::new(stream);
-		hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
-			.serve_connection(io, svc)
-			.await
-			.map_err(|e| Error::protocol("h2 serve_connection").with_source(e))?;
+		let server_conn =
+			hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+				.serve_connection(io, svc);
+		tokio::pin!(server_conn);
+
+		// H2 graceful_shutdown sends `GOAWAY` and waits for in-flight
+		// streams to finish; idle multiplexed connections then exit
+		// without further client traffic. As with the H1 driver, the
+		// listener's `force_cancel` is our only handle on a keep-alive
+		// idle connection during drain — without this select the
+		// outer shutdown stage waits FORCE_CANCEL_GRACE for nothing.
+		let outcome = tokio::select! {
+			biased;
+			result = server_conn.as_mut() => result,
+			() = conn_cancel.cancelled() => {
+				server_conn.as_mut().graceful_shutdown();
+				server_conn.as_mut().await
+			}
+		};
+		outcome.map_err(|e| Error::protocol("h2 serve_connection").with_source(e))?;
 
 		Ok(ExecutorOutput::Closed)
 	})

@@ -604,3 +604,116 @@ async fn bound_count_stays_zero_when_address_is_already_in_use() {
 	drop(blocker);
 	set.shutdown(Duration::from_secs(2)).await;
 }
+
+// ---------------------------------------------------------------------------
+// shutdown_drains_idle_keep_alive_connections_within_drain_timeout
+// ---------------------------------------------------------------------------
+//
+// Regression: a hyper H1 keep-alive connection that finished its last
+// request and is now idle has no server-side IO driving the H1 driver
+// toward EOF. Without graceful_shutdown wiring, the listener's
+// `force_cancel` could not pull the driver off the connection — drain
+// fell through `drain_timeout` and waited the full FORCE_CANCEL_GRACE
+// (5s) before the abort hammer cleared things. Five engine integration
+// binaries hit this path and each took ~7s wallclock (drain 2s +
+// grace 5s).
+//
+// drive_h1_server / drive_h2_server now select on the cancel token and
+// call `Connection::graceful_shutdown` when it fires, so an idle
+// keep-alive connection unwinds promptly. This test asserts the
+// shutdown path completes within `drain_timeout + epsilon` rather
+// than waiting on the secondary grace window.
+
+struct UnreachableFetch;
+
+#[async_trait]
+impl vane_core::L7Fetch for UnreachableFetch {
+	async fn fetch(
+		&self,
+		_req: vane_core::Request,
+		_conn: &Arc<ConnContext>,
+		_ctx: &mut FlowCtx,
+	) -> Result<vane_core::L7FetchOutput, Error> {
+		panic!("fetch must not run; the test client never sends a request");
+	}
+}
+
+#[tokio::test]
+async fn shutdown_drains_idle_keep_alive_connections_within_drain_timeout() {
+	use bytes::Bytes;
+	use http_body_util::Empty;
+	use hyper_util::rt::TokioIo;
+	use vane_core::{FetchId, FetchKind, SymbolicFetchRef};
+
+	let addr = pick_port().await;
+	let mut entries = HashMap::new();
+	entries.insert(addr, NodeId::new(0));
+	// Minimal L7 listener graph that the H1 driver can attach to:
+	// Upgrade -> Fetch(HttpSynthesize / unreachable) -> Terminate(Close).
+	// We only need the Upgrade node so the listener routes accepted
+	// connections through `drive_h1_server`. The client opens a
+	// keep-alive H1 connection but never sends a request; the fetch
+	// path is unreachable in this test.
+	let sym = Arc::new(SymbolicFlowGraph {
+		nodes: vec![
+			Node::Upgrade { next: NodeId::new(1) },
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: Some(NodeId::new(2)),
+				next_tunnel: None,
+				collect_body_before: None,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		predicates: vec![],
+		middlewares: vec![],
+		fetches: vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		terminators: vec![Terminator::Close],
+		entries,
+		meta: sample_meta(),
+	});
+	let mw = MiddlewareFactories::new();
+	let mut fetch = FetchFactories::new();
+	fetch.register(FetchKind::HttpSynthesize, |_args| {
+		Ok(vane_engine::flow_graph::FetchInst::L7(Arc::new(UnreachableFetch)))
+	});
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link idle-h1 graph");
+
+	let verbosity = Arc::new(VerbosityState::new());
+	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
+	let set = ListenerSet::new();
+	set.start(Arc::new(ArcSwap::new(graph)), verbosity, sink);
+	tokio::time::sleep(Duration::from_millis(50)).await;
+
+	// Open one H1 keep-alive connection. hyper's client::conn::http1::handshake
+	// gives us a `(SendRequest, Connection)` pair; we drive the conn future on
+	// a spawned task and hold the SendRequest sender to keep the socket open
+	// without sending any request. The server side is therefore parked in
+	// `serve_connection.await`, idle on a keep-alive socket — exactly the
+	// shape that used to wedge shutdown.
+	let stream = tokio::net::TcpStream::connect(addr).await.expect("client connects");
+	let io = TokioIo::new(stream);
+	let (sender, conn) =
+		hyper::client::conn::http1::handshake::<_, Empty<Bytes>>(io).await.expect("h1 handshake");
+	let conn_task = tokio::spawn(async move {
+		let _ = conn.await;
+	});
+
+	// Trigger shutdown with a 500ms drain. Without the graceful_shutdown
+	// wiring this would block ~7s (drain 2s implicit + grace 5s); with it,
+	// the cancel branch fires inside drive_h1_server and the connection
+	// closes inside the drain window.
+	let started = Instant::now();
+	set.shutdown(Duration::from_millis(500)).await;
+	let elapsed = started.elapsed();
+
+	assert!(
+		elapsed < Duration::from_secs(1),
+		"shutdown wallclock must stay under 1s on the idle-keep-alive path; got {elapsed:?}",
+	);
+
+	// Drop the client side after measuring; cancellation here only affects
+	// teardown ordering, not the wallclock assertion above.
+	drop(sender);
+	let _ = conn_task.await;
+}
