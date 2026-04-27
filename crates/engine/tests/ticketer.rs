@@ -125,7 +125,11 @@ fn tls_static_ok_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) ->
 		],
 		predicates: vec![],
 		middlewares: vec![],
-		fetches: vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		fetches: vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
 		meta,

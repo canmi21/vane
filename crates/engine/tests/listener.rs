@@ -670,7 +670,11 @@ async fn shutdown_drains_idle_keep_alive_connections_within_drain_timeout() {
 		],
 		predicates: vec![],
 		middlewares: vec![],
-		fetches: vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		fetches: vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		terminators: vec![Terminator::Close],
 		entries,
 		meta: sample_meta(),

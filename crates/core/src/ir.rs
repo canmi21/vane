@@ -437,7 +437,7 @@ mod tests {
 	}
 
 	fn sample_fetch() -> SymbolicFetchRef {
-		SymbolicFetchRef { kind: FetchKind::HttpProxy, args: Value::Null }
+		SymbolicFetchRef { kind: FetchKind::HttpProxy, args: Value::Null, retry_buffer_required: false }
 	}
 
 	fn sample_meta() -> FlowGraphMeta {

@@ -213,8 +213,16 @@ fn auto_graph(
 
 	let upstream_arg = serde_json::json!({ "upstream": upstream.to_string() });
 	let fetches = vec![
-		SymbolicFetchRef { kind: FetchKind::L4Forward, args: upstream_arg },
-		SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: serde_json::Value::Null },
+		SymbolicFetchRef {
+			kind: FetchKind::L4Forward,
+			args: upstream_arg,
+			retry_buffer_required: false,
+		},
+		SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: serde_json::Value::Null,
+			retry_buffer_required: false,
+		},
 	];
 
 	let sym = Arc::new(SymbolicFlowGraph {
@@ -283,6 +291,7 @@ fn http_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<Flow
 		fetches: vec![SymbolicFetchRef {
 			kind: FetchKind::HttpSynthesize,
 			args: serde_json::Value::Null,
+			retry_buffer_required: false,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
@@ -317,7 +326,11 @@ fn raw_graph(addr: SocketAddr, upstream: SocketAddr) -> Arc<FlowGraph> {
 		nodes,
 		predicates: vec![],
 		middlewares: vec![],
-		fetches: vec![SymbolicFetchRef { kind: FetchKind::L4Forward, args: upstream_arg }],
+		fetches: vec![SymbolicFetchRef {
+			kind: FetchKind::L4Forward,
+			args: upstream_arg,
+			retry_buffer_required: false,
+		}],
 		terminators: vec![Terminator::ByteTunnel],
 		entries,
 		meta: sample_meta(BTreeMap::new()),

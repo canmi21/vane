@@ -191,7 +191,11 @@ fn link_fails_on_unknown_middleware_name() {
 
 #[test]
 fn link_fails_on_unknown_fetch_kind() {
-	let sym = graph_with_fetch(SymbolicFetchRef { kind: FetchKind::HttpProxy, args: Value::Null });
+	let sym = graph_with_fetch(SymbolicFetchRef {
+		kind: FetchKind::HttpProxy,
+		args: Value::Null,
+		retry_buffer_required: false,
+	});
 	let mw = MiddlewareFactories::new();
 	let fetch = FetchFactories::new();
 	let Err(err) = FlowGraph::link(sym, &mw, &fetch) else {
@@ -356,7 +360,11 @@ fn index_fetch_id_returns_inst() {
 			unreachable!("link tests never drive fetches")
 		}
 	}
-	let sym = graph_with_fetch(SymbolicFetchRef { kind: FetchKind::HttpProxy, args: Value::Null });
+	let sym = graph_with_fetch(SymbolicFetchRef {
+		kind: FetchKind::HttpProxy,
+		args: Value::Null,
+		retry_buffer_required: false,
+	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
 	fetch.register(FetchKind::HttpProxy, |_args| Ok(FetchInst::L7(Arc::new(NoopL7Fetch))));

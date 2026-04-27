@@ -88,6 +88,13 @@ pub struct FetchOutputModes {
 pub struct SymbolicFetchRef {
 	pub kind: FetchKind,
 	pub args: serde_json::Value,
+	/// `true` iff this fetch's retry policy is `buffering: "force"`
+	/// with `max_attempts > 1`. Drives `collect_body_before`
+	/// placement on the fetch node in the lower pass; the full
+	/// `RetryPolicy` lives in the engine's factory layer. See
+	/// `spec/architecture/05-terminator.md` § _Retry buffering_.
+	#[serde(default)]
+	pub retry_buffer_required: bool,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -319,6 +326,7 @@ mod tests {
 		let r = SymbolicFetchRef {
 			kind: FetchKind::HttpProxy,
 			args: json!({ "upstream": "127.0.0.1:8080" }),
+			retry_buffer_required: false,
 		};
 		let cloned = r.clone();
 		assert_eq!(cloned.kind, r.kind);
@@ -335,7 +343,8 @@ mod tests {
 			FetchKind::WebSocketUpgrade,
 			FetchKind::L4Forward,
 		] {
-			let _ = SymbolicFetchRef { kind, args: serde_json::Value::Null };
+			let _ =
+				SymbolicFetchRef { kind, args: serde_json::Value::Null, retry_buffer_required: false };
 		}
 	}
 
@@ -347,6 +356,7 @@ mod tests {
 		let r = SymbolicFetchRef {
 			kind: FetchKind::WebSocketUpgrade,
 			args: json!({ "upstream": "127.0.0.1:9000" }),
+			retry_buffer_required: false,
 		};
 		let encoded = serde_json::to_string(&r).expect("serialize");
 		let decoded: SymbolicFetchRef = serde_json::from_str(&encoded).expect("deserialize");

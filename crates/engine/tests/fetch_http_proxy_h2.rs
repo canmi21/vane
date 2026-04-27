@@ -83,7 +83,11 @@ fn proxy_graph(listen: SocketAddr, args: serde_json::Value) -> Arc<FlowGraph> {
 		],
 		predicates: vec![],
 		middlewares: vec![],
-		fetches: vec![SymbolicFetchRef { kind: FetchKind::HttpProxy, args }],
+		fetches: vec![SymbolicFetchRef {
+			kind: FetchKind::HttpProxy,
+			args,
+			retry_buffer_required: false,
+		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
 		meta: sample_meta(),

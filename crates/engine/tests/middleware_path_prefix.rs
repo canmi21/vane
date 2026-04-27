@@ -170,7 +170,11 @@ fn link_graph(prefix_args: Value) -> (Arc<FlowGraph>, Arc<AtomicUsize>) {
 			Node::Terminate(TerminatorId::new(0)),
 		],
 		vec![l7_req_ref_with_args("path_prefix", prefix_args)],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 	let mut mw = MiddlewareFactories::new();
@@ -207,7 +211,11 @@ fn link_graph_expect_err(prefix_args: Value) -> String {
 			Node::Terminate(TerminatorId::new(0)),
 		],
 		vec![l7_req_ref_with_args("path_prefix", prefix_args)],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 	let mut mw = MiddlewareFactories::new();

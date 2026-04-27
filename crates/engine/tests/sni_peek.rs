@@ -202,8 +202,16 @@ fn sni_peek_branching_graph(addr: SocketAddr, tls_cfg: rule::TlsConfig) -> Arc<F
 	}];
 
 	let fetches = vec![
-		SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: json!({ "tag": "match" }) },
-		SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: json!({ "tag": "miss" }) },
+		SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: json!({ "tag": "match" }),
+			retry_buffer_required: false,
+		},
+		SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: json!({ "tag": "miss" }),
+			retry_buffer_required: false,
+		},
 	];
 
 	let sym = Arc::new(SymbolicFlowGraph {

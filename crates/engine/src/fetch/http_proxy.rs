@@ -26,6 +26,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -36,6 +37,7 @@ use vane_core::{
 
 use crate::body_adapter::IncomingAdapter;
 use crate::factories::{FactoryError, FetchFactories};
+use crate::fetch::retry::RetryPolicy;
 use crate::fetch::upstream::{UpstreamTls, parse_tls_args};
 use crate::flow_graph::FetchInst;
 
@@ -57,6 +59,7 @@ pub struct HttpProxyFetch {
 	version: UpstreamVersion,
 	scheme: &'static str,
 	client: Client<HttpsConnector<HttpConnector>, Body>,
+	retry: Arc<RetryPolicy>,
 }
 
 #[async_trait]
@@ -76,17 +79,102 @@ impl L7Fetch for HttpProxyFetch {
 		*req.uri_mut() =
 			new_uri.parse().map_err(|e| Error::protocol("upstream uri rewrite").with_source(e))?;
 
+		// Snapshot the request body for replay. `Body::Stream` is
+		// one-shot — it collapses retry to a single attempt
+		// regardless of `max_attempts`. `Body::Static` clones via
+		// `Bytes` refcount; `Body::Empty` replays as zero-length
+		// `Bytes`. Per `spec/architecture/05-terminator.md`
+		// § _Retry buffering_, this is the `opportunistic` rule:
+		// streaming bodies skip retry quietly. `force` buffering is
+		// implemented earlier in the lower pass — by the time the
+		// fetch sees the request, a `force` policy has already
+		// converted the body to `Body::Static`.
+		let method_allowed = self.retry.methods.contains(req.method());
+		let replay: Option<Bytes> = match req.body() {
+			Body::Static(b) => Some(b.clone()),
+			Body::Empty => Some(Bytes::new()),
+			Body::Stream(_) => None,
+		};
+		let max_attempts = if replay.is_some() && method_allowed { self.retry.max_attempts } else { 1 };
+
+		// Streaming or non-retryable-method path: single attempt,
+		// original body, no clones.
+		if max_attempts <= 1 {
+			return self.send_one_attempt(req).await;
+		}
+
+		// Retryable path: rebuild the request from `(method, uri,
+		// version, headers)` + replay bytes on every attempt. The
+		// original `Extensions` is intentionally dropped — middleware-
+		// set extensions don't survive retries (a fresh hyper request
+		// can't carry the inbound `OnUpgrade` future, and other
+		// extensions are typically per-request and shouldn't leak).
+		let (parts, _orig_body) = req.into_parts();
+		let replay = replay.expect("max_attempts > 1 path requires replay snapshot");
+
+		let mut last_err: Option<Error> = None;
+		for attempt in 1..=max_attempts {
+			let req_attempt =
+				http::Request::from_parts(clone_parts_for_retry(&parts), Body::Static(replay.clone()));
+			// TODO(retry-after): respect upstream Retry-After on 503/429.
+			match self.client.request(req_attempt).await {
+				Ok(resp) => {
+					let (parts, incoming) = resp.into_parts();
+					let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
+					return Ok(L7FetchOutput::Response(http::Response::from_parts(parts, body)));
+				}
+				Err(e) => {
+					let err = Error::upstream(UpstreamReason::Unreachable).with_source(e);
+					tracing::debug!(
+						attempt,
+						max_attempts,
+						version = ?self.version,
+						"upstream request failed",
+					);
+					if attempt >= max_attempts || !err.is_retryable() {
+						return Err(err);
+					}
+					let delay = self.retry.backoff.delay_for_attempt(attempt + 1);
+					if !delay.is_zero() {
+						tokio::time::sleep(delay).await;
+					}
+					last_err = Some(err);
+				}
+			}
+		}
+		Err(last_err.expect("retry loop runs at least once"))
+	}
+}
+
+impl HttpProxyFetch {
+	/// Single-attempt path used when retry is disabled (`max_attempts`
+	/// == 1, streaming body, or method not in whitelist). Skips the
+	/// snapshot + clone work.
+	async fn send_one_attempt(&self, req: Request) -> Result<L7FetchOutput, Error> {
 		let resp = self.client.request(req).await.map_err(|e| {
 			tracing::debug!(error = ?e, version = ?self.version, "upstream request failed");
 			Error::upstream(UpstreamReason::Unreachable).with_source(e)
 		})?;
-
 		let (parts, incoming) = resp.into_parts();
 		// 07-l7.md § _`HttpProxyFetch` commits to streaming response
 		// bodies_: never collect into `Body::Static`.
 		let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(parts, body)))
 	}
+}
+
+/// `http::request::Parts` doesn't implement `Clone` because
+/// `Extensions` may hold non-`Clone` types. Rebuild the parts the
+/// retry loop needs from the four fields that are individually
+/// `Clone`. `Extensions` is dropped on purpose — middleware-set
+/// extensions don't survive retries.
+fn clone_parts_for_retry(p: &http::request::Parts) -> http::request::Parts {
+	let (mut new, _body) = http::Request::new(()).into_parts();
+	new.method = p.method.clone();
+	new.uri = p.uri.clone();
+	new.version = p.version;
+	new.headers = p.headers.clone();
+	new
 }
 
 /// Build the per-instance pooled client. The connector accepts both
@@ -204,6 +292,9 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 		);
 	}
 
+	let retry = crate::fetch::retry::parse(args.get("retry"))
+		.map_err(|e| FactoryError(format!("args.retry: {e}")))?;
+
 	let scheme = if tls.is_some() { "https" } else { "http" };
 	let client = build_client(version, tls.as_ref());
 
@@ -212,6 +303,7 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 		version,
 		scheme,
 		client,
+		retry: Arc::new(retry),
 	})))
 }
 

@@ -1076,8 +1076,16 @@ mod tests {
 			Node::Terminate(TerminatorId::new(0)),
 		];
 		let fetches = vec![
-			SymbolicFetchRef { kind: FetchKind::L4Forward, args: serde_json::Value::Null },
-			SymbolicFetchRef { kind: FetchKind::HttpProxy, args: serde_json::Value::Null },
+			SymbolicFetchRef {
+				kind: FetchKind::L4Forward,
+				args: serde_json::Value::Null,
+				retry_buffer_required: false,
+			},
+			SymbolicFetchRef {
+				kind: FetchKind::HttpProxy,
+				args: serde_json::Value::Null,
+				retry_buffer_required: false,
+			},
 		];
 		assert_eq!(derive_listener_kind_for_test(&nodes, &fetches, NodeId::new(0)), ListenerKind::Auto);
 	}
@@ -1103,6 +1111,86 @@ mod tests {
 		let v4_http = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7804);
 		assert_eq!(decoded.meta.listener_kinds.get(&v4_raw), Some(&crate::ir::ListenerKind::Raw));
 		assert_eq!(decoded.meta.listener_kinds.get(&v4_http), Some(&crate::ir::ListenerKind::Http));
+	}
+
+	#[test]
+	fn lower_force_buffering_triggers_collect_body_before_request() {
+		// `retry: { max_attempts: 3, buffering: "force" }` flags the
+		// fetch node itself with `collect_body_before:
+		// Some(BodySide::Request)` so the executor buffers the body
+		// before the fetch runs. See `spec/architecture/05-terminator.md`
+		// § _Retry buffering_.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7900"],
+			"terminate": {
+				"type": "http_proxy",
+				"upstream": "127.0.0.1:8080",
+				"retry": { "max_attempts": 3, "buffering": "force" },
+			},
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let fetch_with_collect = graph.nodes.iter().find_map(|n| match n {
+			crate::ir::Node::Fetch {
+				collect_body_before: Some(crate::ir::BodySide::Request), ..
+			} => Some(()),
+			_ => None,
+		});
+		assert!(
+			fetch_with_collect.is_some(),
+			"force buffering must flag fetch with collect_body_before"
+		);
+	}
+
+	#[test]
+	fn lower_opportunistic_buffering_does_not_trigger_collect() {
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7901"],
+			"terminate": {
+				"type": "http_proxy",
+				"upstream": "127.0.0.1:8080",
+				"retry": { "max_attempts": 3, "buffering": "opportunistic" },
+			},
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let any_fetch_collects = graph.nodes.iter().any(|n| {
+			matches!(
+				n,
+				crate::ir::Node::Fetch { collect_body_before: Some(crate::ir::BodySide::Request), .. },
+			)
+		});
+		assert!(
+			!any_fetch_collects,
+			"opportunistic buffering must NOT flag fetch with collect_body_before",
+		);
+	}
+
+	#[test]
+	fn lower_max_attempts_one_with_force_does_not_trigger_collect() {
+		// `force` only means anything together with `max_attempts > 1`.
+		// Pinning `max_attempts: 1` keeps retry off and the buffering
+		// trigger inactive even when the JSON spells `force`.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7902"],
+			"terminate": {
+				"type": "http_proxy",
+				"upstream": "127.0.0.1:8080",
+				"retry": { "max_attempts": 1, "buffering": "force" },
+			},
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let any_fetch_collects = graph.nodes.iter().any(|n| {
+			matches!(
+				n,
+				crate::ir::Node::Fetch { collect_body_before: Some(crate::ir::BodySide::Request), .. },
+			)
+		});
+		assert!(!any_fetch_collects, "max_attempts=1 disables the force-buffering trigger");
 	}
 
 	#[test]

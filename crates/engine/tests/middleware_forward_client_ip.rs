@@ -173,7 +173,11 @@ fn link_graph(fwd_args: Value) -> (Arc<FlowGraph>, Arc<Mutex<Option<http::Header
 			Node::Terminate(TerminatorId::new(0)),
 		],
 		vec![l7_req_ref_with_args("forward_client_ip", fwd_args)],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 	let mut mw = MiddlewareFactories::new();
@@ -210,7 +214,11 @@ fn link_graph_expect_err(fwd_args: Value) -> String {
 			Node::Terminate(TerminatorId::new(0)),
 		],
 		vec![l7_req_ref_with_args("forward_client_ip", fwd_args)],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 	let mut mw = MiddlewareFactories::new();

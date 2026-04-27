@@ -104,7 +104,11 @@ fn synth_graph(listen: SocketAddr, args: serde_json::Value) -> Arc<FlowGraph> {
 		],
 		predicates: vec![],
 		middlewares: vec![],
-		fetches: vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args }],
+		fetches: vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args,
+			retry_buffer_required: false,
+		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
 		meta: sample_meta(),

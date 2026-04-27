@@ -107,6 +107,7 @@ fn ws_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 		fetches: vec![SymbolicFetchRef {
 			kind: FetchKind::WebSocketUpgrade,
 			args: serde_json::json!({ "upstream": upstream }),
+			retry_buffer_required: false,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
@@ -153,6 +154,7 @@ fn wss_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 					"verify_hostname": "localhost",
 				},
 			}),
+			retry_buffer_required: false,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,

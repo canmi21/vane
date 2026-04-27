@@ -724,7 +724,11 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 		],
 		vec![],
 		vec![],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 	let mw = MiddlewareFactories::new();
@@ -1148,7 +1152,11 @@ fn byte_tunnel_graph(tunnel: Tunnel) -> Arc<FlowGraph> {
 		],
 		vec![],
 		vec![],
-		vec![SymbolicFetchRef { kind: FetchKind::L4Forward, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::L4Forward,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::ByteTunnel],
 	);
 	let mw = MiddlewareFactories::new();
@@ -1202,7 +1210,11 @@ async fn execute_write_http_response_returns_response_output() {
 		],
 		vec![],
 		vec![],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 	let mw = MiddlewareFactories::new();
@@ -1261,7 +1273,11 @@ async fn execute_write_http_response_preserves_body_payload() {
 		],
 		vec![],
 		vec![],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 	let mw = MiddlewareFactories::new();
@@ -1584,7 +1600,11 @@ fn byte_tunnel_graph_with_notify(
 		],
 		vec![],
 		vec![],
-		vec![SymbolicFetchRef { kind: FetchKind::L4Forward, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::L4Forward,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::ByteTunnel],
 	);
 	let mw = MiddlewareFactories::new();
@@ -2044,7 +2064,11 @@ async fn execute_collect_response_stream_body_becomes_static() {
 			needs_body: true,
 			on_error: None,
 		}],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 
@@ -2102,7 +2126,11 @@ async fn execute_collect_response_body_over_limit_returns_err() {
 		],
 		vec![],
 		vec![l7_resp_ref("never_runs_resp")],
-		vec![SymbolicFetchRef { kind: FetchKind::HttpSynthesize, args: Value::Null }],
+		vec![SymbolicFetchRef {
+			kind: FetchKind::HttpSynthesize,
+			args: Value::Null,
+			retry_buffer_required: false,
+		}],
 		vec![Terminator::WriteHttpResponse],
 	);
 

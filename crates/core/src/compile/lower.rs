@@ -148,6 +148,29 @@ fn derive_listener_kind(
 	}
 }
 
+/// Peek at a fetch's `args.retry` JSON to decide whether the lower
+/// pass needs to flag the fetch node with `collect_body_before:
+/// Some(BodySide::Request)`. Returns `true` only when the policy
+/// has `max_attempts > 1` and `buffering: "force"`. The full retry
+/// schema is parsed by the engine's fetch factory; this helper is
+/// the minimum the lower pass needs to thread the buffering decision
+/// through to the graph shape.
+///
+/// `args` is the entire fetch args object; the helper looks for the
+/// `retry` sub-object and tolerates its absence.
+fn peek_retry_buffer_required(args: &serde_json::Value) -> bool {
+	let Some(retry) = args.get("retry") else {
+		return false;
+	};
+	let max_attempts = retry.get("max_attempts").and_then(serde_json::Value::as_u64).unwrap_or(1);
+	if max_attempts <= 1 {
+		return false;
+	}
+	let buffering =
+		retry.get("buffering").and_then(serde_json::Value::as_str).unwrap_or("opportunistic");
+	buffering == "force"
+}
+
 #[cfg(test)]
 pub(crate) mod test_only {
 	use super::{ListenerKind, Node, NodeId, SymbolicFetchRef, derive_listener_kind};
@@ -360,8 +383,12 @@ impl Builder {
 		// handoff). Single-output fetches reuse one terminator node on the
 		// active branch only.
 		let fetch_kind = rule.raw.terminate.kind;
-		let fid =
-			self.push_fetch(SymbolicFetchRef { kind: fetch_kind, args: rule.raw.terminate.args.clone() });
+		let retry_buffer_required = peek_retry_buffer_required(&rule.raw.terminate.args);
+		let fid = self.push_fetch(SymbolicFetchRef {
+			kind: fetch_kind,
+			args: rule.raw.terminate.args.clone(),
+			retry_buffer_required,
+		});
 		let (next_response, next_tunnel) = match fetch_kind {
 			FetchKind::HttpProxy | FetchKind::HttpSynthesize => {
 				let tid = self.intern_terminator(Terminator::WriteHttpResponse);
@@ -384,12 +411,24 @@ impl Builder {
 		let _ = fetch_meta;
 		let fetch_node_idx = self.nodes.len();
 		let fetch_node_id = NodeId::new(u32::try_from(fetch_node_idx).expect("node id fits u32"));
+		// `buffering: "force"` on a `max_attempts > 1` retry policy
+		// flags the fetch node itself with `collect_body_before:
+		// Some(BodySide::Request)` — the executor reads this at node
+		// entry, so by the time the fetch runs the body has been
+		// drained from the upstream `Body::Stream` into a
+		// `Body::Static` snapshot the retry loop can replay. See
+		// `spec/architecture/05-terminator.md` § _Retry buffering_.
+		let (fetch_collect, fetch_body_limit) = if retry_buffer_required {
+			(Some(BodySide::Request), rule.raw.max_body_bytes_request)
+		} else {
+			(None, 0)
+		};
 		self.nodes.push(Node::Fetch {
 			id: fid,
 			next_response,
 			next_tunnel,
-			collect_body_before: None,
-			body_limit: 0,
+			collect_body_before: fetch_collect,
+			body_limit: fetch_body_limit,
 		});
 
 		// Middleware chain, reverse-linked so each `next` points at the
