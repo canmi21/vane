@@ -19,8 +19,15 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use vane_core::{AsyncReadWrite, Error, UpstreamReason};
 
+use crate::fetch::client_cache::{RootCaSource, TlsConfigFingerprint, VerifyMode};
+
 /// Built TLS configuration for an upstream dial. Stored on each
 /// fetch's `Arc<…>` so the per-call `dial_upstream` only borrows.
+///
+/// `fingerprint` is the cache key for the daemon-wide
+/// `client_cache::ProxyClient` map; `parse_tls_args` populates every
+/// field except `alpn_protocols`, which the fetch factory patches in
+/// based on the resolved `UpstreamVersion`.
 #[derive(Clone)]
 pub struct UpstreamTls {
 	/// Reusable client config — built once at factory time. Cloning
@@ -32,6 +39,12 @@ pub struct UpstreamTls {
 	/// override (e.g. when the upstream is reachable as `127.0.0.1`
 	/// but its certificate is issued for `api.internal`).
 	pub verify_hostname: String,
+	/// Cache key for the daemon-wide `Client` cache. `alpn_protocols`
+	/// is left empty here — `parse_tls_args` does not see the fetch's
+	/// `version` setting; the factory patches the field once the
+	/// version is resolved. See `spec/architecture/08-tls.md`
+	/// § _Client cache: fingerprint and reuse_.
+	pub fingerprint: TlsConfigFingerprint,
 }
 
 /// Dial `upstream` and optionally complete a TLS handshake using the
@@ -189,7 +202,17 @@ pub fn parse_tls_args(
 		tls_args.get("insecure_skip_verify").and_then(serde_json::Value::as_bool).unwrap_or(false);
 	let client_config =
 		build_client_config(insecure).map_err(|e| format!("build tls client config: {e}"))?;
-	Ok(Some(UpstreamTls { client_config, verify_hostname }))
+	// Fingerprint with `alpn_protocols` left empty — the factory
+	// patches it once `version` is known. CRL / mTLS slots stay at
+	// their post-MVP placeholders.
+	let fingerprint = TlsConfigFingerprint {
+		root_ca: if insecure { RootCaSource::Skip } else { RootCaSource::System },
+		client_cert_hash: None,
+		crl_sources: Vec::new(),
+		verify_mode: if insecure { VerifyMode::Skip } else { VerifyMode::Full },
+		alpn_protocols: Vec::new(),
+	};
+	Ok(Some(UpstreamTls { client_config, verify_hostname, fingerprint }))
 }
 
 #[cfg(test)]

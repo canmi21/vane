@@ -37,6 +37,7 @@ use vane_core::{
 
 use crate::body_adapter::IncomingAdapter;
 use crate::factories::{FactoryError, FetchFactories};
+use crate::fetch::client_cache::{ClientFingerprint, ProxyClient};
 use crate::fetch::retry::RetryPolicy;
 use crate::fetch::upstream::{UpstreamTls, parse_tls_args};
 use crate::flow_graph::FetchInst;
@@ -44,21 +45,23 @@ use crate::flow_graph::FetchInst;
 /// Upstream HTTP-version posture. Pinned at factory time from
 /// `args.version`. `Http3` is reserved for an `h3` cargo feature; the
 /// factory rejects it on builds without that feature.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum UpstreamVersion {
 	Auto,
 	Http1,
 	Http2,
 }
 
-/// Reverse-proxy fetch backed by a per-instance pooled
-/// `legacy::Client`. One `HttpProxyFetch` is one logical upstream;
-/// the pool inside the client multiplexes on `(scheme, authority)`.
+/// Reverse-proxy fetch backed by a daemon-shared pooled
+/// `legacy::Client`. The `client` is an `Arc` into
+/// [`crate::fetch::client_cache`], so two fetches with the same
+/// `(version, tls)` posture share both the `ClientConfig` and the
+/// per-authority connection pool.
 pub struct HttpProxyFetch {
 	upstream: Arc<str>,
 	version: UpstreamVersion,
 	scheme: &'static str,
-	client: Client<HttpsConnector<HttpConnector>, Body>,
+	client: Arc<ProxyClient>,
 	retry: Arc<RetryPolicy>,
 }
 
@@ -295,8 +298,28 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 	let retry = crate::fetch::retry::parse(args.get("retry"))
 		.map_err(|e| FactoryError(format!("args.retry: {e}")))?;
 
+	// Compute the cache key. The connector wires ALPN via
+	// `enable_http1` / `enable_http2`, which is `version`-driven, so
+	// we patch the version-specific ALPN list into the parsed TLS
+	// fingerprint here (parse_tls_args has no `version` to consult).
+	// Cleartext upstreams keep `tls: None` and still share by version.
+	let alpn_protocols = match version {
+		UpstreamVersion::Auto => vec![b"h2".to_vec(), b"http/1.1".to_vec()],
+		UpstreamVersion::Http1 => vec![b"http/1.1".to_vec()],
+		UpstreamVersion::Http2 => vec![b"h2".to_vec()],
+	};
+	let tls_fp = tls.as_ref().map(|t| {
+		let mut fp = t.fingerprint.clone();
+		fp.alpn_protocols = alpn_protocols;
+		fp
+	});
+	let client_fp = ClientFingerprint { version, tls: tls_fp };
+	let tls_for_build = tls.clone();
+	let client = crate::fetch::client_cache::get_or_build(client_fp, move || {
+		build_client(version, tls_for_build.as_ref())
+	});
+
 	let scheme = if tls.is_some() { "https" } else { "http" };
-	let client = build_client(version, tls.as_ref());
 
 	Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
 		upstream: Arc::from(upstream),

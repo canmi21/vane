@@ -47,8 +47,16 @@ fn rcgen_server_config() -> Arc<rustls::ServerConfig> {
 
 /// `insecure_skip_verify: true` [`UpstreamTls`] bound to `localhost`.
 fn skip_verify_tls() -> UpstreamTls {
+	use vane_engine::fetch::client_cache::{RootCaSource, TlsConfigFingerprint, VerifyMode};
 	let client_config = build_client_config(true).expect("build insecure client config");
-	UpstreamTls { client_config, verify_hostname: "localhost".to_string() }
+	let fingerprint = TlsConfigFingerprint {
+		root_ca: RootCaSource::Skip,
+		client_cert_hash: None,
+		crl_sources: Vec::new(),
+		verify_mode: VerifyMode::Skip,
+		alpn_protocols: Vec::new(),
+	};
+	UpstreamTls { client_config, verify_hostname: "localhost".to_string(), fingerprint }
 }
 
 /// Binds an ephemeral TLS server, accepts one connection, runs

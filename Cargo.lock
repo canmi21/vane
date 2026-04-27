@@ -1913,6 +1913,7 @@ dependencies = [
  "rustls-pki-types",
  "serde",
  "serde_json",
+ "serial_test",
  "tempfile",
  "thiserror",
  "tokio",

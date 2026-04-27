@@ -63,4 +63,5 @@ x509-parser = "0.18"
 async-trait = { workspace = true }
 http-body-util = "0.1"
 rcgen = "0.14"
+serial_test = "3"
 tempfile = "3"
