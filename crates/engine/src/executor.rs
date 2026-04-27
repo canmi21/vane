@@ -116,8 +116,15 @@ pub async fn execute(
 
 		match node {
 			Node::Check { predicate, on_match, on_miss, .. } => {
-				let view = PredicateView::build(conn, req.as_ref(), l4.as_ref());
+				// Hold the user-extension lock for exactly the lifetime of
+				// the view: the peek slice borrows from the `PeekResult`
+				// inside the guard, and the predicate `test` call needs to
+				// read it before we release.
+				let user = conn.user.lock();
+				let peek = user.get::<vane_core::PeekResult>().map(|r| r.buffer.as_ref());
+				let view = PredicateView::build(conn, req.as_ref(), l4.as_ref(), peek);
 				let matched = sym[*predicate].test(&view);
+				drop(user);
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Check, Some(matched));
 				cur = if matched { *on_match } else { *on_miss };
 			}
@@ -125,10 +132,25 @@ pub async fn execute(
 			Node::Middleware { id, next, on_error, .. } => {
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Middleware, None);
 				let outcome = match &graph[*id] {
-					MiddlewareInst::L4Peek(_) => {
-						let e =
-							Error::internal("L4Peek dispatch deferred — peek buffer wiring lands with S1-16");
-						return finish_error(ctx, conn, &mut seq, cur, e);
+					MiddlewareInst::L4Peek(m) => {
+						// PeekResult is keyed in `ConnContext.user` by the
+						// listener-side prelude. Cloning the `Bytes` here is
+						// cheap (refcounted) and lets us drop the user-
+						// extension lock before the await — middleware bodies
+						// are free to take their own `conn.user` locks
+						// without deadlocking on themselves.
+						let peek_buf: Option<bytes::Bytes> = {
+							let user = conn.user.lock();
+							user.get::<vane_core::PeekResult>().map(|r| r.buffer.clone())
+						};
+						if peek_buf.is_none() {
+							tracing::warn!(
+								conn_id = %conn.id,
+								"L4Peek dispatched without PeekResult — listener prelude must run first",
+							);
+						}
+						let peek_slice: &[u8] = peek_buf.as_deref().unwrap_or(&[]);
+						m.run(peek_slice, conn, ctx).await
 					}
 					MiddlewareInst::L4Bytes(m) => {
 						let l4_ref = l4.as_mut().expect("phase invariant: L4Bytes needs L4Conn");

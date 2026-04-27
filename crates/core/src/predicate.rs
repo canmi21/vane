@@ -287,18 +287,21 @@ impl<'a> PredicateView<'a> {
 	/// `PredicateInst::test`. Picks `L7Req` when a `Request` is in scope
 	/// (phase `L7Request`), otherwise falls back to `L4`.
 	///
-	/// `peek` defaults to `None`; the peek buffer wiring on
-	/// `ConnContext` is owned by `protocol_detect` (S1-16). Predicates
-	/// on `FieldPath::Peek` evaluate to `false` until that lands.
+	/// `peek` carries the bytes the listener-side prelude buffered on
+	/// the connection — see `spec/architecture/06-l4.md` § _Protocol
+	/// detection_. The executor extracts it from `ConnContext.user`
+	/// (where the listener stashed a `PeekResult`) and forwards a
+	/// borrow with a lifetime that outlives this view.
 	#[must_use]
 	pub fn build(
 		conn: &'a Arc<ConnContext>,
 		req: Option<&'a Request>,
 		_l4: Option<&'a crate::l4::L4Conn>,
+		peek: Option<&'a [u8]>,
 	) -> Self {
 		match req {
 			Some(r) => Self::L7Req { conn, req: r },
-			None => Self::L4 { conn, peek: None },
+			None => Self::L4 { conn, peek },
 		}
 	}
 
