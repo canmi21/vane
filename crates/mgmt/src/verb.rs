@@ -137,7 +137,7 @@ mod tests {
 
 	#[test]
 	fn ping_result_round_trips() {
-		let r = PingResult { pong: true, version: "0.10.0".to_string() };
+		let r = PingResult { pong: true, version: env!("CARGO_PKG_VERSION").to_string() };
 		assert_eq!(round_trip(&r), r);
 	}
 

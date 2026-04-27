@@ -1800,7 +1800,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vane"
-version = "0.10.0"
+version = "0.10.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1814,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "vane-core"
-version = "0.10.0"
+version = "0.10.2"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1842,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "vane-engine"
-version = "0.10.0"
+version = "0.10.2"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "vane-mgmt"
-version = "0.10.0"
+version = "0.10.2"
 dependencies = [
  "async-trait",
  "serde",
@@ -1892,7 +1892,7 @@ dependencies = [
 
 [[package]]
 name = "vane-tests"
-version = "0.10.0"
+version = "0.10.2"
 dependencies = [
  "vane-core",
  "vane-testutil",
@@ -1900,7 +1900,7 @@ dependencies = [
 
 [[package]]
 name = "vane-testutil"
-version = "0.10.0"
+version = "0.10.2"
 dependencies = [
  "hyper",
  "tokio",
@@ -1909,14 +1909,14 @@ dependencies = [
 
 [[package]]
 name = "vane-wasm"
-version = "0.10.0"
+version = "0.10.2"
 dependencies = [
  "vane-core",
 ]
 
 [[package]]
 name = "vaned"
-version = "0.10.0"
+version = "0.10.2"
 dependencies = [
  "anyhow",
  "arc-swap",

@@ -39,7 +39,7 @@ tokio-util = "0.7.18"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 vane-core = { workspace = true }
-vane-engine = { path = "../engine", version = "0.10.0", default-features = false }
+vane-engine = { path = "../engine", version = "0.10.2", default-features = false }
 vane-mgmt = { workspace = true }
 vane-wasm = { workspace = true, optional = true }
 
@@ -64,7 +64,7 @@ serde_json = "1.0.149"
 tempfile = "3"
 tokio = { version = "1.52.1", features = ["full"] }
 tokio-rustls = { version = "0.26", default-features = false }
-vane-engine = { path = "../engine", version = "0.10.0", default-features = false }
+vane-engine = { path = "../engine", version = "0.10.2", default-features = false }
 vane-mgmt = { workspace = true }
 
 [[bin]]
