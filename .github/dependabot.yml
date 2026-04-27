@@ -1,0 +1,45 @@
+# Dependabot version-update config for the vane workspace.
+# Reference: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Rust crates — Cargo workspace rooted at the repo top.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: chore(deps)
+      include: scope
+
+  # JS dev tooling — package.json declares commitlint + dprint helpers.
+  # Dependabot reads package.json against the npm registry; it does
+  # not speak bun, so bun.lock is not refreshed automatically. After
+  # merging an npm bump, run `bun install` locally to resync the lock.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: chore(deps)
+      include: scope
+
+  # GitHub Actions — uncomment when the first workflow file lands
+  # under .github/workflows/ (Stage 2 per spec/roadmap.md § _CI ambition_).
+  # - package-ecosystem: github-actions
+  #   directory: /
+  #   schedule:
+  #     interval: weekly
+  #   commit-message:
+  #     prefix: chore(deps)
+  #     include: scope
