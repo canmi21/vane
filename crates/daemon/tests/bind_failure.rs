@@ -11,6 +11,7 @@
 //! `BOOT_HEALTH_EXIT` → `ExitCode::FAILURE` path is exercised
 //! end-to-end (a unit test could only assert the static was set).
 
+use std::future::Future;
 use std::io::Read;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -21,6 +22,31 @@ use std::time::{Duration, Instant};
 use assert_cmd::cargo::CommandCargoExt;
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{NoArgs, StatsResult, VERB_STATS};
+
+/// Poll `f` every 50ms until it returns `Some(v)`, then yield `v`.
+/// Panics if `deadline` elapses without success — the call site should
+/// pick a deadline that's a generous upper bound on the work being
+/// observed (e.g. boot-health timeout + spawn jitter), not a tight
+/// expectation. 50ms is the poll interval everywhere in this file —
+/// shorter is CPU noise, longer leaves observable transitions
+/// unnoticed.
+async fn poll_until<T, F, Fut>(deadline: Duration, mut f: F) -> T
+where
+	F: FnMut() -> Fut,
+	Fut: Future<Output = Option<T>>,
+{
+	let start = Instant::now();
+	loop {
+		if let Some(v) = f().await {
+			return v;
+		}
+		assert!(
+			start.elapsed() < deadline,
+			"poll_until: deadline {deadline:?} exceeded without observing the expected condition",
+		);
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
+}
 
 struct Daemon {
 	child: std::process::Child,
@@ -155,16 +181,30 @@ async fn bind_failure_partial_continues_serving() {
 		rule_static_site("blocked", blocked_port, "x"),
 		rule_static_site("free", free_port, "y"),
 	);
-	let d = spawn_vaned(&rules, 3);
+	let boot_health_secs = 3;
+	let d = spawn_vaned(&rules, boot_health_secs);
 	wait_for_socket(&d.socket, Duration::from_secs(5));
 
 	// Wait past the boot-health deadline so the watchdog has a chance
-	// to fire (which, on partial bind, must not exit). 4s > 3s timeout.
-	tokio::time::sleep(Duration::from_secs(4)).await;
-
+	// to fire (on partial bind it must log + continue, not exit). The
+	// daemon-side `uptime_ms` field is the cleanest "watchdog has had
+	// its chance" signal — it advances in real time regardless of
+	// listener state. Polling on it (rather than sleeping a flat
+	// 4 seconds) gives back a couple of fixed seconds per run while
+	// still observing the post-deadline behaviour. 5s deadline is a
+	// generous upper bound on `boot_health + spawn jitter`, not the
+	// expected wallclock; the loop typically returns ~50ms after the
+	// uptime crosses the threshold.
+	let boot_health_ms = boot_health_secs * 1_000;
 	let client = UnixMgmtClient::new(&d.socket);
-	let stats: StatsResult =
-		client.call(VERB_STATS, &NoArgs {}).await.expect("stats after boot-health timeout");
+	let stats: StatsResult = poll_until(Duration::from_secs(5), || async {
+		let result: Result<StatsResult, _> = client.call(VERB_STATS, &NoArgs {}).await;
+		match result {
+			Ok(s) if s.uptime_ms >= boot_health_ms => Some(s),
+			_ => None,
+		}
+	})
+	.await;
 	let bound: Vec<&str> =
 		stats.listeners.iter().filter(|l| l.bound).map(|l| l.addr.as_str()).collect();
 	assert_eq!(bound.len(), 1, "exactly one listener bound; got {bound:?}");
