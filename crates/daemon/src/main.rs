@@ -190,6 +190,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	]));
 	let verbosity = Arc::new(VerbosityState::new());
 
+	// Install POSIX shutdown-signal streams BEFORE any listener starts.
+	// `tokio::signal::unix::signal()` registers the kernel-level handler
+	// eagerly; from this point on SIGTERM / SIGINT are queued onto the
+	// streams instead of taking their default termination disposition.
+	// Wiring this earlier closes a startup race where a SIGINT delivered
+	// between `listeners.start()` (port becomes reachable, which is the
+	// readiness signal supervisors use) and the previous handler-install
+	// site inside `wait_for_shutdown_signal` would kill the daemon
+	// outright. The streams are awaited at the end of `main` via
+	// [`wait_for_shutdown_signal`].
+	let sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+	let sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
+
 	let listeners = Arc::new(ListenerSet::new());
 	listeners.start(Arc::clone(&graph_swap), Arc::clone(&verbosity), Arc::clone(&sink));
 	tracing::info!(active = listeners.len(), "listeners started");
@@ -264,6 +277,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		mgmt_cancel,
 		mgmt_handle,
 		shutdown_trigger,
+		sigterm,
+		sigint,
 	)
 	.await;
 	Ok(())
@@ -397,6 +412,7 @@ fn spawn_boot_health_watchdog(
 	});
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn wait_for_shutdown_signal(
 	listeners: Arc<ListenerSet>,
 	watcher_cancel: CancellationToken,
@@ -404,9 +420,9 @@ async fn wait_for_shutdown_signal(
 	mgmt_cancel: CancellationToken,
 	mgmt_handle: Option<tokio::task::JoinHandle<()>>,
 	mgmt_shutdown_trigger: CancellationToken,
+	mut sigterm: tokio::signal::unix::Signal,
+	mut sigint: tokio::signal::unix::Signal,
 ) {
-	let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
-	let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
 	let drain = tokio::select! {
 		_ = sigterm.recv() => {
 			tracing::info!("SIGTERM received — soft drain (30s)");
