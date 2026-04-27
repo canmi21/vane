@@ -12,13 +12,6 @@
 //! - `--config <DIR>` / `-c <DIR>` — config tree root, default
 //!   `/etc/vaned`. Walked by `vane_core::config::load`.
 //!
-//! Several capabilities are intentionally not wired in this stage:
-//! TODO(listener-set-diff): the file watcher refreshes the runtime
-//!   `Arc<FlowGraph>` atomically, but `ListenerSet` does not add/remove
-//!   sockets across reloads. Editing rules to introduce a new `listen`
-//!   port still requires a daemon restart; the new port won't bind
-//!   until then.
-//!
 //! The boot health watchdog (`spawn_boot_health_watchdog`) covers the
 //! "all listeners failed to bind" case: on a configurable timeout
 //! (`VANE_BOOT_HEALTH_TIMEOUT_SECS`, default 60s) with zero successful
@@ -45,12 +38,12 @@ use tracing_subscriber::EnvFilter;
 use vane_core::FlowLogSink;
 use vane_core::compile::compile;
 use vane_core::version::{BuildInfo, format_version};
-use vane_engine::ListenerSet;
 use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::{BroadcastSink, FanoutSink, default_sink_from_env};
 use vane_engine::tracing_broadcast::BroadcastTracingLayer;
+use vane_engine::{BindConfig, ListenerSet};
 
 use crate::mgmt_handlers::MgmtState;
 use crate::providers::MetadataProviders;
@@ -107,14 +100,6 @@ struct Args {
 /// exits with a non-zero code — supervisors then restart cleanly
 /// instead of leaving an empty daemon up.
 static BOOT_HEALTH_EXIT: AtomicBool = AtomicBool::new(false);
-
-/// Default budget for every expected listener to flip its `bind_ready`
-/// flag. Overridable via `VANE_BOOT_HEALTH_TIMEOUT_SECS` for tests and
-/// for operators on slow networks where a temporarily occupied port
-/// is expected to free up. Total bind retry budget per listener is
-/// already capped by `MAX_BIND_ATTEMPTS` × `BIND_BACKOFF_MAX` inside
-/// the engine.
-const BOOT_HEALTH_TIMEOUT_DEFAULT_SECS: u64 = 60;
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
@@ -203,7 +188,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
 	let sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
 
-	let listeners = Arc::new(ListenerSet::new());
+	let listeners = Arc::new(ListenerSet::from_bind_config(BindConfig::from(&loaded.env)));
 	listeners.start(Arc::clone(&graph_swap), Arc::clone(&verbosity), Arc::clone(&sink));
 	tracing::info!(active = listeners.len(), "listeners started");
 
@@ -224,6 +209,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 			Arc::clone(&listeners),
 			shutdown_trigger.clone(),
 			expected_listener_count,
+			loaded.env.boot_health_timeout_secs,
 		);
 	}
 
@@ -279,6 +265,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		shutdown_trigger,
 		sigterm,
 		sigint,
+		Duration::from_secs(loaded.env.drain_timeout_secs.into()),
 	)
 	.await;
 	Ok(())
@@ -375,11 +362,9 @@ fn spawn_boot_health_watchdog(
 	listeners: Arc<ListenerSet>,
 	shutdown_trigger: CancellationToken,
 	expected: usize,
+	timeout_secs: u32,
 ) {
-	let timeout_secs = std::env::var("VANE_BOOT_HEALTH_TIMEOUT_SECS")
-		.ok()
-		.and_then(|s| s.parse::<u64>().ok())
-		.unwrap_or(BOOT_HEALTH_TIMEOUT_DEFAULT_SECS);
+	let timeout_secs = u64::from(timeout_secs);
 	tokio::spawn(async move {
 		let deadline = Instant::now() + Duration::from_secs(timeout_secs);
 		loop {
@@ -422,19 +407,20 @@ async fn wait_for_shutdown_signal(
 	mgmt_shutdown_trigger: CancellationToken,
 	mut sigterm: tokio::signal::unix::Signal,
 	mut sigint: tokio::signal::unix::Signal,
+	soft_drain: Duration,
 ) {
 	let drain = tokio::select! {
 		_ = sigterm.recv() => {
-			tracing::info!("SIGTERM received — soft drain (30s)");
-			Duration::from_secs(30)
+			tracing::info!(drain_secs = soft_drain.as_secs(), "SIGTERM received — soft drain");
+			soft_drain
 		}
 		_ = sigint.recv() => {
 			tracing::info!("SIGINT received — immediate shutdown");
 			Duration::from_secs(0)
 		}
 		() = mgmt_shutdown_trigger.cancelled() => {
-			tracing::info!("mgmt shutdown verb received — soft drain (30s)");
-			Duration::from_secs(30)
+			tracing::info!(drain_secs = soft_drain.as_secs(), "mgmt shutdown verb received — soft drain");
+			soft_drain
 		}
 	};
 	watcher_cancel.cancel();

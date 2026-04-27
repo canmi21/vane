@@ -50,6 +50,21 @@ pub struct Env {
 	pub sec_header_timeout_secs: u32,
 	/// `VANE_SEC_MAX_CONN_PER_IP` — per-IP concurrent-connection cap (default 100).
 	pub sec_max_conn_per_ip: u32,
+	/// `VANE_BIND_MAX_ATTEMPTS` — bind-retry count per listener address (default 10).
+	pub bind_max_attempts: u32,
+	/// `VANE_BIND_BACKOFF_INITIAL_MS` — initial retry backoff in milliseconds (default 100).
+	pub bind_backoff_initial_ms: u32,
+	/// `VANE_BIND_BACKOFF_MAX_MS` — retry backoff cap in milliseconds (default 5000).
+	pub bind_backoff_max_ms: u32,
+	/// `VANE_FORCE_CANCEL_GRACE_SECS` — secondary grace window after `force_cancel` fires,
+	/// seconds (default 5). Applies to both SIGTERM drain and removed-listener reconcile.
+	pub force_cancel_grace_secs: u32,
+	/// `VANE_DRAIN_TIMEOUT_SECS` — in-flight connection drain budget for reload and SIGTERM,
+	/// seconds (default 30).
+	pub drain_timeout_secs: u32,
+	/// `VANE_BOOT_HEALTH_TIMEOUT_SECS` — budget for all listeners to flip `bind_ready`,
+	/// seconds (default 60). Partial bind (some bound, some failed) stays a warn.
+	pub boot_health_timeout_secs: u32,
 	/// `VANE_MGMT_UNIX` — management Unix socket path (default `/var/run/vaned.sock`).
 	pub mgmt_unix: PathBuf,
 	/// `VANE_MGMT_HTTP_BIND` — optional HTTP management endpoint (`None`
@@ -89,6 +104,12 @@ impl Env {
 			sec_max_headers_count: parse_u32_default(r, "VANE_SEC_MAX_HEADERS_COUNT", 100)?,
 			sec_header_timeout_secs: parse_u32_default(r, "VANE_SEC_HEADER_TIMEOUT", 30)?,
 			sec_max_conn_per_ip: parse_u32_default(r, "VANE_SEC_MAX_CONN_PER_IP", 100)?,
+			bind_max_attempts: parse_u32_default(r, "VANE_BIND_MAX_ATTEMPTS", 10)?,
+			bind_backoff_initial_ms: parse_u32_default(r, "VANE_BIND_BACKOFF_INITIAL_MS", 100)?,
+			bind_backoff_max_ms: parse_u32_default(r, "VANE_BIND_BACKOFF_MAX_MS", 5_000)?,
+			force_cancel_grace_secs: parse_u32_default(r, "VANE_FORCE_CANCEL_GRACE_SECS", 5)?,
+			drain_timeout_secs: parse_u32_default(r, "VANE_DRAIN_TIMEOUT_SECS", 30)?,
+			boot_health_timeout_secs: parse_u32_default(r, "VANE_BOOT_HEALTH_TIMEOUT_SECS", 60)?,
 			mgmt_unix: r
 				.get("VANE_MGMT_UNIX")
 				.map_or_else(|| PathBuf::from("/var/run/vaned.sock"), PathBuf::from),

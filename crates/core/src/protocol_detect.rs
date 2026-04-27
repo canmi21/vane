@@ -29,8 +29,8 @@ pub enum DetectedProtocol {
 #[derive(Clone, Debug, Default)]
 pub struct TlsClientHello {
 	pub sni: Option<String>,
+	/// ALPN protocol IDs offered by the client in the `ClientHello`.
 	pub alpn: Vec<Vec<u8>>,
-	pub versions: Vec<u16>,
 }
 
 /// Maximum number of bytes the listener-side peek prelude accumulates
@@ -70,7 +70,6 @@ mod tests {
 		let h = TlsClientHello::default();
 		assert!(h.sni.is_none());
 		assert!(h.alpn.is_empty());
-		assert!(h.versions.is_empty());
 	}
 
 	#[test]

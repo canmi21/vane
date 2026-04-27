@@ -175,13 +175,7 @@ fn parse_client_hello(buf: &[u8]) -> TlsClientHello {
 	let sni = hello.server_name().map(str::to_ascii_lowercase);
 	let alpn: Vec<Vec<u8>> =
 		hello.alpn().map_or_else(Vec::new, |it| it.map(<[u8]>::to_vec).collect());
-	// `versions` is left empty: rustls 0.23's `ClientHello` accessor
-	// surface (`server_name` / `signature_schemes` / `alpn` /
-	// `cipher_suites`) does not expose the `supported_versions`
-	// extension. Predicates that branch on it will land alongside an
-	// upstream rustls accessor or a hand-rolled extension parser.
-	// TODO(s2-tls-versions): populate when accessor lands.
-	TlsClientHello { sni, alpn, versions: Vec::new() }
+	TlsClientHello { sni, alpn }
 }
 
 #[cfg(test)]

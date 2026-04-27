@@ -64,16 +64,22 @@ pub struct LoadedConfig {
 pub fn load(config_dir: &Path) -> Result<LoadedConfig, Error> {
 	let env_path = config_dir.join(".env");
 	if env_path.is_file() {
-		// dotenvy errors are heterogeneous in 0.15: file-not-found vs.
-		// permission-denied vs. parse-failure share an opaque enum. The
-		// `.is_file()` guard already screens the most common "no .env at
-		// all" case; remaining failures (malformed file, ENOENT racing
-		// with the guard) are surfaced via `tracing::warn!` so operators
-		// see them in the daemon log without aborting startup.
-		// TODO: upgrade to richer error matching when dotenvy gains a
-		// stable error enum.
-		if let Err(e) = dotenvy::from_path(&env_path) {
-			tracing::warn!(path = %env_path.display(), error = %e, ".env load failed; falling back to OS env only");
+		// `.env` is an optional operator override — a missing file is
+		// normal and must not produce noise. The `.is_file()` guard
+		// handles the common case; the `NotFound` arm below covers the
+		// race where the file disappears between the guard and the open.
+		// Other failures (malformed syntax, permission denied) are real
+		// problems the operator should see.
+		match dotenvy::from_path(&env_path) {
+			Ok(()) => {}
+			Err(dotenvy::Error::Io(ref io_err)) if io_err.kind() == std::io::ErrorKind::NotFound => {}
+			Err(e) => {
+				tracing::warn!(
+					path = %env_path.display(),
+					error = %e,
+					".env parse failed; using OS env only",
+				);
+			}
 		}
 	}
 

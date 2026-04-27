@@ -32,7 +32,7 @@ use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
 	ConnContext, ConnId, FlowCtx, FlowLogSink, HttpVersion, L4Conn, NodeId, TlsInfo, TlsVersion,
-	TrajectoryBuilder, Transport,
+	TrajectoryBuilder, Transport, config::Env,
 };
 
 use crate::executor::{ExecutorInput, execute};
@@ -50,21 +50,54 @@ use vane_core::{MAX_PEEK_BYTES, PeekResult};
 // security floor lands.
 const PEEK_DEADLINE: Duration = Duration::from_secs(5);
 
-// 01-topology.md § _Bind_ / _Daemon lifecycle_:
-//   max_bind_attempts default 10, exponential backoff 100ms → 5s cap.
-//   drain_timeout default 30s (pass into `shutdown`).
-// TODO(s1-config): wire from config when 09-config.md lands; for now these
-// are MVP-hardcoded constants exposed only for tests via the shadowing
-// `_for_test` helpers below.
-const MAX_BIND_ATTEMPTS: u32 = 10;
-const BIND_BACKOFF_INITIAL: Duration = Duration::from_millis(100);
-const BIND_BACKOFF_MAX: Duration = Duration::from_secs(5);
-const FORCE_CANCEL_GRACE: Duration = Duration::from_secs(5);
-/// Per-listener drain budget when an address is removed across a hot
-/// reload. Mirrors the SIGTERM drain default — operators can rely on
-/// the same time bound for both shutdown and removed-listener drain.
-const RECONCILE_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 const TCP_LISTEN_BACKLOG: u32 = 1024;
+
+/// Operational knobs for the listener subsystem. All values have
+/// spec-defined defaults (01-topology.md § _Bind_ / _Listener lifecycle_);
+/// operators override via the `VANE_*` env vars documented in
+/// `spec/architecture/09-config.md`.
+#[derive(Clone, Debug)]
+pub struct BindConfig {
+	/// Bind-retry count per address (`VANE_BIND_MAX_ATTEMPTS`, default 10).
+	pub max_bind_attempts: u32,
+	/// Initial exponential-backoff delay between bind retries
+	/// (`VANE_BIND_BACKOFF_INITIAL_MS`, default 100 ms).
+	pub bind_backoff_initial: Duration,
+	/// Cap for exponential-backoff delay
+	/// (`VANE_BIND_BACKOFF_MAX_MS`, default 5 s).
+	pub bind_backoff_max: Duration,
+	/// Secondary grace window after `force_cancel` fires before the abort
+	/// hammer drops (`VANE_FORCE_CANCEL_GRACE_SECS`, default 5 s).
+	/// Applies to both SIGTERM drain and removed-listener reconcile.
+	pub force_cancel_grace: Duration,
+	/// Drain budget for in-flight connections when a listener is removed
+	/// during reconcile (`VANE_DRAIN_TIMEOUT_SECS`, default 30 s).
+	pub reconcile_drain_timeout: Duration,
+}
+
+impl Default for BindConfig {
+	fn default() -> Self {
+		Self {
+			max_bind_attempts: 10,
+			bind_backoff_initial: Duration::from_millis(100),
+			bind_backoff_max: Duration::from_secs(5),
+			force_cancel_grace: Duration::from_secs(5),
+			reconcile_drain_timeout: Duration::from_secs(30),
+		}
+	}
+}
+
+impl From<&Env> for BindConfig {
+	fn from(env: &Env) -> Self {
+		Self {
+			max_bind_attempts: env.bind_max_attempts,
+			bind_backoff_initial: Duration::from_millis(env.bind_backoff_initial_ms.into()),
+			bind_backoff_max: Duration::from_millis(env.bind_backoff_max_ms.into()),
+			force_cancel_grace: Duration::from_secs(env.force_cancel_grace_secs.into()),
+			reconcile_drain_timeout: Duration::from_secs(env.drain_timeout_secs.into()),
+		}
+	}
+}
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -83,14 +116,14 @@ fn unix_ms_now() -> u64 {
 ///
 /// Listener configuration changes only occur at boot and reload
 /// (01-topology.md § _Listener lifecycle_). `start` is idempotent on
-/// duplicate addresses (already-running keys are skipped with a warn —
-/// reload's reconcile pass lands in S1-28 and replaces this).
+/// duplicate addresses (already-running keys are skipped with a warn).
 pub struct ListenerSet {
 	running: Mutex<HashMap<SocketAddr, ListenerHandle>>,
 	/// Daemon-wide live-connection registry. Populated at accept time
 	/// and cleaned up via [`ConnRegistration`] when the per-connection
 	/// task ends. Read by the mgmt `list_connections` verb.
 	connections: Arc<DashMap<ConnId, ConnEntry>>,
+	bind_cfg: Arc<BindConfig>,
 }
 
 /// One in-flight connection's projection for the management plane.
@@ -152,9 +185,23 @@ impl Drop for InFlightGuard {
 }
 
 impl ListenerSet {
+	/// Create a [`ListenerSet`] with default [`BindConfig`] values.
+	/// Production callers use [`Self::from_bind_config`] to apply
+	/// operator-controlled env-var overrides.
 	#[must_use]
 	pub fn new() -> Self {
-		Self { running: Mutex::new(HashMap::new()), connections: Arc::new(DashMap::new()) }
+		Self::from_bind_config(BindConfig::default())
+	}
+
+	/// Create a [`ListenerSet`] from an explicit [`BindConfig`].
+	/// Typically called as `ListenerSet::from_bind_config(BindConfig::from(&env))`.
+	#[must_use]
+	pub fn from_bind_config(cfg: BindConfig) -> Self {
+		Self {
+			running: Mutex::new(HashMap::new()),
+			connections: Arc::new(DashMap::new()),
+			bind_cfg: Arc::new(cfg),
+		}
 	}
 
 	/// Snapshot the in-flight connection registry. Each entry is cloned
@@ -231,6 +278,7 @@ impl ListenerSet {
 				Arc::clone(&in_flight_count),
 				Arc::clone(&bind_ready),
 				Arc::clone(&self.connections),
+				Arc::clone(&self.bind_cfg),
 			));
 
 			running.insert(
@@ -376,7 +424,8 @@ impl ListenerSet {
 				// Stage 3: signal in-flight executors to unwind.
 				force_cancel.cancel();
 				// Secondary grace window for cooperative shutdown.
-				let _ = tokio::time::timeout(FORCE_CANCEL_GRACE, drain_in_flight(&in_flight)).await;
+				let _ =
+					tokio::time::timeout(self.bind_cfg.force_cancel_grace, drain_in_flight(&in_flight)).await;
 				// Stage 4: anything still alive gets the abort hammer.
 				let mut g = in_flight.lock().await;
 				g.abort_all();
@@ -429,7 +478,12 @@ impl ListenerSet {
 		for addr in removed {
 			if let Some(handle) = running.remove(&addr) {
 				tracing::info!(?addr, "reconcile: removing listener");
-				tokio::spawn(drain_handle_async(addr, handle));
+				tokio::spawn(drain_handle_async(
+					addr,
+					handle,
+					self.bind_cfg.force_cancel_grace,
+					self.bind_cfg.reconcile_drain_timeout,
+				));
 			}
 		}
 
@@ -455,6 +509,7 @@ impl ListenerSet {
 				Arc::clone(&in_flight_count),
 				Arc::clone(&bind_ready),
 				Arc::clone(&self.connections),
+				Arc::clone(&self.bind_cfg),
 			));
 			running.insert(
 				addr,
@@ -478,7 +533,12 @@ impl ListenerSet {
 /// per-listener stages of [`ListenerSet::shutdown`] but runs as a
 /// `tokio::spawn`'d task so [`ListenerSet::reconcile`] returns
 /// immediately.
-async fn drain_handle_async(addr: SocketAddr, handle: ListenerHandle) {
+async fn drain_handle_async(
+	addr: SocketAddr,
+	handle: ListenerHandle,
+	force_cancel_grace: Duration,
+	reconcile_drain_timeout: Duration,
+) {
 	let ListenerHandle {
 		accept_cancel,
 		force_cancel,
@@ -493,14 +553,14 @@ async fn drain_handle_async(addr: SocketAddr, handle: ListenerHandle) {
 	let _ = join.await;
 
 	// Soft drain.
-	if tokio::time::timeout(RECONCILE_DRAIN_TIMEOUT, drain_in_flight(&in_flight)).await.is_ok() {
+	if tokio::time::timeout(reconcile_drain_timeout, drain_in_flight(&in_flight)).await.is_ok() {
 		tracing::info!(?addr, "reconcile drain complete");
 		return;
 	}
 
 	tracing::warn!(?addr, "reconcile drain timed out; firing force_cancel for in-flight");
 	force_cancel.cancel();
-	let _ = tokio::time::timeout(FORCE_CANCEL_GRACE, drain_in_flight(&in_flight)).await;
+	let _ = tokio::time::timeout(force_cancel_grace, drain_in_flight(&in_flight)).await;
 	let mut g = in_flight.lock().await;
 	g.abort_all();
 	while g.join_next().await.is_some() {}
@@ -533,11 +593,20 @@ async fn run_accept_loop(
 	in_flight_count: Arc<AtomicUsize>,
 	bind_ready: Arc<AtomicBool>,
 	connections: Arc<DashMap<ConnId, ConnEntry>>,
+	bind_cfg: Arc<BindConfig>,
 ) {
-	let Some(listener) = bind_with_retry(addr, &accept_cancel, MAX_BIND_ATTEMPTS).await else {
+	let Some(listener) = bind_with_retry(
+		addr,
+		&accept_cancel,
+		bind_cfg.max_bind_attempts,
+		bind_cfg.bind_backoff_initial,
+		bind_cfg.bind_backoff_max,
+	)
+	.await
+	else {
 		tracing::error!(
 			?addr,
-			attempts = MAX_BIND_ATTEMPTS,
+			attempts = bind_cfg.max_bind_attempts,
 			"listener bind failed after exhausting retries — giving up on this address",
 		);
 		// `bind_ready` stays `false` so the daemon's boot health
@@ -556,7 +625,8 @@ async fn run_accept_loop(
 					Err(e) => {
 						// EMFILE / ENFILE / etc. — back off and resume.
 						tracing::warn!(?addr, ?e, "accept failed; backing off");
-						let cancelled = backoff_sleep(BIND_BACKOFF_INITIAL, &accept_cancel).await;
+						let cancelled =
+							backoff_sleep(bind_cfg.bind_backoff_initial, &accept_cancel).await;
 						if cancelled {
 							return;
 						}
@@ -709,11 +779,10 @@ async fn handle_connection(
 			}
 		};
 
-	// Pre-fill ConnContext.tls.sni from the parsed ClientHello so any
-	// L4 middleware running before the executor reaches an `Upgrade`
-	// node can read it. `tls.alpn` is left untouched because the
-	// pre-handshake offer (a list) does not fit the post-handshake
-	// negotiated single-value slot. TODO(spec-align-alpn-shape).
+	// Pre-fill ConnContext.tls.sni from the parsed ClientHello so L4
+	// middleware running before an `Upgrade` node can read it. `tls.alpn`
+	// and `tls.version` are post-handshake values; they are populated in
+	// the TLS termination path below (06-l4.md § _L4 → L7 upgrade_).
 	if let Some(tls_hello) = peek_result.tls.as_ref()
 		&& tls_hello.sni.is_some()
 	{
@@ -905,20 +974,21 @@ async fn run_peek_phase(
 
 /// Bind-with-retry per 01-topology.md § _Bind_:
 /// - `SO_REUSEADDR` on (best-effort).
-/// - Exponential backoff `100ms → 5s cap`.
+/// - Exponential backoff from `backoff_initial` up to `backoff_max`.
 /// - Up to `max_attempts` tries.
 /// - Honors `cancel`: if cancellation fires during a backoff window the
 ///   function aborts and returns `None`.
 ///
 /// `max_attempts` is parametric so tests can drive the give-up branch
-/// without burning real backoff time. Production calls use
-/// `MAX_BIND_ATTEMPTS`.
+/// without burning real backoff time.
 async fn bind_with_retry(
 	addr: SocketAddr,
 	cancel: &CancellationToken,
 	max_attempts: u32,
+	backoff_initial: Duration,
+	backoff_max: Duration,
 ) -> Option<TcpListener> {
-	let mut delay = BIND_BACKOFF_INITIAL;
+	let mut delay = backoff_initial;
 	for attempt in 0..max_attempts {
 		if cancel.is_cancelled() {
 			return None;
@@ -934,7 +1004,7 @@ async fn bind_with_retry(
 				if backoff_sleep(delay, cancel).await {
 					return None;
 				}
-				delay = (delay * 2).min(BIND_BACKOFF_MAX);
+				delay = (delay * 2).min(backoff_max);
 				continue;
 			}
 		};
@@ -954,14 +1024,14 @@ async fn bind_with_retry(
 		if backoff_sleep(delay, cancel).await {
 			return None;
 		}
-		delay = (delay * 2).min(BIND_BACKOFF_MAX);
+		delay = (delay * 2).min(backoff_max);
 	}
 	None
 }
 
 /// Test-only entry point: drive `bind_with_retry` with a custom attempt
-/// cap. Tests use this to exercise the "give-up after `MAX_BIND_ATTEMPTS`"
-/// branch without relying on the production backoff schedule.
+/// cap and default backoff timings. Tests use this to exercise the
+/// "give-up after N attempts" branch without burning real backoff time.
 ///
 /// Exposed as `pub` (not `#[cfg(test)]`) because integration tests live
 /// in `crates/engine/tests/` — a separate crate per Cargo's test layout —
@@ -974,5 +1044,6 @@ async fn bind_with_retry(
 #[doc(hidden)]
 pub async fn bind_with_retry_for_test(addr: SocketAddr, max_attempts: u32) -> Option<TcpListener> {
 	let cancel = CancellationToken::new();
-	bind_with_retry(addr, &cancel, max_attempts).await
+	let cfg = BindConfig::default();
+	bind_with_retry(addr, &cancel, max_attempts, cfg.bind_backoff_initial, cfg.bind_backoff_max).await
 }
