@@ -45,6 +45,13 @@ vane-wasm = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"
+# `escargot` is the assert_cmd-recommended way to invoke a binary
+# living in a sibling crate. Cargo only sets `CARGO_BIN_EXE_<name>`
+# for binaries declared in the test's own package, so the daemon
+# tests cannot find the `vane` CLI via `cargo_bin("vane")` on a
+# clean checkout. escargot drives `cargo build` for the sibling
+# package on first use and caches the resulting path.
+escargot = "0.5"
 http-body-util = "0.1"
 hyper = { version = "1.9.0", features = ["server", "http1"] }
 hyper-util = { version = "0.1.20", features = ["tokio"] }

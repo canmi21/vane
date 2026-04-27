@@ -12,7 +12,7 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use assert_cmd::cargo::CommandCargoExt;
@@ -22,6 +22,35 @@ use vane_mgmt::verb::{
 	VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
 	VERB_TAIL_LOG,
 };
+
+/// Build the sibling-package `vane` CLI binary (once per test
+/// process) and return a [`std::process::Command`] pointed at it.
+///
+/// `assert_cmd::cargo_bin("vane")` would be the natural form, but
+/// Cargo only sets `CARGO_BIN_EXE_<name>` for binaries declared in
+/// the test's own package — `vane` lives in `crates/cli`, so its
+/// path is invisible to `vaned`'s integration tests on a clean
+/// checkout. Without an existing `target/debug/vane` left over from
+/// some earlier `cargo build`, `cargo_bin` panics. escargot is the
+/// assert_cmd-recommended escape hatch: it drives `cargo build` for
+/// the named bin in the named package and caches the resulting
+/// path. The `OnceLock` avoids paying that cost more than once
+/// across the suite.
+fn vane_cli() -> std::process::Command {
+	static VANE_BIN: OnceLock<PathBuf> = OnceLock::new();
+	let path = VANE_BIN.get_or_init(|| {
+		escargot::CargoBuild::new()
+			.package("vane")
+			.bin("vane")
+			.current_release()
+			.current_target()
+			.run()
+			.expect("build vane CLI binary")
+			.path()
+			.to_path_buf()
+	});
+	std::process::Command::new(path)
+}
 
 struct Daemon {
 	child: std::process::Child,
@@ -154,7 +183,7 @@ async fn mgmt_reload_swaps_when_rules_change() {
 async fn mgmt_get_active_config_returns_symbolic_graph_via_cli_json() {
 	let d = spawn_daemon_with_rule(43_004, "v1");
 	// Use the CLI binary so we cover the JSON-output path end-to-end.
-	let mut cmd = std::process::Command::cargo_bin("vane").expect("vane binary");
+	let mut cmd = vane_cli();
 	let output = cmd
 		.arg("get-active-config")
 		.arg("--socket")
@@ -179,7 +208,7 @@ async fn mgmt_compile_dry_run_does_not_swap_active_graph() {
 	// dry-run-compile against it via the CLI.
 	let tmp_b = tempfile::tempdir().unwrap();
 	write_rule(tmp_b.path(), 43_006, "different");
-	let mut cmd = std::process::Command::cargo_bin("vane").expect("vane binary");
+	let mut cmd = vane_cli();
 	let output = cmd
 		.arg("compile")
 		.arg("--dry-run")
@@ -231,7 +260,7 @@ async fn mgmt_list_connections_returns_per_conn_detail_for_in_flight_connection(
 	tokio::time::sleep(Duration::from_millis(150)).await;
 
 	// Use the CLI binary so we cover the JSON output path end-to-end.
-	let mut cmd = std::process::Command::cargo_bin("vane").expect("vane binary");
+	let mut cmd = vane_cli();
 	let output = cmd
 		.arg("list-connections")
 		.arg("--json")
@@ -318,8 +347,7 @@ async fn mgmt_tail_flow_log_streams_events_via_cli() {
 	// Spawn the streaming CLI subprocess with stdout piped. Capture
 	// stdout in a background thread so we can deadline-poll it from
 	// the main test task without blocking on `Read` indefinitely.
-	let mut tail = std::process::Command::cargo_bin("vane")
-		.expect("vane binary")
+	let mut tail = vane_cli()
 		.arg("tail-flow-log")
 		.arg("--json")
 		.arg("--socket")
@@ -385,8 +413,7 @@ async fn mgmt_tail_log_streams_tracing_events_via_cli() {
 
 	// Spawn the streaming CLI subprocess piping stdout. Drain in a
 	// background thread to avoid blocking on `Read` when polling.
-	let mut tail = std::process::Command::cargo_bin("vane")
-		.expect("vane binary")
+	let mut tail = vane_cli()
 		.arg("tail-log")
 		.arg("--json")
 		.arg("--socket")
@@ -526,7 +553,7 @@ async fn mgmt_streaming_does_not_block_concurrent_one_shot_call() {
 #[tokio::test]
 async fn mgmt_ping_via_cli_pretty_prints_pong_line() {
 	let d = spawn_daemon_with_rule(43_010, "v1");
-	let mut cmd = std::process::Command::cargo_bin("vane").expect("vane binary");
+	let mut cmd = vane_cli();
 	let output = cmd.arg("ping").arg("--socket").arg(&d.socket).output().expect("run vane ping");
 	assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
 	let stdout = String::from_utf8(output.stdout).expect("utf8");
