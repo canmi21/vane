@@ -11,10 +11,10 @@ use sha2::{Digest, Sha256};
 
 use crate::compile::analyze::{AnalyzedRule, AnalyzedRuleSet, Posture};
 use crate::error::Error;
-use crate::fetch::{FetchKind, SymbolicFetchRef, Terminator};
+use crate::fetch::{FetchKind, FetchPhase, SymbolicFetchRef, Terminator};
 use crate::ir::{
-	BodySide, FetchId, FlowGraphMeta, MiddlewareId, Node, NodeId, PredicateId, SymbolicFlowGraph,
-	TerminatorId,
+	BodySide, FetchId, FlowGraphMeta, ListenerKind, MiddlewareId, Node, NodeId, PredicateId,
+	SymbolicFlowGraph, TerminatorId,
 };
 use crate::metadata::{FetchMetadataProvider, MiddlewareMetadataProvider};
 use crate::middleware::{MiddlewareKind, SymbolicMiddlewareRef};
@@ -52,9 +52,13 @@ pub fn lower(
 			builder.entries.insert(*addr, entry);
 		}
 		if let Some(spec) = resolved_tls {
-			for addr in addrs {
-				builder.listener_tls.insert(addr, spec.clone());
+			for addr in &addrs {
+				builder.listener_tls.insert(*addr, spec.clone());
 			}
+		}
+		let kind = derive_listener_kind(&builder.nodes, &builder.fetches, entry);
+		for addr in addrs {
+			builder.listener_kinds.insert(addr, kind);
 		}
 	}
 
@@ -72,8 +76,92 @@ pub fn lower(
 			feature_set: &[],
 			short_circuit_response_entry: builder.short_circuit_response_entry,
 			listener_tls: builder.listener_tls,
+			listener_kinds: builder.listener_kinds,
 		},
 	})
+}
+
+/// Walk the entry subgraph collecting every reachable
+/// [`SymbolicFetchRef`]. Map each to a [`FetchPhase`] via
+/// [`FetchKind::phase`] and pick the [`ListenerKind`] from the
+/// resulting set per `06-l4.md` § _Listener kind derivation_:
+///
+/// | reachable phases     | derived kind |
+/// | -------------------- | ------------ |
+/// | only `L4`            | `Raw`        |
+/// | only `L7`            | `Http`       |
+/// | both `L4` and `L7`   | `Auto`       |
+///
+/// A graph with no fetches reachable from `entry` would defeat
+/// validate.rs (every entry must terminate), so the empty-set fallback
+/// to `Http` here is purely defensive — it never fires on a legal
+/// rule set.
+fn derive_listener_kind(
+	nodes: &[Node],
+	fetches: &[SymbolicFetchRef],
+	entry: NodeId,
+) -> ListenerKind {
+	let mut seen_l4 = false;
+	let mut seen_l7 = false;
+	let mut visited = std::collections::HashSet::new();
+	let mut queue = std::collections::VecDeque::from([entry]);
+	while let Some(id) = queue.pop_front() {
+		if !visited.insert(id) {
+			continue;
+		}
+		let Some(node) = nodes.get(id.get() as usize) else { continue };
+		match node {
+			Node::Check { on_match, on_miss, .. } => {
+				queue.push_back(*on_match);
+				queue.push_back(*on_miss);
+			}
+			Node::Middleware { next, on_error, .. } => {
+				queue.push_back(*next);
+				if let Some(e) = on_error {
+					queue.push_back(*e);
+				}
+			}
+			Node::Fetch { id, next_response, next_tunnel, .. } => {
+				match fetches[id.get() as usize].kind.phase() {
+					FetchPhase::L4 => seen_l4 = true,
+					FetchPhase::L7 => seen_l7 = true,
+				}
+				if let Some(n) = next_response {
+					queue.push_back(*n);
+				}
+				if let Some(n) = next_tunnel {
+					queue.push_back(*n);
+				}
+			}
+			Node::Upgrade { next } => queue.push_back(*next),
+			Node::Terminate(_) => {}
+		}
+	}
+	match (seen_l4, seen_l7) {
+		(true, true) => ListenerKind::Auto,
+		(false, true) => ListenerKind::Http,
+		// `(true, false)` is the strict spec rule (only-L4 → Raw);
+		// `(false, false)` is the defensive arm for fetch-less
+		// hand-built test fixtures (peek-only → Close). Both collapse
+		// to `Raw` so the L4 subgraph walk still fires.
+		(true | false, false) => ListenerKind::Raw,
+	}
+}
+
+#[cfg(test)]
+pub(crate) mod test_only {
+	use super::{ListenerKind, Node, NodeId, SymbolicFetchRef, derive_listener_kind};
+
+	/// Test escape hatch for the upstream `compile.rs::tests` module —
+	/// exposes the derivation helper without leaking it to non-test
+	/// callers.
+	pub(crate) fn derive_listener_kind_for_test(
+		nodes: &[Node],
+		fetches: &[SymbolicFetchRef],
+		entry: NodeId,
+	) -> ListenerKind {
+		derive_listener_kind(nodes, fetches, entry)
+	}
 }
 
 struct Builder {
@@ -97,6 +185,10 @@ struct Builder {
 	/// engine's `link` parses each entry into a `rustls::ServerConfig`.
 	/// See spec/architecture/08-tls.md § _TLS termination_.
 	listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::ListenerTlsSpec>,
+	/// Per-listener dispatch posture (symbolic). Populated as
+	/// `lower_port` finishes each address group; see
+	/// [`derive_listener_kind`] for the rule.
+	listener_kinds: std::collections::BTreeMap<SocketAddr, ListenerKind>,
 }
 
 impl Builder {
@@ -113,6 +205,7 @@ impl Builder {
 			entries: HashMap::new(),
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
+			listener_kinds: std::collections::BTreeMap::new(),
 		}
 	}
 

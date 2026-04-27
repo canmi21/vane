@@ -41,6 +41,27 @@ pub enum BodySide {
 	Response,
 }
 
+/// Per-listener dispatch posture. **Derived by the lower pass from
+/// the listener's entry subgraph — not user-configured.** See
+/// `spec/architecture/06-l4.md` § _Listener kind derivation_ for the
+/// derivation rule and § _Dispatch decision table_ for the runtime
+/// behavior the listener picks based on this value.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+pub enum ListenerKind {
+	/// Every reachable terminator is L4 (e.g. `L4Forward`). The
+	/// listener never runs a TLS handshake or hyper driver — bytes
+	/// flow through the L4 subgraph as-is. SNI passthrough lives here.
+	Raw,
+	/// Every L4→L7 path crosses an `Upgrade` node and the only
+	/// reachable terminators are L7. Cleartext H1/H2 on the wire is
+	/// rejected; that mixed-posture role belongs to `Auto`.
+	Http,
+	/// Both L4 and L7 terminators are reachable from the same entry.
+	/// The listener peeks the connection prefix and dispatches per
+	/// `(detected, listener_tls)` per the dispatch decision table.
+	Auto,
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Node {
 	Check {
@@ -136,6 +157,16 @@ pub struct FlowGraphMeta {
 	/// above.
 	#[serde(default)]
 	pub listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::ListenerTlsSpec>,
+
+	/// Per-listener dispatch posture, derived from each entry's
+	/// reachable-terminator set. Populated by the lower pass; the
+	/// engine reads it in [`crate::ir::ListenerKind`]-aware dispatch
+	/// (`spec/architecture/06-l4.md` § _Dispatch decision table_).
+	/// Listeners absent from this map are treated as `Http` by the
+	/// engine's defensive accessor — but the lower pass guarantees
+	/// every entry address has an explicit kind.
+	#[serde(default)]
+	pub listener_kinds: std::collections::BTreeMap<SocketAddr, ListenerKind>,
 }
 
 const fn empty_feature_set() -> &'static [&'static str] {
@@ -417,6 +448,7 @@ mod tests {
 			feature_set: &[],
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
+			listener_kinds: std::collections::BTreeMap::new(),
 		}
 	}
 
@@ -614,6 +646,7 @@ mod tests {
 			feature_set: &["h3", "wasm"],
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
+			listener_kinds: std::collections::BTreeMap::new(),
 		};
 		let encoded = serde_json::to_string(&meta).expect("serialize meta");
 		assert!(

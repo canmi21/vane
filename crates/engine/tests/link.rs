@@ -91,6 +91,7 @@ fn sample_meta() -> FlowGraphMeta {
 		feature_set: &[],
 		short_circuit_response_entry: std::collections::BTreeMap::new(),
 		listener_tls: std::collections::BTreeMap::new(),
+		listener_kinds: std::collections::BTreeMap::new(),
 	}
 }
 
@@ -298,6 +299,7 @@ fn link_preserves_version_hash_but_overrides_feature_set() {
 			feature_set: stale,
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
+			listener_kinds: std::collections::BTreeMap::new(),
 		},
 	});
 	let mw = MiddlewareFactories::new();

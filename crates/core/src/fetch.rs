@@ -57,6 +57,21 @@ pub enum FetchKind {
 	L4Forward,
 }
 
+impl FetchKind {
+	/// Authoritative fetch-phase classification. The lower pass uses
+	/// this to derive each listener's [`crate::ir::ListenerKind`] from
+	/// the set of reachable terminators per entry; new fetch kinds
+	/// pick their phase here so the derivation table in
+	/// `06-l4.md` § _Listener kind derivation_ stays single-source.
+	#[must_use]
+	pub const fn phase(self) -> FetchPhase {
+		match self {
+			Self::L4Forward => FetchPhase::L4,
+			Self::HttpProxy | Self::HttpSynthesize | Self::WebSocketUpgrade => FetchPhase::L7,
+		}
+	}
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum FetchPhase {
 	L4,

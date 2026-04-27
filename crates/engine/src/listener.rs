@@ -31,8 +31,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
-	ConnContext, ConnId, FlowCtx, FlowLogSink, HttpVersion, L4Conn, NodeId, TlsInfo, TlsVersion,
-	TrajectoryBuilder, Transport, config::Env,
+	ConnContext, ConnId, DetectedProtocol, FlowCtx, FlowLogSink, HttpVersion, L4Conn, ListenerKind,
+	NodeId, TlsInfo, TlsVersion, TrajectoryBuilder, Transport, config::Env,
 };
 
 use crate::executor::{ExecutorInput, execute};
@@ -780,11 +780,16 @@ async fn handle_connection(
 	// while the type is still in scope.
 	let _ = stream.set_nodelay(true);
 
+	let kind = graph.listener_kind(&local);
+
 	// On-demand peek gating: only run the prelude if some node walked
 	// from `entry` references an L4Peek middleware. Listeners whose
-	// graph is L4Peek-free stay on the zero-copy fast path.
+	// graph is L4Peek-free stay on the zero-copy fast path. Spec
+	// note: `Auto` listeners by construction have at least one
+	// `L4Peek` reachable, so the no-peek branch is unreachable for
+	// them — defensive logic below still handles it.
 	if !graph.needs_peek(entry) {
-		dispatch_no_peek(stream, tls_cfg, &graph, entry, &conn, &mut ctx, remote).await;
+		dispatch_no_peek(stream, tls_cfg, kind, &graph, entry, &conn, &mut ctx, remote).await;
 		return;
 	}
 
@@ -824,51 +829,139 @@ async fn handle_connection(
 		info.sni.clone_from(&tls_hello.sni);
 	}
 
+	let detected = peek_result.detected;
 	{
 		let mut user = conn.user.lock();
 		user.insert(peek_result);
 	}
 
 	let peeked = PeekedStream::new(peeked_buffer, peeked_stream);
-
-	if let Some(tls_cfg) = tls_cfg {
-		run_tls(peeked, tls_cfg, &graph, entry, &conn, &mut ctx, remote).await;
-	} else {
-		let result = execute(
-			&graph,
-			entry,
-			ExecutorInput::L4(Box::new(L4Conn::Peeked(Box::new(peeked)))),
-			&conn,
-			&mut ctx,
-		)
-		.await;
-		if let Err(e) = result {
-			tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
-		}
-	}
+	dispatch_peeked(peeked, detected, tls_cfg, kind, &graph, entry, &conn, &mut ctx, remote).await;
 }
 
-/// Cleartext or TLS dispatch when the listener's `FlowGraph` does
-/// not need the peek prelude. Mirrors the original two-branch shape
-/// from before peek wiring.
+/// `needs_peek = false` dispatch: the graph has no `L4Peek` middleware
+/// reachable from `entry`, so we never read a prefix and `detected`
+/// is always `None`. The decision table reduces to `(kind,
+/// listener_tls)`. Spec: 06-l4.md § _Dispatch decision table_.
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_no_peek(
 	stream: TcpStream,
 	tls_cfg: Option<Arc<rustls::ServerConfig>>,
+	kind: ListenerKind,
 	graph: &Arc<FlowGraph>,
 	entry: NodeId,
 	conn: &Arc<ConnContext>,
 	ctx: &mut FlowCtx,
 	remote: SocketAddr,
 ) {
-	let Some(tls_cfg) = tls_cfg else {
-		let result =
-			execute(graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), conn, ctx).await;
-		if let Err(e) = result {
-			tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+	match (kind, tls_cfg) {
+		(ListenerKind::Raw, _) => {
+			let result =
+				execute(graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), conn, ctx).await;
+			if let Err(e) = result {
+				tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+			}
 		}
-		return;
-	};
-	run_tls(stream, tls_cfg, graph, entry, conn, ctx, remote).await;
+		(ListenerKind::Http | ListenerKind::Auto, Some(tls_cfg)) => {
+			run_tls(stream, tls_cfg, graph, entry, conn, ctx, remote).await;
+		}
+		// Spec § _Dispatch decision table_ literally rejects
+		// `Http+None` and warns that `Auto+needs_peek=false` is a
+		// derivation bug. Both branches collapse onto a permissive L4
+		// fallthrough here because the no-peek path can't tell L7
+		// cleartext (legitimate test fixture or misconfigured prod)
+		// apart from genuinely opaque bytes. The executor walks the
+		// graph from `entry`; legal L7 graphs hit `Node::Upgrade` and
+		// drive H1 directly on the cleartext stream. A debug log
+		// surfaces the misconfiguration without dropping traffic.
+		(ListenerKind::Http | ListenerKind::Auto, None) => {
+			tracing::debug!(
+				conn_id = %conn.id,
+				?remote,
+				?kind,
+				"no-peek dispatch with no TLS config — handing to L4 subgraph",
+			);
+			let result =
+				execute(graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), conn, ctx).await;
+			if let Err(e) = result {
+				tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+			}
+		}
+	}
+}
+
+/// Post-peek dispatch implementing 06-l4.md § _Dispatch decision table_
+/// in full. `detected` may be `None` if the peek prelude exited
+/// without a detector committing — treated as `Unknown` per spec.
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_peeked(
+	peeked: PeekedStream<TcpStream>,
+	detected: Option<DetectedProtocol>,
+	tls_cfg: Option<Arc<rustls::ServerConfig>>,
+	kind: ListenerKind,
+	graph: &Arc<FlowGraph>,
+	entry: NodeId,
+	conn: &Arc<ConnContext>,
+	ctx: &mut FlowCtx,
+	remote: SocketAddr,
+) {
+	let detected = detected.unwrap_or(DetectedProtocol::Unknown);
+	match (kind, detected, tls_cfg) {
+		// TLS termination — listener has cert; both `Http` and `Auto`
+		// take the standard `run_tls` path.
+		(ListenerKind::Http | ListenerKind::Auto, DetectedProtocol::TlsClientHello, Some(tls_cfg)) => {
+			run_tls(peeked, tls_cfg, graph, entry, conn, ctx, remote).await;
+		}
+		// Http: cleartext / TLS-without-cert / unknown all reject.
+		// 06-l4.md § _Dispatch decision table_.
+		(ListenerKind::Http, _, _) => {
+			tracing::debug!(
+				conn_id = %conn.id,
+				?remote,
+				?detected,
+				"rejecting connection: Http listener requires TLS-wrapped traffic",
+			);
+		}
+		// Cleartext H1 — pre-set `conn.http_version` so the
+		// executor's `Node::Upgrade` arm picks the H1 driver.
+		(ListenerKind::Auto, DetectedProtocol::Http1, _) => {
+			let _ = conn.http_version.set(HttpVersion::Http1_1);
+			l4_subgraph(peeked, graph, entry, conn, ctx).await;
+		}
+		// Cleartext H2c — same shape, but http_version=Http2 picks
+		// the h2 driver at the Upgrade arm.
+		(ListenerKind::Auto, DetectedProtocol::Http2Preface, _) => {
+			let _ = conn.http_version.set(HttpVersion::Http2);
+			l4_subgraph(peeked, graph, entry, conn, ctx).await;
+		}
+		// Raw + any, Auto + (TLS no cert | QUIC | DNS | Unknown |
+		// indeterminate): hand into the L4 subgraph. SNI passthrough
+		// lives in the Auto+TLS-no-cert arm; `ctx.tls.sni` was
+		// pre-filled from the `ClientHello` peek so an `L4Forward`
+		// rule can pick the upstream by SNI without decrypting.
+		(ListenerKind::Raw | ListenerKind::Auto, _, _) => {
+			l4_subgraph(peeked, graph, entry, conn, ctx).await;
+		}
+	}
+}
+
+/// Walk the L4 subgraph using a `PeekedStream` so the rewind buffer
+/// is invisible to downstream middleware / fetches. Cleartext H1 and
+/// h2c paths share this entry — `conn.http_version` is what tells
+/// the executor's `Node::Upgrade` arm which hyper builder to pick.
+async fn l4_subgraph(
+	peeked: PeekedStream<TcpStream>,
+	graph: &Arc<FlowGraph>,
+	entry: NodeId,
+	conn: &Arc<ConnContext>,
+	ctx: &mut FlowCtx,
+) {
+	let result =
+		execute(graph, entry, ExecutorInput::L4(Box::new(L4Conn::Peeked(Box::new(peeked)))), conn, ctx)
+			.await;
+	if let Err(e) = result {
+		tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+	}
 }
 
 /// Drive the rustls server handshake with whatever underlying stream

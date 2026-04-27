@@ -357,7 +357,14 @@ pub async fn execute(
 					}
 				};
 				let alpn = conn.tls.lock().as_ref().and_then(|t| t.alpn.clone());
-				let result = if alpn.as_deref() == Some(b"h2") {
+				// Two signals can pick H2: a negotiated `h2` ALPN (TLS path)
+				// or a pre-set `conn.http_version = Http2` (cleartext h2c —
+				// the listener sets this when the peek prelude detects the
+				// HTTP/2 connection preface). 06-l4.md § _Dispatch decision
+				// table_.
+				let prefer_h2 = alpn.as_deref() == Some(b"h2")
+					|| matches!(conn.http_version.get(), Some(vane_core::HttpVersion::Http2));
+				let result = if prefer_h2 {
 					crate::upgrade::drive_h2_server(
 						stream,
 						Arc::clone(graph),
@@ -369,9 +376,6 @@ pub async fn execute(
 					)
 					.await
 				} else {
-					// No ALPN, ALPN == "http/1.1", or any non-h2 ALPN value:
-					// fall back to H1. Cleartext listeners always reach this
-					// branch because they never populate `conn.tls`.
 					crate::upgrade::drive_h1_server(
 						stream,
 						Arc::clone(graph),

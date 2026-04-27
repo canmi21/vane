@@ -150,6 +150,7 @@ fn sni_peek_branching_graph(addr: SocketAddr, tls_cfg: rule::TlsConfig) -> Arc<F
 		feature_set: &[],
 		short_circuit_response_entry: BTreeMap::new(),
 		listener_tls,
+		listener_kinds: BTreeMap::new(),
 	};
 
 	let nodes = vec![

@@ -15,6 +15,7 @@ use crate::factories::{
 };
 use crate::security::SecurityConfig;
 use crate::tls::{CertPopulator, StaticCertPopulator, VaneCertResolver};
+use vane_core::ListenerKind;
 
 pub enum MiddlewareInst {
 	L4Peek(Arc<dyn L4PeekMiddleware>),
@@ -93,6 +94,16 @@ impl FlowGraph {
 	#[must_use]
 	pub fn listener_tls(&self, addr: &SocketAddr) -> Option<&Arc<rustls::ServerConfig>> {
 		self.listener_tls.get(addr)
+	}
+
+	/// Lower-derived dispatch posture for `addr`. Falls back to
+	/// `ListenerKind::Http` when the address is missing — defensive
+	/// only, the lower pass guarantees every entry address has an
+	/// explicit kind. See `spec/architecture/06-l4.md`
+	/// § _Dispatch decision table_.
+	#[must_use]
+	pub fn listener_kind(&self, addr: &SocketAddr) -> ListenerKind {
+		self.meta.listener_kinds.get(addr).copied().unwrap_or(ListenerKind::Http)
 	}
 
 	/// Reachability check: does any node walked from `entry` reference an
@@ -253,6 +264,15 @@ impl FlowGraph {
 		// meta; overwrite feature_set with this binary's snapshot per 02-flow.md
 		// § _FlowGraph metadata_ — `feature_set` is "what the daemon linked",
 		// not "what the rule-set intended".
+		//
+		// `listener_kinds` is normally produced by the lower pass; for
+		// hand-built `SymbolicFlowGraph` test fixtures (which skip
+		// lowering) we derive any missing entry here from the same
+		// reachable-fetch-phase rule, so the engine surface is uniform.
+		let mut listener_kinds = sym.meta.listener_kinds.clone();
+		for (addr, entry) in &sym.entries {
+			listener_kinds.entry(*addr).or_insert_with(|| derive_kind(&sym, *entry));
+		}
 		let meta = FlowGraphMeta {
 			version_hash: sym.meta.version_hash,
 			compiled_at: sym.meta.compiled_at,
@@ -260,6 +280,7 @@ impl FlowGraph {
 			feature_set: crate::ENGINE_FEATURE_SET,
 			short_circuit_response_entry: sym.meta.short_circuit_response_entry.clone(),
 			listener_tls: sym.meta.listener_tls.clone(),
+			listener_kinds,
 		};
 
 		Ok(Arc::new(Self {
@@ -282,6 +303,59 @@ impl FlowGraph {
 /// Returns the populator alongside the config so `FlowGraph` can hold
 /// it for the listener's lifetime — the populator owns the
 /// `ArcSwap<CertStore>` the resolver reads on every handshake.
+/// Mirror of `vane_core::compile::lower::derive_listener_kind`. The
+/// link path runs this for any address absent from
+/// `sym.meta.listener_kinds` so hand-built test fixtures that skip
+/// lowering still produce sensible dispatch behaviour. Keep the rule
+/// in sync with `06-l4.md` § _Listener kind derivation_.
+fn derive_kind(sym: &SymbolicFlowGraph, entry: NodeId) -> ListenerKind {
+	use vane_core::FetchPhase;
+	let mut seen_l4 = false;
+	let mut seen_l7 = false;
+	let mut visited: HashSet<NodeId> = HashSet::new();
+	let mut queue: VecDeque<NodeId> = VecDeque::from([entry]);
+	while let Some(id) = queue.pop_front() {
+		if !visited.insert(id) {
+			continue;
+		}
+		let Some(node) = sym.nodes.get(id.get() as usize) else { continue };
+		match node {
+			Node::Check { on_match, on_miss, .. } => {
+				queue.push_back(*on_match);
+				queue.push_back(*on_miss);
+			}
+			Node::Middleware { next, on_error, .. } => {
+				queue.push_back(*next);
+				if let Some(e) = on_error {
+					queue.push_back(*e);
+				}
+			}
+			Node::Fetch { id, next_response, next_tunnel, .. } => {
+				match sym.fetches[id.get() as usize].kind.phase() {
+					FetchPhase::L4 => seen_l4 = true,
+					FetchPhase::L7 => seen_l7 = true,
+				}
+				if let Some(n) = next_response {
+					queue.push_back(*n);
+				}
+				if let Some(n) = next_tunnel {
+					queue.push_back(*n);
+				}
+			}
+			Node::Upgrade { next } => queue.push_back(*next),
+			Node::Terminate(_) => {}
+		}
+	}
+	match (seen_l4, seen_l7) {
+		(true, true) => ListenerKind::Auto,
+		(false, true) => ListenerKind::Http,
+		// `(true, false)` is the strict spec rule (only-L4 → Raw);
+		// `(false, false)` is the defensive arm for fetch-less
+		// hand-built test graphs (peek-only → Close).
+		(true | false, false) => ListenerKind::Raw,
+	}
+}
+
 fn build_listener_server_config(
 	spec: &ListenerTlsSpec,
 ) -> Result<(rustls::ServerConfig, Box<dyn CertPopulator + Send + Sync>), String> {
@@ -422,6 +496,7 @@ mod tests {
 				feature_set: &[],
 				short_circuit_response_entry: BTreeMap::new(),
 				listener_tls: BTreeMap::new(),
+				listener_kinds: BTreeMap::new(),
 			}
 		}
 

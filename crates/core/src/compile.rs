@@ -1010,6 +1010,102 @@ mod tests {
 	}
 
 	#[test]
+	fn lower_derives_raw_when_only_l4_forward_terminator() {
+		// `port_forward`-shaped rule: single `tcp_forward` upstream on a
+		// listener with no L7 path. Per `06-l4.md` § _Listener kind
+		// derivation_, every reachable terminator is L4 → `Raw`.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7800"],
+			"terminate": { "type": "tcp_forward", "upstream": "10.0.0.5:22" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7800);
+		assert_eq!(graph.meta.listener_kinds.get(&v4), Some(&crate::ir::ListenerKind::Raw));
+	}
+
+	#[test]
+	fn lower_derives_http_when_only_l7_terminators() {
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7801"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7801);
+		assert_eq!(graph.meta.listener_kinds.get(&v4), Some(&crate::ir::ListenerKind::Http));
+	}
+
+	#[test]
+	fn lower_derives_auto_when_l4_and_l7_share_listener() {
+		// `analyze` currently rejects a single rule set with mixed L4 + L7
+		// postures on the same listener (the protocol-detect frontend
+		// that legitimises that combination is a separate feature). We
+		// exercise the kind-derivation rule directly by hand-building a
+		// graph whose entry can reach both an `L4Forward` fetch and an
+		// `HttpProxy` fetch — the union of the two paths is what the
+		// spec says yields `Auto`.
+		use crate::compile::lower::test_only::derive_listener_kind_for_test;
+		use crate::fetch::{FetchKind, SymbolicFetchRef};
+		use crate::ir::{FetchId, ListenerKind, Node, NodeId, TerminatorId};
+
+		let nodes = vec![
+			Node::Check {
+				predicate: PredicateId::new(0),
+				on_match: NodeId::new(1),
+				on_miss: NodeId::new(2),
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Fetch {
+				id: FetchId::new(0),
+				next_response: None,
+				next_tunnel: Some(NodeId::new(3)),
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Fetch {
+				id: FetchId::new(1),
+				next_response: Some(NodeId::new(3)),
+				next_tunnel: None,
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		];
+		let fetches = vec![
+			SymbolicFetchRef { kind: FetchKind::L4Forward, args: serde_json::Value::Null },
+			SymbolicFetchRef { kind: FetchKind::HttpProxy, args: serde_json::Value::Null },
+		];
+		assert_eq!(derive_listener_kind_for_test(&nodes, &fetches, NodeId::new(0)), ListenerKind::Auto);
+	}
+
+	#[test]
+	fn listener_kinds_round_trip_through_dry_run_json() {
+		let l4 = parse_rule(serde_json::json!({
+			"name": "tcp",
+			"listen": [":7803"],
+			"terminate": { "type": "tcp_forward", "upstream": "10.0.0.5:22" },
+		}));
+		let l7 = parse_rule(serde_json::json!({
+			"name": "http",
+			"listen": [":7804"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![l4, l7])], &Providers, &Providers).expect("compile");
+		let encoded = serde_json::to_string(&*graph).expect("serialize graph");
+		let decoded: crate::ir::SymbolicFlowGraph =
+			serde_json::from_str(&encoded).expect("deserialize graph");
+		let v4_raw = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7803);
+		let v4_http = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7804);
+		assert_eq!(decoded.meta.listener_kinds.get(&v4_raw), Some(&crate::ir::ListenerKind::Raw));
+		assert_eq!(decoded.meta.listener_kinds.get(&v4_http), Some(&crate::ir::ListenerKind::Http));
+	}
+
+	#[test]
 	fn lower_two_l7_listeners_have_independent_synth_entries() {
 		// Two L7 listeners on distinct ports each get their own synth
 		// target keyed by their listener entry. (Whether the synth nodes

@@ -91,6 +91,7 @@ fn sample_meta() -> FlowGraphMeta {
 		feature_set: &[],
 		short_circuit_response_entry: std::collections::BTreeMap::new(),
 		listener_tls: std::collections::BTreeMap::new(),
+		listener_kinds: std::collections::BTreeMap::new(),
 	}
 }
 
