@@ -138,6 +138,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// crypto-backend feature; see 16-crate-layout.md § _Crypto backend_.
 	vane_engine::crypto::install_default_provider();
 
+	// Daemon-wide TLS session ticketer — must follow
+	// `install_default_provider` (the backend RNG fuels the initial
+	// key) and precede any `FlowGraph::link` (which reads the ticketer
+	// into each listener's `ServerConfig`). Failure here is fatal —
+	// it implies the kernel CSPRNG is unavailable. See 08-tls.md
+	// § _Session ticket rotation_.
+	vane_engine::tls::install_default_ticketer().expect("install rustls session ticketer");
+
 	tracing::info!(config_dir = %args.config_dir.display(), "loading config");
 	let loaded = vane_core::config::load(&args.config_dir)?;
 	tracing::info!(

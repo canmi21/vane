@@ -12,8 +12,10 @@ pub mod cert_store;
 pub mod populator;
 pub mod resolver;
 pub mod static_populator;
+pub mod ticketer;
 
 pub use cert_store::{CertEntry, CertStore};
 pub use populator::{CertPopulator, PopulatorError};
 pub use resolver::VaneCertResolver;
 pub use static_populator::StaticCertPopulator;
+pub use ticketer::{default_ticketer, install_default_ticketer};

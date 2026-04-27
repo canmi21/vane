@@ -297,6 +297,15 @@ fn build_listener_server_config(
 	// and routes to the matching driver.
 	server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
+	// Daemon-wide session ticketer — when installed, every listener's
+	// `ServerConfig` shares one `Arc<dyn ProducesTickets>` so clients
+	// can resume sessions across reload boundaries. Skipping the
+	// install (test fixtures) keeps rustls's default
+	// `NeverProducesTickets`. See 08-tls.md § _Session ticket rotation_.
+	if let Some(t) = crate::tls::default_ticketer() {
+		server_config.ticketer = t;
+	}
+
 	Ok((server_config, Box::new(populator)))
 }
 
