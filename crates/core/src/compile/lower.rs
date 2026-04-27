@@ -5,6 +5,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as B64;
 use sha2::{Digest, Sha256};
 
 use crate::compile::analyze::{AnalyzedRule, AnalyzedRuleSet, Posture};
@@ -768,16 +770,22 @@ fn coerce_value(
 			Ok(CompiledValue::Int(*n))
 		}
 		FieldValueType::Bytes => {
-			// Spec encodes bytes-typed values as base64 strings. Existing
-			// preset compile / round-trip tests rely on the simpler "raw
-			// bytes from the JSON string literal" coercion; that pre-
-			// existing shortcut is preserved here. Round-tripping the IR
-			// through the shadow-enum (de_bytes) does decode base64 on
-			// the IR side — only the lower-time path is the shortcut.
+			// spec/architecture/18-predicate-schema.md § _Value JSON
+			// encoding_: bytes-typed fields take a STANDARD base64
+			// string. Decoding here keeps the lower-time IR aligned
+			// with the dry-run JSON form (which the shadow-enum's
+			// de_bytes already round-trips through base64).
 			let Value::Str(s) = v else {
 				return Err(mismatch());
 			};
-			Ok(CompiledValue::Bytes(bytes::Bytes::copy_from_slice(s.as_bytes())))
+			let decoded = B64.decode(s.as_bytes()).map_err(|e| {
+				Error::compile(format!(
+					"{}operator `{op_name}` on field `{}` expected base64 string: {e}",
+					source_prefix(source),
+					path.display_name(),
+				))
+			})?;
+			Ok(CompiledValue::Bytes(bytes::Bytes::from(decoded)))
 		}
 		FieldValueType::Str => {
 			let Value::Str(s) = v else {
@@ -826,8 +834,25 @@ fn value_to_bytes(
 	op_name: &'static str,
 	source: &SourceInfo,
 ) -> Result<bytes::Bytes, Error> {
+	// spec 18 § _Value JSON encoding_ keys the literal form off the
+	// FIELD's value type, not the operator: String-valued fields take
+	// a verbatim JSON string; Bytes-valued fields take a STANDARD
+	// base64 string. contains / not_contains / prefix / suffix all
+	// route through this helper but the encoding still tracks the
+	// field — `prefix` on `http.uri.path` (Str) keeps the raw bytes
+	// of the literal, while `contains` on `http.body` (Bytes)
+	// base64-decodes.
 	match v {
-		Value::Str(s) => Ok(bytes::Bytes::copy_from_slice(s.as_bytes())),
+		Value::Str(s) => match path.value_type() {
+			FieldValueType::Bytes => B64.decode(s.as_bytes()).map(bytes::Bytes::from).map_err(|e| {
+				Error::compile(format!(
+					"{}operator `{op_name}` on field `{}` expected base64 string: {e}",
+					source_prefix(source),
+					path.display_name(),
+				))
+			}),
+			_ => Ok(bytes::Bytes::copy_from_slice(s.as_bytes())),
+		},
 		Value::Int(_) | Value::Bool(_) => Err(Error::compile(format!(
 			"{}operator `{op_name}` on field `{}` expects a string value, got {}",
 			source_prefix(source),
@@ -1190,6 +1215,154 @@ mod compat_tests {
 				let _: Arc<str> = arc;
 			}
 			other => panic!("unexpected compiled op: {other:?}"),
+		}
+	}
+
+	// ── spec 18 § _Value JSON encoding_: bytes-typed literal = STANDARD base64 ──
+
+	/// `{ "http.body": { "contains": "aGVsbG8=" } }` is the spec example
+	/// for a Bytes-valued contains operator. Compile must decode the
+	/// base64 into the literal bytes b"hello" so the runtime byte-
+	/// comparison sees the user's intent.
+	#[test]
+	fn bytes_literal_decoded_as_base64_for_contains_on_http_body() {
+		let op = compile_operator(
+			&Operator::Contains(Value::Str("aGVsbG8=".to_string())),
+			&FieldPath::HttpBody,
+			&src(),
+		)
+		.expect("base64 contains compiles");
+		match op {
+			crate::predicate::CompiledOperator::Contains(b) => {
+				assert_eq!(b.as_ref(), b"hello", "base64 'aGVsbG8=' must decode to 'hello'");
+			}
+			other => panic!("expected Contains, got {other:?}"),
+		}
+	}
+
+	/// Same rule for `equals` on a Bytes-typed field — `coerce_value`
+	/// emits `CompiledValue::Bytes` after base64 decoding.
+	#[test]
+	fn bytes_literal_decoded_as_base64_for_equals_on_tls_alpn() {
+		let op = compile_operator(
+			&Operator::Equals(Value::Str("aDI=".to_string())),
+			&FieldPath::TlsAlpn,
+			&src(),
+		)
+		.expect("base64 equals compiles");
+		match op {
+			crate::predicate::CompiledOperator::Equals(crate::predicate::CompiledValue::Bytes(b)) => {
+				assert_eq!(b.as_ref(), b"h2", "base64 'aDI=' must decode to 'h2'");
+			}
+			other => panic!("expected Equals(Bytes(\"h2\")), got {other:?}"),
+		}
+	}
+
+	/// `prefix` / `suffix` on a Bytes-typed field route through
+	/// `value_to_bytes` and must base64-decode the literal. On
+	/// Str-typed fields the literal stays verbatim — covered by
+	/// [`str_field_prefix_suffix_keeps_raw_bytes`] below.
+	#[test]
+	fn bytes_field_prefix_suffix_decodes_base64() {
+		// Peek (Bytes) — TLS ClientHello prefix bytes 0x16 0x03 → "FgM=" in base64.
+		let prefix =
+			compile_operator(&Operator::Prefix(Value::Str("FgM=".to_string())), &FieldPath::Peek, &src())
+				.expect("peek prefix compiles");
+		match prefix {
+			crate::predicate::CompiledOperator::Prefix(b) => assert_eq!(b.as_ref(), &[0x16, 0x03]),
+			other => panic!("expected Prefix, got {other:?}"),
+		}
+
+		// HttpBody (Bytes) — base64 of literal bytes b"END".
+		let suffix = compile_operator(
+			&Operator::Suffix(Value::Str("RU5E".to_string())),
+			&FieldPath::HttpBody,
+			&src(),
+		)
+		.expect("body suffix compiles");
+		match suffix {
+			crate::predicate::CompiledOperator::Suffix(b) => assert_eq!(b.as_ref(), b"END"),
+			other => panic!("expected Suffix, got {other:?}"),
+		}
+	}
+
+	/// String-valued fields keep the raw literal bytes per spec
+	/// 18 § _Value JSON encoding_ — base64 only applies when the
+	/// FIELD is Bytes-valued, not when the operator produces bytes.
+	#[test]
+	fn str_field_prefix_suffix_keeps_raw_bytes() {
+		let prefix = compile_operator(
+			&Operator::Prefix(Value::Str("/api".to_string())),
+			&FieldPath::HttpUriPath,
+			&src(),
+		)
+		.expect("str-field prefix compiles verbatim");
+		match prefix {
+			crate::predicate::CompiledOperator::Prefix(b) => assert_eq!(b.as_ref(), b"/api"),
+			other => panic!("expected Prefix, got {other:?}"),
+		}
+
+		let suffix = compile_operator(
+			&Operator::Suffix(Value::Str(".json".to_string())),
+			&FieldPath::HttpUriPath,
+			&src(),
+		)
+		.expect("str-field suffix compiles verbatim");
+		match suffix {
+			crate::predicate::CompiledOperator::Suffix(b) => assert_eq!(b.as_ref(), b".json"),
+			other => panic!("expected Suffix, got {other:?}"),
+		}
+	}
+
+	/// Non-base64 input rejected at compile, error mentions rule
+	/// source so operators can locate the bad rule.
+	#[test]
+	fn bytes_literal_rejects_non_base64_with_source_prefix() {
+		let err = compile_operator(
+			&Operator::Contains(Value::Str("###".to_string())),
+			&FieldPath::HttpBody,
+			&src(),
+		)
+		.expect_err("non-base64 contains must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("rules/30-api.json:14"), "error must carry source: {msg}");
+		assert!(msg.contains("`contains`"), "{msg}");
+		assert!(msg.contains("http.body"), "{msg}");
+		assert!(msg.contains("expected base64 string"), "{msg}");
+	}
+
+	/// Equals/In on a Bytes-typed field share the same base64 contract;
+	/// non-base64 must reject with source prefix.
+	#[test]
+	fn bytes_literal_equals_rejects_non_base64() {
+		let err = compile_operator(
+			&Operator::Equals(Value::Str("not-valid-base64!".to_string())),
+			&FieldPath::TlsAlpn,
+			&src(),
+		)
+		.expect_err("non-base64 equals must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("expected base64 string"), "{msg}");
+		assert!(msg.contains("tls.alpn"), "{msg}");
+	}
+
+	/// End-to-end via parse + lower: spec example object compiles to
+	/// a Check whose `CompiledOperator::Contains` carries b"hello".
+	#[test]
+	fn parse_and_lower_spec_example_decodes_base64_contains() {
+		// Round-trip through Predicate::Check just like a real rule
+		// would. The spec example is verbatim from
+		// spec/architecture/18-predicate-schema.md § _Value JSON encoding_.
+		let raw = serde_json::json!({ "http.body": { "contains": "aGVsbG8=" } });
+		let pred: crate::predicate::Predicate = serde_json::from_value(raw).expect("parse predicate");
+		let check = match pred {
+			crate::predicate::Predicate::Check(c) => c,
+			other => panic!("expected Check, got {other:?}"),
+		};
+		let op = compile_operator(&check.op, &check.path, &src()).expect("lower");
+		match op {
+			crate::predicate::CompiledOperator::Contains(b) => assert_eq!(b.as_ref(), b"hello"),
+			other => panic!("expected Contains, got {other:?}"),
 		}
 	}
 }
