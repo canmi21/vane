@@ -308,27 +308,31 @@ pub enum CrlSource {
 
 **`Skip` does not mean "no encryption"**: the TLS handshake still runs; traffic is still encrypted; only cert identity verification is skipped. The connection is still protected against passive eavesdropping, just not against active MITM.
 
-### ClientConfig fingerprint and caching
+### Client cache: fingerprint and reuse
 
-`rustls::ClientConfig` construction is expensive. Daemon caches configs by fingerprint:
+`rustls::ClientConfig` construction is expensive, and the H1/H2 upstream client built on top of it (`hyper_util::client::legacy::Client` over `hyper_rustls::HttpsConnector`) carries its own per-authority pool. Daemon caches the **entire client** behind a fingerprint so two Fetches with the same TLS posture share both the config and the pool:
 
 ```rust
-daemon.tls_config_cache: HashMap<TlsConfigFingerprint, Arc<ClientConfig>>
+daemon.client_cache: DashMap<ClientFingerprint, Arc<Client<HttpsConnector<HttpConnector>, Body>>>
+
+ClientFingerprint = (version, Option<TlsConfigFingerprint>)   // tls = None on cleartext
 
 TlsConfigFingerprint = hash(
     root_ca_source,     // System: constant tag; Bundle(path): path string
-    client_cert,        // hash of CertifiedKey bytes (cert DER + key DER)
-    crls,               // hash of CRL *sources* — see below
+    client_cert,        // SHA256 of CertifiedKey's cert DER (Stage 2: always None; mTLS lands later)
+    crl_sources,        // hash of CRL *sources* — see below; Stage 2: always empty
     verify_mode,        // Full or Skip
-    alpn_protocols,     // offered ALPN list
+    alpn_protocols,     // offered ALPN list, derived from `version`
 )
 ```
 
-Two Fetches sharing the same fingerprint share one `Arc<ClientConfig>`. Cache entries become unreachable when the last referencing Fetch is dropped, and are reclaimed by Arc refcount on the next sweep.
+`version` participates because the connector wires ALPN via `enable_http1` / `enable_http2`, producing distinct `Client` instances per `UpstreamVersion` even when the TLS posture is identical. This is `07-l7.md` § _Pool fingerprint_'s `TcpFingerprint = (addr, version_slot, tls_hash)` minus `addr`: `hyper_util::Client` already keys its own pool by authority, so the cache only needs to split at the `(version, tls)` granularity.
 
-**CRL fingerprint = source identity, not content.** `CrlSource::File(path)` hashes the path string; `CrlSource::Url(url)` hashes the URL string. The fetched CRL bytes are **not** part of the fingerprint. Consequence: when a CRL file is re-read from disk or a CRL URL returns fresh bytes, the fingerprint is unchanged, the cached `Arc<ClientConfig>` is unchanged, and the new CRL content is installed by mutating the rustls `CryptoProvider`'s CRL provider — new handshakes on the existing `ClientConfig` see the refreshed revocation list immediately.
+Two Fetches sharing the same fingerprint share one `Arc<Client>`. The cache grows monotonically across reload cycles; entries are not actively swept in MVP — for the typical fingerprint count a daemon produces (a handful per ruleset) the bookkeeping is not worth the complexity. Forced removal lands post-MVP via a `pool.drain <fingerprint>` management verb (see `07-l7.md`).
 
-Rationale: hashing CRL content would force a new `ClientConfig` on every CRL refresh, defeating the cache and producing connection-pool churn every few hours. The TLS `ClientConfig` identity stays stable across CRL updates; in-flight TLS connections keep serving (a revoked cert caught by a fresh CRL affects _new_ handshakes, not established ones — which is correct: in-flight sessions already completed identity verification at handshake time).
+**CRL fingerprint = source identity, not content.** `CrlSource::File(path)` hashes the path string; `CrlSource::Url(url)` hashes the URL string. The fetched CRL bytes are **not** part of the fingerprint. Consequence: when a CRL file is re-read from disk or a CRL URL returns fresh bytes, the fingerprint is unchanged, the cached `Arc<Client>` is unchanged, and the new CRL content is installed by mutating the rustls `CryptoProvider`'s CRL provider — new handshakes on the existing config see the refreshed revocation list immediately.
+
+Rationale: hashing CRL content would force a new client on every CRL refresh, defeating the cache and producing connection-pool churn every few hours. The TLS config identity stays stable across CRL updates; in-flight TLS connections keep serving (a revoked cert caught by a fresh CRL affects _new_ handshakes, not established ones — which is correct: in-flight sessions already completed identity verification at handshake time).
 
 ### mTLS on upstream
 
