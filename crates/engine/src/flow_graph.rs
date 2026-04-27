@@ -14,6 +14,7 @@ use vane_core::{
 use crate::factories::{
 	FactoryError, FetchFactories, FetchFactoryEntry, MiddlewareFactories, MiddlewareFactoryEntry,
 };
+use crate::security::SecurityConfig;
 
 pub enum MiddlewareInst {
 	L4Peek(Arc<dyn L4PeekMiddleware>),
@@ -54,6 +55,11 @@ pub struct FlowGraph {
 	/// [`vane_core::L4Conn::Tls`]. See `spec/architecture/08-tls.md`
 	/// § _TLS termination (L4 → L7 upgrade)_.
 	listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>>,
+	/// L1 security config available to the executor (H1/H2 builder
+	/// configuration, header size/count limits). Derived at link time
+	/// from the daemon's env; default values used for test graphs that
+	/// don't need floor-enforcement tuning.
+	security_cfg: Arc<SecurityConfig>,
 }
 
 impl FlowGraph {
@@ -65,6 +71,14 @@ impl FlowGraph {
 	#[must_use]
 	pub fn meta(&self) -> &FlowGraphMeta {
 		&self.meta
+	}
+
+	/// L1 security configuration for this graph. Used by the H1/H2
+	/// server builders in `upgrade.rs` to configure header limits and
+	/// timeout. Tests that call `FlowGraph::link` get `SecurityConfig::default()`.
+	#[must_use]
+	pub fn security_cfg(&self) -> &Arc<SecurityConfig> {
+		&self.security_cfg
 	}
 
 	/// Per-listener parsed TLS server config. `None` for cleartext
@@ -130,6 +144,10 @@ impl FlowGraph {
 	/// the factory registries, construct `Arc<dyn Trait>` values, and emit
 	/// the runtime `FlowGraph`. See 02-flow.md § _link_.
 	///
+	/// Uses `SecurityConfig::default()` for the L1 floor config.
+	/// Production callers that have validated env-var values use
+	/// [`Self::link_with_security`] instead.
+	///
 	/// # Errors
 	/// Returns [`LinkError`] on any of: unknown middleware name, unknown
 	/// fetch kind, factory-rejected args, middleware kind mismatch
@@ -139,6 +157,31 @@ impl FlowGraph {
 		sym: Arc<SymbolicFlowGraph>,
 		mw_factories: &MiddlewareFactories,
 		fetch_factories: &FetchFactories,
+	) -> Result<Arc<Self>, LinkError> {
+		Self::link_inner(sym, mw_factories, fetch_factories, Arc::new(SecurityConfig::default()))
+	}
+
+	/// Like [`Self::link`] but with an explicit [`SecurityConfig`]
+	/// (floor-validated by the caller via [`SecurityConfig::new`]).
+	/// Production daemon code uses this path; tests use [`Self::link`]
+	/// and get `SecurityConfig::default()`.
+	///
+	/// # Errors
+	/// Same as [`Self::link`].
+	pub fn link_with_security(
+		sym: Arc<SymbolicFlowGraph>,
+		mw_factories: &MiddlewareFactories,
+		fetch_factories: &FetchFactories,
+		security_cfg: Arc<SecurityConfig>,
+	) -> Result<Arc<Self>, LinkError> {
+		Self::link_inner(sym, mw_factories, fetch_factories, security_cfg)
+	}
+
+	fn link_inner(
+		sym: Arc<SymbolicFlowGraph>,
+		mw_factories: &MiddlewareFactories,
+		fetch_factories: &FetchFactories,
+		security_cfg: Arc<SecurityConfig>,
 	) -> Result<Arc<Self>, LinkError> {
 		let mut middlewares = Vec::with_capacity(sym.middlewares.len());
 		for symref in &sym.middlewares {
@@ -209,7 +252,7 @@ impl FlowGraph {
 			listener_tls: sym.meta.listener_tls.clone(),
 		};
 
-		Ok(Arc::new(Self { symbolic: sym, middlewares, fetches, meta, listener_tls }))
+		Ok(Arc::new(Self { symbolic: sym, middlewares, fetches, meta, listener_tls, security_cfg }))
 	}
 }
 
@@ -496,6 +539,7 @@ mod tests {
 				fetches: Vec::new(),
 				meta: dummy_meta(),
 				listener_tls: BTreeMap::new(),
+				security_cfg: Arc::new(SecurityConfig::default()),
 			}
 		}
 

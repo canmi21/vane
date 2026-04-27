@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use hyper::body::Incoming;
 use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::io::{AsyncRead, AsyncWrite, copy_bidirectional};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
@@ -68,6 +68,12 @@ where
 	// predicates / middleware can read it. H1 only this round.
 	let _ = conn.http_version.set(HttpVersion::Http1_1);
 
+	// Extract L1 security limits before moving `graph` into the closure.
+	let h1_max_buf = graph.security_cfg().max_header_bytes.saturating_mul(4).max(8_192);
+	let h1_max_headers = graph.security_cfg().max_headers_count;
+	let h1_header_timeout = graph.security_cfg().header_timeout;
+	let h1_max_header_bytes = graph.security_cfg().max_header_bytes;
+
 	// Outer cancel handle drives the connection-level select below.
 	// `svc` keeps its own clone for per-request executor wiring.
 	let conn_cancel = cancel.clone();
@@ -77,6 +83,22 @@ where
 		let log = Arc::clone(&log);
 		let cancel = cancel.clone();
 		async move {
+			// Precise header byte check (name + ": " + value + "\r\n" = +4).
+			// hyper's `max_buf_size` provides a coarse upper bound on the
+			// read buffer; this check enforces the spec limit precisely on
+			// parsed header fields.
+			let header_bytes: usize =
+				req.headers().iter().map(|(name, value)| name.as_str().len() + value.len() + 4).sum();
+			if header_bytes > h1_max_header_bytes {
+				return Ok::<Response, std::convert::Infallible>(
+					http::Response::builder()
+						.status(431)
+						.header("connection", "close")
+						.body(Body::Empty)
+						.expect("static 431"),
+				);
+			}
+
 			// Pull the client-side `OnUpgrade` future out of the
 			// request's extensions BEFORE we adapt the body. Hyper's
 			// upgrade machinery sets this when it parses the
@@ -210,8 +232,24 @@ where
 	// response; without it, the server-side `OnUpgrade` future the
 	// service-fn captured would close immediately and the
 	// `copy_bidirectional` spawn would never see the upgraded IO.
-	let server_conn =
-		hyper::server::conn::http1::Builder::new().serve_connection(io, svc).with_upgrades();
+	//
+	// L1 builder knobs:
+	// - `max_buf_size`: coarse IO buffer cap (4× max_header_bytes);
+	//   limits raw bytes hyper buffers before the parse.
+	// - `max_headers`: precise header-count cap; hyper returns 431 if
+	//   exceeded before our service-fn runs.
+	// - `header_read_timeout` + `TokioTimer`: per-request header
+	//   completion deadline starting from the first byte received
+	//   (covers keep-alive idle requests after the first). The L4
+	//   peek phase covers the very first bytes with the same duration.
+	let server_conn = {
+		let mut b = hyper::server::conn::http1::Builder::new();
+		b.max_buf_size(h1_max_buf)
+			.max_headers(h1_max_headers)
+			.timer(TokioTimer::new())
+			.header_read_timeout(h1_header_timeout);
+		b.serve_connection(io, svc).with_upgrades()
+	};
 	tokio::pin!(server_conn);
 
 	// Watch the cancel token alongside the hyper connection. A

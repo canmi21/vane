@@ -43,7 +43,7 @@ use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::{BroadcastSink, FanoutSink, default_sink_from_env};
 use vane_engine::tracing_broadcast::BroadcastTracingLayer;
-use vane_engine::{BindConfig, ListenerSet};
+use vane_engine::{BindConfig, ListenerSet, SecurityConfig, SecurityState};
 
 use crate::mgmt_handlers::MgmtState;
 use crate::providers::MetadataProviders;
@@ -122,6 +122,7 @@ async fn main() -> std::process::ExitCode {
 	std::process::ExitCode::SUCCESS
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let args = Args::parse();
 	// Construct the broadcast tracing layer first so the subscriber
@@ -156,9 +157,24 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		"compiled symbolic flow graph",
 	);
 
+	// L1 security floor: validate env floors, build daemon-scoped state.
+	let security_cfg = Arc::new(SecurityConfig::new(&loaded.env)?);
+	let security = Arc::new(SecurityState::new((*security_cfg).clone()));
+	tracing::info!(
+		header_timeout_secs = security_cfg.header_timeout.as_secs(),
+		max_conn_per_ip = security_cfg.max_conn_per_ip,
+		max_total_conns = security_cfg.max_total_conns,
+		"L1 security floor configured",
+	);
+
 	let mw_factories = Arc::new(build_middleware_factories());
 	let fetch_factories = Arc::new(build_fetch_factories());
-	let initial_graph = FlowGraph::link(symbolic, &mw_factories, &fetch_factories)?;
+	let initial_graph = FlowGraph::link_with_security(
+		symbolic,
+		&mw_factories,
+		&fetch_factories,
+		Arc::clone(&security_cfg),
+	)?;
 	let graph_swap: Arc<ArcSwap<FlowGraph>> = Arc::new(ArcSwap::new(initial_graph));
 	tracing::info!("linked flow graph");
 
@@ -188,7 +204,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
 	let sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
 
-	let listeners = Arc::new(ListenerSet::from_bind_config(BindConfig::from(&loaded.env)));
+	let listeners = Arc::new(ListenerSet::from_security_and_bind_config(
+		Arc::clone(&security),
+		BindConfig::from(&loaded.env),
+	));
 	listeners.start(Arc::clone(&graph_swap), Arc::clone(&verbosity), Arc::clone(&sink));
 	tracing::info!(active = listeners.len(), "listeners started");
 
@@ -197,6 +216,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// `wait_for_shutdown_signal` select loop. Constructed once here and
 	// cloned into each consumer.
 	let shutdown_trigger = CancellationToken::new();
+
+	// Background cleanup for L1 security state: prunes zero-count
+	// per-IP entries and stale log-dedup slots every 60 seconds.
+	Arc::clone(&security).spawn_cleanup(shutdown_trigger.clone());
 
 	// Boot health watchdog: detect "every listener failed to bind"
 	// within a bounded budget and force shutdown with a non-zero exit
@@ -225,6 +248,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		Arc::clone(&sink),
 		Arc::clone(&mw_factories),
 		Arc::clone(&fetch_factories),
+		Arc::clone(&security_cfg),
 		watcher_cancel.clone(),
 	) {
 		Ok(h) => {
@@ -252,6 +276,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		log_sink: Arc::clone(&sink),
 		broadcast: Arc::clone(&broadcast_sink),
 		tracing_broadcast,
+		security_cfg: Arc::clone(&security_cfg),
 		shutdown_trigger: shutdown_trigger.clone(),
 	});
 	let (mgmt_cancel, mgmt_handle) = bind_mgmt_server(Arc::clone(&mgmt_state)).await;

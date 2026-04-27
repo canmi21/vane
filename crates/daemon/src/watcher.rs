@@ -22,6 +22,7 @@ use notify_debouncer_full::{DebounceEventResult, DebouncedEvent, new_debouncer};
 use tokio_util::sync::CancellationToken;
 use vane_core::FlowLogSink;
 use vane_engine::ListenerSet;
+use vane_engine::SecurityConfig;
 use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
@@ -53,6 +54,7 @@ pub(crate) fn spawn_watcher(
 	log_sink: Arc<dyn FlowLogSink>,
 	mw_factories: Arc<MiddlewareFactories>,
 	fetch_factories: Arc<FetchFactories>,
+	security_cfg: Arc<SecurityConfig>,
 	cancel: CancellationToken,
 ) -> Result<tokio::task::JoinHandle<()>, notify::Error> {
 	let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
@@ -97,7 +99,7 @@ pub(crate) fn spawn_watcher(
 					if evt.is_none() {
 						return;
 					}
-					match reload_once(&config_dir, &graph, &mw_factories, &fetch_factories) {
+					match reload_once(&config_dir, &graph, &mw_factories, &fetch_factories, &security_cfg) {
 						Ok(ReloadOutcome::Swapped { hash }) => {
 							tracing::info!(
 								hash = %hex32(&hash), "reloaded — flow graph swapped",
@@ -336,6 +338,7 @@ mod tests {
 			sink,
 			mw,
 			fetch,
+			Arc::new(SecurityConfig::default()),
 			cancel.clone(),
 		)
 		.expect("watcher init");
@@ -379,6 +382,7 @@ mod tests {
 			sink,
 			mw,
 			fetch,
+			Arc::new(SecurityConfig::default()),
 			cancel.clone(),
 		)
 		.expect("watcher init");

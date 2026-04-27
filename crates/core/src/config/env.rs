@@ -50,6 +50,8 @@ pub struct Env {
 	pub sec_header_timeout_secs: u32,
 	/// `VANE_SEC_MAX_CONN_PER_IP` — per-IP concurrent-connection cap (default 100).
 	pub sec_max_conn_per_ip: u32,
+	/// `VANE_SEC_MAX_TOTAL_CONNS` — daemon-wide concurrent-connection cap (default 65536).
+	pub sec_max_total_conns: u32,
 	/// `VANE_BIND_MAX_ATTEMPTS` — bind-retry count per listener address (default 10).
 	pub bind_max_attempts: u32,
 	/// `VANE_BIND_BACKOFF_INITIAL_MS` — initial retry backoff in milliseconds (default 100).
@@ -104,6 +106,7 @@ impl Env {
 			sec_max_headers_count: parse_u32_default(r, "VANE_SEC_MAX_HEADERS_COUNT", 100)?,
 			sec_header_timeout_secs: parse_u32_default(r, "VANE_SEC_HEADER_TIMEOUT", 30)?,
 			sec_max_conn_per_ip: parse_u32_default(r, "VANE_SEC_MAX_CONN_PER_IP", 100)?,
+			sec_max_total_conns: parse_u32_default(r, "VANE_SEC_MAX_TOTAL_CONNS", 65_536)?,
 			bind_max_attempts: parse_u32_default(r, "VANE_BIND_MAX_ATTEMPTS", 10)?,
 			bind_backoff_initial_ms: parse_u32_default(r, "VANE_BIND_BACKOFF_INITIAL_MS", 100)?,
 			bind_backoff_max_ms: parse_u32_default(r, "VANE_BIND_BACKOFF_MAX_MS", 5_000)?,
@@ -180,6 +183,7 @@ mod tests {
 		assert_eq!(env.sec_max_headers_count, 100);
 		assert_eq!(env.sec_header_timeout_secs, 30);
 		assert_eq!(env.sec_max_conn_per_ip, 100);
+		assert_eq!(env.sec_max_total_conns, 65_536);
 		assert_eq!(env.mgmt_unix, PathBuf::from("/var/run/vaned.sock"));
 		assert!(env.mgmt_http_bind.is_none());
 		assert!(env.mgmt_http_token.is_none());

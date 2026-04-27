@@ -39,16 +39,9 @@ use crate::executor::{ExecutorInput, execute};
 use crate::flow_graph::FlowGraph;
 use crate::peeked_stream::PeekedStream;
 use crate::protocol_detect::classify;
+use crate::security::{SecurityConfig, SecurityState};
 use crate::verbosity::VerbosityState;
 use vane_core::{MAX_PEEK_BYTES, PeekResult};
-
-/// Per-connection budget for the listener-side peek prelude. The
-/// prelude reads at most [`MAX_PEEK_BYTES`] before declaring the
-/// prefix `Unknown`, so a hard wall-clock cap defends only against
-/// pathological clients that establish TCP and then never write.
-// TODO(s1-30): replace with `VANE_SEC_HEADER_TIMEOUT` once the L1
-// security floor lands.
-const PEEK_DEADLINE: Duration = Duration::from_secs(5);
 
 const TCP_LISTEN_BACKLOG: u32 = 1024;
 
@@ -124,6 +117,10 @@ pub struct ListenerSet {
 	/// task ends. Read by the mgmt `list_connections` verb.
 	connections: Arc<DashMap<ConnId, ConnEntry>>,
 	bind_cfg: Arc<BindConfig>,
+	/// Daemon-scoped L1 security state (per-IP + global connection
+	/// counters). Survives hot-reload so counters are never reset by
+	/// a config change.
+	security: Arc<SecurityState>,
 }
 
 /// One in-flight connection's projection for the management plane.
@@ -185,22 +182,44 @@ impl Drop for InFlightGuard {
 }
 
 impl ListenerSet {
-	/// Create a [`ListenerSet`] with default [`BindConfig`] values.
-	/// Production callers use [`Self::from_bind_config`] to apply
-	/// operator-controlled env-var overrides.
+	/// Create a [`ListenerSet`] with default [`BindConfig`] and
+	/// [`SecurityConfig`] values. Production callers use
+	/// [`Self::from_security_and_bind_config`] to apply env-var overrides.
 	#[must_use]
 	pub fn new() -> Self {
-		Self::from_bind_config(BindConfig::default())
+		Self::from_security_and_bind_config(
+			Arc::new(SecurityState::new(SecurityConfig::default())),
+			BindConfig::default(),
+		)
 	}
 
-	/// Create a [`ListenerSet`] from an explicit [`BindConfig`].
-	/// Typically called as `ListenerSet::from_bind_config(BindConfig::from(&env))`.
+	/// Create a [`ListenerSet`] from an explicit [`BindConfig`] and
+	/// default security state. Kept for callers that only need to
+	/// override bind knobs without floor-validated security config.
 	#[must_use]
 	pub fn from_bind_config(cfg: BindConfig) -> Self {
+		Self::from_security_and_bind_config(
+			Arc::new(SecurityState::new(SecurityConfig::default())),
+			cfg,
+		)
+	}
+
+	/// Production constructor: supply both the floor-validated
+	/// [`SecurityState`] and the bind-retry [`BindConfig`].
+	/// Typically called as:
+	/// ```ignore
+	/// ListenerSet::from_security_and_bind_config(
+	///     Arc::new(SecurityState::new(SecurityConfig::new(&env)?)),
+	///     BindConfig::from(&env),
+	/// )
+	/// ```
+	#[must_use]
+	pub fn from_security_and_bind_config(security: Arc<SecurityState>, cfg: BindConfig) -> Self {
 		Self {
 			running: Mutex::new(HashMap::new()),
 			connections: Arc::new(DashMap::new()),
 			bind_cfg: Arc::new(cfg),
+			security,
 		}
 	}
 
@@ -279,6 +298,7 @@ impl ListenerSet {
 				Arc::clone(&bind_ready),
 				Arc::clone(&self.connections),
 				Arc::clone(&self.bind_cfg),
+				Arc::clone(&self.security),
 			));
 
 			running.insert(
@@ -510,6 +530,7 @@ impl ListenerSet {
 				Arc::clone(&bind_ready),
 				Arc::clone(&self.connections),
 				Arc::clone(&self.bind_cfg),
+				Arc::clone(&self.security),
 			));
 			running.insert(
 				addr,
@@ -594,6 +615,7 @@ async fn run_accept_loop(
 	bind_ready: Arc<AtomicBool>,
 	connections: Arc<DashMap<ConnId, ConnEntry>>,
 	bind_cfg: Arc<BindConfig>,
+	security: Arc<SecurityState>,
 ) {
 	let Some(listener) = bind_with_retry(
 		addr,
@@ -681,6 +703,7 @@ async fn run_accept_loop(
 					force,
 					in_flight_guard,
 					registry,
+					Arc::clone(&security),
 				));
 			}
 		}
@@ -712,7 +735,16 @@ async fn handle_connection(
 	// decrement runs on every exit path including panics and cancellation.
 	_in_flight_guard: InFlightGuard,
 	registry: Arc<DashMap<ConnId, ConnEntry>>,
+	security: Arc<SecurityState>,
 ) {
+	// L1 security floor: enforce per-IP and global connection caps
+	// before any further work. On rejection the stream is dropped here,
+	// which sends TCP RST to the client.
+	let Some(_sec_guard) = security.check_and_register(remote.ip()) else {
+		tracing::debug!(?remote, "L1 connection cap: dropping connection");
+		return;
+	};
+
 	let conn_id = next_conn_id();
 	// Register before any further work, hold the deregister guard for
 	// the rest of the function. `DashMap::insert` does not panic and
@@ -756,8 +788,9 @@ async fn handle_connection(
 		return;
 	}
 
+	let peek_timeout = security.cfg.header_timeout;
 	let (peeked_buffer, peeked_stream, peek_result) =
-		match tokio::time::timeout(PEEK_DEADLINE, run_peek_phase(stream)).await {
+		match tokio::time::timeout(peek_timeout, run_peek_phase(stream)).await {
 			Ok(Ok(triple)) => triple,
 			Ok(Err(e)) => {
 				tracing::debug!(
@@ -772,7 +805,7 @@ async fn handle_connection(
 				tracing::debug!(
 					conn_id = %conn.id,
 					?remote,
-					timeout_ms = u64::try_from(PEEK_DEADLINE.as_millis()).unwrap_or(u64::MAX),
+					timeout_ms = u64::try_from(peek_timeout.as_millis()).unwrap_or(u64::MAX),
 					"peek phase timeout; dropping connection",
 				);
 				return;

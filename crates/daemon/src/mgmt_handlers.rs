@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 use vane_core::compile::compile;
 use vane_core::{FlowLogEvent, FlowLogSink};
 use vane_engine::ListenerSet;
+use vane_engine::SecurityConfig;
 use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
@@ -55,6 +56,7 @@ pub(crate) struct MgmtState {
 	/// Tracing layer that broadcasts every emitted event. `tail_log`
 	/// subscribes here. Cheap to clone (wraps a [`broadcast::Sender`]).
 	pub tracing_broadcast: BroadcastTracingLayer,
+	pub security_cfg: Arc<SecurityConfig>,
 	/// Fired by the `shutdown` verb. The daemon's main signal loop
 	/// awaits this alongside SIGINT/SIGTERM.
 	pub shutdown_trigger: CancellationToken,
@@ -216,8 +218,13 @@ impl MgmtState {
 	}
 
 	fn handle_reload(&self) -> Result<serde_json::Value, WireError> {
-		match reload_once(&self.config_dir, &self.graph_swap, &self.mw_factories, &self.fetch_factories)
-		{
+		match reload_once(
+			&self.config_dir,
+			&self.graph_swap,
+			&self.mw_factories,
+			&self.fetch_factories,
+			&self.security_cfg,
+		) {
 			Ok(ReloadOutcome::Swapped { hash }) => {
 				// Match the watcher's post-swap behaviour: reconcile the
 				// listener set with the new graph's `entries`.
@@ -363,6 +370,7 @@ mod tests {
 			log_sink: Arc::new(NullSink),
 			broadcast: Arc::new(BroadcastSink::new()),
 			tracing_broadcast: BroadcastTracingLayer::new(),
+			security_cfg: Arc::new(SecurityConfig::default()),
 			shutdown_trigger: CancellationToken::new(),
 		})
 	}

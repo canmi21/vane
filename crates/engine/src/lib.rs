@@ -43,6 +43,7 @@ pub mod upgrade;
 pub mod verbosity;
 
 pub use listener::{BindConfig, ListenerSet};
+pub use security::{ConnSecGuard, SecurityConfig, SecurityState};
 pub use verbosity::VerbosityState;
 
 pub mod crypto {
