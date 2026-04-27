@@ -1874,6 +1874,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vane-core",
+ "x509-parser",
 ]
 
 [[package]]

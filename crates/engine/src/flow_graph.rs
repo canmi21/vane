@@ -1,20 +1,20 @@
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::fs;
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::ops::Index;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use vane_core::{
 	FetchId, FetchKind, FlowGraphMeta, L4BytesMiddleware, L4Fetch, L4PeekMiddleware, L7Fetch,
 	L7RequestMiddleware, L7ResponseMiddleware, MiddlewareId, MiddlewareKind, Node, NodeId,
-	SymbolicFlowGraph,
-	rule::{ListenerTlsSpec, TlsConfig},
+	SymbolicFlowGraph, rule::ListenerTlsSpec,
 };
 
 use crate::factories::{
 	FactoryError, FetchFactories, FetchFactoryEntry, MiddlewareFactories, MiddlewareFactoryEntry,
 };
 use crate::security::SecurityConfig;
+use crate::tls::{CertPopulator, StaticCertPopulator, VaneCertResolver};
 
 pub enum MiddlewareInst {
 	L4Peek(Arc<dyn L4PeekMiddleware>),
@@ -55,6 +55,13 @@ pub struct FlowGraph {
 	/// [`vane_core::L4Conn::Tls`]. See `spec/architecture/08-tls.md`
 	/// § _TLS termination (L4 → L7 upgrade)_.
 	listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>>,
+	/// Per-listener cert populators. Held only for lifetime extension
+	/// — the resolver reads from the populator-owned `ArcSwap` directly.
+	/// Each `FlowGraph::link` builds a fresh populator (rebuild on
+	/// reload, see `08-tls.md` § _Populator lifecycle_); reserved for
+	/// cross-reload reuse, post-MVP.
+	#[allow(dead_code, reason = "lifetime-extension only; reused post-MVP per spec")]
+	listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>>,
 	/// L1 security config available to the executor (H1/H2 builder
 	/// configuration, header size/count limits). Derived at link time
 	/// from the daemon's env; default values used for test graphs that
@@ -231,12 +238,15 @@ impl FlowGraph {
 		// `rustls::ServerConfig`. PEM I/O happens here (link stage) so a
 		// missing or malformed cert/key is caught at config-load time
 		// rather than per-accept. See 08-tls.md § _TLS termination
-		// (L4 → L7 upgrade)_ and § _Certificate resolver_.
+		// (L4 → L7 upgrade)_ and § _Cert resolver and rotation_.
 		let mut listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>> = BTreeMap::new();
+		let mut listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>> =
+			BTreeMap::new();
 		for (addr, spec) in &sym.meta.listener_tls {
-			let server_config = build_listener_server_config(spec)
+			let (server_config, populator) = build_listener_server_config(spec)
 				.map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
 			listener_tls.insert(*addr, Arc::new(server_config));
+			listener_populators.insert(*addr, vec![populator]);
 		}
 
 		// Inherit version_hash / compiled_at / source_files from the symbolic
@@ -252,31 +262,33 @@ impl FlowGraph {
 			listener_tls: sym.meta.listener_tls.clone(),
 		};
 
-		Ok(Arc::new(Self { symbolic: sym, middlewares, fetches, meta, listener_tls, security_cfg }))
+		Ok(Arc::new(Self {
+			symbolic: sym,
+			middlewares,
+			fetches,
+			meta,
+			listener_tls,
+			listener_populators,
+			security_cfg,
+		}))
 	}
 }
 
 /// Build a `rustls::ServerConfig` for a listener's cert pool. ALPN
 /// advertises `["h2", "http/1.1"]`; the executor's `Node::Upgrade` arm
 /// dispatches to `drive_h2_server` or `drive_h1_server` based on the
-/// negotiated ALPN. SNI dispatch lives in [`SniResolver::resolve`].
-fn build_listener_server_config(spec: &ListenerTlsSpec) -> Result<rustls::ServerConfig, String> {
-	let default = spec.default.as_ref().map(load_certified_key).transpose()?.map(Arc::new);
-
-	let mut by_sni: HashMap<String, Arc<rustls::sign::CertifiedKey>> = HashMap::new();
-	for (sni, tls) in &spec.sni_certs {
-		let ck = load_certified_key(tls)?;
-		// Lower has already lowercased the key — assert it as a
-		// belt-and-suspenders for any post-lower meta tampering.
-		debug_assert_eq!(sni, &sni.to_ascii_lowercase());
-		by_sni.insert(sni.clone(), Arc::new(ck));
-	}
-
-	if default.is_none() && by_sni.is_empty() {
-		return Err("listener TLS spec is empty (no default + no sni certs)".to_owned());
-	}
-
-	let resolver = Arc::new(SniResolver { by_sni, default });
+/// negotiated ALPN. SNI dispatch lives in [`VaneCertResolver::resolve`].
+///
+/// Returns the populator alongside the config so `FlowGraph` can hold
+/// it for the listener's lifetime — the populator owns the
+/// `ArcSwap<CertStore>` the resolver reads on every handshake.
+fn build_listener_server_config(
+	spec: &ListenerTlsSpec,
+) -> Result<(rustls::ServerConfig, Box<dyn CertPopulator + Send + Sync>), String> {
+	let populator = StaticCertPopulator::from_spec(spec).map_err(|e| e.to_string())?;
+	let store = populator.initial_store_sync().map_err(|e| e.to_string())?;
+	let arcswap = Arc::new(ArcSwap::from_pointee(store));
+	let resolver = Arc::new(VaneCertResolver::new(arcswap));
 
 	let mut server_config =
 		rustls::ServerConfig::builder().with_no_client_auth().with_cert_resolver(resolver);
@@ -284,67 +296,8 @@ fn build_listener_server_config(spec: &ListenerTlsSpec) -> Result<rustls::Server
 	// Upgrade arm reads the negotiated protocol off `ConnContext.tls.alpn`
 	// and routes to the matching driver.
 	server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-	Ok(server_config)
-}
 
-/// Custom rustls cert resolver: SNI lookup with default-cert fallback.
-///
-/// rustls 0.23's built-in `ResolvesServerCertUsingSni` errors on
-/// unmatched SNI rather than falling back; spec 08-tls.md
-/// § _Certificate resolver_ requires a default-cert fallback for
-/// `ClientHello`s with missing or unknown SNI, so we wrap the lookup
-/// with our own resolver.
-#[derive(Debug)]
-struct SniResolver {
-	by_sni: HashMap<String, Arc<rustls::sign::CertifiedKey>>,
-	default: Option<Arc<rustls::sign::CertifiedKey>>,
-}
-
-impl rustls::server::ResolvesServerCert for SniResolver {
-	fn resolve(
-		&self,
-		hello: rustls::server::ClientHello<'_>,
-	) -> Option<Arc<rustls::sign::CertifiedKey>> {
-		// `server_name()` is already ASCII-lowercased by rustls per
-		// RFC 6066 § 3, so a direct map lookup suffices.
-		if let Some(sni) = hello.server_name()
-			&& let Some(ck) = self.by_sni.get(sni)
-		{
-			return Some(Arc::clone(ck));
-		}
-		self.default.clone()
-	}
-}
-
-/// Read PEM, parse cert chain + private key, sign with the installed
-/// crypto provider's key loader. Errors are stringly-typed so the
-/// caller can wrap with `LinkError::TlsConfig { addr, cause }`.
-fn load_certified_key(tls: &TlsConfig) -> Result<rustls::sign::CertifiedKey, String> {
-	let cert_bytes = fs::read(&tls.cert_file)
-		.map_err(|e| format!("read cert_file {}: {e}", tls.cert_file.display()))?;
-	let key_bytes = fs::read(&tls.key_file)
-		.map_err(|e| format!("read key_file {}: {e}", tls.key_file.display()))?;
-
-	let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> =
-		rustls_pemfile::certs(&mut cert_bytes.as_slice())
-			.collect::<Result<_, _>>()
-			.map_err(|e| format!("parse cert_file {}: {e}", tls.cert_file.display()))?;
-	if cert_chain.is_empty() {
-		return Err(format!("cert_file {} contained no certificates", tls.cert_file.display()));
-	}
-
-	let private_key = rustls_pemfile::private_key(&mut key_bytes.as_slice())
-		.map_err(|e| format!("parse key_file {}: {e}", tls.key_file.display()))?
-		.ok_or_else(|| format!("key_file {} contained no private key", tls.key_file.display()))?;
-
-	let provider = rustls::crypto::CryptoProvider::get_default()
-		.ok_or_else(|| "rustls crypto provider not installed".to_owned())?;
-	let signing_key = provider
-		.key_provider
-		.load_private_key(private_key)
-		.map_err(|e| format!("load_private_key {}: {e}", tls.key_file.display()))?;
-
-	Ok(rustls::sign::CertifiedKey::new(cert_chain, signing_key))
+	Ok((server_config, Box::new(populator)))
 }
 
 impl Index<MiddlewareId> for FlowGraph {
@@ -398,6 +351,7 @@ mod tests {
 	use std::io::Write as _;
 
 	use tempfile::NamedTempFile;
+	use vane_core::rule::TlsConfig;
 
 	use super::*;
 
@@ -417,54 +371,14 @@ mod tests {
 		(issued.cert.pem(), issued.signing_key.serialize_pem())
 	}
 
-	fn default_only_spec(
-		cert: NamedTempFile,
-		key: NamedTempFile,
-	) -> (ListenerTlsSpec, NamedTempFile, NamedTempFile) {
-		let spec = ListenerTlsSpec {
-			default: Some(TlsConfig {
-				sni: None,
-				cert_file: cert.path().to_path_buf(),
-				key_file: key.path().to_path_buf(),
-			}),
-			sni_certs: BTreeMap::new(),
-		};
-		(spec, cert, key)
-	}
-
 	#[test]
 	fn build_listener_server_config_advertises_h2_and_h1_alpn() {
+		// Orchestration: ALPN is set on the assembled `ServerConfig`
+		// regardless of populator internals. PEM-parsing / signing-key
+		// errors are covered by the `tls::static_populator` tests.
 		install_crypto_for_test();
 		let (cert_pem, key_pem) = rcgen_self_signed();
 		let cert_file = write_pem(&cert_pem);
-		let key_file = write_pem(&key_pem);
-		let (spec, _cert, _key) = default_only_spec(cert_file, key_file);
-		let server = build_listener_server_config(&spec).expect("build_listener_server_config");
-		assert_eq!(server.alpn_protocols, vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
-	}
-
-	#[test]
-	fn build_listener_server_config_errors_when_cert_file_missing() {
-		install_crypto_for_test();
-		let (_, key_pem) = rcgen_self_signed();
-		let key_file = write_pem(&key_pem);
-		let spec = ListenerTlsSpec {
-			default: Some(TlsConfig {
-				sni: None,
-				cert_file: "/nonexistent/path/to/cert.pem".into(),
-				key_file: key_file.path().to_path_buf(),
-			}),
-			sni_certs: BTreeMap::new(),
-		};
-		let err = build_listener_server_config(&spec).expect_err("missing cert must error");
-		assert!(err.contains("read cert_file"), "error mentions cert_file read failure: {err}");
-	}
-
-	#[test]
-	fn build_listener_server_config_errors_on_garbage_cert_pem() {
-		install_crypto_for_test();
-		let (_, key_pem) = rcgen_self_signed();
-		let cert_file = write_pem("this is not a PEM cert\n");
 		let key_file = write_pem(&key_pem);
 		let spec = ListenerTlsSpec {
 			default: Some(TlsConfig {
@@ -474,14 +388,13 @@ mod tests {
 			}),
 			sni_certs: BTreeMap::new(),
 		};
-		let err = build_listener_server_config(&spec).expect_err("garbage cert must error");
-		assert!(
-			err.contains("contained no certificates") || err.contains("parse cert_file"),
-			"error explains the cert parse failure: {err}",
-		);
+		let (server, _populator) =
+			build_listener_server_config(&spec).expect("build_listener_server_config");
+		assert_eq!(server.alpn_protocols, vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
 	}
 
 	mod needs_peek_tests {
+		use std::collections::HashMap;
 		use std::time::SystemTime;
 
 		use serde_json::json;
@@ -539,6 +452,7 @@ mod tests {
 				fetches: Vec::new(),
 				meta: dummy_meta(),
 				listener_tls: BTreeMap::new(),
+				listener_populators: BTreeMap::new(),
 				security_cfg: Arc::new(SecurityConfig::default()),
 			}
 		}

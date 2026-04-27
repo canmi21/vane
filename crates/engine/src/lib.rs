@@ -37,6 +37,7 @@ pub mod preset;
 pub mod protocol_detect;
 pub mod security;
 pub mod terminator;
+pub mod tls;
 pub mod tracing_broadcast;
 pub mod tracing_init;
 pub mod upgrade;

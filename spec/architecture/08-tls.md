@@ -172,6 +172,23 @@ Built-in implementations:
 - **`StaticCertPopulator`** — loads cert/key files from configured paths. Optional OCSP response file paths, or optional OCSP fetch from the cert's AIA URL on refresh.
 - **`ManagedCertPopulator`** (integrated LazyCert) — ACME / Let's Encrypt automatic issuance and renewal via [`instant-acme`](https://crates.io/crates/instant-acme) (pure-Rust RFC 8555 client, rustls-compatible). OCSP fetched from the cert's AIA URL automatically. See "ACME challenge modes" below for DNS-01 / HTTP-01 handling.
 
+#### Populator lifecycle
+
+Populators are FlowGraph-scoped — a fresh instance is constructed on every
+`FlowGraph::link`. Live TLS connections are unaffected (handshake-time cert is
+captured), but populator in-memory state does not survive a reload.
+
+Stateful populators (`ManagedCertPopulator`) must persist state via on-disk
+cache (`Storage`-style trait, deferred to S3-09) so that reload-from-disk is
+indistinguishable from cold-start: the populator reads the cache before issuing
+fresh requests. Without this, reload churn will exhaust upstream rate limits —
+Let's Encrypt's 5-duplicate-cert-per-domain-per-week ceiling is reached after
+6 reloads in a worst case. `StaticCertPopulator` is stateless and exempt.
+
+A daemon-level populator registry (Caddy CertMagic-style cross-reload reuse)
+is an alternative architecture; the choice between disk-cache and registry is
+deferred to S3-09 when the concrete `ManagedCertPopulator` shape is in hand.
+
 `refresh()` runs periodically (default: every 5 minutes). Each populator decides what is stale — near-expiry cert, expired OCSP response. If stale, return a new `CertStore` for `ArcSwap` to install.
 
 ### OCSP stapling

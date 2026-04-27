@@ -55,6 +55,7 @@ tokio-util = "0.7.18"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry"] }
 vane-core = { workspace = true }
+x509-parser = "0.18"
 
 [dev-dependencies]
 async-trait = { workspace = true }
