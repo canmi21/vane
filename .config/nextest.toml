@@ -1,3 +1,5 @@
+experimental = ["setup-scripts"]
+
 [profile.default]
 # Warn at 10s, kill at 20s. The slowest legitimate test in this
 # workspace is around 4s (boot-health watchdog tied to its 3s
@@ -5,3 +7,19 @@
 # expected curve; anything past 20s is wedged. terminate-after = 2
 # means the kill lands at 2 × period = 20s.
 slow-timeout = { period = "10s", terminate-after = 2 }
+
+# Pre-build the `vane` CLI before daemon mgmt tests run. `mgmt.rs`
+# shells out to the CLI for pretty/JSON output coverage, but `vane`
+# lives in a sibling package and is not in nextest's `--workspace`
+# implicit build set. Without this script, each mgmt test process
+# races to drive `cargo build` through escargot at test runtime —
+# the cold build then collides with the per-test slow-timeout above
+# and wedges the suite. Doing it as a setup script keeps the build
+# cost outside any test's measured wall-clock.
+[scripts.setup.build-vane-cli]
+command = "cargo build -p vane --bin vane"
+slow-timeout = { period = "60s", terminate-after = 4 }
+
+[[profile.default.scripts]]
+filter = "binary(mgmt)"
+setup = ["build-vane-cli"]
