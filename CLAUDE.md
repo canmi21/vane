@@ -26,6 +26,8 @@ Gates run on commit via lefthook:
 
 Conventional Commits (see `commitlint.config.js`). Subject ≤ 72 chars, lower-case. No AI co-authorship unless the assistant contributed original design or code beyond following direct instructions.
 
+Prefer the un-scoped `type: subject` form. Use a `(scope)` only when the change touches a non-obvious crate / area and the reader genuinely needs the disambiguation — e.g. `fix(panel): …` when a same-named file exists in multiple crates. Default `feat: …` / `fix: …` / `test: …` over `feat(core): …` etc.; the diff already shows the scope. A rough target: most subjects are scope-less, scopes appear occasionally and only when they earn their keep.
+
 Do **not** reference internal task or chunk identifiers (`S1-NN`, `C-NN`, `C13.5`, etc.) in commit subjects or bodies. They are transient planning artifacts that don't belong in the permanent git history. The link between a commit and the spec feature it implements lives in `spec/roadmap.md` (which the commit may cite by feature name) or in the surrounding code's doc comments. The same applies to "lands later" / "deferred to S1-NN" prose: deferral notes belong in `// TODO(<short-tag>):` source comments or in spec files, not in commit messages.
 
 ## Workflow boundaries
