@@ -147,6 +147,16 @@ impl<'de> serde::Deserialize<'de> for TerminateSpec {
 		};
 		let kind = fetch_kind_from_alias(&alias)
 			.ok_or_else(|| serde::de::Error::custom(format!("unknown terminate type: {alias:?}")))?;
+		// 05-terminator.md § _Variant ergonomics in config_:
+		// `httpN_proxy` is sugar for `http_proxy` + `version: "hN"`.
+		// Inject the version when the alias names a specific HTTP
+		// version and the user has not already set one explicitly —
+		// an explicit `args.version` always wins.
+		if let Some(version) = http_version_from_alias(&alias)
+			&& !obj.contains_key("version")
+		{
+			obj.insert("version".to_owned(), Value::String(version.to_owned()));
+		}
 		Ok(Self { kind, args: v })
 	}
 }
@@ -159,6 +169,15 @@ fn fetch_kind_from_alias(alias: &str) -> Option<FetchKind> {
 		}
 		"websocket" => Some(FetchKind::WebSocketUpgrade),
 		"static" | "redirect_https" => Some(FetchKind::HttpSynthesize),
+		_ => None,
+	}
+}
+
+fn http_version_from_alias(alias: &str) -> Option<&'static str> {
+	match alias {
+		"http1_proxy" => Some("h1"),
+		"http2_proxy" => Some("h2"),
+		"http3_proxy" => Some("h3"),
 		_ => None,
 	}
 }

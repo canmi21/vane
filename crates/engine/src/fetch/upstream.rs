@@ -1,20 +1,18 @@
-//! Upstream dial helper. Both [`super::http_proxy::HttpProxyFetch`]
-//! and [`super::websocket_upgrade::WebSocketUpgradeFetch`] need to
-//! optionally wrap a TCP stream in tokio-rustls before handing it to a
-//! hyper client. Centralising the dial path keeps the TLS-config build
-//! logic in one place and matches the spec's "rustls-only — no
-//! native-tls / openssl / boring / hyper-tls" rule
-//! (`spec/architecture/08-tls.md` § _Provider banking_).
+//! Upstream dial helper for [`super::websocket_upgrade::WebSocketUpgradeFetch`].
+//! `HttpProxyFetch` no longer uses this path — it owns a pooled
+//! `hyper_util::client::legacy::Client` over `hyper_rustls::HttpsConnector`
+//! and selects H1/H2 by ALPN. The WebSocket upgrade path stays on
+//! the manual dial because RFC 6455's HTTP/1.1 `Upgrade: websocket`
+//! handshake is incompatible with hyper's connection-pool model.
+//!
+//! Centralising the TLS-config build logic here keeps the rule
+//! `args.tls` parser in one place; the same shape feeds both the
+//! pooled `HttpProxy` client and the manual WebSocket dial.
 //!
 //! Trust roots come from the system store via `rustls-native-certs`.
-//! `insecure_skip_verify` short-circuits the verifier — it's intended
-//! for testing against self-signed upstreams and is documented as
-//! such in the rule schema; production deployments should leave it
-//! `false`.
-//!
-//! Stage 1 is intentionally narrow: H1 over TLS is plumbed; H2/H3
-//! upstream paths and pinned-cert / private-CA configurations are
-//! deferred to follow-up chunks.
+//! `insecure_skip_verify` short-circuits the verifier — testing only;
+//! production should leave it `false`. See
+//! `spec/architecture/08-tls.md` § _TLS library: rustls only_.
 
 use std::sync::Arc;
 

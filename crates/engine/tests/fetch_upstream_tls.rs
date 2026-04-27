@@ -175,5 +175,11 @@ async fn http_proxy_factory_with_tls_routes_https_request_round_trip() {
 	};
 	let collected = s.collect().await.expect("collect stream").to_bytes();
 	assert_eq!(&collected[..], b"hello-from-https");
-	server_task.await.expect("server task");
+	// The pooled `hyper_util::client::legacy::Client` keeps the
+	// upstream connection alive for keep-alive reuse, so the test
+	// fixture's single-accept server never sees a clean close from
+	// the client. Drop the fetch (releases the pool's handle on the
+	// connection) and abort the server task instead of awaiting it.
+	drop(fetch);
+	server_task.abort();
 }

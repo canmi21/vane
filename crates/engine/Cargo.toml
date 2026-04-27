@@ -20,8 +20,8 @@ features = ["aws-lc-rs", "h3", "cgi"]
 
 [features]
 default = ["aws-lc-rs", "h3", "cgi"]
-aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs"]
-ring = ["rustls/ring", "tokio-rustls/ring"]
+aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs", "hyper-rustls/aws-lc-rs"]
+ring = ["rustls/ring", "tokio-rustls/ring", "hyper-rustls/ring"]
 h3 = []
 cgi = []
 acme = []
@@ -36,6 +36,7 @@ dashmap = "6.1.0"
 http = "1.4.0"
 http-body = "1.0.1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2", "client"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "rustls-native-certs", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["tokio", "client", "client-legacy", "server-auto", "http1", "http2"] }
 memchr = "2.8.0"
 notify = "8.2.0"
