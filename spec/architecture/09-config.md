@@ -72,6 +72,8 @@ A file may contain any subset: just `rules`, just `listeners`, or a mix.
 - `match` (array, optional): zero or more predicates. All must hold. Empty means "always match."
 - `terminate` (object, required): see [`05-terminator.md`](05-terminator.md).
 
+There is intentionally **no `listener_kind` (or `kind`) field** here. `ListenerKind` is derived from each listener's FlowGraph entry subgraph at compile — `Raw` when only L4 fetches are reachable, `Http` when only L7, `Auto` when both. A rule writer expresses intent by choosing terminators / presets; the listener's runtime posture follows. See [`06-l4.md`](06-l4.md) § _Listener kind derivation_ for the full rule.
+
 ### ListenSpec grammar
 
 | Form              | Expands to                                            | Semantics                                                        |

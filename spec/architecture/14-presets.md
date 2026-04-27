@@ -121,10 +121,12 @@ Expansion is **deterministic given the preset args plus current daemon config** 
 
 Four presets cover the MVP scope:
 
-- `reverse_proxy`
-- `port_forward`
-- `static_site`
-- `redirect_https`
+- `reverse_proxy` — derives `ListenerKind::Http`
+- `port_forward` — derives `ListenerKind::Raw`
+- `static_site` — derives `ListenerKind::Http`
+- `redirect_https` — derives `ListenerKind::Http`
+
+The `ListenerKind` is **not** a preset arg — it follows from which terminators the preset emits. See [`06-l4.md`](06-l4.md) § _Listener kind derivation_. A listener that mixes presets across categories (e.g., a `port_forward` rule and a `reverse_proxy` rule both listening on `:443`) derives `ListenerKind::Auto`; the listener then dispatches per-connection by [`06-l4.md`](06-l4.md) § _Dispatch decision table_.
 
 ---
 
