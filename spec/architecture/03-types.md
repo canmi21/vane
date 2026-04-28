@@ -171,7 +171,7 @@ L4 connections never construct `http::Request`. L4 middleware operates on `L4Con
 
 ```rust
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct ConnId(pub u64);                 // monotonic, assigned at accept; used in flow log + list_connections
+pub struct ConnId(pub u64);                 // monotonic, assigned at accept; used in flow log + get_connections
 
 impl std::fmt::Display for ConnId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

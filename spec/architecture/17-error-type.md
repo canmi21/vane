@@ -14,7 +14,7 @@ This separation means:
 
 - Retry decisions and HTTP status mapping read typed fields (`kind`, `reason`) — no regex on error strings.
 - Metrics labels are bounded cardinality (`kind` has 9 variants, `reason` has ~20).
-- TUI can reconstruct the full error chain for any connection through the management API (`tail_flow_log`) with structured JSON frames — not raw log scraping.
+- TUI can reconstruct the full error chain for any connection through the management API (`tail_flow`) with structured JSON frames — not raw log scraping.
 
 ## `Error` struct
 
@@ -286,7 +286,7 @@ Caused by:
 
 ## `SerializedError` — stable serde shape
 
-`Error` is `!Clone` (because `Box<dyn std::error::Error>` in the source chain is not `Clone`). For flow log events (which need to fan out to many `tail_flow_log` subscribers) and management-API error payloads (which are JSON), we serialize at event-emit time into a dedicated POD:
+`Error` is `!Clone` (because `Box<dyn std::error::Error>` in the source chain is not `Clone`). For flow log events (which need to fan out to many `tail_flow` subscribers) and management-API error payloads (which are JSON), we serialize at event-emit time into a dedicated POD:
 
 ```rust
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -338,7 +338,7 @@ When an error reaches the flow log sink, the sink constructs a `SerializedError`
 
 The `"error"` object is a `SerializedError` verbatim. `FlowLogEvent` stores `error: Option<Arc<SerializedError>>` so N subscribers share one allocation; drop happens when the last subscriber consumes it.
 
-TUI (`vane tail`) subscribes to `tail_flow_log` on the management API, filters by `conn` field, and renders the full error chain for the selected connection — no log scraping, no regex.
+TUI (`vane tail flow`) subscribes to `tail_flow` on the management API, filters by `conn` field, and renders the full error chain for the selected connection — no log scraping, no regex.
 
 ## Metrics
 

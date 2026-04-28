@@ -21,7 +21,7 @@ JSON body over POST for request/response verbs. `application/x-ndjson` chunked r
 
 ### Streaming verb lifecycle
 
-Streaming verbs (`tail_flow_log`, `tail_log`) follow a minimal contract:
+Streaming verbs (`tail_flow`, `tail_log`) follow a minimal contract:
 
 - **Start** — client sends a POST (HTTP) or a request line (Unix). The daemon begins emitting `{"request_id": ..., "stream": {"seq": N, "data": ...}}` frames.
 - **Cancel** — client closes the TCP (or Unix) connection. No control-frame vocabulary; closing the transport is the cancellation signal. The daemon sees the close, drops its subscriber, and reclaims resources.
@@ -62,20 +62,20 @@ Terminal frame:
 { "request_id": "xyz-123", "stream": { "end": true, "reason": "done" | "error" } }
 ```
 
-## Verbs (proposal)
+## Verbs
 
-Concrete verb names are proposals. The categories are architectural.
+Verb names use snake_case on the wire. Read verbs are uniformly prefixed `get_`; streaming verbs `tail_`; one-shot actions stand alone (`reload`, `shutdown`, `compile_dry_run`). The CLI mirrors this: `vane get config` / `vane tail flow` / `vane reload` (see [`16-crate-layout.md`](16-crate-layout.md) § _CLI subcommand layout_ for the full mapping).
 
 ### Configuration
 
 - `compile_dry_run` — take a config directory path, return the compiled FlowGraph plus diagnostics. Pure; no side effects.
 - `reload` — trigger re-read/re-compile/swap of the active config.
-- `get_active_config` — return the current `MergedConfig` and compiled `FlowGraph` hash.
+- `get_config` — return the current `MergedConfig` and compiled `FlowGraph` hash.
 
 ### Observability
 
-- `list_connections` — snapshot of live connections (remote, local, transport, age, bytes, current node).
-- `tail_flow_log` — stream flow-path events: `"conn X matched predicate Y at node Z, branched to A"`. One event per predicate evaluation or Terminator invocation.
+- `get_connections` — snapshot of live connections (remote, local, transport, age, bytes, current node).
+- `tail_flow` — stream flow-path events: `"conn X matched predicate Y at node Z, branched to A"`. One event per predicate evaluation or Terminator invocation.
 - `tail_log` — stream the structured log.
 - `get_metrics` — counter/gauge snapshot. The daemon's metrics backend is the [`metrics`](https://crates.io/crates/metrics) crate (facade), with `metrics-exporter-prometheus` recording into a registry exposed via `PrometheusHandle::render()`. `get_metrics` accepts `format: "prometheus" | "json"` in its args; default `"prometheus"` returns the standard text exposition format suitable for scraping. All counters/gauges defined by vane (error totals, pool events, latency histograms, rate-limit hits, WASM pool events) go through the `metrics::counter!` / `metrics::gauge!` / `metrics::histogram!` macros — no bespoke facade.
 
@@ -88,8 +88,8 @@ Concrete verb names are proposals. The categories are architectural.
 
 ### State
 
-- `list_wasm_pools` — per stateful WASM module: pool size, in-use count, total allocations, failures.
-- `list_upstreams` — pooled HTTP upstream connections (hyper-util client) and QUIC associations.
+- `get_pools` — per stateful WASM module: pool size, in-use count, total allocations, failures.
+- `get_upstreams` — pooled HTTP upstream connections (hyper-util client) and QUIC associations.
 
 ## Auth model
 
@@ -138,7 +138,7 @@ The operator hits `https://admin.example.com/` from anywhere; the rule terminate
 
 - `reload` is idempotent when the config has not changed (same version hash returned).
 - `compile_dry_run` is pure.
-- `list_*` are read-only snapshots.
+- `get_*` are read-only snapshots.
 - `shutdown` is not idempotent (runs once per daemon lifetime).
 
 ## Errors

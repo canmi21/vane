@@ -214,7 +214,7 @@ Listener-set diff is performed by `ListenerSet::reconcile`, called by the watche
 - **Schema fragility.** Every IR change (new node kind, new field, hash-cons key change) would require explicit cache versioning + invalidation. Forgetting once produces silent miscompiles in production.
 - **Performance is a non-issue.** The pipeline is sub-millisecond for typical rule counts and dominated by JSON parsing, which is already the same work `dry-run` does. Saving boot time at the cost of a persistence layer is a wrong trade for a network-proxy daemon.
 
-Operators who want to inspect the compiled state query the management API (`get_active_config` returns the active `SymbolicFlowGraph` as JSON). `vane compile --dry-run /path/to/dir` runs the same pipeline without binding listeners, producing the same JSON, for review of a proposed deploy before swap.
+Operators who want to inspect the compiled state query the management API (`get_config` returns the active `SymbolicFlowGraph` as JSON). `vane compile --dry-run /path/to/dir` runs the same pipeline without binding listeners, producing the same JSON, for review of a proposed deploy before swap.
 
 ## `vane compile --dry-run`
 

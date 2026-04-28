@@ -87,7 +87,7 @@ Management protocol — one wire format, two transports, shared by daemon and CL
 Owns:
 
 - Wire format: `Request` / `Response` / `Stream` frame shapes, JSON-over-line and JSON-over-HTTP serialization.
-- Verb schemas: `compile_dry_run`, `reload`, `get_active_config`, `list_connections`, `tail_flow_log`, `tail_log`, `get_metrics`, `stats`, `shutdown`, `list_wasm_pools`, `list_upstreams`.
+- Verb schemas: `compile_dry_run`, `reload`, `get_config`, `get_connections`, `tail_flow`, `tail_log`, `get_metrics`, `stats`, `shutdown`, `get_pools`, `get_upstreams`.
 - `server` module: mounts onto a Unix socket or HTTP-over-TCP; `vaned` uses it.
 - `client` module: typed client against the same verb set; `vane` CLI/TUI uses it.
 
@@ -533,19 +533,42 @@ This forces explicit config placement in systemd units, Docker images, etc.
 
 ### `vane`
 
-The terminal binary. Subcommand-based for future extension:
+The terminal binary.
+
+#### CLI subcommand layout
+
+Two design rules:
+
+1. **No hyphens in subcommand names.** Multi-word verbs become nested subcommand groups (`vane get config`), not kebab strings (`vane get-active-config`). Keystrokes stay short, tab completion stays clean.
+2. **Flat for global actions, grouped for data/streams.** `ping` / `reload` / `shutdown` / `compile` are top-level — they are themselves verbs. `get` and `tail` are dispatch groups for snapshot / streaming reads.
 
 ```
 vane --version | -v
 vane --help    | -h
 
-vane compile <DIR>         dry-run compile; emit SymbolicFlowGraph JSON to stdout
-vane tail <DIR>            subscribe to the flow log (streams from running vaned)
-vane reload                trigger reload of running daemon (via mgmt socket)
+# Global actions
+vane ping                  liveness check
+vane stats                 daemon summary (uptime, graph hash, listener state)
+vane reload                trigger reload of running daemon
+vane shutdown              graceful drain + exit
+vane compile <DIR>         dry-run compile; emit SymbolicFlowGraph JSON
+
+# Snapshots (`get` group)
+vane get config            active SymbolicFlowGraph as JSON
+vane get connections       in-flight connections snapshot
+vane get metrics           counter/gauge snapshot (default Prometheus text; `--json` for parsed)
+vane get pools             stateful WASM pool status (post-MVP)
+vane get upstreams         pooled upstream connections (post-MVP)
+
+# Streams (`tail` group)
+vane tail flow             subscribe to FlowLogEvent broadcast (NDJSON)
+vane tail log              subscribe to structured tracing log (NDJSON)
+
+# TUI
 vane tui                   launch TUI (requires `tui` feature)
 ```
 
-Subcommand set grows during implementation. The clap derive API makes adding verbs trivial.
+CLI subcommand → wire verb mapping is one-to-one and mechanical: `vane get config` calls `get_config`, `vane tail flow` calls `tail_flow`, etc. The CLI does not hide or rename verbs; it only nests.
 
 ## Startup sequence (`vaned`)
 

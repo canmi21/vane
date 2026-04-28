@@ -283,7 +283,7 @@ impl FlowGraphMeta {
 }
 ```
 
-`version_hash` is returned by the management API's `get_active_config` verb and gates reload idempotency — `ArcSwap::store` runs only when the new graph's hash differs from the currently active one.
+`version_hash` is returned by the management API's `get_config` verb and gates reload idempotency — `ArcSwap::store` runs only when the new graph's hash differs from the currently active one.
 
 The two routing helpers (`short_circuit_response_entry`, `default_fallback`) are the bridge between the lower pass's synth nodes and the executor's hot path. Lower-pass synthesis is keyed on the `entry: NodeId` that `FlowGraph::entries` maps a listener `SocketAddr` to; the executor receives the same `entry` value as a function parameter and uses it as the lookup key. Future synthesis modes (e.g. user-supplied `on_error: { response: ... }` blocks generating per-call-site fallbacks) are additive — they extend lower without changing the helper shape.
 
@@ -665,7 +665,7 @@ Granularity is **node-level** — `predicate_id` and middleware/fetch instance a
 
 The daemon's `FlowLogSink` is a `FanoutSink` of:
 
-1. `RingBufferSink` (10_000-entry / 60-second sliding window). Always present. Backs the management API's `tail_flow_log` verb — both the live tail and the recent-window backfill.
+1. `RingBufferSink` (10_000-entry / 60-second sliding window). Always present. Backs the management API's `tail_flow` verb — both the live tail and the recent-window backfill.
 2. `FileSink` — opt-in via `VANE_FLOW_LOG_FILE=<path>`. Append-only NDJSON. Writes go through a tokio mpsc channel into a background writer task so `emit` never blocks the executor on disk I/O.
 
 `Trajectory` is a single-event-per-request summary that fits a one-line view; the management UI's default panel shows the latest N trajectories from the ring buffer. `Debug` mode supplements this for live incident drilling.
