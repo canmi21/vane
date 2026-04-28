@@ -770,6 +770,8 @@ async fn handle_connection(
 		return;
 	};
 
+	metrics::counter!("vane.requests.total", "listener_addr" => local.to_string()).increment(1);
+
 	let conn_id = next_conn_id();
 	// Register before any further work, hold the deregister guard for
 	// the rest of the function. `DashMap::insert` does not panic and

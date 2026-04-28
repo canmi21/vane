@@ -230,6 +230,8 @@ async fn handle_cold_path(
 	force_cancel: CancellationToken,
 	_in_flight_guard: InFlightGuard,
 ) {
+	metrics::counter!("vane.requests.total", "listener_addr" => local.to_string()).increment(1);
+
 	let conn_id = crate::listener::next_conn_id();
 	let conn = Arc::new(ConnContext {
 		id: conn_id,

@@ -63,10 +63,13 @@ pub async fn dial_upstream(
 	tls: Option<&UpstreamTls>,
 ) -> Result<Box<dyn AsyncReadWrite + Send>, Error> {
 	tracing::debug!(?upstream, has_tls = tls.is_some(), "dial_upstream");
+	let start = std::time::Instant::now();
 	let tcp = TcpStream::connect(upstream).await.map_err(|e| {
 		tracing::debug!(?upstream, ?e, "dial_upstream tcp connect failed");
 		Error::upstream(UpstreamReason::Unreachable).with_source(e)
 	})?;
+	metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "tcp")
+		.record(start.elapsed().as_secs_f64() * 1000.0);
 	let _ = tcp.set_nodelay(true);
 
 	let Some(tls) = tls else {

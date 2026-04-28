@@ -155,10 +155,17 @@ impl HttpProxyFetch {
 	/// == 1, streaming body, or method not in whitelist). Skips the
 	/// snapshot + clone work.
 	async fn send_one_attempt(&self, req: Request) -> Result<L7FetchOutput, Error> {
+		// Elapsed from call entry includes the connect time for connections
+		// that need to dial — the pooled client dials inside `request`.
+		// This is "request total elapsed including connect" rather than
+		// a pure connect measurement.
+		let start = std::time::Instant::now();
 		let resp = self.client.request(req).await.map_err(|e| {
 			tracing::debug!(error = ?e, version = ?self.version, "upstream request failed");
 			Error::upstream(UpstreamReason::Unreachable).with_source(e)
 		})?;
+		metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "http_proxy")
+			.record(start.elapsed().as_secs_f64() * 1000.0);
 		let (parts, incoming) = resp.into_parts();
 		// 07-l7.md § _`HttpProxyFetch` commits to streaming response
 		// bodies_: never collect into `Body::Static`.

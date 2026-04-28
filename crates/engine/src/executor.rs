@@ -551,6 +551,12 @@ fn finish_error(
 	cur: NodeId,
 	err: Error,
 ) -> Result<ExecutorOutput, Error> {
+	metrics::counter!(
+		"vane.errors.total",
+		"kind" => err.kind_label(),
+		"reason" => err.reason_label().unwrap_or("_"),
+	)
+	.increment(1);
 	let message = std::borrow::Cow::Owned(err.to_string());
 	emit_trajectory(ctx, conn, seq, TrajectoryOutcome::Error { node: cur, message });
 	Err(err)

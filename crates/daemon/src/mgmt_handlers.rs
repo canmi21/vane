@@ -29,10 +29,11 @@ use vane_engine::tracing_broadcast::{BroadcastTracingLayer, TracingFrame};
 use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
 use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
 use vane_mgmt::verb::{
-	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetActiveConfigResult,
-	ListConnectionsResult, ListenerStatus, PingResult, ReloadResult, ShutdownResult, StatsResult,
-	VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD,
-	VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG, VERB_TAIL_LOG,
+	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetActiveConfigResult, GetMetricsArgs,
+	GetMetricsResult, ListConnectionsResult, ListenerStatus, PingResult, ReloadResult,
+	ShutdownResult, StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_GET_METRICS,
+	VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
+	VERB_TAIL_LOG,
 };
 
 use crate::providers::MetadataProviders;
@@ -84,6 +85,7 @@ impl Handler for MgmtState {
 			VERB_RELOAD => self.handle_reload(),
 			VERB_COMPILE_DRY_RUN => self.handle_compile_dry_run(req.args),
 			VERB_LIST_CONNECTIONS => self.handle_list_connections(),
+			VERB_GET_METRICS => self.handle_get_metrics(req.args),
 			other => Err(WireError {
 				kind: WireErrorKind::UnknownVerb,
 				message: format!("unknown verb {other:?}"),
@@ -276,6 +278,39 @@ impl MgmtState {
 			})
 			.collect();
 		json(&ListConnectionsResult { listeners: self.listener_status(), connections })
+	}
+
+	#[allow(clippy::unused_self)]
+	fn handle_get_metrics(&self, args: serde_json::Value) -> Result<serde_json::Value, WireError> {
+		let parsed: GetMetricsArgs = serde_json::from_value(args)
+			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("{e}") })?;
+		let format = parsed.format.as_deref().unwrap_or("prometheus");
+		let result = match format {
+			"" | "prometheus" => {
+				let body = vane_engine::metrics::render_prometheus().ok_or_else(|| WireError {
+					kind: WireErrorKind::Internal,
+					message: "metrics recorder not installed".to_string(),
+				})?;
+				GetMetricsResult::Prometheus { body }
+			}
+			"json" => {
+				let metrics = vane_engine::metrics::render_json().ok_or_else(|| WireError {
+					kind: WireErrorKind::Internal,
+					message: "metrics recorder not installed".to_string(),
+				})?;
+				GetMetricsResult::Json { metrics }
+			}
+			other => {
+				return Err(WireError {
+					kind: WireErrorKind::BadArgs,
+					message: format!("format must be 'prometheus' or 'json', got {other:?}"),
+				});
+			}
+		};
+		serde_json::to_value(result).map_err(|e| WireError {
+			kind: WireErrorKind::Internal,
+			message: format!("serialize get_metrics result: {e}"),
+		})
 	}
 
 	/// Walk the active graph's `entries` and report each listener's

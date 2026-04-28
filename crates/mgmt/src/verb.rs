@@ -21,6 +21,7 @@ pub const VERB_COMPILE_DRY_RUN: &str = "compile_dry_run";
 pub const VERB_LIST_CONNECTIONS: &str = "list_connections";
 pub const VERB_TAIL_FLOW_LOG: &str = "tail_flow_log";
 pub const VERB_TAIL_LOG: &str = "tail_log";
+pub const VERB_GET_METRICS: &str = "get_metrics";
 
 // ─── Empty args sentinel ────────────────────────────────────────────────
 /// Placeholder for verbs that accept no arguments. Round-trips as `{}`.
@@ -106,6 +107,30 @@ pub struct ConnectionInfo {
 	pub listener_addr: String,
 	pub remote: String,
 	pub age_ms: u64,
+}
+
+// ─── get_metrics ────────────────────────────────────────────────────────
+/// Args for `get_metrics`. `format` selects the output shape.
+///
+/// - `"prometheus"` (default, or `null` / missing / `""`) — Prometheus
+///   text exposition format.
+/// - `"json"` — structured JSON parsed from the text exposition.
+/// - Any other value → `WireErrorKind::BadArgs`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GetMetricsArgs {
+	/// Output format: `"prometheus"` or `"json"`. Missing / null treated
+	/// as `"prometheus"`.
+	#[serde(default)]
+	pub format: Option<String>,
+}
+
+/// Result of `get_metrics`. Tagged by `format` so consumers can branch
+/// without an extra discriminant field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "format", rename_all = "snake_case")]
+pub enum GetMetricsResult {
+	Prometheus { body: String },
+	Json { metrics: serde_json::Value },
 }
 
 /// Per-listener summary plus the live in-flight connection list.

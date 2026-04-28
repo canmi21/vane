@@ -112,6 +112,16 @@ impl L7RequestMiddleware for RateLimitMiddleware {
 		if allowed {
 			Ok(Decision::Continue)
 		} else {
+			let (limit_label, source_label): (&'static str, String) = match self.key_derivation {
+				KeyDerivation::RemoteIp => ("per_ip", conn.remote.ip().to_string()),
+				KeyDerivation::Global => ("global", "global".to_string()),
+			};
+			metrics::counter!(
+				"vane.security.limit_hit_total",
+				"limit" => limit_label,
+				"source" => source_label,
+			)
+			.increment(1);
 			let body = if self.response_body.is_empty() {
 				Body::Empty
 			} else {

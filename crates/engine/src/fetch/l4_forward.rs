@@ -116,6 +116,7 @@ impl L4ForwardFetch {
 		let bind_local: SocketAddr =
 			if upstream_addr.is_ipv6() { "[::]:0".parse() } else { "0.0.0.0:0".parse() }
 				.expect("static bind addr parses");
+		let start = std::time::Instant::now();
 		let upstream_socket = UdpSocket::bind(bind_local)
 			.await
 			.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
@@ -123,6 +124,8 @@ impl L4ForwardFetch {
 			.connect(upstream_addr)
 			.await
 			.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
+		metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "udp")
+			.record(start.elapsed().as_secs_f64() * 1000.0);
 		// Forward the cold-path first packet so no inbound bytes are
 		// lost between dispatch-table miss and forwarder registration.
 		upstream_socket
