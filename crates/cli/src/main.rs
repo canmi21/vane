@@ -269,7 +269,7 @@ async fn run_tail_flow(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()
 
 async fn run_tail_log(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
 	// Race the streaming call against Ctrl-C — same pattern as
-	// `tail-flow-log`. Each frame matches the wire shape of
+	// `tail flow`. Each frame matches the wire shape of
 	// `vane_engine::tracing_broadcast::TracingFrame`:
 	// `{ t, level, target, message, fields }`.
 	let stream_fut = client.call_stream(VERB_TAIL_LOG, &NoArgs {}, |frame| {
@@ -323,7 +323,7 @@ fn render_fields(map: &serde_json::Map<String, serde_json::Value>) -> String {
 }
 
 /// Format a Unix millis timestamp as `HH:MM:SS.mmm` in UTC. Avoids
-/// pulling in `chrono` for one format call — `tail-log` doesn't need
+/// pulling in `chrono` for one format call — `tail log` doesn't need
 /// timezone-aware rendering, just a stable wall-clock anchor.
 fn format_unix_ms_clock(ms: u64) -> String {
 	let secs = ms / 1_000;

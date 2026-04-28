@@ -83,7 +83,7 @@ fn ring_buffer_evicts_on_ttl_expiry() {
 #[test]
 fn ring_buffer_snapshot_returns_clone_in_order() {
 	// Spec (02-flow.md § _Default sink composition_): `snapshot` returns
-	// the contents in arrival order so the management API's `tail_flow_log`
+	// the contents in arrival order so the management API's `tail_flow`
 	// can stream them. It must be a clone — mutating the returned vec must
 	// not disturb subsequent snapshots.
 	let ring = RingBufferSink::with_defaults();

@@ -115,7 +115,7 @@ pub struct ListenerSet {
 	running: Mutex<HashMap<SocketAddr, ListenerHandle>>,
 	/// Daemon-wide live-connection registry. Populated at accept time
 	/// and cleaned up via [`ConnRegistration`] when the per-connection
-	/// task ends. Read by the mgmt `list_connections` verb.
+	/// task ends. Read by the mgmt `get_connections` verb.
 	connections: Arc<DashMap<ConnId, ConnEntry>>,
 	bind_cfg: Arc<BindConfig>,
 	/// Daemon-scoped L1 security state (per-IP + global connection
@@ -160,7 +160,7 @@ struct ListenerHandle {
 	/// listener. Bumped at spawn, decremented via RAII guard so panics
 	/// and cancellations don't leak the counter. Surfaced through
 	/// [`ListenerSet::in_flight_count`] for the mgmt `stats` /
-	/// `list_connections` verbs.
+	/// `get_connections` verbs.
 	in_flight_count: Arc<AtomicUsize>,
 	/// Flipped to `true` exactly once, by the accept-loop task, after
 	/// its `bind_with_retry` returns a real `TcpListener`. Stays `false`
@@ -375,7 +375,7 @@ impl ListenerSet {
 	/// accept loop's `bind_with_retry` returned a real `TcpListener`.
 	/// Distinct from [`Self::is_running`] (which just checks registry
 	/// membership). Surfaced through the mgmt `stats` /
-	/// `list_connections` verbs as the truthful `bound` field.
+	/// `get_connections` verbs as the truthful `bound` field.
 	#[must_use]
 	pub fn is_bound(&self, addr: &SocketAddr) -> bool {
 		self.running.lock().get(addr).is_some_and(|h| h.bind_ready.load(Ordering::Acquire))
@@ -385,7 +385,7 @@ impl ListenerSet {
 	/// `addr`. Returns `None` if no listener is currently bound there.
 	///
 	/// Surfaces through the management plane (`stats`,
-	/// `list_connections`). The count is updated with `Ordering::Relaxed`
+	/// `get_connections`). The count is updated with `Ordering::Relaxed`
 	/// because consumers want a recent value, not a synchronization
 	/// guarantee against other memory.
 	#[must_use]

@@ -96,7 +96,7 @@ pub mod crypto {
 
 /// The stable feature-name list that `FlowGraph::link` copies into
 /// `FlowGraphMeta::feature_set`. Order is documentation-stable so the
-/// management API's `get_active_config` verb can diff snapshots across
+/// management API's `get_config` verb can diff snapshots across
 /// boots. The crypto backend name always leads; optional features fold
 /// in behind it via `#[cfg(feature = ...)]`.
 pub const ENGINE_FEATURE_SET: &[&str] = &[

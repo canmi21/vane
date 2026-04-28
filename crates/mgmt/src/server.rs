@@ -1,7 +1,7 @@
 //! Management server: Unix-socket accept loop + per-connection
 //! line-delimited JSON dispatch to verb handlers.
 //!
-//! Stage 1: Unix transport only. Streaming verbs (`tail_flow_log`,
+//! Stage 1: Unix transport only. Streaming verbs (`tail_flow`,
 //! `tail_log`) and HTTP-over-TCP transport land in S2. The framing
 //! contract here is identical to what Stage 2 will speak, so the
 //! server-side dispatch survives the transport change.
@@ -35,7 +35,7 @@ pub trait Handler: Send + Sync + 'static {
 
 /// What `dispatch` returns. One-shot verbs (`ping`, `stats`, ...)
 /// produce a single result/error frame; streaming verbs
-/// (`tail_flow_log`) produce a sequence of `Event` frames terminated
+/// (`tail_flow`) produce a sequence of `Event` frames terminated
 /// by an `End` frame.
 pub enum DispatchOutcome {
 	/// One-shot reply: a single JSON value or a structured error.

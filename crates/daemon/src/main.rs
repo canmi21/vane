@@ -190,7 +190,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 	// Compose the runtime flow-log sink. The default (`RingBufferSink`,
 	// optionally an env-driven `FileSink`) is wrapped in a `FanoutSink`
-	// alongside a `BroadcastSink` so the mgmt `tail_flow_log` verb has a
+	// alongside a `BroadcastSink` so the mgmt `tail_flow` verb has a
 	// live event source. The `BroadcastSink` is held separately on
 	// `MgmtState` so handlers can call `subscribe()` directly.
 	let default_sink = default_sink_from_env().await?;
@@ -318,7 +318,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 fn init_tracing(tail_layer: BroadcastTracingLayer) {
 	// `RUST_LOG` (env-filter) gates only the fmt-to-stderr layer —
 	// the broadcast layer is intentionally unfiltered so that `vane
-	// tail-log` shows every event the daemon emits regardless of how
+	// `tail log` shows every event the daemon emits regardless of how
 	// noisy the operator's terminal is configured to be. Operators
 	// who want to thin the stream client-side can pipe to `jq`.
 	//

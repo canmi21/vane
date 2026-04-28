@@ -1,5 +1,5 @@
 //! `BroadcastSink` — fans `FlowLogEvent`s into a tokio broadcast
-//! channel for streaming mgmt verbs (`tail_flow_log`).
+//! channel for streaming mgmt verbs (`tail_flow`).
 //!
 //! Bounded ring; lagging subscribers drop frames rather than back-
 //! pressuring the executor. The executor calls `emit` once per event

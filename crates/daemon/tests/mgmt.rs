@@ -433,7 +433,7 @@ async fn mgmt_tail_flow_streams_events_via_cli() {
 	}
 	let _ = tail.kill();
 	let _ = tail.wait();
-	assert!(got_trajectory, "expected at least one Trajectory event from tail-flow-log stream");
+	assert!(got_trajectory, "expected at least one Trajectory event from tail flow stream");
 }
 
 #[tokio::test]
@@ -469,7 +469,7 @@ async fn mgmt_tail_log_streams_tracing_events_via_cli() {
 
 	// Drive reloads on a 200ms cadence with alternating bodies until
 	// we observe a tracing event or the 5s deadline elapses. Same race
-	// as tail-flow-log: the CLI subscriber registers asynchronously and
+	// as tail flow: the CLI subscriber registers asynchronously and
 	// `broadcast` does not replay missed events. Body must alternate
 	// because the reload path skips the swap (and the `reloaded` log)
 	// when version_hash is unchanged (S1-28).
@@ -562,7 +562,7 @@ async fn mgmt_tail_log_via_typed_client_decodes_tracing_frame_shape() {
 
 #[tokio::test]
 async fn mgmt_streaming_does_not_block_concurrent_one_shot_call() {
-	// While one client is parked on a streaming verb (`tail_flow_log`)
+	// While one client is parked on a streaming verb (`tail_flow`)
 	// holding its socket open, an independent client must still be able
 	// to issue and receive a one-shot verb (`ping`) on a *separate*
 	// socket. This is the per-conn-task isolation contract of the
@@ -581,7 +581,7 @@ async fn mgmt_streaming_does_not_block_concurrent_one_shot_call() {
 	});
 	// TODO(mgmt-stream-readiness): there is no observable state for "the
 	// streaming verb has reached the daemon and is parked on its
-	// broadcast subscriber". `list_connections` covers proxy connections
+	// broadcast subscriber". `get_connections` covers proxy connections
 	// only; no mgmt-side verb exposes per-stream subscribers. Until the
 	// mgmt layer grows such a probe, this fixed sleep is the closest we
 	// can get — it is not a flake source (the assertion below succeeds

@@ -45,7 +45,7 @@ const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 /// Channel depth for streaming responses. Each slot holds one already-
 /// encoded NDJSON frame; backpressure flows naturally from a slow client
 /// (TCP buffer fills → hyper stops draining → channel fills → producer
-/// awaits). Mirrors the broadcast capacities chosen for `tail_flow_log`
+/// awaits). Mirrors the broadcast capacities chosen for `tail_flow`
 /// in `spec/architecture/10-management.md` § _Streaming verb lifecycle_.
 const STREAM_CHANNEL_DEPTH: usize = 64;
 
