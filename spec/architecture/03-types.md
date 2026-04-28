@@ -157,9 +157,11 @@ pub enum L4Conn {
 }
 
 pub struct UdpAssoc {
-    socket: Arc<tokio::net::UdpSocket>,
-    peer:   SocketAddr,
-    quic:   Option<QuicAssocId>,  // set when this datagram belongs to an existing QUIC session
+    socket:       Arc<tokio::net::UdpSocket>,  // physical listener socket (vane-owned)
+    peer:         SocketAddr,
+    first_packet: Bytes,                       // datagram that caused the cold-path FlowGraph entry
+    quic:         Option<QuicAssocId>,         // None on cold-path entry; populated only when an
+                                               // existing QUIC session takes over (post-MVP)
 }
 ```
 
