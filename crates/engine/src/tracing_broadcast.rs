@@ -6,7 +6,7 @@
 //! (`tracing_subscriber::fmt::Layer` writing to stderr is unaffected);
 //! it adds one more sink without changing user-visible logging. Each
 //! event is materialised into a [`TracingFrame`] with structured
-//! fields preserved as JSON — operators piping `vane tail-log --json`
+//! fields preserved as JSON — operators piping `vane tail log --json`
 //! into `jq` can filter on `target`, `level`, or arbitrary
 //! `fields.foo` keys.
 //!
