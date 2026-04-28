@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 use assert_cmd::cargo::CommandCargoExt;
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
-	ListConnectionsResult, NoArgs, PingResult, ReloadResult, ShutdownResult, StatsResult,
-	VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
+	GetConnectionsResult, NoArgs, PingResult, ReloadResult, ShutdownResult, StatsResult,
+	VERB_GET_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW,
 	VERB_TAIL_LOG,
 };
 
@@ -183,19 +183,20 @@ async fn mgmt_reload_swaps_when_rules_change() {
 }
 
 #[tokio::test]
-async fn mgmt_get_active_config_returns_symbolic_graph_via_cli_json() {
+async fn mgmt_get_config_returns_symbolic_graph_via_cli_json() {
 	let d = spawn_daemon_with_rule(43_004, "v1");
 	// Use the CLI binary so we cover the JSON-output path end-to-end.
 	let mut cmd = vane_cli();
 	let output = cmd
-		.arg("get-active-config")
+		.arg("get")
+		.arg("config")
 		.arg("--socket")
 		.arg(&d.socket)
 		.output()
-		.expect("run vane get-active-config");
+		.expect("run vane get config");
 	assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
 	let stdout = String::from_utf8(output.stdout).expect("utf8");
-	let value: serde_json::Value = serde_json::from_str(&stdout).expect("parse JSON");
+	let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("parse JSON");
 	assert!(value.get("entries").is_some());
 	assert!(value.get("nodes").is_some());
 	assert!(value.get("meta").is_some());
@@ -231,13 +232,13 @@ async fn mgmt_compile_dry_run_does_not_swap_active_graph() {
 }
 
 #[tokio::test]
-async fn mgmt_list_connections_returns_per_listener_summary() {
+async fn mgmt_get_connections_returns_per_listener_summary() {
 	let d = spawn_daemon_with_rule(43_007, "v1");
 	wait_for_listener("127.0.0.1:43007".parse().unwrap(), Duration::from_secs(3));
 
 	let client = UnixMgmtClient::new(&d.socket);
-	let r: ListConnectionsResult =
-		client.call(VERB_LIST_CONNECTIONS, &NoArgs {}).await.expect("list_connections");
+	let r: GetConnectionsResult =
+		client.call(VERB_GET_CONNECTIONS, &NoArgs {}).await.expect("get_connections");
 	assert_eq!(r.listeners.len(), 1);
 	assert_eq!(r.listeners[0].addr, "127.0.0.1:43007");
 	assert!(r.listeners[0].bound);
@@ -245,11 +246,11 @@ async fn mgmt_list_connections_returns_per_listener_summary() {
 	// emptiness because the wait_for_listener probe leaves a brief
 	// in-flight tail; a strong assertion would race the registry's
 	// deregister guard. Per-conn detail under load is covered by
-	// `mgmt_list_connections_returns_per_conn_detail_for_in_flight_connection`.
+	// `mgmt_get_connections_returns_per_conn_detail_for_in_flight_connection`.
 }
 
 #[tokio::test]
-async fn mgmt_list_connections_returns_per_conn_detail_for_in_flight_connection() {
+async fn mgmt_get_connections_returns_per_conn_detail_for_in_flight_connection() {
 	let d = spawn_daemon_with_rule(43_011, "v1");
 	let listen_addr: std::net::SocketAddr = "127.0.0.1:43011".parse().unwrap();
 	wait_for_listener(listen_addr, Duration::from_secs(3));
@@ -270,8 +271,8 @@ async fn mgmt_list_connections_returns_per_conn_detail_for_in_flight_connection(
 	let typed = UnixMgmtClient::new(&d.socket);
 	let deadline = Instant::now() + Duration::from_secs(3);
 	loop {
-		let r: ListConnectionsResult =
-			typed.call(VERB_LIST_CONNECTIONS, &NoArgs {}).await.expect("list-connections");
+		let r: GetConnectionsResult =
+			typed.call(VERB_GET_CONNECTIONS, &NoArgs {}).await.expect("get-connections");
 		if !r.connections.is_empty() {
 			break;
 		}
@@ -281,12 +282,13 @@ async fn mgmt_list_connections_returns_per_conn_detail_for_in_flight_connection(
 
 	let mut cmd = vane_cli();
 	let output = cmd
-		.arg("list-connections")
+		.arg("get")
+		.arg("connections")
 		.arg("--json")
 		.arg("--socket")
 		.arg(&d.socket)
 		.output()
-		.expect("run vane list-connections");
+		.expect("run vane get connections");
 	assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
 	let stdout = String::from_utf8(output.stdout).expect("utf8");
 	let value: serde_json::Value = serde_json::from_str(&stdout).expect("parse JSON");
@@ -363,7 +365,7 @@ async fn mgmt_shutdown_drains_daemon() {
 }
 
 #[tokio::test]
-async fn mgmt_tail_flow_log_streams_events_via_cli() {
+async fn mgmt_tail_flow_streams_events_via_cli() {
 	use std::io::{BufRead, BufReader as StdBufReader};
 	use std::process::Stdio;
 
@@ -375,14 +377,15 @@ async fn mgmt_tail_flow_log_streams_events_via_cli() {
 	// stdout in a background thread so we can deadline-poll it from
 	// the main test task without blocking on `Read` indefinitely.
 	let mut tail = vane_cli()
-		.arg("tail-flow-log")
+		.arg("tail")
+		.arg("flow")
 		.arg("--json")
 		.arg("--socket")
 		.arg(&d.socket)
 		.stdout(Stdio::piped())
 		.stderr(Stdio::null())
 		.spawn()
-		.expect("spawn vane tail-flow-log");
+		.expect("spawn vane tail flow");
 
 	let stdout = tail.stdout.take().expect("piped stdout");
 	let (line_tx, line_rx) = std::sync::mpsc::channel::<String>();
@@ -443,14 +446,15 @@ async fn mgmt_tail_log_streams_tracing_events_via_cli() {
 	// Spawn the streaming CLI subprocess piping stdout. Drain in a
 	// background thread to avoid blocking on `Read` when polling.
 	let mut tail = vane_cli()
-		.arg("tail-log")
+		.arg("tail")
+		.arg("log")
 		.arg("--json")
 		.arg("--socket")
 		.arg(&d.socket)
 		.stdout(Stdio::piped())
 		.stderr(Stdio::null())
 		.spawn()
-		.expect("spawn vane tail-log");
+		.expect("spawn vane tail log");
 
 	let stdout = tail.stdout.take().expect("piped stdout");
 	let (line_tx, line_rx) = std::sync::mpsc::channel::<String>();
@@ -573,7 +577,7 @@ async fn mgmt_streaming_does_not_block_concurrent_one_shot_call() {
 		// Park inside the streaming call. We never expect events here
 		// (no request is fired against the data plane) — the future
 		// runs until the test drops it.
-		let _ = client.call_stream(VERB_TAIL_FLOW_LOG, &NoArgs {}, |_event| {}).await;
+		let _ = client.call_stream(VERB_TAIL_FLOW, &NoArgs {}, |_event| {}).await;
 	});
 	// TODO(mgmt-stream-readiness): there is no observable state for "the
 	// streaming verb has reached the daemon and is parked on its

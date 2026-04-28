@@ -3,9 +3,8 @@
 //! deserialises it into its own typed struct, surfacing
 //! [`crate::protocol::WireErrorKind::BadArgs`] on shape mismatch.
 //!
-//! Stage 1 verbs: `compile_dry_run`, `reload`, `get_active_config`,
-//! `stats`, `shutdown`, `list_connections`, plus `ping` for cheap
-//! liveness checks.
+//! Verbs: `compile_dry_run`, `reload`, `get_config`, `stats`,
+//! `shutdown`, `get_connections`, plus `ping` for cheap liveness checks.
 //!
 //! See `spec/architecture/10-management.md` § _Verbs_.
 
@@ -15,11 +14,11 @@ use serde::{Deserialize, Serialize};
 pub const VERB_PING: &str = "ping";
 pub const VERB_STATS: &str = "stats";
 pub const VERB_SHUTDOWN: &str = "shutdown";
-pub const VERB_GET_ACTIVE_CONFIG: &str = "get_active_config";
+pub const VERB_GET_CONFIG: &str = "get_config";
 pub const VERB_RELOAD: &str = "reload";
 pub const VERB_COMPILE_DRY_RUN: &str = "compile_dry_run";
-pub const VERB_LIST_CONNECTIONS: &str = "list_connections";
-pub const VERB_TAIL_FLOW_LOG: &str = "tail_flow_log";
+pub const VERB_GET_CONNECTIONS: &str = "get_connections";
+pub const VERB_TAIL_FLOW: &str = "tail_flow";
 pub const VERB_TAIL_LOG: &str = "tail_log";
 pub const VERB_GET_METRICS: &str = "get_metrics";
 
@@ -65,9 +64,9 @@ pub struct ShutdownResult {
 	pub draining: bool,
 }
 
-// ─── get_active_config ──────────────────────────────────────────────────
+// ─── get_config ─────────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetActiveConfigResult {
+pub struct GetConfigResult {
 	/// Serialized `vane_core::SymbolicFlowGraph`. Kept as
 	/// `serde_json::Value` so consumers (CLI / TUI / external tools)
 	/// don't need to depend on `vane-core` to decode the wire payload.
@@ -97,7 +96,7 @@ pub struct CompileDryRunResult {
 	pub graph: serde_json::Value,
 }
 
-// ─── list_connections ──────────────────────────────────────────────────
+// ─── get_connections ────────────────────────────────────────────────────
 /// One in-flight connection on the wire. `conn_id` is hex (16 chars,
 /// matches `ConnId`'s `Display`); addresses use the standard
 /// `SocketAddr` Display form.
@@ -135,7 +134,7 @@ pub enum GetMetricsResult {
 
 /// Per-listener summary plus the live in-flight connection list.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ListConnectionsResult {
+pub struct GetConnectionsResult {
 	pub listeners: Vec<ListenerStatus>,
 	#[serde(default)]
 	pub connections: Vec<ConnectionInfo>,
@@ -205,8 +204,8 @@ mod tests {
 	}
 
 	#[test]
-	fn list_connections_result_round_trips() {
-		let r = ListConnectionsResult {
+	fn get_connections_result_round_trips() {
+		let r = GetConnectionsResult {
 			listeners: vec![
 				ListenerStatus { addr: "127.0.0.1:1".to_string(), bound: true, in_flight_count: 0 },
 				ListenerStatus { addr: "127.0.0.1:2".to_string(), bound: false, in_flight_count: 9 },
@@ -222,12 +221,12 @@ mod tests {
 	}
 
 	#[test]
-	fn list_connections_result_deserialises_legacy_payload_without_connections() {
-		// Older daemons may emit `{"listeners": [...]}` with no
-		// `connections` key. The new client must still decode them —
-		// `#[serde(default)]` on the field provides that.
+	fn get_connections_result_deserialises_payload_without_connections() {
+		// Daemons may emit `{"listeners": [...]}` with no `connections`
+		// key. The client must still decode them — `#[serde(default)]`
+		// on the field provides that.
 		let raw = r#"{"listeners":[{"addr":"127.0.0.1:1","bound":true,"in_flight_count":0}]}"#;
-		let r: ListConnectionsResult = serde_json::from_str(raw).expect("decode legacy");
+		let r: GetConnectionsResult = serde_json::from_str(raw).expect("decode");
 		assert_eq!(r.listeners.len(), 1);
 		assert!(r.connections.is_empty());
 	}

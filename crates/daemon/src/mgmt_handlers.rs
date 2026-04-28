@@ -29,11 +29,10 @@ use vane_engine::tracing_broadcast::{BroadcastTracingLayer, TracingFrame};
 use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
 use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
 use vane_mgmt::verb::{
-	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetActiveConfigResult, GetMetricsArgs,
-	GetMetricsResult, ListConnectionsResult, ListenerStatus, PingResult, ReloadResult,
-	ShutdownResult, StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_GET_METRICS,
-	VERB_LIST_CONNECTIONS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG,
-	VERB_TAIL_LOG,
+	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetConfigResult, GetConnectionsResult,
+	GetMetricsArgs, GetMetricsResult, ListenerStatus, PingResult, ReloadResult, ShutdownResult,
+	StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_CONFIG, VERB_GET_CONNECTIONS, VERB_GET_METRICS,
+	VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW, VERB_TAIL_LOG,
 };
 
 use crate::providers::MetadataProviders;
@@ -51,7 +50,7 @@ pub(crate) struct MgmtState {
 	pub config_dir: PathBuf,
 	pub verbosity: Arc<VerbosityState>,
 	pub log_sink: Arc<dyn FlowLogSink>,
-	/// Live broadcast handle. `tail_flow_log` subscribes here for
+	/// Live broadcast handle. `tail_flow` subscribes here for
 	/// incident-time event streaming.
 	pub broadcast: Arc<BroadcastSink>,
 	/// Tracing layer that broadcasts every emitted event. `tail_log`
@@ -69,7 +68,7 @@ impl Handler for MgmtState {
 		// Streaming verbs are dispatched first because their return type
 		// is `Stream`, not `OneShot`. Everything else funnels through the
 		// shared one-shot path below.
-		if req.verb == VERB_TAIL_FLOW_LOG {
+		if req.verb == VERB_TAIL_FLOW {
 			let rx = self.broadcast.subscribe();
 			return DispatchOutcome::Stream(Box::new(FlowLogStream { rx }));
 		}
@@ -81,10 +80,10 @@ impl Handler for MgmtState {
 			VERB_PING => self.handle_ping(),
 			VERB_STATS => self.handle_stats(),
 			VERB_SHUTDOWN => self.handle_shutdown(),
-			VERB_GET_ACTIVE_CONFIG => self.handle_get_active_config(),
+			VERB_GET_CONFIG => self.handle_get_config(),
 			VERB_RELOAD => self.handle_reload(),
 			VERB_COMPILE_DRY_RUN => self.handle_compile_dry_run(req.args),
-			VERB_LIST_CONNECTIONS => self.handle_list_connections(),
+			VERB_GET_CONNECTIONS => self.handle_get_connections(),
 			VERB_GET_METRICS => self.handle_get_metrics(req.args),
 			other => Err(WireError {
 				kind: WireErrorKind::UnknownVerb,
@@ -95,7 +94,7 @@ impl Handler for MgmtState {
 	}
 }
 
-/// Streaming source for the `tail_flow_log` verb. Wraps a per-call
+/// Streaming source for the `tail_flow` verb. Wraps a per-call
 /// broadcast receiver; encodes each `FlowLogEvent` to JSON; surfaces
 /// `Lagged` as a synthetic sentinel event so operators can see when
 /// they're getting a sampled view.
@@ -152,7 +151,7 @@ impl EventStream for FlowLogStream {
 					// Slow subscriber dropped n events. Surface a
 					// synthetic sentinel so the operator notices the
 					// gap rather than seeing a "smooth" stream.
-					tracing::warn!(dropped = n, "tail_flow_log subscriber lagged");
+					tracing::warn!(dropped = n, "tail_flow subscriber lagged");
 					return Some(serde_json::json!({
 						"kind": "lagged",
 						"dropped": n,
@@ -210,13 +209,13 @@ impl MgmtState {
 		json(&ShutdownResult { draining: true })
 	}
 
-	fn handle_get_active_config(&self) -> Result<serde_json::Value, WireError> {
+	fn handle_get_config(&self) -> Result<serde_json::Value, WireError> {
 		let graph = self.graph_swap.load();
 		let serialized = serde_json::to_value(graph.symbolic().as_ref()).map_err(|e| WireError {
 			kind: WireErrorKind::Internal,
 			message: format!("symbolic: {e}"),
 		})?;
-		json(&GetActiveConfigResult { graph: serialized })
+		json(&GetConfigResult { graph: serialized })
 	}
 
 	fn handle_reload(&self) -> Result<serde_json::Value, WireError> {
@@ -263,7 +262,7 @@ impl MgmtState {
 		json(&CompileDryRunResult { graph: value })
 	}
 
-	fn handle_list_connections(&self) -> Result<serde_json::Value, WireError> {
+	fn handle_get_connections(&self) -> Result<serde_json::Value, WireError> {
 		let now = Instant::now();
 		let connections = self
 			.listeners
@@ -277,7 +276,7 @@ impl MgmtState {
 					.unwrap_or(u64::MAX),
 			})
 			.collect();
-		json(&ListConnectionsResult { listeners: self.listener_status(), connections })
+		json(&GetConnectionsResult { listeners: self.listener_status(), connections })
 	}
 
 	#[allow(clippy::unused_self)]
@@ -314,7 +313,7 @@ impl MgmtState {
 	}
 
 	/// Walk the active graph's `entries` and report each listener's
-	/// runtime status. Used by both `stats` and `list_connections` —
+	/// runtime status. Used by both `stats` and `get_connections` —
 	/// they currently return the same per-listener shape; per-connection
 	/// detail lands in a later chunk once the listener set registers
 	/// `ConnContext`s.
@@ -375,7 +374,7 @@ mod tests {
 
 	/// Drive `dispatch` and assert the outcome was a one-shot, returning
 	/// the inner result. Streaming verbs are unwrapped separately by
-	/// the dedicated `tail_flow_log` test below.
+	/// the dedicated `tail_flow` test below.
 	async fn one_shot(state: &MgmtState, req: Request) -> Result<serde_json::Value, WireError> {
 		match state.dispatch(req).await {
 			DispatchOutcome::OneShot(r) => r,
@@ -531,32 +530,32 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn dispatch_get_active_config_returns_symbolic_graph() {
+	async fn dispatch_get_config_returns_symbolic_graph() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41009);
 		let value = one_shot(
 			&state,
-			Request { id: 1, verb: VERB_GET_ACTIVE_CONFIG.into(), args: serde_json::Value::Null },
+			Request { id: 1, verb: VERB_GET_CONFIG.into(), args: serde_json::Value::Null },
 		)
 		.await
 		.expect("ok");
-		let r: GetActiveConfigResult = serde_json::from_value(value).expect("decode");
+		let r: GetConfigResult = serde_json::from_value(value).expect("decode");
 		assert!(r.graph.get("entries").is_some());
 		assert!(r.graph.get("nodes").is_some());
 		assert!(r.graph.get("meta").is_some());
 	}
 
 	#[tokio::test]
-	async fn dispatch_list_connections_returns_per_listener_summary() {
+	async fn dispatch_get_connections_returns_per_listener_summary() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41010);
 		let value = one_shot(
 			&state,
-			Request { id: 1, verb: VERB_LIST_CONNECTIONS.into(), args: serde_json::Value::Null },
+			Request { id: 1, verb: VERB_GET_CONNECTIONS.into(), args: serde_json::Value::Null },
 		)
 		.await
 		.expect("ok");
-		let r: ListConnectionsResult = serde_json::from_value(value).expect("decode");
+		let r: GetConnectionsResult = serde_json::from_value(value).expect("decode");
 		assert_eq!(r.listeners.len(), 1);
 		assert_eq!(r.listeners[0].addr, "127.0.0.1:41010");
 	}
@@ -580,7 +579,7 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn dispatch_tail_flow_log_returns_stream_that_yields_emitted_events() {
+	async fn dispatch_tail_flow_returns_stream_that_yields_emitted_events() {
 		use vane_core::{ConnId, FlowLogEvent, FlowLogKind};
 
 		let tmp = tempfile::tempdir().unwrap();
@@ -588,11 +587,11 @@ mod tests {
 
 		// Pull a Stream out of the dispatcher.
 		let outcome = state
-			.dispatch(Request { id: 1, verb: VERB_TAIL_FLOW_LOG.into(), args: serde_json::Value::Null })
+			.dispatch(Request { id: 1, verb: VERB_TAIL_FLOW.into(), args: serde_json::Value::Null })
 			.await;
 		let mut stream = match outcome {
 			DispatchOutcome::Stream(s) => s,
-			DispatchOutcome::OneShot(_) => panic!("tail_flow_log must produce a Stream"),
+			DispatchOutcome::OneShot(_) => panic!("tail_flow must produce a Stream"),
 		};
 
 		// Emit a FlowLogEvent through the broadcast sink and observe it

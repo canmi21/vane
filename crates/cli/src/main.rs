@@ -11,10 +11,11 @@ use clap::{Parser, Subcommand};
 use vane_core::version::{BuildInfo, format_version};
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
-	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetActiveConfigResult,
-	ListConnectionsResult, ListenerStatus, NoArgs, PingResult, ReloadResult, ShutdownResult,
-	StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_ACTIVE_CONFIG, VERB_LIST_CONNECTIONS, VERB_PING,
-	VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW_LOG, VERB_TAIL_LOG,
+	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetConfigResult, GetConnectionsResult,
+	GetMetricsArgs, GetMetricsResult, ListenerStatus, NoArgs, PingResult, ReloadResult,
+	ShutdownResult, StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_CONFIG, VERB_GET_CONNECTIONS,
+	VERB_GET_METRICS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW,
+	VERB_TAIL_LOG,
 };
 
 const BUILD_INFO: BuildInfo = BuildInfo {
@@ -65,9 +66,6 @@ enum Cmd {
 	/// 30-second soft-drain window; this CLI returns as soon as the
 	/// daemon acknowledges the verb.
 	Shutdown,
-	/// Dump the active `SymbolicFlowGraph` as JSON. Always JSON —
-	/// the graph shape is not amenable to a tabular pretty-print.
-	GetActiveConfig,
 	/// Trigger the reload pipeline (load → compile → link → swap),
 	/// equivalent to a file-watcher event.
 	Reload,
@@ -82,18 +80,35 @@ enum Cmd {
 		/// Filesystem path to the candidate config tree.
 		config_dir: PathBuf,
 	},
-	/// Per-listener in-flight connection counts.
-	ListConnections,
-	/// Subscribe to the daemon's live `FlowLogEvent` broadcast — one
-	/// NDJSON frame per emitted event. Stays connected until the
-	/// terminal interrupts (Ctrl-C) or the daemon ends the stream.
-	TailFlowLog,
-	/// Subscribe to the daemon's live `tracing` event stream — one
-	/// NDJSON frame per emitted event (RUST_LOG-gated). Same shape as
-	/// `tail-flow-log` from the operator's perspective; the underlying
-	/// channel is the daemon's tracing-subscriber stack rather than
-	/// per-request `FlowLogEvent`s. Stays connected until Ctrl-C.
-	TailLog,
+	/// Read a snapshot from the daemon.
+	Get {
+		#[command(subcommand)]
+		what: GetCmd,
+	},
+	/// Subscribe to a streaming endpoint.
+	Tail {
+		#[command(subcommand)]
+		what: TailCmd,
+	},
+}
+
+#[derive(Subcommand, Debug)]
+enum GetCmd {
+	/// Active `SymbolicFlowGraph` as JSON.
+	Config,
+	/// In-flight connections snapshot.
+	Connections,
+	/// Counter/gauge snapshot. Default Prometheus text; `--json` returns
+	/// the parsed JSON form.
+	Metrics,
+}
+
+#[derive(Subcommand, Debug)]
+enum TailCmd {
+	/// Subscribe to `FlowLogEvent` broadcast.
+	Flow,
+	/// Subscribe to structured tracing log.
+	Log,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -117,12 +132,13 @@ async fn main() -> std::process::ExitCode {
 		Cmd::Ping => run_ping(&client, cli.json).await,
 		Cmd::Stats => run_stats(&client, cli.json).await,
 		Cmd::Shutdown => run_shutdown(&client, cli.json).await,
-		Cmd::GetActiveConfig => run_get_active_config(&client).await,
 		Cmd::Reload => run_reload(&client, cli.json).await,
 		Cmd::Compile { config_dir, .. } => run_compile_dry_run(&client, &config_dir).await,
-		Cmd::ListConnections => run_list_connections(&client, cli.json).await,
-		Cmd::TailFlowLog => run_tail_flow_log(&client, cli.json).await,
-		Cmd::TailLog => run_tail_log(&client, cli.json).await,
+		Cmd::Get { what: GetCmd::Config } => run_get_config(&client).await,
+		Cmd::Get { what: GetCmd::Connections } => run_get_connections(&client, cli.json).await,
+		Cmd::Get { what: GetCmd::Metrics } => run_get_metrics(&client, cli.json).await,
+		Cmd::Tail { what: TailCmd::Flow } => run_tail_flow(&client, cli.json).await,
+		Cmd::Tail { what: TailCmd::Log } => run_tail_log(&client, cli.json).await,
 	};
 	match result {
 		Ok(()) => std::process::ExitCode::SUCCESS,
@@ -168,8 +184,8 @@ async fn run_shutdown(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()>
 	Ok(())
 }
 
-async fn run_get_active_config(client: &UnixMgmtClient) -> anyhow::Result<()> {
-	let r: GetActiveConfigResult = client.call(VERB_GET_ACTIVE_CONFIG, &NoArgs {}).await?;
+async fn run_get_config(client: &UnixMgmtClient) -> anyhow::Result<()> {
+	let r: GetConfigResult = client.call(VERB_GET_CONFIG, &NoArgs {}).await?;
 	// Always JSON — the symbolic graph has no sensible tabular form.
 	print_json(&r.graph)?;
 	Ok(())
@@ -199,8 +215,8 @@ async fn run_compile_dry_run(client: &UnixMgmtClient, config_dir: &Path) -> anyh
 	Ok(())
 }
 
-async fn run_list_connections(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
-	let r: ListConnectionsResult = client.call(VERB_LIST_CONNECTIONS, &NoArgs {}).await?;
+async fn run_get_connections(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+	let r: GetConnectionsResult = client.call(VERB_GET_CONNECTIONS, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
 	} else {
@@ -212,11 +228,22 @@ async fn run_list_connections(client: &UnixMgmtClient, json: bool) -> anyhow::Re
 	Ok(())
 }
 
-async fn run_tail_flow_log(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_get_metrics(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+	let format = if json { "json" } else { "prometheus" };
+	let args = GetMetricsArgs { format: Some(format.to_string()) };
+	let r: GetMetricsResult = client.call(VERB_GET_METRICS, &args).await?;
+	match r {
+		GetMetricsResult::Prometheus { body } => print!("{body}"),
+		GetMetricsResult::Json { metrics } => print_json(&metrics)?,
+	}
+	Ok(())
+}
+
+async fn run_tail_flow(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
 	// Race the streaming call against Ctrl-C. The streaming verb returns
 	// `Ok(())` on a clean End frame; Ctrl-C aborts the future, which
 	// drops the socket and lets the daemon notice the disconnect.
-	let stream_fut = client.call_stream(VERB_TAIL_FLOW_LOG, &NoArgs {}, |frame| {
+	let stream_fut = client.call_stream(VERB_TAIL_FLOW, &NoArgs {}, |frame| {
 		if json {
 			// One NDJSON line per event — operators pipe to `jq -c .`
 			// or similar. Encoding failures fall back to a debug print
