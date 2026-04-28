@@ -6,6 +6,7 @@
 //! S1-20 (`HttpSynthesizeFetch`).
 
 pub mod client_cache;
+pub mod dns;
 pub mod http_proxy;
 pub mod http_synthesize;
 pub mod l4_forward;

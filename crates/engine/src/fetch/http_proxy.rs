@@ -38,6 +38,7 @@ use vane_core::{
 use crate::body_adapter::IncomingAdapter;
 use crate::factories::{FactoryError, FetchFactories};
 use crate::fetch::client_cache::{ClientFingerprint, ProxyClient};
+use crate::fetch::dns::{DnsConfig, HickoryDnsResolver, parse_dns_args};
 use crate::fetch::retry::RetryPolicy;
 use crate::fetch::upstream::{UpstreamTls, parse_tls_args};
 use crate::flow_graph::FetchInst;
@@ -194,7 +195,8 @@ fn clone_parts_for_retry(p: &http::request::Parts) -> http::request::Parts {
 fn build_client(
 	version: UpstreamVersion,
 	tls: Option<&UpstreamTls>,
-) -> Client<HttpsConnector<HttpConnector>, Body> {
+	dns: &DnsConfig,
+) -> Client<HttpsConnector<HttpConnector<HickoryDnsResolver>>, Body> {
 	let tls_cfg = match tls {
 		Some(t) => Arc::clone(&t.client_config),
 		// Cleartext path never reaches the rustls handshake; supply a
@@ -208,12 +210,24 @@ fn build_client(
 		),
 	};
 
+	// Resolver is built per Client; spec does not require global sharing
+	// and (version, tls, dns) tuples are bounded in production.
+	// Hickory's TTL cache lives inside this resolver instance.
+	let resolver = HickoryDnsResolver::build(dns).expect("build hickory resolver");
+	let mut http = HttpConnector::new_with_resolver(resolver);
+	// Permit https:// URIs through the inner connector — TLS is wrapped
+	// by hyper-rustls one layer up. Mirrors `HttpConnector::new`'s
+	// posture for the GaiResolver path.
+	http.enforce_http(false);
+
 	let connector_with_protocols =
 		hyper_rustls::HttpsConnectorBuilder::new().with_tls_config((*tls_cfg).clone()).https_or_http();
 	let https = match version {
-		UpstreamVersion::Auto => connector_with_protocols.enable_http1().enable_http2().build(),
-		UpstreamVersion::Http1 => connector_with_protocols.enable_http1().build(),
-		UpstreamVersion::Http2 => connector_with_protocols.enable_http2().build(),
+		UpstreamVersion::Auto => {
+			connector_with_protocols.enable_http1().enable_http2().wrap_connector(http)
+		}
+		UpstreamVersion::Http1 => connector_with_protocols.enable_http1().wrap_connector(http),
+		UpstreamVersion::Http2 => connector_with_protocols.enable_http2().wrap_connector(http),
 	};
 
 	let mut builder = Client::builder(TokioExecutor::new());
@@ -284,6 +298,8 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 	let tls = parse_tls_args(upstream, args.get("tls"))
 		.map_err(|e| FactoryError(format!("args.tls: {e}")))?;
 
+	let dns = parse_dns_args(args.get("dns")).map_err(|e| FactoryError(format!("args.dns: {e}")))?;
+
 	if matches!(version, UpstreamVersion::Auto) && tls.is_none() {
 		// Cleartext has no ALPN to negotiate on, so `auto` collapses
 		// to H1. Surface the degradation so operators who actually
@@ -313,10 +329,11 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 		fp.alpn_protocols = alpn_protocols;
 		fp
 	});
-	let client_fp = ClientFingerprint { version, tls: tls_fp };
+	let client_fp = ClientFingerprint { version, tls: tls_fp, dns: dns.clone() };
 	let tls_for_build = tls.clone();
+	let dns_for_build = dns.clone();
 	let client = crate::fetch::client_cache::get_or_build(client_fp, move || {
-		build_client(version, tls_for_build.as_ref())
+		build_client(version, tls_for_build.as_ref(), &dns_for_build)
 	});
 
 	let scheme = if tls.is_some() { "https" } else { "http" };

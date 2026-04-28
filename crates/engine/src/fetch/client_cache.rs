@@ -19,9 +19,11 @@ use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use vane_core::Body;
 
+use crate::fetch::dns::DnsConfig;
+use crate::fetch::dns::HickoryDnsResolver;
 use crate::fetch::http_proxy::UpstreamVersion;
 
-pub type ProxyClient = Client<HttpsConnector<HttpConnector>, Body>;
+pub type ProxyClient = Client<HttpsConnector<HttpConnector<HickoryDnsResolver>>, Body>;
 
 /// Trust-root posture. Distinct variants get distinct fingerprints so
 /// pools never share across security postures — an
@@ -78,6 +80,10 @@ pub struct ClientFingerprint {
 	pub version: UpstreamVersion,
 	/// `None` on cleartext upstream.
 	pub tls: Option<TlsConfigFingerprint>,
+	/// DNS posture. `System` reads `/etc/resolv.conf` (default);
+	/// `Custom` pins resolution at the listed nameservers, in order.
+	/// Order is load-bearing — see [`DnsConfig`] doc.
+	pub dns: DnsConfig,
 }
 
 // TODO(pool-drain): no eviction in MVP. Cache grows monotonically;
@@ -147,6 +153,7 @@ mod tests {
 		let a = ClientFingerprint {
 			version: UpstreamVersion::Auto,
 			tls: Some(sample_tls_fp(false, vec![b"h2".to_vec(), b"http/1.1".to_vec()])),
+			dns: DnsConfig::System,
 		};
 		let b = a.clone();
 		assert_eq!(a, b);
@@ -157,10 +164,12 @@ mod tests {
 		let a = ClientFingerprint {
 			version: UpstreamVersion::Auto,
 			tls: Some(sample_tls_fp(false, vec![b"h2".to_vec(), b"http/1.1".to_vec()])),
+			dns: DnsConfig::System,
 		};
 		let b = ClientFingerprint {
 			version: UpstreamVersion::Http1,
 			tls: Some(sample_tls_fp(false, vec![b"http/1.1".to_vec()])),
+			dns: DnsConfig::System,
 		};
 		assert_ne!(a, b);
 	}
@@ -170,41 +179,82 @@ mod tests {
 		let a = ClientFingerprint {
 			version: UpstreamVersion::Auto,
 			tls: Some(sample_tls_fp(false, vec![b"h2".to_vec()])),
+			dns: DnsConfig::System,
 		};
 		let b = ClientFingerprint {
 			version: UpstreamVersion::Auto,
 			tls: Some(sample_tls_fp(true, vec![b"h2".to_vec()])),
+			dns: DnsConfig::System,
 		};
 		assert_ne!(a, b, "System and Skip must hash to distinct fingerprints");
 	}
 
 	#[test]
 	fn fingerprint_eq_cleartext_same_version() {
-		let a = ClientFingerprint { version: UpstreamVersion::Http1, tls: None };
-		let b = ClientFingerprint { version: UpstreamVersion::Http1, tls: None };
+		let a =
+			ClientFingerprint { version: UpstreamVersion::Http1, tls: None, dns: DnsConfig::System };
+		let b =
+			ClientFingerprint { version: UpstreamVersion::Http1, tls: None, dns: DnsConfig::System };
 		assert_eq!(a, b);
 	}
 
 	#[test]
 	fn fingerprint_neq_cleartext_different_version() {
-		let a = ClientFingerprint { version: UpstreamVersion::Http1, tls: None };
-		let b = ClientFingerprint { version: UpstreamVersion::Http2, tls: None };
+		let a =
+			ClientFingerprint { version: UpstreamVersion::Http1, tls: None, dns: DnsConfig::System };
+		let b =
+			ClientFingerprint { version: UpstreamVersion::Http2, tls: None, dns: DnsConfig::System };
 		assert_ne!(a, b);
+	}
+
+	#[test]
+	fn fingerprint_neq_different_dns_nameservers() {
+		let a = ClientFingerprint {
+			version: UpstreamVersion::Auto,
+			tls: None,
+			dns: DnsConfig::Custom(vec!["1.1.1.1:53".parse().unwrap()]),
+		};
+		let b = ClientFingerprint {
+			version: UpstreamVersion::Auto,
+			tls: None,
+			dns: DnsConfig::Custom(vec!["8.8.8.8:53".parse().unwrap()]),
+		};
+		assert_ne!(a, b, "different nameserver lists must produce distinct fingerprints");
+	}
+
+	#[test]
+	fn fingerprint_neq_dns_order_swap() {
+		let a = ClientFingerprint {
+			version: UpstreamVersion::Auto,
+			tls: None,
+			dns: DnsConfig::Custom(vec!["1.1.1.1:53".parse().unwrap(), "8.8.8.8:53".parse().unwrap()]),
+		};
+		let b = ClientFingerprint {
+			version: UpstreamVersion::Auto,
+			tls: None,
+			dns: DnsConfig::Custom(vec!["8.8.8.8:53".parse().unwrap(), "1.1.1.1:53".parse().unwrap()]),
+		};
+		assert_ne!(a, b, "primary/secondary order must be load-bearing");
 	}
 
 	fn make_dummy_client() -> ProxyClient {
 		// Cheap construction: HttpsConnector with empty roots, never
 		// drives a real handshake in the test (we only assert the
-		// `Arc<Client>` identity, not behavior).
+		// `Arc<Client>` identity, not behavior). Resolver matches the
+		// production wiring so the connector type aligns with
+		// `ProxyClient`.
 		let cfg = rustls::ClientConfig::builder()
 			.with_root_certificates(rustls::RootCertStore::empty())
 			.with_no_client_auth();
+		let resolver = HickoryDnsResolver::build(&DnsConfig::System).expect("system hickory resolver");
+		let mut http = HttpConnector::new_with_resolver(resolver);
+		http.enforce_http(false);
 		let https = hyper_rustls::HttpsConnectorBuilder::new()
 			.with_tls_config(cfg)
 			.https_or_http()
 			.enable_http1()
 			.enable_http2()
-			.build();
+			.wrap_connector(http);
 		hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new()).build(https)
 	}
 
@@ -215,6 +265,7 @@ mod tests {
 		let fp = ClientFingerprint {
 			version: UpstreamVersion::Auto,
 			tls: Some(sample_tls_fp(true, vec![b"h2".to_vec(), b"http/1.1".to_vec()])),
+			dns: DnsConfig::System,
 		};
 		let build_count = Arc::new(AtomicUsize::new(0));
 		let bc = Arc::clone(&build_count);
@@ -238,8 +289,10 @@ mod tests {
 		let fp_a = ClientFingerprint {
 			version: UpstreamVersion::Auto,
 			tls: Some(sample_tls_fp(true, vec![b"h2".to_vec()])),
+			dns: DnsConfig::System,
 		};
-		let fp_b = ClientFingerprint { version: UpstreamVersion::Http1, tls: None };
+		let fp_b =
+			ClientFingerprint { version: UpstreamVersion::Http1, tls: None, dns: DnsConfig::System };
 		let a = get_or_build(fp_a, make_dummy_client);
 		let b = get_or_build(fp_b, make_dummy_client);
 		assert!(!Arc::ptr_eq(&a, &b));
