@@ -1,8 +1,11 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use crate::body::{Request, Response};
 use crate::conn_context::ConnContext;
@@ -36,10 +39,37 @@ pub enum L7FetchOutput {
 	Tunnel(Tunnel),
 }
 
-pub struct Tunnel {
-	pub client: Box<dyn AsyncReadWrite + Send>,
-	pub upstream: Box<dyn AsyncReadWrite + Send>,
-	pub close_reason_tx: Option<oneshot::Sender<CloseReason>>,
+/// Bridge between the executor's `ByteTunnel` arm and a fetch's chosen
+/// transport. `Bidi` is the stream-pair shape that
+/// `tokio::io::copy_bidirectional` consumes — covers TCP forward, TLS
+/// passthrough, and the H1 WebSocket post-upgrade path. `Udp` is the
+/// session-driven shape: the fetch has already spawned the per-5-tuple
+/// forwarder task; the executor's role degenerates to awaiting
+/// `join` so `ConnContext` cleanup runs at the right moment.
+///
+/// See `spec/architecture/06-l4.md` § _`udp_dispatch`_ for the UDP
+/// session lifecycle and § _`l4_forward`_ for the TCP arm.
+pub enum Tunnel {
+	Bidi {
+		client: Box<dyn AsyncReadWrite + Send>,
+		upstream: Box<dyn AsyncReadWrite + Send>,
+		close_reason_tx: Option<oneshot::Sender<CloseReason>>,
+	},
+	Udp(UdpTunnel),
+}
+
+/// Handle for an in-flight UDP session whose forwarder task already
+/// runs in the background. `join` resolves with the session's terminal
+/// `CloseReason` after the forwarder unwinds (idle timeout, peer EOF,
+/// listener cancellation, or upstream send failure). `cancel`
+/// propagates the executor's cancel token (typically the listener's
+/// `force_cancel`) into the forwarder loop. The fetch is responsible
+/// for inserting the matching `DispatchTable` entry on session start
+/// and removing it as the `join` future resolves — vane-core stays
+/// agnostic about the table type.
+pub struct UdpTunnel {
+	pub join: Pin<Box<dyn Future<Output = CloseReason> + Send>>,
+	pub cancel: CancellationToken,
 }
 
 // `Unpin` is in the trait bound so `tokio::io::copy_bidirectional`
@@ -186,7 +216,7 @@ mod tests {
 			_ctx: &mut FlowCtx,
 		) -> Result<Tunnel, Error> {
 			let (tx, _rx) = oneshot::channel::<crate::middleware::CloseReason>();
-			Ok(Tunnel {
+			Ok(Tunnel::Bidi {
 				client: Box::new(NoopStream) as Box<dyn AsyncReadWrite + Send>,
 				upstream: Box::new(NoopStream) as Box<dyn AsyncReadWrite + Send>,
 				close_reason_tx: Some(tx),
@@ -226,13 +256,22 @@ mod tests {
 	}
 
 	#[test]
-	fn tunnel_builds_from_paired_async_io_streams() {
+	fn tunnel_bidi_builds_from_paired_async_io_streams() {
 		let (tx, _rx) = oneshot::channel::<crate::middleware::CloseReason>();
-		let tunnel = Tunnel {
+		let tunnel = Tunnel::Bidi {
 			client: Box::new(NoopStream) as Box<dyn AsyncReadWrite + Send>,
 			upstream: Box::new(NoopStream) as Box<dyn AsyncReadWrite + Send>,
 			close_reason_tx: Some(tx),
 		};
+		let _ = L7FetchOutput::Tunnel(tunnel);
+	}
+
+	#[test]
+	fn tunnel_udp_builds_from_join_future_and_cancel_token() {
+		let cancel = CancellationToken::new();
+		let join: Pin<Box<dyn Future<Output = CloseReason> + Send>> =
+			Box::pin(async move { CloseReason::Graceful });
+		let tunnel = Tunnel::Udp(UdpTunnel { join, cancel });
 		let _ = L7FetchOutput::Tunnel(tunnel);
 	}
 

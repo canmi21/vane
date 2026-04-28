@@ -37,6 +37,7 @@ use vane_core::{
 
 use crate::executor::{ExecutorInput, execute};
 use crate::flow_graph::FlowGraph;
+use crate::listener_udp::{DispatchTable, run_udp_listener};
 use crate::peeked_stream::PeekedStream;
 use crate::protocol_detect::classify;
 use crate::security::{SecurityConfig, SecurityState};
@@ -94,7 +95,7 @@ impl From<&Env> for BindConfig {
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
-fn next_conn_id() -> ConnId {
+pub(crate) fn next_conn_id() -> ConnId {
 	ConnId(NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed))
 }
 
@@ -273,24 +274,58 @@ impl ListenerSet {
 		// always sees the L4 input shape it expects. L4 → L7 transitions
 		// happen inside the executor at `Node::Upgrade`, which now hands
 		// the stream to `drive_h1_server` for hyper to decode.
+		let initial = graph.load_full();
+		let transports: HashMap<SocketAddr, Transport> = addrs
+			.iter()
+			.map(|a| {
+				let t =
+					initial.symbolic().meta.listener_transports.get(a).copied().unwrap_or(Transport::Tcp);
+				(*a, t)
+			})
+			.collect();
+		drop(initial);
 		for addr in addrs {
 			let mut running = self.running.lock();
 			if running.contains_key(&addr) {
 				tracing::warn!(?addr, "listener already running for this address; skipping");
 				continue;
 			}
-
-			let accept_cancel = CancellationToken::new();
-			let force_cancel = CancellationToken::new();
-			let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
-			let in_flight_count = Arc::new(AtomicUsize::new(0));
-			let bind_ready = Arc::new(AtomicBool::new(false));
-
-			let join = tokio::spawn(run_accept_loop(
+			let transport = transports.get(&addr).copied().unwrap_or(Transport::Tcp);
+			let handle = self.spawn_listener_for_addr(
 				addr,
+				transport,
 				Arc::clone(&graph),
 				Arc::clone(&verbosity),
 				Arc::clone(&log_sink),
+			);
+			running.insert(addr, handle);
+		}
+	}
+
+	/// Pick the right accept loop for `addr` based on the active
+	/// graph's `listener_transports` map and spawn it. Both branches
+	/// produce a uniform [`ListenerHandle`] so [`Self::shutdown`] /
+	/// [`Self::reconcile`] don't need to fork.
+	fn spawn_listener_for_addr(
+		&self,
+		addr: SocketAddr,
+		transport: Transport,
+		graph: Arc<ArcSwap<FlowGraph>>,
+		verbosity: Arc<VerbosityState>,
+		log_sink: Arc<dyn FlowLogSink>,
+	) -> ListenerHandle {
+		let accept_cancel = CancellationToken::new();
+		let force_cancel = CancellationToken::new();
+		let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
+		let in_flight_count = Arc::new(AtomicUsize::new(0));
+		let bind_ready = Arc::new(AtomicBool::new(false));
+
+		let join = match transport {
+			Transport::Tcp => tokio::spawn(run_accept_loop(
+				addr,
+				graph,
+				verbosity,
+				log_sink,
 				accept_cancel.clone(),
 				force_cancel.clone(),
 				Arc::clone(&in_flight),
@@ -299,20 +334,28 @@ impl ListenerSet {
 				Arc::clone(&self.connections),
 				Arc::clone(&self.bind_cfg),
 				Arc::clone(&self.security),
-			));
-
-			running.insert(
-				addr,
-				ListenerHandle {
-					accept_cancel,
-					force_cancel,
-					in_flight,
-					in_flight_count,
-					bind_ready,
-					join,
-				},
-			);
-		}
+			)),
+			Transport::Udp => {
+				let dispatch_table = Arc::new(DispatchTable::new());
+				let bind_cfg = Arc::clone(&self.bind_cfg);
+				tokio::spawn(run_udp_listener(
+					addr,
+					graph,
+					verbosity,
+					log_sink,
+					accept_cancel.clone(),
+					force_cancel.clone(),
+					Arc::clone(&in_flight),
+					Arc::clone(&in_flight_count),
+					Arc::clone(&bind_ready),
+					dispatch_table,
+					bind_cfg.max_bind_attempts,
+					bind_cfg.bind_backoff_initial,
+					bind_cfg.bind_backoff_max,
+				))
+			}
+		};
+		ListenerHandle { accept_cancel, force_cancel, in_flight, in_flight_count, bind_ready, join }
 	}
 
 	/// Whether a listener is currently running for `addr`. Useful for tests
@@ -507,43 +550,25 @@ impl ListenerSet {
 			}
 		}
 
-		// Added: same wiring as `start()`. `run_accept_loop` does its
-		// own bind-with-retry; failure surfaces via `tracing::error!`
-		// without poisoning the rest of the registry.
+		// Added: same wiring as `start()`. The spawn helper picks the
+		// run loop by `listener_transports`; failure surfaces via
+		// `tracing::error!` without poisoning the rest of the registry.
+		let active = graph.load_full();
 		let added: Vec<SocketAddr> = target.difference(&current).copied().collect();
 		for addr in added {
 			tracing::info!(?addr, "reconcile: adding listener");
-			let accept_cancel = CancellationToken::new();
-			let force_cancel = CancellationToken::new();
-			let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
-			let in_flight_count = Arc::new(AtomicUsize::new(0));
-			let bind_ready = Arc::new(AtomicBool::new(false));
-			let join = tokio::spawn(run_accept_loop(
+			let transport =
+				active.symbolic().meta.listener_transports.get(&addr).copied().unwrap_or(Transport::Tcp);
+			let handle = self.spawn_listener_for_addr(
 				addr,
+				transport,
 				Arc::clone(&graph),
 				Arc::clone(&verbosity),
 				Arc::clone(&log_sink),
-				accept_cancel.clone(),
-				force_cancel.clone(),
-				Arc::clone(&in_flight),
-				Arc::clone(&in_flight_count),
-				Arc::clone(&bind_ready),
-				Arc::clone(&self.connections),
-				Arc::clone(&self.bind_cfg),
-				Arc::clone(&self.security),
-			));
-			running.insert(
-				addr,
-				ListenerHandle {
-					accept_cancel,
-					force_cancel,
-					in_flight,
-					in_flight_count,
-					bind_ready,
-					join,
-				},
 			);
+			running.insert(addr, handle);
 		}
+		drop(active);
 		// Unchanged addresses: the per-accept `entries.get(&addr)` in
 		// `run_accept_loop` already picks up the post-swap NodeId on
 		// the next connection — nothing to do here.

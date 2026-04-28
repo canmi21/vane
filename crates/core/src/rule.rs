@@ -157,6 +157,15 @@ impl<'de> serde::Deserialize<'de> for TerminateSpec {
 		{
 			obj.insert("version".to_owned(), Value::String(version.to_owned()));
 		}
+		// `tcp_forward` / `udp_forward` are sugar for `L4Forward` +
+		// `transport: "tcp" | "udp"`. Same precedence rule: an
+		// explicit `args.transport` overrides the alias-derived value
+		// (preserved as an escape hatch for hand-written rules).
+		if let Some(transport) = transport_from_alias(&alias)
+			&& !obj.contains_key("transport")
+		{
+			obj.insert("transport".to_owned(), Value::String(transport.to_owned()));
+		}
 		Ok(Self { kind, args: v })
 	}
 }
@@ -178,6 +187,14 @@ fn http_version_from_alias(alias: &str) -> Option<&'static str> {
 		"http1_proxy" => Some("h1"),
 		"http2_proxy" => Some("h2"),
 		"http3_proxy" => Some("h3"),
+		_ => None,
+	}
+}
+
+fn transport_from_alias(alias: &str) -> Option<&'static str> {
+	match alias {
+		"tcp_forward" => Some("tcp"),
+		"udp_forward" => Some("udp"),
 		_ => None,
 	}
 }
@@ -409,6 +426,33 @@ mod tests {
 				"timeouts": { "connect": "5s", "total": "60s" },
 			}),
 		);
+	}
+
+	#[test]
+	fn terminate_spec_udp_forward_alias_injects_transport_udp() {
+		let raw = serde_json::json!({ "type": "udp_forward", "upstream": "1.2.3.4:53" });
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.kind, FetchKind::L4Forward);
+		assert_eq!(t.args["transport"], "udp");
+		assert_eq!(t.args["upstream"], "1.2.3.4:53");
+	}
+
+	#[test]
+	fn terminate_spec_tcp_forward_alias_injects_transport_tcp() {
+		let raw = serde_json::json!({ "type": "tcp_forward", "upstream": "10.0.0.5:22" });
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.kind, FetchKind::L4Forward);
+		assert_eq!(t.args["transport"], "tcp");
+	}
+
+	#[test]
+	fn terminate_spec_explicit_transport_wins_over_alias() {
+		// Explicit `args.transport` always overrides the alias-derived
+		// value — escape hatch for hand-written configs that want to
+		// pin a transport regardless of which alias spelled the rule.
+		let raw = serde_json::json!({ "type": "udp_forward", "upstream": "x", "transport": "tcp" });
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.args["transport"], "tcp");
 	}
 
 	#[test]

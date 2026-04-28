@@ -4,6 +4,7 @@ use std::ops::Index;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+use crate::conn_context::Transport;
 use crate::fetch::{SymbolicFetchRef, Terminator};
 use crate::middleware::SymbolicMiddlewareRef;
 use crate::predicate::PredicateInst;
@@ -167,6 +168,18 @@ pub struct FlowGraphMeta {
 	/// every entry address has an explicit kind.
 	#[serde(default)]
 	pub listener_kinds: std::collections::BTreeMap<SocketAddr, ListenerKind>,
+
+	/// Per-listener transport, derived from each entry's reachable
+	/// fetches. A listener with any reachable `L4Forward` whose
+	/// `args.transport == "udp"` is `Transport::Udp`; everything else
+	/// is `Transport::Tcp`. Mixing UDP `L4Forward` with any other
+	/// fetch kind on the same listener is a compile error — the
+	/// physical socket is single-protocol and cannot serve both
+	/// transports concurrently. See `spec/architecture/06-l4.md`
+	/// § _`udp_dispatch`_. `#[serde(default)]` keeps older dry-run
+	/// snapshots loadable; absent listeners are treated as `Tcp`.
+	#[serde(default)]
+	pub listener_transports: std::collections::BTreeMap<SocketAddr, Transport>,
 }
 
 const fn empty_feature_set() -> &'static [&'static str] {
@@ -449,6 +462,8 @@ mod tests {
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
 			listener_kinds: std::collections::BTreeMap::new(),
+
+			listener_transports: std::collections::BTreeMap::new(),
 		}
 	}
 
@@ -647,6 +662,8 @@ mod tests {
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
 			listener_kinds: std::collections::BTreeMap::new(),
+
+			listener_transports: std::collections::BTreeMap::new(),
 		};
 		let encoded = serde_json::to_string(&meta).expect("serialize meta");
 		assert!(

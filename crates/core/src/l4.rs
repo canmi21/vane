@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use tokio::net::{TcpStream, UdpSocket};
 
 use crate::fetch::AsyncReadWrite;
@@ -29,8 +30,21 @@ pub enum L4Conn {
 }
 
 pub struct UdpAssoc {
+	/// Physical listener socket — vane-owned, shared via `Arc` with the
+	/// listener's recv loop. The fetch sends responses back to the peer
+	/// through this socket; the listener demuxes inbound datagrams to
+	/// the per-session forwarder via the dispatch table. See
+	/// `spec/architecture/06-l4.md` § _UDP socket multiplexing_.
 	pub socket: Arc<UdpSocket>,
 	pub peer: SocketAddr,
+	/// Datagram that triggered the cold-path `FlowGraph` entry. The
+	/// `L4Forward` fetch sends this verbatim as the upstream session's
+	/// first packet so no inbound bytes are lost between dispatch
+	/// table miss and forwarder registration.
+	pub first_packet: Bytes,
+	/// `None` on the cold-path entry; populated only when an existing
+	/// QUIC session takes over (post-MVP — see
+	/// `spec/architecture/06-l4.md` § _`udp_dispatch`_).
 	pub quic: Option<QuicAssocId>,
 }
 

@@ -281,6 +281,7 @@ impl FlowGraph {
 			short_circuit_response_entry: sym.meta.short_circuit_response_entry.clone(),
 			listener_tls: sym.meta.listener_tls.clone(),
 			listener_kinds,
+			listener_transports: sym.meta.listener_transports.clone(),
 		};
 
 		Ok(Arc::new(Self {
@@ -497,6 +498,8 @@ mod tests {
 				short_circuit_response_entry: BTreeMap::new(),
 				listener_tls: BTreeMap::new(),
 				listener_kinds: BTreeMap::new(),
+
+				listener_transports: BTreeMap::new(),
 			}
 		}
 

@@ -31,6 +31,7 @@ pub mod flow_graph;
 pub mod flow_log_sink;
 pub mod hot_reload;
 pub mod listener;
+pub mod listener_udp;
 pub mod middleware;
 pub mod peeked_stream;
 pub mod preset;

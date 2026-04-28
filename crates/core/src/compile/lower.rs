@@ -10,6 +10,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use sha2::{Digest, Sha256};
 
 use crate::compile::analyze::{AnalyzedRule, AnalyzedRuleSet, Posture};
+use crate::conn_context::Transport;
 use crate::error::Error;
 use crate::fetch::{FetchKind, FetchPhase, SymbolicFetchRef, Terminator};
 use crate::ir::{
@@ -57,8 +58,10 @@ pub fn lower(
 			}
 		}
 		let kind = derive_listener_kind(&builder.nodes, &builder.fetches, entry);
+		let transport = derive_listener_transport(&builder.nodes, &builder.fetches, entry)?;
 		for addr in addrs {
 			builder.listener_kinds.insert(addr, kind);
+			builder.listener_transports.insert(addr, transport);
 		}
 	}
 
@@ -77,6 +80,7 @@ pub fn lower(
 			short_circuit_response_entry: builder.short_circuit_response_entry,
 			listener_tls: builder.listener_tls,
 			listener_kinds: builder.listener_kinds,
+			listener_transports: builder.listener_transports,
 		},
 	})
 }
@@ -148,6 +152,78 @@ fn derive_listener_kind(
 	}
 }
 
+/// Derive the listener's wire transport from the entry subgraph.
+///
+/// The physical socket is single-protocol: a TCP listener cannot
+/// receive UDP datagrams and vice versa. The lower pass enforces that
+/// every reachable fetch agrees on the transport — UDP only when
+/// every reachable fetch is `L4Forward` with `args.transport ==
+/// "udp"`; TCP otherwise.
+///
+/// # Errors
+/// Returns [`Error::compile`] when reachable fetches disagree on the
+/// transport (mixing UDP `L4Forward` with TCP / L7 fetches on the
+/// same listener). The error names the listener's first reachable
+/// fetch on each side so operators can locate the rule conflict.
+fn derive_listener_transport(
+	nodes: &[Node],
+	fetches: &[SymbolicFetchRef],
+	entry: NodeId,
+) -> Result<Transport, Error> {
+	let mut seen_udp = false;
+	let mut seen_tcp = false;
+	let mut visited = std::collections::HashSet::new();
+	let mut queue = std::collections::VecDeque::from([entry]);
+	while let Some(id) = queue.pop_front() {
+		if !visited.insert(id) {
+			continue;
+		}
+		let Some(node) = nodes.get(id.get() as usize) else { continue };
+		match node {
+			Node::Check { on_match, on_miss, .. } => {
+				queue.push_back(*on_match);
+				queue.push_back(*on_miss);
+			}
+			Node::Middleware { next, on_error, .. } => {
+				queue.push_back(*next);
+				if let Some(e) = on_error {
+					queue.push_back(*e);
+				}
+			}
+			Node::Fetch { id, next_response, next_tunnel, .. } => {
+				let fetch = &fetches[id.get() as usize];
+				if matches!(fetch.kind, FetchKind::L4Forward)
+					&& fetch.args.get("transport").and_then(serde_json::Value::as_str) == Some("udp")
+				{
+					seen_udp = true;
+				} else {
+					seen_tcp = true;
+				}
+				if let Some(n) = next_response {
+					queue.push_back(*n);
+				}
+				if let Some(n) = next_tunnel {
+					queue.push_back(*n);
+				}
+			}
+			Node::Upgrade { next } => queue.push_back(*next),
+			Node::Terminate(_) => {}
+		}
+	}
+	match (seen_udp, seen_tcp) {
+		(true, false) => Ok(Transport::Udp),
+		(true, true) => Err(Error::compile(
+			"listener transport conflict: cannot mix udp_forward with tcp_forward / L7 fetches on \
+			 the same listener; the physical socket is single-protocol"
+				.to_string(),
+		)),
+		// `(false, _)` covers pure-TCP graphs and the no-fetch defensive
+		// fallback (the same shape `derive_listener_kind` falls back
+		// to `Raw` for).
+		(false, _) => Ok(Transport::Tcp),
+	}
+}
+
 /// Peek at a fetch's `args.retry` JSON to decide whether the lower
 /// pass needs to flag the fetch node with `collect_body_before:
 /// Some(BodySide::Request)`. Returns `true` only when the policy
@@ -173,7 +249,10 @@ fn peek_retry_buffer_required(args: &serde_json::Value) -> bool {
 
 #[cfg(test)]
 pub(crate) mod test_only {
-	use super::{ListenerKind, Node, NodeId, SymbolicFetchRef, derive_listener_kind};
+	use super::{
+		Error, ListenerKind, Node, NodeId, SymbolicFetchRef, Transport, derive_listener_kind,
+		derive_listener_transport,
+	};
 
 	/// Test escape hatch for the upstream `compile.rs::tests` module —
 	/// exposes the derivation helper without leaking it to non-test
@@ -184,6 +263,133 @@ pub(crate) mod test_only {
 		entry: NodeId,
 	) -> ListenerKind {
 		derive_listener_kind(nodes, fetches, entry)
+	}
+
+	pub(crate) fn derive_listener_transport_for_test(
+		nodes: &[Node],
+		fetches: &[SymbolicFetchRef],
+		entry: NodeId,
+	) -> Result<Transport, Error> {
+		derive_listener_transport(nodes, fetches, entry)
+	}
+}
+
+#[cfg(test)]
+mod transport_derivation_tests {
+	use super::test_only::derive_listener_transport_for_test;
+	use crate::conn_context::Transport;
+	use crate::fetch::{FetchKind, SymbolicFetchRef, Terminator};
+	use crate::ir::{FetchId, Node, NodeId, TerminatorId};
+
+	fn fetch_node(id: u32, term: u32) -> Node {
+		Node::Fetch {
+			id: FetchId::new(id),
+			next_response: None,
+			next_tunnel: Some(NodeId::new(term)),
+			collect_body_before: None,
+			body_limit: 0,
+		}
+	}
+
+	fn l4_fetch(transport: &str) -> SymbolicFetchRef {
+		SymbolicFetchRef {
+			kind: FetchKind::L4Forward,
+			args: serde_json::json!({ "upstream": "127.0.0.1:9", "transport": transport }),
+			retry_buffer_required: false,
+		}
+	}
+
+	fn l7_fetch() -> SymbolicFetchRef {
+		SymbolicFetchRef {
+			kind: FetchKind::HttpProxy,
+			args: serde_json::json!({ "upstream": "127.0.0.1:9" }),
+			retry_buffer_required: false,
+		}
+	}
+
+	#[test]
+	fn udp_forward_alone_yields_udp_transport() {
+		let nodes = vec![fetch_node(0, 1), Node::Terminate(TerminatorId::new(0))];
+		let fetches = vec![l4_fetch("udp")];
+		let t = derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect("ok");
+		assert_eq!(t, Transport::Udp);
+	}
+
+	#[test]
+	fn tcp_forward_alone_yields_tcp_transport() {
+		let nodes = vec![fetch_node(0, 1), Node::Terminate(TerminatorId::new(0))];
+		let fetches = vec![l4_fetch("tcp")];
+		let t = derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect("ok");
+		assert_eq!(t, Transport::Tcp);
+	}
+
+	#[test]
+	fn l4_forward_default_transport_is_tcp() {
+		// args has no `transport` field — derivation must default to TCP
+		// without panicking.
+		let nodes = vec![fetch_node(0, 1), Node::Terminate(TerminatorId::new(0))];
+		let fetches = vec![SymbolicFetchRef {
+			kind: FetchKind::L4Forward,
+			args: serde_json::json!({ "upstream": "127.0.0.1:9" }),
+			retry_buffer_required: false,
+		}];
+		let t = derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect("ok");
+		assert_eq!(t, Transport::Tcp);
+	}
+
+	#[test]
+	fn l7_only_yields_tcp_transport() {
+		let nodes = vec![
+			Node::Upgrade { next: NodeId::new(1) },
+			fetch_node(0, 2),
+			Node::Terminate(TerminatorId::new(0)),
+		];
+		let fetches = vec![l7_fetch()];
+		let _ = Terminator::WriteHttpResponse;
+		let t = derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect("ok");
+		assert_eq!(t, Transport::Tcp);
+	}
+
+	#[test]
+	fn udp_mixed_with_tcp_l4_forward_is_compile_error() {
+		// Two fetches reachable via Check branches: one UDP, one TCP.
+		// The physical socket cannot serve both.
+		let nodes = vec![
+			Node::Check {
+				predicate: crate::ir::PredicateId::new(0),
+				on_match: NodeId::new(1),
+				on_miss: NodeId::new(3),
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			fetch_node(0, 2),
+			Node::Terminate(TerminatorId::new(0)),
+			fetch_node(1, 2),
+		];
+		let fetches = vec![l4_fetch("udp"), l4_fetch("tcp")];
+		let err =
+			derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect_err("err");
+		assert!(err.to_string().contains("transport conflict"), "{err}");
+	}
+
+	#[test]
+	fn udp_mixed_with_l7_fetch_is_compile_error() {
+		let nodes = vec![
+			Node::Check {
+				predicate: crate::ir::PredicateId::new(0),
+				on_match: NodeId::new(1),
+				on_miss: NodeId::new(3),
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			fetch_node(0, 2),
+			Node::Terminate(TerminatorId::new(0)),
+			fetch_node(1, 2),
+		];
+		let fetches = vec![l4_fetch("udp"), l7_fetch()];
+		let err =
+			derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect_err("err");
+		assert!(err.to_string().contains("transport conflict"), "{err}");
 	}
 }
 
@@ -212,6 +418,10 @@ struct Builder {
 	/// `lower_port` finishes each address group; see
 	/// [`derive_listener_kind`] for the rule.
 	listener_kinds: std::collections::BTreeMap<SocketAddr, ListenerKind>,
+	/// Per-listener wire transport. Populated as `lower_port` finishes
+	/// each address group; see [`derive_listener_transport`] for the
+	/// derivation rule and conflict semantics.
+	listener_transports: std::collections::BTreeMap<SocketAddr, Transport>,
 }
 
 impl Builder {
@@ -229,6 +439,8 @@ impl Builder {
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
 			listener_kinds: std::collections::BTreeMap::new(),
+
+			listener_transports: std::collections::BTreeMap::new(),
 		}
 	}
 

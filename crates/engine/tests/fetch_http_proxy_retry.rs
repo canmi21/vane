@@ -52,6 +52,8 @@ fn sample_meta() -> FlowGraphMeta {
 		short_circuit_response_entry: BTreeMap::new(),
 		listener_tls: BTreeMap::new(),
 		listener_kinds: BTreeMap::new(),
+
+		listener_transports: BTreeMap::new(),
 	}
 }
 

@@ -200,8 +200,9 @@ fn parse_backoff(v: &serde_json::Value) -> Result<Backoff, String> {
 
 /// Parse a duration literal of the form `<integer><unit>` where
 /// `unit ∈ { "ms", "s", "m" }`. Permissive enough for retry
-/// backoff configs without pulling in `humantime`.
-fn parse_duration(s: &str) -> Result<Duration, String> {
+/// backoff configs without pulling in `humantime`. Shared with the
+/// `L4Forward` UDP path's `idle_timeout` parser.
+pub(crate) fn parse_duration(s: &str) -> Result<Duration, String> {
 	let s = s.trim();
 	let (num, unit) = if let Some(stripped) = s.strip_suffix("ms") {
 		(stripped, "ms")

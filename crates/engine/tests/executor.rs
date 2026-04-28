@@ -98,6 +98,8 @@ fn sample_meta() -> FlowGraphMeta {
 		short_circuit_response_entry: std::collections::BTreeMap::new(),
 		listener_tls: std::collections::BTreeMap::new(),
 		listener_kinds: std::collections::BTreeMap::new(),
+
+		listener_transports: std::collections::BTreeMap::new(),
 	}
 }
 
@@ -1326,7 +1328,7 @@ async fn execute_byte_tunnel_drives_copy_bidirectional() {
 	// `Ok(ExecutorOutput::Tunneled)` once both directions reach EOF.
 	let (mut client_outer, client_inner) = tokio::io::duplex(1024);
 	let (mut upstream_outer, upstream_inner) = tokio::io::duplex(1024);
-	let tunnel = Tunnel {
+	let tunnel = Tunnel::Bidi {
 		client: Box::new(client_inner) as Box<dyn AsyncReadWrite + Send>,
 		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
 		close_reason_tx: None,
@@ -1391,7 +1393,7 @@ async fn execute_byte_tunnel_sends_graceful_close_reason() {
 	let (mut client_outer, client_inner) = tokio::io::duplex(1024);
 	let (mut upstream_outer, upstream_inner) = tokio::io::duplex(1024);
 	let (tx, rx) = tokio::sync::oneshot::channel::<CloseReason>();
-	let tunnel = Tunnel {
+	let tunnel = Tunnel::Bidi {
 		client: Box::new(client_inner) as Box<dyn AsyncReadWrite + Send>,
 		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
 		close_reason_tx: Some(tx),
@@ -1488,7 +1490,7 @@ async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
 	// walker `Err`.
 	let (tx, rx) = tokio::sync::oneshot::channel::<CloseReason>();
 	let (_upstream_outer, upstream_inner) = tokio::io::duplex(1024);
-	let tunnel = Tunnel {
+	let tunnel = Tunnel::Bidi {
 		client: Box::new(ErrorOnRead) as Box<dyn AsyncReadWrite + Send>,
 		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
 		close_reason_tx: Some(tx),
@@ -1644,7 +1646,7 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 	let (_client_outer, client_inner) = tokio::io::duplex(1024);
 	let (_upstream_outer, upstream_inner) = tokio::io::duplex(1024);
 	let (close_tx, close_rx) = tokio::sync::oneshot::channel::<CloseReason>();
-	let tunnel = Tunnel {
+	let tunnel = Tunnel::Bidi {
 		client: Box::new(client_inner) as Box<dyn AsyncReadWrite + Send>,
 		upstream: Box::new(upstream_inner) as Box<dyn AsyncReadWrite + Send>,
 		close_reason_tx: Some(close_tx),

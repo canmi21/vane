@@ -498,25 +498,47 @@ fn record_step(
 
 // --- ByteTunnel drive ---------------------------------------------------
 
-async fn drive_byte_tunnel(mut t: Tunnel, cancel: &tokio_util::sync::CancellationToken) {
-	// `copy_bidirectional` runs until both sides hit EOF or one errors.
-	// `tokio::select!` adds a third axis: when `cancel` fires (listener
-	// drain timeout, daemon shutdown), drop the copy future — the streams
-	// are dropped along with it, the OS-level sockets close, and the peer
-	// observes a reset. See 01-topology.md § _Listener lifecycle_ step 3.
-	let reason = tokio::select! {
-		biased;
-		() = cancel.cancelled() => CloseReason::Cancelled,
-		res = tokio::io::copy_bidirectional(&mut *t.client, &mut *t.upstream) => match res {
-			Ok(_) => CloseReason::Graceful,
-			Err(e) => CloseReason::ProtocolError(std::borrow::Cow::Owned(format!("byte tunnel io: {e}"))),
-		},
-	};
+async fn drive_byte_tunnel(t: Tunnel, cancel: &tokio_util::sync::CancellationToken) {
+	match t {
+		Tunnel::Bidi { mut client, mut upstream, mut close_reason_tx } => {
+			// `copy_bidirectional` runs until both sides hit EOF or one errors.
+			// `tokio::select!` adds a third axis: when `cancel` fires (listener
+			// drain timeout, daemon shutdown), drop the copy future — the streams
+			// are dropped along with it, the OS-level sockets close, and the peer
+			// observes a reset. See 01-topology.md § _Listener lifecycle_ step 3.
+			let reason = tokio::select! {
+				biased;
+				() = cancel.cancelled() => CloseReason::Cancelled,
+				res = tokio::io::copy_bidirectional(&mut *client, &mut *upstream) => match res {
+					Ok(_) => CloseReason::Graceful,
+					Err(e) => CloseReason::ProtocolError(std::borrow::Cow::Owned(format!("byte tunnel io: {e}"))),
+				},
+			};
 
-	if let Some(tx) = t.close_reason_tx.take() {
-		// Receiver dropped is fine — Fetch may have moved on; the tunnel
-		// io result is still observable in tracing if anyone wants it.
-		let _ = tx.send(reason);
+			if let Some(tx) = close_reason_tx.take() {
+				// Receiver dropped is fine — Fetch may have moved on; the tunnel
+				// io result is still observable in tracing if anyone wants it.
+				let _ = tx.send(reason);
+			}
+		}
+		Tunnel::Udp(mut udp) => {
+			// The session forwarder runs in a task spawned by the fetch.
+			// The executor's role here is to await the join future so the
+			// caller observes session completion, and to surface
+			// listener-level cancellation into the forwarder's own cancel
+			// token. The join future's cleanup wrapper handles
+			// dispatch-table removal as a side-effect.
+			tokio::select! {
+				biased;
+				() = cancel.cancelled() => {
+					udp.cancel.cancel();
+					// Still await join so dispatch-table cleanup completes
+					// before the executor tears down the connection context.
+					let _ = (&mut udp.join).await;
+				}
+				_ = &mut udp.join => {}
+			}
+		}
 	}
 }
 

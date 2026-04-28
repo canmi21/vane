@@ -69,6 +69,8 @@ fn sample_meta(
 		short_circuit_response_entry: BTreeMap::new(),
 		listener_tls,
 		listener_kinds: BTreeMap::new(),
+
+		listener_transports: BTreeMap::new(),
 	}
 }
 
