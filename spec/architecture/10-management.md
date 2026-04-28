@@ -5,7 +5,7 @@
 One protocol, two transports:
 
 - **Unix socket** (default-on). Path: `$XDG_RUNTIME_DIR/vaned.sock`, else `/var/run/vaned.sock`. No auth — filesystem permissions are the boundary. Recommended mode `0660` with group `vaneadm`.
-- **HTTP-over-TCP** (opt-in). Bound address configurable, defaults to `127.0.0.1`. Bearer-token auth. TLS required when bound to non-loopback; refuse to start otherwise.
+- **HTTP-over-TCP** (default-on, port `3333`). **Plaintext HTTP/1.1 only.** Bind defaults to loopback (`127.0.0.1` + `[::1]`); a `VANE_MGMT_HTTP_PUBLIC` env flag opts into wildcard bind (`0.0.0.0` + `[::]`) when the operator wants the admin port reachable on its own. Bearer-token auth on `Authorization: Bearer <token>`. TLS / H2 / mTLS / ACME for the management endpoint are **not** vane-mgmt's concern: operators who want them write a vane reverse-proxy rule that fronts the loopback management endpoint — see _HTTP-over-TCP_ under _Auth model_ for the recommended example.
 
 Both transports carry identical request/response shapes. TUI and CLI are clients; neither is a privileged in-process consumer.
 
@@ -99,10 +99,40 @@ No auth. `chmod 0660 /var/run/vaned.sock`, group `vaneadm`. Users in that group 
 
 ### HTTP-over-TCP
 
-- Bearer token in `Authorization: Bearer <token>`. Token hash stored in `config.json`.
-- TLS required when bound to non-loopback. Refuse to start if misconfigured.
+- **Bearer token** in `Authorization: Bearer <token>`. Plaintext via the `VANE_MGMT_HTTP_TOKEN` env var (hashed-at-rest is post-MVP). Token comparison is constant-time so a malformed `Authorization` header cannot be timing-fingerprinted.
+- **No TLS.** vane-mgmt only ships plaintext HTTP/1.1; for TLS termination, the operator writes a vane reverse-proxy rule.
+
+The `(public, token)` pairing decides whether the daemon starts:
+
+| `VANE_MGMT_HTTP_PUBLIC` | `VANE_MGMT_HTTP_TOKEN` | Boot behavior                                                                                                               |
+| ----------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| unset / `0` / `false`   | unset                  | Bind loopback, **warn** ("management HTTP is unauthenticated; same-host users on this machine can issue management calls"). |
+| unset / `0` / `false`   | set                    | Bind loopback, enforce token.                                                                                               |
+| set (`1` / `true`)      | unset                  | **Refuse to start** — wildcard bind without a token would expose the management API plaintext on the public network.        |
+| set (`1` / `true`)      | set                    | Bind wildcard, enforce token.                                                                                               |
+
+`VANE_BIND_IPV4` / `VANE_BIND_IPV6` (the same flags listener bind honors) decide which address families participate. With both 1, loopback bind expands to `127.0.0.1:3333` + `[::1]:3333`; public bind to `0.0.0.0:3333` + `[::]:3333`.
 
 There is no per-verb RBAC. Management is root-level: you have access or you don't. Finer-grained auth is post-MVP.
+
+#### Recommended deployment: TLS via vane-on-vane
+
+Plaintext-only is intentional. The operator who wants HTTPS / H2 / mTLS / ACME on the admin endpoint writes a vane rule that fronts the loopback HTTP transport, reusing the engine's full TLS surface (certs, ALPN, ticketer, listener kind derivation, hot reload). Two-port deployment, no port conflict:
+
+```json
+{
+	"rule": "vane-admin",
+	"listen": [":443"],
+	"match": [{ "tls.sni": { "equals": "admin.example.com" } }],
+	"terminate": {
+		"type": "http_proxy",
+		"upstream": "127.0.0.1:3333"
+	},
+	"tls": { "cert_file": "/etc/vaned/admin.crt", "key_file": "/etc/vaned/admin.key" }
+}
+```
+
+The operator hits `https://admin.example.com/` from anywhere; the rule terminates TLS, vane proxies to its own loopback admin port. Wildcard bind on the management transport (`VANE_MGMT_HTTP_PUBLIC=1`) and reverse-proxy fronting are independent choices: the former is "I'm on a trusted network and want the admin port reachable as-is"; the latter is "I want HTTPS termination plus everything else vane already does for proxied traffic."
 
 ## Idempotency
 

@@ -278,12 +278,18 @@ VANE_SEC_HEADER_TIMEOUT=30
 VANE_SEC_MAX_CONN_PER_IP=100
 VANE_SEC_MAX_TOTAL_CONNS=65536
 
-# Management transports (Unix always bound; HTTP only if BIND is set)
+# Management transports — Unix always bound; HTTP plaintext, default-on at port 3333.
+# `VANE_BIND_IPV4` / `VANE_BIND_IPV6` decide which families participate
+# (see ListenSpec section). Empty `HTTP_PORT` disables the HTTP transport
+# (Unix-only mode). `HTTP_PUBLIC` flips bind from loopback (default) to
+# wildcard. `HTTP_TOKEN` is mandatory when `HTTP_PUBLIC` is set; loopback
+# bind without a token is allowed but warns at boot. See 10-management.md
+# § _Auth model_ for the full table and the recommended TLS deployment
+# (vane reverse-proxies its own admin endpoint).
 VANE_MGMT_UNIX=/var/run/vaned.sock
-VANE_MGMT_HTTP_BIND=                       # empty = Unix-only; set to bind HTTP, e.g., 127.0.0.1:4479
-VANE_MGMT_HTTP_TOKEN=                      # required when VANE_MGMT_HTTP_BIND is non-loopback
-VANE_MGMT_HTTP_TLS_CERT=
-VANE_MGMT_HTTP_TLS_KEY=
+VANE_MGMT_HTTP_PORT=3333                   # empty = HTTP transport disabled
+VANE_MGMT_HTTP_PUBLIC=                     # empty / "0" / "false" = loopback only; truthy = wildcard
+VANE_MGMT_HTTP_TOKEN=                      # bearer token; mandatory when HTTP_PUBLIC is truthy
 
 # CGI (if `cgi` feature enabled)
 VANE_CGI_MAX_CONCURRENT=100
