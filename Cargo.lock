@@ -2443,8 +2443,14 @@ name = "vane-mgmt"
 version = "0.10.2"
 dependencies = [
  "async-trait",
+ "bytes",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "serde",
  "serde_json",
+ "subtle",
  "tempfile",
  "thiserror",
  "tokio",

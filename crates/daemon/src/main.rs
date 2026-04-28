@@ -25,6 +25,7 @@ mod providers;
 mod reload;
 mod watcher;
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -287,14 +288,23 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		security_cfg: Arc::clone(&security_cfg),
 		shutdown_trigger: shutdown_trigger.clone(),
 	});
-	let (mgmt_cancel, mgmt_handle) = bind_mgmt_server(Arc::clone(&mgmt_state)).await;
+	let mgmt_cancel = CancellationToken::new();
+	let mgmt_unix_handle = bind_mgmt_unix_server(Arc::clone(&mgmt_state), mgmt_cancel.clone()).await;
+	let mgmt_http_handles = bind_mgmt_http_server(
+		Arc::clone(&mgmt_state),
+		mgmt_cancel.clone(),
+		loaded.env.bind_ipv4,
+		loaded.env.bind_ipv6,
+	)
+	.await?;
 
 	wait_for_shutdown_signal(
 		listeners,
 		watcher_cancel,
 		watcher_handle,
 		mgmt_cancel,
-		mgmt_handle,
+		mgmt_unix_handle,
+		mgmt_http_handles,
 		shutdown_trigger,
 		sigterm,
 		sigint,
@@ -341,37 +351,120 @@ fn build_fetch_factories() -> FetchFactories {
 	fetch
 }
 
-/// Bind the Unix mgmt socket. Returns the cancel token feeding the
-/// server task and the task's `JoinHandle` (or `None` if the bind
-/// failed — the daemon continues serving traffic in that case).
-/// `VANE_MGMT_HTTP_BIND` is reserved for Stage 2 and currently logged
-/// at warn before being ignored.
-async fn bind_mgmt_server(
+/// Bind the Unix mgmt socket. Returns the spawned task's `JoinHandle`
+/// or `None` if bind failed — the daemon continues serving traffic in
+/// that case.
+async fn bind_mgmt_unix_server(
 	mgmt_state: Arc<MgmtState>,
-) -> (CancellationToken, Option<tokio::task::JoinHandle<()>>) {
-	if std::env::var("VANE_MGMT_HTTP_BIND").is_ok() {
-		tracing::warn!("VANE_MGMT_HTTP_BIND is reserved for Stage 2 — ignoring for now");
-	}
+	cancel: CancellationToken,
+) -> Option<tokio::task::JoinHandle<()>> {
 	let socket = std::env::var("VANE_MGMT_UNIX").unwrap_or_else(|_| "/tmp/vaned.sock".to_string());
-	let cancel = CancellationToken::new();
-	let handle =
-		match vane_mgmt::spawn_unix_server(std::path::Path::new(&socket), mgmt_state, cancel.clone())
-			.await
-		{
-			Ok(h) => {
-				tracing::info!(socket = %socket, "mgmt unix server bound");
-				Some(h)
-			}
-			Err(e) => {
-				tracing::warn!(
-					socket = %socket,
-					error = %e,
-					"mgmt unix server bind failed; daemon continues without mgmt",
-				);
-				None
-			}
-		};
-	(cancel, handle)
+	match vane_mgmt::spawn_unix_server(std::path::Path::new(&socket), mgmt_state, cancel).await {
+		Ok(h) => {
+			tracing::info!(socket = %socket, "mgmt unix server bound");
+			Some(h)
+		}
+		Err(e) => {
+			tracing::warn!(
+				socket = %socket,
+				error = %e,
+				"mgmt unix server bind failed; daemon continues without mgmt",
+			);
+			None
+		}
+	}
+}
+
+/// Bind the HTTP-over-TCP mgmt transport per
+/// `spec/architecture/10-management.md` § _Auth model_ and
+/// `09-config.md` env-var section. Boot-validates the
+/// `(VANE_MGMT_HTTP_PUBLIC, VANE_MGMT_HTTP_TOKEN)` pairing; bind
+/// failures are fatal (the operator opted into HTTP transport, so a
+/// missing port surfaces as a boot error rather than a silent
+/// degradation).
+///
+/// Returns the per-bind task handles. Empty when the operator
+/// disabled the transport via `VANE_MGMT_HTTP_PORT=`.
+async fn bind_mgmt_http_server(
+	mgmt_state: Arc<MgmtState>,
+	cancel: CancellationToken,
+	bind_ipv4: bool,
+	bind_ipv6: bool,
+) -> Result<Vec<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error + Send + Sync>> {
+	let Some(port) = parse_http_port()? else {
+		tracing::info!("mgmt http transport disabled (VANE_MGMT_HTTP_PORT is empty)");
+		return Ok(Vec::new());
+	};
+	let public = parse_truthy(std::env::var("VANE_MGMT_HTTP_PUBLIC").ok().as_deref());
+	let token = std::env::var("VANE_MGMT_HTTP_TOKEN").ok().filter(|s| !s.is_empty());
+
+	// Boot validation table — see spec/architecture/10-management.md
+	// § _Auth model_. Public-without-token is a hard refuse so the
+	// daemon never exposes plaintext mgmt to the public network.
+	if public && token.is_none() {
+		return Err(
+			"VANE_MGMT_HTTP_PUBLIC=1 requires VANE_MGMT_HTTP_TOKEN to be set; \
+			 refusing to bind plaintext management on the public network"
+				.into(),
+		);
+	}
+	if !public && token.is_none() {
+		tracing::warn!(
+			target: "mgmt",
+			"management HTTP is unauthenticated on loopback; same-host users on this machine \
+			 can issue management calls. Set VANE_MGMT_HTTP_TOKEN to enable bearer auth.",
+		);
+	}
+	if !bind_ipv4 && !bind_ipv6 {
+		return Err(
+			"VANE_BIND_IPV4 and VANE_BIND_IPV6 are both disabled — no IP family available \
+			 for management HTTP transport"
+				.into(),
+		);
+	}
+
+	let mut binds: Vec<SocketAddr> = Vec::new();
+	if public {
+		if bind_ipv4 {
+			binds.push(format!("0.0.0.0:{port}").parse().expect("v4 wildcard"));
+		}
+		if bind_ipv6 {
+			binds.push(format!("[::]:{port}").parse().expect("v6 wildcard"));
+		}
+	} else {
+		if bind_ipv4 {
+			binds.push(format!("127.0.0.1:{port}").parse().expect("v4 loopback"));
+		}
+		if bind_ipv6 {
+			binds.push(format!("[::1]:{port}").parse().expect("v6 loopback"));
+		}
+	}
+
+	let cfg = vane_mgmt::HttpServerConfig { binds, bearer_token: token.map(Into::into) };
+	let handles = vane_mgmt::spawn_http_server(cfg, mgmt_state, cancel).await?;
+	tracing::info!(count = handles.len(), port, public, "mgmt http server bound",);
+	Ok(handles)
+}
+
+/// Parse `VANE_MGMT_HTTP_PORT`. `None` (env var unset) defaults to
+/// 3333; an explicit empty string disables the transport entirely
+/// (returns `Ok(None)`).
+fn parse_http_port() -> Result<Option<u16>, Box<dyn std::error::Error + Send + Sync>> {
+	match std::env::var("VANE_MGMT_HTTP_PORT").ok().as_deref() {
+		None => Ok(Some(3333)),
+		Some("") => Ok(None),
+		Some(s) => match s.parse::<u16>() {
+			Ok(p) => Ok(Some(p)),
+			Err(e) => Err(format!("VANE_MGMT_HTTP_PORT: {e}").into()),
+		},
+	}
+}
+
+/// Boolean env-var parse used for `VANE_MGMT_HTTP_PUBLIC`. Truthy =
+/// `1` / `true` / `yes` / `on` (case-insensitive). Anything else,
+/// including unset / empty / `0` / `false` / `no` / `off`, is falsy.
+fn parse_truthy(s: Option<&str>) -> bool {
+	matches!(s.map(str::to_ascii_lowercase).as_deref(), Some("1" | "true" | "yes" | "on"),)
 }
 
 /// Boot-time health check. Spawns a background task that polls
@@ -437,7 +530,8 @@ async fn wait_for_shutdown_signal(
 	watcher_cancel: CancellationToken,
 	watcher_handle: Option<tokio::task::JoinHandle<()>>,
 	mgmt_cancel: CancellationToken,
-	mgmt_handle: Option<tokio::task::JoinHandle<()>>,
+	mgmt_unix_handle: Option<tokio::task::JoinHandle<()>>,
+	mgmt_http_handles: Vec<tokio::task::JoinHandle<()>>,
 	mgmt_shutdown_trigger: CancellationToken,
 	mut sigterm: tokio::signal::unix::Signal,
 	mut sigint: tokio::signal::unix::Signal,
@@ -462,7 +556,10 @@ async fn wait_for_shutdown_signal(
 	if let Some(h) = watcher_handle {
 		let _ = h.await;
 	}
-	if let Some(h) = mgmt_handle {
+	if let Some(h) = mgmt_unix_handle {
+		let _ = h.await;
+	}
+	for h in mgmt_http_handles {
 		let _ = h.await;
 	}
 	listeners.shutdown(drain).await;

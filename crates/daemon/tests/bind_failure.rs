@@ -110,6 +110,9 @@ fn spawn_vaned(rules_json: &str, boot_health_timeout_secs: u64) -> Daemon {
 		.arg("-c")
 		.arg(&config_dir)
 		.env("VANE_MGMT_UNIX", &socket)
+		// Disable the HTTP mgmt transport so parallel test daemons
+		// don't fight over port 3333.
+		.env("VANE_MGMT_HTTP_PORT", "")
 		.env("VANE_BOOT_HEALTH_TIMEOUT_SECS", boot_health_timeout_secs.to_string())
 		.env("RUST_LOG", "warn,vaned=info")
 		.stdout(Stdio::piped())

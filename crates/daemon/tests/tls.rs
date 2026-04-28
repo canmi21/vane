@@ -138,6 +138,9 @@ fn spawn_vaned(config_dir: &Path, socket: &Path) -> Daemon {
 		.arg("-c")
 		.arg(config_dir)
 		.env("VANE_MGMT_UNIX", socket)
+		// Disable the HTTP mgmt transport so parallel test daemons
+		// don't fight over port 3333.
+		.env("VANE_MGMT_HTTP_PORT", "")
 		.env("RUST_LOG", "warn")
 		.stdout(Stdio::null())
 		.stderr(Stdio::null());

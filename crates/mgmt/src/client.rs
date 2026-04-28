@@ -147,6 +147,11 @@ pub enum MgmtClientError {
 	EmptyResponse,
 	#[error("server: {kind:?} {message}", kind = .0.kind, message = .0.message)]
 	Server(WireError),
+	/// Non-200 HTTP response from the management endpoint. Only ever
+	/// surfaced by [`crate::http_client::HttpMgmtClient`]; the Unix
+	/// transport has no equivalent shape.
+	#[error("http {status}: {body}")]
+	Http { status: u16, body: String },
 }
 
 #[cfg(test)]

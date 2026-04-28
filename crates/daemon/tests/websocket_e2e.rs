@@ -41,6 +41,9 @@ fn spawn_vaned(dir: &Path) -> Child {
 	Command::new(bin)
 		.arg("-c")
 		.arg(dir)
+		// Disable the HTTP mgmt transport so parallel test daemons
+		// don't fight over port 3333.
+		.env("VANE_MGMT_HTTP_PORT", "")
 		.stdout(Stdio::null())
 		.stderr(Stdio::null())
 		.spawn()
