@@ -83,6 +83,15 @@ When `terminate.type` is one of the proxy variants (`http_proxy`, `http1_proxy`,
 
 Omitting `version` defaults to `"auto"`. The four type aliases (`http_proxy` / `http1_proxy` / `http2_proxy` / `http3_proxy`) are equivalent to `http_proxy` with `version` set to `auto` / `h1` / `h2` / `h3` respectively — see [`05-terminator.md`](05-terminator.md) § _Variant ergonomics in config_.
 
+The proxy variants also accept an optional `dns` field. Upstream address resolution defaults to the system resolver (`/etc/resolv.conf` plus `/etc/hosts`) — see [`07-l7.md`](07-l7.md) § _DNS resolver: `hickory-resolver`_. A rule may override this with explicit nameservers:
+
+| `dns`                                          | Wire behavior                                                                                                                                            |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| omitted / `null` / `"system"` / `{}`           | System resolver (reads `/etc/resolv.conf`).                                                                                                              |
+| `{ "nameservers": ["1.1.1.1", "8.8.8.8:53"] }` | Resolve only against the listed servers, in order. Per-entry strings are `IP` (port `53` implied), `IPv4:port`, or `[IPv6]:port`. Bare IPv6 is rejected. |
+
+Override semantics are **strict** — a query failure against the explicit nameservers does not fall back to the system resolver, it surfaces as `DnsFailure`. This is deliberate: split-horizon deployments where the operator pinned an internal DNS would consider a fall-through to public resolvers a leak, not a safety net. Override order is preserved end-to-end: `["10.0.0.1", "10.0.0.2"]` and `["10.0.0.2", "10.0.0.1"]` produce distinct upstream-client cache slots so the operator's primary / secondary intent is honored.
+
 There is intentionally **no `listener_kind` (or `kind`) field** here. `ListenerKind` is derived from each listener's FlowGraph entry subgraph at compile — `Raw` when only L4 fetches are reachable, `Http` when only L7, `Auto` when both. A rule writer expresses intent by choosing terminators / presets; the listener's runtime posture follows. See [`06-l4.md`](06-l4.md) § _Listener kind derivation_ for the full rule.
 
 ### ListenSpec grammar
