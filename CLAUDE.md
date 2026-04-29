@@ -4,6 +4,8 @@
 
 Rust workspace targeting stable. Async runtime: `tokio`. HTTP stack: `hyper` / `h3` / `quinn`. TLS: `rustls`. WASM: `wasmtime`. Concrete crate layout, module boundaries, and trait shapes are proposed in [`spec/architecture/`](spec/architecture/) — start with [`spec/architecture/README.md`](spec/architecture/README.md).
 
+A Nix flake (`flake.nix`) provides a reproducible dev shell — `nix develop` lands you in an environment with the rust toolchain (read from `rust-toolchain.toml`), `cargo-nextest`, `just`, `bun`, `nixfmt`, and the musl cross-toolchain, all pinned via `flake.lock`. `nix fmt` formats `.nix` files. Optional — system rustup / brew works equivalently.
+
 ## Quality gates
 
 Everything that can be mechanical is mechanical — treat the gate as authoritative, don't re-check by hand.

@@ -10,3 +10,7 @@ node_modules/
 
 .refactor/
 .claude/
+
+result
+result-*
+.direnv/
