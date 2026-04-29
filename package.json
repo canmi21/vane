@@ -4,6 +4,7 @@
 	"devDependencies": {
 		"@commitlint/cli": "^20.5.2",
 		"@commitlint/config-conventional": "^20.5.0",
-		"dprint": "^0.54.0"
+		"dprint": "^0.54.0",
+		"lefthook": "^2.1.6"
 	}
 }
