@@ -326,11 +326,11 @@ pub struct PluginMetadata {
     pub kind:       MiddlewareKind,       // L4Peek | L4Bytes | L7Request | L7Response
     pub stateless:  bool,
     pub needs_body: bool,
-    pub inspects:   Vec<String>,          // field paths the plugin reads
+    pub inspects:   Vec<String>,          // strict capability declaration (see `wasm-abi.md` § Context exposure)
 }
 ```
 
-Runtime dispatch: when the executor hits a `MiddlewareInst::Wasm(w)`, it calls `w.runtime.invoke(w.module_id, w.args.clone(), /* serialized ctx + input */)`. The WasmRuntime trait's implementation (in `vane-wasm`) handles pool checkout, marshaling, and result decoding — see `11-wasm.md`.
+Runtime dispatch: when the executor hits a `MiddlewareInst::Wasm(w)`, it calls `w.runtime.invoke(w.module_id, &w.args, /* ctx + input */)`. The `WasmRuntime` impl (in `vane-wasm`) handles pool checkout, marshaling, and result decoding — see `11-wasm.md`. Args are delivered to the plugin instance once at construction time via the host import `get-args()`, not on every invocation; the runtime caches the canonical args bytes alongside the rented or pooled instance. See `spec/wasm-abi.md` § _Args delivery_.
 
 ### Mode choice is user-declared
 
