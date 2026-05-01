@@ -2158,3 +2158,203 @@ async fn execute_collect_response_body_over_limit_returns_err() {
 
 	assert!(result.is_err(), "over-limit response body must return Err: {result:?}");
 }
+
+// ---------------------------------------------------------------------------
+// http.body predicate routing tests
+// ---------------------------------------------------------------------------
+
+// Graph layout for http.body routing tests:
+//   0: Check { predicate:0, on_match:1, on_miss:3, collect_body_before:Request }
+//   1: Middleware(hit_match) -> 2
+//   2: Terminate(Close)
+//   3: Middleware(hit_miss)  -> 4
+//   4: Terminate(Close)
+fn body_routing_graph(pred: PredicateInst) -> Arc<SymbolicFlowGraph> {
+	build_graph(
+		vec![
+			Node::Check {
+				predicate: PredicateId::new(0),
+				on_match: NodeId::new(1),
+				on_miss: NodeId::new(3),
+				collect_body_before: Some(vane_core::BodySide::Request),
+				body_limit: 8 * 1024 * 1024,
+			},
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(2),
+				on_error: None,
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+			Node::Middleware {
+				id: MiddlewareId::new(1),
+				next: NodeId::new(4),
+				on_error: None,
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![pred],
+		vec![l7_req_ref("hit_match"), l7_req_ref("hit_miss")],
+		vec![],
+		vec![Terminator::Close],
+	)
+}
+
+// Link sym with hit_match/hit_miss counters and drive execute against it.
+// Returns (hit_match_count, hit_miss_count).
+async fn run_body_routing(sym: Arc<SymbolicFlowGraph>, req: Request) -> (usize, usize) {
+	let hit_match = Arc::new(AtomicUsize::new(0));
+	let hit_miss = Arc::new(AtomicUsize::new(0));
+
+	let mut mw = MiddlewareFactories::new();
+	{
+		let hit = Arc::clone(&hit_match);
+		mw.register("hit_match", MiddlewareKind::L7Request, move |_args| {
+			Ok(MiddlewareInst::L7Request(Arc::new(CountAndContinue(Arc::clone(&hit)))))
+		});
+	}
+	{
+		let hit = Arc::clone(&hit_miss);
+		mw.register("hit_miss", MiddlewareKind::L7Request, move |_args| {
+			Ok(MiddlewareInst::L7Request(Arc::new(CountAndContinue(Arc::clone(&hit)))))
+		});
+	}
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let r = run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+	assert!(r.is_ok(), "execute must succeed: {r:?}");
+	(hit_match.load(Ordering::SeqCst), hit_miss.load(Ordering::SeqCst))
+}
+
+#[tokio::test]
+async fn execute_http_body_contains_match_routes_on_match() {
+	// collect_body_before drains the stream into Body::Static before the
+	// Check runs; test_bytes / contains finds "hello" in the body → on_match.
+	let sym = body_routing_graph(PredicateInst {
+		path: FieldPath::HttpBody,
+		op: CompiledOperator::Contains(Bytes::from_static(b"hello")),
+	});
+	let req = http::Request::builder()
+		.method("POST")
+		.uri("/")
+		.body(stream_body(b"hello world"))
+		.expect("build req");
+	let (matched, missed) = run_body_routing(sym, req).await;
+	assert_eq!(matched, 1, "on_match must fire when body contains target bytes");
+	assert_eq!(missed, 0, "on_miss must not fire");
+}
+
+#[tokio::test]
+async fn execute_http_body_contains_no_match_routes_on_miss() {
+	// Body does not contain the target bytes → on_miss branch.
+	let sym = body_routing_graph(PredicateInst {
+		path: FieldPath::HttpBody,
+		op: CompiledOperator::Contains(Bytes::from_static(b"hello")),
+	});
+	let req = http::Request::builder()
+		.method("POST")
+		.uri("/")
+		.body(stream_body(b"goodbye world"))
+		.expect("build req");
+	let (matched, missed) = run_body_routing(sym, req).await;
+	assert_eq!(matched, 0, "on_match must not fire when body lacks target bytes");
+	assert_eq!(missed, 1, "on_miss must fire");
+}
+
+#[tokio::test]
+async fn execute_http_body_equals_match_routes_on_match() {
+	// Equals operator: body must be byte-identical to the compiled value.
+	let sym = body_routing_graph(PredicateInst {
+		path: FieldPath::HttpBody,
+		op: CompiledOperator::Equals(CompiledValue::Bytes(Bytes::from_static(b"exact"))),
+	});
+	let req = http::Request::builder()
+		.method("POST")
+		.uri("/")
+		.body(stream_body(b"exact"))
+		.expect("build req");
+	let (matched, missed) = run_body_routing(sym, req).await;
+	assert_eq!(matched, 1, "on_match must fire when body equals compiled bytes");
+	assert_eq!(missed, 0, "on_miss must not fire");
+}
+
+#[tokio::test]
+async fn execute_http_body_prefix_match_routes_on_match() {
+	// Prefix operator: body starts with the compiled prefix bytes.
+	let sym = body_routing_graph(PredicateInst {
+		path: FieldPath::HttpBody,
+		op: CompiledOperator::Prefix(Bytes::from_static(b"hel")),
+	});
+	let req = http::Request::builder()
+		.method("POST")
+		.uri("/")
+		.body(stream_body(b"hello world"))
+		.expect("build req");
+	let (matched, missed) = run_body_routing(sym, req).await;
+	assert_eq!(matched, 1, "on_match must fire when body has expected prefix");
+	assert_eq!(missed, 0, "on_miss must not fire");
+}
+
+#[tokio::test]
+async fn execute_no_http_body_predicate_body_not_materialized() {
+	// When no node carries collect_body_before, the request body must remain
+	// Body::Stream at the middleware — buffering is pay-as-you-go.
+	//
+	// Graph: Middleware(body_capture, collect_body_before=None) → Terminate(Close)
+	let captured = Arc::new(Mutex::new(None::<bool>));
+	let sym = build_graph(
+		vec![
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(1),
+				on_error: None,
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![],
+		vec![SymbolicMiddlewareRef {
+			name: Arc::from("body_probe"),
+			args: Value::Null,
+			kind: MiddlewareKind::L7Request,
+			stateless: true,
+			needs_body: false,
+			on_error: None,
+		}],
+		vec![],
+		vec![Terminator::Close],
+	);
+
+	let mut mw = MiddlewareFactories::new();
+	{
+		let cap = Arc::clone(&captured);
+		mw.register("body_probe", MiddlewareKind::L7Request, move |_args| {
+			Ok(MiddlewareInst::L7Request(Arc::new(BodyCapture(Arc::clone(&cap)))))
+		});
+	}
+	let fetch = FetchFactories::new();
+	let graph = FlowGraph::link(sym, &mw, &fetch).expect("link");
+	let conn = make_conn("127.0.0.1:0");
+	let sink = Arc::new(NullSink::new());
+
+	let req: Request = http::Request::builder()
+		.method("POST")
+		.uri("/")
+		.body(stream_body(b"unread payload"))
+		.expect("build req");
+	let result =
+		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+	assert!(result.is_ok(), "execute must succeed: {result:?}");
+	assert_eq!(
+		*captured.lock(),
+		Some(false),
+		"body must remain Body::Stream when no node sets collect_body_before"
+	);
+}

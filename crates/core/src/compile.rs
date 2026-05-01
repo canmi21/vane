@@ -1221,4 +1221,77 @@ mod tests {
 			"two listeners → at least two synth entries"
 		);
 	}
+
+	#[test]
+	fn http_body_check_node_sets_collect_body_before_request() {
+		// A rule whose predicate reads http.body must produce a Check node
+		// with collect_body_before = Some(BodySide::Request). The executor
+		// uses this flag to materialise the request body before running the
+		// predicate test — without it, as_static() would panic.
+		//
+		// "aGVsbG8=" is standard base64 for the ASCII bytes "hello".
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7910"],
+			"match": { "http.body": { "contains": "aGVsbG8=" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let has_collecting_check = graph.nodes.iter().any(|n| {
+			matches!(
+				n,
+				crate::ir::Node::Check { collect_body_before: Some(crate::ir::BodySide::Request), .. }
+			)
+		});
+		assert!(has_collecting_check, "http.body Check must carry collect_body_before = Some(Request)");
+	}
+
+	#[test]
+	fn rule_without_http_body_predicate_has_no_request_collect_on_check() {
+		// A rule whose predicate does not read http.body must not trigger
+		// request-side buffering. The Check node produced for an
+		// http.method predicate must have collect_body_before = None so the
+		// pay-as-you-go invariant holds.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7911"],
+			"match": { "http.method": { "equals": "GET" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let any_check_collects = graph.nodes.iter().any(|n| {
+			matches!(
+				n,
+				crate::ir::Node::Check { collect_body_before: Some(crate::ir::BodySide::Request), .. }
+			)
+		});
+		assert!(
+			!any_check_collects,
+			"non-body predicate must not set collect_body_before on any Check node"
+		);
+	}
+
+	#[test]
+	fn malformed_base64_in_http_body_predicate_fails_compile() {
+		// The base64 literal in a Bytes-typed field predicate is decoded at
+		// lower time, not at predicate-test time. A syntactically invalid
+		// base64 string must produce a compile-time error so the rule never
+		// reaches the runtime graph. "not-valid-base64!!!" contains '!'
+		// which is not in the standard base64 alphabet.
+		let r = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":7912"],
+			"match": { "http.body": { "contains": "not-valid-base64!!!" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let err =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect_err("must fail");
+		let msg = err.to_string();
+		assert!(
+			msg.contains("base64") || msg.contains("base 64"),
+			"error must mention base64 decoding failure, got: {msg}"
+		);
+	}
 }
