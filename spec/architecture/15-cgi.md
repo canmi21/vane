@@ -37,6 +37,7 @@ CONTENT_LENGTH          request body size in bytes ("0" if no body)
 CONTENT_TYPE            request body's Content-Type header
 GATEWAY_INTERFACE       "CGI/1.1"
 PATH_INFO               path after the script name (see below)
+PATH_TRANSLATED         canonical(working_dir + PATH_INFO) — RFC 3875 §4.1.6
 QUERY_STRING            URL query string (without '?')
 REMOTE_ADDR             client IP
 REMOTE_HOST             client hostname (for simplicity, = REMOTE_ADDR)
@@ -47,10 +48,18 @@ SERVER_PORT             listener's port
 SERVER_PROTOCOL         "HTTP/1.1" (even if client is H2/H3 — we downgrade)
 SERVER_SOFTWARE         "vane/<version>"
 
-HTTP_<UPPERCASE_HEADER>   every request header, normalized
-                          (except Content-Type, Content-Length, which have dedicated vars)
+HTTP_<UPPERCASE_HEADER>   every request header except those in `block_headers`
+                          and the dedicated vars (Content-Type, Content-Length)
                           e.g., User-Agent → HTTP_USER_AGENT
 ```
+
+#### Header passthrough — `block_headers`
+
+The set of headers that map to `HTTP_*` vars is filtered through a per-rule `block_headers` list. The list is **required**: the JSON config must specify it explicitly, and the CLI / TUI emits a safe default of `["Authorization", "Cookie", "Proxy-Authorization"]` so operators see what is being blocked rather than discovering it through reading source.
+
+`Authorization` and `Cookie` carry credentials whose appearance in a child process's environment exposes them via `/proc/<pid>/environ`, in `printenv` debugging output, and in the environments of any sub-processes the CGI script forks. `Proxy-Authorization` carries the same risk for proxy-aware setups. Operators can replace the list with anything else (including the empty list) but the absence of the field is a compile error — there is no implicit default.
+
+CGI rules wanting to expose `Authorization` to a CGI script (legacy auth-aware CGI) write `block_headers: ["Cookie", "Proxy-Authorization"]` explicitly.
 
 ### Common extensions, always set
 
@@ -78,7 +87,15 @@ DOCUMENT_URI            decoded URI path
 }
 ```
 
-User-provided `env` entries merge into the CGI process's environment. User keys may override computed values (e.g., overriding `SERVER_SOFTWARE`). Final env = computed vars ∪ user-provided (user wins on key conflict).
+User-provided `env` entries merge into the CGI process's environment for **non-reserved** keys. The reserved set is the union of:
+
+- Every RFC 3875 required variable name listed above.
+- Every common-extension variable name listed in § _Common extensions, always set_.
+- Every `HTTP_*` form derived from a request header.
+
+A user `env` entry whose key is in the reserved set is a **compile-time error**. Reason: vane computes these values per request from connection state, and operators silently overriding them produces CGI scripts that read confidently-wrong data (e.g. `REQUEST_METHOD = "FAKE"`, `REMOTE_ADDR = "0.0.0.0"`). Use cases that look like overrides — propagating a real client IP through a load balancer, for example — go through L7 middleware (`forward_client_ip`) updating `ConnContext`, after which CGI sees the corrected `REMOTE_ADDR` automatically.
+
+Final env = computed vars ∪ user-provided (no overlap permitted).
 
 ### Isolation from daemon env
 
@@ -145,21 +162,58 @@ Per-rule configuration, enforced at spawn time:
 
 ```rust
 pub struct CgiSecurity {
-    pub uid:    Option<u32>,        // drop to this uid via setuid; None = same as daemon
-    pub gid:    Option<u32>,        // drop to this gid via setgid
+    pub uid:    u32,                // drop to this uid via setuid; required
+    pub gid:    u32,                // drop to this gid via setgid; required
     pub limits: ResourceLimits,
+    pub chroot: Option<PathBuf>,    // schema reserved; runtime unimplemented (see below)
 }
 
 pub struct ResourceLimits {
-    pub memory_mb:     Option<u64>,  // RLIMIT_AS
-    pub cpu_seconds:   Option<u64>,  // RLIMIT_CPU
-    pub max_processes: Option<u64>,  // RLIMIT_NPROC (typically 1; no forking)
+    pub memory_mb:     Option<u64>,  // RLIMIT_AS;     required field; null = no limit
+    pub cpu_seconds:   Option<u64>,  // RLIMIT_CPU;    required field; null = no limit
+    pub max_processes: Option<u64>,  // RLIMIT_NPROC;  required field; null = no limit
 }
 ```
 
+`uid` and `gid` are **required**. There is no "inherit from daemon" fallback — every CGI rule names the identity it runs as explicitly. The CLI / TUI prompts for these values during initial setup of a CGI rule and writes them out; absence is a compile error.
+
+If the resolved `uid` is `0` (root) at boot time, vane emits a `WARN` log entry (`"cgi rule '<name>' configured to run as root; verify this is intended"`) but does **not** refuse to start. Container deployments where the daemon's view of "root" is namespaced commonly use uid 0 legitimately; a hard refusal would over-block. The required-field rule above already prevents the silent footgun (operator forgetting to set uid and inheriting daemon root) — explicit `uid: 0` is an informed choice.
+
+`ResourceLimits` fields are all required. Each accepts an explicit `null` to mean "no limit" or an integer to mean "limit to this value". Absence is a compile error — operators must consciously decide whether each limit applies. CLI / TUI defaults:
+
+| Field           | CLI / TUI default | Reasoning                                                                                                     |
+| --------------- | ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| `memory_mb`     | `256`             | Most CGI scripts fit comfortably; bounds runaway memory.                                                      |
+| `cpu_seconds`   | `30`              | Slightly under `total_timeout` so kernel-side cpu kill fires before vane-side timeout.                        |
+| `max_processes` | `null`            | Setting low (e.g. `1`) breaks legitimate shell-out (git CGI, image converters); operator tightens explicitly. |
+
 - **uid/gid** — requires daemon to run with `CAP_SETUID` / `CAP_SETGID`. Without those capabilities, attempting to switch is a spawn failure logged with a specific error.
 - **rlimits** — enforced by the kernel. Exceeding any kills the child; we see non-zero exit, return `502`.
-- **chroot** — not in MVP. Architectural slot reserved for post-MVP via `chroot: Option<PathBuf>` on `CgiSecurity`.
+- **chroot** — schema field is reserved (`chroot: Option<PathBuf>` on `CgiSecurity`). The runtime does not implement chroot in MVP: a CGI rule with `chroot: Some(...)` fails compile with `"chroot is reserved but not yet implemented"`. Locking the field shape now keeps the JSON schema stable for the future post-MVP implementation pass; operators who need chroot today must wrap vane's CGI in an external sandboxing layer.
+
+## Bootstrap validation
+
+`vane compile` validates each CGI rule's `binary` path at compile time:
+
+- The path must exist.
+- The file must be executable by the configured `uid` (`access(2)` with `X_OK`, evaluated against the target uid's view).
+- Failures are **rule-level compile errors**, not daemon-wide boot failures: other rules continue to compile.
+
+This catches the most common operator misconfiguration (path typo, missing binary, wrong permissions) at reload time rather than at first CGI request. Network-mounted binaries that may be temporarily unavailable at startup must either be mounted before reload, or the operator deals with the rule-level compile error and reloads again once the mount completes — there is no "skip validation" escape valve.
+
+## stderr handling
+
+The CGI child's `stderr(Stdio::piped())` output is consumed line-by-line by the parent. Each line is emitted as a `tracing` event at `WARN` level with structured fields:
+
+| Field          | Value                                |
+| -------------- | ------------------------------------ |
+| `event.target` | `"vane::cgi"`                        |
+| `rule`         | rule name from the FlowGraph         |
+| `binary`       | the `binary` path                    |
+| `pid`          | child process PID                    |
+| `message`      | the stderr line, UTF-8 lossy decoded |
+
+`WARN` level (rather than `ERROR`) reflects the convention that CGI scripts use stderr for diagnostics that are not necessarily errors. Operators who want to filter CGI noise from their structured log can subscribe to `tail_log` with `event.target != "vane::cgi"`. There is no per-rule knob for stderr disposition — one default behavior is sufficient.
 
 ## Concurrency cap
 
@@ -170,6 +224,8 @@ VANE_CGI_MAX_CONCURRENT=100
 ```
 
 When the cap is reached, new CGI requests return **503 Service Unavailable** immediately — no queueing. Queueing under sustained overload amplifies resource pressure (each queued request still holds its connection + request state); fast rejection surfaces the overload to operators.
+
+The default value applies when `VANE_CGI_MAX_CONCURRENT` is unset. The "no implicit defaults" rule that governs rule-level JSON schema fields is intentionally not extended to environment variables: env vars are operational configuration set at startup (alongside `VANE_BIND_IPV4` etc.), not declarative configuration that the CLI / TUI emits. Requiring every env var to be set explicitly would only make daemons harder to start.
 
 ## Timeouts
 
@@ -187,10 +243,13 @@ Derived from `ConnContext.local` — the listener address the client actually co
 
 ```rust
 HttpUpstream::Cgi {
-    binary:      PathBuf,
-    script_name: String,                       // required; no filesystem walk
-    env:         Vec<(String, String)>,        // user-defined, merged with computed
-    security:    CgiSecurity,
-    working_dir: Option<PathBuf>,              // defaults to binary's parent dir
+    binary:        PathBuf,
+    script_name:   String,                     // no filesystem walk
+    working_dir:   PathBuf,                    // required; CLI/TUI emits binary's parent dir
+    env:           Vec<(String, String)>,      // user-defined, no overlap with reserved keys
+    block_headers: Vec<String>,                // required; CLI/TUI emits the safe-default list
+    security:      CgiSecurity,
 }
 ```
+
+Every field is required at the schema level (the JSON config must include each by name). `env` may be the empty list. `block_headers` may be the empty list, but the field's presence is mandatory — the CLI / TUI emits `["Authorization", "Cookie", "Proxy-Authorization"]` by default so an absent value is conspicuous in review.
