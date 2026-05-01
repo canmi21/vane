@@ -1,0 +1,11 @@
+package vane:plugin@0.1.0;
+
+/// Called once per component load. Returns static metadata describing
+/// every middleware exported by the component.
+///
+/// See spec/wasm-abi.md § Registry.
+interface registry {
+    use types.{metadata};
+
+    get-metadata: func() -> metadata;
+}

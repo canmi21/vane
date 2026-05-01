@@ -35,6 +35,7 @@ vane-engine = { path = "crates/engine", version = "0.10.2" }
 vane-mgmt = { path = "crates/mgmt", version = "0.10.2" }
 vane-testutil = { path = "crates/testutil", version = "0.10.2" }
 vane-wasm = { path = "crates/wasm", version = "0.10.2" }
+wasmtime = { version = "44.0.1", features = ["component-model", "async", "cranelift"] }
 
 [profile.release]
 opt-level = "z"

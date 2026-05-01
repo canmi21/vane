@@ -1,0 +1,31 @@
+package vane:plugin@0.1.0;
+
+/// Handler for L7 request phase.
+///
+/// See spec/wasm-abi.md § Per-kind handlers.
+interface handler-l7-request {
+    use types.{plugin-error, header, bytes-view, context-entry};
+
+    record l7-request-input {
+        method: string,
+        uri: string,
+        headers: list<header>,
+        body: option<bytes-view>,
+        context: list<context-entry>,
+    }
+
+    record synth-response {
+        status: u16,
+        headers: list<header>,
+        body: list<u8>,
+    }
+
+    variant l7-request-decision {
+        %continue,
+        short(synth-response),
+        close,
+    }
+
+    handle: func(name: string, input: l7-request-input)
+        -> result<l7-request-decision, plugin-error>;
+}

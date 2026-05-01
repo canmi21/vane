@@ -19,4 +19,13 @@ workspace = true
 all-features = true
 
 [dependencies]
+async-trait = { workspace = true }
+rand = "0.10"
+sha2 = "0.11.0"
+tokio = { version = "1", features = ["rt", "time"] }
+tracing = "0.1"
 vane-core = { workspace = true }
+wasmtime = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

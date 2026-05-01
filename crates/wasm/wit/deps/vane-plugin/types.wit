@@ -1,0 +1,75 @@
+package vane:plugin@0.1.0;
+
+/// Shared types used across all vane plugin interfaces.
+///
+/// Mirrors spec/wasm-abi.md § Registry and § Per-kind handlers exactly.
+interface types {
+    /// Which middleware phase the export handles.
+    enum middleware-kind {
+        l4-peek,
+        l4-bytes,
+        l7-request,
+        l7-response,
+    }
+
+    /// Per-export metadata returned by `registry.get-metadata`.
+    record middleware-export {
+        /// Export name within the component, e.g. "jwt-validator".
+        /// Appears in rule config as "<module>:<name>".
+        name: string,
+        kind: middleware-kind,
+        /// true = backed by PoolingAllocator (stateless reuse).
+        /// false = fixed per-call-site pool.
+        stateless: bool,
+        /// Drives LazyBuffer activation at compile time.
+        needs-body: bool,
+        /// Capability declaration: host packs only these paths into context.
+        inspects: list<string>,
+        /// Reserved; must be false in 0.1.0. Host rejects true.
+        needs-streaming-body: bool,
+    }
+
+    /// Component-level metadata returned once at load time.
+    record metadata {
+        name: string,
+        version: string,
+        /// ABI version this component targets. Host rejects major != 0.
+        abi-version: string,
+        exports: list<middleware-export>,
+    }
+
+    /// Structured in-band error a plugin can return instead of a trap.
+    record plugin-error {
+        code: string,
+        message: string,
+        /// Routing hint: none | "force-close" | "internal".
+        on-error-hint: option<string>,
+    }
+
+    /// Context entry delivered to a plugin for declared `inspects` paths.
+    record context-entry {
+        path: string,
+        value: context-value,
+    }
+
+    variant context-value {
+        text(string),
+        bytes(list<u8>),
+        int64(s64),
+        uint64(u64),
+        boolean(bool),
+        list-text(list<string>),
+    }
+
+    /// Wire shape for HTTP headers (names ASCII-lowercase by host guarantee).
+    record header {
+        name: string,
+        value: string,
+    }
+
+    /// Buffered body slice with truncation indicator.
+    record bytes-view {
+        data: list<u8>,
+        truncated: bool,
+    }
+}

@@ -1,0 +1,22 @@
+package vane:plugin@0.1.0;
+
+/// Handler for L4 peek phase. A plugin exports this interface if any of
+/// its `middleware-export` entries has `kind = l4-peek`.
+///
+/// See spec/wasm-abi.md § Per-kind handlers.
+interface handler-l4-peek {
+    use types.{plugin-error, context-entry};
+
+    record l4-peek-input {
+        peek: list<u8>,
+        context: list<context-entry>,
+    }
+
+    variant l4-peek-decision {
+        %continue,
+        close,
+    }
+
+    handle: func(name: string, input: l4-peek-input)
+        -> result<l4-peek-decision, plugin-error>;
+}

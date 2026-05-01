@@ -1,0 +1,14 @@
+package vane-wasm:bindgen@0.1.0;
+
+/// Host-side view of a vane plugin component used by wasmtime::component::bindgen!.
+///
+/// `import` = what the host provides to the plugin.
+/// `export` = what the host calls on the plugin.
+///
+/// Handler exports (l4-peek, l4-bytes, l7-request, l7-response) are not
+/// listed here because dispatch is deferred; the host validates their
+/// presence against metadata using the untyped component API at load time.
+world plugin {
+    import vane:host/host@0.1.0;
+    export vane:plugin/registry@0.1.0;
+}

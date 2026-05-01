@@ -134,6 +134,92 @@ pub enum Terminator {
 	Close,
 }
 
+/// Per-call limits forwarded to `HttpFetchBackend::fetch` alongside the request.
+///
+/// All fields mirror the WASM ABI's `http-fetch-request` per-call knobs
+/// (see `spec/wasm-abi.md` § _Host functions_). The backend applies the
+/// three-level fallback: per-call override → plugin config default →
+/// daemon default (30 s timeout, 5 redirects, TLS verified).
+#[derive(Clone, Debug)]
+pub struct HttpFetchLimits {
+	pub max_body_bytes: u64,
+	pub timeout_ms: Option<u32>,
+	pub follow_redirects: Option<u32>,
+	pub allow_insecure: bool,
+}
+
+impl Default for HttpFetchLimits {
+	fn default() -> Self {
+		Self {
+			max_body_bytes: 1024 * 1024,
+			timeout_ms: None,
+			follow_redirects: Some(5),
+			allow_insecure: false,
+		}
+	}
+}
+
+/// Outbound HTTP request data passed to `HttpFetchBackend`.
+///
+/// Mirrors the WIT `http-fetch-request` record exactly.
+#[derive(Debug)]
+pub struct HttpFetchRequest {
+	pub method: String,
+	pub url: String,
+	pub headers: Vec<(String, String)>,
+	pub body: Vec<u8>,
+	pub timeout_ms: Option<u32>,
+	pub follow_redirects: Option<u32>,
+	pub verify_tls: Option<bool>,
+}
+
+/// Response returned by `HttpFetchBackend`.
+#[derive(Debug)]
+pub struct HttpFetchResponse {
+	pub status: u16,
+	pub headers: Vec<(String, String)>,
+	pub body: Vec<u8>,
+}
+
+/// Typed transport error from `HttpFetchBackend`.
+///
+/// Mirrors the WIT `net-error` variant exactly.
+#[derive(Debug, thiserror::Error)]
+pub enum HttpFetchError {
+	#[error("dns failure: {0}")]
+	DnsFailure(String),
+	#[error("connection refused")]
+	ConnectionRefused,
+	#[error("timeout")]
+	Timeout,
+	#[error("tls error: {0}")]
+	TlsError(String),
+	#[error("pool exhausted")]
+	PoolExhausted,
+	#[error("body too large")]
+	BodyTooLarge,
+	#[error("not allowed: {0}")]
+	NotAllowed(String),
+	#[error("insecure rejected")]
+	InsecureRejected,
+	#[error("internal: {0}")]
+	Internal(String),
+}
+
+/// Backend trait for outbound HTTP from WASM plugins.
+///
+/// Declared in `vane-core` so `vane-wasm` can call it without depending on
+/// `vane-engine`. `vane-engine` provides the concrete impl wrapping `TcpPool`.
+/// Tests substitute a mock. See `spec/architecture/11-wasm.md` § _http-fetch policy_.
+#[async_trait]
+pub trait HttpFetchBackend: Send + Sync {
+	async fn fetch(
+		&self,
+		req: HttpFetchRequest,
+		limits: HttpFetchLimits,
+	) -> Result<HttpFetchResponse, HttpFetchError>;
+}
+
 #[cfg(test)]
 mod tests {
 	use std::future::Future;

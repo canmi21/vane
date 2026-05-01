@@ -1,0 +1,22 @@
+package vane:plugin@0.1.0;
+
+/// Handler for L4 bytes phase.
+///
+/// See spec/wasm-abi.md § Per-kind handlers.
+interface handler-l4-bytes {
+    use types.{plugin-error, bytes-view, context-entry};
+
+    record l4-bytes-input {
+        bytes: bytes-view,
+        context: list<context-entry>,
+    }
+
+    variant l4-bytes-decision {
+        %continue,
+        tunnel,
+        close,
+    }
+
+    handle: func(name: string, input: l4-bytes-input)
+        -> result<l4-bytes-decision, plugin-error>;
+}

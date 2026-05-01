@@ -1,0 +1,69 @@
+package vane:host@0.1.0;
+
+/// All host functions available to plugins. Imported as `vane:host/host@0.1.0`.
+///
+/// All functions are sync from the plugin's perspective; the host's
+/// wasmtime async-bridge handles concurrency. See spec/wasm-abi.md § Host functions.
+interface host {
+    // -- args --------------------------------------------------------------
+
+    get-args: func() -> string;
+
+    // -- logging -----------------------------------------------------------
+
+    enum log-level { trace, debug, info, warn, error }
+
+    record log-field {
+        key: string,
+        value: string,
+    }
+
+    log: func(level: log-level, message: string, fields: list<log-field>);
+
+    // -- time / random -----------------------------------------------------
+
+    now-unix-ms: func() -> u64;
+    random: func(buf-len: u32) -> list<u8>;
+
+    // -- metrics -----------------------------------------------------------
+
+    record metric-label {
+        key: string,
+        value: string,
+    }
+
+    metric-counter: func(name: string, delta: u64, labels: list<metric-label>);
+    metric-gauge:   func(name: string, value: s64, labels: list<metric-label>);
+
+    // -- http-fetch --------------------------------------------------------
+
+    record http-fetch-request {
+        method: string,
+        url: string,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+        timeout-ms: option<u32>,
+        follow-redirects: option<u32>,
+        verify-tls: option<bool>,
+    }
+
+    record http-fetch-response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    variant net-error {
+        dns-failure(string),
+        connection-refused,
+        timeout,
+        tls-error(string),
+        pool-exhausted,
+        body-too-large,
+        not-allowed(string),
+        insecure-rejected,
+        internal(string),
+    }
+
+    http-fetch: func(req: http-fetch-request) -> result<http-fetch-response, net-error>;
+}

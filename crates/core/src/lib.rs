@@ -26,6 +26,8 @@ pub mod metadata;
 pub use metadata::*;
 pub mod middleware;
 pub use middleware::*;
+pub mod wasm_runtime;
+pub use wasm_runtime::*;
 pub mod phase;
 pub mod predicate;
 pub use predicate::*;
