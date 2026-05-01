@@ -204,33 +204,67 @@ A daemon-wide `Arc<dyn ProducesTickets>` is installed at boot and shared by ever
 
 ### TLS 1.3 0-RTT (early data)
 
-0-RTT lets clients send application data in the first flight, saving one round-trip. **Trade-off**: the data is not replay-protected — attackers can replay captured 0-RTT packets against idempotent endpoints.
+0-RTT (TLS 1.3 early data, RFC 8446 §2.3) lets clients send application data in the first flight, saving one round-trip on resumption.
 
-Two-level opt-in:
+#### Replay risk — operator's responsibility
+
+0-RTT data is **not replay-protected** — an attacker who captures a 0-RTT ClientHello can replay it. The client cannot tell, the server has no signal.
+
+vane gates 0-RTT via a method check (idempotent only: GET / HEAD / OPTIONS) but **cannot guarantee** that the application's handler for those methods is actually idempotent. Common counter-examples:
+
+- `GET /api/charge?amount=10` — encodes a side-effecting action in a GET.
+- `GET /api/visit-counter` — increments per request.
+- Any GET path that touches authn state (rate-limit counters, login attempt logs).
+
+When operator opts a rule into 0-RTT, the operator is asserting that the rule's upstream handler is replay-safe. vane's compile-time gate (method check) is necessary but not sufficient; verifying handler idempotency end-to-end is on the operator.
+
+Defense-in-depth recommendation: run rate-limit middleware **without** 0-RTT (so abusive replay is rate-bounded by the full-handshake path); reserve 0-RTT for static-asset or genuinely idempotent read-only endpoints.
+
+#### Configuration
+
+Two-level opt-in. Both fields are required (no implicit defaults; CLI / TUI emits `false` when 0-RTT is not in use):
 
 ```rust
 pub struct ListenerTlsConfig {
-    pub enable_0rtt: bool,    // default false
+    pub enable_zero_rtt: bool,
 }
 
 pub struct Rule {
     // ... other fields ...
-    pub allow_0rtt: bool,     // default false
+    pub allow_zero_rtt: bool,   // only present on rules whose listener is TLS-terminating
 }
 ```
 
-Runtime flow:
+| Field                          | Type | Required                                                |
+| ------------------------------ | ---- | ------------------------------------------------------- |
+| `listener.tls.enable_zero_rtt` | bool | yes, on every TLS-terminating listener                  |
+| `rule.allow_zero_rtt`          | bool | yes, on every L7 rule whose listener is TLS-terminating |
+
+`allow_zero_rtt` on an L4-only rule (no TLS termination on its listener) is a compile error.
+
+#### Compile-time constraints
+
+- `allow_zero_rtt: true` is only legal on rules whose match predicates include a method constraint restricted to idempotent methods: `GET`, `HEAD`, `OPTIONS`. Method check is structural — the rule must contain `{ "http.method": { "equals": "GET" } }` or the equivalent across `any_of` of those three. Rules with no method constraint, or with a non-idempotent method, fail compile if `allow_zero_rtt: true`.
+- `allow_zero_rtt: true` on a rule whose listener has `enable_zero_rtt: false` is a compile error (the rule could never serve 0-RTT anyway, so the field is misleading).
+
+#### Runtime flow
 
 ```
 Client sends 0-RTT data
   ↓ rustls decrypts, exposes as "early data"
-  ↓ we parse Request, walk FlowGraph to matched rule
-  ↓ rule.allow_0rtt is false?
+  ↓ vane parses Request, walks FlowGraph to matched rule
+  ↓ request has a body?
+      ├─ yes → rustls buffers early data; effectively downgrades to 1-RTT (handshake completes before body delivered)
+      └─ no  → continue
+  ↓ rule.allow_zero_rtt is false?
       ├─ yes → reject early data, rustls sends HRR, client retries with full handshake
       └─ no  → accept, proceed normally
 ```
 
-**Compile-time constraint**: `allow_0rtt: true` is only legal on rules whose match predicates include a method constraint restricted to idempotent methods (GET / HEAD / OPTIONS). Non-idempotent rules with `allow_0rtt: true` are a compile error.
+#### Hardcoded limits
+
+- **Early data size**: 16 KiB (rustls default `max_early_data_size`). Not exposed as a knob — 0-RTT exists to save one RTT, not to carry payload; raising the limit invites misuse. If a real workload needs more, revisit as a focused decision.
+- **Body in 0-RTT**: requests with a body are always served via 1-RTT (early data is buffered until handshake completion, then released to the application as if it were 1-RTT). 0-RTT for HTTP request bodies is non-standard semantics; this rule keeps vane within HTTP/1.1 + HTTP/2 conventions.
 
 ### Client certificate verification (mTLS on listener)
 
@@ -497,7 +531,7 @@ These features have architectural positions defined above; MVP implementation or
 - **OCSP stapling** — populator framework exists; `ManagedCertPopulator` fetches OCSP on cert issuance in its first release. `StaticCertPopulator` gains optional OCSP fetch later.
 - **CRL checking** — Stage 3. Source schema, adaptive fetch cadence, per-source `fetch_failure`, daemon-wide CRL cache, and CRL/OCSP coexistence are all specified above in § _CRL checking_. Implementation lands with S3-11.
 - **Configurable session-ticket lifetime** — MVP uses the crypto-backend `Ticketer::new()` default (12-hour ticket lifetime, 6-hour rotation period). A configurable lifetime knob is post-MVP.
-- **TLS 1.3 0-RTT** — config flags and runtime check designed; rustls early-data wiring post-MVP. MVP ships with `enable_0rtt: false` hardcoded.
+- **TLS 1.3 0-RTT** — full design locked in § _TLS 1.3 0-RTT (early data)_ above: `enable_zero_rtt` / `allow_zero_rtt` field schema, idempotent-method gate, body-downgrade rule, 16 KiB hardcoded early data size. Implementation lands with S3-13.
 - **mTLS on listener** — Stage 3. `ClientAuth` enum, `ClientTrustStore`, the `client_auth` config schema, the seven `tls.peer_cert.*` predicate paths, and the Request-vs-Require semantics are specified above in § _Client certificate verification_. Implementation lands with S3-12.
 - **`ManagedCertPopulator` (integrated LazyCert)** — Stage 3. Full design — daemon-scoped `ManagedCertRegistry`, `AcmeStore` persistence, `tls.managed` config schema, HTTP-01 / DNS-01 mechanics, ARI-driven renewal, `force_renew` mgmt verb — is locked in [`spec/acme.md`](../acme.md). Built on [`instant-acme`](https://crates.io/crates/instant-acme).
 

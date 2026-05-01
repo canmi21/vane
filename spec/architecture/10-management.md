@@ -161,3 +161,77 @@ Errors serialize from the `Error` shape in [`03-types.md`](03-types.md):
 ```
 
 Kinds surfaced on management: `Compile`, `Timeout`, `Internal`. Runtime kinds (`Io`, `Protocol`, `Upstream`) surface via the flow log and structured log, not as management errors.
+
+## TUI scope
+
+The TUI (`vane tui`, built on `ratatui` + `crossterm`) is a management client — same protocol, same auth, no privileged pathway. This section locks the capability boundary, view set, update model, and connection surface; concrete refresh rates, key bindings, color usage, and view-state details are deferred to the implementation pass under S3-16.
+
+### Capability boundary
+
+The TUI is **read + safe-write**. Read verbs and idempotent / non-destructive write verbs are surfaced as TUI actions; destructive or daemon-lifecycle verbs are CLI-only.
+
+| Verb              | TUI action?       | Confirmation prompt            |
+| ----------------- | ----------------- | ------------------------------ |
+| `compile_dry_run` | yes               | no                             |
+| `reload`          | yes               | no (idempotent)                |
+| `get_config`      | yes               | no                             |
+| `get_connections` | yes               | no                             |
+| `get_metrics`     | yes               | no                             |
+| `get_pools`       | yes               | no                             |
+| `get_upstreams`   | yes               | no                             |
+| `get_certs`       | yes               | no                             |
+| `tail_flow`       | yes               | no                             |
+| `tail_log`        | yes               | no                             |
+| `force_renew`     | yes               | yes (may hit ACME rate limits) |
+| `stats`           | yes               | no                             |
+| `shutdown`        | **no — CLI only** | —                              |
+
+`shutdown` is intentionally CLI-only: TUI sessions are interactive and prone to misclick; a misclicked shutdown drops every live connection. Operators who want to shut down do so deliberately at a shell.
+
+### View set (MVP)
+
+Six views ship in the initial TUI; a seventh tracks S3-15 readiness:
+
+| View            | Data source                          | Notes                                                         |
+| --------------- | ------------------------------------ | ------------------------------------------------------------- |
+| Connections     | `get_connections` (poll)             | Live table — remote / local / transport / age / current node. |
+| Flow log        | `tail_flow` (stream)                 | Stream of predicate / terminator events.                      |
+| Structured log  | `tail_log` (stream)                  | Stream of `tracing` events.                                   |
+| Certs           | `get_certs` (poll)                   | One row per cert with status / SAN / expiry / next attempt.   |
+| Metrics summary | `get_metrics` (poll)                 | Curated subset — error rate, latency p50/p95/p99, pool use.   |
+| Config          | `get_config` + `stats` (poll)        | FlowGraph hash, rule count, last reload time, daemon uptime.  |
+| Pools _(later)_ | `get_pools` + `get_upstreams` (poll) | Lands when S3-15 lands. Until then the view is hidden.        |
+
+### Update model
+
+Mixed: existing streaming verbs continue to stream; the rest are polled. The TUI does not introduce new streaming verbs.
+
+- Streaming-fed views (Flow log, Structured log) consume the verb's event stream directly.
+- Poll-fed views (Connections, Certs, Metrics, Config) issue their `get_*` call on a per-view interval.
+
+Per-view intervals are an implementation choice (see `S3-16` notes); they are not exposed to operators as configuration.
+
+### No new mgmt verbs
+
+The TUI consumes the existing `get_*` / `tail_*` / `reload` / `force_renew` / `compile_dry_run` / `stats` set. Initial-screen render issues several `get_*` calls in parallel (six, on a normal MVP layout); over Unix socket this is microsecond-scale and not worth optimizing with a bulk `subscribe_state` verb. Should profiling later show this matters, the verb is additive (not a breaking change to existing TUI code).
+
+### Connection surface
+
+The TUI accepts both management transports, mirroring the CLI:
+
+```
+vane tui --socket /var/run/vaned.sock                    # Unix socket
+vane tui --http https://admin.example.com --token-env Y  # HTTP-over-TCP
+```
+
+Argument shapes follow the CLI subcommand layout (`16-crate-layout.md`); the TUI shares the mgmt-client crate with the CLI, so transport handling is identical down to retry and reconnection behavior.
+
+### Deferred to implementation
+
+The following are not locked in spec and will be decided during S3-16 implementation; they are described in the implementing PR's notes rather than here:
+
+- Per-view refresh rates.
+- Key bindings (navigation, command mode, view switching).
+- Color usage (status highlighting, warnings, severity).
+- View layout (panes, status bar, command line).
+- Behavior on transport disconnect / daemon restart.
