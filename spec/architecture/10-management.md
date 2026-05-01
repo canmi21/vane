@@ -90,6 +90,11 @@ Verb names use snake_case on the wire. Read verbs are uniformly prefixed `get_`;
 
 - `get_pools` — per stateful WASM module: pool size, in-use count, total allocations, failures.
 - `get_upstreams` — pooled HTTP upstream connections (hyper-util client) and QUIC associations.
+- `get_certs` — list of all certs (managed + static) with status, SAN list, expiry, last-attempt time, and last error. Status is `valid | renewing | failed | limited`. Response shape and field semantics in [`spec/acme.md`](../acme.md) § _mgmt verbs_.
+
+### Certificates
+
+- `force_renew` — trigger immediate renewal for one managed cert. Args `{ "sni": string }`; returns `{ "queued": bool, "current_status": string }`. Bypasses the periodic renewal timer and the ARI-suggested window. Useful for key-compromise rotation. Detail in [`spec/acme.md`](../acme.md) § _Renewal triggers_.
 
 ## Auth model
 

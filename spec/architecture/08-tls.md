@@ -174,22 +174,13 @@ Built-in implementations:
 
 #### Populator lifecycle
 
-Populators are FlowGraph-scoped — a fresh instance is constructed on every
-`FlowGraph::link`. Live TLS connections are unaffected (handshake-time cert is
-captured), but populator in-memory state does not survive a reload.
+Populators are FlowGraph-scoped — a fresh instance is constructed on every `FlowGraph::link`. Live TLS connections are unaffected (handshake-time cert is captured), but populator in-memory state does not survive a reload.
 
-Stateful populators (`ManagedCertPopulator`) must persist state via on-disk
-cache (`Storage`-style trait, deferred to S3-09) so that reload-from-disk is
-indistinguishable from cold-start: the populator reads the cache before issuing
-fresh requests. Without this, reload churn will exhaust upstream rate limits —
-Let's Encrypt's 5-duplicate-cert-per-domain-per-week ceiling is reached after
-6 reloads in a worst case. `StaticCertPopulator` is stateless and exempt.
+`StaticCertPopulator` is stateless: every reload re-reads cert files from disk; no persistence layer is needed.
 
-A daemon-level populator registry (Caddy CertMagic-style cross-reload reuse)
-is an alternative architecture; the choice between disk-cache and registry is
-deferred to S3-09 when the concrete `ManagedCertPopulator` shape is in hand.
+`ManagedCertPopulator` is a **view over a daemon-scoped `ManagedCertRegistry`**: ACME accounts, the renewal scheduler, the pending-challenges table, and the persistent `AcmeStore` all live on the registry, which exists for the daemon's lifetime. The FlowGraph-scoped populator is constructed each reload and tells the registry which SNIs the new graph wants managed; it pulls cached cert state into a `CertStore` at `initial_store()` and `refresh()` time. ACME state is therefore unaffected by config reload, and rate-limit ceilings (Let's Encrypt's 5-duplicate-cert-per-domain-per-week, 50-cert-per-registered-domain-per-week) are not reachable through reload churn alone. Full design — registry shape, `AcmeStore` trait, configuration schema, challenge mechanics, renewal triggers, mgmt verbs — is in [`spec/acme.md`](../acme.md).
 
-`refresh()` runs periodically (default: every 5 minutes). Each populator decides what is stale — near-expiry cert, expired OCSP response. If stale, return a new `CertStore` for `ArcSwap` to install.
+`refresh()` runs periodically (default: every 5 minutes). Each populator decides what is stale — near-expiry cert, expired OCSP response, ARI-suggested renewal window. If stale, return a new `CertStore` for `ArcSwap` to install.
 
 ### OCSP stapling
 
@@ -364,30 +355,13 @@ These features have architectural positions defined above; MVP implementation or
 - **Configurable session-ticket lifetime** — MVP uses the crypto-backend `Ticketer::new()` default (12-hour ticket lifetime, 6-hour rotation period). A configurable lifetime knob is post-MVP.
 - **TLS 1.3 0-RTT** — config flags and runtime check designed; rustls early-data wiring post-MVP. MVP ships with `enable_0rtt: false` hardcoded.
 - **mTLS on listener** — `ClientAuth` enum and `ClientTrustStore` defined; MVP ships `ClientAuth::None` only; `Request` / `Require` post-MVP.
-- **`ManagedCertPopulator` (integrated LazyCert)** — trait defined; MVP ships only `StaticCertPopulator`. ACME integration post-MVP (Stage 3) via `instant-acme`.
+- **`ManagedCertPopulator` (integrated LazyCert)** — Stage 3. Full design — daemon-scoped `ManagedCertRegistry`, `AcmeStore` persistence, `tls.managed` config schema, HTTP-01 / DNS-01 mechanics, ARI-driven renewal, `force_renew` mgmt verb — is locked in [`spec/acme.md`](../acme.md). Built on [`instant-acme`](https://crates.io/crates/instant-acme).
 
 ## ACME challenge modes
 
-`ManagedCertPopulator` supports both RFC 8555 challenge modes:
+`ManagedCertPopulator` supports HTTP-01 and DNS-01 from RFC 8555. TLS-ALPN-01 is intentionally not implemented — see [`spec/acme.md`](../acme.md) § _Challenge: TLS-ALPN-01 — not implemented_ for the rationale.
 
-### HTTP-01
+- **HTTP-01** — when any rule declares `tls.managed.challenge == "http-01"`, the compiler injects a high-priority `/.well-known/acme-challenge/` route into every plaintext `:80` listener; if no plaintext `:80` listener exists in the operator's config, `vaned` auto-binds one for the challenge path only. No extra burden on operator routing config. Detail in [`spec/acme.md`](../acme.md) § _Challenge: HTTP-01_.
+- **DNS-01** — required for wildcard SANs and for domains behind unreachable `:80`. Each provider is a separate `#[cfg(feature = "...")]`-gated module implementing the `DnsProvider` trait. Stage 3 ships `acme-dns-cloudflare` (off by default). Trait shape and per-provider config schemas in [`spec/acme.md`](../acme.md) § _Challenge: DNS-01_.
 
-For public-facing domains on port 80. `vaned` listens on `:80` and serves the `/well-known/acme-challenge/<token>` path via an internal synthetic responder during issuance; the response flows through the normal `HttpSynthesize` fetch path so it is visible in flow logs and subject to L1 security floor like any other traffic. No extra port bind.
-
-**Local testing**: [Pebble](https://github.com/letsencrypt/pebble) — Let's Encrypt's official test ACME server — via the `testcontainers` crate. `vane-testutil::pebble()` spins up `letsencrypt/pebble` on a free port, points the `ManagedCertPopulator` at it (via a `directory_url` config override), runs the HTTP-01 dance end-to-end. Integration tests for HTTP-01 live in `tests/engine_acme_http01.rs`.
-
-### DNS-01
-
-For domains where port 80 is unreachable or for wildcard certs. Requires a DNS provider API to create `_acme-challenge.<domain>` TXT records. DNS-01 is gated behind per-provider Cargo features:
-
-| Feature               | Default | Provider           |
-| --------------------- | ------- | ------------------ |
-| `acme-dns-cloudflare` | off     | Cloudflare DNS API |
-
-Additional providers (Route53, DigitalOcean, etc.) land as new features post-MVP — each is a separate `#[cfg(feature = "...")]`-gated module implementing a `DnsProvider` trait (create / delete TXT record, wait for propagation).
-
-**Local testing**: a mock DNS server via [`hickory-server`](https://crates.io/crates/hickory-server) + Pebble pointed at it as its resolver. `vane-testutil::mock_dns()` returns a handle that exposes an API matching the internal `DnsProvider` trait — tests assert the populator requested the right TXT record, the mock serves it, Pebble's challenge validation sees it, issuance completes. Integration tests in `tests/engine_acme_dns01.rs`, gated behind the provider feature they exercise.
-
-Real Cloudflare testing is `#[ignore]`'d by default (requires a real zone + API token); CI runs it on-demand via an opt-in flag.
-
-All of the above can be added without refactoring — interfaces and data structures are in place today.
+Local testing uses [Pebble](https://github.com/letsencrypt/pebble) via `testcontainers` for the ACME server side, and [`hickory-server`](https://crates.io/crates/hickory-server) for the mock DNS side. Integration test layout in [`spec/acme.md`](../acme.md) § _Testing_.
