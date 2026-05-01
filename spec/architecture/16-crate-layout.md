@@ -64,7 +64,7 @@ Owns:
 - DNS: `hickory-resolver` integration.
 - `ArcSwap<FlowGraph>` holds the **linked** graph — that is the one accept loops and the executor read.
 
-Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `hyper-rustls`, `h3`, `h3-quinn`, `quinn`, `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` + `notify-debouncer-full` (file watcher with debounce), `metrics` + `metrics-exporter-prometheus`, `instant-acme` (gated behind the `acme` feature; `acme-dns-cloudflare` feature pulls the Cloudflare DNS-01 module), `rand` (for session-ticket keys and similar), `libc` (for the CGI `pre_exec` closure's `setuid` / `setgid` / `setrlimit` syscalls, gated behind the `cgi` feature).
+Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `hyper-rustls`, `h3`, `h3-quinn`, `quinn`, `quinn-proto` (low-level QUIC primitives — `Header` / `PartialDecode` / `initial_keys` — used by the multi-packet peek path in `udp_dispatch` for ClientHello extraction; gated behind the same `h3` feature as `quinn`), `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` + `notify-debouncer-full` (file watcher with debounce), `metrics` + `metrics-exporter-prometheus`, `instant-acme` (gated behind the `acme` feature; `acme-dns-cloudflare` feature pulls the Cloudflare DNS-01 module), `rand` (for session-ticket keys and similar), `libc` (for the CGI `pre_exec` closure's `setuid` / `setgid` / `setrlimit` syscalls, gated behind the `cgi` feature).
 
 ### `vane-wasm`
 

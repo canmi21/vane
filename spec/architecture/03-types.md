@@ -157,11 +157,14 @@ pub enum L4Conn {
 }
 
 pub struct UdpAssoc {
-    socket:       Arc<tokio::net::UdpSocket>,  // physical listener socket (vane-owned)
-    peer:         SocketAddr,
-    first_packet: Bytes,                       // datagram that caused the cold-path FlowGraph entry
-    quic:         Option<QuicAssocId>,         // None on cold-path entry; populated only when an
-                                               // existing QUIC session takes over (post-MVP)
+    socket:        Arc<tokio::net::UdpSocket>,  // physical listener socket (vane-owned)
+    peer:          SocketAddr,
+    first_packets: Vec<Bytes>,                  // datagrams that caused the cold-path entry,
+                                                // in arrival order. Length 1 when the listener
+                                                // does not require multi-packet peek; longer
+                                                // when QUIC SNI passthrough buffered an
+                                                // ClientHello across multiple Initial packets.
+                                                // See `06-l4.md` § _Multi-packet peek_.
 }
 ```
 
