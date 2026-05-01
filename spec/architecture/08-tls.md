@@ -238,7 +238,7 @@ Listener may request or require client certificates:
 
 ```rust
 pub enum ClientAuth {
-    None,                             // default: don't request client cert
+    None,                             // don't request client cert
     Request {                         // request, don't require; log if provided
         trust_store: Arc<ArcSwap<ClientTrustStore>>,
     },
@@ -249,14 +249,74 @@ pub enum ClientAuth {
 
 pub struct ClientTrustStore {
     pub cas:  RootCertStore,
-    pub crls: Vec<CertificateRevocationList>,    // optional CRL for revocation checks
+    pub crls: Vec<CrlSource>,         // see § CRL checking
 }
 ```
 
-Verified client certs populate `ctx.tls.peer_cert`. L7 middleware can match on it:
+mTLS is **per-listener**, not per-rule. The TLS handshake completes before rule routing, so a listener owns one `ClientAuth` configuration; per-rule authorization is expressed through predicates on the verified cert (see _Predicate fields_ below).
+
+#### Configuration schema
+
+```jsonc
+"tls": {
+  "sni":       "api.example.com",
+  "cert_path": "/etc/vaned/certs/api.pem",
+  "key_path":  "/etc/vaned/certs/api.key",
+  "client_auth": {
+    "mode": "require",
+    "trust_store": {
+      "ca_paths": ["/etc/vaned/ca/clients.pem"],
+      "ca_dir":   "/etc/vaned/ca/clients.d/",
+      "crls": [
+        { "kind": "file", "path": "/etc/vaned/crls/clients.crl",       "fetch_failure": "tolerate" },
+        { "kind": "url",  "url":  "https://crl.example.com/clients.crl", "fetch_failure": "tolerate" }
+      ]
+    }
+  }
+}
+```
+
+| Field                     | Type                                   | Required             | Notes                                                                  |
+| ------------------------- | -------------------------------------- | -------------------- | ---------------------------------------------------------------------- |
+| `client_auth.mode`        | `"none"` \| `"request"` \| `"require"` | yes                  | No implicit default. CLI/TUI emits the value the operator chose.       |
+| `client_auth.trust_store` | object                                 | iff `mode != "none"` | Compile error if absent when `mode` is `request` or `require`.         |
+| `trust_store.ca_paths`    | list\<string\>                         | no (one of two)      | Explicit PEM bundle paths; CAs concatenated.                           |
+| `trust_store.ca_dir`      | string                                 | no (one of two)      | Directory; every `*.pem` inside is loaded and merged.                  |
+| `trust_store.crls`        | list\<object\>                         | no                   | Empty list = no CRL revocation. See § CRL checking for `crls[]` shape. |
+
+At least one of `ca_paths` or `ca_dir` must be present when `trust_store` is present; both may be present and are merged with de-duplication (CA dedup is by SubjectKeyIdentifier).
+
+`trust_store` is reloaded on FlowGraph reload — the watcher (`notify`) sees changes to `ca_paths` files, `ca_dir` contents, and `crls` file paths through the existing config-watch pipeline. URL CRLs follow the fetch policy in § CRL checking.
+
+There is **no `allowed_subject_cn` field** or any other allowlist knob on `trust_store`. Per-rule authorization is expressed via predicates so that the authorization decision is observable in `compile --dry-run`, in flow logs, and in the metric surface — instead of split between two mechanisms.
+
+#### Request vs Require semantics
+
+- `Require`: handshake aborts on missing or invalid client cert. Connections that reach rule routing are guaranteed to have a verified `peer_cert`.
+- `Request`: handshake proceeds with or without a client cert. Connections may or may not have `peer_cert` populated.
+
+Predicate fields under `tls.peer_cert.*` are populated only when a verified cert is present. The `tls.peer_cert.present: bool` predicate disambiguates the two cases — useful for the `Request` mode pattern of "if cert provided, gate by CN; else fall through to public route".
+
+#### Predicate fields on `peer_cert`
+
+The verified peer cert is exposed through a fixed set of paths (full grammar in [`18-predicate-schema.md`](18-predicate-schema.md)):
+
+| Path                               | Type           | Use case                                             |
+| ---------------------------------- | -------------- | ---------------------------------------------------- |
+| `tls.peer_cert.present`            | `bool`         | Was a verified client cert presented?                |
+| `tls.peer_cert.subject_cn`         | `String`       | Subject Common Name (legacy identity)                |
+| `tls.peer_cert.san_dns`            | `Vec<String>`  | DNS-type Subject Alternative Names                   |
+| `tls.peer_cert.fingerprint_sha256` | `String` (hex) | Full-cert pinning                                    |
+| `tls.peer_cert.spki_sha256`        | `String` (hex) | Subject-public-key-info pinning (rotation-friendly)  |
+| `tls.peer_cert.issuer_cn`          | `String`       | Federated trust — which internal CA signed this cert |
+| `tls.peer_cert.serial`             | `String` (hex) | Audit / revocation correlation                       |
 
 ```json
-{ "tls.peer_cert.subject_cn": { "equals": "admin@example.com" } }
+{ "any_of": [
+  { "tls.peer_cert.san_dns": { "contains": "svc-a.internal" } },
+  { "tls.peer_cert.san_dns": { "contains": "svc-b.internal" } }
+] }
+{ "tls.peer_cert.fingerprint_sha256": { "equals": "ab12cd34..." } }
 ```
 
 `ClientTrustStore`'s `ArcSwap` rotation is symmetric to `CertStore` — same pattern, same mental model.
@@ -329,6 +389,32 @@ Rationale: hashing CRL content would force a new client on every CRL refresh, de
 
 `client_cert: Some(Arc<CertifiedKey>)` presents a client cert to the upstream during handshake. Combined with the upstream's requirement for it on its side, this establishes mutual authentication.
 
+#### Configuration schema
+
+```jsonc
+"upstream": {
+  "address": "backend.internal:443",
+  "tls": {
+    "verify": "full",
+    "client_cert": {
+      "cert_path": "/etc/vaned/upstream/client.pem",
+      "key_path":  "/etc/vaned/upstream/client.key"
+    }
+  }
+}
+```
+
+| Field                       | Type   | Required                         | Notes                             |
+| --------------------------- | ------ | -------------------------------- | --------------------------------- |
+| `tls.client_cert.cert_path` | string | yes (when `client_cert` present) | PEM file holding leaf + chain.    |
+| `tls.client_cert.key_path`  | string | yes (when `client_cert` present) | PEM file holding the private key. |
+
+`client_cert` itself is optional (omit it for one-way TLS). When present, both fields are required.
+
+Cert/key files are read at FlowGraph link time. Rotation goes through the standard config-watch pipeline: `notify` sees the file change, debounces, triggers FlowGraph reload, the new `Arc<CertifiedKey>` lands in the new `UpstreamTls`. Live connections keep their handshake-time cert (TLS protocol does not permit mid-connection rotation; this is symmetric to the listener-side rotation rule above).
+
+A missing or unreadable cert/key file at link time is a **rule-level compile error**, not a daemon-wide boot failure — other rules continue to compile.
+
 ### `CertifiedKey` is `Arc`-shared everywhere
 
 Both sides of the TLS surface use `Arc<CertifiedKey>`:
@@ -340,9 +426,67 @@ Both sides of the TLS surface use `Arc<CertifiedKey>`:
 
 ### CRL checking
 
-When `crls` is non-empty, `rustls::WebPkiCrlProvider` validates the upstream cert against the provided CRL list. CRLs come from files (loaded at boot, optionally re-read on refresh) or URLs (fetched periodically from the CRL distribution point).
+CRLs are used in two places — listener-side mTLS (`ClientTrustStore.crls`, see § _Client certificate verification_) and upstream verification (`UpstreamTls.crls`). Both share the same source schema, fetch policy, and daemon-wide cache.
 
-Two Fetches with different CRL source sets get separate pool slots (the source list participates in the fingerprint); two Fetches with identical CRL sources share one `ClientConfig` even as the underlying CRL bytes refresh (see fingerprint note above).
+When `crls` is non-empty, `rustls::WebPkiCrlProvider` validates the relevant cert (peer client cert on the listener side; upstream cert on the upstream side) against the provided CRL list. CRLs come from files or URLs.
+
+#### `crls[]` source schema
+
+```jsonc
+"crls": [
+  { "kind": "file", "path": "/etc/vaned/crls/clients.crl",         "fetch_failure": "tolerate" },
+  { "kind": "url",  "url":  "https://crl.example.com/clients.crl", "fetch_failure": "reject"   }
+]
+```
+
+| Field           | Type                       | Required | Notes                                                                     |
+| --------------- | -------------------------- | -------- | ------------------------------------------------------------------------- |
+| `kind`          | `"file"` \| `"url"`        | yes      | Discriminates the variant.                                                |
+| `path`          | string                     | iff file | Absolute filesystem path. File is re-read on FlowGraph reload.            |
+| `url`           | string                     | iff url  | Absolute URL. Fetched per § _URL fetch cadence_.                          |
+| `fetch_failure` | `"tolerate"` \| `"reject"` | yes      | What to do when the source becomes unavailable. See § _Failure handling_. |
+
+#### URL fetch cadence
+
+Adaptive based on the CRL's `nextUpdate` field:
+
+- Parse the fetched CRL's `nextUpdate`. Schedule the next fetch for `nextUpdate − 1 hour`.
+- If the CRL has no `nextUpdate`, fall back to a fixed 4-hour interval.
+- The first fetch happens at FlowGraph link time (synchronous; rule compile blocks on it for at most 30 seconds before timing out).
+- On fetch success, replace the cached bytes and reschedule against the new `nextUpdate`.
+
+The schedule is held by a daemon-wide CRL fetcher, not per-config, per § _Daemon-wide CRL cache_.
+
+#### Failure handling
+
+A CRL source is considered "unavailable" when:
+
+- A URL fetch fails (DNS, connection, HTTP error, parse error, signature verification failure).
+- A file path cannot be read or parsed.
+- The cached CRL is past its `nextUpdate` AND the most recent refetch attempt failed.
+
+`fetch_failure` chooses behavior on unavailability:
+
+- `"tolerate"` — keep using the last-known CRL (even if stale); if no CRL has ever been successfully loaded, behave as if the source were absent (no revocation check from this source). Log at WARN per transition (success → unavailable, unavailable → success); silent during sustained outage.
+- `"reject"` — handshake validations against this source fail-closed. Log at ERROR per transition; new connections that would have validated against this CRL are rejected at handshake time.
+
+`tolerate` matches the high-availability default that browsers and most production proxies adopt; `reject` is for high-security deployments where a stale CRL is unacceptable. The choice is per-source and explicit — there is no daemon-wide knob and no implicit default.
+
+CRL Distribution Points encoded in the cert (`CRL Distribution Points` extension, RFC 5280 §4.2.1.13) are **not** auto-discovered. Operators configure CRL sources explicitly. This keeps network behavior predictable and prevents attacker-controlled CDP URLs from becoming a covert channel.
+
+#### Daemon-wide CRL cache
+
+The daemon holds a single `Arc<CrlCache>` keyed by source identity (`CrlSourceId = (kind, path-or-url-string)`). Every `ClientTrustStore` and `UpstreamTls` configuring the same source shares one cached entry, fetched once per refresh interval, served to every consumer.
+
+This composes with the `TlsConfigFingerprint` rule "CRL fingerprint = source identity, not content" (see § _Client cache: fingerprint and reuse_): `Arc<ClientConfig>` cache entries stay stable across CRL refresh cycles, while the underlying CRL bytes update through the rustls `CryptoProvider`'s CRL provider in place. New handshakes on existing client configs see fresh revocation data immediately.
+
+Two configs with different CRL source sets get separate pool slots (the source list participates in the TLS fingerprint); two configs with identical CRL sources share one `ClientConfig` even as the bytes refresh.
+
+#### CRL and OCSP coexistence
+
+CRL and OCSP stapling are independent revocation channels and may both be configured. rustls runs both checks; either channel returning "revoked" rejects the handshake (logical OR over revocation verdicts). This is the conventional defense-in-depth posture; vane does not synthesize a precedence between the two.
+
+OCSP staples are per-handshake and freshness-bounded by the OCSP response's `nextUpdate`; CRL is daemon-cached and freshness-bounded by `fetch_failure` policy. Operators wanting strict revocation correctness configure both for their critical chains.
 
 ---
 
@@ -351,10 +495,10 @@ Two Fetches with different CRL source sets get separate pool slots (the source l
 These features have architectural positions defined above; MVP implementation order defers some:
 
 - **OCSP stapling** — populator framework exists; `ManagedCertPopulator` fetches OCSP on cert issuance in its first release. `StaticCertPopulator` gains optional OCSP fetch later.
-- **CRL checking** — `UpstreamTls.crls` defined; `WebPkiCrlProvider` integration and URL fetcher post-MVP.
+- **CRL checking** — Stage 3. Source schema, adaptive fetch cadence, per-source `fetch_failure`, daemon-wide CRL cache, and CRL/OCSP coexistence are all specified above in § _CRL checking_. Implementation lands with S3-11.
 - **Configurable session-ticket lifetime** — MVP uses the crypto-backend `Ticketer::new()` default (12-hour ticket lifetime, 6-hour rotation period). A configurable lifetime knob is post-MVP.
 - **TLS 1.3 0-RTT** — config flags and runtime check designed; rustls early-data wiring post-MVP. MVP ships with `enable_0rtt: false` hardcoded.
-- **mTLS on listener** — `ClientAuth` enum and `ClientTrustStore` defined; MVP ships `ClientAuth::None` only; `Request` / `Require` post-MVP.
+- **mTLS on listener** — Stage 3. `ClientAuth` enum, `ClientTrustStore`, the `client_auth` config schema, the seven `tls.peer_cert.*` predicate paths, and the Request-vs-Require semantics are specified above in § _Client certificate verification_. Implementation lands with S3-12.
 - **`ManagedCertPopulator` (integrated LazyCert)** — Stage 3. Full design — daemon-scoped `ManagedCertRegistry`, `AcmeStore` persistence, `tls.managed` config schema, HTTP-01 / DNS-01 mechanics, ARI-driven renewal, `force_renew` mgmt verb — is locked in [`spec/acme.md`](../acme.md). Built on [`instant-acme`](https://crates.io/crates/instant-acme).
 
 ## ACME challenge modes

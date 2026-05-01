@@ -161,23 +161,29 @@ HTTP header names are case-insensitive (RFC 9110 §5.1) but vane's canonical int
 
 ### Authoritative field paths
 
-| Path                       | Value type            | Source                                                            |
-| -------------------------- | --------------------- | ----------------------------------------------------------------- |
-| `transport`                | enum `"tcp" \| "udp"` | `ConnContext.transport`                                           |
-| `remote.ip`                | `IpAddr`              | `ConnContext.remote.ip()`                                         |
-| `remote.port`              | `u16`                 | `ConnContext.remote.port()`                                       |
-| `local.ip`                 | `IpAddr`              | `ConnContext.local.ip()`                                          |
-| `local.port`               | `u16`                 | `ConnContext.local.port()`                                        |
-| `peek`                     | `Bytes`               | `PeekResult.buffer` (L4 peek phase)                               |
-| `tls.sni`                  | `String`              | `ConnContext.tls.sni`                                             |
-| `tls.alpn`                 | `Bytes`               | `ConnContext.tls.alpn`                                            |
-| `tls.version`              | enum `TlsVersion`     | `ConnContext.tls.version`                                         |
-| `tls.peer_cert.subject_cn` | `String`              | `ConnContext.tls.peer_cert` subject CN                            |
-| `http.method`              | enum `Method`         | `Request.method()`                                                |
-| `http.uri.path`            | `String`              | `Request.uri().path()`                                            |
-| `http.uri.query`           | `String`              | `Request.uri().query().unwrap_or("")`                             |
-| `http.header.<name>`       | `String`              | first value of `Request.headers()[name]`                          |
-| `http.body`                | `Bytes`               | **request-side** buffered body; triggers request-track LazyBuffer |
+| Path                               | Value type            | Source                                                            |
+| ---------------------------------- | --------------------- | ----------------------------------------------------------------- |
+| `transport`                        | enum `"tcp" \| "udp"` | `ConnContext.transport`                                           |
+| `remote.ip`                        | `IpAddr`              | `ConnContext.remote.ip()`                                         |
+| `remote.port`                      | `u16`                 | `ConnContext.remote.port()`                                       |
+| `local.ip`                         | `IpAddr`              | `ConnContext.local.ip()`                                          |
+| `local.port`                       | `u16`                 | `ConnContext.local.port()`                                        |
+| `peek`                             | `Bytes`               | `PeekResult.buffer` (L4 peek phase)                               |
+| `tls.sni`                          | `String`              | `ConnContext.tls.sni`                                             |
+| `tls.alpn`                         | `Bytes`               | `ConnContext.tls.alpn`                                            |
+| `tls.version`                      | enum `TlsVersion`     | `ConnContext.tls.version`                                         |
+| `tls.peer_cert.present`            | `bool`                | `true` iff a verified peer cert is attached to this connection    |
+| `tls.peer_cert.subject_cn`         | `String`              | Subject Common Name; empty string when `present == false`         |
+| `tls.peer_cert.san_dns`            | `Vec<String>`         | DNS-type Subject Alternative Names; empty when `present == false` |
+| `tls.peer_cert.fingerprint_sha256` | `String` (hex, lower) | SHA-256 of the full DER-encoded leaf cert                         |
+| `tls.peer_cert.spki_sha256`        | `String` (hex, lower) | SHA-256 of the cert's SubjectPublicKeyInfo (rotation-stable)      |
+| `tls.peer_cert.issuer_cn`          | `String`              | Issuer Common Name                                                |
+| `tls.peer_cert.serial`             | `String` (hex, lower) | Cert serial number, big-endian, no leading-zero stripping         |
+| `http.method`                      | enum `Method`         | `Request.method()`                                                |
+| `http.uri.path`                    | `String`              | `Request.uri().path()`                                            |
+| `http.uri.query`                   | `String`              | `Request.uri().query().unwrap_or("")`                             |
+| `http.header.<name>`               | `String`              | first value of `Request.headers()[name]`                          |
+| `http.body`                        | `Bytes`               | **request-side** buffered body; triggers request-track LazyBuffer |
 
 `<name>` in `http.header.<name>` is a header name: lowercased, hyphens allowed. Duplicate-valued headers (e.g., `Cookie`) expose the first value; users needing "any of the values" combine with `any_of`.
 
@@ -198,15 +204,19 @@ The compiler's `analyze` pass categorizes each path into one of three inspection
 
 ## Operator × value type compatibility
 
-| Operator                    | Str | Bytes | Int | IpAddr | enum |
-| --------------------------- | :-: | :---: | :-: | :----: | :--: |
-| `equals` / `not_equals`     | yes |  yes  | yes |  yes   | yes  |
-| `contains` / `not_contains` | yes |  yes  |  —  |   —    |  —   |
-| `prefix` / `suffix`         | yes |  yes  |  —  |   —    |  —   |
-| `matches`                   | yes |   —   |  —  |   —    |  —   |
-| `in` / `not_in`             | yes |  yes  | yes |  yes   | yes  |
-| `gt` / `gte` / `lt` / `lte` |  —  |   —   | yes |   —    |  —   |
-| `cidr`                      |  —  |   —   |  —  |  yes   |  —   |
+| Operator                    | Str | Bytes | Int | IpAddr | enum | Bool | `Vec<Str>` |
+| --------------------------- | :-: | :---: | :-: | :----: | :--: | :--: | :--------: |
+| `equals` / `not_equals`     | yes |  yes  | yes |  yes   | yes  | yes  |     —      |
+| `contains` / `not_contains` | yes |  yes  |  —  |   —    |  —   |  —   |    yes     |
+| `prefix` / `suffix`         | yes |  yes  |  —  |   —    |  —   |  —   |     —      |
+| `matches`                   | yes |   —   |  —  |   —    |  —   |  —   |     —      |
+| `in` / `not_in`             | yes |  yes  | yes |  yes   | yes  |  —   |     —      |
+| `gt` / `gte` / `lt` / `lte` |  —  |   —   | yes |   —    |  —   |  —   |     —      |
+| `cidr`                      |  —  |   —   |  —  |  yes   |  —   |  —   |     —      |
+
+`Vec<Str>` (currently only `tls.peer_cert.san_dns`) supports `contains` / `not_contains` with a single-string operand — semantics: "the list contains / does not contain this exact element". For "any of `[a, b, c]` is in the list" composition, use the top-level `any_of` combinator wrapping multiple `contains` Checks.
+
+`Bool` (currently only `tls.peer_cert.present`) supports `equals` / `not_equals` against a JSON boolean literal.
 
 Compile-time type check: on a `{ "http.body": { "gt": 100 } }`, the compiler sees `http.body: Bytes` and `gt: numeric-only` → rejects with:
 

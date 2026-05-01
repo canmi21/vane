@@ -289,20 +289,26 @@ variant context-value {
 
 Connection-level paths:
 
-| Path                            | `context-value` | Notes                                        |
-| ------------------------------- | --------------- | -------------------------------------------- |
-| `conn.peer_ip`                  | `text`          | Textual representation (e.g. `"192.0.2.5"`). |
-| `conn.peer_port`                | `uint64`        | 0–65535.                                     |
-| `conn.local_ip`                 | `text`          |                                              |
-| `conn.local_port`               | `uint64`        |                                              |
-| `conn.transport`                | `text`          | `"tcp"` \| `"udp"` \| `"quic"`.              |
-| `conn.alpn`                     | `text`          | Empty string if no ALPN.                     |
-| `conn.id`                       | `text`          | `ConnId` hex.                                |
-| `conn.accept_unix_ms`           | `uint64`        |                                              |
-| `conn.tls.version`              | `text`          | `"1.2"` \| `"1.3"` \| `""` if not TLS.       |
-| `conn.tls.sni`                  | `text`          | ASCII-lowercase. Empty if no SNI.            |
-| `conn.tls.peer_cert`            | `bytes`         | DER-encoded. Empty if no client cert.        |
-| `conn.tls.peer_cert.subject_cn` | `text`          |                                              |
+| Path                                    | `context-value` | Notes                                                              |
+| --------------------------------------- | --------------- | ------------------------------------------------------------------ |
+| `conn.peer_ip`                          | `text`          | Textual representation (e.g. `"192.0.2.5"`).                       |
+| `conn.peer_port`                        | `uint64`        | 0–65535.                                                           |
+| `conn.local_ip`                         | `text`          |                                                                    |
+| `conn.local_port`                       | `uint64`        |                                                                    |
+| `conn.transport`                        | `text`          | `"tcp"` \| `"udp"` \| `"quic"`.                                    |
+| `conn.alpn`                             | `text`          | Empty string if no ALPN.                                           |
+| `conn.id`                               | `text`          | `ConnId` hex.                                                      |
+| `conn.accept_unix_ms`                   | `uint64`        |                                                                    |
+| `conn.tls.version`                      | `text`          | `"1.2"` \| `"1.3"` \| `""` if not TLS.                             |
+| `conn.tls.sni`                          | `text`          | ASCII-lowercase. Empty if no SNI.                                  |
+| `conn.tls.peer_cert`                    | `bytes`         | DER-encoded leaf cert. Empty if no client cert.                    |
+| `conn.tls.peer_cert.present`            | `boolean`       | `true` iff a verified peer cert is attached.                       |
+| `conn.tls.peer_cert.subject_cn`         | `text`          | Empty when `present == false`.                                     |
+| `conn.tls.peer_cert.san_dns`            | `list-text`     | DNS-type SAN list. Empty when `present == false`.                  |
+| `conn.tls.peer_cert.fingerprint_sha256` | `text`          | Hex (lowercase). SHA-256 of the full leaf DER.                     |
+| `conn.tls.peer_cert.spki_sha256`        | `text`          | Hex (lowercase). SHA-256 of SubjectPublicKeyInfo. Rotation-stable. |
+| `conn.tls.peer_cert.issuer_cn`          | `text`          |                                                                    |
+| `conn.tls.peer_cert.serial`             | `text`          | Hex (lowercase). Big-endian, no leading-zero stripping.            |
 
 Request / response paths are also declarable; declare them only when the middleware needs the value via the `context` channel (e.g. for predicate-style sharing) rather than reading the corresponding field on `*-input`. The path table mirrors `architecture/18-predicate-schema.md`.
 
