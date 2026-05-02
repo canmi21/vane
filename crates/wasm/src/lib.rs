@@ -50,6 +50,23 @@ mod invoke_l4peek {
 struct HostState {
 	args: String,
 	fetch_backend: Arc<dyn HttpFetchBackend>,
+	/// Captures the last value returned by `get_args` during an invocation.
+	/// Used by `StatefulPoolHandle::last_args_received` in tests to verify
+	/// that the fixture plugin actually called host.get-args and received the
+	/// bound args string.
+	#[cfg(test)]
+	args_received: Option<String>,
+}
+
+impl HostState {
+	fn new(args: String, fetch_backend: Arc<dyn HttpFetchBackend>) -> Self {
+		Self {
+			args,
+			fetch_backend,
+			#[cfg(test)]
+			args_received: None,
+		}
+	}
 }
 
 // vane:plugin/types has no functions; the generated Host trait is empty.
@@ -59,7 +76,12 @@ impl vane::plugin::types::Host for HostState {}
 // Native async fn is used (RPITIT, no #[async_trait]).
 impl vane::host::host::Host for HostState {
 	async fn get_args(&mut self) -> wasmtime::Result<String> {
-		Ok(self.args.clone())
+		let result = self.args.clone();
+		#[cfg(test)]
+		{
+			self.args_received = Some(result.clone());
+		}
+		Ok(result)
 	}
 
 	async fn log(
@@ -146,7 +168,12 @@ impl invoke_l4peek::vane::plugin::types::Host for HostState {}
 
 impl invoke_l4peek::vane::host::host::Host for HostState {
 	async fn get_args(&mut self) -> wasmtime::Result<String> {
-		Ok(self.args.clone())
+		let result = self.args.clone();
+		#[cfg(test)]
+		{
+			self.args_received = Some(result.clone());
+		}
+		Ok(result)
 	}
 
 	async fn log(
@@ -403,6 +430,21 @@ impl StatefulPoolHandle {
 
 		outcome
 	}
+
+	/// Returns the args string that the plugin received via `host.get-args` on
+	/// the most recently returned instance, or `None` if `get-args` was never
+	/// called during that invocation.
+	///
+	/// Only available in test builds; intended for use in
+	/// `host_get_args_returns_bound_args_to_plugin` and similar.
+	///
+	/// # Panics
+	///
+	/// Panics if the instances mutex is poisoned.
+	#[cfg(test)]
+	pub fn last_args_received(&self) -> Option<String> {
+		self.instances.lock().unwrap().last().and_then(|i| i.store.data().args_received.clone())
+	}
 }
 
 pub struct WasmtimeRuntime {
@@ -515,8 +557,7 @@ impl WasmtimeRuntime {
 
 		let mut instances = Vec::with_capacity(pool_size);
 		for _ in 0..pool_size {
-			let host_state =
-				HostState { args: args_json.to_owned(), fetch_backend: Arc::clone(&self.fetch_backend) };
+			let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
 			let mut store = Store::new(&self.engine, host_state);
 			store.set_epoch_deadline(1000);
 			let plugin =
@@ -607,8 +648,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-		let host_state =
-			HostState { args: args_json.to_owned(), fetch_backend: Arc::clone(&self.fetch_backend) };
+		let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
 		let mut store = Store::new(&self.engine, host_state);
 		store.set_epoch_deadline(10);
 
@@ -708,7 +748,7 @@ async fn get_metadata(
 	Plugin::add_to_linker::<HostState, HasSelf<HostState>>(&mut linker, |x| x)
 		.map_err(|e| Error::internal(format!("linker setup: {e}")))?;
 
-	let host_state = HostState { args: String::new(), fetch_backend };
+	let host_state = HostState::new(String::new(), fetch_backend);
 	let mut store = Store::new(engine, host_state);
 	// Allow up to 1000 ticks (≈1 s at 1 ms interval) for metadata loading.
 	store.set_epoch_deadline(1000);
@@ -1141,7 +1181,7 @@ mod tests {
 	// Two invocations with distinct args_json are tracked as separate pool entries.
 	// Both must succeed, confirming the key includes args_json.
 	#[tokio::test]
-	async fn get_args_bound_at_rental_time() {
+	async fn distinct_args_produce_distinct_dedup_entries() {
 		let rt = loaded_runtime().await;
 		let mid = fixture_module_id();
 
@@ -1158,6 +1198,26 @@ mod tests {
 			2,
 			"distinct args_json should produce two separate pool entries; got {}",
 			pools.len()
+		);
+	}
+
+	// Verifies the host-side get-args implementation: the function returns the args
+	// string that was bound to the store at creation time, and sets args_received.
+	// The ComponentEncoder pipeline (embed_component_metadata + ComponentEncoder)
+	// cannot generate canonical ABI adapters for core-module host imports from bare
+	// WAT; this test therefore drives the host function directly, which covers the
+	// same host-side contract that real WIT plugins exercise via the component ABI.
+	#[tokio::test]
+	async fn host_get_args_returns_bound_args_to_plugin() {
+		let args = r#"{"mode":"test"}"#;
+		let mut state = HostState::new(args.to_owned(), mock_backend());
+
+		let received = invoke_l4peek::vane::host::host::Host::get_args(&mut state).await.unwrap();
+		assert_eq!(received, args, "get-args must return the bound args string");
+		assert_eq!(
+			state.args_received.as_deref(),
+			Some(args),
+			"args_received must be set after get-args is called"
 		);
 	}
 }
