@@ -70,8 +70,6 @@ fn generate_fixture(
 
 // Core WAT implementing the fixture plugin with static canonical-ABI data.
 //
-// Core WAT implementing the fixture plugin with static canonical-ABI data.
-//
 // Memory layout (address 0 onwards, little-endian):
 //   0-6:   "fixture"  (7 bytes)
 //   7-11:  "0.1.0"    (5 bytes, used for both version and abi-version)
