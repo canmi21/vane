@@ -22,7 +22,7 @@ features = ["aws-lc-rs", "h3", "cgi"]
 default = ["aws-lc-rs", "h3", "cgi"]
 aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs", "hyper-rustls/aws-lc-rs"]
 ring = ["rustls/ring", "tokio-rustls/ring", "hyper-rustls/ring"]
-h3 = []
+h3 = ["dep:quinn", "dep:quinn-proto", "dep:h3", "dep:h3-quinn"]
 cgi = []
 acme = []
 acme-dns-cloudflare = ["acme"]
@@ -63,6 +63,13 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry"] }
 vane-core = { workspace = true }
 x509-parser = "0.18"
+
+# H3 stack — gated behind the `h3` feature per spec/architecture/16-crate-layout.md.
+# Optional so non-H3 builds don't pull quinn / h3 / quinn-proto into the dep graph.
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
+quinn-proto = { version = "0.11", default-features = false, optional = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }

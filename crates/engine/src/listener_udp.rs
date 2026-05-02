@@ -38,25 +38,29 @@ const MAX_DATAGRAM: usize = 65535;
 /// stall every other session sharing the physical socket.
 pub const SESSION_INBOUND_CAPACITY: usize = 64;
 
-/// Demultiplex key for the per-listener dispatch table. Today only
-/// 4-tuple peer identity is used (`L4Forward` sessions); the QUIC arm
-/// is a placeholder so the type doesn't reshape when QUIC server
-/// support arrives.
+/// Demultiplex key for the per-listener dispatch table.
+///
+/// `Peer` keys 4-tuple-identified `L4Forward` sessions; `QuicConnId`
+/// keys QUIC virtual sockets by their server-side `ConnectionId`, the
+/// stable identity that survives peer NAT rebinds. The `QuicConnId`
+/// variant is only constructed when the engine is built with the
+/// `h3` feature — `#[cfg]` keeps non-H3 builds from pulling
+/// `quinn-proto` into the type.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum DispatchKey {
 	Peer(SocketAddr),
-	// FIXME(s3-01): `QuicConnId(quinn::ConnectionId)` — added when QUIC
-	// server-side termination lands. Routed by ConnectionId so QUIC
-	// peer migration across NAT rebinds keeps the same dispatch slot.
+	#[cfg(feature = "h3")]
+	QuicConnId(quinn_proto::ConnectionId),
 }
 
-/// Demultiplex target for one dispatch table entry. Today only
-/// `L4Forward(session)` is populated; the `Quic` arm awaits the QUIC
-/// virtual-socket implementation.
+/// Demultiplex target for one dispatch table entry. `L4Forward` carries
+/// the per-session forwarder handle; `Quic` carries the per-connection
+/// virtual UDP socket that quinn drives. Inbound datagrams are routed
+/// to one or the other (or fall through to the cold path on miss).
 pub enum DispatchHandle {
 	L4Forward(Arc<L4ForwardSession>),
-	// FIXME(s3-01): `Quic(Arc<VirtualUdpSocket>)` — once vane implements
-	// `quinn::AsyncUdpSocket` against a per-connection wrapper.
+	#[cfg(feature = "h3")]
+	Quic(Arc<crate::h3_listener::VirtualUdpSocket>),
 }
 
 /// Per-session forwarder handle. The listener pushes inbound datagrams
@@ -96,7 +100,7 @@ pub struct UdpListenerHandle {
 /// Spec: `06-l4.md` § _`udp_dispatch`_ for the dispatch table flow,
 /// § _UDP idle timeout is single-authority_ for the per-session
 /// timeout (owned by the `L4Forward` forwarder).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub async fn run_udp_listener(
 	addr: SocketAddr,
 	graph: Arc<ArcSwap<FlowGraph>>,
@@ -166,9 +170,22 @@ pub async fn run_udp_listener(
 								);
 							}
 						}
+						#[cfg(feature = "h3")]
+						DispatchHandle::Quic(virtual_socket) => {
+							virtual_socket.enqueue_inbound(peer, datagram);
+						}
 					}
 					continue;
 				}
+				// On Http UDP listeners, route any unmatched datagram to
+				// the listener-level QUIC virtual socket (one per
+				// listener; see notes/s3-01-question-virtual-socket-model.md
+				// for why this PR uses fan-in instead of per-CID dispatch).
+				#[cfg(feature = "h3")]
+				let datagram = match try_route_to_h3(&graph, &dispatch_table, addr, peer, datagram) {
+					RouteH3::Routed => continue,
+					RouteH3::NotApplicable(d) => d,
+				};
 				// Cold path — enter the FlowGraph. Capture a graph
 				// snapshot per-datagram so reload cannot pull the rug.
 				let captured: Arc<FlowGraph> = graph.load_full();
@@ -198,6 +215,53 @@ pub async fn run_udp_listener(
 			}
 		}
 	}
+}
+
+/// Outcome of [`try_route_to_h3`]: either the datagram was delivered
+/// to the H3 fan-in socket (and the caller's loop must `continue`), or
+/// the listener is not configured for H3 and the datagram is returned
+/// unchanged for cold-path entry.
+#[cfg(feature = "h3")]
+enum RouteH3 {
+	Routed,
+	NotApplicable(Bytes),
+}
+
+/// Listener-level fan-in: deliver an unmatched UDP datagram to the
+/// per-listener QUIC virtual socket if and only if the listener's
+/// derived [`vane_core::ListenerKind`] is `Http`. The virtual socket
+/// is registered at listener boot under a sentinel `QuicConnId(empty)`
+/// key — there's exactly one per listener, so no real CID lookup is
+/// needed (see `notes/s3-01-question-virtual-socket-model.md` for the
+/// design tradeoff).
+#[cfg(feature = "h3")]
+fn try_route_to_h3(
+	graph: &Arc<ArcSwap<FlowGraph>>,
+	dispatch_table: &Arc<DispatchTable>,
+	addr: SocketAddr,
+	peer: SocketAddr,
+	datagram: Bytes,
+) -> RouteH3 {
+	let captured: Arc<FlowGraph> = graph.load_full();
+	let kind = captured
+		.symbolic()
+		.meta
+		.listener_kinds
+		.get(&addr)
+		.copied()
+		.unwrap_or(vane_core::ListenerKind::Raw);
+	if !matches!(kind, vane_core::ListenerKind::Http) {
+		return RouteH3::NotApplicable(datagram);
+	}
+	let sentinel = DispatchKey::QuicConnId(quinn_proto::ConnectionId::new(&[]));
+	let Some(entry) = dispatch_table.get(&sentinel) else {
+		tracing::trace!(?addr, ?peer, "h3 listener not yet ready; dropping datagram");
+		return RouteH3::Routed;
+	};
+	if let DispatchHandle::Quic(vs) = &**entry {
+		vs.enqueue_inbound(peer, datagram);
+	}
+	RouteH3::Routed
 }
 
 /// RAII decrement for `in_flight_count`. Mirrors `listener.rs::InFlightGuard`
