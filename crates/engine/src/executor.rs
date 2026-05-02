@@ -692,14 +692,28 @@ async fn dispatch_wasm(
 	l4: &mut Option<L4Conn>,
 	req: &mut Option<Request>,
 	resp: &mut Option<Response>,
-	_conn: &Arc<ConnContext>,
+	conn: &Arc<ConnContext>,
 ) -> Result<Decision, Error> {
 	// TODO(s3-14-followup): inspects-driven context packing
 	let ctx: Vec<ContextEntry> = vec![];
 
 	match w.metadata.exports.iter().find(|e| e.name == w.export_name).map(|e| e.kind) {
 		Some(MiddlewareKind::L4Peek) => {
-			let peek = if let Some(L4Conn::Peeked(_)) = l4.as_ref() { vec![] } else { vec![] };
+			// Peek bytes live on `ConnContext.user` as `PeekResult.buffer`,
+			// written by the listener-side peek prelude (06-l4.md §
+			// _Protocol detection_). Reading from `L4Conn::Peeked` would
+			// consume the rewound bytes and starve the L7 layer. Cloning
+			// the `Bytes` is refcounted-cheap; releasing the lock before
+			// the await keeps middleware free to take its own `conn.user`
+			// lock without self-deadlock.
+			let peek_buf: Option<bytes::Bytes> = {
+				let user = conn.user.lock();
+				user.get::<vane_core::PeekResult>().map(|r| r.buffer.clone())
+			};
+			// Absent `PeekResult` means the listener has no peek phase
+			// configured (`needs_peek = false`); plugins legitimately see
+			// an empty peek slice in that case.
+			let peek = peek_buf.map(|b| b.to_vec()).unwrap_or_default();
 			let input = L4PeekInput { peek, context: ctx };
 			match w.runtime.invoke_l4_peek(&w.module_id, &w.export_name, &w.args_json, input).await {
 				Ok(L4PeekDecision::Continue) => Ok(Decision::Continue),
@@ -712,6 +726,7 @@ async fn dispatch_wasm(
 		Some(MiddlewareKind::L4Bytes) => {
 			let bytes_view = BytesView { data: vec![], truncated: false };
 			let _ = WASM_BODY_LIMIT_L4;
+			let _ = l4;
 			let input = L4BytesInput { bytes: bytes_view, context: ctx };
 			match w.runtime.invoke_l4_bytes(&w.module_id, &w.export_name, &w.args_json, input).await {
 				Ok(L4BytesDecision::Continue | L4BytesDecision::Tunnel) => Ok(Decision::Continue),

@@ -24,9 +24,9 @@ use parking_lot::Mutex;
 use tokio_util::sync::CancellationToken;
 use vane_core::{
 	Body, ConnContext, ConnId, Error, FlowCtx, FlowGraphMeta, FlowLogEvent, FlowLogKind, FlowLogSink,
-	Header, L4BytesDecision, L4BytesInput, L4PeekDecision, L4PeekInput, L7RequestDecision,
+	Header, L4BytesDecision, L4BytesInput, L4Conn, L4PeekDecision, L4PeekInput, L7RequestDecision,
 	L7RequestInput, L7ResponseDecision, L7ResponseInput, MiddlewareId, MiddlewareKind, ModuleId,
-	Node, NodeId, PluginError, PluginExport, PluginMetadata, Request, SymbolicFlowGraph,
+	Node, NodeId, PeekResult, PluginError, PluginExport, PluginMetadata, Request, SymbolicFlowGraph,
 	SymbolicMiddlewareRef, SynthResponse, Terminator, TerminatorId, Transport, WasmRuntime,
 };
 use vane_engine::executor::{ExecutorInput, ExecutorOutput, execute};
@@ -164,6 +164,7 @@ struct MockWasmRuntime {
 	l4_bytes_results: Mutex<Vec<Result<L4BytesDecision, PluginError>>>,
 	l7_request_results: Mutex<L7ReqResults>,
 	l7_response_results: Mutex<Vec<Result<L7ResponseDecision, PluginError>>>,
+	recorded_l4_peek_inputs: Mutex<Vec<Vec<u8>>>,
 }
 
 impl MockWasmRuntime {
@@ -174,6 +175,18 @@ impl MockWasmRuntime {
 			l4_bytes_results: Mutex::new(vec![]),
 			l7_request_results: Mutex::new(results),
 			l7_response_results: Mutex::new(vec![]),
+			recorded_l4_peek_inputs: Mutex::new(vec![]),
+		}
+	}
+
+	fn with_l4_peek(results: Vec<Result<L4PeekDecision, PluginError>>) -> Self {
+		Self {
+			call_count: Arc::new(AtomicUsize::new(0)),
+			l4_peek_results: Mutex::new(results),
+			l4_bytes_results: Mutex::new(vec![]),
+			l7_request_results: Mutex::new(vec![]),
+			l7_response_results: Mutex::new(vec![]),
+			recorded_l4_peek_inputs: Mutex::new(vec![]),
 		}
 	}
 }
@@ -189,9 +202,10 @@ impl WasmRuntime for MockWasmRuntime {
 		_module_id: &ModuleId,
 		_export_name: &str,
 		_args_json: &str,
-		_input: L4PeekInput,
+		input: L4PeekInput,
 	) -> Result<L4PeekDecision, PluginError> {
 		self.call_count.fetch_add(1, Ordering::SeqCst);
+		self.recorded_l4_peek_inputs.lock().push(input.peek);
 		self.l4_peek_results.lock().remove(0)
 	}
 
@@ -602,5 +616,70 @@ async fn wasm_stateless_registry_entry_shares_runtime_arc() {
 	assert!(
 		Arc::strong_count(&runtime) > initial_count,
 		"runtime Arc must have been cloned into registry/graph entries",
+	);
+}
+
+// ---------------------------------------------------------------------------
+// (h) L4Peek dispatch hands the listener-stashed PeekResult.buffer to the
+//     plugin via L4PeekInput.peek
+// ---------------------------------------------------------------------------
+
+async fn throwaway_tcp_stream() -> tokio::net::TcpStream {
+	let listener =
+		tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral listener");
+	let addr = listener.local_addr().expect("local_addr");
+	let connect = tokio::net::TcpStream::connect(addr);
+	let accept = listener.accept();
+	let (client, _server) = tokio::join!(connect, accept);
+	client.expect("connect to ephemeral listener")
+}
+
+#[tokio::test]
+async fn wasm_l4peek_dispatch_forwards_peek_buffer_from_conn_user() {
+	let runtime_inner = Arc::new(MockWasmRuntime::with_l4_peek(vec![Ok(L4PeekDecision::Continue)]));
+	let runtime: Arc<dyn WasmRuntime> = Arc::clone(&runtime_inner) as Arc<dyn WasmRuntime>;
+
+	let sym = build_graph(
+		vec![
+			Node::Middleware {
+				id: MiddlewareId::new(0),
+				next: NodeId::new(1),
+				on_error: None,
+				collect_body_before: None,
+				body_limit: 0,
+			},
+			Node::Terminate(TerminatorId::new(0)),
+		],
+		vec![wasm_symref("my-plugin:probe", MiddlewareKind::L4Peek)],
+		vec![Terminator::Close],
+	);
+	let reg = make_registry("my-plugin:probe", "probe", MiddlewareKind::L4Peek, runtime);
+	let graph = link_with_plugins(sym, &reg);
+	let conn = make_conn();
+	let sink = Arc::new(NullSink::new());
+
+	// Listener-side prelude would normally write this; the dispatch path
+	// must read it from `conn.user` and hand it to the plugin verbatim.
+	let known_peek: &[u8] = b"GET / HTTP/1.1\r\n\r\n";
+	{
+		let mut user = conn.user.lock();
+		user.insert(PeekResult {
+			buffer: bytes::Bytes::from_static(known_peek),
+			detected: None,
+			tls: None,
+		});
+	}
+
+	let l4 = L4Conn::Tcp(throwaway_tcp_stream().await);
+	let result =
+		run_execute(&graph, NodeId::new(0), ExecutorInput::L4(Box::new(l4)), &conn, &sink).await;
+
+	assert!(result.is_ok(), "L4Peek Continue must reach terminator: {result:?}");
+	let recorded = runtime_inner.recorded_l4_peek_inputs.lock();
+	assert_eq!(recorded.len(), 1, "exactly one L4Peek invocation expected");
+	assert_eq!(
+		recorded[0].as_slice(),
+		known_peek,
+		"plugin must receive the PeekResult.buffer bytes verbatim",
 	);
 }
