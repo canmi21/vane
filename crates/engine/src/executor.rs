@@ -2,9 +2,12 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vane_core::{
-	Body, BodySide, CloseReason, ConnContext, Decision, Error, FlowCtx, FlowLogEvent, FlowLogKind,
-	FlowLogVerbosity, L4Conn, Node, NodeId, PredicateView, Request, Response, SerializedError,
-	ShortCircuit, TerminatorOutcomeKind, TrajectoryOutcome, TrajectoryStep, Tunnel, UpstreamReason,
+	Body, BodySide, BytesView, CloseReason, ConnContext, ContextEntry, Decision, Error, FlowCtx,
+	FlowLogEvent, FlowLogKind, FlowLogVerbosity, Header, L4BytesDecision, L4BytesInput, L4Conn,
+	L4PeekDecision, L4PeekInput, L7RequestDecision, L7RequestInput, L7ResponseDecision,
+	L7ResponseInput, MiddlewareKind, Node, NodeId, PluginError, PredicateView, Request, Response,
+	SerializedError, ShortCircuit, SynthResponse, TerminatorOutcomeKind, TrajectoryOutcome,
+	TrajectoryStep, Tunnel, UpstreamReason,
 };
 
 use crate::flow_graph::{FetchInst, FlowGraph, MiddlewareInst};
@@ -203,6 +206,7 @@ pub async fn execute(
 						let resp_ref = resp.as_mut().expect("phase invariant: L7Response needs Response");
 						m.run(resp_ref, conn, ctx).await
 					}
+					MiddlewareInst::Wasm(w) => dispatch_wasm(w, &mut l4, &mut req, &mut resp, conn).await,
 				};
 
 				match outcome {
@@ -619,6 +623,177 @@ fn now_ms() -> u64 {
 		.duration_since(UNIX_EPOCH)
 		.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 		.unwrap_or_default()
+}
+
+// --- WASM middleware dispatch -----------------------------------------------
+
+const WASM_BODY_LIMIT_L7: usize = 1024 * 1024; // 1 MiB
+const WASM_BODY_LIMIT_L4: usize = 64 * 1024; // 64 KiB
+
+fn http_headers_to_wasm(map: &http::HeaderMap) -> Vec<Header> {
+	map
+		.iter()
+		.filter_map(|(name, value)| {
+			value
+				.to_str()
+				.ok()
+				.map(|v| Header { name: name.as_str().to_ascii_lowercase(), value: v.to_owned() })
+		})
+		.collect()
+}
+
+fn wasm_headers_to_http(headers: Vec<Header>) -> http::HeaderMap {
+	let mut map = http::HeaderMap::new();
+	for h in headers {
+		if let (Ok(name), Ok(value)) = (
+			http::header::HeaderName::try_from(h.name.as_str()),
+			http::header::HeaderValue::try_from(h.value.as_str()),
+		) {
+			map.insert(name, value);
+		}
+	}
+	map
+}
+
+fn body_as_bytes_view(body: &Body, limit: usize) -> BytesView {
+	match body {
+		Body::Static(b) => {
+			if b.len() > limit {
+				BytesView { data: b[..limit].to_vec(), truncated: true }
+			} else {
+				BytesView { data: b.to_vec(), truncated: false }
+			}
+		}
+		Body::Empty | Body::Stream(_) => BytesView { data: vec![], truncated: false },
+	}
+}
+
+fn plugin_error_to_decision(pe: PluginError) -> Result<Decision, Error> {
+	match pe {
+		PluginError::Plugin { code, message, on_error_hint } => match on_error_hint.as_deref() {
+			Some("force-close") => Ok(Decision::Short(ShortCircuit::Close(CloseReason::PolicyDenied(
+				std::borrow::Cow::Owned(format!("plugin force-close: {code}: {message}")),
+			)))),
+			Some("internal") => {
+				tracing::error!(plugin_code = %code, %message, "plugin returned internal error hint");
+				Ok(Decision::Short(ShortCircuit::Close(CloseReason::PolicyDenied(
+					std::borrow::Cow::Borrowed("plugin internal error"),
+				))))
+			}
+			_ => Err(Error::middleware(format!("plugin error {code}: {message}"))),
+		},
+		PluginError::Trap(msg) => Err(Error::middleware(format!("plugin trap: {msg}"))),
+		PluginError::Exhausted => Err(Error::middleware("plugin pool exhausted")),
+	}
+}
+
+async fn dispatch_wasm(
+	w: &crate::flow_graph::WasmMiddleware,
+	l4: &mut Option<L4Conn>,
+	req: &mut Option<Request>,
+	resp: &mut Option<Response>,
+	_conn: &Arc<ConnContext>,
+) -> Result<Decision, Error> {
+	// TODO(s3-14-followup): inspects-driven context packing
+	let ctx: Vec<ContextEntry> = vec![];
+
+	match w.metadata.exports.iter().find(|e| e.name == w.export_name).map(|e| e.kind) {
+		Some(MiddlewareKind::L4Peek) => {
+			let peek = if let Some(L4Conn::Peeked(_)) = l4.as_ref() { vec![] } else { vec![] };
+			let input = L4PeekInput { peek, context: ctx };
+			match w.runtime.invoke_l4_peek(&w.module_id, &w.export_name, &w.args_json, input).await {
+				Ok(L4PeekDecision::Continue) => Ok(Decision::Continue),
+				Ok(L4PeekDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
+					CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l4-peek close")),
+				))),
+				Err(pe) => plugin_error_to_decision(pe),
+			}
+		}
+		Some(MiddlewareKind::L4Bytes) => {
+			let bytes_view = BytesView { data: vec![], truncated: false };
+			let _ = WASM_BODY_LIMIT_L4;
+			let input = L4BytesInput { bytes: bytes_view, context: ctx };
+			match w.runtime.invoke_l4_bytes(&w.module_id, &w.export_name, &w.args_json, input).await {
+				Ok(L4BytesDecision::Continue | L4BytesDecision::Tunnel) => Ok(Decision::Continue),
+				Ok(L4BytesDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
+					CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l4-bytes close")),
+				))),
+				Err(pe) => plugin_error_to_decision(pe),
+			}
+		}
+		Some(MiddlewareKind::L7Request) => {
+			let req_ref = req.as_mut().expect("phase invariant: L7Request wasm needs Request");
+			let method = req_ref.method().to_string();
+			let uri = req_ref.uri().to_string();
+			let headers = http_headers_to_wasm(req_ref.headers());
+			let body_view = if w.metadata.exports.iter().any(|e| e.name == w.export_name && e.needs_body)
+			{
+				Some(body_as_bytes_view(req_ref.body(), WASM_BODY_LIMIT_L7))
+			} else {
+				None
+			};
+			let input = L7RequestInput { method, uri, headers, body: body_view, context: ctx };
+			match w.runtime.invoke_l7_request(&w.module_id, &w.export_name, &w.args_json, input).await {
+				Ok(L7RequestDecision::Continue) => Ok(Decision::Continue),
+				Ok(L7RequestDecision::Short(sr)) => {
+					let response = synth_response_to_http(sr)?;
+					Ok(Decision::Short(ShortCircuit::Response(response)))
+				}
+				Ok(L7RequestDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
+					CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l7-request close")),
+				))),
+				Err(pe) => plugin_error_to_decision(pe),
+			}
+		}
+		Some(MiddlewareKind::L7Response) | None => {
+			let resp_ref = resp.as_mut().expect("phase invariant: L7Response wasm needs Response");
+			let status = resp_ref.status().as_u16();
+			let headers = http_headers_to_wasm(resp_ref.headers());
+			let body_view = if w.metadata.exports.iter().any(|e| e.name == w.export_name && e.needs_body)
+			{
+				Some(body_as_bytes_view(resp_ref.body(), WASM_BODY_LIMIT_L7))
+			} else {
+				None
+			};
+			let input = L7ResponseInput { status, headers, body: body_view, context: ctx };
+			match w.runtime.invoke_l7_response(&w.module_id, &w.export_name, &w.args_json, input).await {
+				Ok(L7ResponseDecision::Continue) => Ok(Decision::Continue),
+				Ok(L7ResponseDecision::Modify(mr)) => {
+					if let Some(Ok(code)) = mr.status.map(http::StatusCode::try_from) {
+						*resp_ref.status_mut() = code;
+					}
+					if let Some(hdrs) = mr.headers {
+						*resp_ref.headers_mut() = wasm_headers_to_http(hdrs);
+					}
+					if let Some(body_bytes) = mr.body {
+						*resp_ref.body_mut() = Body::Static(bytes::Bytes::from(body_bytes));
+					}
+					Ok(Decision::Continue)
+				}
+				Ok(L7ResponseDecision::Abort) => Ok(Decision::Short(ShortCircuit::Close(
+					CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l7-response abort")),
+				))),
+				Err(pe) => plugin_error_to_decision(pe),
+			}
+		}
+	}
+}
+
+fn synth_response_to_http(sr: SynthResponse) -> Result<Response, Error> {
+	let status = http::StatusCode::try_from(sr.status)
+		.map_err(|_| Error::middleware(format!("plugin returned invalid status {}", sr.status)))?;
+	let mut builder = http::Response::builder().status(status);
+	for h in sr.headers {
+		if let (Ok(name), Ok(value)) = (
+			http::header::HeaderName::try_from(h.name.as_str()),
+			http::header::HeaderValue::try_from(h.value.as_str()),
+		) {
+			builder = builder.header(name, value);
+		}
+	}
+	builder
+		.body(Body::Static(bytes::Bytes::from(sr.body)))
+		.map_err(|e| Error::internal(format!("failed to build synth response: {e}")))
 }
 
 // --- Body collection for LazyBuffer middleware ----------------------------

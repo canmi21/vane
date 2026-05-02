@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::ops::Index;
 use std::sync::Arc;
@@ -6,8 +6,8 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use vane_core::{
 	FetchId, FetchKind, FlowGraphMeta, L4BytesMiddleware, L4Fetch, L4PeekMiddleware, L7Fetch,
-	L7RequestMiddleware, L7ResponseMiddleware, MiddlewareId, MiddlewareKind, Node, NodeId,
-	SymbolicFlowGraph, rule::ListenerTlsSpec,
+	L7RequestMiddleware, L7ResponseMiddleware, MiddlewareId, MiddlewareKind, ModuleId, Node, NodeId,
+	PluginMetadata, SymbolicFlowGraph, WasmRuntime, rule::ListenerTlsSpec,
 };
 
 use crate::factories::{
@@ -17,24 +17,80 @@ use crate::security::SecurityConfig;
 use crate::tls::{CertPopulator, StaticCertPopulator, VaneCertResolver};
 use vane_core::ListenerKind;
 
+/// Runtime state for a WASM-backed middleware export.
+pub struct WasmMiddleware {
+	pub module_id: ModuleId,
+	pub export_name: String,
+	pub args_json: String,
+	pub runtime: Arc<dyn WasmRuntime>,
+	pub metadata: Arc<PluginMetadata>,
+}
+
 pub enum MiddlewareInst {
 	L4Peek(Arc<dyn L4PeekMiddleware>),
 	L4Bytes(Arc<dyn L4BytesMiddleware>),
 	L7Request(Arc<dyn L7RequestMiddleware>),
 	L7Response(Arc<dyn L7ResponseMiddleware>),
-	// TODO: S3 adds `Wasm(WasmMiddleware)` once the WASM host lands (see
-	// 04-middleware.md § _`WasmMiddleware` shape_).
+	Wasm(WasmMiddleware),
 }
 
 impl MiddlewareInst {
 	#[must_use]
-	pub const fn kind(&self) -> MiddlewareKind {
+	pub fn kind(&self) -> MiddlewareKind {
 		match self {
 			Self::L4Peek(_) => MiddlewareKind::L4Peek,
 			Self::L4Bytes(_) => MiddlewareKind::L4Bytes,
 			Self::L7Request(_) => MiddlewareKind::L7Request,
 			Self::L7Response(_) => MiddlewareKind::L7Response,
+			Self::Wasm(w) => w
+				.metadata
+				.exports
+				.iter()
+				.find(|e| e.name == w.export_name)
+				.map_or(MiddlewareKind::L7Request, |e| e.kind),
 		}
+	}
+}
+
+/// Registry of pre-loaded WASM plugin exports available to the link pass.
+///
+/// Keys are the plugin reference name used in rule YAML (`<module>:<export>`).
+/// Each entry bundles the module identity, export name, cached metadata, and
+/// the shared runtime handle needed to invoke the plugin at request time.
+#[derive(Default)]
+pub struct PluginRegistry {
+	inner: HashMap<Arc<str>, PluginRegistryEntry>,
+}
+
+pub struct PluginRegistryEntry {
+	pub module_id: ModuleId,
+	pub export_name: String,
+	pub metadata: Arc<PluginMetadata>,
+	pub runtime: Arc<dyn WasmRuntime>,
+}
+
+impl PluginRegistry {
+	#[must_use]
+	pub fn new() -> Self {
+		Self { inner: HashMap::new() }
+	}
+
+	pub fn register(
+		&mut self,
+		name: &str,
+		module_id: ModuleId,
+		export_name: String,
+		metadata: Arc<PluginMetadata>,
+		runtime: Arc<dyn WasmRuntime>,
+	) {
+		self
+			.inner
+			.insert(Arc::from(name), PluginRegistryEntry { module_id, export_name, metadata, runtime });
+	}
+
+	#[must_use]
+	pub fn get(&self, name: &str) -> Option<&PluginRegistryEntry> {
+		self.inner.get(name)
 	}
 }
 
@@ -166,23 +222,28 @@ impl FlowGraph {
 	/// Production callers that have validated env-var values use
 	/// [`Self::link_with_security`] instead.
 	///
+	/// Pass `Some(&plugin_registry)` when the graph may reference WASM
+	/// plugin names; pass `None` for graphs that contain only native
+	/// middleware.
+	///
 	/// # Errors
 	/// Returns [`LinkError`] on any of: unknown middleware name, unknown
 	/// fetch kind, factory-rejected args, middleware kind mismatch
-	/// (declared vs produced), or feature-gated factory reached by a
-	/// rule referencing a capability the binary was not built with.
+	/// (declared vs produced), feature-gated factory reached by a
+	/// rule referencing a capability the binary was not built with, or
+	/// a WASM plugin kind mismatch (metadata vs declared).
 	pub fn link(
 		sym: Arc<SymbolicFlowGraph>,
 		mw_factories: &MiddlewareFactories,
 		fetch_factories: &FetchFactories,
 	) -> Result<Arc<Self>, LinkError> {
-		Self::link_inner(sym, mw_factories, fetch_factories, Arc::new(SecurityConfig::default()))
+		Self::link_inner(sym, mw_factories, None, fetch_factories, Arc::new(SecurityConfig::default()))
 	}
 
-	/// Like [`Self::link`] but with an explicit [`SecurityConfig`]
-	/// (floor-validated by the caller via [`SecurityConfig::new`]).
-	/// Production daemon code uses this path; tests use [`Self::link`]
-	/// and get `SecurityConfig::default()`.
+	/// Like [`Self::link`] but accepts a WASM plugin registry and an explicit
+	/// [`SecurityConfig`] (floor-validated by the caller via
+	/// [`SecurityConfig::new`]). Production daemon code uses this path; tests
+	/// that do not need WASM use [`Self::link`].
 	///
 	/// # Errors
 	/// Same as [`Self::link`].
@@ -192,41 +253,32 @@ impl FlowGraph {
 		fetch_factories: &FetchFactories,
 		security_cfg: Arc<SecurityConfig>,
 	) -> Result<Arc<Self>, LinkError> {
-		Self::link_inner(sym, mw_factories, fetch_factories, security_cfg)
+		Self::link_inner(sym, mw_factories, None, fetch_factories, security_cfg)
+	}
+
+	/// Like [`Self::link_with_security`] but also resolves WASM plugin
+	/// references via `plugin_registry`.
+	///
+	/// # Errors
+	/// Same as [`Self::link`].
+	pub fn link_with_plugins(
+		sym: Arc<SymbolicFlowGraph>,
+		mw_factories: &MiddlewareFactories,
+		plugin_registry: &PluginRegistry,
+		fetch_factories: &FetchFactories,
+		security_cfg: Arc<SecurityConfig>,
+	) -> Result<Arc<Self>, LinkError> {
+		Self::link_inner(sym, mw_factories, Some(plugin_registry), fetch_factories, security_cfg)
 	}
 
 	fn link_inner(
 		sym: Arc<SymbolicFlowGraph>,
 		mw_factories: &MiddlewareFactories,
+		plugin_registry: Option<&PluginRegistry>,
 		fetch_factories: &FetchFactories,
 		security_cfg: Arc<SecurityConfig>,
 	) -> Result<Arc<Self>, LinkError> {
-		let mut middlewares = Vec::with_capacity(sym.middlewares.len());
-		for symref in &sym.middlewares {
-			let entry = mw_factories
-				.get(symref.name.as_ref())
-				.ok_or_else(|| LinkError::UnknownMiddleware(Arc::clone(&symref.name)))?;
-			let inst = match entry {
-				MiddlewareFactoryEntry::FeatureGated(feature) => {
-					return Err(LinkError::FeatureDisabled { feature });
-				}
-				MiddlewareFactoryEntry::Available { kind, construct } => {
-					let built = construct(&symref.args).map_err(|e: FactoryError| {
-						LinkError::MiddlewareFactoryRejected { name: Arc::clone(&symref.name), cause: e.0 }
-					})?;
-					let produced = built.kind();
-					if symref.kind != *kind || symref.kind != produced {
-						return Err(LinkError::MiddlewareKindMismatch {
-							name: Arc::clone(&symref.name),
-							declared: symref.kind,
-							produced,
-						});
-					}
-					built
-				}
-			};
-			middlewares.push(inst);
-		}
+		let middlewares = resolve_middlewares(&sym.middlewares, mw_factories, plugin_registry)?;
 
 		let mut fetches = Vec::with_capacity(sym.fetches.len());
 		for symref in &sym.fetches {
@@ -294,6 +346,66 @@ impl FlowGraph {
 			security_cfg,
 		}))
 	}
+}
+
+fn resolve_middlewares(
+	symrefs: &[vane_core::SymbolicMiddlewareRef],
+	mw_factories: &MiddlewareFactories,
+	plugin_registry: Option<&PluginRegistry>,
+) -> Result<Vec<MiddlewareInst>, LinkError> {
+	let mut middlewares = Vec::with_capacity(symrefs.len());
+	for symref in symrefs {
+		let inst = if let Some(entry) = mw_factories.get(symref.name.as_ref()) {
+			match entry {
+				MiddlewareFactoryEntry::FeatureGated(feature) => {
+					return Err(LinkError::FeatureDisabled { feature });
+				}
+				MiddlewareFactoryEntry::Available { kind, construct } => {
+					let built = construct(&symref.args).map_err(|e: FactoryError| {
+						LinkError::MiddlewareFactoryRejected { name: Arc::clone(&symref.name), cause: e.0 }
+					})?;
+					let produced = built.kind();
+					if symref.kind != *kind || symref.kind != produced {
+						return Err(LinkError::MiddlewareKindMismatch {
+							name: Arc::clone(&symref.name),
+							declared: symref.kind,
+							produced,
+						});
+					}
+					built
+				}
+			}
+		} else if let Some(reg) = plugin_registry {
+			let pe = reg
+				.get(symref.name.as_ref())
+				.ok_or_else(|| LinkError::UnknownMiddleware(Arc::clone(&symref.name)))?;
+			let export = pe
+				.metadata
+				.exports
+				.iter()
+				.find(|e| e.name == pe.export_name)
+				.ok_or_else(|| LinkError::UnknownMiddleware(Arc::clone(&symref.name)))?;
+			if symref.kind != export.kind {
+				return Err(LinkError::WasmPluginKindMismatch {
+					name: Arc::clone(&symref.name),
+					declared: symref.kind,
+					plugin: export.kind,
+				});
+			}
+			let args_json = serde_json::to_string(&symref.args).unwrap_or_default();
+			MiddlewareInst::Wasm(WasmMiddleware {
+				module_id: pe.module_id.clone(),
+				export_name: pe.export_name.clone(),
+				args_json,
+				runtime: Arc::clone(&pe.runtime),
+				metadata: Arc::clone(&pe.metadata),
+			})
+		} else {
+			return Err(LinkError::UnknownMiddleware(Arc::clone(&symref.name)));
+		};
+		middlewares.push(inst);
+	}
+	Ok(middlewares)
 }
 
 /// Build a `rustls::ServerConfig` for a listener's cert pool. ALPN
@@ -408,6 +520,9 @@ pub enum LinkError {
 
 	#[error("middleware {name:?} factory produced kind {produced:?}, declared kind {declared:?}")]
 	MiddlewareKindMismatch { name: Arc<str>, declared: MiddlewareKind, produced: MiddlewareKind },
+
+	#[error("WASM plugin {name:?} export kind {plugin:?} does not match declared kind {declared:?}")]
+	WasmPluginKindMismatch { name: Arc<str>, declared: MiddlewareKind, plugin: MiddlewareKind },
 
 	#[error("middleware {name:?}: {cause}")]
 	MiddlewareFactoryRejected { name: Arc<str>, cause: String },
