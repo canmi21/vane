@@ -2081,4 +2081,95 @@ mod tests {
 			"args_received must be set after get-args is called"
 		);
 	}
+
+	// ─── validate_status ────────────────────────────────────────────────────────
+
+	#[test]
+	fn validate_status_accepts_boundary_values() {
+		assert!(validate_status(100).is_ok());
+		assert!(validate_status(599).is_ok());
+		assert!(validate_status(200).is_ok());
+		assert!(validate_status(404).is_ok());
+	}
+
+	#[test]
+	fn validate_status_rejects_out_of_range() {
+		assert!(validate_status(99).is_err());
+		assert!(validate_status(600).is_err());
+		assert!(validate_status(0).is_err());
+	}
+
+	// ─── validate_header_name ───────────────────────────────────────────────────
+
+	#[test]
+	fn validate_header_name_accepts_clean_ascii() {
+		assert!(validate_header_name("content-type").is_ok());
+		assert!(validate_header_name("x-custom-header").is_ok());
+	}
+
+	#[test]
+	fn validate_header_name_rejects_cr() {
+		assert!(validate_header_name("bad\rheader").is_err());
+	}
+
+	#[test]
+	fn validate_header_name_rejects_lf() {
+		assert!(validate_header_name("bad\nheader").is_err());
+	}
+
+	#[test]
+	fn validate_header_name_rejects_nul() {
+		assert!(validate_header_name("bad\0header").is_err());
+	}
+
+	// ─── validate_header_value ──────────────────────────────────────────────────
+
+	#[test]
+	fn validate_header_value_accepts_clean_ascii() {
+		assert!(validate_header_value("application/json").is_ok());
+		assert!(validate_header_value("Bearer token123").is_ok());
+	}
+
+	#[test]
+	fn validate_header_value_rejects_cr() {
+		assert!(validate_header_value("bad\rvalue").is_err());
+	}
+
+	#[test]
+	fn validate_header_value_rejects_lf() {
+		assert!(validate_header_value("bad\nvalue").is_err());
+	}
+
+	#[test]
+	fn validate_header_value_rejects_nul() {
+		assert!(validate_header_value("bad\0value").is_err());
+	}
+
+	// ─── validate_on_error_hint ─────────────────────────────────────────────────
+
+	#[test]
+	fn validate_on_error_hint_accepts_none() {
+		assert!(validate_on_error_hint(None).is_ok());
+	}
+
+	#[test]
+	fn validate_on_error_hint_accepts_force_close() {
+		assert!(validate_on_error_hint(Some(&"force-close".to_owned())).is_ok());
+	}
+
+	#[test]
+	fn validate_on_error_hint_accepts_internal() {
+		assert!(validate_on_error_hint(Some(&"internal".to_owned())).is_ok());
+	}
+
+	#[test]
+	fn validate_on_error_hint_rejects_empty_string() {
+		assert!(validate_on_error_hint(Some(&String::new())).is_err());
+	}
+
+	#[test]
+	fn validate_on_error_hint_rejects_unknown_value() {
+		assert!(validate_on_error_hint(Some(&"retry".to_owned())).is_err());
+		assert!(validate_on_error_hint(Some(&"pass-through".to_owned())).is_err());
+	}
 }
