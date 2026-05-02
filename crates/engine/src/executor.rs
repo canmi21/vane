@@ -687,8 +687,9 @@ fn plugin_error_to_decision(pe: PluginError) -> Result<Decision, Error> {
 	}
 }
 
+#[doc(hidden)]
 #[allow(clippy::too_many_lines)]
-async fn dispatch_wasm(
+pub async fn dispatch_wasm(
 	w: &crate::flow_graph::WasmMiddleware,
 	l4: &mut Option<L4Conn>,
 	req: &mut Option<Request>,
@@ -782,7 +783,11 @@ async fn dispatch_wasm(
 				Err(pe) => plugin_error_to_decision(pe),
 			}
 		}
-		Some(MiddlewareKind::L7Response) | None => {
+		None => Err(Error::middleware(format!(
+			"export '{}' not found in plugin metadata for module '{}'",
+			w.export_name, w.module_id.0,
+		))),
+		Some(MiddlewareKind::L7Response) => {
 			let resp_ref = resp.as_mut().expect("phase invariant: L7Response wasm needs Response");
 			let status = resp_ref.status().as_u16();
 			let headers = http_headers_to_wasm(resp_ref.headers());

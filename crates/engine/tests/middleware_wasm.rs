@@ -683,3 +683,53 @@ async fn wasm_l4peek_dispatch_forwards_peek_buffer_from_conn_user() {
 		"plugin must receive the PeekResult.buffer bytes verbatim",
 	);
 }
+
+// ---------------------------------------------------------------------------
+// (i) dispatch_wasm returns Err when export_name is not in metadata exports
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn wasm_dispatch_returns_err_when_export_missing_from_metadata() {
+	// Construct a `WasmMiddleware` whose `export_name` does not appear in
+	// the metadata's exports list. The link pipeline normally guards
+	// against this — the test forces the corrupt state directly to verify
+	// `dispatch_wasm` reports the inconsistency rather than falling
+	// through to the L7Response arm and panicking on the `expect`.
+	use vane_engine::executor::dispatch_wasm;
+	use vane_engine::flow_graph::WasmMiddleware;
+
+	let runtime: Arc<dyn WasmRuntime> = Arc::new(MockWasmRuntime::with_l7_request(vec![]));
+	let metadata = Arc::new(PluginMetadata {
+		name: "mock".to_owned(),
+		version: "0.1.0".to_owned(),
+		abi_version: "0.1.0".to_owned(),
+		exports: vec![PluginExport {
+			name: "real-export".to_owned(),
+			kind: MiddlewareKind::L7Response,
+			stateless: true,
+			needs_body: false,
+			inspects: vec![],
+		}],
+	});
+	let w = WasmMiddleware {
+		module_id: ModuleId(Arc::from("/fake/plugin.wasm")),
+		export_name: "missing-export".to_owned(),
+		args_json: "null".to_owned(),
+		runtime,
+		metadata,
+	};
+
+	let conn = make_conn();
+	let mut l4: Option<L4Conn> = None;
+	let mut req: Option<Request> = None;
+	let mut resp: Option<vane_core::Response> = None;
+	let result = dispatch_wasm(&w, &mut l4, &mut req, &mut resp, &conn).await;
+
+	let Err(err) = result else {
+		panic!("missing export must surface as Err, got Ok decision");
+	};
+	assert!(
+		err.to_string().contains("missing-export"),
+		"err must mention the missing export name: {err}",
+	);
+}
