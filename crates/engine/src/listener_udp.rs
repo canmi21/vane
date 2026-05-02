@@ -135,6 +135,48 @@ pub async fn run_udp_listener(
 	bind_ready.store(true, Ordering::Release);
 	let socket = Arc::new(socket);
 
+	// On UDP+Http listeners, bring up the H3 stack: per-listener
+	// quinn::Endpoint wrapping a VirtualUdpSocket, registered in the
+	// dispatch table under the sentinel `QuicConnId(empty)` key.
+	#[cfg(feature = "h3")]
+	{
+		let captured = graph.load_full();
+		let kind = captured
+			.symbolic()
+			.meta
+			.listener_kinds
+			.get(&addr)
+			.copied()
+			.unwrap_or(vane_core::ListenerKind::Raw);
+		if matches!(kind, vane_core::ListenerKind::Http) {
+			if let Some(tls_cfg) = captured.listener_tls(&addr).cloned() {
+				match crate::h3_listener::spawn_h3_endpoint(
+					addr,
+					Arc::clone(&socket),
+					tls_cfg,
+					Arc::clone(&dispatch_table),
+					Arc::clone(&graph),
+					Arc::clone(&log_sink),
+					Arc::clone(&verbosity),
+					force_cancel.clone(),
+				) {
+					Ok(()) => {
+						tracing::info!(?addr, "h3 listener up");
+					}
+					Err(e) => {
+						tracing::error!(?addr, error = %e, "h3 endpoint setup failed");
+					}
+				}
+			} else {
+				tracing::warn!(
+					?addr,
+					"udp Http listener has no listener_tls config; H3 requires TLS — skipping H3 setup",
+				);
+			}
+		}
+		drop(captured);
+	}
+
 	let mut buf = vec![0u8; MAX_DATAGRAM];
 	loop {
 		tokio::select! {

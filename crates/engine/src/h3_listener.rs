@@ -23,11 +23,18 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Waker};
 
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use parking_lot::Mutex;
 use quinn::udp::{RecvMeta, Transmit};
 use quinn::{AsyncUdpSocket, UdpPoller};
 use tokio::net::UdpSocket;
+use tokio_util::sync::CancellationToken;
+use vane_core::FlowLogSink;
+
+use crate::flow_graph::FlowGraph;
+use crate::listener_udp::{DispatchHandle, DispatchKey, DispatchTable};
+use crate::verbosity::VerbosityState;
 
 /// Bounded inbound queue per virtual socket. Full = drop, mirroring
 /// `listener_udp.rs::SESSION_INBOUND_CAPACITY` — the listener loop must
@@ -201,4 +208,111 @@ pub fn build_quic_server_config(
 	let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(h3_rustls)
 		.map_err(|e| format!("quic server config: {e}"))?;
 	Ok(quinn::ServerConfig::with_crypto(Arc::new(crypto)))
+}
+
+/// Bring up the H3 stack on a UDP listener whose derived
+/// [`vane_core::ListenerKind`] is `Http`. Builds the `quinn::Endpoint`
+/// against a [`VirtualUdpSocket`] wrapping the listener's physical
+/// socket, registers the virtual socket in the dispatch table under
+/// the sentinel `QuicConnId(empty)` key, then spawns the accept loop
+/// that hands each new connection to `drive_h3_server`.
+///
+/// `tls_cfg` is the same `Arc<rustls::ServerConfig>` the TCP path
+/// uses (cert resolver = `VaneCertResolver`); only ALPN is overridden
+/// to `[b"h3"]` per RFC 9114.
+///
+/// # Errors
+///
+/// Returns a stringly error if the QUIC server config or the
+/// `quinn::Endpoint` fails to construct.
+#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+pub fn spawn_h3_endpoint(
+	addr: SocketAddr,
+	physical: Arc<UdpSocket>,
+	tls_cfg: Arc<rustls::ServerConfig>,
+	dispatch_table: Arc<DispatchTable>,
+	graph: Arc<ArcSwap<FlowGraph>>,
+	log_sink: Arc<dyn FlowLogSink>,
+	verbosity: Arc<VerbosityState>,
+	force_cancel: CancellationToken,
+) -> Result<(), String> {
+	let server_config = build_quic_server_config(&tls_cfg)?;
+
+	let virtual_socket: Arc<VirtualUdpSocket> = VirtualUdpSocket::new(physical);
+	dispatch_table.insert(
+		DispatchKey::QuicConnId(quinn_proto::ConnectionId::new(&[])),
+		Arc::new(DispatchHandle::Quic(Arc::clone(&virtual_socket))),
+	);
+
+	let runtime = Arc::new(quinn::TokioRuntime);
+	let endpoint = quinn::Endpoint::new_with_abstract_socket(
+		quinn::EndpointConfig::default(),
+		Some(server_config),
+		virtual_socket,
+		runtime,
+	)
+	.map_err(|e| format!("quic endpoint: {e}"))?;
+
+	tokio::spawn(async move {
+		run_h3_accept_loop(addr, endpoint, graph, &log_sink, &verbosity, force_cancel).await;
+	});
+	Ok(())
+}
+
+/// Accept-loop task: pulls each `Incoming` from the endpoint, fully
+/// negotiates the QUIC handshake, then spawns
+/// [`crate::upgrade::drive_h3_server`] to run streams over it. Exits
+/// when the cancel token fires.
+#[allow(clippy::needless_pass_by_value)]
+async fn run_h3_accept_loop(
+	addr: SocketAddr,
+	endpoint: quinn::Endpoint,
+	graph: Arc<ArcSwap<FlowGraph>>,
+	log_sink: &Arc<dyn FlowLogSink>,
+	verbosity: &Arc<VerbosityState>,
+	force_cancel: CancellationToken,
+) {
+	loop {
+		tokio::select! {
+			biased;
+			() = force_cancel.cancelled() => {
+				endpoint.close(0u32.into(), b"shutdown");
+				return;
+			}
+			incoming = endpoint.accept() => {
+				let Some(incoming) = incoming else {
+					return; // endpoint closed
+				};
+				let connecting = match incoming.accept() {
+					Ok(c) => c,
+					Err(e) => {
+						tracing::debug!(?addr, error = %e, "h3 incoming accept failed");
+						continue;
+					}
+				};
+				let graph = Arc::clone(&graph);
+				let log_sink = Arc::clone(log_sink);
+				let verbosity = Arc::clone(verbosity);
+				let force_cancel = force_cancel.clone();
+				tokio::spawn(async move {
+					match connecting.await {
+						Ok(quic_conn) => {
+							crate::upgrade::drive_h3_server(
+								addr,
+								quic_conn,
+								graph,
+								log_sink,
+								force_cancel,
+								verbosity,
+							)
+							.await;
+						}
+						Err(e) => {
+							tracing::debug!(?addr, error = %e, "h3 quic handshake failed");
+						}
+					}
+				});
+			}
+		}
+	}
 }

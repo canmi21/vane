@@ -428,3 +428,204 @@ fn unix_ms_now() -> u64 {
 		.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 		.unwrap_or_default()
 }
+
+/// Drive an H3 connection. Mirrors [`drive_h1_server`] / [`drive_h2_server`]
+/// in shape: builds a fresh `FlowCtx` per request, hands the
+/// `http::Request<Body>` to the executor, then writes the resulting
+/// response back through the h3 stream's `send_response` /
+/// `send_data` / `send_trailers` / `finish`. Stream-level errors close
+/// the stream; connection-level errors return.
+///
+/// This driver is reachable only via the H3 listener path, which
+/// pre-populates `ConnContext.transport = Udp` and `http_version =
+/// Http3`.
+#[cfg(feature = "h3")]
+pub(crate) async fn drive_h3_server(
+	listener_addr: std::net::SocketAddr,
+	quic_conn: quinn::Connection,
+	graph: Arc<arc_swap::ArcSwap<FlowGraph>>,
+	log: Arc<dyn FlowLogSink>,
+	cancel: CancellationToken,
+	verbosity: Arc<crate::verbosity::VerbosityState>,
+) {
+	let remote = quic_conn.remote_address();
+	let conn_id = crate::listener::next_conn_id();
+	let conn = Arc::new(vane_core::ConnContext {
+		id: conn_id,
+		remote,
+		local: listener_addr,
+		transport: vane_core::Transport::Udp,
+		entered_at: std::time::Instant::now(),
+		tls: parking_lot::Mutex::new(Some(vane_core::TlsInfo {
+			alpn: Some(b"h3".to_vec()),
+			..vane_core::TlsInfo::default()
+		})),
+		http_version: std::sync::OnceLock::new(),
+		user: parking_lot::Mutex::new(http::Extensions::new()),
+	});
+	let _ = conn.http_version.set(HttpVersion::Http3);
+
+	let h3_quic_conn = h3_quinn::Connection::new(quic_conn);
+	let mut h3_conn = match h3::server::Connection::new(h3_quic_conn).await {
+		Ok(c) => c,
+		Err(e) => {
+			tracing::debug!(error = %e, conn_id = %conn.id, "h3 server::Connection setup failed");
+			return;
+		}
+	};
+
+	loop {
+		tokio::select! {
+			biased;
+			() = cancel.cancelled() => return,
+			accepted = h3_conn.accept() => {
+				match accepted {
+					Ok(Some(resolver)) => {
+						let (req, stream) = match resolver.resolve_request().await {
+							Ok(t) => t,
+							Err(e) => {
+								tracing::debug!(error = %e, conn_id = %conn.id, "h3 resolve_request failed");
+								continue;
+							}
+						};
+						let graph_snap = graph.load_full();
+						let Some(entry) =
+							graph_snap.symbolic().entries.get(&listener_addr).copied()
+						else {
+							tracing::debug!(
+								?listener_addr,
+								conn_id = %conn.id,
+								"h3 stream: no entry in active graph; dropping",
+							);
+							continue;
+						};
+						let conn = Arc::clone(&conn);
+						let log = Arc::clone(&log);
+						let cancel = cancel.clone();
+						let verbosity = verbosity.current();
+						tokio::spawn(handle_h3_request(req, stream, graph_snap, entry, conn, log, cancel, verbosity));
+					}
+					Ok(None) => return,
+					Err(e) => {
+						tracing::debug!(error = %e, conn_id = %conn.id, "h3 accept ended with err");
+						return;
+					}
+				}
+			}
+		}
+	}
+}
+
+/// Per-stream handler — runs the executor then writes the response
+/// back through the h3 stream half. Body frames are pulled via
+/// `http_body::Body::poll_frame` and forwarded to `send_data` /
+/// `send_trailers`; the stream is `finish`ed at end.
+#[cfg(feature = "h3")]
+#[allow(clippy::too_many_arguments)]
+async fn handle_h3_request(
+	req: http::Request<()>,
+	mut stream: h3::server::RequestStream<h3_quinn::BidiStream<bytes::Bytes>, bytes::Bytes>,
+	graph: Arc<FlowGraph>,
+	entry: NodeId,
+	conn: Arc<vane_core::ConnContext>,
+	log: Arc<dyn FlowLogSink>,
+	cancel: CancellationToken,
+	verbosity: vane_core::FlowLogVerbosity,
+) {
+	use http_body::Body as _;
+	let (parts, _empty) = req.into_parts();
+
+	// h3 0.0.8 splits stream into a request resolver and a stream
+	// handle; the body data is read on the same stream we'll later
+	// write the response to. To keep the H3Body alive concurrently
+	// with response writing we'd need a split; for this PR we drain
+	// the body inline before invoking the executor (works for small
+	// requests; spec-compliant streaming lands when the H3Body /
+	// stream split is done end-to-end).
+	// TODO(s3-01-followup): split the stream so request body can
+	// stream into the executor concurrently with response writing.
+	let mut body_bytes = Vec::new();
+	loop {
+		match stream.recv_data().await {
+			Ok(Some(mut chunk)) => {
+				use bytes::Buf as _;
+				let remaining = chunk.remaining();
+				let bytes = chunk.copy_to_bytes(remaining);
+				body_bytes.extend_from_slice(&bytes);
+			}
+			Ok(None) => break,
+			Err(e) => {
+				tracing::debug!(error = %e, conn_id = %conn.id, "h3 recv_data failed");
+				return;
+			}
+		}
+	}
+	let body =
+		if body_bytes.is_empty() { Body::Empty } else { Body::Static(bytes::Bytes::from(body_bytes)) };
+	let vane_req: Request = http::Request::from_parts(parts, body);
+
+	let span = tracing::info_span!(
+		"request",
+		conn = %conn.id,
+		method = %vane_req.method(),
+		path = %vane_req.uri().path(),
+	);
+	let mut ctx = FlowCtx {
+		span,
+		log,
+		cancel,
+		verbosity,
+		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
+	};
+
+	let exec_out =
+		execute(&graph, entry, ExecutorInput::L7(Box::new(vane_req)), &conn, &mut ctx).await;
+
+	let response = match exec_out {
+		Ok(ExecutorOutput::HttpResponse(r)) => r,
+		Ok(ExecutorOutput::Closed) => {
+			http::Response::builder().status(421).body(Body::Empty).expect("static 421")
+		}
+		Ok(ExecutorOutput::Tunneled) => {
+			tracing::warn!("L7 tunnel terminator (WebSocket) not supported on H3 — synthesising 500");
+			http::Response::builder().status(500).body(Body::Empty).expect("static 500")
+		}
+		Err(e) => {
+			tracing::warn!(error = %e, "L7 execute returned Err — synthesising 500");
+			http::Response::builder().status(500).body(Body::Empty).expect("static 500")
+		}
+	};
+
+	let (rparts, mut rbody) = response.into_parts();
+	let resp_for_h3 = http::Response::from_parts(rparts, ());
+	if let Err(e) = stream.send_response(resp_for_h3).await {
+		tracing::debug!(error = %e, conn_id = %conn.id, "h3 send_response failed");
+		return;
+	}
+	loop {
+		let frame = std::future::poll_fn(|cx| Pin::new(&mut rbody).poll_frame(cx)).await;
+		match frame {
+			Some(Ok(f)) => {
+				if let Some(data) = f.data_ref()
+					&& let Err(e) = stream.send_data(data.clone()).await
+				{
+					tracing::debug!(error = %e, conn_id = %conn.id, "h3 send_data failed");
+					return;
+				} else if let Some(trailers) = f.trailers_ref()
+					&& let Err(e) = stream.send_trailers(trailers.clone()).await
+				{
+					tracing::debug!(error = %e, conn_id = %conn.id, "h3 send_trailers failed");
+					return;
+				}
+			}
+			Some(Err(e)) => {
+				tracing::debug!(error = %e, conn_id = %conn.id, "h3 response body err");
+				return;
+			}
+			None => break,
+		}
+	}
+	if let Err(e) = stream.finish().await {
+		tracing::debug!(error = %e, conn_id = %conn.id, "h3 finish failed");
+	}
+}
