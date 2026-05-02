@@ -20,7 +20,27 @@ pub enum FieldPath {
 	TlsSni,
 	TlsAlpn,
 	TlsVersion,
+	/// Was a verified peer cert presented this connection? Reads
+	/// `tls.peer_cert.is_some()`. Bool-typed.
+	TlsPeerCertPresent,
 	TlsPeerCertSubjectCn,
+	/// DNS-type Subject Alternative Names from the verified peer
+	/// cert. `Vec<Str>`-typed: `contains`/`not_contains` against a
+	/// single-element operand are the only legal operators (per
+	/// `spec/architecture/18-predicate-schema.md` § _Operator × value
+	/// type compatibility_).
+	TlsPeerCertSanDns,
+	/// SHA-256 of the full DER-encoded leaf cert, lowercase hex.
+	TlsPeerCertFingerprintSha256,
+	/// SHA-256 of the cert's `SubjectPublicKeyInfo` (rotation-stable
+	/// pin), lowercase hex.
+	TlsPeerCertSpkiSha256,
+	/// Issuer Common Name — useful for routing on which internal CA
+	/// signed the client cert.
+	TlsPeerCertIssuerCn,
+	/// Cert serial number, lowercase hex, big-endian, no
+	/// leading-zero stripping.
+	TlsPeerCertSerial,
 	HttpMethod,
 	HttpUriPath,
 	HttpUriQuery,
@@ -39,6 +59,8 @@ pub enum FieldValueType {
 	Int,
 	IpAddr,
 	Enum,
+	Bool,
+	VecStr,
 }
 
 impl FieldValueType {
@@ -50,6 +72,8 @@ impl FieldValueType {
 			Self::Int => "Int",
 			Self::IpAddr => "IpAddr",
 			Self::Enum => "enum",
+			Self::Bool => "Bool",
+			Self::VecStr => "Vec<Str>",
 		}
 	}
 }
@@ -65,8 +89,14 @@ impl FieldPath {
 			Self::RemoteIp | Self::LocalIp => FieldValueType::IpAddr,
 			Self::RemotePort | Self::LocalPort => FieldValueType::Int,
 			Self::Peek | Self::TlsAlpn | Self::HttpBody => FieldValueType::Bytes,
+			Self::TlsPeerCertPresent => FieldValueType::Bool,
+			Self::TlsPeerCertSanDns => FieldValueType::VecStr,
 			Self::TlsSni
 			| Self::TlsPeerCertSubjectCn
+			| Self::TlsPeerCertFingerprintSha256
+			| Self::TlsPeerCertSpkiSha256
+			| Self::TlsPeerCertIssuerCn
+			| Self::TlsPeerCertSerial
 			| Self::HttpUriPath
 			| Self::HttpUriQuery
 			| Self::HttpHeader(_) => FieldValueType::Str,
@@ -86,7 +116,13 @@ impl FieldPath {
 			Self::TlsSni => "tls.sni".to_string(),
 			Self::TlsAlpn => "tls.alpn".to_string(),
 			Self::TlsVersion => "tls.version".to_string(),
+			Self::TlsPeerCertPresent => "tls.peer_cert.present".to_string(),
 			Self::TlsPeerCertSubjectCn => "tls.peer_cert.subject_cn".to_string(),
+			Self::TlsPeerCertSanDns => "tls.peer_cert.san_dns".to_string(),
+			Self::TlsPeerCertFingerprintSha256 => "tls.peer_cert.fingerprint_sha256".to_string(),
+			Self::TlsPeerCertSpkiSha256 => "tls.peer_cert.spki_sha256".to_string(),
+			Self::TlsPeerCertIssuerCn => "tls.peer_cert.issuer_cn".to_string(),
+			Self::TlsPeerCertSerial => "tls.peer_cert.serial".to_string(),
 			Self::HttpMethod => "http.method".to_string(),
 			Self::HttpUriPath => "http.uri.path".to_string(),
 			Self::HttpUriQuery => "http.uri.query".to_string(),
@@ -157,8 +193,16 @@ impl OperatorFamily {
 		use OperatorFamily as F;
 		matches!(
 			(self, vt),
-			(F::Equality | F::InList, _)
-				| (F::StringSubstr | F::StringPrefSuf, V::Str | V::Bytes)
+			// Equality on every value type *except* Vec<Str>: equals
+			// against a list literal isn't expressible in the JSON
+			// schema (no Vec<Str> JSON value type) and would be
+			// semantically the same as element-wise contains anyway.
+			(F::Equality, V::Str | V::Bytes | V::Int | V::IpAddr | V::Enum | V::Bool)
+				// In-list — same set as Equality minus Bool (no JSON
+				// boolean array literal).
+				| (F::InList, V::Str | V::Bytes | V::Int | V::IpAddr | V::Enum)
+				| (F::StringSubstr, V::Str | V::Bytes | V::VecStr)
+				| (F::StringPrefSuf, V::Str | V::Bytes)
 				| (F::RegexMatches, V::Str)
 				| (F::NumericCmp, V::Int)
 				| (F::CidrMatch, V::IpAddr),
@@ -169,8 +213,10 @@ impl OperatorFamily {
 	#[must_use]
 	pub fn family_expectation(self) -> &'static str {
 		match self {
-			Self::Equality | Self::InList => "any of Str/Bytes/Int/IpAddr/enum",
-			Self::StringSubstr | Self::StringPrefSuf => "Str or Bytes",
+			Self::Equality => "any of Str/Bytes/Int/IpAddr/enum/Bool",
+			Self::InList => "any of Str/Bytes/Int/IpAddr/enum",
+			Self::StringSubstr => "Str, Bytes, or Vec<Str>",
+			Self::StringPrefSuf => "Str or Bytes",
 			Self::RegexMatches => "Str",
 			Self::NumericCmp => "numeric",
 			Self::CidrMatch => "IpAddr",
@@ -350,6 +396,7 @@ impl PredicateInst {
 	/// is surfaced as a clear panic instead of a silent miss. All other
 	/// arms are panic-free; absent state misses sound-by-default.
 	#[must_use]
+	#[allow(clippy::too_many_lines)]
 	pub fn test(&self, view: &PredicateView<'_>) -> bool {
 		match &self.path {
 			FieldPath::Transport => {
@@ -385,21 +432,64 @@ impl PredicateInst {
 				.as_ref()
 				.and_then(|t| t.version)
 				.is_some_and(|v| test_str(&self.op, tls_version_str(v))),
-			// `tls.peer_cert.subject_cn` reads the client certificate
-			// captured at the TLS handshake. Stage-1 listeners don't
-			// request mTLS so `peer_cert` is `None` in production; the
-			// reader still parses the X.509 subject CN via x509-parser
-			// when a cert is present so mTLS work won't need to revisit
-			// this arm. Sound-by-default: missing cert / no CN /
-			// malformed cert all miss.
-			FieldPath::TlsPeerCertSubjectCn => {
-				let cert_der = view.conn().tls.lock().as_ref().and_then(|t| t.peer_cert.clone());
-				let Some(cert) = cert_der else { return false };
-				match peer_cert_subject_cn(cert.as_ref()) {
-					Some(cn) => test_str(&self.op, cn.as_str()),
-					None => false,
-				}
+			// `tls.peer_cert.*` reads the verified client certificate
+			// captured at TLS handshake completion. The engine's
+			// post-handshake hook pre-extracts every predicate-readable
+			// field into `PeerCertificate`, so these readers just look
+			// up cached scalars — no per-Check re-parse. Sound-by-
+			// default: missing cert / missing field all miss (except
+			// `present`, which returns false explicitly when the cert
+			// is absent — by design, so the Request-mode pattern of
+			// "branch on present == false" works).
+			FieldPath::TlsPeerCertPresent => {
+				let present = view.conn().tls.lock().as_ref().is_some_and(|t| t.peer_cert.is_some());
+				test_bool(&self.op, present)
 			}
+			FieldPath::TlsPeerCertSubjectCn => view
+				.conn()
+				.tls
+				.lock()
+				.as_ref()
+				.and_then(|t| t.peer_cert.as_ref().and_then(|p| p.subject_cn.clone()))
+				.is_some_and(|cn| test_str(&self.op, cn.as_str())),
+			FieldPath::TlsPeerCertSanDns => {
+				let dns_list: Vec<String> = view
+					.conn()
+					.tls
+					.lock()
+					.as_ref()
+					.and_then(|t| t.peer_cert.as_ref().map(|p| p.san_dns.clone()))
+					.unwrap_or_default();
+				test_vec_str(&self.op, &dns_list)
+			}
+			FieldPath::TlsPeerCertFingerprintSha256 => view
+				.conn()
+				.tls
+				.lock()
+				.as_ref()
+				.and_then(|t| t.peer_cert.as_ref().map(|p| p.fingerprint_sha256.clone()))
+				.is_some_and(|s| test_str(&self.op, s.as_str())),
+			FieldPath::TlsPeerCertSpkiSha256 => view
+				.conn()
+				.tls
+				.lock()
+				.as_ref()
+				.and_then(|t| t.peer_cert.as_ref().map(|p| p.spki_sha256.clone()))
+				.is_some_and(|s| test_str(&self.op, s.as_str())),
+			FieldPath::TlsPeerCertIssuerCn => view
+				.conn()
+				.tls
+				.lock()
+				.as_ref()
+				.and_then(|t| t.peer_cert.as_ref().and_then(|p| p.issuer_cn.clone()))
+				.is_some_and(|s| test_str(&self.op, s.as_str())),
+			FieldPath::TlsPeerCertSerial => view
+				.conn()
+				.tls
+				.lock()
+				.as_ref()
+				.and_then(|t| t.peer_cert.as_ref().map(|p| p.serial.clone()))
+				.is_some_and(|s| test_str(&self.op, s.as_str())),
 			FieldPath::HttpMethod => {
 				let Some(req) = view.request() else { return false };
 				test_str(&self.op, req.method().as_str())
@@ -455,23 +545,38 @@ fn tls_version_str(v: crate::conn_context::TlsVersion) -> &'static str {
 	}
 }
 
-/// Extract the subject Common Name (CN, OID 2.5.4.3) from a DER-encoded
-/// X.509 certificate. Returns `None` when:
-/// - the bytes do not parse as an X.509 v3 certificate (malformed cert)
-/// - the subject contains no CN attribute (modern certs frequently
-///   put hostnames in `subjectAltName` only)
-/// - the CN value is non-UTF-8 (`PrintableString` / `IA5String` /
-///   `UTF8String` are accepted; `BMPString` and rarer ASN.1 strings
-///   fall through)
-///
-/// The function is small and pure so the matrix dispatch stays
-/// allocation-light per Check evaluation.
-fn peer_cert_subject_cn(der: &[u8]) -> Option<String> {
-	use x509_parser::prelude::*;
-	let (_, cert) = X509Certificate::from_der(der).ok()?;
-	let subject = cert.tbs_certificate.subject();
-	let cn_attr = subject.iter_common_name().next()?;
-	cn_attr.as_str().ok().map(ToString::to_string)
+// `peer_cert_subject_cn` was the per-Check x509-parser invocation used
+// before mTLS landed. The engine now pre-extracts every
+// `tls.peer_cert.*` field once at handshake completion (see
+// `PeerCertificate::from_der`); the per-Check predicate readers just
+// look up the cached scalar.
+
+/// Bool-typed reader. Per `spec/architecture/18-predicate-schema.md`
+/// § _Operator × value type compatibility_, only `equals` /
+/// `not_equals` against a Bool literal are legal; everything else
+/// matrix-rejects at compile and falls through to `false` here as a
+/// sound default.
+fn test_bool(op: &CompiledOperator, value: bool) -> bool {
+	match op {
+		CompiledOperator::Equals(CompiledValue::Bool(expected)) => value == *expected,
+		CompiledOperator::NotEquals(CompiledValue::Bool(expected)) => value != *expected,
+		_ => false,
+	}
+}
+
+/// `Vec<Str>`-typed reader. Per spec, only `contains` /
+/// `not_contains` against a single-string operand are legal; the
+/// semantics is "the list contains / does not contain this exact
+/// element", not byte-level substring. Other operators
+/// matrix-reject at compile.
+fn test_vec_str(op: &CompiledOperator, values: &[String]) -> bool {
+	match op {
+		CompiledOperator::Contains(needle) => values.iter().any(|v| v.as_bytes() == needle.as_ref()),
+		CompiledOperator::NotContains(needle) => {
+			!values.iter().any(|v| v.as_bytes() == needle.as_ref())
+		}
+		_ => false,
+	}
 }
 
 /// String-typed reader. Handles `equals`/`not_equals`,
@@ -705,7 +810,13 @@ fn parse_field_path(s: &str) -> Result<FieldPath, String> {
 		"tls.sni" => Ok(FieldPath::TlsSni),
 		"tls.alpn" => Ok(FieldPath::TlsAlpn),
 		"tls.version" => Ok(FieldPath::TlsVersion),
+		"tls.peer_cert.present" => Ok(FieldPath::TlsPeerCertPresent),
 		"tls.peer_cert.subject_cn" => Ok(FieldPath::TlsPeerCertSubjectCn),
+		"tls.peer_cert.san_dns" => Ok(FieldPath::TlsPeerCertSanDns),
+		"tls.peer_cert.fingerprint_sha256" => Ok(FieldPath::TlsPeerCertFingerprintSha256),
+		"tls.peer_cert.spki_sha256" => Ok(FieldPath::TlsPeerCertSpkiSha256),
+		"tls.peer_cert.issuer_cn" => Ok(FieldPath::TlsPeerCertIssuerCn),
+		"tls.peer_cert.serial" => Ok(FieldPath::TlsPeerCertSerial),
 		"http.method" => Ok(FieldPath::HttpMethod),
 		"http.uri.path" => Ok(FieldPath::HttpUriPath),
 		"http.uri.query" => Ok(FieldPath::HttpUriQuery),
@@ -2317,41 +2428,46 @@ mod tests {
 		cert.der().clone()
 	}
 
-	fn conn_with_peer_cert(cert: rustls_pki_types::CertificateDer<'static>) -> Arc<ConnContext> {
+	fn conn_with_peer_cert(cert: &rustls_pki_types::CertificateDer<'static>) -> Arc<ConnContext> {
+		let pc = crate::conn_context::PeerCertificate::from_der(cert)
+			.expect("rcgen-issued cert must parse via PeerCertificate::from_der");
 		let conn = make_conn();
 		*conn.tls.lock() = Some(crate::conn_context::TlsInfo {
 			sni: None,
 			alpn: None,
 			version: None,
-			peer_cert: Some(cert),
+			peer_cert: Some(Arc::new(pc)),
 		});
 		conn
 	}
 
 	#[test]
-	fn peer_cert_subject_cn_extraction_returns_cn_string() {
-		// Direct unit test on the X.509 helper — bypass the dispatch.
+	fn peer_cert_from_der_extracts_cn() {
 		let cert = rcgen_cert_with_cn("client.internal");
-		assert_eq!(peer_cert_subject_cn(cert.as_ref()), Some("client.internal".to_string()));
+		let pc = crate::conn_context::PeerCertificate::from_der(&cert).expect("parse");
+		assert_eq!(pc.subject_cn.as_deref(), Some("client.internal"));
 	}
 
 	#[test]
-	fn peer_cert_subject_cn_returns_none_for_malformed_der() {
-		// Random non-DER bytes must yield None, not panic.
-		assert_eq!(peer_cert_subject_cn(&[0x30, 0x80, 0x00, 0x00]), None);
-		assert_eq!(peer_cert_subject_cn(b"not a cert at all"), None);
+	fn peer_cert_from_der_returns_none_for_malformed_der() {
+		let raw = rustls_pki_types::CertificateDer::from(vec![0x30, 0x80, 0x00, 0x00]);
+		assert!(crate::conn_context::PeerCertificate::from_der(&raw).is_none());
+		let raw = rustls_pki_types::CertificateDer::from(b"not a cert at all".to_vec());
+		assert!(crate::conn_context::PeerCertificate::from_der(&raw).is_none());
 	}
 
 	#[test]
-	fn peer_cert_subject_cn_returns_none_when_dn_has_no_cn() {
+	fn peer_cert_from_der_returns_some_with_no_cn_when_dn_has_no_cn() {
+		// Empty-DN cert still parses; the CN field is absent.
 		let cert = rcgen_cert_no_cn();
-		assert_eq!(peer_cert_subject_cn(cert.as_ref()), None);
+		let pc = crate::conn_context::PeerCertificate::from_der(&cert).expect("parse");
+		assert!(pc.subject_cn.is_none());
 	}
 
 	#[test]
 	fn matrix_peer_cert_subject_cn_equals_happy_and_miss() {
 		let cert = rcgen_cert_with_cn("ops-bot");
-		let conn = conn_with_peer_cert(cert);
+		let conn = conn_with_peer_cert(&cert);
 		let v = PredicateView::L4 { conn: &conn, peek: None };
 		assert!(
 			pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Equals(str_val("ops-bot"))).test(&v)
@@ -2365,7 +2481,7 @@ mod tests {
 	#[test]
 	fn matrix_peer_cert_subject_cn_string_ops_happy_and_miss() {
 		let cert = rcgen_cert_with_cn("svc-payments-prod");
-		let conn = conn_with_peer_cert(cert);
+		let conn = conn_with_peer_cert(&cert);
 		let v = PredicateView::L4 { conn: &conn, peek: None };
 		// Prefix
 		assert!(pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Prefix(b(b"svc-"))).test(&v));
@@ -2403,7 +2519,7 @@ mod tests {
 		// Sound-by-default for certs whose Subject DN omits CN entirely
 		// (e.g. modern profile that puts identity in subjectAltName).
 		let cert = rcgen_cert_no_cn();
-		let conn = conn_with_peer_cert(cert);
+		let conn = conn_with_peer_cert(&cert);
 		let v = PredicateView::L4 { conn: &conn, peek: None };
 		assert!(
 			!pred(FieldPath::TlsPeerCertSubjectCn, CompiledOperator::Equals(str_val("ops-bot"))).test(&v)

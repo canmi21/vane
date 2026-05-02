@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Instant;
 
+use bytes::Bytes;
 use parking_lot::Mutex;
 use rustls_pki_types::CertificateDer;
 
@@ -39,7 +41,112 @@ pub struct TlsInfo {
 	pub sni: Option<String>,
 	pub alpn: Option<Vec<u8>>,
 	pub version: Option<TlsVersion>,
-	pub peer_cert: Option<CertificateDer<'static>>,
+	pub peer_cert: Option<Arc<PeerCertificate>>,
+}
+
+/// Verified client certificate captured at TLS handshake time, with
+/// every predicate-readable field pre-extracted so the per-Check
+/// dispatch is allocation-light. Built once by the engine's
+/// post-handshake population (`run_tls`); the seven
+/// `tls.peer_cert.*` predicates read pre-computed strings off this
+/// struct rather than re-parsing the DER on every test.
+///
+/// `leaf_der` retains the raw DER bytes so future predicates (or a
+/// post-MVP debug surface) can re-derive any field x509-parser
+/// exposes; the seven currently-spec'd fields are pre-extracted.
+///
+/// All `String`-typed fields are byte-for-byte canonical: hex digests
+/// are ASCII-lowercase; `serial` is hex (lowercase, no leading-zero
+/// stripping). See `spec/architecture/18-predicate-schema.md` §
+/// _Authoritative field paths_ for the canonical formats.
+#[derive(Clone, Debug, Default)]
+pub struct PeerCertificate {
+	/// Raw leaf cert DER. Retained for future predicates that need
+	/// fields not pre-extracted; current readers should use the
+	/// pre-extracted scalar fields below.
+	pub leaf_der: Bytes,
+	pub subject_cn: Option<String>,
+	pub san_dns: Vec<String>,
+	pub fingerprint_sha256: String,
+	pub spki_sha256: String,
+	pub issuer_cn: Option<String>,
+	pub serial: String,
+}
+
+impl PeerCertificate {
+	/// Pre-extract every `tls.peer_cert.*` predicate-readable field
+	/// from a raw leaf cert DER. Returns `None` when the bytes are
+	/// not a parseable X.509v3 certificate; the caller treats that as
+	/// "no verified peer cert" (sound-by-default per spec).
+	#[must_use]
+	pub fn from_der(leaf_der: &CertificateDer<'_>) -> Option<Self> {
+		use sha2::{Digest, Sha256};
+		use x509_parser::prelude::*;
+
+		let bytes = leaf_der.as_ref();
+		let (_, cert) = X509Certificate::from_der(bytes).ok()?;
+		let tbs = &cert.tbs_certificate;
+
+		let subject_cn = tbs
+			.subject()
+			.iter_common_name()
+			.next()
+			.and_then(|attr| attr.as_str().ok().map(ToString::to_string));
+		let issuer_cn = tbs
+			.issuer()
+			.iter_common_name()
+			.next()
+			.and_then(|attr| attr.as_str().ok().map(ToString::to_string));
+
+		// SAN dNSName entries — RFC 5280 §4.2.1.6. Other GeneralName
+		// variants (URI, RFC822, etc.) are not exposed via this path
+		// per the predicate-schema table.
+		let mut san_dns: Vec<String> = Vec::new();
+		if let Ok(Some(san_ext)) = tbs.subject_alternative_name() {
+			for name in &san_ext.value.general_names {
+				if let GeneralName::DNSName(d) = name {
+					san_dns.push((*d).to_string());
+				}
+			}
+		}
+
+		let mut hasher = Sha256::new();
+		hasher.update(bytes);
+		let fingerprint_sha256 = hex_lower(&hasher.finalize());
+
+		let spki_sha256 = {
+			let spki_der = tbs.subject_pki.raw;
+			let mut h = Sha256::new();
+			h.update(spki_der);
+			hex_lower(&h.finalize())
+		};
+
+		// Serial: x509-parser gives BigUint; canonicalise as
+		// lowercase hex, big-endian, no leading-zero stripping (per
+		// spec). `to_bytes_be` returns the minimal-length
+		// representation; pad nothing — operators copy the value out
+		// verbatim from `openssl x509 -serial` when matching.
+		let serial = hex_lower(&tbs.serial.to_bytes_be());
+
+		Some(Self {
+			leaf_der: Bytes::copy_from_slice(bytes),
+			subject_cn,
+			san_dns,
+			fingerprint_sha256,
+			spki_sha256,
+			issuer_cn,
+			serial,
+		})
+	}
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+	use std::fmt::Write as _;
+	let mut s = String::with_capacity(bytes.len() * 2);
+	for b in bytes {
+		let _ = write!(s, "{b:02x}");
+	}
+	s
 }
 
 pub struct ConnContext {

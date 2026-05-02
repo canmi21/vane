@@ -856,7 +856,13 @@ fn field_path_level(path: &FieldPath) -> Level {
 		| FieldPath::TlsSni
 		| FieldPath::TlsAlpn
 		| FieldPath::TlsVersion
-		| FieldPath::TlsPeerCertSubjectCn => Level::L4Peek,
+		| FieldPath::TlsPeerCertPresent
+		| FieldPath::TlsPeerCertSubjectCn
+		| FieldPath::TlsPeerCertSanDns
+		| FieldPath::TlsPeerCertFingerprintSha256
+		| FieldPath::TlsPeerCertSpkiSha256
+		| FieldPath::TlsPeerCertIssuerCn
+		| FieldPath::TlsPeerCertSerial => Level::L4Peek,
 		FieldPath::HttpMethod
 		| FieldPath::HttpUriPath
 		| FieldPath::HttpUriQuery
@@ -931,7 +937,13 @@ fn predicate_is_l4(pred: Option<&Predicate>) -> bool {
 			| FieldPath::TlsSni
 			| FieldPath::TlsAlpn
 			| FieldPath::TlsVersion
+			| FieldPath::TlsPeerCertPresent
 			| FieldPath::TlsPeerCertSubjectCn
+			| FieldPath::TlsPeerCertSanDns
+			| FieldPath::TlsPeerCertFingerprintSha256
+			| FieldPath::TlsPeerCertSpkiSha256
+			| FieldPath::TlsPeerCertIssuerCn
+			| FieldPath::TlsPeerCertSerial
 	)
 }
 
@@ -1277,6 +1289,25 @@ fn coerce_value(
 			};
 			coerce_enum_value(path, s, source)
 		}
+		FieldValueType::Bool => {
+			let Value::Bool(b) = v else {
+				return Err(mismatch());
+			};
+			Ok(CompiledValue::Bool(*b))
+		}
+		// Vec<Str>: equals/in/etc. are matrix-rejected; the only legal
+		// operators are `contains`/`not_contains` whose operand is a
+		// single string (semantics: list contains/does-not-contain
+		// this exact element). They route through `value_to_bytes`,
+		// not this helper, so any path here is a matrix-rejected pair
+		// that already errored. We surface it explicitly to avoid a
+		// silent fall-through.
+		FieldValueType::VecStr => Err(Error::compile(format!(
+			"{}field `{}` ({}) cannot be operand-coerced — only `contains` / `not_contains` apply to Vec<Str>",
+			source_prefix(source),
+			path.display_name(),
+			path.value_type().name(),
+		))),
 	}
 }
 
@@ -1468,7 +1499,7 @@ mod compat_tests {
 			.expect_err("contains on remote.port must reject");
 		let msg = err.to_string();
 		assert!(msg.contains("`contains`"), "{msg}");
-		assert!(msg.contains("Str or Bytes"), "{msg}");
+		assert!(msg.contains("Str, Bytes, or Vec<Str>"), "{msg}");
 	}
 
 	#[test]
@@ -1536,7 +1567,7 @@ mod compat_tests {
 		)
 		.expect_err("contains on remote.ip must reject");
 		assert!(err.to_string().contains("`contains`"));
-		assert!(err.to_string().contains("Str or Bytes"));
+		assert!(err.to_string().contains("Str, Bytes, or Vec<Str>"));
 	}
 
 	#[test]

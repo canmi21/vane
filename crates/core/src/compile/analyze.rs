@@ -164,7 +164,13 @@ const fn field_path_inspection_level(path: &FieldPath) -> InspectionLevel {
 		| FieldPath::TlsSni
 		| FieldPath::TlsAlpn
 		| FieldPath::TlsVersion
-		| FieldPath::TlsPeerCertSubjectCn => InspectionLevel::L4Peek,
+		| FieldPath::TlsPeerCertPresent
+		| FieldPath::TlsPeerCertSubjectCn
+		| FieldPath::TlsPeerCertSanDns
+		| FieldPath::TlsPeerCertFingerprintSha256
+		| FieldPath::TlsPeerCertSpkiSha256
+		| FieldPath::TlsPeerCertIssuerCn
+		| FieldPath::TlsPeerCertSerial => InspectionLevel::L4Peek,
 		FieldPath::HttpMethod
 		| FieldPath::HttpUriPath
 		| FieldPath::HttpUriQuery
