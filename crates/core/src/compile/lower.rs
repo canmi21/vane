@@ -42,7 +42,7 @@ pub fn lower(
 	let mut builder = Builder::new();
 
 	let groups = group_by_listener(&set.rules)?;
-	for (addrs, rules) in groups {
+	for (transport, addrs, rules) in groups {
 		// TLS termination is per-listener, not per-rule: every rule
 		// sharing an address contributes to the listener's cert pool.
 		// `resolve_listener_tls` aggregates and rejects conflicts —
@@ -58,7 +58,12 @@ pub fn lower(
 			}
 		}
 		let kind = derive_listener_kind(&builder.nodes, &builder.fetches, entry);
-		let transport = derive_listener_transport(&builder.nodes, &builder.fetches, entry)?;
+		// Listener transport comes from the parsed `tcp:` / `udp:`
+		// prefix on `listen` (09-config.md § _ListenSpec grammar_).
+		// `validate_listener_fetches` walks the entry subgraph and
+		// rejects any L4Forward whose `args.transport` disagrees with
+		// the declared listener transport.
+		validate_listener_fetches(&addrs, transport, &builder.nodes, &builder.fetches, entry)?;
 		for addr in addrs {
 			builder.listener_kinds.insert(addr, kind);
 			builder.listener_transports.insert(addr, transport);
@@ -152,26 +157,33 @@ fn derive_listener_kind(
 	}
 }
 
-/// Derive the listener's wire transport from the entry subgraph.
+/// Walk every reachable `L4Forward` fetch under `entry` and reject
+/// any whose `args.transport` disagrees with the listener's declared
+/// transport.
 ///
-/// The physical socket is single-protocol: a TCP listener cannot
-/// receive UDP datagrams and vice versa. The lower pass enforces that
-/// every reachable fetch agrees on the transport — UDP only when
-/// every reachable fetch is `L4Forward` with `args.transport ==
-/// "udp"`; TCP otherwise.
+/// Per `09-config.md` § _`ListenSpec` grammar_ the listener prefix is
+/// authoritative: a `tcp:` listener with a UDP `L4Forward`, or a
+/// `udp:` listener with a TCP `L4Forward`, is a hard compile error.
+/// `L7` fetches and `L4Forward` whose `args.transport` is unset
+/// (defaults to TCP) on a TCP listener are silently accepted.
+///
+/// `addrs` is purely for the error message — the listener's identity
+/// in operator-facing diagnostics.
 ///
 /// # Errors
-/// Returns [`Error::compile`] when reachable fetches disagree on the
-/// transport (mixing UDP `L4Forward` with TCP / L7 fetches on the
-/// same listener). The error names the listener's first reachable
-/// fetch on each side so operators can locate the rule conflict.
-fn derive_listener_transport(
+///
+/// Returns [`Error::compile`] when any reachable `L4Forward` carries
+/// `args.transport` opposite the listener transport. The error names
+/// the listener address(es), the declared listener transport, and
+/// the offending fetch's upstream so operators can locate the
+/// conflicting rule.
+fn validate_listener_fetches(
+	addrs: &[SocketAddr],
+	listener_transport: Transport,
 	nodes: &[Node],
 	fetches: &[SymbolicFetchRef],
 	entry: NodeId,
-) -> Result<Transport, Error> {
-	let mut seen_udp = false;
-	let mut seen_tcp = false;
+) -> Result<(), Error> {
 	let mut visited = std::collections::HashSet::new();
 	let mut queue = std::collections::VecDeque::from([entry]);
 	while let Some(id) = queue.pop_front() {
@@ -192,12 +204,26 @@ fn derive_listener_transport(
 			}
 			Node::Fetch { id, next_response, next_tunnel, .. } => {
 				let fetch = &fetches[id.get() as usize];
-				if matches!(fetch.kind, FetchKind::L4Forward)
-					&& fetch.args.get("transport").and_then(serde_json::Value::as_str) == Some("udp")
-				{
-					seen_udp = true;
-				} else {
-					seen_tcp = true;
+				if matches!(fetch.kind, FetchKind::L4Forward) {
+					let fetch_transport =
+						match fetch.args.get("transport").and_then(serde_json::Value::as_str) {
+							Some("udp") => Some(Transport::Udp),
+							Some("tcp") | None => Some(Transport::Tcp),
+							Some(other) => {
+								return Err(Error::compile(format!(
+									"listener {addrs:?}: L4Forward fetch carries unknown transport {other:?}",
+								)));
+							}
+						};
+					if let Some(ft) = fetch_transport
+						&& ft != listener_transport
+					{
+						let upstream =
+							fetch.args.get("upstream").and_then(serde_json::Value::as_str).unwrap_or("<unknown>");
+						return Err(Error::compile(format!(
+							"listener {addrs:?} declared {listener_transport:?} but reachable L4Forward (upstream {upstream:?}) carries transport {ft:?} — listener prefix and fetch transport must agree",
+						)));
+					}
 				}
 				if let Some(n) = next_response {
 					queue.push_back(*n);
@@ -210,18 +236,7 @@ fn derive_listener_transport(
 			Node::Terminate(_) => {}
 		}
 	}
-	match (seen_udp, seen_tcp) {
-		(true, false) => Ok(Transport::Udp),
-		(true, true) => Err(Error::compile(
-			"listener transport conflict: cannot mix udp_forward with tcp_forward / L7 fetches on \
-			 the same listener; the physical socket is single-protocol"
-				.to_string(),
-		)),
-		// `(false, _)` covers pure-TCP graphs and the no-fetch defensive
-		// fallback (the same shape `derive_listener_kind` falls back
-		// to `Raw` for).
-		(false, _) => Ok(Transport::Tcp),
-	}
+	Ok(())
 }
 
 /// Peek at a fetch's `args.retry` JSON to decide whether the lower
@@ -249,9 +264,11 @@ fn peek_retry_buffer_required(args: &serde_json::Value) -> bool {
 
 #[cfg(test)]
 pub(crate) mod test_only {
+	use std::net::SocketAddr;
+
 	use super::{
 		Error, ListenerKind, Node, NodeId, SymbolicFetchRef, Transport, derive_listener_kind,
-		derive_listener_transport,
+		parse_listen, validate_listener_fetches,
 	};
 
 	/// Test escape hatch for the upstream `compile.rs::tests` module —
@@ -265,18 +282,141 @@ pub(crate) mod test_only {
 		derive_listener_kind(nodes, fetches, entry)
 	}
 
-	pub(crate) fn derive_listener_transport_for_test(
+	pub(crate) fn parse_listen_for_test(spec: &str) -> Result<(Transport, Vec<SocketAddr>), Error> {
+		parse_listen(spec)
+	}
+
+	pub(crate) fn validate_listener_fetches_for_test(
+		addrs: &[SocketAddr],
+		listener_transport: Transport,
 		nodes: &[Node],
 		fetches: &[SymbolicFetchRef],
 		entry: NodeId,
-	) -> Result<Transport, Error> {
-		derive_listener_transport(nodes, fetches, entry)
+	) -> Result<(), Error> {
+		validate_listener_fetches(addrs, listener_transport, nodes, fetches, entry)
 	}
 }
 
 #[cfg(test)]
-mod transport_derivation_tests {
-	use super::test_only::derive_listener_transport_for_test;
+mod listen_parse_tests {
+	use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+
+	use super::test_only::parse_listen_for_test;
+	use crate::conn_context::Transport;
+
+	fn parse(s: &str) -> (Transport, Vec<SocketAddr>) {
+		parse_listen_for_test(s).expect("parse listen ok")
+	}
+
+	#[test]
+	fn bare_dual_stack_defaults_to_tcp() {
+		let (t, addrs) = parse(":443");
+		assert_eq!(t, Transport::Tcp);
+		assert_eq!(
+			addrs,
+			vec![
+				SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 443),
+				SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 443),
+			]
+		);
+	}
+
+	#[test]
+	fn bare_specific_v4_defaults_to_tcp() {
+		let (t, addrs) = parse("0.0.0.0:443");
+		assert_eq!(t, Transport::Tcp);
+		assert_eq!(addrs, vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 443)]);
+	}
+
+	#[test]
+	fn bare_specific_v6_defaults_to_tcp() {
+		let (t, addrs) = parse("[::]:443");
+		assert_eq!(t, Transport::Tcp);
+		assert_eq!(addrs, vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 443)]);
+	}
+
+	#[test]
+	fn tcp_prefix_dual_stack_yields_tcp() {
+		let (t, addrs) = parse("tcp:443");
+		assert_eq!(t, Transport::Tcp);
+		assert_eq!(addrs.len(), 2, "dual-stack expansion preserved under prefix");
+	}
+
+	#[test]
+	fn udp_prefix_dual_stack_yields_udp() {
+		let (t, addrs) = parse("udp:443");
+		assert_eq!(t, Transport::Udp);
+		assert_eq!(addrs.len(), 2, "dual-stack expansion preserved under prefix");
+	}
+
+	#[test]
+	fn tcp_prefix_specific_v4_address() {
+		let (t, addrs) = parse("tcp:0.0.0.0:443");
+		assert_eq!(t, Transport::Tcp);
+		assert_eq!(addrs, vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 443)]);
+	}
+
+	#[test]
+	fn udp_prefix_v6_unspecified() {
+		let (t, addrs) = parse("udp:[::]:443");
+		assert_eq!(t, Transport::Udp);
+		assert_eq!(addrs, vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 443)]);
+	}
+
+	#[test]
+	fn tcp_prefix_v6_specific_loopback() {
+		let (t, addrs) = parse("tcp:[::1]:443");
+		assert_eq!(t, Transport::Tcp);
+		assert_eq!(addrs, vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 443)]);
+	}
+
+	#[test]
+	fn uppercase_prefix_rejected() {
+		// `TCP:` is not the recognized lowercase prefix; falls through to
+		// the address parser, which fails on the leading non-IP token.
+		let err = parse_listen_for_test("TCP:443").expect_err("uppercase prefix must reject");
+		assert!(err.to_string().contains("bad listen spec"), "{err}");
+	}
+
+	#[test]
+	fn unknown_prefix_rejected() {
+		// `udpx:` is not a known prefix; the address parser then fails
+		// on the leading `udpx` IP-token.
+		let err = parse_listen_for_test("udpx:443").expect_err("unknown prefix must reject");
+		assert!(err.to_string().contains("bad listen spec"), "{err}");
+	}
+
+	#[test]
+	fn udp_prefix_with_zero_port_rejected() {
+		// `udp::0` strips to `:0`, which the wildcard-port guard rejects
+		// per the spec lock.
+		let err = parse_listen_for_test("udp::0").expect_err("port 0 must reject");
+		assert!(err.to_string().contains("wildcard port rejected"), "{err}");
+	}
+
+	#[test]
+	fn tcp_prefix_with_zero_port_rejected() {
+		let err = parse_listen_for_test("tcp::0").expect_err("port 0 must reject");
+		assert!(err.to_string().contains("wildcard port rejected"), "{err}");
+	}
+
+	#[test]
+	fn udp_double_colon_strips_one_prefix() {
+		// `udp::443` → strip leading `udp:`, parse `:443` as a bare
+		// dual-stack port (the inner `:` is part of the address form).
+		let (t, addrs) = parse("udp::443");
+		assert_eq!(t, Transport::Udp);
+		assert_eq!(addrs.len(), 2);
+		assert_eq!(addrs[0].port(), 443);
+	}
+}
+
+#[cfg(test)]
+mod listener_fetch_validation_tests {
+	use std::net::SocketAddr;
+	use std::str::FromStr as _;
+
+	use super::test_only::validate_listener_fetches_for_test;
 	use crate::conn_context::Transport;
 	use crate::fetch::{FetchKind, SymbolicFetchRef, Terminator};
 	use crate::ir::{FetchId, Node, NodeId, TerminatorId};
@@ -307,38 +447,71 @@ mod transport_derivation_tests {
 		}
 	}
 
+	fn addr() -> Vec<SocketAddr> {
+		vec![SocketAddr::from_str("0.0.0.0:443").expect("addr")]
+	}
+
 	#[test]
-	fn udp_forward_alone_yields_udp_transport() {
+	fn udp_listener_with_udp_l4_forward_passes() {
 		let nodes = vec![fetch_node(0, 1), Node::Terminate(TerminatorId::new(0))];
 		let fetches = vec![l4_fetch("udp")];
-		let t = derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect("ok");
-		assert_eq!(t, Transport::Udp);
+		validate_listener_fetches_for_test(&addr(), Transport::Udp, &nodes, &fetches, NodeId::new(0))
+			.expect("udp listener + udp L4Forward must pass");
 	}
 
 	#[test]
-	fn tcp_forward_alone_yields_tcp_transport() {
+	fn tcp_listener_with_tcp_l4_forward_passes() {
 		let nodes = vec![fetch_node(0, 1), Node::Terminate(TerminatorId::new(0))];
 		let fetches = vec![l4_fetch("tcp")];
-		let t = derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect("ok");
-		assert_eq!(t, Transport::Tcp);
+		validate_listener_fetches_for_test(&addr(), Transport::Tcp, &nodes, &fetches, NodeId::new(0))
+			.expect("tcp listener + tcp L4Forward must pass");
 	}
 
 	#[test]
-	fn l4_forward_default_transport_is_tcp() {
-		// args has no `transport` field — derivation must default to TCP
-		// without panicking.
+	fn tcp_listener_with_l4_forward_default_transport_passes() {
+		// `args.transport` absent defaults to TCP at the fetch layer.
 		let nodes = vec![fetch_node(0, 1), Node::Terminate(TerminatorId::new(0))];
 		let fetches = vec![SymbolicFetchRef {
 			kind: FetchKind::L4Forward,
 			args: serde_json::json!({ "upstream": "127.0.0.1:9" }),
 			retry_buffer_required: false,
 		}];
-		let t = derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect("ok");
-		assert_eq!(t, Transport::Tcp);
+		validate_listener_fetches_for_test(&addr(), Transport::Tcp, &nodes, &fetches, NodeId::new(0))
+			.expect("tcp listener + default-transport L4Forward must pass");
 	}
 
 	#[test]
-	fn l7_only_yields_tcp_transport() {
+	fn tcp_listener_with_udp_l4_forward_compile_errors() {
+		let nodes = vec![fetch_node(0, 1), Node::Terminate(TerminatorId::new(0))];
+		let fetches = vec![l4_fetch("udp")];
+		let err =
+			validate_listener_fetches_for_test(&addr(), Transport::Tcp, &nodes, &fetches, NodeId::new(0))
+				.expect_err("tcp listener + udp L4Forward must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("0.0.0.0:443"), "error names listener address: {msg}");
+		assert!(msg.contains("Tcp"), "error names listener transport: {msg}");
+		assert!(msg.contains("Udp"), "error names fetch transport: {msg}");
+		assert!(msg.contains("127.0.0.1:9"), "error names offending fetch: {msg}");
+	}
+
+	#[test]
+	fn udp_listener_with_tcp_l4_forward_compile_errors() {
+		let nodes = vec![fetch_node(0, 1), Node::Terminate(TerminatorId::new(0))];
+		let fetches = vec![l4_fetch("tcp")];
+		let err =
+			validate_listener_fetches_for_test(&addr(), Transport::Udp, &nodes, &fetches, NodeId::new(0))
+				.expect_err("udp listener + tcp L4Forward must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("0.0.0.0:443"), "error names listener address: {msg}");
+		assert!(msg.contains("Udp"), "error names listener transport: {msg}");
+		assert!(msg.contains("Tcp"), "error names fetch transport: {msg}");
+	}
+
+	#[test]
+	fn udp_listener_with_l7_only_passes() {
+		// Only L7 fetches reachable — no fetch transport to conflict
+		// with the listener's UDP prefix. Listener kind derivation will
+		// pick `Http` (= H3), but that's `derive_listener_kind`'s job.
 		let nodes = vec![
 			Node::Upgrade { next: NodeId::new(1) },
 			fetch_node(0, 2),
@@ -346,14 +519,14 @@ mod transport_derivation_tests {
 		];
 		let fetches = vec![l7_fetch()];
 		let _ = Terminator::WriteHttpResponse;
-		let t = derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect("ok");
-		assert_eq!(t, Transport::Tcp);
+		validate_listener_fetches_for_test(&addr(), Transport::Udp, &nodes, &fetches, NodeId::new(0))
+			.expect("udp listener + l7-only must pass (kind derivation handles Http)");
 	}
 
 	#[test]
-	fn udp_mixed_with_tcp_l4_forward_is_compile_error() {
-		// Two fetches reachable via Check branches: one UDP, one TCP.
-		// The physical socket cannot serve both.
+	fn udp_listener_with_mixed_l4_branches_compile_errors() {
+		// Branch on Check: one arm L4Forward(udp), the other
+		// L4Forward(tcp). The TCP branch under a UDP listener fails.
 		let nodes = vec![
 			Node::Check {
 				predicate: crate::ir::PredicateId::new(0),
@@ -368,28 +541,9 @@ mod transport_derivation_tests {
 		];
 		let fetches = vec![l4_fetch("udp"), l4_fetch("tcp")];
 		let err =
-			derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect_err("err");
-		assert!(err.to_string().contains("transport conflict"), "{err}");
-	}
-
-	#[test]
-	fn udp_mixed_with_l7_fetch_is_compile_error() {
-		let nodes = vec![
-			Node::Check {
-				predicate: crate::ir::PredicateId::new(0),
-				on_match: NodeId::new(1),
-				on_miss: NodeId::new(3),
-				collect_body_before: None,
-				body_limit: 0,
-			},
-			fetch_node(0, 2),
-			Node::Terminate(TerminatorId::new(0)),
-			fetch_node(1, 2),
-		];
-		let fetches = vec![l4_fetch("udp"), l7_fetch()];
-		let err =
-			derive_listener_transport_for_test(&nodes, &fetches, NodeId::new(0)).expect_err("err");
-		assert!(err.to_string().contains("transport conflict"), "{err}");
+			validate_listener_fetches_for_test(&addr(), Transport::Udp, &nodes, &fetches, NodeId::new(0))
+				.expect_err("udp listener + mixed L4 branches must reject");
+		assert!(err.to_string().contains("must agree"), "{err}");
 	}
 }
 
@@ -947,7 +1101,7 @@ fn predicate_is_l4(pred: Option<&Predicate>) -> bool {
 	)
 }
 
-type ListenerGroup<'a> = (Vec<SocketAddr>, Vec<&'a AnalyzedRule>);
+type ListenerGroup<'a> = (Transport, Vec<SocketAddr>, Vec<&'a AnalyzedRule>);
 
 /// Per-listener TLS resolution — aggregate every rule's `tls` block
 /// into a `ListenerTlsSpec` cert pool.
@@ -1115,41 +1269,115 @@ fn compile_client_auth(
 }
 
 fn group_by_listener<'a>(rules: &'a [AnalyzedRule]) -> Result<Vec<ListenerGroup<'a>>, Error> {
-	let mut groups: HashMap<Vec<SocketAddr>, Vec<&'a AnalyzedRule>> = HashMap::new();
+	// Keyed by `(transport, sorted addrs)` so rules whose listen
+	// strings expand to the same address set under the same transport
+	// share one group; mismatched transports (e.g. `tcp:443` vs
+	// `udp:443`) form distinct listeners. Same-rule mixed prefixes
+	// across one rule's `listen` array (e.g. `["tcp:80", "udp:443"]`)
+	// are explicitly rejected — the lower pipeline carries one
+	// transport per rule entry today; multi-transport rules are a
+	// future enhancement.
+	let mut groups: HashMap<(Transport, Vec<SocketAddr>), Vec<&'a AnalyzedRule>> = HashMap::new();
 	for rule in rules {
-		let mut addrs = Vec::new();
+		let mut transport: Option<Transport> = None;
+		let mut addrs: Vec<SocketAddr> = Vec::new();
 		for spec in &rule.raw.listen {
-			for addr in parse_listen(spec)? {
-				addrs.push(addr);
+			let (t, more) = parse_listen(spec)?;
+			match transport {
+				None => transport = Some(t),
+				Some(existing) if existing == t => {}
+				Some(existing) => {
+					return Err(Error::compile(format!(
+						"rule {:?}: `listen` mixes transports {:?} and {:?} in one rule — split into separate rules",
+						rule.raw.name, existing, t,
+					)));
+				}
 			}
+			addrs.extend(more);
 		}
 		addrs.sort();
 		addrs.dedup();
-		groups.entry(addrs).or_default().push(rule);
+		// Defensive: a rule with no listen entries can't produce an
+		// `Option<Transport>`, but the parser elsewhere already
+		// rejects empty `listen` arrays — fall back to TCP so this
+		// branch is unreachable in practice.
+		let transport = transport.unwrap_or(Transport::Tcp);
+		groups.entry((transport, addrs)).or_default().push(rule);
 	}
-	let mut out: Vec<_> = groups.into_iter().collect();
-	out.sort_by(|a, b| a.0.cmp(&b.0));
+	let mut out: Vec<ListenerGroup<'_>> =
+		groups.into_iter().map(|((transport, addrs), rules)| (transport, addrs, rules)).collect();
+	out.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
 	Ok(out)
 }
 
-fn parse_listen(spec: &str) -> Result<Vec<SocketAddr>, Error> {
+/// Parse one `ListenSpec` entry into its declared `(transport, addrs)`
+/// pair per `09-config.md` § _`ListenSpec` grammar_. The optional
+/// `tcp:` / `udp:` prefix declares the listener's wire transport;
+/// bare entries default to TCP for backwards compatibility (the spec
+/// table's `_(none)_` row).
+///
+/// Address parsing is unchanged from the pre-prefix grammar — the
+/// remainder after the prefix is parsed by the same dual-stack /
+/// IPv4-only / IPv6-only / specific-bind ladder.
+///
+/// # Errors
+///
+/// - Wildcard port `:0` / `*:0` (with or without prefix) → rejected.
+/// - Bare malformed prefix `udpx:443` / `TCP:443` (uppercase) →
+///   falls through to the address parser, which rejects the leading
+///   non-IP token.
+/// - Inner `udp::443` strips the `udp:` and parses `:443` as a bare
+///   dual-stack port (the inner `:` is part of the address).
+fn parse_listen(spec: &str) -> Result<(Transport, Vec<SocketAddr>), Error> {
 	let s = spec.trim();
+	let (transport, rest, prefix_seen) = if let Some(rest) = s.strip_prefix("tcp:") {
+		(Transport::Tcp, rest, true)
+	} else if let Some(rest) = s.strip_prefix("udp:") {
+		(Transport::Udp, rest, true)
+	} else {
+		(Transport::Tcp, s, false)
+	};
+
+	// Per `09-config.md` § _ListenSpec grammar_'s composition table,
+	// `tcp:443` / `udp:443` are valid (the spec example concatenates
+	// the prefix with a bare port form). After stripping the prefix
+	// the remainder is a naked digit string; treat that as the
+	// existing `:443` dual-stack form. Bare-port without prefix
+	// (`443`) keeps the existing rejection — it isn't in the
+	// address-forms table.
+	let owned: String;
+	let parse_target: &str =
+		if prefix_seen && !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+			owned = format!(":{rest}");
+			&owned
+		} else {
+			rest
+		};
+
+	let addrs = parse_listen_address(parse_target, spec)?;
+	Ok((transport, addrs))
+}
+
+/// Address-portion parser. Split out from [`parse_listen`] so the
+/// transport-prefix path can reuse it without re-stripping; tests on
+/// the address grammar exercise this directly.
+fn parse_listen_address(rest: &str, original: &str) -> Result<Vec<SocketAddr>, Error> {
 	// Wildcard-port rejection per 09-config.md.
-	if s == ":0" || s == "*:0" {
-		return Err(Error::compile(format!("wildcard port rejected: {spec:?}")));
+	if rest == ":0" || rest == "*:0" {
+		return Err(Error::compile(format!("wildcard port rejected: {original:?}")));
 	}
 	// Dual-stack shorthand `:443` or `*:443` → v4 + v6.
-	if let Some(port_str) = s.strip_prefix(':').or_else(|| s.strip_prefix("*:")) {
-		let port =
-			u16::from_str(port_str).map_err(|e| Error::compile(format!("bad port in {spec:?}: {e}")))?;
+	if let Some(port_str) = rest.strip_prefix(':').or_else(|| rest.strip_prefix("*:")) {
+		let port = u16::from_str(port_str)
+			.map_err(|e| Error::compile(format!("bad port in {original:?}: {e}")))?;
 		return Ok(vec![
 			SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port),
 			SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port),
 		]);
 	}
-	SocketAddr::from_str(s)
+	SocketAddr::from_str(rest)
 		.map(|a| vec![a])
-		.map_err(|e| Error::compile(format!("bad listen spec {spec:?}: {e}")))
+		.map_err(|e| Error::compile(format!("bad listen spec {original:?}: {e}")))
 }
 
 fn compile_operator(

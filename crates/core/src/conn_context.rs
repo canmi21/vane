@@ -16,7 +16,9 @@ impl std::fmt::Display for ConnId {
 	}
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+	Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, serde::Serialize, serde::Deserialize,
+)]
 pub enum Transport {
 	Tcp,
 	Udp,
