@@ -96,6 +96,26 @@ There is intentionally **no `listener_kind` (or `kind`) field** here. `ListenerK
 
 ### ListenSpec grammar
 
+A listen entry has the form `[<transport>:]<address>`. The transport prefix declares the wire transport for that listener; the address form is independent.
+
+#### Transport prefix
+
+| Prefix   | Transport | Notes                                                                                          |
+| -------- | --------- | ---------------------------------------------------------------------------------------------- |
+| `tcp:`   | TCP       | Explicit. CLI / TUI emits this form for TCP listeners.                                         |
+| `udp:`   | UDP       | Required for UDP listeners (H3 termination, L4 UDP forward, DNS-over-UDP forward).             |
+| _(none)_ | TCP       | Implicit default. Equivalent to `tcp:`. Bare entries remain valid for backwards compatibility. |
+
+The prefix is the **listener's** wire transport. It is independent of the upstream transport — an HTTP rule on a `tcp:` listener may proxy to a QUIC upstream (and vice versa) since the two sides never meet at the transport layer (see `07-l7.md` § _Architecture: TCP / QUIC separation_).
+
+When the listener transport conflicts with the rule's reachable fetches the compiler rejects it:
+
+- A `tcp:` listener with any reachable `L4Forward { transport: "udp" }` fetch → compile error.
+- A `udp:` listener with any reachable `L4Forward { transport: "tcp" }` fetch → compile error.
+- A `udp:` listener whose graph reaches only L7 fetches derives `ListenerKind::Http` (= H3-over-QUIC), per `06-l4.md` § _UDP listener semantics_. No fetch-side transport field is consulted; the listener's prefix is authoritative.
+
+#### Address forms
+
 | Form              | Expands to                                            | Semantics                                                        |
 | ----------------- | ----------------------------------------------------- | ---------------------------------------------------------------- |
 | `":443"`          | `0.0.0.0:443` + `[::]:443` (two entries, same NodeId) | Dual-stack; two independent listeners sharing one graph entry    |
@@ -105,6 +125,8 @@ There is intentionally **no `listener_kind` (or `kind`) field** here. `ListenerK
 | `"127.0.0.1:443"` | as written                                            | Specific IPv4 bind                                               |
 | `"[::1]:443"`     | as written                                            | Specific IPv6 bind                                               |
 | `":0"` / `"*:0"`  | **rejected at compile**                               | Wildcard port disallowed — graph entry keys must be stable       |
+
+Address forms compose with transport prefixes by concatenation: `udp:443`, `tcp:0.0.0.0:443`, `udp:[::]:443`, `tcp:[::1]:443`. The parser strips the `tcp:` / `udp:` prefix when present and parses the remainder as one of the address forms above.
 
 Dual-stack expansion produces two `entries` map keys (v4 and v6 `SocketAddr`s) pointing to the **same** `NodeId`. Bind happens independently per listener; `01-topology.md` defines the tolerance for one-side failure (warn + continue if only one family binds; fail the rule only if both fail).
 

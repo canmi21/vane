@@ -48,7 +48,7 @@ The intermediate form a rule takes between parse/expand and compile. Middleware 
 ```rust
 pub struct RawRule {
     pub name:             String,                         // unique across the merged rule set
-    pub listen:           Vec<ListenSpec>,                // ":443", "0.0.0.0:80", "[::]:443"
+    pub listen:           Vec<ListenSpec>,                // ":443" / "0.0.0.0:80" / "udp:443" / "tcp:[::]:443"
     pub match_predicate:  Option<Predicate>,              // config-form predicate (see 18-predicate-schema.md)
     pub middleware_chain: Vec<MiddlewareRef>,             // middleware nodes, in declared order
     pub terminate:        TerminateSpec,                  // single JSON block that names both the Fetch and (implicitly) the Terminator
