@@ -687,6 +687,7 @@ fn plugin_error_to_decision(pe: PluginError) -> Result<Decision, Error> {
 	}
 }
 
+#[allow(clippy::too_many_lines)]
 async fn dispatch_wasm(
 	w: &crate::flow_graph::WasmMiddleware,
 	l4: &mut Option<L4Conn>,
@@ -724,9 +725,30 @@ async fn dispatch_wasm(
 			}
 		}
 		Some(MiddlewareKind::L4Bytes) => {
-			let bytes_view = BytesView { data: vec![], truncated: false };
-			let _ = WASM_BODY_LIMIT_L4;
-			let _ = l4;
+			// UDP carries the cold-path datagram on `UdpAssoc.first_packet`,
+			// so L4Bytes can inspect it directly. TCP would need to drain
+			// (and rewind) bytes from the live stream, which the current
+			// pipeline does not support — see TODO below.
+			let bytes_view = match l4.as_ref() {
+				Some(L4Conn::Udp(assoc)) => {
+					let pkt = &assoc.first_packet;
+					if pkt.len() > WASM_BODY_LIMIT_L4 {
+						BytesView { data: pkt[..WASM_BODY_LIMIT_L4].to_vec(), truncated: true }
+					} else {
+						BytesView { data: pkt.to_vec(), truncated: false }
+					}
+				}
+				// TODO(s3-14-followup): wire an L4-level lazy buffer (parallel
+				// to the request-side LazyBuffer, or a post-peek byte buffer
+				// on `L4Conn`) so L4Bytes plugins can inspect TCP traffic
+				// without consuming bytes the L7 layer still needs.
+				Some(L4Conn::Tcp(_) | L4Conn::Peeked(_) | L4Conn::Tls(_)) => {
+					return Err(Error::middleware(
+						"L4Bytes plugin invocation on TCP transport is not yet supported",
+					));
+				}
+				None => BytesView { data: vec![], truncated: false },
+			};
 			let input = L4BytesInput { bytes: bytes_view, context: ctx };
 			match w.runtime.invoke_l4_bytes(&w.module_id, &w.export_name, &w.args_json, input).await {
 				Ok(L4BytesDecision::Continue | L4BytesDecision::Tunnel) => Ok(Decision::Continue),
