@@ -199,7 +199,9 @@ impl WasmRuntime for WasmtimeRuntime {
 		let cwasm_path = std::path::PathBuf::from(CWASM_CACHE_DIR).join(format!("{hash}.cwasm"));
 
 		let component = load_or_compile(&self.engine, path, &cwasm_path, &bytes)?;
-		get_metadata(&self.engine, &component, Arc::clone(&self.fetch_backend)).await
+		let meta = get_metadata(&self.engine, &component, Arc::clone(&self.fetch_backend)).await?;
+		validate_handler_exports(&self.engine, &component, &meta.exports)?;
+		Ok(meta)
 	}
 }
 
@@ -292,6 +294,44 @@ async fn get_metadata(
 		.map_err(|e| Error::internal(format!("get-metadata: {e}")))?;
 
 	parse_metadata(raw)
+}
+
+// ─── handler-kind validation ─────────────────────────────────────────────────
+
+// For each metadata export claiming kind K, confirm the component actually
+// exports the corresponding handler interface at the component type level.
+// This runs before any instantiation so the check is purely type-level.
+fn validate_handler_exports(
+	engine: &Engine,
+	component: &Component,
+	exports: &[PluginExport],
+) -> Result<(), Error> {
+	let comp_type = component.component_type();
+	for export in exports {
+		let iface = match export.kind {
+			MiddlewareKind::L4Peek => "vane:plugin/handler-l4-peek@0.1.0",
+			MiddlewareKind::L4Bytes => "vane:plugin/handler-l4-bytes@0.1.0",
+			MiddlewareKind::L7Request => "vane:plugin/handler-l7-request@0.1.0",
+			MiddlewareKind::L7Response => "vane:plugin/handler-l7-response@0.1.0",
+		};
+		if comp_type.get_export(engine, iface).is_none() {
+			return Err(Error::internal(format!(
+				"export '{}' declares kind '{}' but component does not export handler interface '{iface}'",
+				export.name,
+				kind_str(export.kind),
+			)));
+		}
+	}
+	Ok(())
+}
+
+fn kind_str(kind: MiddlewareKind) -> &'static str {
+	match kind {
+		MiddlewareKind::L4Peek => "l4-peek",
+		MiddlewareKind::L4Bytes => "l4-bytes",
+		MiddlewareKind::L7Request => "l7-request",
+		MiddlewareKind::L7Response => "l7-response",
+	}
 }
 
 fn parse_metadata(
@@ -510,5 +550,21 @@ mod tests {
 		assert_eq!(meta.exports[0].name, "probe");
 		assert_eq!(meta.exports[0].kind, MiddlewareKind::L4Peek);
 		assert!(meta.exports[0].stateless);
+	}
+
+	// load_component must reject a component whose metadata claims kind K but the
+	// component binary does not export the corresponding handler interface.
+	#[tokio::test]
+	async fn load_component_rejects_missing_handler_interface() {
+		let fixture = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mismatch_fixture.wasm"));
+		assert!(fixture.exists(), "mismatch fixture not found; re-run cargo build to regenerate");
+
+		let rt = WasmtimeRuntime::new(mock_backend()).expect("runtime");
+		let err = rt.load_component(fixture).await.expect_err("must reject mismatch");
+		let msg = err.to_string();
+		assert!(
+			msg.contains("handler") || msg.contains("l4-peek"),
+			"error should mention the missing handler: {msg}",
+		);
 	}
 }

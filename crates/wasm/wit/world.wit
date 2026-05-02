@@ -6,8 +6,9 @@ package vane-wasm:bindgen@0.1.0;
 /// `export` = what the host calls on the plugin.
 ///
 /// Handler exports (l4-peek, l4-bytes, l7-request, l7-response) are not
-/// listed here because dispatch is deferred; the host validates their
-/// presence against metadata using the untyped component API at load time.
+/// listed here because dispatch is deferred; `load_component` validates their
+/// presence via `Component::component_type` after `get-metadata` returns,
+/// matching each `middleware-export.kind` against its handler interface name.
 world plugin {
     import vane:host/host@0.1.0;
     export vane:plugin/registry@0.1.0;
