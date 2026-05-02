@@ -17,9 +17,10 @@ use wasmtime::{Config, Engine, PoolingAllocationConfig, Store};
 
 use vane_core::middleware::MiddlewareKind;
 use vane_core::{
-	ContextEntry, ContextValue, Error, HttpFetchBackend, HttpFetchError, HttpFetchLimits,
-	HttpFetchRequest, L4PeekDecision, L4PeekInput, ModuleId, PluginError, PluginExport,
-	PluginMetadata, WasmRuntime,
+	BytesView, ContextEntry, ContextValue, Error, Header, HttpFetchBackend, HttpFetchError,
+	HttpFetchLimits, HttpFetchRequest, L4BytesDecision, L4BytesInput, L4PeekDecision, L4PeekInput,
+	L7RequestDecision, L7RequestInput, L7ResponseDecision, L7ResponseInput, ModifiedResponse,
+	ModuleId, PluginError, PluginExport, PluginMetadata, SynthResponse, WasmRuntime,
 };
 
 // Generate host-side bindings from the WIT world. This produces:
@@ -38,6 +39,36 @@ mod invoke_l4peek {
 	wasmtime::component::bindgen!({
 		path: "wit",
 		world: "plugin-l4-peek-invoke",
+		imports: {
+			default: async | trappable,
+		},
+	});
+}
+
+mod invoke_l4bytes {
+	wasmtime::component::bindgen!({
+		path: "wit",
+		world: "plugin-l4-bytes-invoke",
+		imports: {
+			default: async | trappable,
+		},
+	});
+}
+
+mod invoke_l7request {
+	wasmtime::component::bindgen!({
+		path: "wit",
+		world: "plugin-l7-request-invoke",
+		imports: {
+			default: async | trappable,
+		},
+	});
+}
+
+mod invoke_l7response {
+	wasmtime::component::bindgen!({
+		path: "wit",
+		world: "plugin-l7-response-invoke",
 		imports: {
 			default: async | trappable,
 		},
@@ -259,6 +290,293 @@ impl invoke_l4peek::vane::host::host::Host for HostState {
 	}
 }
 
+// ─── host impls for invoke_l4bytes / invoke_l7request / invoke_l7response ───
+
+impl invoke_l4bytes::vane::plugin::types::Host for HostState {}
+
+impl invoke_l4bytes::vane::host::host::Host for HostState {
+	async fn get_args(&mut self) -> wasmtime::Result<String> {
+		let result = self.args.clone();
+		#[cfg(test)]
+		{
+			self.args_received = Some(result.clone());
+		}
+		Ok(result)
+	}
+
+	async fn log(
+		&mut self,
+		level: invoke_l4bytes::vane::host::host::LogLevel,
+		message: String,
+		fields: Vec<invoke_l4bytes::vane::host::host::LogField>,
+	) -> wasmtime::Result<()> {
+		use invoke_l4bytes::vane::host::host::LogLevel;
+		let kv: String = fields.iter().fold(String::new(), |mut s, f| {
+			use std::fmt::Write as _;
+			let _ = write!(s, " {}={}", f.key, f.value);
+			s
+		});
+		match level {
+			LogLevel::Trace => trace!(plugin = true, "{message}{kv}"),
+			LogLevel::Debug => tracing::debug!(plugin = true, "{message}{kv}"),
+			LogLevel::Info => tracing::info!(plugin = true, "{message}{kv}"),
+			LogLevel::Warn => warn!(plugin = true, "{message}{kv}"),
+			LogLevel::Error => tracing::error!(plugin = true, "{message}{kv}"),
+		}
+		Ok(())
+	}
+
+	async fn now_unix_ms(&mut self) -> wasmtime::Result<u64> {
+		let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+		Ok(d.as_secs() * 1000 + u64::from(d.subsec_millis()))
+	}
+
+	async fn random(&mut self, buf_len: u32) -> wasmtime::Result<Vec<u8>> {
+		let mut buf = vec![0u8; buf_len as usize];
+		rand::rng().fill_bytes(&mut buf);
+		Ok(buf)
+	}
+
+	async fn metric_counter(
+		&mut self,
+		_name: String,
+		_delta: u64,
+		_labels: Vec<invoke_l4bytes::vane::host::host::MetricLabel>,
+	) -> wasmtime::Result<()> {
+		// TODO(wasm-metrics): route to daemon metrics facade
+		Ok(())
+	}
+
+	async fn metric_gauge(
+		&mut self,
+		_name: String,
+		_value: i64,
+		_labels: Vec<invoke_l4bytes::vane::host::host::MetricLabel>,
+	) -> wasmtime::Result<()> {
+		// TODO(wasm-metrics): route to daemon metrics facade
+		Ok(())
+	}
+
+	async fn http_fetch(
+		&mut self,
+		req: invoke_l4bytes::vane::host::host::HttpFetchRequest,
+	) -> wasmtime::Result<
+		Result<
+			invoke_l4bytes::vane::host::host::HttpFetchResponse,
+			invoke_l4bytes::vane::host::host::NetError,
+		>,
+	> {
+		let vane_req = HttpFetchRequest {
+			method: req.method,
+			url: req.url,
+			headers: req.headers,
+			body: req.body,
+			timeout_ms: req.timeout_ms,
+			follow_redirects: req.follow_redirects,
+			verify_tls: req.verify_tls,
+		};
+		let limits = HttpFetchLimits::default();
+		match self.fetch_backend.fetch(vane_req, limits).await {
+			Ok(resp) => Ok(Ok(invoke_l4bytes::vane::host::host::HttpFetchResponse {
+				status: resp.status,
+				headers: resp.headers,
+				body: resp.body,
+			})),
+			Err(e) => Ok(Err(map_fetch_error_l4bytes(e))),
+		}
+	}
+}
+
+impl invoke_l7request::vane::plugin::types::Host for HostState {}
+
+impl invoke_l7request::vane::host::host::Host for HostState {
+	async fn get_args(&mut self) -> wasmtime::Result<String> {
+		let result = self.args.clone();
+		#[cfg(test)]
+		{
+			self.args_received = Some(result.clone());
+		}
+		Ok(result)
+	}
+
+	async fn log(
+		&mut self,
+		level: invoke_l7request::vane::host::host::LogLevel,
+		message: String,
+		fields: Vec<invoke_l7request::vane::host::host::LogField>,
+	) -> wasmtime::Result<()> {
+		use invoke_l7request::vane::host::host::LogLevel;
+		let kv: String = fields.iter().fold(String::new(), |mut s, f| {
+			use std::fmt::Write as _;
+			let _ = write!(s, " {}={}", f.key, f.value);
+			s
+		});
+		match level {
+			LogLevel::Trace => trace!(plugin = true, "{message}{kv}"),
+			LogLevel::Debug => tracing::debug!(plugin = true, "{message}{kv}"),
+			LogLevel::Info => tracing::info!(plugin = true, "{message}{kv}"),
+			LogLevel::Warn => warn!(plugin = true, "{message}{kv}"),
+			LogLevel::Error => tracing::error!(plugin = true, "{message}{kv}"),
+		}
+		Ok(())
+	}
+
+	async fn now_unix_ms(&mut self) -> wasmtime::Result<u64> {
+		let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+		Ok(d.as_secs() * 1000 + u64::from(d.subsec_millis()))
+	}
+
+	async fn random(&mut self, buf_len: u32) -> wasmtime::Result<Vec<u8>> {
+		let mut buf = vec![0u8; buf_len as usize];
+		rand::rng().fill_bytes(&mut buf);
+		Ok(buf)
+	}
+
+	async fn metric_counter(
+		&mut self,
+		_name: String,
+		_delta: u64,
+		_labels: Vec<invoke_l7request::vane::host::host::MetricLabel>,
+	) -> wasmtime::Result<()> {
+		// TODO(wasm-metrics): route to daemon metrics facade
+		Ok(())
+	}
+
+	async fn metric_gauge(
+		&mut self,
+		_name: String,
+		_value: i64,
+		_labels: Vec<invoke_l7request::vane::host::host::MetricLabel>,
+	) -> wasmtime::Result<()> {
+		// TODO(wasm-metrics): route to daemon metrics facade
+		Ok(())
+	}
+
+	async fn http_fetch(
+		&mut self,
+		req: invoke_l7request::vane::host::host::HttpFetchRequest,
+	) -> wasmtime::Result<
+		Result<
+			invoke_l7request::vane::host::host::HttpFetchResponse,
+			invoke_l7request::vane::host::host::NetError,
+		>,
+	> {
+		let vane_req = HttpFetchRequest {
+			method: req.method,
+			url: req.url,
+			headers: req.headers,
+			body: req.body,
+			timeout_ms: req.timeout_ms,
+			follow_redirects: req.follow_redirects,
+			verify_tls: req.verify_tls,
+		};
+		let limits = HttpFetchLimits::default();
+		match self.fetch_backend.fetch(vane_req, limits).await {
+			Ok(resp) => Ok(Ok(invoke_l7request::vane::host::host::HttpFetchResponse {
+				status: resp.status,
+				headers: resp.headers,
+				body: resp.body,
+			})),
+			Err(e) => Ok(Err(map_fetch_error_l7request(e))),
+		}
+	}
+}
+
+impl invoke_l7response::vane::plugin::types::Host for HostState {}
+
+impl invoke_l7response::vane::host::host::Host for HostState {
+	async fn get_args(&mut self) -> wasmtime::Result<String> {
+		let result = self.args.clone();
+		#[cfg(test)]
+		{
+			self.args_received = Some(result.clone());
+		}
+		Ok(result)
+	}
+
+	async fn log(
+		&mut self,
+		level: invoke_l7response::vane::host::host::LogLevel,
+		message: String,
+		fields: Vec<invoke_l7response::vane::host::host::LogField>,
+	) -> wasmtime::Result<()> {
+		use invoke_l7response::vane::host::host::LogLevel;
+		let kv: String = fields.iter().fold(String::new(), |mut s, f| {
+			use std::fmt::Write as _;
+			let _ = write!(s, " {}={}", f.key, f.value);
+			s
+		});
+		match level {
+			LogLevel::Trace => trace!(plugin = true, "{message}{kv}"),
+			LogLevel::Debug => tracing::debug!(plugin = true, "{message}{kv}"),
+			LogLevel::Info => tracing::info!(plugin = true, "{message}{kv}"),
+			LogLevel::Warn => warn!(plugin = true, "{message}{kv}"),
+			LogLevel::Error => tracing::error!(plugin = true, "{message}{kv}"),
+		}
+		Ok(())
+	}
+
+	async fn now_unix_ms(&mut self) -> wasmtime::Result<u64> {
+		let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+		Ok(d.as_secs() * 1000 + u64::from(d.subsec_millis()))
+	}
+
+	async fn random(&mut self, buf_len: u32) -> wasmtime::Result<Vec<u8>> {
+		let mut buf = vec![0u8; buf_len as usize];
+		rand::rng().fill_bytes(&mut buf);
+		Ok(buf)
+	}
+
+	async fn metric_counter(
+		&mut self,
+		_name: String,
+		_delta: u64,
+		_labels: Vec<invoke_l7response::vane::host::host::MetricLabel>,
+	) -> wasmtime::Result<()> {
+		// TODO(wasm-metrics): route to daemon metrics facade
+		Ok(())
+	}
+
+	async fn metric_gauge(
+		&mut self,
+		_name: String,
+		_value: i64,
+		_labels: Vec<invoke_l7response::vane::host::host::MetricLabel>,
+	) -> wasmtime::Result<()> {
+		// TODO(wasm-metrics): route to daemon metrics facade
+		Ok(())
+	}
+
+	async fn http_fetch(
+		&mut self,
+		req: invoke_l7response::vane::host::host::HttpFetchRequest,
+	) -> wasmtime::Result<
+		Result<
+			invoke_l7response::vane::host::host::HttpFetchResponse,
+			invoke_l7response::vane::host::host::NetError,
+		>,
+	> {
+		let vane_req = HttpFetchRequest {
+			method: req.method,
+			url: req.url,
+			headers: req.headers,
+			body: req.body,
+			timeout_ms: req.timeout_ms,
+			follow_redirects: req.follow_redirects,
+			verify_tls: req.verify_tls,
+		};
+		let limits = HttpFetchLimits::default();
+		match self.fetch_backend.fetch(vane_req, limits).await {
+			Ok(resp) => Ok(Ok(invoke_l7response::vane::host::host::HttpFetchResponse {
+				status: resp.status,
+				headers: resp.headers,
+				body: resp.body,
+			})),
+			Err(e) => Ok(Err(map_fetch_error_l7response(e))),
+		}
+	}
+}
+
 fn map_fetch_error(e: HttpFetchError) -> vane::host::host::NetError {
 	use vane::host::host::NetError;
 	match e {
@@ -276,6 +594,51 @@ fn map_fetch_error(e: HttpFetchError) -> vane::host::host::NetError {
 
 fn map_fetch_error_invoke(e: HttpFetchError) -> invoke_l4peek::vane::host::host::NetError {
 	use invoke_l4peek::vane::host::host::NetError;
+	match e {
+		HttpFetchError::DnsFailure(s) => NetError::DnsFailure(s),
+		HttpFetchError::ConnectionRefused => NetError::ConnectionRefused,
+		HttpFetchError::Timeout => NetError::Timeout,
+		HttpFetchError::TlsError(s) => NetError::TlsError(s),
+		HttpFetchError::PoolExhausted => NetError::PoolExhausted,
+		HttpFetchError::BodyTooLarge => NetError::BodyTooLarge,
+		HttpFetchError::NotAllowed(s) => NetError::NotAllowed(s),
+		HttpFetchError::InsecureRejected => NetError::InsecureRejected,
+		HttpFetchError::Internal(s) => NetError::Internal(s),
+	}
+}
+
+fn map_fetch_error_l4bytes(e: HttpFetchError) -> invoke_l4bytes::vane::host::host::NetError {
+	use invoke_l4bytes::vane::host::host::NetError;
+	match e {
+		HttpFetchError::DnsFailure(s) => NetError::DnsFailure(s),
+		HttpFetchError::ConnectionRefused => NetError::ConnectionRefused,
+		HttpFetchError::Timeout => NetError::Timeout,
+		HttpFetchError::TlsError(s) => NetError::TlsError(s),
+		HttpFetchError::PoolExhausted => NetError::PoolExhausted,
+		HttpFetchError::BodyTooLarge => NetError::BodyTooLarge,
+		HttpFetchError::NotAllowed(s) => NetError::NotAllowed(s),
+		HttpFetchError::InsecureRejected => NetError::InsecureRejected,
+		HttpFetchError::Internal(s) => NetError::Internal(s),
+	}
+}
+
+fn map_fetch_error_l7request(e: HttpFetchError) -> invoke_l7request::vane::host::host::NetError {
+	use invoke_l7request::vane::host::host::NetError;
+	match e {
+		HttpFetchError::DnsFailure(s) => NetError::DnsFailure(s),
+		HttpFetchError::ConnectionRefused => NetError::ConnectionRefused,
+		HttpFetchError::Timeout => NetError::Timeout,
+		HttpFetchError::TlsError(s) => NetError::TlsError(s),
+		HttpFetchError::PoolExhausted => NetError::PoolExhausted,
+		HttpFetchError::BodyTooLarge => NetError::BodyTooLarge,
+		HttpFetchError::NotAllowed(s) => NetError::NotAllowed(s),
+		HttpFetchError::InsecureRejected => NetError::InsecureRejected,
+		HttpFetchError::Internal(s) => NetError::Internal(s),
+	}
+}
+
+fn map_fetch_error_l7response(e: HttpFetchError) -> invoke_l7response::vane::host::host::NetError {
+	use invoke_l7response::vane::host::host::NetError;
 	match e {
 		HttpFetchError::DnsFailure(s) => NetError::DnsFailure(s),
 		HttpFetchError::ConnectionRefused => NetError::ConnectionRefused,
@@ -331,6 +694,249 @@ fn lift_decision(
 
 fn lift_plugin_error(pe: invoke_l4peek::vane::plugin::types::PluginError) -> PluginError {
 	PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint }
+}
+
+// ─── validation ──────────────────────────────────────────────────────────────
+
+fn validate_on_error_hint(hint: Option<&String>) -> Result<(), PluginError> {
+	match hint.map(String::as_str) {
+		None | Some("force-close" | "internal") => Ok(()),
+		Some(v) => Err(PluginError::Trap(format!("invalid on-error-hint value: '{v}'"))),
+	}
+}
+
+fn validate_status(status: u16) -> Result<(), PluginError> {
+	if (100..=599).contains(&status) {
+		Ok(())
+	} else {
+		Err(PluginError::Trap(format!("plugin returned invalid HTTP status {status}")))
+	}
+}
+
+fn validate_header_name(name: &str) -> Result<(), PluginError> {
+	if name.bytes().any(|b| matches!(b, b'\r' | b'\n' | 0)) {
+		Err(PluginError::Trap(format!("header name contains CR, LF, or NUL: {name:?}")))
+	} else {
+		Ok(())
+	}
+}
+
+fn validate_header_value(value: &str) -> Result<(), PluginError> {
+	if value.bytes().any(|b| matches!(b, b'\r' | b'\n' | 0)) {
+		Err(PluginError::Trap("header value contains CR, LF, or NUL".into()))
+	} else {
+		Ok(())
+	}
+}
+
+// ─── type translation helpers (invoke_l4bytes) ───────────────────────────────
+
+fn lower_context_value_l4bytes(
+	v: ContextValue,
+) -> invoke_l4bytes::vane::plugin::types::ContextValue {
+	use invoke_l4bytes::vane::plugin::types::ContextValue as WitCV;
+	match v {
+		ContextValue::Text(s) => WitCV::Text(s),
+		ContextValue::Bytes(b) => WitCV::Bytes(b),
+		ContextValue::Int64(i) => WitCV::Int64(i),
+		ContextValue::Uint64(u) => WitCV::Uint64(u),
+		ContextValue::Boolean(b) => WitCV::Boolean(b),
+		ContextValue::ListText(l) => WitCV::ListText(l),
+	}
+}
+
+fn lower_context_entry_l4bytes(
+	e: ContextEntry,
+) -> invoke_l4bytes::vane::plugin::types::ContextEntry {
+	invoke_l4bytes::vane::plugin::types::ContextEntry {
+		path: e.path,
+		value: lower_context_value_l4bytes(e.value),
+	}
+}
+
+fn lower_bytes_view_l4bytes(bv: BytesView) -> invoke_l4bytes::vane::plugin::types::BytesView {
+	invoke_l4bytes::vane::plugin::types::BytesView { data: bv.data, truncated: bv.truncated }
+}
+
+fn lower_l4bytes_input(
+	input: L4BytesInput,
+) -> invoke_l4bytes::exports::vane::plugin::handler_l4_bytes::L4BytesInput {
+	invoke_l4bytes::exports::vane::plugin::handler_l4_bytes::L4BytesInput {
+		bytes: lower_bytes_view_l4bytes(input.bytes),
+		context: input.context.into_iter().map(lower_context_entry_l4bytes).collect(),
+	}
+}
+
+fn lift_l4bytes_decision(
+	d: invoke_l4bytes::exports::vane::plugin::handler_l4_bytes::L4BytesDecision,
+) -> L4BytesDecision {
+	use invoke_l4bytes::exports::vane::plugin::handler_l4_bytes::L4BytesDecision as WitD;
+	match d {
+		WitD::Continue => L4BytesDecision::Continue,
+		WitD::Tunnel => L4BytesDecision::Tunnel,
+		WitD::Close => L4BytesDecision::Close,
+	}
+}
+
+fn lift_plugin_error_l4bytes(
+	pe: invoke_l4bytes::vane::plugin::types::PluginError,
+) -> Result<PluginError, PluginError> {
+	validate_on_error_hint(pe.on_error_hint.as_ref())?;
+	Ok(PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint })
+}
+
+// ─── type translation helpers (invoke_l7request) ─────────────────────────────
+
+fn lower_context_value_l7request(
+	v: ContextValue,
+) -> invoke_l7request::vane::plugin::types::ContextValue {
+	use invoke_l7request::vane::plugin::types::ContextValue as WitCV;
+	match v {
+		ContextValue::Text(s) => WitCV::Text(s),
+		ContextValue::Bytes(b) => WitCV::Bytes(b),
+		ContextValue::Int64(i) => WitCV::Int64(i),
+		ContextValue::Uint64(u) => WitCV::Uint64(u),
+		ContextValue::Boolean(b) => WitCV::Boolean(b),
+		ContextValue::ListText(l) => WitCV::ListText(l),
+	}
+}
+
+fn lower_context_entry_l7request(
+	e: ContextEntry,
+) -> invoke_l7request::vane::plugin::types::ContextEntry {
+	invoke_l7request::vane::plugin::types::ContextEntry {
+		path: e.path,
+		value: lower_context_value_l7request(e.value),
+	}
+}
+
+fn lower_bytes_view_l7request(bv: BytesView) -> invoke_l7request::vane::plugin::types::BytesView {
+	invoke_l7request::vane::plugin::types::BytesView { data: bv.data, truncated: bv.truncated }
+}
+
+fn lower_header_l7request(h: Header) -> invoke_l7request::vane::plugin::types::Header {
+	invoke_l7request::vane::plugin::types::Header {
+		name: h.name.to_ascii_lowercase(),
+		value: h.value,
+	}
+}
+
+fn lower_l7request_input(
+	input: L7RequestInput,
+) -> invoke_l7request::exports::vane::plugin::handler_l7_request::L7RequestInput {
+	invoke_l7request::exports::vane::plugin::handler_l7_request::L7RequestInput {
+		method: input.method,
+		uri: input.uri,
+		headers: input.headers.into_iter().map(lower_header_l7request).collect(),
+		body: input.body.map(lower_bytes_view_l7request),
+		context: input.context.into_iter().map(lower_context_entry_l7request).collect(),
+	}
+}
+
+fn lift_l7request_decision(
+	d: invoke_l7request::exports::vane::plugin::handler_l7_request::L7RequestDecision,
+) -> Result<L7RequestDecision, PluginError> {
+	use invoke_l7request::exports::vane::plugin::handler_l7_request::L7RequestDecision as WitD;
+	match d {
+		WitD::Continue => Ok(L7RequestDecision::Continue),
+		WitD::Close => Ok(L7RequestDecision::Close),
+		WitD::Short(sr) => {
+			validate_status(sr.status)?;
+			for h in &sr.headers {
+				validate_header_name(&h.name)?;
+				validate_header_value(&h.value)?;
+			}
+			let headers =
+				sr.headers.into_iter().map(|h| Header { name: h.name, value: h.value }).collect();
+			Ok(L7RequestDecision::Short(SynthResponse { status: sr.status, headers, body: sr.body }))
+		}
+	}
+}
+
+fn lift_plugin_error_l7request(
+	pe: invoke_l7request::vane::plugin::types::PluginError,
+) -> Result<PluginError, PluginError> {
+	validate_on_error_hint(pe.on_error_hint.as_ref())?;
+	Ok(PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint })
+}
+
+// ─── type translation helpers (invoke_l7response) ────────────────────────────
+
+fn lower_context_value_l7response(
+	v: ContextValue,
+) -> invoke_l7response::vane::plugin::types::ContextValue {
+	use invoke_l7response::vane::plugin::types::ContextValue as WitCV;
+	match v {
+		ContextValue::Text(s) => WitCV::Text(s),
+		ContextValue::Bytes(b) => WitCV::Bytes(b),
+		ContextValue::Int64(i) => WitCV::Int64(i),
+		ContextValue::Uint64(u) => WitCV::Uint64(u),
+		ContextValue::Boolean(b) => WitCV::Boolean(b),
+		ContextValue::ListText(l) => WitCV::ListText(l),
+	}
+}
+
+fn lower_context_entry_l7response(
+	e: ContextEntry,
+) -> invoke_l7response::vane::plugin::types::ContextEntry {
+	invoke_l7response::vane::plugin::types::ContextEntry {
+		path: e.path,
+		value: lower_context_value_l7response(e.value),
+	}
+}
+
+fn lower_bytes_view_l7response(bv: BytesView) -> invoke_l7response::vane::plugin::types::BytesView {
+	invoke_l7response::vane::plugin::types::BytesView { data: bv.data, truncated: bv.truncated }
+}
+
+fn lower_header_l7response(h: Header) -> invoke_l7response::vane::plugin::types::Header {
+	invoke_l7response::vane::plugin::types::Header {
+		name: h.name.to_ascii_lowercase(),
+		value: h.value,
+	}
+}
+
+fn lower_l7response_input(
+	input: L7ResponseInput,
+) -> invoke_l7response::exports::vane::plugin::handler_l7_response::L7ResponseInput {
+	invoke_l7response::exports::vane::plugin::handler_l7_response::L7ResponseInput {
+		status: input.status,
+		headers: input.headers.into_iter().map(lower_header_l7response).collect(),
+		body: input.body.map(lower_bytes_view_l7response),
+		context: input.context.into_iter().map(lower_context_entry_l7response).collect(),
+	}
+}
+
+fn lift_l7response_decision(
+	d: invoke_l7response::exports::vane::plugin::handler_l7_response::L7ResponseDecision,
+) -> Result<L7ResponseDecision, PluginError> {
+	use invoke_l7response::exports::vane::plugin::handler_l7_response::L7ResponseDecision as WitD;
+	match d {
+		WitD::Continue => Ok(L7ResponseDecision::Continue),
+		WitD::Abort => Ok(L7ResponseDecision::Abort),
+		WitD::Modify(mr) => {
+			if let Some(status) = mr.status {
+				validate_status(status)?;
+			}
+			if let Some(ref headers) = mr.headers {
+				for h in headers {
+					validate_header_name(&h.name)?;
+					validate_header_value(&h.value)?;
+				}
+			}
+			let headers = mr
+				.headers
+				.map(|hs| hs.into_iter().map(|h| Header { name: h.name, value: h.value }).collect());
+			Ok(L7ResponseDecision::Modify(ModifiedResponse { status: mr.status, headers, body: mr.body }))
+		}
+	}
+}
+
+fn lift_plugin_error_l7response(
+	pe: invoke_l7response::vane::plugin::types::PluginError,
+) -> Result<PluginError, PluginError> {
+	validate_on_error_hint(pe.on_error_hint.as_ref())?;
+	Ok(PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint })
 }
 
 // ─── WasmtimeRuntime ─────────────────────────────────────────────────────────
@@ -452,6 +1058,9 @@ pub struct WasmtimeRuntime {
 	fetch_backend: Arc<dyn HttpFetchBackend>,
 	epoch_abort: tokio::task::AbortHandle,
 	invoke_linker: Linker<HostState>,
+	invoke_l4bytes_linker: Linker<HostState>,
+	invoke_l7request_linker: Linker<HostState>,
+	invoke_l7response_linker: Linker<HostState>,
 	components: RwLock<HashMap<String, Arc<Component>>>,
 	metadata: RwLock<HashMap<String, Arc<PluginMetadata>>>,
 	stateless_pools: RwLock<HashMap<StatelessKey, Arc<StatelessPool>>>,
@@ -506,11 +1115,35 @@ impl WasmtimeRuntime {
 		)
 		.map_err(|e| Error::internal(format!("invoke linker setup: {e}")))?;
 
+		let mut invoke_l4bytes_linker = Linker::<HostState>::new(&engine);
+		invoke_l4bytes::PluginL4BytesInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
+			&mut invoke_l4bytes_linker,
+			|x| x,
+		)
+		.map_err(|e| Error::internal(format!("l4bytes linker setup: {e}")))?;
+
+		let mut invoke_l7request_linker = Linker::<HostState>::new(&engine);
+		invoke_l7request::PluginL7RequestInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
+			&mut invoke_l7request_linker,
+			|x| x,
+		)
+		.map_err(|e| Error::internal(format!("l7request linker setup: {e}")))?;
+
+		let mut invoke_l7response_linker = Linker::<HostState>::new(&engine);
+		invoke_l7response::PluginL7ResponseInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
+			&mut invoke_l7response_linker,
+			|x| x,
+		)
+		.map_err(|e| Error::internal(format!("l7response linker setup: {e}")))?;
+
 		Ok(Arc::new(Self {
 			engine,
 			fetch_backend,
 			epoch_abort,
 			invoke_linker,
+			invoke_l4bytes_linker,
+			invoke_l7request_linker,
+			invoke_l7response_linker,
 			components: RwLock::new(HashMap::new()),
 			metadata: RwLock::new(HashMap::new()),
 			stateless_pools: RwLock::new(HashMap::new()),
@@ -670,6 +1303,234 @@ impl WasmRuntime for WasmtimeRuntime {
 		match result {
 			Ok(Ok(d)) => Ok(lift_decision(d)),
 			Ok(Err(pe)) => Err(lift_plugin_error(pe)),
+			Err(e) => Err(PluginError::Trap(e.to_string())),
+		}
+	}
+
+	async fn invoke_l4_bytes(
+		&self,
+		module_id: &ModuleId,
+		export_name: &str,
+		args_json: &str,
+		input: L4BytesInput,
+	) -> Result<L4BytesDecision, PluginError> {
+		let key = module_id.0.as_ref().to_owned();
+
+		let Some(component) = self.components.read().unwrap().get(&key).cloned() else {
+			return Err(PluginError::Trap("module not loaded".into()));
+		};
+
+		let Some(meta) = self.metadata.read().unwrap().get(&key).cloned() else {
+			return Err(PluginError::Trap("module not loaded".into()));
+		};
+
+		let Some(export_meta) = meta.exports.iter().find(|e| e.name == export_name) else {
+			return Err(PluginError::Trap(format!("export '{export_name}' not found")));
+		};
+
+		if !export_meta.stateless {
+			return Err(PluginError::Trap("stateful exports require StatefulPoolHandle".into()));
+		}
+
+		let skey = StatelessKey {
+			module_id: key.clone(),
+			export_name: export_name.to_owned(),
+			args_json: args_json.to_owned(),
+		};
+
+		let pool = {
+			let pools = self.stateless_pools.read().unwrap();
+			pools.get(&skey).cloned()
+		};
+
+		let pool = if let Some(p) = pool {
+			p
+		} else {
+			let new_pool = Arc::new(StatelessPool {
+				component: Arc::clone(&component),
+				args_json: args_json.to_owned(),
+				construction_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+			});
+			let mut pools = self.stateless_pools.write().unwrap();
+			pools.entry(skey).or_insert(Arc::clone(&new_pool)).clone()
+		};
+
+		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+		let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
+		let mut store = Store::new(&self.engine, host_state);
+		store.set_epoch_deadline(10);
+
+		let plugin = match invoke_l4bytes::PluginL4BytesInvoke::instantiate_async(
+			&mut store,
+			&pool.component,
+			&self.invoke_l4bytes_linker,
+		)
+		.await
+		{
+			Ok(p) => p,
+			Err(e) => return Err(PluginError::Trap(e.to_string())),
+		};
+
+		let wit_input = lower_l4bytes_input(input);
+		let result =
+			plugin.vane_plugin_handler_l4_bytes().call_handle(&mut store, export_name, &wit_input);
+
+		match result {
+			Ok(Ok(d)) => Ok(lift_l4bytes_decision(d)),
+			Ok(Err(pe)) => Err(lift_plugin_error_l4bytes(pe)?),
+			Err(e) => Err(PluginError::Trap(e.to_string())),
+		}
+	}
+
+	async fn invoke_l7_request(
+		&self,
+		module_id: &ModuleId,
+		export_name: &str,
+		args_json: &str,
+		input: L7RequestInput,
+	) -> Result<L7RequestDecision, PluginError> {
+		let key = module_id.0.as_ref().to_owned();
+
+		let Some(component) = self.components.read().unwrap().get(&key).cloned() else {
+			return Err(PluginError::Trap("module not loaded".into()));
+		};
+
+		let Some(meta) = self.metadata.read().unwrap().get(&key).cloned() else {
+			return Err(PluginError::Trap("module not loaded".into()));
+		};
+
+		let Some(export_meta) = meta.exports.iter().find(|e| e.name == export_name) else {
+			return Err(PluginError::Trap(format!("export '{export_name}' not found")));
+		};
+
+		if !export_meta.stateless {
+			return Err(PluginError::Trap("stateful exports require StatefulPoolHandle".into()));
+		}
+
+		let skey = StatelessKey {
+			module_id: key.clone(),
+			export_name: export_name.to_owned(),
+			args_json: args_json.to_owned(),
+		};
+
+		let pool = {
+			let pools = self.stateless_pools.read().unwrap();
+			pools.get(&skey).cloned()
+		};
+
+		let pool = if let Some(p) = pool {
+			p
+		} else {
+			let new_pool = Arc::new(StatelessPool {
+				component: Arc::clone(&component),
+				args_json: args_json.to_owned(),
+				construction_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+			});
+			let mut pools = self.stateless_pools.write().unwrap();
+			pools.entry(skey).or_insert(Arc::clone(&new_pool)).clone()
+		};
+
+		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+		let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
+		let mut store = Store::new(&self.engine, host_state);
+		store.set_epoch_deadline(10);
+
+		let plugin = match invoke_l7request::PluginL7RequestInvoke::instantiate_async(
+			&mut store,
+			&pool.component,
+			&self.invoke_l7request_linker,
+		)
+		.await
+		{
+			Ok(p) => p,
+			Err(e) => return Err(PluginError::Trap(e.to_string())),
+		};
+
+		let wit_input = lower_l7request_input(input);
+		let result =
+			plugin.vane_plugin_handler_l7_request().call_handle(&mut store, export_name, &wit_input);
+
+		match result {
+			Ok(Ok(d)) => lift_l7request_decision(d),
+			Ok(Err(pe)) => Err(lift_plugin_error_l7request(pe)?),
+			Err(e) => Err(PluginError::Trap(e.to_string())),
+		}
+	}
+
+	async fn invoke_l7_response(
+		&self,
+		module_id: &ModuleId,
+		export_name: &str,
+		args_json: &str,
+		input: L7ResponseInput,
+	) -> Result<L7ResponseDecision, PluginError> {
+		let key = module_id.0.as_ref().to_owned();
+
+		let Some(component) = self.components.read().unwrap().get(&key).cloned() else {
+			return Err(PluginError::Trap("module not loaded".into()));
+		};
+
+		let Some(meta) = self.metadata.read().unwrap().get(&key).cloned() else {
+			return Err(PluginError::Trap("module not loaded".into()));
+		};
+
+		let Some(export_meta) = meta.exports.iter().find(|e| e.name == export_name) else {
+			return Err(PluginError::Trap(format!("export '{export_name}' not found")));
+		};
+
+		if !export_meta.stateless {
+			return Err(PluginError::Trap("stateful exports require StatefulPoolHandle".into()));
+		}
+
+		let skey = StatelessKey {
+			module_id: key.clone(),
+			export_name: export_name.to_owned(),
+			args_json: args_json.to_owned(),
+		};
+
+		let pool = {
+			let pools = self.stateless_pools.read().unwrap();
+			pools.get(&skey).cloned()
+		};
+
+		let pool = if let Some(p) = pool {
+			p
+		} else {
+			let new_pool = Arc::new(StatelessPool {
+				component: Arc::clone(&component),
+				args_json: args_json.to_owned(),
+				construction_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+			});
+			let mut pools = self.stateless_pools.write().unwrap();
+			pools.entry(skey).or_insert(Arc::clone(&new_pool)).clone()
+		};
+
+		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+		let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
+		let mut store = Store::new(&self.engine, host_state);
+		store.set_epoch_deadline(10);
+
+		let plugin = match invoke_l7response::PluginL7ResponseInvoke::instantiate_async(
+			&mut store,
+			&pool.component,
+			&self.invoke_l7response_linker,
+		)
+		.await
+		{
+			Ok(p) => p,
+			Err(e) => return Err(PluginError::Trap(e.to_string())),
+		};
+
+		let wit_input = lower_l7response_input(input);
+		let result =
+			plugin.vane_plugin_handler_l7_response().call_handle(&mut store, export_name, &wit_input);
+
+		match result {
+			Ok(Ok(d)) => lift_l7response_decision(d),
+			Ok(Err(pe)) => Err(lift_plugin_error_l7response(pe)?),
 			Err(e) => Err(PluginError::Trap(e.to_string())),
 		}
 	}

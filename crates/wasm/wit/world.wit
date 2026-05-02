@@ -22,3 +22,21 @@ world plugin-l4-peek-invoke {
     import vane:host/host@0.1.0;
     export vane:plugin/handler-l4-peek@0.1.0;
 }
+
+/// Invocation world for l4-bytes handler dispatch.
+world plugin-l4-bytes-invoke {
+    import vane:host/host@0.1.0;
+    export vane:plugin/handler-l4-bytes@0.1.0;
+}
+
+/// Invocation world for l7-request handler dispatch.
+world plugin-l7-request-invoke {
+    import vane:host/host@0.1.0;
+    export vane:plugin/handler-l7-request@0.1.0;
+}
+
+/// Invocation world for l7-response handler dispatch.
+world plugin-l7-response-invoke {
+    import vane:host/host@0.1.0;
+    export vane:plugin/handler-l7-response@0.1.0;
+}
