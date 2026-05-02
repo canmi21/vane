@@ -1933,31 +1933,61 @@ mod tests {
 		);
 	}
 
-	// With a tiny pool cap of 2 and 3 concurrent invocations, one invocation
-	// should fail with a trap caused by the PoolingAllocator limit.
+	// With a pool cap of 2, instantiate two plugins directly and hold the
+	// stores open. A subsequent invocation must trap because the
+	// PoolingAllocator has no free component-instance slots. Spawning a
+	// fixed number of concurrent invocations and hoping at least one of
+	// them races inside `instantiate_async` is racy under light load —
+	// rentals returned to the pool faster than the next task arrived.
+	// Holding rentals explicitly removes the timing dependency entirely.
 	#[tokio::test(flavor = "multi_thread")]
 	async fn stateless_pool_exhaustion_returns_overload_error() {
 		let rt = WasmtimeRuntime::new_with_pool_cap(mock_backend(), 2).expect("runtime");
 		rt.load_component(fixture_path()).await.expect("load");
 		let mid = fixture_module_id();
-		let rt = Arc::new(rt);
 
-		// Spawn three concurrent invocations against a 2-slot engine.
-		// At least one must fail because the PoolingAllocator cap is exceeded.
-		let mut set = tokio::task::JoinSet::new();
-		for _ in 0..3 {
-			let rt2 = Arc::clone(&rt);
-			let mid2 = mid.clone();
-			set.spawn(async move { rt2.invoke_l4_peek(&mid2, "probe", "{}", empty_input()).await });
-		}
+		let component = rt
+			.components
+			.read()
+			.unwrap()
+			.get(mid.0.as_ref())
+			.cloned()
+			.expect("fixture component must be loaded");
 
-		let mut results = Vec::new();
-		while let Some(res) = set.join_next().await {
-			results.push(res.expect("task panicked"));
-		}
+		// Directly instantiate two plugins so they each occupy a pool slot.
+		// Both stores stay alive through the subsequent invocation attempt,
+		// which must trap because no component-instance slot is available.
+		let mut store_a =
+			Store::new(&rt.engine, HostState::new("{}".to_owned(), Arc::clone(&rt.fetch_backend)));
+		store_a.set_epoch_deadline(10);
+		let plugin_a = invoke_l4peek::PluginL4PeekInvoke::instantiate_async(
+			&mut store_a,
+			&component,
+			&rt.invoke_linker,
+		)
+		.await
+		.expect("first rental must succeed");
 
-		let trap_count = results.iter().filter(|r| matches!(r, Err(PluginError::Trap(_)))).count();
-		assert!(trap_count >= 1, "expected at least one trap from pool exhaustion, got {results:?}");
+		let mut store_b =
+			Store::new(&rt.engine, HostState::new("{}".to_owned(), Arc::clone(&rt.fetch_backend)));
+		store_b.set_epoch_deadline(10);
+		let plugin_b = invoke_l4peek::PluginL4PeekInvoke::instantiate_async(
+			&mut store_b,
+			&component,
+			&rt.invoke_linker,
+		)
+		.await
+		.expect("second rental must succeed");
+
+		let result = rt.invoke_l4_peek(&mid, "probe", "{}", empty_input()).await;
+		assert!(
+			matches!(result, Err(PluginError::Trap(_))),
+			"third invocation must trap when both pool slots are held: {result:?}",
+		);
+
+		// Keep the rentals alive past the assertion so the pool stays
+		// saturated for the duration of the third invocation.
+		let _keepalive = (plugin_a, store_a, plugin_b, store_b);
 	}
 
 	// Stateful pool preserves linear memory between invocations:
