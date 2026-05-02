@@ -972,7 +972,11 @@ fn resolve_listener_tls(
 		)));
 	}
 
-	let mut spec = crate::rule::ListenerTlsSpec { default: None, sni_certs: BTreeMap::new() };
+	let mut spec = crate::rule::ListenerTlsSpec {
+		default: None,
+		sni_certs: BTreeMap::new(),
+		client_auth: crate::rule::ClientAuthSpec::None,
+	};
 	for rule in rules {
 		let Some(tls) = rule.raw.tls.as_ref() else { continue };
 		match tls.sni.as_deref() {
@@ -981,6 +985,7 @@ fn resolve_listener_tls(
 					sni: None,
 					cert_file: tls.cert_file.clone(),
 					key_file: tls.key_file.clone(),
+					client_auth: tls.client_auth.clone(),
 				};
 				match &spec.default {
 					None => spec.default = Some(normalised),
@@ -1000,6 +1005,7 @@ fn resolve_listener_tls(
 					sni: Some(sni_key.clone()),
 					cert_file: tls.cert_file.clone(),
 					key_file: tls.key_file.clone(),
+					client_auth: tls.client_auth.clone(),
 				};
 				match spec.sni_certs.get(&sni_key) {
 					None => {
@@ -1018,7 +1024,82 @@ fn resolve_listener_tls(
 		}
 	}
 
+	// Aggregate per-rule `tls.client_auth` into one listener-level
+	// `ClientAuthSpec`. Per `08-tls.md` § _Client certificate
+	// verification_, mTLS is per-listener: rules on the same listener
+	// must agree on `mode` AND `trust_store`. The first rule's spec
+	// (after structural validation) becomes the listener's policy;
+	// subsequent rules must produce the same value.
+	let mut resolved: Option<crate::rule::ClientAuthSpec> = None;
+	for rule in rules {
+		let Some(tls) = rule.raw.tls.as_ref() else { continue };
+		let Some(ca) = tls.client_auth.as_ref() else { continue };
+		let candidate = compile_client_auth(addrs, ca)?;
+		match &resolved {
+			None => resolved = Some(candidate),
+			Some(existing) if existing == &candidate => {}
+			Some(_) => {
+				return Err(Error::compile(format!(
+					"listener {addrs:?}: rules disagree on `client_auth` — mTLS is per-listener; every rule on the same address must agree on mode and trust_store"
+				)));
+			}
+		}
+	}
+	if let Some(ca) = resolved {
+		spec.client_auth = ca;
+	}
+
 	if spec.is_empty() { Ok(None) } else { Ok(Some(spec)) }
+}
+
+/// Validate one rule's `client_auth` block and produce the
+/// listener-level `ClientAuthSpec` it implies. Compile errors surface
+/// every structural omission listed in `08-tls.md` § _Client
+/// certificate verification_'s schema table.
+fn compile_client_auth(
+	addrs: &[SocketAddr],
+	ca: &crate::rule::ClientAuthConfig,
+) -> Result<crate::rule::ClientAuthSpec, Error> {
+	use crate::rule::{ClientAuthMode, ClientAuthSpec, CrlSourceConfig};
+	match ca.mode {
+		ClientAuthMode::None => {
+			if ca.trust_store.is_some() {
+				return Err(Error::compile(format!(
+					"listener {addrs:?}: `client_auth.mode = \"none\"` cannot carry a `trust_store` — drop the trust_store or change the mode"
+				)));
+			}
+			Ok(ClientAuthSpec::None)
+		}
+		ClientAuthMode::Request | ClientAuthMode::Require => {
+			let Some(ts) = ca.trust_store.clone() else {
+				return Err(Error::compile(format!(
+					"listener {addrs:?}: `client_auth.mode = \"{}\"` requires a `trust_store`",
+					match ca.mode {
+						ClientAuthMode::Request => "request",
+						ClientAuthMode::Require => "require",
+						ClientAuthMode::None => unreachable!(),
+					}
+				)));
+			};
+			if ts.ca_paths.is_empty() && ts.ca_dir.is_none() {
+				return Err(Error::compile(format!(
+					"listener {addrs:?}: `trust_store` requires at least one of `ca_paths` or `ca_dir`"
+				)));
+			}
+			for src in &ts.crls {
+				if let CrlSourceConfig::Url { url, .. } = src {
+					return Err(Error::compile(format!(
+						"listener {addrs:?}: CRL URL sources not yet supported — got url {url:?}; use kind: \"file\" or omit `crls`"
+					)));
+				}
+			}
+			Ok(match ca.mode {
+				ClientAuthMode::Request => ClientAuthSpec::Request { trust_store: ts },
+				ClientAuthMode::Require => ClientAuthSpec::Require { trust_store: ts },
+				ClientAuthMode::None => unreachable!(),
+			})
+		}
+	}
 }
 
 fn group_by_listener<'a>(rules: &'a [AnalyzedRule]) -> Result<Vec<ListenerGroup<'a>>, Error> {

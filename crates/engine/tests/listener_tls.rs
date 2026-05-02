@@ -80,6 +80,7 @@ fn rcgen_self_signed_for_localhost() -> TlsFixture {
 		sni: None,
 		cert_file: cert_file.path().to_path_buf(),
 		key_file: key_file.path().to_path_buf(),
+		client_auth: None,
 	};
 
 	TlsFixture { _cert_file: cert_file, _key_file: key_file, cert_pem, tls_cfg }
@@ -94,7 +95,11 @@ fn tls_static_ok_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) ->
 	let mut listener_tls = BTreeMap::new();
 	listener_tls.insert(
 		addr,
-		vane_core::rule::ListenerTlsSpec { default: Some(tls_cfg), sni_certs: BTreeMap::new() },
+		vane_core::rule::ListenerTlsSpec {
+			default: Some(tls_cfg),
+			sni_certs: BTreeMap::new(),
+			client_auth: vane_core::rule::ClientAuthSpec::None,
+		},
 	);
 
 	let meta = FlowGraphMeta {
@@ -342,6 +347,7 @@ fn tls_multi_sni_graph(
 				sni: Some((*sni).to_owned()),
 				cert_file: c.cert_file.path().to_path_buf(),
 				key_file: c.key_file.path().to_path_buf(),
+				client_auth: None,
 			},
 		);
 	}
@@ -350,8 +356,10 @@ fn tls_multi_sni_graph(
 			sni: None,
 			cert_file: c.cert_file.path().to_path_buf(),
 			key_file: c.key_file.path().to_path_buf(),
+			client_auth: None,
 		}),
 		sni_certs: spec_sni,
+		client_auth: vane_core::rule::ClientAuthSpec::None,
 	};
 
 	let mut listener_tls = BTreeMap::new();

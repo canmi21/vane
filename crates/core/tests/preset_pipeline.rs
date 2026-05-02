@@ -384,6 +384,7 @@ fn reverse_proxy_preset_propagates_tls_default_into_pool() {
 		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
+		client_auth: None,
 	};
 	let entry = tls_preset_entry(
 		"api",
@@ -417,6 +418,7 @@ fn raw_rule_with_tls_aggregates_into_listener_pool() {
 		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
+		client_auth: None,
 	};
 	assert_eq!(graph.meta.listener_tls.len(), 2);
 	for spec in graph.meta.listener_tls.values() {
@@ -555,6 +557,7 @@ fn l4_listener_with_tls_block_is_rejected() {
 		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
+		client_auth: None,
 	};
 	let entry = tls_preset_entry(
 		"ssh",

@@ -584,8 +584,10 @@ mod tests {
 				sni: None,
 				cert_file: cert_file.path().to_path_buf(),
 				key_file: key_file.path().to_path_buf(),
+				client_auth: None,
 			}),
 			sni_certs: BTreeMap::new(),
+			client_auth: vane_core::rule::ClientAuthSpec::None,
 		};
 		let (server, _populator) =
 			build_listener_server_config(&spec).expect("build_listener_server_config");

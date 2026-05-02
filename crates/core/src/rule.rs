@@ -63,6 +63,67 @@ pub struct TlsConfig {
 	pub sni: Option<String>,
 	pub cert_file: PathBuf,
 	pub key_file: PathBuf,
+	/// Listener-side mTLS — per `08-tls.md` § _Client certificate
+	/// verification_. Per-rule input; the lower pass aggregates each
+	/// rule's `client_auth` into one `ClientAuthSpec` per listener
+	/// address (rules on the same listener must agree, else compile
+	/// error). `None` keeps the listener at `ClientAuth::None`.
+	#[serde(default)]
+	pub client_auth: Option<ClientAuthConfig>,
+}
+
+/// Per-rule mTLS config block, parsed from the `tls.client_auth` JSON.
+/// `mode == None` is operator-explicit "don't request a cert"; the
+/// trust store must be absent there. `mode == Request | Require`
+/// requires a non-empty `trust_store`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct ClientAuthConfig {
+	pub mode: ClientAuthMode,
+	#[serde(default)]
+	pub trust_store: Option<ClientTrustStoreConfig>,
+}
+
+/// Three-valued client-auth mode (no implicit default per spec).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientAuthMode {
+	None,
+	Request,
+	Require,
+}
+
+/// Per-rule trust store config for verifying client certs. At least
+/// one of `ca_paths` / `ca_dir` must be present (enforced at compile).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct ClientTrustStoreConfig {
+	#[serde(default)]
+	pub ca_paths: Vec<PathBuf>,
+	#[serde(default)]
+	pub ca_dir: Option<PathBuf>,
+	#[serde(default)]
+	pub crls: Vec<CrlSourceConfig>,
+}
+
+/// One CRL source entry — file or URL, with a per-source
+/// `fetch_failure` policy. URL sources are deferred (S3-11) and
+/// rejected at compile time in this PR.
+// TODO(s3-11): wire `Url` source kind, daemon-wide CRL cache,
+// adaptive fetch cadence per `08-tls.md` § _CRL checking_.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum CrlSourceConfig {
+	File { path: PathBuf, fetch_failure: CrlFetchFailure },
+	Url { url: String, fetch_failure: CrlFetchFailure },
+}
+
+/// CRL availability policy (per `08-tls.md` § _CRL checking_ § _Failure
+/// handling_). Parsed eagerly though only the structural error path is
+/// wired this PR — actual fetch / failure semantics land with S3-11.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CrlFetchFailure {
+	Tolerate,
+	Reject,
 }
 
 /// Per-listener cert pool — produced by `compile/lower` from every
@@ -79,13 +140,38 @@ pub struct ListenerTlsSpec {
 	pub default: Option<TlsConfig>,
 	#[serde(default)]
 	pub sni_certs: BTreeMap<String, TlsConfig>,
+	/// Resolved per-listener mTLS policy. Per `08-tls.md` § _Client
+	/// certificate verification_ this is per-listener, derived from the
+	/// union of every rule's `tls.client_auth` on the same address;
+	/// rules that disagree on `mode` or `trust_store` produce a compile
+	/// error. Defaults to `None` for cleartext clients.
+	#[serde(default)]
+	pub client_auth: ClientAuthSpec,
 }
 
 impl ListenerTlsSpec {
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
-		self.default.is_none() && self.sni_certs.is_empty()
+		self.default.is_none()
+			&& self.sni_certs.is_empty()
+			&& matches!(self.client_auth, ClientAuthSpec::None)
 	}
+}
+
+/// Listener-level resolved mTLS policy. Built by the lower pass from
+/// the union of per-rule `ClientAuthConfig` blocks; rules on the same
+/// listener must all agree.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "mode", rename_all = "lowercase")]
+pub enum ClientAuthSpec {
+	#[default]
+	None,
+	Request {
+		trust_store: ClientTrustStoreConfig,
+	},
+	Require {
+		trust_store: ClientTrustStoreConfig,
+	},
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -583,6 +669,7 @@ mod tests {
 			sni: None,
 			cert_file: PathBuf::from("/srv/cert.pem"),
 			key_file: PathBuf::from("/srv/key.pem"),
+			client_auth: None,
 		};
 		let encoded = serde_json::to_string(&original).expect("serialize");
 		let decoded: TlsConfig = serde_json::from_str(&encoded).expect("deserialize");

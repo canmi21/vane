@@ -165,8 +165,14 @@ mod tests {
 
 	fn default_only(cert_path: PathBuf, key_path: PathBuf) -> ListenerTlsSpec {
 		ListenerTlsSpec {
-			default: Some(TlsConfig { sni: None, cert_file: cert_path, key_file: key_path }),
+			default: Some(TlsConfig {
+				sni: None,
+				cert_file: cert_path,
+				key_file: key_path,
+				client_auth: None,
+			}),
 			sni_certs: BTreeMap::new(),
+			client_auth: vane_core::rule::ClientAuthSpec::None,
 		}
 	}
 
@@ -205,9 +211,14 @@ mod tests {
 				sni: Some("api.example.com".to_owned()),
 				cert_file: cert.path().to_path_buf(),
 				key_file: key.path().to_path_buf(),
+				client_auth: None,
 			},
 		);
-		let spec = ListenerTlsSpec { default: None, sni_certs };
+		let spec = ListenerTlsSpec {
+			default: None,
+			sni_certs,
+			client_auth: vane_core::rule::ClientAuthSpec::None,
+		};
 		let pop = StaticCertPopulator::from_spec(&spec).expect("from_spec");
 		let store = pop.initial_store_sync().expect("initial_store_sync");
 		assert!(store.default.is_none());
@@ -216,7 +227,11 @@ mod tests {
 
 	#[test]
 	fn from_spec_rejects_empty() {
-		let spec = ListenerTlsSpec { default: None, sni_certs: BTreeMap::new() };
+		let spec = ListenerTlsSpec {
+			default: None,
+			sni_certs: BTreeMap::new(),
+			client_auth: vane_core::rule::ClientAuthSpec::None,
+		};
 		let err = StaticCertPopulator::from_spec(&spec).expect_err("empty spec rejected");
 		let msg = err.to_string();
 		assert!(msg.contains("empty"), "{msg}");

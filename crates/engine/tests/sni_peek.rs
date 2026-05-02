@@ -86,6 +86,7 @@ fn rcgen_default_cert() -> TlsFiles {
 		sni: None,
 		cert_file: cert_file.path().to_path_buf(),
 		key_file: key_file.path().to_path_buf(),
+		client_auth: None,
 	};
 	TlsFiles { _cert_file: cert_file, _key_file: key_file, tls_cfg }
 }
@@ -140,8 +141,14 @@ fn sni_peek_branching_graph(addr: SocketAddr, tls_cfg: rule::TlsConfig) -> Arc<F
 	entries.insert(addr, NodeId::new(0));
 
 	let mut listener_tls = BTreeMap::new();
-	listener_tls
-		.insert(addr, rule::ListenerTlsSpec { default: Some(tls_cfg), sni_certs: BTreeMap::new() });
+	listener_tls.insert(
+		addr,
+		rule::ListenerTlsSpec {
+			default: Some(tls_cfg),
+			sni_certs: BTreeMap::new(),
+			client_auth: rule::ClientAuthSpec::None,
+		},
+	);
 
 	let meta = FlowGraphMeta {
 		version_hash: [0; 32],

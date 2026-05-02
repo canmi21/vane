@@ -93,6 +93,7 @@ fn rcgen_cert(host: &str) -> CertFiles {
 		sni: None,
 		cert_file: cert.path().to_path_buf(),
 		key_file: key.path().to_path_buf(),
+		client_auth: None,
 	};
 	CertFiles { _cert: cert, _key: key, cert_pem, tls_cfg }
 }
@@ -161,7 +162,11 @@ fn auto_graph(
 	if let Some(cfg) = tls_cfg {
 		listener_tls.insert(
 			addr,
-			vane_core::rule::ListenerTlsSpec { default: Some(cfg), sni_certs: BTreeMap::new() },
+			vane_core::rule::ListenerTlsSpec {
+				default: Some(cfg),
+				sni_certs: BTreeMap::new(),
+				client_auth: vane_core::rule::ClientAuthSpec::None,
+			},
 		);
 	}
 
@@ -255,7 +260,11 @@ fn http_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<Flow
 	let mut listener_tls = BTreeMap::new();
 	listener_tls.insert(
 		addr,
-		vane_core::rule::ListenerTlsSpec { default: Some(tls_cfg), sni_certs: BTreeMap::new() },
+		vane_core::rule::ListenerTlsSpec {
+			default: Some(tls_cfg),
+			sni_certs: BTreeMap::new(),
+			client_auth: vane_core::rule::ClientAuthSpec::None,
+		},
 	);
 
 	let nodes = vec![
