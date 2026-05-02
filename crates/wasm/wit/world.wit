@@ -13,3 +13,12 @@ world plugin {
     import vane:host/host@0.1.0;
     export vane:plugin/registry@0.1.0;
 }
+
+/// Invocation world for l4-peek handler dispatch.
+///
+/// Used by `bindgen!` in the `invoke_l4peek` module to generate typed
+/// accessors for the exported handler interface.
+world plugin-l4-peek-invoke {
+    import vane:host/host@0.1.0;
+    export vane:plugin/handler-l4-peek@0.1.0;
+}
