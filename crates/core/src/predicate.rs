@@ -2526,6 +2526,162 @@ mod tests {
 		);
 	}
 
+	// ── tls.peer_cert.* — new fields ──────────────────────────────────────
+
+	fn rcgen_cert_with_san_dns(cn: &str, dns: &[&str]) -> rustls_pki_types::CertificateDer<'static> {
+		let san: Vec<String> = dns.iter().map(|s| (*s).to_owned()).collect();
+		let mut params = rcgen::CertificateParams::new(san).expect("rcgen params");
+		params.distinguished_name = rcgen::DistinguishedName::new();
+		params.distinguished_name.push(rcgen::DnType::CommonName, cn);
+		let key = rcgen::KeyPair::generate().expect("rcgen keypair");
+		let cert = params.self_signed(&key).expect("self-sign cert");
+		cert.der().clone()
+	}
+
+	#[test]
+	fn each_new_field_path_parses_from_string_form() {
+		use super::parse_field_path;
+		assert_eq!(parse_field_path("tls.peer_cert.present"), Ok(FieldPath::TlsPeerCertPresent));
+		assert_eq!(parse_field_path("tls.peer_cert.san_dns"), Ok(FieldPath::TlsPeerCertSanDns));
+		assert_eq!(
+			parse_field_path("tls.peer_cert.fingerprint_sha256"),
+			Ok(FieldPath::TlsPeerCertFingerprintSha256),
+		);
+		assert_eq!(parse_field_path("tls.peer_cert.spki_sha256"), Ok(FieldPath::TlsPeerCertSpkiSha256),);
+		assert_eq!(parse_field_path("tls.peer_cert.issuer_cn"), Ok(FieldPath::TlsPeerCertIssuerCn));
+		assert_eq!(parse_field_path("tls.peer_cert.serial"), Ok(FieldPath::TlsPeerCertSerial));
+	}
+
+	#[test]
+	fn peer_cert_present_true_when_cert_attached() {
+		let cert = rcgen_cert_with_cn("client.internal");
+		let conn = conn_with_peer_cert(&cert);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			pred(FieldPath::TlsPeerCertPresent, CompiledOperator::Equals(CompiledValue::Bool(true)))
+				.test(&v)
+		);
+		assert!(
+			!pred(FieldPath::TlsPeerCertPresent, CompiledOperator::Equals(CompiledValue::Bool(false)))
+				.test(&v)
+		);
+	}
+
+	#[test]
+	fn peer_cert_present_false_when_cert_absent() {
+		// Request-mode pattern: rule with `tls.peer_cert.present == false`
+		// matches when the client did not present a cert.
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			pred(FieldPath::TlsPeerCertPresent, CompiledOperator::Equals(CompiledValue::Bool(false)))
+				.test(&v)
+		);
+		assert!(
+			!pred(FieldPath::TlsPeerCertPresent, CompiledOperator::Equals(CompiledValue::Bool(true)))
+				.test(&v)
+		);
+	}
+
+	#[test]
+	fn peer_cert_san_dns_contains_matches_listed_element() {
+		let cert = rcgen_cert_with_san_dns("svc-a", &["svc-a.internal", "svc-b.internal"]);
+		let conn = conn_with_peer_cert(&cert);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			pred(FieldPath::TlsPeerCertSanDns, CompiledOperator::Contains(b(b"svc-a.internal"))).test(&v)
+		);
+		assert!(
+			!pred(FieldPath::TlsPeerCertSanDns, CompiledOperator::Contains(b(b"svc-c.internal")))
+				.test(&v),
+		);
+		assert!(
+			pred(FieldPath::TlsPeerCertSanDns, CompiledOperator::NotContains(b(b"svc-c.internal")))
+				.test(&v),
+		);
+	}
+
+	#[test]
+	fn peer_cert_san_dns_misses_when_cert_absent() {
+		let conn = make_conn();
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			!pred(FieldPath::TlsPeerCertSanDns, CompiledOperator::Contains(b(b"anything"))).test(&v)
+		);
+	}
+
+	#[test]
+	fn peer_cert_fingerprint_sha256_is_lowercase_hex_of_full_der() {
+		use sha2::{Digest, Sha256};
+		let cert = rcgen_cert_with_cn("fingerprinted");
+		let mut h = Sha256::new();
+		h.update(cert.as_ref());
+		let want = h.finalize().iter().fold(String::new(), |mut s, b| {
+			use std::fmt::Write as _;
+			let _ = write!(s, "{b:02x}");
+			s
+		});
+
+		let conn = conn_with_peer_cert(&cert);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		assert!(
+			pred(FieldPath::TlsPeerCertFingerprintSha256, CompiledOperator::Equals(str_val(&want)),)
+				.test(&v),
+		);
+	}
+
+	#[test]
+	fn peer_cert_issuer_and_serial_present_for_self_signed_cert() {
+		// rcgen self-signed: issuer == subject. Serial is rcgen-assigned;
+		// we just check it's a non-empty lowercase-hex string.
+		let cert = rcgen_cert_with_cn("issuer-test");
+		let conn = conn_with_peer_cert(&cert);
+		let v = PredicateView::L4 { conn: &conn, peek: None };
+		// issuer_cn should equal subject for self-signed
+		assert!(
+			pred(FieldPath::TlsPeerCertIssuerCn, CompiledOperator::Equals(str_val("issuer-test")))
+				.test(&v)
+		);
+		// Serial is non-empty hex (we don't know the exact value rcgen
+		// picks; check shape via prefix-based contains using the empty
+		// prefix as a proxy for "string is set").
+		let pc = conn.tls.lock().as_ref().unwrap().peer_cert.as_ref().unwrap().clone();
+		assert!(!pc.serial.is_empty(), "serial extracted");
+		assert!(pc.serial.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+	}
+
+	#[test]
+	fn peer_cert_present_value_type_is_bool() {
+		assert_eq!(FieldPath::TlsPeerCertPresent.value_type(), FieldValueType::Bool);
+	}
+
+	#[test]
+	fn peer_cert_san_dns_value_type_is_vec_str() {
+		assert_eq!(FieldPath::TlsPeerCertSanDns.value_type(), FieldValueType::VecStr);
+	}
+
+	#[test]
+	fn matrix_rejects_string_pref_suf_on_bool_field() {
+		// Bool accepts only equals / not_equals; prefix / suffix /
+		// matches / contains all matrix-reject.
+		assert!(!OperatorFamily::StringPrefSuf.accepts(FieldValueType::Bool));
+		assert!(!OperatorFamily::StringSubstr.accepts(FieldValueType::Bool));
+		assert!(!OperatorFamily::RegexMatches.accepts(FieldValueType::Bool));
+		// equals is the only legal family on Bool
+		assert!(OperatorFamily::Equality.accepts(FieldValueType::Bool));
+	}
+
+	#[test]
+	fn matrix_rejects_equals_on_vec_str_field() {
+		// Vec<Str> only accepts contains / not_contains. Equality and
+		// regex / numeric / cidr all matrix-reject.
+		assert!(!OperatorFamily::Equality.accepts(FieldValueType::VecStr));
+		assert!(!OperatorFamily::InList.accepts(FieldValueType::VecStr));
+		assert!(!OperatorFamily::StringPrefSuf.accepts(FieldValueType::VecStr));
+		assert!(!OperatorFamily::RegexMatches.accepts(FieldValueType::VecStr));
+		assert!(OperatorFamily::StringSubstr.accepts(FieldValueType::VecStr));
+	}
+
 	// ── http.body (Bytes-typed) ──────────────────────────────────────────
 	//
 	// Spec 18 § _Runtime_: the executor collects request body via
