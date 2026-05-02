@@ -1054,6 +1054,18 @@ async fn run_tls<S>(
 			}
 			_ => {}
 		}
+		// Capture the verified peer certificate (mTLS) before any
+		// `tls.peer_cert.*` predicate fires. rustls returns the chain
+		// the client presented; the leaf is the first element. When
+		// the cert can't be parsed we leave `peer_cert = None` —
+		// `tls.peer_cert.present` then reads as `false`, the
+		// sound-by-default arm.
+		let peer_cert = server_conn.peer_certificates().and_then(|chain| {
+			chain
+				.first()
+				.and_then(|leaf| vane_core::PeerCertificate::from_der(leaf).map(std::sync::Arc::new))
+		});
+
 		let mut guard = conn.tls.lock();
 		let info = guard.get_or_insert_with(TlsInfo::default);
 		info.alpn = alpn;
@@ -1062,6 +1074,7 @@ async fn run_tls<S>(
 			rustls::ProtocolVersion::TLSv1_3 => Some(TlsVersion::Tls13),
 			_ => None,
 		});
+		info.peer_cert = peer_cert;
 	}
 
 	let result = execute(

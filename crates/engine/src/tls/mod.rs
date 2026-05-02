@@ -9,12 +9,16 @@
 //! rotation_.
 
 pub mod cert_store;
+pub mod client_trust;
 pub mod populator;
 pub mod resolver;
 pub mod static_populator;
 pub mod ticketer;
 
 pub use cert_store::{CertEntry, CertStore};
+pub use client_trust::{
+	ClientTrustStore, ClientTrustStoreError, ClientTrustStoreHandle, build_client_verifier,
+};
 pub use populator::{CertPopulator, PopulatorError};
 pub use resolver::VaneCertResolver;
 pub use static_populator::StaticCertPopulator;

@@ -477,8 +477,18 @@ fn build_listener_server_config(
 	let arcswap = Arc::new(ArcSwap::from_pointee(store));
 	let resolver = Arc::new(VaneCertResolver::new(arcswap));
 
-	let mut server_config =
-		rustls::ServerConfig::builder().with_no_client_auth().with_cert_resolver(resolver);
+	// Per `08-tls.md` § _Client certificate verification_, the listener
+	// chooses one of three client-auth dispositions per the resolved
+	// per-listener `ClientAuthSpec` (None / Request / Require). The
+	// builder's verifier slot is set accordingly; `with_no_client_auth`
+	// keeps the existing behaviour for `None`.
+	let builder = rustls::ServerConfig::builder();
+	let builder =
+		match crate::tls::build_client_verifier(&spec.client_auth).map_err(|e| e.to_string())? {
+			Some(verifier) => builder.with_client_cert_verifier(verifier),
+			None => builder.with_no_client_auth(),
+		};
+	let mut server_config = builder.with_cert_resolver(resolver);
 	// Two-protocol ALPN — h2 preferred, http/1.1 fallback. The executor's
 	// Upgrade arm reads the negotiated protocol off `ConnContext.tls.alpn`
 	// and routes to the matching driver.
