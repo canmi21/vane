@@ -180,6 +180,22 @@ const FIXTURE_WAT: &str = r#"(module
   )
   (func (export "cm32p2|vane:plugin/handler-l4-peek@0.1|handle")
     (param i32 i32 i32 i32 i32 i32) (result i32)
-    unreachable
+    (local $r i32) (local $decision i32)
+    (if (i32.eqz (i32.load (i32.const 64)))
+      (then
+        (i32.store (i32.const 64) (i32.const 42))
+        (local.set $decision (i32.const 0)))
+      (else
+        (local.set $decision (i32.const 1))))
+    (local.set $r (call $alloc (i32.const 0) (i32.const 0) (i32.const 4) (i32.const 32)))
+    (i32.store          (local.get $r) (i32.const 0))
+    (i32.store offset=4  (local.get $r) (local.get $decision))
+    (i32.store offset=8  (local.get $r) (i32.const 0))
+    (i32.store offset=12 (local.get $r) (i32.const 0))
+    (i32.store offset=16 (local.get $r) (i32.const 0))
+    (i32.store offset=20 (local.get $r) (i32.const 0))
+    (i32.store offset=24 (local.get $r) (i32.const 0))
+    (i32.store offset=28 (local.get $r) (i32.const 0))
+    (local.get $r)
   )
 )"#;

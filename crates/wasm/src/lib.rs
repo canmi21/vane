@@ -4,8 +4,9 @@
 
 #![allow(unsafe_code)] // Component::deserialize_file is unsafe per wasmtime API
 
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rand::Rng;
@@ -16,7 +17,8 @@ use wasmtime::{Config, Engine, PoolingAllocationConfig, Store};
 
 use vane_core::middleware::MiddlewareKind;
 use vane_core::{
-	Error, HttpFetchBackend, HttpFetchError, HttpFetchLimits, HttpFetchRequest, PluginExport,
+	ContextEntry, ContextValue, Error, HttpFetchBackend, HttpFetchError, HttpFetchLimits,
+	HttpFetchRequest, L4PeekDecision, L4PeekInput, ModuleId, PluginError, PluginExport,
 	PluginMetadata, WasmRuntime,
 };
 
@@ -31,6 +33,16 @@ wasmtime::component::bindgen!({
 				default: async | trappable,
 		},
 });
+
+mod invoke_l4peek {
+	wasmtime::component::bindgen!({
+		path: "wit",
+		world: "plugin-l4-peek-invoke",
+		imports: {
+			default: async | trappable,
+		},
+	});
+}
 
 // ─── host state ──────────────────────────────────────────────────────────────
 
@@ -128,6 +140,98 @@ impl vane::host::host::Host for HostState {
 	}
 }
 
+// ─── invoke_l4peek host trait impls ──────────────────────────────────────────
+
+impl invoke_l4peek::vane::plugin::types::Host for HostState {}
+
+impl invoke_l4peek::vane::host::host::Host for HostState {
+	async fn get_args(&mut self) -> wasmtime::Result<String> {
+		Ok(self.args.clone())
+	}
+
+	async fn log(
+		&mut self,
+		level: invoke_l4peek::vane::host::host::LogLevel,
+		message: String,
+		fields: Vec<invoke_l4peek::vane::host::host::LogField>,
+	) -> wasmtime::Result<()> {
+		use invoke_l4peek::vane::host::host::LogLevel;
+		let kv: String = fields.iter().fold(String::new(), |mut s, f| {
+			use std::fmt::Write as _;
+			let _ = write!(s, " {}={}", f.key, f.value);
+			s
+		});
+		match level {
+			LogLevel::Trace => trace!(plugin = true, "{message}{kv}"),
+			LogLevel::Debug => tracing::debug!(plugin = true, "{message}{kv}"),
+			LogLevel::Info => tracing::info!(plugin = true, "{message}{kv}"),
+			LogLevel::Warn => warn!(plugin = true, "{message}{kv}"),
+			LogLevel::Error => tracing::error!(plugin = true, "{message}{kv}"),
+		}
+		Ok(())
+	}
+
+	async fn now_unix_ms(&mut self) -> wasmtime::Result<u64> {
+		let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+		Ok(d.as_secs() * 1000 + u64::from(d.subsec_millis()))
+	}
+
+	async fn random(&mut self, buf_len: u32) -> wasmtime::Result<Vec<u8>> {
+		let mut buf = vec![0u8; buf_len as usize];
+		rand::rng().fill_bytes(&mut buf);
+		Ok(buf)
+	}
+
+	async fn metric_counter(
+		&mut self,
+		_name: String,
+		_delta: u64,
+		_labels: Vec<invoke_l4peek::vane::host::host::MetricLabel>,
+	) -> wasmtime::Result<()> {
+		// TODO(wasm-metrics): route to daemon metrics facade
+		Ok(())
+	}
+
+	async fn metric_gauge(
+		&mut self,
+		_name: String,
+		_value: i64,
+		_labels: Vec<invoke_l4peek::vane::host::host::MetricLabel>,
+	) -> wasmtime::Result<()> {
+		// TODO(wasm-metrics): route to daemon metrics facade
+		Ok(())
+	}
+
+	async fn http_fetch(
+		&mut self,
+		req: invoke_l4peek::vane::host::host::HttpFetchRequest,
+	) -> wasmtime::Result<
+		Result<
+			invoke_l4peek::vane::host::host::HttpFetchResponse,
+			invoke_l4peek::vane::host::host::NetError,
+		>,
+	> {
+		let vane_req = HttpFetchRequest {
+			method: req.method,
+			url: req.url,
+			headers: req.headers,
+			body: req.body,
+			timeout_ms: req.timeout_ms,
+			follow_redirects: req.follow_redirects,
+			verify_tls: req.verify_tls,
+		};
+		let limits = HttpFetchLimits::default();
+		match self.fetch_backend.fetch(vane_req, limits).await {
+			Ok(resp) => Ok(Ok(invoke_l4peek::vane::host::host::HttpFetchResponse {
+				status: resp.status,
+				headers: resp.headers,
+				body: resp.body,
+			})),
+			Err(e) => Ok(Err(map_fetch_error_invoke(e))),
+		}
+	}
+}
+
 fn map_fetch_error(e: HttpFetchError) -> vane::host::host::NetError {
 	use vane::host::host::NetError;
 	match e {
@@ -143,6 +247,65 @@ fn map_fetch_error(e: HttpFetchError) -> vane::host::host::NetError {
 	}
 }
 
+fn map_fetch_error_invoke(e: HttpFetchError) -> invoke_l4peek::vane::host::host::NetError {
+	use invoke_l4peek::vane::host::host::NetError;
+	match e {
+		HttpFetchError::DnsFailure(s) => NetError::DnsFailure(s),
+		HttpFetchError::ConnectionRefused => NetError::ConnectionRefused,
+		HttpFetchError::Timeout => NetError::Timeout,
+		HttpFetchError::TlsError(s) => NetError::TlsError(s),
+		HttpFetchError::PoolExhausted => NetError::PoolExhausted,
+		HttpFetchError::BodyTooLarge => NetError::BodyTooLarge,
+		HttpFetchError::NotAllowed(s) => NetError::NotAllowed(s),
+		HttpFetchError::InsecureRejected => NetError::InsecureRejected,
+		HttpFetchError::Internal(s) => NetError::Internal(s),
+	}
+}
+
+// ─── type translation helpers ────────────────────────────────────────────────
+
+fn lower_context_value(v: ContextValue) -> invoke_l4peek::vane::plugin::types::ContextValue {
+	use invoke_l4peek::vane::plugin::types::ContextValue as WitCV;
+	match v {
+		ContextValue::Text(s) => WitCV::Text(s),
+		ContextValue::Bytes(b) => WitCV::Bytes(b),
+		ContextValue::Int64(i) => WitCV::Int64(i),
+		ContextValue::Uint64(u) => WitCV::Uint64(u),
+		ContextValue::Boolean(b) => WitCV::Boolean(b),
+		ContextValue::ListText(l) => WitCV::ListText(l),
+	}
+}
+
+fn lower_context_entry(e: ContextEntry) -> invoke_l4peek::vane::plugin::types::ContextEntry {
+	invoke_l4peek::vane::plugin::types::ContextEntry {
+		path: e.path,
+		value: lower_context_value(e.value),
+	}
+}
+
+fn lower_input(
+	input: L4PeekInput,
+) -> invoke_l4peek::exports::vane::plugin::handler_l4_peek::L4PeekInput {
+	invoke_l4peek::exports::vane::plugin::handler_l4_peek::L4PeekInput {
+		peek: input.peek,
+		context: input.context.into_iter().map(lower_context_entry).collect(),
+	}
+}
+
+fn lift_decision(
+	d: invoke_l4peek::exports::vane::plugin::handler_l4_peek::L4PeekDecision,
+) -> L4PeekDecision {
+	use invoke_l4peek::exports::vane::plugin::handler_l4_peek::L4PeekDecision as WitD;
+	match d {
+		WitD::Continue => L4PeekDecision::Continue,
+		WitD::Close => L4PeekDecision::Close,
+	}
+}
+
+fn lift_plugin_error(pe: invoke_l4peek::vane::plugin::types::PluginError) -> PluginError {
+	PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint }
+}
+
 // ─── WasmtimeRuntime ─────────────────────────────────────────────────────────
 
 /// Expected ABI major version. Components whose `abi-version` has a different
@@ -152,10 +315,104 @@ const ABI_MAJOR: u64 = 0;
 /// Path to the compiled component cache.
 const CWASM_CACHE_DIR: &str = "/var/lib/vaned/wasm";
 
+/// Key for the stateless pool map: uniquely identifies a (module, export, args) triple.
+#[derive(Clone, Hash, Eq, PartialEq)]
+struct StatelessKey {
+	module_id: String,
+	export_name: String,
+	args_json: String,
+}
+
+/// Pool metadata for a stateless export. Each rental instantiates a fresh store.
+struct StatelessPool {
+	component: Arc<Component>,
+	#[allow(dead_code)]
+	args_json: String,
+	construction_count: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// A pre-allocated pool of warm stateful WASM instances for a single export.
+///
+/// Instances are checked out (popped), used, and returned (pushed). If the
+/// pool is empty, `invoke_l4_peek` returns `PluginError::Exhausted` immediately
+/// without blocking.
+pub struct StatefulPoolHandle {
+	// Stored for future dynamic pool growth and diagnostics.
+	#[allow(dead_code)]
+	component: Arc<Component>,
+	#[allow(dead_code)]
+	engine: Engine,
+	#[allow(dead_code)]
+	fetch_backend: Arc<dyn HttpFetchBackend>,
+	#[allow(dead_code)]
+	pub args_json: String,
+	instances: Mutex<Vec<StatefulInstance>>,
+	#[allow(dead_code)]
+	pub capacity: usize,
+}
+
+struct StatefulInstance {
+	store: Store<HostState>,
+	plugin: invoke_l4peek::PluginL4PeekInvoke,
+}
+
+impl StatefulPoolHandle {
+	/// Invoke the l4-peek handler using a pooled stateful instance.
+	///
+	/// Checkout is non-blocking: if no instance is available, returns
+	/// `PluginError::Exhausted` immediately.
+	///
+	/// # Errors
+	///
+	/// Returns `PluginError::Exhausted` if no instance is available.
+	/// Returns `PluginError::Trap` if the guest traps or the epoch deadline fires.
+	/// Returns `PluginError::Plugin` if the guest returns an in-band error.
+	///
+	/// # Panics
+	///
+	/// Panics if the internal instance mutex is poisoned.
+	#[allow(clippy::unused_async)] // async required for consistent call-site ergonomics
+	pub async fn invoke_l4_peek(
+		&self,
+		export_name: &str,
+		input: L4PeekInput,
+	) -> Result<L4PeekDecision, PluginError> {
+		let mut instance = {
+			let mut guard = self.instances.lock().unwrap();
+			guard.pop().ok_or(PluginError::Exhausted)?
+		};
+
+		instance.store.set_epoch_deadline(10);
+		let wit_input = lower_input(input);
+		let result = instance.plugin.vane_plugin_handler_l4_peek().call_handle(
+			&mut instance.store,
+			export_name,
+			&wit_input,
+		);
+
+		let outcome = match result {
+			Ok(Ok(d)) => Ok(lift_decision(d)),
+			Ok(Err(pe)) => Err(lift_plugin_error(pe)),
+			Err(e) => Err(PluginError::Trap(e.to_string())),
+		};
+
+		{
+			let mut guard = self.instances.lock().unwrap();
+			guard.push(instance);
+		}
+
+		outcome
+	}
+}
+
 pub struct WasmtimeRuntime {
 	engine: Engine,
 	fetch_backend: Arc<dyn HttpFetchBackend>,
 	epoch_abort: tokio::task::AbortHandle,
+	invoke_linker: Linker<HostState>,
+	components: RwLock<HashMap<String, Arc<Component>>>,
+	metadata: RwLock<HashMap<String, Arc<PluginMetadata>>>,
+	stateless_pools: RwLock<HashMap<StatelessKey, Arc<StatelessPool>>>,
 }
 
 impl Drop for WasmtimeRuntime {
@@ -172,7 +429,22 @@ impl WasmtimeRuntime {
 	/// Fails if wasmtime cannot build the pooling engine (unsupported platform
 	/// or configuration conflict).
 	pub fn new(fetch_backend: Arc<dyn HttpFetchBackend>) -> Result<Arc<Self>, Error> {
-		let engine = build_engine().map_err(|e| Error::internal(e.to_string()))?;
+		Self::new_with_pool_cap(fetch_backend, 32)
+	}
+
+	/// Construct a runtime with a custom `PoolingAllocator` cap.
+	///
+	/// Useful in tests to exercise pool-exhaustion paths with a small cap.
+	///
+	/// # Errors
+	///
+	/// Fails if wasmtime cannot build the pooling engine (unsupported platform
+	/// or configuration conflict).
+	pub fn new_with_pool_cap(
+		fetch_backend: Arc<dyn HttpFetchBackend>,
+		pool_cap: u32,
+	) -> Result<Arc<Self>, Error> {
+		let engine = build_engine(pool_cap).map_err(|e| Error::internal(e.to_string()))?;
 
 		let ticker_engine = engine.clone();
 		let handle = tokio::spawn(async move {
@@ -185,7 +457,83 @@ impl WasmtimeRuntime {
 		});
 		let epoch_abort = handle.abort_handle();
 
-		Ok(Arc::new(Self { engine, fetch_backend, epoch_abort }))
+		let mut invoke_linker = Linker::<HostState>::new(&engine);
+		invoke_l4peek::PluginL4PeekInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
+			&mut invoke_linker,
+			|x| x,
+		)
+		.map_err(|e| Error::internal(format!("invoke linker setup: {e}")))?;
+
+		Ok(Arc::new(Self {
+			engine,
+			fetch_backend,
+			epoch_abort,
+			invoke_linker,
+			components: RwLock::new(HashMap::new()),
+			metadata: RwLock::new(HashMap::new()),
+			stateless_pools: RwLock::new(HashMap::new()),
+		}))
+	}
+
+	/// Pre-allocate a fixed-size pool of warm stateful instances for the named export.
+	///
+	/// `pool_size` is clamped to `[1, 64]`. Each instance is fully instantiated
+	/// at creation time; subsequent invocations only need a store epoch reset and
+	/// a function call.
+	///
+	/// # Errors
+	///
+	/// Returns an error if the module has not been loaded, or if instantiation fails.
+	///
+	/// # Panics
+	///
+	/// Panics if the internal component or metadata `RwLock` is poisoned.
+	pub async fn create_stateful_pool(
+		&self,
+		module_id: &ModuleId,
+		_export_name: &str,
+		args_json: &str,
+		pool_size: u8,
+	) -> Result<Arc<StatefulPoolHandle>, Error> {
+		let pool_size = (pool_size.clamp(1, 64)) as usize;
+		let key = module_id.0.as_ref().to_owned();
+
+		let component = self
+			.components
+			.read()
+			.unwrap()
+			.get(&key)
+			.cloned()
+			.ok_or_else(|| Error::internal("module not loaded"))?;
+
+		let mut linker = Linker::<HostState>::new(&self.engine);
+		invoke_l4peek::PluginL4PeekInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
+			&mut linker,
+			|x| x,
+		)
+		.map_err(|e| Error::internal(format!("stateful linker setup: {e}")))?;
+
+		let mut instances = Vec::with_capacity(pool_size);
+		for _ in 0..pool_size {
+			let host_state =
+				HostState { args: args_json.to_owned(), fetch_backend: Arc::clone(&self.fetch_backend) };
+			let mut store = Store::new(&self.engine, host_state);
+			store.set_epoch_deadline(1000);
+			let plugin =
+				invoke_l4peek::PluginL4PeekInvoke::instantiate_async(&mut store, &component, &linker)
+					.await
+					.map_err(|e| Error::internal(format!("stateful instantiate: {e}")))?;
+			instances.push(StatefulInstance { store, plugin });
+		}
+
+		Ok(Arc::new(StatefulPoolHandle {
+			component,
+			engine: self.engine.clone(),
+			fetch_backend: Arc::clone(&self.fetch_backend),
+			args_json: args_json.to_owned(),
+			instances: Mutex::new(instances),
+			capacity: pool_size,
+		}))
 	}
 }
 
@@ -201,21 +549,102 @@ impl WasmRuntime for WasmtimeRuntime {
 		let component = load_or_compile(&self.engine, path, &cwasm_path, &bytes)?;
 		let meta = get_metadata(&self.engine, &component, Arc::clone(&self.fetch_backend)).await?;
 		validate_handler_exports(&self.engine, &component, &meta.exports)?;
+
+		let key = path.to_string_lossy().into_owned();
+		self.components.write().unwrap().insert(key.clone(), Arc::new(component));
+		self.metadata.write().unwrap().insert(key, Arc::clone(&meta));
+
 		Ok(meta)
+	}
+
+	async fn invoke_l4_peek(
+		&self,
+		module_id: &ModuleId,
+		export_name: &str,
+		args_json: &str,
+		input: L4PeekInput,
+	) -> Result<L4PeekDecision, PluginError> {
+		let key = module_id.0.as_ref().to_owned();
+
+		let Some(component) = self.components.read().unwrap().get(&key).cloned() else {
+			return Err(PluginError::Trap("module not loaded".into()));
+		};
+
+		let Some(meta) = self.metadata.read().unwrap().get(&key).cloned() else {
+			return Err(PluginError::Trap("module not loaded".into()));
+		};
+
+		let Some(export_meta) = meta.exports.iter().find(|e| e.name == export_name) else {
+			return Err(PluginError::Trap(format!("export '{export_name}' not found")));
+		};
+
+		if !export_meta.stateless {
+			return Err(PluginError::Trap("stateful exports require StatefulPoolHandle".into()));
+		}
+
+		let skey = StatelessKey {
+			module_id: key.clone(),
+			export_name: export_name.to_owned(),
+			args_json: args_json.to_owned(),
+		};
+
+		let pool = {
+			let pools = self.stateless_pools.read().unwrap();
+			pools.get(&skey).cloned()
+		};
+
+		let pool = if let Some(p) = pool {
+			p
+		} else {
+			let new_pool = Arc::new(StatelessPool {
+				component: Arc::clone(&component),
+				args_json: args_json.to_owned(),
+				construction_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+			});
+			let mut pools = self.stateless_pools.write().unwrap();
+			pools.entry(skey).or_insert(Arc::clone(&new_pool)).clone()
+		};
+
+		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+		let host_state =
+			HostState { args: args_json.to_owned(), fetch_backend: Arc::clone(&self.fetch_backend) };
+		let mut store = Store::new(&self.engine, host_state);
+		store.set_epoch_deadline(10);
+
+		let plugin = match invoke_l4peek::PluginL4PeekInvoke::instantiate_async(
+			&mut store,
+			&pool.component,
+			&self.invoke_linker,
+		)
+		.await
+		{
+			Ok(p) => p,
+			Err(e) => return Err(PluginError::Trap(e.to_string())),
+		};
+
+		let wit_input = lower_input(input);
+		let result =
+			plugin.vane_plugin_handler_l4_peek().call_handle(&mut store, export_name, &wit_input);
+
+		match result {
+			Ok(Ok(d)) => Ok(lift_decision(d)),
+			Ok(Err(pe)) => Err(lift_plugin_error(pe)),
+			Err(e) => Err(PluginError::Trap(e.to_string())),
+		}
 	}
 }
 
 // ─── engine construction ─────────────────────────────────────────────────────
 
-fn build_engine() -> wasmtime::Result<Engine> {
+fn build_engine(pool_cap: u32) -> wasmtime::Result<Engine> {
 	let mut config = Config::new();
 	config.epoch_interruption(true);
 
-	// 1 MiB per instance; 32 instances daemon-wide cap for stateless plugins.
 	let mut pool = PoolingAllocationConfig::default();
 	pool.max_memory_size(1024 * 1024);
-	pool.total_memories(32);
-	pool.total_component_instances(32);
+	pool.total_memories(pool_cap);
+	pool.total_component_instances(pool_cap);
 	config.allocation_strategy(pool);
 
 	Engine::new(&config)
@@ -419,6 +848,24 @@ mod tests {
 		Arc::new(MockFetch)
 	}
 
+	fn fixture_path() -> &'static Path {
+		Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/metadata_fixture.wasm"))
+	}
+
+	async fn loaded_runtime() -> Arc<WasmtimeRuntime> {
+		let rt = WasmtimeRuntime::new(mock_backend()).expect("runtime");
+		rt.load_component(fixture_path()).await.expect("load_component");
+		rt
+	}
+
+	fn fixture_module_id() -> ModuleId {
+		ModuleId(Arc::from(fixture_path().to_string_lossy().as_ref()))
+	}
+
+	fn empty_input() -> L4PeekInput {
+		L4PeekInput { peek: vec![1, 2, 3], context: vec![] }
+	}
+
 	// Verify the Engine builds and the epoch ticker starts without panicking.
 	// This exercises `build_engine` + the tokio::spawn path inside `new`.
 	#[tokio::test]
@@ -538,7 +985,7 @@ mod tests {
 	// that the metadata round-trips through the canonical ABI correctly.
 	#[tokio::test]
 	async fn smoke_load_metadata_fixture() {
-		let fixture = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/metadata_fixture.wasm"));
+		let fixture = fixture_path();
 		assert!(fixture.exists(), "fixture not found; re-run cargo build to regenerate");
 
 		let rt = WasmtimeRuntime::new(mock_backend()).expect("runtime");
@@ -565,6 +1012,152 @@ mod tests {
 		assert!(
 			msg.contains("handler") || msg.contains("l4-peek"),
 			"error should mention the missing handler: {msg}",
+		);
+	}
+
+	// Stateless rental always sees fresh linear memory: counter is zero on each call.
+	// Both invocations must return Continue because memory resets on every rental.
+	#[tokio::test]
+	async fn stateless_pool_fresh_memory_per_rental() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		let r1 = rt.invoke_l4_peek(&mid, "probe", "{}", empty_input()).await;
+		assert!(matches!(r1, Ok(L4PeekDecision::Continue)), "first should be Continue");
+
+		let r2 = rt.invoke_l4_peek(&mid, "probe", "{}", empty_input()).await;
+		assert!(
+			matches!(r2, Ok(L4PeekDecision::Continue)),
+			"second should also be Continue (fresh memory)"
+		);
+	}
+
+	// With a tiny pool cap of 2 and 3 concurrent invocations, one invocation
+	// should fail with a trap caused by the PoolingAllocator limit.
+	#[tokio::test(flavor = "multi_thread")]
+	async fn stateless_pool_exhaustion_returns_overload_error() {
+		let rt = WasmtimeRuntime::new_with_pool_cap(mock_backend(), 2).expect("runtime");
+		rt.load_component(fixture_path()).await.expect("load");
+		let mid = fixture_module_id();
+		let rt = Arc::new(rt);
+
+		// Spawn three concurrent invocations against a 2-slot engine.
+		// At least one must fail because the PoolingAllocator cap is exceeded.
+		let mut set = tokio::task::JoinSet::new();
+		for _ in 0..3 {
+			let rt2 = Arc::clone(&rt);
+			let mid2 = mid.clone();
+			set.spawn(async move { rt2.invoke_l4_peek(&mid2, "probe", "{}", empty_input()).await });
+		}
+
+		let mut results = Vec::new();
+		while let Some(res) = set.join_next().await {
+			results.push(res.expect("task panicked"));
+		}
+
+		let trap_count = results.iter().filter(|r| matches!(r, Err(PluginError::Trap(_)))).count();
+		assert!(trap_count >= 1, "expected at least one trap from pool exhaustion, got {results:?}");
+	}
+
+	// Stateful pool preserves linear memory between invocations:
+	// first call writes counter=42 → Continue; second call sees counter!=0 → Close.
+	#[tokio::test]
+	async fn stateful_pool_persists_state_across_invocations() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		let pool = rt.create_stateful_pool(&mid, "probe", "{}", 1).await.expect("create_stateful_pool");
+
+		let r1 = pool.invoke_l4_peek("probe", empty_input()).await;
+		assert!(matches!(r1, Ok(L4PeekDecision::Continue)), "first call should be Continue: {r1:?}");
+
+		let r2 = pool.invoke_l4_peek("probe", empty_input()).await;
+		assert!(
+			matches!(r2, Ok(L4PeekDecision::Close)),
+			"second call should be Close (state persists): {r2:?}"
+		);
+	}
+
+	// A pool of N=1 with both slots checked out returns Exhausted immediately.
+	#[tokio::test(flavor = "multi_thread")]
+	async fn stateful_pool_exhaustion_no_queueing() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		let pool = rt.create_stateful_pool(&mid, "probe", "{}", 1).await.expect("create_stateful_pool");
+
+		// Drain the single slot by popping it directly.
+		let _instance = pool.instances.lock().unwrap().pop().expect("instance");
+
+		let start = std::time::Instant::now();
+		let result = pool.invoke_l4_peek("probe", empty_input()).await;
+		let elapsed = start.elapsed();
+
+		assert!(matches!(result, Err(PluginError::Exhausted)), "should be Exhausted: {result:?}");
+		assert!(elapsed.as_millis() < 50, "should return immediately, took {elapsed:?}");
+	}
+
+	// Dropping pool1 and creating pool2 yields fresh state: both first invocations
+	// return Continue because each pool has its own instance with zeroed memory.
+	#[tokio::test]
+	async fn stateful_pool_reload_fresh_state() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		let pool1 = rt.create_stateful_pool(&mid, "probe", "{}", 1).await.expect("pool1");
+		let r1 = pool1.invoke_l4_peek("probe", empty_input()).await;
+		assert!(matches!(r1, Ok(L4PeekDecision::Continue)), "pool1 first: {r1:?}");
+		drop(pool1);
+
+		let pool2 = rt.create_stateful_pool(&mid, "probe", "{}", 1).await.expect("pool2");
+		let r2 = pool2.invoke_l4_peek("probe", empty_input()).await;
+		assert!(
+			matches!(r2, Ok(L4PeekDecision::Continue)),
+			"pool2 first should also be Continue: {r2:?}"
+		);
+	}
+
+	// Two invocations with the same key share one StatelessPool entry.
+	// The construction_count must equal 2 after two rentals.
+	#[tokio::test]
+	async fn stateless_dedup_shares_construction_count() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		rt.invoke_l4_peek(&mid, "probe", "{}", empty_input()).await.expect("first");
+		rt.invoke_l4_peek(&mid, "probe", "{}", empty_input()).await.expect("second");
+
+		let skey = StatelessKey {
+			module_id: fixture_path().to_string_lossy().into_owned(),
+			export_name: "probe".into(),
+			args_json: "{}".into(),
+		};
+		let pools = rt.stateless_pools.read().unwrap();
+		let pool = pools.get(&skey).expect("pool should exist");
+		let count = pool.construction_count.load(std::sync::atomic::Ordering::Relaxed);
+		assert_eq!(count, 2, "expected construction_count=2, got {count}");
+	}
+
+	// Two invocations with distinct args_json are tracked as separate pool entries.
+	// Both must succeed, confirming the key includes args_json.
+	#[tokio::test]
+	async fn get_args_bound_at_rental_time() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		rt.invoke_l4_peek(&mid, "probe", r#"{"test":true}"#, empty_input())
+			.await
+			.expect("invoke with args A");
+		rt.invoke_l4_peek(&mid, "probe", r#"{"other":1}"#, empty_input())
+			.await
+			.expect("invoke with args B");
+
+		let pools = rt.stateless_pools.read().unwrap();
+		assert_eq!(
+			pools.len(),
+			2,
+			"distinct args_json should produce two separate pool entries; got {}",
+			pools.len()
 		);
 	}
 }
