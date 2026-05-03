@@ -178,7 +178,11 @@ impl L7Fetch for HttpProxyFetch {
 		for attempt in 1..=max_attempts {
 			let req_attempt =
 				http::Request::from_parts(clone_parts_for_retry(&parts), Body::Static(replay.clone()));
-			// TODO(retry-after): respect upstream Retry-After on 503/429.
+			// Per `spec/architecture/07-l7.md` § _Error classification_,
+			// upstream 4xx/5xx (incl. 503/429) are not retry-eligible —
+			// they are complete responses, and a retry would duplicate
+			// the request. The `Retry-After` header is forwarded to the
+			// client unchanged via the response pass-through below.
 			match client.request(req_attempt).await {
 				Ok(resp) => {
 					let (parts, incoming) = resp.into_parts();
