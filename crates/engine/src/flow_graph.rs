@@ -308,6 +308,20 @@ impl FlowGraph {
 		for (addr, spec) in &sym.meta.listener_tls {
 			let (server_config, populator) = build_listener_server_config(spec)
 				.map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
+			// Operator-visible record of which ticketer posture this
+			// listener resolved to. 0-RTT requires skipping the
+			// daemon-wide rotating ticketer (see
+			// `build_listener_server_config`); info-level so the
+			// trade-off (no cross-reload session survival) shows up in
+			// default logs.
+			if spec.enable_zero_rtt {
+				tracing::info!(
+					%addr,
+					"tls listener: 0-rtt enabled; skipping daemon-wide ticketer (per-listener session storage)",
+				);
+			} else {
+				tracing::debug!(%addr, "tls listener: daemon-wide ticketer installed");
+			}
 			listener_tls.insert(*addr, Arc::new(server_config));
 			listener_populators.insert(*addr, vec![populator]);
 		}
@@ -499,7 +513,19 @@ fn build_listener_server_config(
 	// can resume sessions across reload boundaries. Skipping the
 	// install (test fixtures) keeps rustls's default
 	// `NeverProducesTickets`. See 08-tls.md § _Session ticket rotation_.
-	if let Some(t) = crate::tls::default_ticketer() {
+	//
+	// Per 08-tls.md § _Exception: 0-RTT-enabled listeners_, listeners
+	// that opt into 0-RTT skip the daemon-wide install: rustls 0.23's
+	// `decide_if_early_data_allowed` refuses early data when
+	// `ServerConfig.ticketer.enabled() == true` (RFC 8446 §8.1's replay
+	// mitigation requires stateful resumption to detect ticket reuse).
+	// `ServerConfig.session_storage` defaults to a per-`ServerConfig`
+	// `ServerSessionMemoryCache::new(256)`, which is the stateful
+	// resumption store rustls needs to accept 0-RTT. Trade-off: 0-RTT
+	// listeners lose cross-reload session survival.
+	if !spec.enable_zero_rtt
+		&& let Some(t) = crate::tls::default_ticketer()
+	{
 		server_config.ticketer = t;
 	}
 
