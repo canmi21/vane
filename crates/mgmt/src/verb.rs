@@ -21,6 +21,8 @@ pub const VERB_GET_CONNECTIONS: &str = "get_connections";
 pub const VERB_TAIL_FLOW: &str = "tail_flow";
 pub const VERB_TAIL_LOG: &str = "tail_log";
 pub const VERB_GET_METRICS: &str = "get_metrics";
+pub const VERB_GET_POOLS: &str = "get_pools";
+pub const VERB_GET_UPSTREAMS: &str = "get_upstreams";
 
 // ─── Empty args sentinel ────────────────────────────────────────────────
 /// Placeholder for verbs that accept no arguments. Round-trips as `{}`.
@@ -140,6 +142,96 @@ pub struct GetConnectionsResult {
 	pub connections: Vec<ConnectionInfo>,
 }
 
+// ─── get_pools ──────────────────────────────────────────────────────────
+/// Snapshot of every daemon-bounded execution pool: WASM stateful /
+/// stateless instance pools and the CGI concurrency-cap semaphore.
+///
+/// Spec § _State_ in `10-management.md` lists the per-pool fields as
+/// "pool size, in-use count, total allocations, failures". The first
+/// two map directly onto `capacity` / `in_use`; the latter two are
+/// reserved on the wire (always `0`) until the daemon plumbs the
+/// metrics counters required to populate them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GetPoolsResult {
+	#[serde(default)]
+	pub wasm: Vec<WasmPoolEntry>,
+	/// `None` when the `cgi` feature is disabled, or when no CGI rule
+	/// has fired in this daemon's lifetime (the semaphore is lazily
+	/// initialised on the first request).
+	#[serde(default)]
+	pub cgi: Option<CgiPoolEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WasmPoolEntry {
+	/// `"stateful"` or `"stateless"`.
+	pub kind: String,
+	/// Module identity (canonical absolute path of the `.wasm` file).
+	pub key: String,
+	/// Plugin export name within the component.
+	pub export: String,
+	pub capacity: usize,
+	pub available: usize,
+	pub in_use: usize,
+	// TODO(pool-counters): per-pool allocation totals and failure
+	// counts are listed by spec § _State_ but the runtime does not
+	// yet maintain matching counters. Wire fields stay 0 until the
+	// metrics integration adds them.
+	#[serde(default)]
+	pub total_allocations: u64,
+	#[serde(default)]
+	pub failures: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CgiPoolEntry {
+	pub cap: usize,
+	pub available: usize,
+	pub in_use: usize,
+	// TODO(pool-counters): allocation totals + failures land with
+	// the same metrics integration as `WasmPoolEntry`.
+	#[serde(default)]
+	pub total_allocations: u64,
+	#[serde(default)]
+	pub failures: u64,
+}
+
+// ─── get_upstreams ──────────────────────────────────────────────────────
+/// Snapshot of cached upstream connection objects: the TCP / TLS
+/// `hyper-util` client cache and (when `h3` is built) the QUIC pool.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GetUpstreamsResult {
+	#[serde(default)]
+	pub tcp: Vec<TcpUpstreamEntry>,
+	/// Empty when the `h3` feature is disabled.
+	#[serde(default)]
+	pub quic: Vec<QuicUpstreamEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TcpUpstreamEntry {
+	/// Negotiated upstream version: `"auto"`, `"h1"`, `"h2"`, `"h3"`.
+	pub version: String,
+	/// `"http"` (cleartext) or `"https"` (TLS).
+	pub scheme: String,
+	/// Trust-root posture: `"system"`, `"bundle"`, `"insecure-skip"`,
+	/// or `"none"` (cleartext).
+	pub root_ca: String,
+	/// Verify mode: `"full"`, `"skip"`, or `"none"` (cleartext).
+	pub verify_mode: String,
+	pub alpn: Vec<String>,
+	/// `"system"` (read `/etc/resolv.conf`) or `"custom"` (operator-
+	/// pinned nameservers).
+	pub dns: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuicUpstreamEntry {
+	pub remote_addr: String,
+	pub sni: String,
+	pub alpn: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -237,5 +329,69 @@ mod tests {
 		let s = serde_json::to_string(&a).expect("serialize");
 		let back: CompileDryRunArgs = serde_json::from_str(&s).expect("deserialize");
 		assert_eq!(back.config_dir, "/etc/vaned-b");
+	}
+
+	#[test]
+	fn get_pools_result_round_trips() {
+		let r = GetPoolsResult {
+			wasm: vec![WasmPoolEntry {
+				kind: "stateful".to_string(),
+				key: "/etc/vaned/plugins/edge.wasm".to_string(),
+				export: "l4-peek".to_string(),
+				capacity: 8,
+				available: 5,
+				in_use: 3,
+				total_allocations: 0,
+				failures: 0,
+			}],
+			cgi: Some(CgiPoolEntry {
+				cap: 100,
+				available: 99,
+				in_use: 1,
+				total_allocations: 0,
+				failures: 0,
+			}),
+		};
+		assert_eq!(round_trip(&r), r);
+	}
+
+	#[test]
+	fn get_pools_result_decodes_minimal_payload() {
+		// Daemons whose `wasm` feature is off should be able to emit
+		// `{"cgi": null}` and have clients still decode the result.
+		let raw = r#"{"cgi": null}"#;
+		let r: GetPoolsResult = serde_json::from_str(raw).expect("decode");
+		assert!(r.wasm.is_empty());
+		assert!(r.cgi.is_none());
+	}
+
+	#[test]
+	fn get_upstreams_result_round_trips() {
+		let r = GetUpstreamsResult {
+			tcp: vec![TcpUpstreamEntry {
+				version: "auto".to_string(),
+				scheme: "https".to_string(),
+				root_ca: "system".to_string(),
+				verify_mode: "full".to_string(),
+				alpn: vec!["h2".to_string(), "http/1.1".to_string()],
+				dns: "system".to_string(),
+			}],
+			quic: vec![QuicUpstreamEntry {
+				remote_addr: "127.0.0.1:443".to_string(),
+				sni: "example.com".to_string(),
+				alpn: vec!["h3".to_string()],
+			}],
+		};
+		assert_eq!(round_trip(&r), r);
+	}
+
+	#[test]
+	fn get_upstreams_result_decodes_payload_without_quic() {
+		// Daemons built without `h3` may emit `{"tcp": [...]}` with no
+		// `quic` key. The client must still decode them.
+		let raw = r#"{"tcp": []}"#;
+		let r: GetUpstreamsResult = serde_json::from_str(raw).expect("decode");
+		assert!(r.tcp.is_empty());
+		assert!(r.quic.is_empty());
 	}
 }
