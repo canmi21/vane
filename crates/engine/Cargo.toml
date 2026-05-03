@@ -77,4 +77,8 @@ http-body-util = "0.1"
 rcgen = "0.14"
 serial_test = "3"
 tempfile = "3"
+# `early-data` is only needed by the `zero_rtt` integration test client;
+# production builds (which use the runtime [dependencies] entry) don't
+# pull this feature.
+tokio-rustls = { version = "0.26", default-features = false, features = ["early-data"] }
 vane-testutil = { workspace = true, features = ["h3"] }
