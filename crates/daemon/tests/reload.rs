@@ -119,8 +119,13 @@ fn static_site_rule(port: u16, body: &str) -> String {
 }
 
 /// How long to wait for a watcher debounce window (250ms) plus a
-/// reload + `ArcSwap` to land. Generous to absorb CI scheduling jitter.
-const RELOAD_BUDGET: Duration = Duration::from_secs(3);
+/// reload + `ArcSwap` to land. The real path takes well under a
+/// second; the budget is dominated by scheduling jitter when many
+/// `vaned` test processes run in parallel under nextest. 3 s
+/// occasionally lost; 5 s gives enough head-room without masking
+/// real slowdowns (any reload that takes more than 5 s is broken,
+/// not just slow).
+const RELOAD_BUDGET: Duration = Duration::from_secs(5);
 
 /// Poll `predicate` every 50ms until it returns true, or panic at
 /// `RELOAD_BUDGET`.
