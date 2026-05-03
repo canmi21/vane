@@ -579,17 +579,23 @@ async fn mgmt_streaming_does_not_block_concurrent_one_shot_call() {
 		// runs until the test drops it.
 		let _ = client.call_stream(VERB_TAIL_FLOW, &NoArgs {}, |_event| {}).await;
 	});
-	// TODO(mgmt-stream-readiness): there is no observable state for "the
-	// streaming verb has reached the daemon and is parked on its
-	// broadcast subscriber". `get_connections` covers proxy connections
-	// only; no mgmt-side verb exposes per-stream subscribers. Until the
-	// mgmt layer grows such a probe, this fixed sleep is the closest we
-	// can get — it is not a flake source (the assertion below succeeds
-	// regardless of whether streaming is parked), but it is silently
-	// degrading: if the streaming task has not reached the daemon by the
-	// time the one-shot fires, the test no longer exercises the
-	// "concurrent with parked stream" contract it claims to test.
-	tokio::time::sleep(Duration::from_millis(200)).await;
+	// Poll `stats` until the streaming task has registered itself as a
+	// flow-log subscriber; otherwise the test below could fire its
+	// one-shot before the streamer reached the daemon, silently no
+	// longer exercising the "concurrent with parked stream" contract.
+	let probe = UnixMgmtClient::new(&d.socket);
+	let deadline = std::time::Instant::now() + Duration::from_secs(3);
+	loop {
+		let r: StatsResult = probe.call(VERB_STATS, &NoArgs {}).await.expect("stats probe");
+		if r.flow_log_subscribers >= 1 {
+			break;
+		}
+		assert!(
+			std::time::Instant::now() < deadline,
+			"tail_flow subscriber never registered within 3s",
+		);
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
 
 	// One-shot ping on an independent socket must succeed promptly.
 	let one_shot_client = UnixMgmtClient::new(&d.socket);

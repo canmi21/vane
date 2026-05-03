@@ -250,6 +250,8 @@ impl MgmtState {
 			uptime_ms: u64::try_from(self.started_at.elapsed().as_millis()).unwrap_or(u64::MAX),
 			graph_version_hash: hex,
 			listeners,
+			flow_log_subscribers: self.broadcast.subscriber_count(),
+			tracing_log_subscribers: self.tracing_broadcast.subscriber_count(),
 		})
 	}
 
@@ -537,6 +539,10 @@ mod tests {
 		// Listener set never started in tests, so bound=false and counts are zero.
 		assert!(!r.listeners[0].bound);
 		assert_eq!(r.listeners[0].in_flight_count, 0);
+		// No tail_flow / tail_log subscribers in this fixture, so the
+		// new subscriber counts default to 0.
+		assert_eq!(r.flow_log_subscribers, 0);
+		assert_eq!(r.tracing_log_subscribers, 0);
 	}
 
 	#[tokio::test]

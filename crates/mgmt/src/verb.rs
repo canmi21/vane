@@ -48,6 +48,14 @@ pub struct StatsResult {
 	/// Lower-case hex of the active flow-graph's SHA-256 version hash.
 	pub graph_version_hash: String,
 	pub listeners: Vec<ListenerStatus>,
+	/// Live `tail_flow` subscribers — `BroadcastSink::subscriber_count`.
+	/// Tests use this to wait for streaming readiness rather than
+	/// sleeping a fixed interval.
+	#[serde(default)]
+	pub flow_log_subscribers: usize,
+	/// Live `tail_log` subscribers — `BroadcastTracingLayer::subscriber_count`.
+	#[serde(default)]
+	pub tracing_log_subscribers: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -267,8 +275,21 @@ mod tests {
 				bound: true,
 				in_flight_count: 3,
 			}],
+			flow_log_subscribers: 2,
+			tracing_log_subscribers: 1,
 		};
 		assert_eq!(round_trip(&r), r);
+	}
+
+	#[test]
+	fn stats_result_decodes_payload_without_subscriber_counts() {
+		// Older daemons emit StatsResult without the subscriber counts.
+		// `#[serde(default)]` lets the client decode that shape with
+		// the counts implicitly zero.
+		let raw = r#"{"uptime_ms":1,"graph_version_hash":"00","listeners":[]}"#;
+		let r: StatsResult = serde_json::from_str(raw).expect("decode");
+		assert_eq!(r.flow_log_subscribers, 0);
+		assert_eq!(r.tracing_log_subscribers, 0);
 	}
 
 	#[test]
