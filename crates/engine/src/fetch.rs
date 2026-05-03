@@ -10,6 +10,8 @@ pub mod dns;
 pub mod http_proxy;
 pub mod http_synthesize;
 pub mod l4_forward;
+#[cfg(feature = "h3")]
+pub mod quic_pool;
 pub mod retry;
 pub mod upstream;
 pub mod websocket_upgrade;

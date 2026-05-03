@@ -18,6 +18,13 @@ Gates run on commit via lefthook:
 
 Test baseline is `cargo nextest run --workspace` (or `just test`); `cargo test --workspace` (or `just test-cargo`) is the bypass for doctests and runner-suspect debugging. Tests are not gated on commit. `just gate` runs lint + test as the pre-push bundle.
 
+When the gate flags formatting or lint issues, **let the toolchain fix what it can mechanically before touching anything by hand**:
+
+- `cargo fmt --all` (without `-- --check`) writes rustfmt's output in place — fixes every formatting issue rustfmt is willing to fix.
+- `cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged` applies clippy's machine-applicable suggestions in place — fixes a substantial fraction of common lint hits.
+
+Run those two before reading the gate output and editing manually. Manually fix only what remains after the auto-pass. Hand-editing whitespace, import ordering, or `format!` argument capture is wasted time when rustfmt + clippy will do it for you.
+
 ## Conventions
 
 - **Chat:** Simplified Chinese. **Code / commits / docs-in-repo:** English.
