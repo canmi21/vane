@@ -1,19 +1,17 @@
 //! `H3Body` — engine-side adapter that unifies `h3::server::RequestStream`
-//! and (post-S3-02) `h3::client::RequestStream` under a single
-//! `http_body::Body` surface. See `spec/architecture/07-l7.md` §
-//! `H3Body` (engine-owned).
+//! and `h3::client::RequestStream` under a single `http_body::Body`
+//! surface. See `spec/architecture/07-l7.md` § `H3Body` (engine-owned).
 //!
 //! `h3` splits the stream surface across `recv_data() -> impl Buf` and a
 //! once-only `recv_trailers()` call at data EOF. `H3Body` runs a small
 //! pump task that walks both calls in order, sending each result onto a
 //! bounded channel; `poll_frame` simply forwards the channel.
 //!
-//! Only the server impl ships with this PR. The client `H3StreamSource`
-//! impl lands with the H3 upstream track.
-//
-// TODO(s3-02): add `impl<C: h3::quic::Connection<Bytes>>
-// H3StreamSource for h3::client::RequestStream<C::OpenStreams, Bytes>`
-// when the H3 upstream / QuicPool work begins.
+//! [`ServerStreamSource`] adapts the listener-side stream — used by the
+//! H3 listener path to feed inbound request bodies into the executor.
+//! [`ClientStreamSource`] adapts the upstream-side stream — used by the
+//! H3 upstream path to surface upstream response bodies as
+//! `Body::Stream(...)` for the executor's response-side pipeline.
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -99,6 +97,66 @@ where
 			Err(e) => {
 				Err(Error::protocol("h3 recv_trailers").with_source(std::io::Error::other(e.to_string())))
 			}
+		}
+	}
+}
+
+/// Client-side h3 stream source. Wraps `h3::client::RequestStream` and
+/// adapts the same two-call surface as the server-side adapter
+/// (`recv_data` then `recv_trailers`) so `H3Body` can drive both ends
+/// uniformly. Used by the H3 upstream path to wrap the upstream's
+/// response stream as `Body::Stream(...)` for the executor.
+///
+/// The bound is `h3::quic::RecvStream` (not `BidiStream`) so this
+/// adapter accepts both the bidi stream returned by
+/// `SendRequest::send_request` (used in-place for the request /
+/// response round-trip) and the recv half of a future
+/// `RequestStream::split` if the upstream path ever needs concurrent
+/// request-body upload and response-body read.
+pub struct ClientStreamSource<S: h3::quic::RecvStream> {
+	inner: h3::client::RequestStream<S, Bytes>,
+	trailers_done: bool,
+}
+
+impl<S> ClientStreamSource<S>
+where
+	S: h3::quic::RecvStream + Send,
+{
+	pub fn new(inner: h3::client::RequestStream<S, Bytes>) -> Self {
+		Self { inner, trailers_done: false }
+	}
+}
+
+#[async_trait]
+impl<S> H3StreamSource for ClientStreamSource<S>
+where
+	S: h3::quic::RecvStream + Send,
+{
+	async fn recv_data(&mut self) -> Result<Option<Bytes>, Error> {
+		match self.inner.recv_data().await {
+			Ok(Some(mut buf)) => {
+				let remaining = buf.remaining();
+				let bytes = buf.copy_to_bytes(remaining);
+				Ok(Some(bytes))
+			}
+			Ok(None) => Ok(None),
+			Err(e) => Err(
+				Error::protocol("h3 client recv_data").with_source(std::io::Error::other(e.to_string())),
+			),
+		}
+	}
+
+	async fn recv_trailers(&mut self) -> Result<Option<HeaderMap>, Error> {
+		if self.trailers_done {
+			return Ok(None);
+		}
+		self.trailers_done = true;
+		match self.inner.recv_trailers().await {
+			Ok(opt) => Ok(opt),
+			Err(e) => Err(
+				Error::protocol("h3 client recv_trailers")
+					.with_source(std::io::Error::other(e.to_string())),
+			),
 		}
 	}
 }
