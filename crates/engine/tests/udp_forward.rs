@@ -115,6 +115,7 @@ fn make_udp_proxy_graph(
 			kind: FetchKind::L4Forward,
 			args,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::ByteTunnel],
 		entries,

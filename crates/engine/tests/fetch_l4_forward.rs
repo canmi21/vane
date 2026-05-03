@@ -136,6 +136,7 @@ fn make_proxy_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 			kind: FetchKind::L4Forward,
 			args: serde_json::json!({ "upstream": upstream }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::ByteTunnel],
 		entries,

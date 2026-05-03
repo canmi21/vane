@@ -180,6 +180,7 @@ fn link_graph(host_args: Value) -> (Arc<FlowGraph>, Arc<AtomicUsize>) {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);
@@ -221,6 +222,7 @@ fn link_graph_expect_err(host_args: Value) -> String {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);

@@ -730,6 +730,7 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);
@@ -1158,6 +1159,7 @@ fn byte_tunnel_graph(tunnel: Tunnel) -> Arc<FlowGraph> {
 			kind: FetchKind::L4Forward,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::ByteTunnel],
 	);
@@ -1216,6 +1218,7 @@ async fn execute_write_http_response_returns_response_output() {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);
@@ -1279,6 +1282,7 @@ async fn execute_write_http_response_preserves_body_payload() {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);
@@ -1606,6 +1610,7 @@ fn byte_tunnel_graph_with_notify(
 			kind: FetchKind::L4Forward,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::ByteTunnel],
 	);
@@ -2070,6 +2075,7 @@ async fn execute_collect_response_stream_body_becomes_static() {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);
@@ -2132,6 +2138,7 @@ async fn execute_collect_response_body_over_limit_returns_err() {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);

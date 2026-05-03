@@ -125,6 +125,18 @@ pub struct SymbolicFetchRef {
 	/// `spec/architecture/05-terminator.md` § _Retry buffering_.
 	#[serde(default)]
 	pub retry_buffer_required: bool,
+	/// Per-rule TLS 1.3 0-RTT acceptance, lifted off the parent rule's
+	/// `allow_zero_rtt` field by the lower pass. `Some(true)` means the
+	/// rule opts into accepting requests that arrived as 0-RTT data;
+	/// `Some(false)` means a 0-RTT request matched against this rule
+	/// must receive a synthetic 425 Too Early instead of being handed
+	/// to the terminator. `None` means the rule's listener is not
+	/// TLS-terminating L7 (the runtime check is unreachable; this
+	/// arm exists so non-TLS fixtures need not populate the field).
+	/// See `spec/architecture/08-tls.md` § _TLS 1.3 0-RTT (early data)_
+	/// _Runtime flow_.
+	#[serde(default)]
+	pub allow_zero_rtt: Option<bool>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
@@ -452,6 +464,7 @@ mod tests {
 			kind: FetchKind::HttpProxy,
 			args: json!({ "upstream": "127.0.0.1:8080" }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		};
 		let cloned = r.clone();
 		assert_eq!(cloned.kind, r.kind);
@@ -468,8 +481,12 @@ mod tests {
 			FetchKind::WebSocketUpgrade,
 			FetchKind::L4Forward,
 		] {
-			let _ =
-				SymbolicFetchRef { kind, args: serde_json::Value::Null, retry_buffer_required: false };
+			let _ = SymbolicFetchRef {
+				kind,
+				args: serde_json::Value::Null,
+				retry_buffer_required: false,
+				allow_zero_rtt: None,
+			};
 		}
 	}
 
@@ -482,6 +499,7 @@ mod tests {
 			kind: FetchKind::WebSocketUpgrade,
 			args: json!({ "upstream": "127.0.0.1:9000" }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		};
 		let encoded = serde_json::to_string(&r).expect("serialize");
 		let decoded: SymbolicFetchRef = serde_json::from_str(&encoded).expect("deserialize");

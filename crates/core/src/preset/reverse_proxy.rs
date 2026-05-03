@@ -194,6 +194,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		http_proxy_args.insert("timeouts".to_string(), t);
 	}
 
+	let allow_zero_rtt_main = inv.tls.as_ref().map(|_| false);
 	rules.push(RawRule {
 		name: format!("{}.main", inv.name),
 		listen: inv.listen,
@@ -201,6 +202,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		middleware_chain: chain,
 		terminate: TerminateSpec { kind: FetchKind::HttpProxy, args: Value::Object(http_proxy_args) },
 		tls: inv.tls,
+		allow_zero_rtt: allow_zero_rtt_main,
 		max_body_bytes_request: 8 * 1024 * 1024,
 		max_body_bytes_response: 8 * 1024 * 1024,
 		source: inv.source,
@@ -221,6 +223,7 @@ fn ws_reject_rule(
 ) -> RawRule {
 	let predicate = serde_json::from_value(ws_upgrade_predicate())
 		.expect("upgrade predicate is a hand-built valid CheckMap");
+	let allow_zero_rtt = tls.as_ref().map(|_| false);
 	RawRule {
 		name: name.to_string(),
 		listen: listen.to_vec(),
@@ -231,6 +234,7 @@ fn ws_reject_rule(
 			args: serde_json::json!({ "status": 400 }),
 		},
 		tls,
+		allow_zero_rtt,
 		max_body_bytes_request: 8 * 1024 * 1024,
 		max_body_bytes_response: 8 * 1024 * 1024,
 		source: source.clone(),
@@ -265,6 +269,7 @@ fn ws_passthrough_rule(
 	};
 	let predicate = serde_json::from_value(predicate_value)
 		.expect("upgrade predicate is a hand-built valid CheckMap or AllOf");
+	let allow_zero_rtt = tls.as_ref().map(|_| false);
 	RawRule {
 		name: name.to_string(),
 		listen: listen.to_vec(),
@@ -275,6 +280,7 @@ fn ws_passthrough_rule(
 			args: serde_json::json!({ "upstream": upstream }),
 		},
 		tls,
+		allow_zero_rtt,
 		max_body_bytes_request: 8 * 1024 * 1024,
 		max_body_bytes_response: 8 * 1024 * 1024,
 		source: source.clone(),

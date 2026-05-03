@@ -81,7 +81,12 @@ fn proxy_graph(
 		],
 		predicates: vec![],
 		middlewares: vec![],
-		fetches: vec![SymbolicFetchRef { kind: FetchKind::HttpProxy, args, retry_buffer_required }],
+		fetches: vec![SymbolicFetchRef {
+			kind: FetchKind::HttpProxy,
+			args,
+			retry_buffer_required,
+			allow_zero_rtt: None,
+		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
 		meta: sample_meta(),

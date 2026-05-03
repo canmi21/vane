@@ -94,6 +94,7 @@ fn rcgen_cert(host: &str) -> CertFiles {
 		cert_file: cert.path().to_path_buf(),
 		key_file: key.path().to_path_buf(),
 		client_auth: None,
+		enable_zero_rtt: false,
 	};
 	CertFiles { _cert: cert, _key: key, cert_pem, tls_cfg }
 }
@@ -166,6 +167,7 @@ fn auto_graph(
 				default: Some(cfg),
 				sni_certs: BTreeMap::new(),
 				client_auth: vane_core::rule::ClientAuthSpec::None,
+				enable_zero_rtt: false,
 			},
 		);
 	}
@@ -224,11 +226,13 @@ fn auto_graph(
 			kind: FetchKind::L4Forward,
 			args: upstream_arg,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		},
 		SymbolicFetchRef {
 			kind: FetchKind::HttpSynthesize,
 			args: serde_json::Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		},
 	];
 
@@ -264,6 +268,7 @@ fn http_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<Flow
 			default: Some(tls_cfg),
 			sni_certs: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
+			enable_zero_rtt: false,
 		},
 	);
 
@@ -303,6 +308,7 @@ fn http_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<Flow
 			kind: FetchKind::HttpSynthesize,
 			args: serde_json::Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
@@ -341,6 +347,7 @@ fn raw_graph(addr: SocketAddr, upstream: SocketAddr) -> Arc<FlowGraph> {
 			kind: FetchKind::L4Forward,
 			args: upstream_arg,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::ByteTunnel],
 		entries,

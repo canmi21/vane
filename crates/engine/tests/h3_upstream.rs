@@ -137,6 +137,7 @@ fn h3_proxy_graph(listen: SocketAddr, upstream: &str, sni: &str, insecure: bool)
 				"tls": tls_args,
 			}),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,

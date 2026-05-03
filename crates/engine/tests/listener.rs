@@ -676,6 +676,7 @@ async fn shutdown_drains_idle_keep_alive_connections_within_drain_timeout() {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::Close],
 		entries,

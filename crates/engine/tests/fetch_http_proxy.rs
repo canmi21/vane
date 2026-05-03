@@ -128,6 +128,7 @@ fn proxy_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 			kind: FetchKind::HttpProxy,
 			args: serde_json::json!({ "upstream": upstream }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,

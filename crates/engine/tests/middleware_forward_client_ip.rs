@@ -179,6 +179,7 @@ fn link_graph(fwd_args: Value) -> (Arc<FlowGraph>, Arc<Mutex<Option<http::Header
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);
@@ -220,6 +221,7 @@ fn link_graph_expect_err(fwd_args: Value) -> String {
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		vec![Terminator::WriteHttpResponse],
 	);

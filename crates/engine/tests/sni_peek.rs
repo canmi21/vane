@@ -87,6 +87,7 @@ fn rcgen_default_cert() -> TlsFiles {
 		cert_file: cert_file.path().to_path_buf(),
 		key_file: key_file.path().to_path_buf(),
 		client_auth: None,
+		enable_zero_rtt: false,
 	};
 	TlsFiles { _cert_file: cert_file, _key_file: key_file, tls_cfg }
 }
@@ -147,6 +148,7 @@ fn sni_peek_branching_graph(addr: SocketAddr, tls_cfg: rule::TlsConfig) -> Arc<F
 			default: Some(tls_cfg),
 			sni_certs: BTreeMap::new(),
 			client_auth: rule::ClientAuthSpec::None,
+			enable_zero_rtt: false,
 		},
 	);
 
@@ -215,11 +217,13 @@ fn sni_peek_branching_graph(addr: SocketAddr, tls_cfg: rule::TlsConfig) -> Arc<F
 			kind: FetchKind::HttpSynthesize,
 			args: json!({ "tag": "match" }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		},
 		SymbolicFetchRef {
 			kind: FetchKind::HttpSynthesize,
 			args: json!({ "tag": "miss" }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		},
 	];
 

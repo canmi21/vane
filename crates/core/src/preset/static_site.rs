@@ -46,6 +46,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		terminate_args.insert("body".to_string(), Value::String(encoded));
 	}
 
+	let allow_zero_rtt = inv.tls.as_ref().map(|_| false);
 	Ok(vec![RawRule {
 		name: inv.name,
 		listen: inv.listen,
@@ -56,6 +57,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 			args: Value::Object(terminate_args),
 		},
 		tls: inv.tls,
+		allow_zero_rtt,
 		max_body_bytes_request: 8 * 1024 * 1024,
 		max_body_bytes_response: 8 * 1024 * 1024,
 		source: inv.source,

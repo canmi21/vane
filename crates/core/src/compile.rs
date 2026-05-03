@@ -1107,11 +1107,13 @@ mod tests {
 				kind: FetchKind::L4Forward,
 				args: serde_json::Value::Null,
 				retry_buffer_required: false,
+				allow_zero_rtt: None,
 			},
 			SymbolicFetchRef {
 				kind: FetchKind::HttpProxy,
 				args: serde_json::Value::Null,
 				retry_buffer_required: false,
+				allow_zero_rtt: None,
 			},
 		];
 		assert_eq!(derive_listener_kind_for_test(&nodes, &fetches, NodeId::new(0)), ListenerKind::Auto);

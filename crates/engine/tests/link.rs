@@ -197,6 +197,7 @@ fn link_fails_on_unknown_fetch_kind() {
 		kind: FetchKind::HttpProxy,
 		args: Value::Null,
 		retry_buffer_required: false,
+		allow_zero_rtt: None,
 	});
 	let mw = MiddlewareFactories::new();
 	let fetch = FetchFactories::new();
@@ -368,6 +369,7 @@ fn index_fetch_id_returns_inst() {
 		kind: FetchKind::HttpProxy,
 		args: Value::Null,
 		retry_buffer_required: false,
+		allow_zero_rtt: None,
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();

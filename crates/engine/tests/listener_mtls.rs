@@ -109,6 +109,7 @@ fn rcgen_pki(client_cn: &str, client_san: &[&str]) -> PkiFixture {
 		cert_file: server_cert_file.path().to_path_buf(),
 		key_file: server_key_file.path().to_path_buf(),
 		client_auth: None, // populated per-test
+		enable_zero_rtt: false,
 	};
 
 	// Client cert (CA-signed)
@@ -190,6 +191,7 @@ fn meta_with_client_auth(
 			default: Some(server),
 			sni_certs: BTreeMap::new(),
 			client_auth,
+			enable_zero_rtt: false,
 		},
 	);
 	FlowGraphMeta {
@@ -233,6 +235,7 @@ fn graph_single_route(
 			kind: FetchKind::HttpSynthesize,
 			args: serde_json::json!({ "tag": tag }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
@@ -292,11 +295,13 @@ fn graph_branching_on_predicate(
 				kind: FetchKind::HttpSynthesize,
 				args: serde_json::json!({ "tag": tag_match }),
 				retry_buffer_required: false,
+				allow_zero_rtt: None,
 			},
 			SymbolicFetchRef {
 				kind: FetchKind::HttpSynthesize,
 				args: serde_json::json!({ "tag": tag_miss }),
 				retry_buffer_required: false,
+				allow_zero_rtt: None,
 			},
 		],
 		terminators: vec![Terminator::WriteHttpResponse],

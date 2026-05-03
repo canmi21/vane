@@ -48,6 +48,12 @@ pub fn lower(
 		// `resolve_listener_tls` aggregates and rejects conflicts —
 		// see 08-tls.md § _TLS termination_ + § _Certificate resolver_.
 		let resolved_tls = resolve_listener_tls(&addrs, &rules)?;
+		// Per-rule `allow_zero_rtt` checks (presence + idempotent-method
+		// gate) live alongside the TLS aggregation since they reference
+		// the listener-level posture (TLS-L7 vs plaintext / L4) that
+		// `resolve_listener_tls` already established. See `08-tls.md`
+		// § _TLS 1.3 0-RTT (early data)_ § _Compile-time constraints_.
+		validate_zero_rtt_for_listener(&addrs, &rules, resolved_tls.as_ref())?;
 		let entry = builder.lower_port(&rules, mw_meta, fetch_meta)?;
 		for addr in &addrs {
 			builder.entries.insert(*addr, entry);
@@ -436,6 +442,7 @@ mod listener_fetch_validation_tests {
 			kind: FetchKind::L4Forward,
 			args: serde_json::json!({ "upstream": "127.0.0.1:9", "transport": transport }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}
 	}
 
@@ -444,6 +451,7 @@ mod listener_fetch_validation_tests {
 			kind: FetchKind::HttpProxy,
 			args: serde_json::json!({ "upstream": "127.0.0.1:9" }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}
 	}
 
@@ -475,6 +483,7 @@ mod listener_fetch_validation_tests {
 			kind: FetchKind::L4Forward,
 			args: serde_json::json!({ "upstream": "127.0.0.1:9" }),
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}];
 		validate_listener_fetches_for_test(&addr(), Transport::Tcp, &nodes, &fetches, NodeId::new(0))
 			.expect("tcp listener + default-transport L4Forward must pass");
@@ -754,6 +763,13 @@ impl Builder {
 			kind: fetch_kind,
 			args: rule.raw.terminate.args.clone(),
 			retry_buffer_required,
+			// Lift the rule's `allow_zero_rtt` onto the per-rule fetch so
+			// the executor's `Node::Fetch` arm can consult it without a
+			// rule-side lookup. `None` here means the rule's listener is
+			// not TLS-terminating L7 — the runtime gate is unreachable.
+			// The lower pass has already validated the field's presence
+			// matches the listener type via `validate_zero_rtt_for_rule`.
+			allow_zero_rtt: rule.raw.allow_zero_rtt,
 		});
 		let (next_response, next_tunnel) = match fetch_kind {
 			FetchKind::HttpProxy | FetchKind::HttpSynthesize => {
@@ -1142,6 +1158,7 @@ fn resolve_listener_tls(
 		default: None,
 		sni_certs: BTreeMap::new(),
 		client_auth: crate::rule::ClientAuthSpec::None,
+		enable_zero_rtt: false,
 	};
 	for rule in rules {
 		let Some(tls) = rule.raw.tls.as_ref() else { continue };
@@ -1151,6 +1168,7 @@ fn resolve_listener_tls(
 					sni: None,
 					cert_file: tls.cert_file.clone(),
 					key_file: tls.key_file.clone(),
+					enable_zero_rtt: tls.enable_zero_rtt,
 					client_auth: tls.client_auth.clone(),
 				};
 				match &spec.default {
@@ -1171,6 +1189,7 @@ fn resolve_listener_tls(
 					sni: Some(sni_key.clone()),
 					cert_file: tls.cert_file.clone(),
 					key_file: tls.key_file.clone(),
+					enable_zero_rtt: tls.enable_zero_rtt,
 					client_auth: tls.client_auth.clone(),
 				};
 				match spec.sni_certs.get(&sni_key) {
@@ -1215,7 +1234,138 @@ fn resolve_listener_tls(
 		spec.client_auth = ca;
 	}
 
+	// Aggregate per-rule `tls.enable_zero_rtt` into the listener-level
+	// flag. Mirrors the `client_auth` pattern above: rules on the same
+	// listener must agree, since the listener owns one `ServerConfig`
+	// (and thus one `max_early_data_size`). Per `08-tls.md` § _TLS 1.3
+	// 0-RTT (early data)_.
+	let mut zero_rtt_resolved: Option<bool> = None;
+	for rule in rules {
+		let Some(tls) = rule.raw.tls.as_ref() else { continue };
+		match zero_rtt_resolved {
+			None => zero_rtt_resolved = Some(tls.enable_zero_rtt),
+			Some(existing) if existing == tls.enable_zero_rtt => {}
+			Some(_) => {
+				return Err(Error::compile(format!(
+					"listener {addrs:?}: rules disagree on `tls.enable_zero_rtt` — 0-RTT is a listener-level setting (the listener has one TLS config); every rule on the same address must agree"
+				)));
+			}
+		}
+	}
+	if let Some(z) = zero_rtt_resolved {
+		spec.enable_zero_rtt = z;
+	}
+
 	if spec.is_empty() { Ok(None) } else { Ok(Some(spec)) }
+}
+
+/// Per-listener structural validation of the rule-level
+/// `allow_zero_rtt` field and its interaction with the listener's
+/// `tls.enable_zero_rtt`. Mirrors the constraint table in
+/// `08-tls.md` § _TLS 1.3 0-RTT_ § _Compile-time constraints_:
+///
+/// - On a TLS-L7 listener (`resolved_tls.is_some()`) every rule must
+///   set `allow_zero_rtt` to `Some(_)`.
+/// - On a plaintext / L4 listener no rule may set `allow_zero_rtt`.
+/// - `allow_zero_rtt: true` is rejected when the listener resolved to
+///   `enable_zero_rtt: false`.
+/// - `allow_zero_rtt: true` requires the rule's match predicate to
+///   constrain `http.method` to a subset of {GET, HEAD, OPTIONS}.
+fn validate_zero_rtt_for_listener(
+	addrs: &[SocketAddr],
+	rules: &[&AnalyzedRule],
+	resolved_tls: Option<&crate::rule::ListenerTlsSpec>,
+) -> Result<(), Error> {
+	let tls_l7 = resolved_tls.is_some();
+	let listener_enable_zero_rtt = resolved_tls.is_some_and(|s| s.enable_zero_rtt);
+
+	for rule in rules {
+		match (tls_l7, rule.raw.allow_zero_rtt) {
+			(true, None) => {
+				return Err(Error::compile(format!(
+					"rule {:?} on TLS-terminating listener {addrs:?}: `allow_zero_rtt` is required (no implicit default) — set it to `true` or `false`",
+					rule.raw.name
+				)));
+			}
+			(false, Some(_)) => {
+				return Err(Error::compile(format!(
+					"rule {:?} on listener {addrs:?}: `allow_zero_rtt` is meaningful only on L7 rules whose listener is TLS-terminating — drop the field",
+					rule.raw.name
+				)));
+			}
+			(true, Some(true)) => {
+				if !listener_enable_zero_rtt {
+					return Err(Error::compile(format!(
+						"allow_zero_rtt: true on rule {:?} but listener {addrs:?} has enable_zero_rtt: false",
+						rule.raw.name
+					)));
+				}
+				if !predicate_constrains_method_to_idempotent(rule.raw.match_predicate.as_ref()) {
+					return Err(Error::compile(format!(
+						"allow_zero_rtt: true on rule {:?} requires a method constraint restricted to GET / HEAD / OPTIONS",
+						rule.raw.name
+					)));
+				}
+			}
+			(true, Some(false)) | (false, None) => {}
+		}
+	}
+	Ok(())
+}
+
+/// Walk a rule's match predicate and return `true` iff it structurally
+/// restricts `http.method` to a subset of the idempotent set
+/// {GET, HEAD, OPTIONS}. Implements the compile-time gate described in
+/// `08-tls.md` § _TLS 1.3 0-RTT_ § _Compile-time constraints_.
+///
+/// Recursive rules:
+/// - `Check{ HttpMethod, equals "GET"|"HEAD"|"OPTIONS" }` → idempotent
+/// - `Check{ HttpMethod, in [list] }` where every element is one of
+///   GET/HEAD/OPTIONS → idempotent
+/// - `AllOf` → idempotent iff at least one child is idempotent (the
+///   conjunction of restrictions narrows the allowed set further)
+/// - `AnyOf` → idempotent iff EVERY alternative is independently
+///   idempotent (otherwise the disjunction admits a non-idempotent
+///   method)
+/// - `Not` and other predicates → not idempotent (cannot reason about
+///   the negation's allowed-method set structurally)
+///
+/// `None` (no match predicate at all) → not idempotent: the rule
+/// matches every method, including POST.
+fn predicate_constrains_method_to_idempotent(pred: Option<&Predicate>) -> bool {
+	let Some(pred) = pred else {
+		return false;
+	};
+	match pred {
+		Predicate::Check(c) => check_is_idempotent_method(c),
+		Predicate::AllOf(a) => {
+			a.all_of.iter().any(|child| predicate_constrains_method_to_idempotent(Some(child)))
+		}
+		Predicate::AnyOf(a) => {
+			!a.any_of.is_empty()
+				&& a.any_of.iter().all(|child| predicate_constrains_method_to_idempotent(Some(child)))
+		}
+		Predicate::Not(_) => false,
+	}
+}
+
+fn check_is_idempotent_method(c: &crate::predicate::CheckMap) -> bool {
+	use crate::predicate::{Operator, Value as PredValue};
+	if !matches!(c.path, FieldPath::HttpMethod) {
+		return false;
+	}
+	match &c.op {
+		Operator::Equals(PredValue::Str(s)) => is_idempotent_method(s),
+		Operator::In(values) => {
+			!values.is_empty()
+				&& values.iter().all(|v| matches!(v, PredValue::Str(s) if is_idempotent_method(s)))
+		}
+		_ => false,
+	}
+}
+
+fn is_idempotent_method(method: &str) -> bool {
+	matches!(method, "GET" | "HEAD" | "OPTIONS")
 }
 
 /// Validate one rule's `client_auth` block and produce the

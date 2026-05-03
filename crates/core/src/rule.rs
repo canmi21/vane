@@ -29,6 +29,13 @@ pub struct RawRule {
 	/// upstream traffic).
 	#[serde(default)]
 	pub tls: Option<TlsConfig>,
+	/// Per-rule TLS 1.3 0-RTT (early data) acceptance. Required on
+	/// every rule whose listener is TLS-terminating L7; absent on
+	/// rules whose listener is plaintext or pure-L4 (a present value
+	/// in those positions is a compile error). See
+	/// `08-tls.md` § _TLS 1.3 0-RTT (early data)_.
+	#[serde(default)]
+	pub allow_zero_rtt: Option<bool>,
 	/// Maximum bytes to buffer for request body `LazyBuffer` collection.
 	/// Default 8 MiB. Exceeding this produces 413 Payload Too Large.
 	#[serde(default = "default_max_body_bytes")]
@@ -63,6 +70,11 @@ pub struct TlsConfig {
 	pub sni: Option<String>,
 	pub cert_file: PathBuf,
 	pub key_file: PathBuf,
+	/// Listener-side TLS 1.3 0-RTT opt-in. Required on every rule that
+	/// carries a `tls` block; rules sharing one listener must agree on
+	/// this value (lower aggregates them). See
+	/// `08-tls.md` § _TLS 1.3 0-RTT (early data)_.
+	pub enable_zero_rtt: bool,
 	/// Listener-side mTLS — per `08-tls.md` § _Client certificate
 	/// verification_. Per-rule input; the lower pass aggregates each
 	/// rule's `client_auth` into one `ClientAuthSpec` per listener
@@ -147,6 +159,15 @@ pub struct ListenerTlsSpec {
 	/// error. Defaults to `None` for cleartext clients.
 	#[serde(default)]
 	pub client_auth: ClientAuthSpec,
+	/// Resolved per-listener TLS 1.3 0-RTT opt-in. Aggregated by the
+	/// lower pass from every rule's `tls.enable_zero_rtt` on the same
+	/// address — rules that disagree produce a compile error. The
+	/// engine's link wires this into `ServerConfig.max_early_data_size`
+	/// (16 KiB when `true`, default 0 when `false`). Defaults to
+	/// `false` for cleartext / non-TLS listeners. See
+	/// `08-tls.md` § _TLS 1.3 0-RTT (early data)_.
+	#[serde(default)]
+	pub enable_zero_rtt: bool,
 }
 
 impl ListenerTlsSpec {
@@ -155,6 +176,7 @@ impl ListenerTlsSpec {
 		self.default.is_none()
 			&& self.sni_certs.is_empty()
 			&& matches!(self.client_auth, ClientAuthSpec::None)
+			&& !self.enable_zero_rtt
 	}
 }
 
@@ -655,12 +677,17 @@ mod tests {
 			"name": "r",
 			"listen": [":443"],
 			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
-			"tls": { "cert_file": "/etc/vaned/certs/api.pem", "key_file": "/etc/vaned/certs/api.key" },
+			"tls": {
+				"cert_file": "/etc/vaned/certs/api.pem",
+				"key_file": "/etc/vaned/certs/api.key",
+				"enable_zero_rtt": false,
+			},
 		});
 		let rule: RawRule = serde_json::from_value(raw).expect("parse rule with tls");
 		let tls = rule.tls.expect("tls present");
 		assert_eq!(tls.cert_file, PathBuf::from("/etc/vaned/certs/api.pem"));
 		assert_eq!(tls.key_file, PathBuf::from("/etc/vaned/certs/api.key"));
+		assert!(!tls.enable_zero_rtt);
 	}
 
 	#[test]
@@ -669,6 +696,7 @@ mod tests {
 			sni: None,
 			cert_file: PathBuf::from("/srv/cert.pem"),
 			key_file: PathBuf::from("/srv/key.pem"),
+			enable_zero_rtt: false,
 			client_auth: None,
 		};
 		let encoded = serde_json::to_string(&original).expect("serialize");
@@ -682,6 +710,7 @@ mod tests {
 			"sni": "api.example.com",
 			"cert_file": "/etc/vaned/certs/api.pem",
 			"key_file": "/etc/vaned/certs/api.key",
+			"enable_zero_rtt": false,
 		});
 		let tls: TlsConfig = serde_json::from_value(raw).expect("parse tls with sni");
 		assert_eq!(tls.sni.as_deref(), Some("api.example.com"));
@@ -689,13 +718,57 @@ mod tests {
 
 	#[test]
 	fn tls_config_without_sni_parses_with_none() {
-		// Wire-compat with TLS part 1 — files written before the `sni`
-		// field existed must still deserialise.
+		let raw = serde_json::json!({
+			"cert_file": "/etc/vaned/certs/default.pem",
+			"key_file": "/etc/vaned/certs/default.key",
+			"enable_zero_rtt": false,
+		});
+		let tls: TlsConfig = serde_json::from_value(raw).expect("parse tls without sni");
+		assert!(tls.sni.is_none());
+	}
+
+	#[test]
+	fn tls_config_missing_enable_zero_rtt_field_rejected() {
+		// `enable_zero_rtt` is required (no implicit default) per
+		// `08-tls.md` § _TLS 1.3 0-RTT_; absence on a `tls` block is a
+		// hard parse error before the lower pass even sees the rule.
 		let raw = serde_json::json!({
 			"cert_file": "/etc/vaned/certs/default.pem",
 			"key_file": "/etc/vaned/certs/default.key",
 		});
-		let tls: TlsConfig = serde_json::from_value(raw).expect("parse tls without sni");
-		assert!(tls.sni.is_none());
+		let err =
+			serde_json::from_value::<TlsConfig>(raw).expect_err("missing enable_zero_rtt must reject");
+		assert!(
+			err.to_string().contains("enable_zero_rtt"),
+			"error must name the missing field: {err}",
+		);
+	}
+
+	#[test]
+	fn raw_rule_allow_zero_rtt_field_parses_when_present() {
+		let raw = serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+			"allow_zero_rtt": true,
+			"tls": {
+				"cert_file": "/etc/vaned/certs/api.pem",
+				"key_file": "/etc/vaned/certs/api.key",
+				"enable_zero_rtt": true,
+			},
+		});
+		let rule: RawRule = serde_json::from_value(raw).expect("parse rule with allow_zero_rtt");
+		assert_eq!(rule.allow_zero_rtt, Some(true));
+	}
+
+	#[test]
+	fn raw_rule_allow_zero_rtt_defaults_to_none_when_omitted() {
+		let raw = serde_json::json!({
+			"name": "r",
+			"listen": [":80"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		});
+		let rule: RawRule = serde_json::from_value(raw).expect("parse rule without allow_zero_rtt");
+		assert!(rule.allow_zero_rtt.is_none());
 	}
 }

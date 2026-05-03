@@ -33,6 +33,11 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		"upstream": args.upstream,
 		"transport": args.transport,
 	});
+	// Presets emit `allow_zero_rtt` explicitly per `08-tls.md` § _TLS
+	// 1.3 0-RTT_'s "CLI / TUI emits `false` when 0-RTT is not in use".
+	// `port_forward` is L4 only; the lower pass rejects an L4 rule with
+	// `allow_zero_rtt` set, so emit `None` regardless of `inv.tls`.
+	let _ = inv.tls.as_ref();
 	Ok(vec![RawRule {
 		name: inv.name,
 		listen: inv.listen,
@@ -45,6 +50,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		// Propagating the user's value here keeps the error message
 		// pointed at the rule rather than silently dropping it.
 		tls: inv.tls,
+		allow_zero_rtt: None,
 		max_body_bytes_request: 8 * 1024 * 1024,
 		max_body_bytes_response: 8 * 1024 * 1024,
 		source: inv.source,

@@ -81,13 +81,14 @@ fn rcgen_self_signed_for_localhost() -> TlsFixture {
 		cert_file: cert_file.path().to_path_buf(),
 		key_file: key_file.path().to_path_buf(),
 		client_auth: None,
+		enable_zero_rtt: false,
 	};
 
 	TlsFixture { _cert_file: cert_file, _key_file: key_file, cert_pem, tls_cfg }
 }
 
 /// Symbolic graph: `Upgrade -> Fetch(StaticOk) -> Terminate(WriteHttpResponse)`,
-/// with `meta.listener_tls[addr] = ListenerTlsSpec { default: Some(tls_cfg), .. }`.
+/// with `meta.listener_tls[addr] = ListenerTlsSpec { default: Some(tls_cfg), .. enable_zero_rtt: false,}`.
 fn tls_static_ok_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
 	entries.insert(addr, NodeId::new(0));
@@ -99,6 +100,7 @@ fn tls_static_ok_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) ->
 			default: Some(tls_cfg),
 			sni_certs: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
+			enable_zero_rtt: false,
 		},
 	);
 
@@ -132,6 +134,7 @@ fn tls_static_ok_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) ->
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,
@@ -348,6 +351,7 @@ fn tls_multi_sni_graph(
 				cert_file: c.cert_file.path().to_path_buf(),
 				key_file: c.key_file.path().to_path_buf(),
 				client_auth: None,
+				enable_zero_rtt: false,
 			},
 		);
 	}
@@ -357,9 +361,11 @@ fn tls_multi_sni_graph(
 			cert_file: c.cert_file.path().to_path_buf(),
 			key_file: c.key_file.path().to_path_buf(),
 			client_auth: None,
+			enable_zero_rtt: false,
 		}),
 		sni_certs: spec_sni,
 		client_auth: vane_core::rule::ClientAuthSpec::None,
+		enable_zero_rtt: false,
 	};
 
 	let mut listener_tls = BTreeMap::new();
@@ -395,6 +401,7 @@ fn tls_multi_sni_graph(
 			kind: FetchKind::HttpSynthesize,
 			args: Value::Null,
 			retry_buffer_required: false,
+			allow_zero_rtt: None,
 		}],
 		terminators: vec![Terminator::WriteHttpResponse],
 		entries,

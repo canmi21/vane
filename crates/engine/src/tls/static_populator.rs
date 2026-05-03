@@ -169,10 +169,12 @@ mod tests {
 				sni: None,
 				cert_file: cert_path,
 				key_file: key_path,
+				enable_zero_rtt: false,
 				client_auth: None,
 			}),
 			sni_certs: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
+			enable_zero_rtt: false,
 		}
 	}
 
@@ -212,12 +214,14 @@ mod tests {
 				cert_file: cert.path().to_path_buf(),
 				key_file: key.path().to_path_buf(),
 				client_auth: None,
+				enable_zero_rtt: false,
 			},
 		);
 		let spec = ListenerTlsSpec {
 			default: None,
 			sni_certs,
 			client_auth: vane_core::rule::ClientAuthSpec::None,
+			enable_zero_rtt: false,
 		};
 		let pop = StaticCertPopulator::from_spec(&spec).expect("from_spec");
 		let store = pop.initial_store_sync().expect("initial_store_sync");
@@ -231,6 +235,7 @@ mod tests {
 			default: None,
 			sni_certs: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
+			enable_zero_rtt: false,
 		};
 		let err = StaticCertPopulator::from_spec(&spec).expect_err("empty spec rejected");
 		let msg = err.to_string();

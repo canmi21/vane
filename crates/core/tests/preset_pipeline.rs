@@ -384,6 +384,7 @@ fn reverse_proxy_preset_propagates_tls_default_into_pool() {
 		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
+		enable_zero_rtt: false,
 		client_auth: None,
 	};
 	let entry = tls_preset_entry(
@@ -409,7 +410,12 @@ fn raw_rule_with_tls_aggregates_into_listener_pool() {
 		"name": "api",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
-		"tls": { "cert_file": "/tmp/cert.pem", "key_file": "/tmp/key.pem" },
+		"allow_zero_rtt": false,
+		"tls": {
+			"cert_file": "/tmp/cert.pem",
+			"key_file": "/tmp/key.pem",
+			"enable_zero_rtt": false,
+		},
 	}))
 	.expect("parse raw rule with tls");
 	let graph = compile(vec![rule_file("a.json", vec![raw_entry])], &Providers, &Providers)
@@ -418,6 +424,7 @@ fn raw_rule_with_tls_aggregates_into_listener_pool() {
 		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
+		enable_zero_rtt: false,
 		client_auth: None,
 	};
 	assert_eq!(graph.meta.listener_tls.len(), 2);
@@ -434,14 +441,16 @@ fn lower_aggregates_two_rules_same_port_distinct_sni_into_pool() {
 		"name": "api",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
-		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key" },
+		"allow_zero_rtt": false,
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let admin: RuleEntry = serde_json::from_value(json!({
 		"name": "admin",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
-		"tls": { "sni": "admin.example.com", "cert_file": "/tmp/admin.pem", "key_file": "/tmp/admin.key" },
+		"allow_zero_rtt": false,
+		"tls": { "sni": "admin.example.com", "cert_file": "/tmp/admin.pem", "key_file": "/tmp/admin.key", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let graph = compile(vec![rule_file("a.json", vec![api, admin])], &Providers, &Providers)
@@ -462,7 +471,8 @@ fn lower_lowercases_sni_keys_in_pool() {
 		"name": "api",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
-		"tls": { "sni": "API.Example.COM", "cert_file": "/tmp/c.pem", "key_file": "/tmp/k.pem" },
+		"allow_zero_rtt": false,
+		"tls": { "sni": "API.Example.COM", "cert_file": "/tmp/c.pem", "key_file": "/tmp/k.pem", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let graph =
@@ -482,14 +492,16 @@ fn lower_dedups_two_rules_same_port_identical_tls() {
 		"name": "api1",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
-		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key" },
+		"allow_zero_rtt": false,
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let b: RuleEntry = serde_json::from_value(json!({
 		"name": "api2",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
-		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key" },
+		"allow_zero_rtt": false,
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/api.pem", "key_file": "/tmp/api.key", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let graph = compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
@@ -505,14 +517,16 @@ fn lower_rejects_two_rules_same_port_same_sni_different_certs() {
 		"name": "api1",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
-		"tls": { "sni": "api.example.com", "cert_file": "/tmp/a.pem", "key_file": "/tmp/a.key" },
+		"allow_zero_rtt": false,
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/a.pem", "key_file": "/tmp/a.key", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let b: RuleEntry = serde_json::from_value(json!({
 		"name": "api2",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
-		"tls": { "sni": "api.example.com", "cert_file": "/tmp/b.pem", "key_file": "/tmp/b.key" },
+		"allow_zero_rtt": false,
+		"tls": { "sni": "api.example.com", "cert_file": "/tmp/b.pem", "key_file": "/tmp/b.key", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let err = compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
@@ -532,14 +546,16 @@ fn lower_rejects_two_rules_same_port_both_sniless_different_certs() {
 		"name": "api1",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
-		"tls": { "cert_file": "/tmp/a.pem", "key_file": "/tmp/a.key" },
+		"allow_zero_rtt": false,
+		"tls": { "cert_file": "/tmp/a.pem", "key_file": "/tmp/a.key", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let b: RuleEntry = serde_json::from_value(json!({
 		"name": "api2",
 		"listen": [":443"],
 		"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8081" },
-		"tls": { "cert_file": "/tmp/b.pem", "key_file": "/tmp/b.key" },
+		"allow_zero_rtt": false,
+		"tls": { "cert_file": "/tmp/b.pem", "key_file": "/tmp/b.key", "enable_zero_rtt": false },
 	}))
 	.expect("parse");
 	let err = compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
@@ -557,6 +573,7 @@ fn l4_listener_with_tls_block_is_rejected() {
 		sni: None,
 		cert_file: "/tmp/cert.pem".into(),
 		key_file: "/tmp/key.pem".into(),
+		enable_zero_rtt: false,
 		client_auth: None,
 	};
 	let entry = tls_preset_entry(
