@@ -489,13 +489,34 @@ pub(crate) async fn drive_h3_server(
 							}
 						};
 						let graph_snap = graph.load_full();
-						let Some(entry) =
+						let Some(listener_entry) =
 							graph_snap.symbolic().entries.get(&listener_addr).copied()
 						else {
 							tracing::debug!(
 								?listener_addr,
 								conn_id = %conn.id,
 								"h3 stream: no entry in active graph; dropping",
+							);
+							continue;
+						};
+						// Peel the listener entry's `Node::Upgrade` to land on the
+						// L7 sub-graph. The TCP path does this inside the executor's
+						// `Upgrade` arm by passing `*next` to `drive_h1_server` /
+						// `drive_h2_server`; H3 has no L4 phase (quinn owns the
+						// QUIC handshake), so the H3 driver enters the executor
+						// at L7 directly. Dropping the connection cleanly when the
+						// entry isn't `Upgrade` matches the executor's phase
+						// invariant — non-`Upgrade` entries on `Http` listeners
+						// would not be reachable through the L4→L7 path either.
+						let entry = if let Some(vane_core::Node::Upgrade { next }) =
+							graph_snap.symbolic().nodes.get(listener_entry.get() as usize)
+						{
+							*next
+						} else {
+							tracing::debug!(
+								?listener_addr,
+								conn_id = %conn.id,
+								"h3 stream: listener entry is not Node::Upgrade; dropping",
 							);
 							continue;
 						};
@@ -533,7 +554,18 @@ async fn handle_h3_request(
 	verbosity: vane_core::FlowLogVerbosity,
 ) {
 	use http_body::Body as _;
-	let (parts, _empty) = req.into_parts();
+	let (mut parts, _empty) = req.into_parts();
+
+	// `h3` sets `parts.version = HTTP/3.0`. The L7 executor + middleware
+	// path is version-agnostic (predicates read `conn.http_version`,
+	// not `req.version()`); but `hyper_util::Client::request` — which
+	// `HttpProxyFetch` dispatches through — only matches HTTP/1.x and
+	// HTTP/2.0 and rejects HTTP/3.0 with `UserUnsupportedVersion`.
+	// Normalise to HTTP/1.1 so cross-version bridging (H3 client → H1 /
+	// H2 upstream) actually works. The wire-level version on the H3
+	// listener side is preserved in `conn.http_version = Http3`, set
+	// at connection accept above.
+	parts.version = http::Version::HTTP_11;
 
 	// h3 0.0.8 splits stream into a request resolver and a stream
 	// handle; the body data is read on the same stream we'll later
