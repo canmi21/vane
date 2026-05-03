@@ -1,27 +1,35 @@
 //! `HttpProxyFetch` — pooled, ALPN-aware reverse-proxy fetch.
 //!
 //! Forwards the decoded `Request` to a configured upstream HTTP
-//! server and returns its `Response` to the executor. The dial path
-//! is owned by `hyper_util::client::legacy::Client` over a
-//! `hyper_rustls::HttpsConnector<HttpConnector>`: per-authority
-//! connection pooling, ALPN-driven H1/H2 negotiation on TLS, and
-//! cleartext h2c via prior knowledge when the rule pins
-//! `version: "h2"` without TLS.
+//! server and returns its `Response` to the executor. Two dispatch
+//! paths:
+//!
+//! * **TCP family (H1 / H2)** — owned by
+//!   `hyper_util::client::legacy::Client` over a
+//!   `hyper_rustls::HttpsConnector<HttpConnector>`: per-authority
+//!   connection pooling, ALPN-driven H1 / H2 negotiation on TLS,
+//!   cleartext h2c via prior knowledge when the rule pins
+//!   `version: "h2"` without TLS.
+//! * **QUIC family (H3)** — owned by [`super::quic_pool`]: per-fingerprint
+//!   pooled `quinn::Endpoint` + `h3::client` send-request handle, mandatory
+//!   TLS with ALPN `[b"h3"]`. Compiled in only when the `h3` cargo
+//!   feature is on; without it, `version: "h3"` is rejected at
+//!   factory time.
 //!
 //! The `version` field selects the upstream's HTTP version posture.
 //! Permitted values mirror `spec/architecture/09-config.md` § _Rule
 //! schema_ (`version` row):
 //!
-//! | `version` | TLS upstream                | Cleartext upstream    |
-//! | --------- | --------------------------- | --------------------- |
-//! | `auto`    | ALPN: prefer `h2`, fall H1  | H1 (no ALPN; warn)    |
-//! | `h1`      | ALPN: only `http/1.1`       | H1                    |
-//! | `h2`      | ALPN: only `h2`             | h2c (prior knowledge) |
-//! | `h3`      | rejected at factory time (no `h3` cargo feature yet)         |
+//! | `version` | TLS upstream                | Cleartext upstream     |
+//! | --------- | --------------------------- | ---------------------- |
+//! | `auto`    | ALPN: prefer `h2`, fall H1  | H1 (no ALPN; warn)     |
+//! | `h1`      | ALPN: only `http/1.1`       | H1                     |
+//! | `h2`      | ALPN: only `h2`             | h2c (prior knowledge)  |
+//! | `h3`      | ALPN: only `h3` (TLS req'd) | rejected (h3 mandates QUIC TLS) |
 //!
 //! See `spec/architecture/05-terminator.md` § _`HttpProxy`_,
-//! `spec/architecture/07-l7.md` § _H1 / H2 paths_, and
-//! `spec/architecture/08-tls.md` § _TLS library: rustls only_.
+//! `spec/architecture/07-l7.md` § _H1 / H2 paths_, § _Architecture: TCP / QUIC separation_,
+//! and `spec/architecture/08-tls.md` § _TLS library: rustls only_.
 
 use std::sync::Arc;
 
@@ -44,26 +52,49 @@ use crate::fetch::upstream::{UpstreamTls, parse_tls_args};
 use crate::flow_graph::FetchInst;
 
 /// Upstream HTTP-version posture. Pinned at factory time from
-/// `args.version`. `Http3` is reserved for an `h3` cargo feature; the
-/// factory rejects it on builds without that feature.
+/// `args.version`. `Http3` is gated behind the `h3` cargo feature;
+/// builds without it reject `version: "h3"` at factory time.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum UpstreamVersion {
 	Auto,
 	Http1,
 	Http2,
+	#[cfg(feature = "h3")]
+	Http3,
 }
 
-/// Reverse-proxy fetch backed by a daemon-shared pooled
-/// `legacy::Client`. The `client` is an `Arc` into
-/// [`crate::fetch::client_cache`], so two fetches with the same
-/// `(version, tls)` posture share both the `ClientConfig` and the
-/// per-authority connection pool.
+/// Reverse-proxy fetch dispatched through one of two pool families:
+/// `Tcp` (via [`crate::fetch::client_cache`] for the H1 / H2 path)
+/// or `Quic` (via [`crate::fetch::quic_pool`] for the H3 path). Each
+/// family owns its own pooling discipline; see the module-level
+/// docstring for the full posture matrix.
 pub struct HttpProxyFetch {
 	upstream: Arc<str>,
 	version: UpstreamVersion,
 	scheme: &'static str,
-	client: Arc<ProxyClient>,
+	dispatch: Dispatch,
 	retry: Arc<RetryPolicy>,
+}
+
+/// Per-version dispatch state. `Tcp` carries the cached pooled
+/// `legacy::Client`; `Quic` carries the rustls config the QUIC pool
+/// needs at dial time plus the SNI / TLS-fingerprint pieces the
+/// per-request fingerprint composes from.
+enum Dispatch {
+	Tcp(Arc<ProxyClient>),
+	#[cfg(feature = "h3")]
+	Quic(QuicDispatchState),
+}
+
+/// State the H3 dispatch arm carries at factory time. `addr` is
+/// resolved per-request (from `upstream`) so DNS changes affect new
+/// pool entries; the existing entries keyed under the prior `addr`
+/// stay live until quinn's idle timeout retires them.
+#[cfg(feature = "h3")]
+struct QuicDispatchState {
+	rustls_cfg: Arc<rustls::ClientConfig>,
+	sni: Arc<str>,
+	tls_fp: crate::fetch::client_cache::TlsConfigFingerprint,
 }
 
 #[async_trait]
@@ -74,14 +105,29 @@ impl L7Fetch for HttpProxyFetch {
 		_conn: &Arc<ConnContext>,
 		_ctx: &mut FlowCtx,
 	) -> Result<L7FetchOutput, Error> {
-		// Compose the full upstream URI so the legacy client routes by
-		// scheme + authority. The connector reads `http://` / `https://`
-		// to pick cleartext vs TLS; the pool keys by authority.
+		// Compose the full upstream URI so the dispatch path routes by
+		// scheme + authority. For TCP (hyper-util Client) the connector
+		// reads `http://` / `https://` to pick cleartext vs TLS; for QUIC
+		// (h3 client) the scheme + authority become :scheme / :authority
+		// pseudo-headers so the upstream sees the rewritten target.
 		let path_and_query =
 			req.uri().path_and_query().map_or("/", http::uri::PathAndQuery::as_str).to_string();
 		let new_uri = format!("{}://{}{}", self.scheme, self.upstream, path_and_query);
 		*req.uri_mut() =
 			new_uri.parse().map_err(|e| Error::protocol("upstream uri rewrite").with_source(e))?;
+
+		// H3 dispatch: route through the QuicPool. Retry on H3 streams is
+		// not yet supported — the fetch dispatches a single attempt and
+		// surfaces any error directly. Per
+		// `spec/architecture/07-l7.md` § _Retry policy_, retry requires
+		// request-body replay; streaming bodies skip retry on the TCP
+		// path too. Adding H3-aware retry is a separate task.
+		// TODO(s3-02-followup): implement retry on the H3 dispatch path
+		// when the request body is `Body::Static` / `Body::Empty`.
+		#[cfg(feature = "h3")]
+		if let Dispatch::Quic(_) = &self.dispatch {
+			return self.send_one_attempt_h3(req).await;
+		}
 
 		// Snapshot the request body for replay. `Body::Stream` is
 		// one-shot — it collapses retry to a single attempt
@@ -104,7 +150,7 @@ impl L7Fetch for HttpProxyFetch {
 		// Streaming or non-retryable-method path: single attempt,
 		// original body, no clones.
 		if max_attempts <= 1 {
-			return self.send_one_attempt(req).await;
+			return self.send_one_attempt_tcp(req).await;
 		}
 
 		// Retryable path: rebuild the request from `(method, uri,
@@ -115,13 +161,14 @@ impl L7Fetch for HttpProxyFetch {
 		// extensions are typically per-request and shouldn't leak).
 		let (parts, _orig_body) = req.into_parts();
 		let replay = replay.expect("max_attempts > 1 path requires replay snapshot");
+		let client = self.tcp_client_or_panic();
 
 		let mut last_err: Option<Error> = None;
 		for attempt in 1..=max_attempts {
 			let req_attempt =
 				http::Request::from_parts(clone_parts_for_retry(&parts), Body::Static(replay.clone()));
 			// TODO(retry-after): respect upstream Retry-After on 503/429.
-			match self.client.request(req_attempt).await {
+			match client.request(req_attempt).await {
 				Ok(resp) => {
 					let (parts, incoming) = resp.into_parts();
 					let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
@@ -151,16 +198,30 @@ impl L7Fetch for HttpProxyFetch {
 }
 
 impl HttpProxyFetch {
-	/// Single-attempt path used when retry is disabled (`max_attempts`
-	/// == 1, streaming body, or method not in whitelist). Skips the
-	/// snapshot + clone work.
-	async fn send_one_attempt(&self, req: Request) -> Result<L7FetchOutput, Error> {
+	/// Borrow the TCP-family client. Panics for the QUIC dispatch path —
+	/// the H3 arm short-circuits before the retry loop reaches this
+	/// helper, so the panic is unreachable in any well-typed code path.
+	fn tcp_client_or_panic(&self) -> &Arc<ProxyClient> {
+		match &self.dispatch {
+			Dispatch::Tcp(c) => c,
+			#[cfg(feature = "h3")]
+			Dispatch::Quic(_) => unreachable!(
+				"H3 dispatch routes through send_one_attempt_h3 above; tcp helper is unreachable",
+			),
+		}
+	}
+
+	/// Single-attempt TCP-family path used when retry is disabled
+	/// (`max_attempts == 1`, streaming body, or method not in
+	/// whitelist). Skips the snapshot + clone work.
+	async fn send_one_attempt_tcp(&self, req: Request) -> Result<L7FetchOutput, Error> {
 		// Elapsed from call entry includes the connect time for connections
 		// that need to dial — the pooled client dials inside `request`.
 		// This is "request total elapsed including connect" rather than
 		// a pure connect measurement.
+		let client = self.tcp_client_or_panic();
 		let start = std::time::Instant::now();
-		let resp = self.client.request(req).await.map_err(|e| {
+		let resp = client.request(req).await.map_err(|e| {
 			tracing::debug!(error = ?e, version = ?self.version, "upstream request failed");
 			Error::upstream(UpstreamReason::Unreachable).with_source(e)
 		})?;
@@ -171,6 +232,126 @@ impl HttpProxyFetch {
 		// bodies_: never collect into `Body::Static`.
 		let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(parts, body)))
+	}
+
+	/// Single-attempt QUIC-family path. Resolves `self.upstream` to a
+	/// `SocketAddr`, composes the per-request `QuicFingerprint`,
+	/// acquires the pooled `h3::client::SendRequest` (dialing on miss),
+	/// and runs one request / response round-trip with the response
+	/// body wrapped in `Body::Stream(Box::pin(H3Body::new(...)))` per
+	/// `spec/architecture/07-l7.md` § _Upstream-H3 send path_ +
+	/// § _`HttpProxyFetch` commits to streaming response bodies_.
+	#[cfg(feature = "h3")]
+	#[allow(clippy::too_many_lines)]
+	async fn send_one_attempt_h3(&self, req: Request) -> Result<L7FetchOutput, Error> {
+		use http_body::Body as _;
+
+		let Dispatch::Quic(quic) = &self.dispatch else {
+			unreachable!("send_one_attempt_h3 called on non-QUIC dispatch")
+		};
+
+		let start = std::time::Instant::now();
+
+		// Per-request DNS resolve via tokio's system resolver. The
+		// hickory resolver wired into the TCP path only feeds
+		// `hyper_util`'s connector and is not reachable from quinn
+		// directly; integrating it here is a separate task.
+		// TODO(s3-02-followup): route H3 dial through the per-fetch
+		// hickory resolver so `args.dns` overrides apply.
+		let addr = match tokio::net::lookup_host(self.upstream.as_ref()).await {
+			Ok(mut iter) => iter.next().ok_or_else(|| {
+				Error::upstream(UpstreamReason::Unreachable).with_source(std::io::Error::new(
+					std::io::ErrorKind::AddrNotAvailable,
+					format!("no addresses for upstream {:?}", self.upstream),
+				))
+			})?,
+			Err(e) => {
+				return Err(Error::upstream(UpstreamReason::Unreachable).with_source(e));
+			}
+		};
+
+		let fp = crate::fetch::quic_pool::QuicFingerprint { addr, tls: quic.tls_fp.clone() };
+		let entry =
+			crate::fetch::quic_pool::get_or_dial(fp.clone(), &quic.sni, Arc::clone(&quic.rustls_cfg))
+				.await?;
+		metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "http_proxy_h3")
+			.record(start.elapsed().as_secs_f64() * 1000.0);
+
+		// h3 wants `http::Request<()>` for the headers half; the body
+		// goes via `send_data` on the returned stream.
+		let (parts, body) = req.into_parts();
+		let req_headers = http::Request::from_parts(parts, ());
+
+		let mut send_request = entry.send_request.clone();
+		let mut stream = match send_request.send_request(req_headers).await {
+			Ok(s) => s,
+			Err(e) => {
+				// Dead pool entry — evict so the next request re-dials.
+				crate::fetch::quic_pool::evict(&fp);
+				return Err(
+					Error::upstream(UpstreamReason::Unreachable)
+						.with_source(std::io::Error::other(format!("h3 send_request: {e}"))),
+				);
+			}
+		};
+
+		// Pump the request body. `poll_frame` yields `Frame<Bytes>`
+		// items; data frames feed `send_data`, trailer frames feed
+		// `send_trailers`. `Body::Empty` and zero-byte Static bodies
+		// produce no frames; the stream is closed via `finish` in
+		// either case.
+		let mut body = Box::pin(body);
+		loop {
+			let next = std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await;
+			match next {
+				Some(Ok(frame)) => {
+					if let Some(data) = frame.data_ref()
+						&& let Err(e) = stream.send_data(data.clone()).await
+					{
+						return Err(
+							Error::upstream(UpstreamReason::Unreachable)
+								.with_source(std::io::Error::other(format!("h3 send_data: {e}"))),
+						);
+					} else if let Some(trailers) = frame.trailers_ref()
+						&& let Err(e) = stream.send_trailers(trailers.clone()).await
+					{
+						return Err(
+							Error::upstream(UpstreamReason::Unreachable)
+								.with_source(std::io::Error::other(format!("h3 send_trailers: {e}"))),
+						);
+					}
+				}
+				Some(Err(e)) => {
+					return Err(
+						Error::upstream(UpstreamReason::Unreachable)
+							.with_source(std::io::Error::other(format!("request body read: {e}"))),
+					);
+				}
+				None => break,
+			}
+		}
+		if let Err(e) = stream.finish().await {
+			return Err(
+				Error::upstream(UpstreamReason::Unreachable)
+					.with_source(std::io::Error::other(format!("h3 finish: {e}"))),
+			);
+		}
+
+		let resp_head = match stream.recv_response().await {
+			Ok(r) => r,
+			Err(e) => {
+				return Err(
+					Error::upstream(UpstreamReason::Unreachable)
+						.with_source(std::io::Error::other(format!("h3 recv_response: {e}"))),
+				);
+			}
+		};
+
+		let (resp_parts, _empty) = resp_head.into_parts();
+		let body = Body::Stream(Box::pin(crate::h3_body::H3Body::new(
+			crate::h3_body::ClientStreamSource::new(stream),
+		)));
+		Ok(L7FetchOutput::Response(http::Response::from_parts(resp_parts, body)))
 	}
 }
 
@@ -235,6 +416,13 @@ fn build_client(
 		}
 		UpstreamVersion::Http1 => connector_with_protocols.enable_http1().wrap_connector(http),
 		UpstreamVersion::Http2 => connector_with_protocols.enable_http2().wrap_connector(http),
+		// `Http3` is dispatched via the QuicPool, never through `build_client`.
+		// The factory short-circuits before reaching here, so this arm is
+		// unreachable in practice; keep it for exhaustiveness.
+		#[cfg(feature = "h3")]
+		UpstreamVersion::Http3 => {
+			unreachable!("build_client is the TCP path; H3 dispatch goes through QuicPool")
+		}
 	};
 
 	let mut builder = Client::builder(TokioExecutor::new());
@@ -247,6 +435,10 @@ fn build_client(
 		UpstreamVersion::Http2 => {
 			// Prior-knowledge h2c on cleartext, ALPN-h2 on TLS.
 			builder.http2_only(true);
+		}
+		#[cfg(feature = "h3")]
+		UpstreamVersion::Http3 => {
+			unreachable!("build_client is the TCP path; H3 dispatch goes through QuicPool")
 		}
 	}
 	builder.build(https)
@@ -290,6 +482,9 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 		"auto" => UpstreamVersion::Auto,
 		"h1" => UpstreamVersion::Http1,
 		"h2" => UpstreamVersion::Http2,
+		#[cfg(feature = "h3")]
+		"h3" => UpstreamVersion::Http3,
+		#[cfg(not(feature = "h3"))]
 		"h3" => {
 			return Err(FactoryError(
 				"version 'h3' requires the 'h3' cargo feature, which is not active in this build"
@@ -321,15 +516,50 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 	let retry = crate::fetch::retry::parse(args.get("retry"))
 		.map_err(|e| FactoryError(format!("args.retry: {e}")))?;
 
-	// Compute the cache key. The connector wires ALPN via
-	// `enable_http1` / `enable_http2`, which is `version`-driven, so
-	// we patch the version-specific ALPN list into the parsed TLS
+	// H3 dispatch — TLS is mandatory (RFC 9114 mandates QUIC + TLS
+	// 1.3); reject cleartext H3 at factory time. Build a separate
+	// rustls config with ALPN pinned to `[b"h3"]` since the QUIC pool
+	// embeds ALPN into the rustls config (vs the hyper-rustls
+	// connector's `enable_httpN`).
+	#[cfg(feature = "h3")]
+	if matches!(version, UpstreamVersion::Http3) {
+		let tls = tls.ok_or_else(|| {
+			FactoryError("version 'h3' requires args.tls (h3 mandates QUIC + TLS 1.3)".to_string())
+		})?;
+		// Clone the parsed `ClientConfig` and patch ALPN — the cached
+		// `Arc<ClientConfig>` from `build_client_config` has no ALPN set
+		// (the TCP path's hyper-rustls connector reserves that field).
+		let mut h3_rustls: rustls::ClientConfig = (*tls.client_config).clone();
+		h3_rustls.alpn_protocols = vec![b"h3".to_vec()];
+		let h3_rustls = Arc::new(h3_rustls);
+		let mut tls_fp = tls.fingerprint.clone();
+		tls_fp.alpn_protocols = vec![b"h3".to_vec()];
+		let dispatch = Dispatch::Quic(QuicDispatchState {
+			rustls_cfg: h3_rustls,
+			sni: Arc::from(tls.verify_hostname.as_str()),
+			tls_fp,
+		});
+		return Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
+			upstream: Arc::from(upstream),
+			version,
+			scheme: "https",
+			dispatch,
+			retry: Arc::new(retry),
+		})));
+	}
+
+	// TCP family — compute the cache key. The connector wires ALPN
+	// via `enable_http1` / `enable_http2`, which is `version`-driven,
+	// so we patch the version-specific ALPN list into the parsed TLS
 	// fingerprint here (parse_tls_args has no `version` to consult).
 	// Cleartext upstreams keep `tls: None` and still share by version.
 	let alpn_protocols = match version {
 		UpstreamVersion::Auto => vec![b"h2".to_vec(), b"http/1.1".to_vec()],
 		UpstreamVersion::Http1 => vec![b"http/1.1".to_vec()],
 		UpstreamVersion::Http2 => vec![b"h2".to_vec()],
+		// Unreachable — the H3 branch above already returned.
+		#[cfg(feature = "h3")]
+		UpstreamVersion::Http3 => unreachable!("H3 dispatch returns above"),
 	};
 	let tls_fp = tls.as_ref().map(|t| {
 		let mut fp = t.fingerprint.clone();
@@ -349,7 +579,7 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 		upstream: Arc::from(upstream),
 		version,
 		scheme,
-		client,
+		dispatch: Dispatch::Tcp(client),
 		retry: Arc::new(retry),
 	})))
 }
@@ -395,6 +625,7 @@ mod tests {
 		assert!(result.is_ok(), "factory must accept insecure tls config");
 	}
 
+	#[cfg(not(feature = "h3"))]
 	#[test]
 	fn factory_rejects_version_h3_without_feature() {
 		install_crypto();
@@ -405,6 +636,34 @@ mod tests {
 			panic!("h3 must be rejected on builds without the feature");
 		};
 		assert!(msg.contains("h3"), "error names the missing feature: {msg}");
+	}
+
+	#[cfg(feature = "h3")]
+	#[test]
+	fn factory_rejects_h3_without_tls() {
+		install_crypto();
+		// H3 mandates QUIC + TLS 1.3 (RFC 9114) — the factory rejects
+		// `version: "h3"` without `args.tls` even with the cargo
+		// feature enabled.
+		let Err(FactoryError(msg)) = factory(&serde_json::json!({
+			"upstream": "127.0.0.1:9443",
+			"version": "h3",
+		})) else {
+			panic!("h3 without tls must be rejected");
+		};
+		assert!(msg.contains("h3") && msg.contains("tls"), "error names h3 + tls: {msg}");
+	}
+
+	#[cfg(feature = "h3")]
+	#[test]
+	fn factory_accepts_h3_with_tls() {
+		install_crypto();
+		let result = factory(&serde_json::json!({
+			"upstream": "127.0.0.1:9443",
+			"version": "h3",
+			"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
+		}));
+		assert!(result.is_ok(), "h3 + tls must build: {:?}", result.err());
 	}
 
 	#[test]
