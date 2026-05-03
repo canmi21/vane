@@ -97,6 +97,16 @@ struct QuicDispatchState {
 	tls_fp: crate::fetch::client_cache::TlsConfigFingerprint,
 }
 
+/// Spec default for `HttpProxyFetch.connect_timeout`
+/// (`spec/architecture/07-l7.md` § _Timeouts (proposal)_). Caps the
+/// H3 dial half (DNS + UDP bind + QUIC handshake + h3 negotiation);
+/// pool-hit fast paths short-circuit before reaching it. Pool entries
+/// retired by `quinn`'s own idle timeout are also lazily re-dialed
+/// against this same ceiling on the next miss.
+// TODO(s3-02-followup): make this configurable via args.connect_timeout.
+#[cfg(feature = "h3")]
+const H3_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[async_trait]
 impl L7Fetch for HttpProxyFetch {
 	async fn fetch(
@@ -271,15 +281,43 @@ impl HttpProxyFetch {
 		};
 
 		let fp = crate::fetch::quic_pool::QuicFingerprint { addr, tls: quic.tls_fp.clone() };
-		let entry =
-			crate::fetch::quic_pool::get_or_dial(fp.clone(), &quic.sni, Arc::clone(&quic.rustls_cfg))
-				.await?;
+		let entry = match tokio::time::timeout(
+			H3_CONNECT_TIMEOUT,
+			crate::fetch::quic_pool::get_or_dial(fp.clone(), &quic.sni, Arc::clone(&quic.rustls_cfg)),
+		)
+		.await
+		{
+			Ok(Ok(e)) => e,
+			Ok(Err(e)) => return Err(e),
+			Err(_) => {
+				return Err(Error::upstream(UpstreamReason::Unreachable).with_source(std::io::Error::new(
+					std::io::ErrorKind::TimedOut,
+					"h3 upstream connect timeout (5s)",
+				)));
+			}
+		};
 		metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "http_proxy_h3")
 			.record(start.elapsed().as_secs_f64() * 1000.0);
 
 		// h3 wants `http::Request<()>` for the headers half; the body
-		// goes via `send_data` on the returned stream.
-		let (parts, body) = req.into_parts();
+		// goes via `send_data` on the returned stream. Pin the
+		// request version to HTTP/3 — h3's `SendRequest::send_request`
+		// rejects requests whose version isn't HTTP/3 (the inbound
+		// version on the executor side is whatever the listener
+		// negotiated, often HTTP/1.1; that's transport-free above the
+		// fetch boundary, so we override here to the upstream's
+		// transport-required version).
+		//
+		// Strip the inbound `Host` header. After URI rewrite the URI's
+		// authority is the upstream `host:port`; an inbound H1 client's
+		// `Host: client.example` would now contradict it, and h3's
+		// `Header::request` rejects the pair as `ContradictedAuthority`
+		// (RFC 9114 §4.3.1). h3 carries authority via the `:authority`
+		// pseudo-header derived from `uri.authority()`, so the inbound
+		// `Host` header is redundant on the H3 path either way.
+		let (mut parts, body) = req.into_parts();
+		parts.version = http::Version::HTTP_3;
+		parts.headers.remove(http::header::HOST);
 		let req_headers = http::Request::from_parts(parts, ());
 
 		let mut send_request = entry.send_request.clone();
@@ -347,7 +385,15 @@ impl HttpProxyFetch {
 			}
 		};
 
-		let (resp_parts, _empty) = resp_head.into_parts();
+		// Normalise the response version. h3 sets it to HTTP/3.0, but
+		// vane's L7 path is transport-free above the fetch boundary —
+		// the listener-side encoder serialises whatever version it
+		// negotiated regardless of `resp.version()`. hyper's H1
+		// encoder, however, panics on an HTTP/3.0 response (it has
+		// no wire format for that version). Pin to HTTP/1.1 so any
+		// downstream encoder accepts it.
+		let (mut resp_parts, _empty) = resp_head.into_parts();
+		resp_parts.version = http::Version::HTTP_11;
 		let body = Body::Stream(Box::pin(crate::h3_body::H3Body::new(
 			crate::h3_body::ClientStreamSource::new(stream),
 		)));
