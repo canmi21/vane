@@ -326,7 +326,20 @@ pub async fn execute(
 						// `allow_zero_rtt` is lifted off the parent
 						// rule onto the symbolic fetch ref by the
 						// lower pass.
-						let zero_rtt_used = conn.tls.lock().as_ref().is_some_and(|t| t.zero_rtt_used);
+						//
+						// The flag is consumed on read: only the first
+						// request after the early-data drain sees it
+						// as true. Subsequent requests on a kept-alive
+						// HTTP/1.1 connection (or H2 streams that
+						// follow the early-data drain) arrive purely
+						// as 1-RTT data, so the 425 gate must not fire
+						// for them. This matches `08-tls.md` § _TLS
+						// 1.3 0-RTT (early data)_ § _Runtime flow_,
+						// which scopes the gate per request.
+						let zero_rtt_used = {
+							let mut guard = conn.tls.lock();
+							guard.as_mut().is_some_and(|t| std::mem::take(&mut t.zero_rtt_used))
+						};
 						let allow_zero_rtt = graph.symbolic().fetches[id.get() as usize].allow_zero_rtt;
 						if zero_rtt_used && allow_zero_rtt == Some(false) {
 							let _ = req.take();

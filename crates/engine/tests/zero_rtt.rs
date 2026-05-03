@@ -438,17 +438,14 @@ async fn zero_rtt_rejected_with_425_when_rule_disallows() {
 		.expect("write follow-up GET");
 	let mut follow_up = Vec::new();
 	stream.read_to_end(&mut follow_up).await.expect("read follow-up");
-	// Step 2 of this PR can only prove the connection stays open
-	// (any HTTP response means the TLS connection wasn't closed
-	// after the 425 — a TLS-level close would surface as an early
-	// EOF on the read above). The stricter "follow-up returns 200"
-	// check that the spec § _Runtime flow_ implies requires the
-	// `zero_rtt_used` flag to be scoped to the first request rather
-	// than the connection — that wiring fix lands in Step 3, which
-	// also tightens this assertion.
+	// The follow-up arrives purely as 1-RTT (the early-data buffer
+	// was drained by the first request) and must hit the L7 path
+	// normally — i.e. the 425 gate must be scoped to the request
+	// whose bytes actually arrived as 0-RTT, not to the connection
+	// for its entire lifetime.
 	assert!(
-		follow_up.starts_with(b"HTTP/1.1 "),
-		"follow-up request must produce an HTTP response (connection stays open per RFC 8470): {:?}",
+		follow_up.starts_with(b"HTTP/1.1 200"),
+		"follow-up 1-RTT request on the same connection must yield 200; the 425 gate must be per-request not per-connection: {:?}",
 		String::from_utf8_lossy(&follow_up),
 	);
 
