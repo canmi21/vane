@@ -77,3 +77,4 @@ http-body-util = "0.1"
 rcgen = "0.14"
 serial_test = "3"
 tempfile = "3"
+vane-testutil = { workspace = true, features = ["h3"] }

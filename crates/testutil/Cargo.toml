@@ -11,7 +11,34 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# Pulls in the h3 client stack (quinn + h3-quinn + h3 + rustls). Engine
+# integration tests opt in via `vane-testutil = { ..., features = ["h3"] }`.
+# Production code never depends on this — testutil is dev-only and the
+# h3 client dependencies would otherwise cost compile time on every
+# downstream test that doesn't exercise H3.
+h3 = [
+	"dep:quinn",
+	"dep:h3",
+	"dep:h3-quinn",
+	"dep:rustls",
+	"dep:rustls-pemfile",
+	"dep:bytes",
+	"dep:http",
+]
+
 [dependencies]
 hyper = { version = "1.9.0", features = ["server", "http1", "client"] }
 tokio = { version = "1.52.1", features = ["net", "io-util", "rt", "time", "macros"] }
 vane-core = { workspace = true }
+
+# H3 client stack — gated behind the `h3` feature; only engine tests
+# that exercise the H3 listener path opt in.
+bytes = { version = "1.11.1", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+http = { version = "1.4.0", optional = true }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
+rustls-pemfile = { version = "2", optional = true }

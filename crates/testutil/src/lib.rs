@@ -5,6 +5,8 @@
 
 pub mod echo;
 pub mod flow;
+#[cfg(feature = "h3")]
+pub mod h3;
 pub mod port;
 pub mod tracing;
 pub mod vaned_fixture;

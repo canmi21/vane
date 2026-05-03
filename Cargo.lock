@@ -3458,6 +3458,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vane-core",
+ "vane-testutil",
  "x509-parser",
 ]
 
@@ -3493,7 +3494,14 @@ dependencies = [
 name = "vane-testutil"
 version = "0.10.3"
 dependencies = [
+ "bytes",
+ "h3",
+ "h3-quinn",
+ "http",
  "hyper",
+ "quinn",
+ "rustls",
+ "rustls-pemfile",
  "tokio",
  "vane-core",
 ]
