@@ -1039,6 +1039,33 @@ mod tests {
 	}
 
 	#[test]
+	fn lower_derives_http_for_udp_prefix_listener() {
+		// `06-l4.md` § _Listener kind derivation_ is graph-shape-only —
+		// transport doesn't enter the rule. The `udp:` prefix flows
+		// through `parse_listen` to `listener_transports`, while the
+		// L7 terminator independently picks `Http`. The combination is
+		// what the engine needs to spawn the per-listener H3 stack.
+		let r = parse_rule(serde_json::json!({
+			"name": "h3",
+			"listen": ["udp:7802"],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		}));
+		let graph =
+			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
+		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 7802);
+		assert_eq!(
+			graph.meta.listener_kinds.get(&v4),
+			Some(&crate::ir::ListenerKind::Http),
+			"udp listener with http_proxy terminator must derive ListenerKind::Http",
+		);
+		assert_eq!(
+			graph.meta.listener_transports.get(&v4),
+			Some(&crate::conn_context::Transport::Udp),
+			"udp: prefix must populate listener_transports as Udp",
+		);
+	}
+
+	#[test]
 	fn lower_derives_auto_when_l4_and_l7_share_listener() {
 		// `analyze` currently rejects a single rule set with mixed L4 + L7
 		// postures on the same listener (the protocol-detect frontend
