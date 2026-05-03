@@ -211,3 +211,39 @@ pub trait WasmRuntime: Send + Sync {
 		input: L7ResponseInput,
 	) -> Result<L7ResponseDecision, PluginError>;
 }
+
+/// One pool entry surfaced by [`WasmPoolStats::snapshot`]. Mirrors the
+/// shape `vane-wasm` produces internally; lives in `vane-core` so the
+/// daemon can consume the data via a trait object without depending on
+/// `vane-wasm` (which sits behind the optional `wasm` feature).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WasmPoolSummary {
+	/// `"stateful"` or `"stateless"`. Static-string in `vane-wasm`,
+	/// owned here so the trait object can return any backend's labels.
+	pub kind: String,
+	/// Module identity — typically the canonical absolute path of the
+	/// `.wasm` file (matches [`ModuleId`]).
+	pub key: String,
+	/// Export name within the component (e.g. `"l4-peek"`).
+	pub export: String,
+	/// Pre-warmed instance count for the pool. `0` when the pool has
+	/// no warm cache (e.g. on-demand stateless instantiation).
+	pub capacity: usize,
+	/// Currently checked-in instances. `capacity - available` is the
+	/// number in flight; the daemon translates that to `in_use` on the
+	/// wire.
+	pub available: usize,
+}
+
+/// Read-only introspection of WASM pool runtime state. Implemented by
+/// `vane-wasm::WasmtimeRuntime`; held by the daemon as
+/// `Option<Arc<dyn WasmPoolStats>>` so builds without the optional
+/// `wasm` feature can still consume the trait surface and serve the
+/// `get_pools` mgmt verb (returning an empty list).
+pub trait WasmPoolStats: Send + Sync {
+	/// Snapshot every live pool. Read-only: must not instantiate
+	/// modules, build instances, or mutate runtime state. Returning
+	/// stale entries is acceptable — implementations may prune dead
+	/// weak refs as part of the snapshot.
+	fn snapshot(&self) -> Vec<WasmPoolSummary>;
+}

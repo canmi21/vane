@@ -20,7 +20,8 @@ use vane_core::{
 	BytesView, ContextEntry, ContextValue, Error, Header, HttpFetchBackend, HttpFetchError,
 	HttpFetchLimits, HttpFetchRequest, L4BytesDecision, L4BytesInput, L4PeekDecision, L4PeekInput,
 	L7RequestDecision, L7RequestInput, L7ResponseDecision, L7ResponseInput, ModifiedResponse,
-	ModuleId, PluginError, PluginExport, PluginMetadata, SynthResponse, WasmRuntime,
+	ModuleId, PluginError, PluginExport, PluginMetadata, SynthResponse, WasmPoolStats,
+	WasmPoolSummary, WasmRuntime,
 };
 
 // Generate host-side bindings from the WIT world. This produces:
@@ -1285,8 +1286,10 @@ impl WasmtimeRuntime {
 }
 
 /// One entry in [`WasmtimeRuntime::pool_snapshot`]. Mirrors the wire
-/// shape exposed by the `get_pools` mgmt verb. The translation to the
-/// management-protocol wire types lives in the daemon crate.
+/// shape exposed by the `get_pools` mgmt verb, but lives in this crate
+/// so `vane-mgmt` does not have to depend on `vane-wasm` to consume
+/// the data — the daemon translates to the wire shape via the
+/// [`WasmPoolStats`] trait.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WasmPoolSnapshot {
 	pub kind: &'static str,
@@ -1294,6 +1297,22 @@ pub struct WasmPoolSnapshot {
 	pub export: String,
 	pub capacity: usize,
 	pub available: usize,
+}
+
+impl WasmPoolStats for WasmtimeRuntime {
+	fn snapshot(&self) -> Vec<WasmPoolSummary> {
+		self
+			.pool_snapshot()
+			.into_iter()
+			.map(|s| WasmPoolSummary {
+				kind: s.kind.to_owned(),
+				key: s.key,
+				export: s.export,
+				capacity: s.capacity,
+				available: s.available,
+			})
+			.collect()
+	}
 }
 
 #[async_trait::async_trait]
