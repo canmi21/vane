@@ -93,8 +93,11 @@ pub async fn dial_upstream(
 
 /// Build a [`rustls::ClientConfig`] once at fetch factory time.
 ///
-/// `insecure == false` (the default): load trust anchors from the
-/// system store via `rustls-native-certs::load_native_certs`.
+/// `insecure == false` (the default): trust anchors are pulled from
+/// the process-wide cached system store
+/// ([`crate::tls::native_roots`]). The keychain / NSS store is read
+/// once per process; subsequent calls reuse the same `Arc` and never
+/// re-touch the OS API.
 ///
 /// `insecure == true`: install [`NoVerify`], a verifier that accepts
 /// every certificate. Documented as testing-only in the rule schema;
@@ -102,10 +105,10 @@ pub async fn dial_upstream(
 /// shipping `insecure_skip_verify: true` to production.
 ///
 /// # Errors
-/// String description of any failure to load the system trust store
-/// or add a certificate. Returned as `String` because this happens at
-/// factory-link time (compile/link errors prefer the lighter-weight
-/// shape over a full `Error`).
+/// String description of any failure to load the system trust store.
+/// Returned as `String` because this happens at factory-link time
+/// (compile/link errors prefer the lighter-weight shape over a full
+/// `Error`).
 pub fn build_client_config(insecure: bool) -> Result<Arc<rustls::ClientConfig>, String> {
 	if insecure {
 		let cfg = rustls::ClientConfig::builder()
@@ -115,14 +118,7 @@ pub fn build_client_config(insecure: bool) -> Result<Arc<rustls::ClientConfig>, 
 		return Ok(Arc::new(cfg));
 	}
 
-	let mut roots = rustls::RootCertStore::empty();
-	let native = rustls_native_certs::load_native_certs();
-	if !native.errors.is_empty() {
-		return Err(format!("load native certs: {:?}", native.errors));
-	}
-	for cert in native.certs {
-		roots.add(cert).map_err(|e| format!("add native cert: {e}"))?;
-	}
+	let roots = crate::tls::native_roots().map_err(|e| e.message)?;
 	let cfg = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
 	Ok(Arc::new(cfg))
 }

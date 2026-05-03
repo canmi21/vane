@@ -147,6 +147,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// § _Session ticket rotation_.
 	vane_engine::tls::install_default_ticketer().expect("install rustls session ticketer");
 	vane_engine::metrics::install_recorder().expect("install metrics recorder");
+	// Note: the system trust store is loaded lazily on first
+	// `build_client_config` call (via `vane_engine::tls::native_roots`).
+	// Eager warm-up was tried and rejected: under parallel boot (e.g.
+	// nextest spawning many daemons) it serialises every process on the
+	// macOS keychain queue even when the daemon won't use HTTPS
+	// upstream. The lazy path's outcome is logged once per process
+	// inside `native_roots`'s init.
 
 	tracing::info!(config_dir = %args.config_dir.display(), "loading config");
 	let loaded = vane_core::config::load(&args.config_dir)?;
