@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.2"
+version = "0.10.3"
 authors = ["Canmi <t@canmi.icu>"]
 edition = "2024"
 homepage = "https://vane.canmi.app"
@@ -30,11 +30,11 @@ pedantic = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
 async-trait = "0.1"
-vane-core = { path = "crates/core", version = "0.10.2" }
-vane-engine = { path = "crates/engine", version = "0.10.2" }
-vane-mgmt = { path = "crates/mgmt", version = "0.10.2" }
-vane-testutil = { path = "crates/testutil", version = "0.10.2" }
-vane-wasm = { path = "crates/wasm", version = "0.10.2" }
+vane-core = { path = "crates/core", version = "0.10.3" }
+vane-engine = { path = "crates/engine", version = "0.10.3" }
+vane-mgmt = { path = "crates/mgmt", version = "0.10.3" }
+vane-testutil = { path = "crates/testutil", version = "0.10.3" }
+vane-wasm = { path = "crates/wasm", version = "0.10.3" }
 wasmtime = { version = "44.0.1", features = ["component-model", "async", "cranelift"] }
 
 [profile.release]
