@@ -157,6 +157,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		"config loaded",
 	);
 
+	// Surface operator-tunable env vars not in the typed `Env` struct
+	// (those that affect feature-gated subsystems and are read via
+	// `OnceLock` at first invocation rather than at boot). Logging
+	// here makes the active value visible in the startup log even
+	// when no CGI request has fired yet. See
+	// `spec/architecture/15-cgi.md` § _Concurrency cap_.
+	let cgi_max_concurrent = std::env::var("VANE_CGI_MAX_CONCURRENT")
+		.ok()
+		.and_then(|s| s.parse::<usize>().ok())
+		.filter(|n| *n > 0)
+		.unwrap_or(100);
+	tracing::info!(cgi_max_concurrent, "cgi concurrency cap resolved");
+
 	let providers = MetadataProviders;
 	let symbolic = compile(loaded.files, &providers, &providers)?;
 	tracing::info!(
