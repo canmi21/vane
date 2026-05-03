@@ -6,14 +6,6 @@
 //! See `spec/architecture/06-l4.md` § _UDP socket multiplexing: physical
 //! and virtual_, and `spec/architecture/08-tls.md` § _Cert resolver and
 //! rotation_. The whole module is gated behind the `h3` cargo feature.
-//
-// TODO(s3-01-followup): the spec discusses per-connection virtual
-// sockets keyed by `ConnectionId`; this PR uses one virtual socket per
-// listener and lets quinn::Endpoint demux connections internally. The
-// design tradeoff is captured in `notes/s3-01-question-virtual-socket-model.md`
-// (uncommitted). Future PRs that wire `quinn-proto`'s `NewIdentifiers`
-// event stream into the listener can split this back out into per-CID
-// dispatch.
 
 use std::fmt;
 use std::io;
@@ -108,21 +100,6 @@ impl VirtualUdpSocket {
 			w.wake();
 		}
 	}
-
-	/// Wiring point for multi-CID migration support. quinn issues new
-	/// server-side CIDs as connections progress; a future PR that
-	/// surfaces `quinn-proto::ConnectionEvent::NewIdentifiers` calls
-	/// this to keep the listener-level dispatch table in sync.
-	// TODO(s3-01-followup): wire this up against quinn 0.11+'s
-	// internal new-CID event stream when the public API exposes it,
-	// or drop down to quinn-proto. Until then the per-listener
-	// fan-in model means dispatch is correct without external
-	// registration; this method is a placeholder for the future
-	// design split documented in notes/s3-01-question-virtual-socket-model.md.
-	#[allow(dead_code, reason = "wiring point for multi-CID migration support")]
-	pub fn register_extra_cid(self: &Arc<Self>, _cid: quinn_proto::ConnectionId) {
-		// no-op until per-connection dispatch returns
-	}
 }
 
 impl AsyncUdpSocket for VirtualUdpSocket {
@@ -201,7 +178,7 @@ pub fn build_quic_server_config(
 	let inner: rustls::ServerConfig = (**rustls_cfg).clone();
 	let mut h3_rustls = inner;
 	h3_rustls.alpn_protocols = vec![b"h3".to_vec()];
-	// TODO(s3-01-followup): TLS 1.3 0-RTT for H3 is deferred — leave
+	// TODO(s3-13): TLS 1.3 0-RTT for H3 is deferred — leave
 	// `enable_zero_rtt` / `max_early_data_size` at rustls defaults.
 	let h3_rustls = Arc::new(h3_rustls);
 
@@ -214,7 +191,11 @@ pub fn build_quic_server_config(
 /// [`vane_core::ListenerKind`] is `Http`. Builds the `quinn::Endpoint`
 /// against a [`VirtualUdpSocket`] wrapping the listener's physical
 /// socket, registers the virtual socket in the dispatch table under
-/// the sentinel `QuicConnId(empty)` key, then spawns the accept loop
+/// the well-known `QuicConnId(empty)` slot — the per-listener model
+/// spec'd in `06-l4.md` § _UDP socket multiplexing: physical and
+/// virtual_ holds exactly one virtual socket per `Http` UDP listener,
+/// so the empty-CID key is the listener's single QUIC fan-in slot
+/// rather than a per-connection key — then spawns the accept loop
 /// that hands each new connection to `drive_h3_server`.
 ///
 /// `tls_cfg` is the same `Arc<rustls::ServerConfig>` the TCP path

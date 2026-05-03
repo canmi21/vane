@@ -40,12 +40,15 @@ pub const SESSION_INBOUND_CAPACITY: usize = 64;
 
 /// Demultiplex key for the per-listener dispatch table.
 ///
-/// `Peer` keys 4-tuple-identified `L4Forward` sessions; `QuicConnId`
-/// keys QUIC virtual sockets by their server-side `ConnectionId`, the
-/// stable identity that survives peer NAT rebinds. The `QuicConnId`
-/// variant is only constructed when the engine is built with the
-/// `h3` feature — `#[cfg]` keeps non-H3 builds from pulling
-/// `quinn-proto` into the type.
+/// `Peer` keys 4-tuple-identified `L4Forward` sessions. `QuicConnId`
+/// keys the per-listener QUIC virtual socket — `06-l4.md` § _UDP
+/// socket multiplexing: physical and virtual_ locks one
+/// `quinn::Endpoint` per `Http` UDP listener, so this variant only
+/// ever holds one entry per listener at the empty-CID key. `vane`
+/// does not index by per-connection CID; `quinn::Endpoint` performs
+/// CID-keyed demultiplexing internally for the connections it
+/// terminates. The variant is `#[cfg(feature = "h3")]`-gated so
+/// non-H3 builds don't pull `quinn-proto` into the type.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum DispatchKey {
 	Peer(SocketAddr),
@@ -54,9 +57,10 @@ pub enum DispatchKey {
 }
 
 /// Demultiplex target for one dispatch table entry. `L4Forward` carries
-/// the per-session forwarder handle; `Quic` carries the per-connection
-/// virtual UDP socket that quinn drives. Inbound datagrams are routed
-/// to one or the other (or fall through to the cold path on miss).
+/// the per-session forwarder handle; `Quic` carries the per-listener
+/// virtual UDP socket that `quinn::Endpoint` drives. Inbound datagrams
+/// are routed to one or the other (or fall through to the cold path
+/// on miss).
 pub enum DispatchHandle {
 	L4Forward(Arc<L4ForwardSession>),
 	#[cfg(feature = "h3")]
@@ -137,7 +141,8 @@ pub async fn run_udp_listener(
 
 	// On UDP+Http listeners, bring up the H3 stack: per-listener
 	// quinn::Endpoint wrapping a VirtualUdpSocket, registered in the
-	// dispatch table under the sentinel `QuicConnId(empty)` key.
+	// dispatch table under the well-known `QuicConnId(empty)` slot —
+	// see `06-l4.md` § _UDP socket multiplexing: physical and virtual_.
 	#[cfg(feature = "h3")]
 	{
 		let captured = graph.load_full();
@@ -220,9 +225,11 @@ pub async fn run_udp_listener(
 					continue;
 				}
 				// On Http UDP listeners, route any unmatched datagram to
-				// the listener-level QUIC virtual socket (one per
-				// listener; see notes/s3-01-question-virtual-socket-model.md
-				// for why this PR uses fan-in instead of per-CID dispatch).
+				// the listener-level QUIC virtual socket — one per
+				// listener per `06-l4.md` § _UDP socket multiplexing:
+				// physical and virtual_; `quinn::Endpoint` then performs
+				// CID-keyed demultiplexing internally for the connections
+				// it terminates.
 				#[cfg(feature = "h3")]
 				let datagram = match try_route_to_h3(&graph, &dispatch_table, addr, peer, datagram) {
 					RouteH3::Routed => continue,
@@ -272,10 +279,11 @@ enum RouteH3 {
 /// Listener-level fan-in: deliver an unmatched UDP datagram to the
 /// per-listener QUIC virtual socket if and only if the listener's
 /// derived [`vane_core::ListenerKind`] is `Http`. The virtual socket
-/// is registered at listener boot under a sentinel `QuicConnId(empty)`
-/// key — there's exactly one per listener, so no real CID lookup is
-/// needed (see `notes/s3-01-question-virtual-socket-model.md` for the
-/// design tradeoff).
+/// is registered at listener boot under the well-known
+/// `QuicConnId(empty)` slot — `06-l4.md` § _UDP socket multiplexing:
+/// physical and virtual_ holds one virtual socket per listener, so
+/// the empty-CID slot is the listener's single QUIC fan-in entry
+/// rather than a per-connection key.
 #[cfg(feature = "h3")]
 fn try_route_to_h3(
 	graph: &Arc<ArcSwap<FlowGraph>>,
@@ -295,8 +303,8 @@ fn try_route_to_h3(
 	if !matches!(kind, vane_core::ListenerKind::Http) {
 		return RouteH3::NotApplicable(datagram);
 	}
-	let sentinel = DispatchKey::QuicConnId(quinn_proto::ConnectionId::new(&[]));
-	let Some(entry) = dispatch_table.get(&sentinel) else {
+	let listener_slot = DispatchKey::QuicConnId(quinn_proto::ConnectionId::new(&[]));
+	let Some(entry) = dispatch_table.get(&listener_slot) else {
 		tracing::trace!(?addr, ?peer, "h3 listener not yet ready; dropping datagram");
 		return RouteH3::Routed;
 	};
