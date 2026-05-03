@@ -283,10 +283,14 @@ impl From<tokio::time::error::Elapsed> for Error {
 	}
 }
 
-// TODO: S2-XX — add `From<hyper::Error>` when hyper lands in engine deps.
-// TODO: S2-XX — add `From<h3::Error>` when h3 lands in engine deps.
-// TODO: S2-XX — add `From<rustls::Error>` when rustls lands in engine deps.
-// TODO: S2-XX — add `From<hickory_resolver::ResolveError>` when hickory lands in engine deps.
+// `From<hyper::Error>` / `h3::Error` / `rustls::Error` /
+// `hickory_resolver::ResolveError` deliberately not implemented here:
+// vane-core is backend-agnostic, and adding those impls (orphan rules
+// require they live next to the local type) would force every transport
+// crate into core's dep graph. Engine code constructs upstream errors
+// explicitly via `Error::upstream(...).with_source(e)` so the
+// `ErrorKind` / `UpstreamReason` is chosen at the call site rather
+// than baked into a blanket `From` impl.
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct SerializedError {
