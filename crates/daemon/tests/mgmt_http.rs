@@ -16,7 +16,10 @@ use std::time::{Duration, Instant};
 use assert_cmd::cargo::CommandCargoExt;
 use predicates::str::contains;
 use vane_mgmt::HttpMgmtClient;
-use vane_mgmt::verb::{NoArgs, PingResult, StatsResult, VERB_PING, VERB_STATS};
+use vane_mgmt::verb::{
+	GetPoolsResult, GetUpstreamsResult, NoArgs, PingResult, StatsResult, VERB_GET_POOLS,
+	VERB_GET_UPSTREAMS, VERB_PING, VERB_STATS,
+};
 
 fn ephemeral_port() -> u16 {
 	let l = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
@@ -119,6 +122,36 @@ async fn daemon_mgmt_http_stats_returns_listener_status() {
 	assert_eq!(r.graph_version_hash.len(), 64);
 	assert_eq!(r.listeners.len(), 1);
 	assert_eq!(r.listeners[0].addr, format!("127.0.0.1:{traffic_port}"));
+}
+
+#[tokio::test]
+async fn daemon_mgmt_http_get_pools_returns_known_shape() {
+	let mgmt_port = ephemeral_port();
+	let traffic_port = ephemeral_port();
+	let d = spawn_daemon_with_http(mgmt_port, traffic_port, Some("pools-tok"));
+	let client = HttpMgmtClient::new(d.mgmt_addr, Some(Arc::<str>::from("pools-tok")));
+	let r: GetPoolsResult = client.call(VERB_GET_POOLS, &NoArgs {}).await.expect("get_pools");
+	// On a fresh daemon with a static_site rule and no WasmRuntime
+	// plumbed yet, both the wasm list and the cgi entry should be
+	// empty / absent — the verb's job is purely shape preservation.
+	assert!(r.wasm.is_empty(), "no WasmRuntime plumbed; wasm list must be empty");
+	assert!(r.cgi.is_none(), "no CGI invocation has fired; cgi entry must be absent");
+}
+
+#[tokio::test]
+async fn daemon_mgmt_http_get_upstreams_returns_known_shape() {
+	let mgmt_port = ephemeral_port();
+	let traffic_port = ephemeral_port();
+	let d = spawn_daemon_with_http(mgmt_port, traffic_port, Some("ups-tok"));
+	let client = HttpMgmtClient::new(d.mgmt_addr, Some(Arc::<str>::from("ups-tok")));
+	let r: GetUpstreamsResult =
+		client.call(VERB_GET_UPSTREAMS, &NoArgs {}).await.expect("get_upstreams");
+	// The static_site rule has no upstream traffic, so both lists
+	// should decode and be empty. The QUIC list field must always
+	// decode (defaulting to empty) regardless of the build's `h3`
+	// feature posture.
+	assert!(r.tcp.is_empty(), "no http_proxy rule; tcp upstream list must be empty");
+	assert!(r.quic.is_empty(), "no h3 rule; quic upstream list must be empty");
 }
 
 #[tokio::test]
