@@ -231,6 +231,41 @@ pub fn cache_len() -> usize {
 	QUIC_POOL.len()
 }
 
+/// Read-only summary of one pooled QUIC connection. Surfaced via the
+/// `get_upstreams` mgmt verb. ALPN is bytes on the fingerprint;
+/// decoded lossily here for the wire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PooledQuicSummary {
+	pub remote_addr: String,
+	pub sni: String,
+	pub alpn: Vec<String>,
+}
+
+/// Snapshot every pooled QUIC connection. Read-only: never inserts,
+/// never dials.
+///
+/// `sni` is not stored on the fingerprint (only the resolved
+/// [`SocketAddr`] is — see [`QuicFingerprint::addr`]). Until SNI is
+/// promoted onto the entry the snapshot reports the IP-literal form
+/// of the address; the ALPN remains visible for filtering.
+//
+// TODO(quic-pool-sni): plumb the dialed SNI onto `QuicPoolEntry` so
+// the snapshot can echo the operator's hostname rather than the
+// resolved address. Tracked alongside the SNI-aware pool eviction
+// work in spec/architecture/07-l7.md § _Lifetime: daemon-level_.
+#[must_use]
+pub fn snapshot() -> Vec<PooledQuicSummary> {
+	QUIC_POOL
+		.iter()
+		.map(|entry| {
+			let fp = entry.key();
+			let alpn =
+				fp.tls.alpn_protocols.iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect();
+			PooledQuicSummary { remote_addr: fp.addr.to_string(), sni: fp.addr.ip().to_string(), alpn }
+		})
+		.collect()
+}
+
 /// Empty the pool. Test-only — integration tests call this between
 /// scenarios to keep entry-count assertions independent. Each dropped
 /// entry's `Drop` closes its endpoint and aborts its driver, so the
@@ -285,5 +320,11 @@ mod tests {
 	fn get_returns_none_on_empty_pool() {
 		clear_for_test();
 		assert!(get(&sample_fp(9999)).is_none());
+	}
+
+	#[test]
+	fn snapshot_is_empty_on_clean_pool() {
+		clear_for_test();
+		assert!(snapshot().is_empty(), "fresh pool snapshot must be empty");
 	}
 }

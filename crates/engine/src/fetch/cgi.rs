@@ -366,7 +366,17 @@ fn validate_binary(binary: &std::path::Path, security: &CgiSecurity) -> Result<(
 /// `VANE_CGI_MAX_CONCURRENT` (default 100). The `OnceLock` initializer
 /// runs lazily on the first CGI request — daemon init does not need
 /// to poke the slot.
-static CGI_PERMITS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+///
+/// `cap` is captured alongside the [`Semaphore`] so `pool_stats()` can
+/// report `(cap, available)` consistently — `tokio::sync::Semaphore`
+/// itself does not expose its initial permit count, and re-reading
+/// `VANE_CGI_MAX_CONCURRENT` would race with operator-side env churn.
+struct CgiPermitState {
+	semaphore: Arc<Semaphore>,
+	cap: usize,
+}
+
+static CGI_PERMITS: OnceLock<CgiPermitState> = OnceLock::new();
 
 const DEFAULT_MAX_CONCURRENT: usize = 100;
 
@@ -381,16 +391,40 @@ const CGI_MAX_REQUEST_BODY: usize = 8 * 1024 * 1024;
 const TERMINATE_GRACE: Duration = Duration::from_secs(1);
 
 fn cgi_permits() -> Arc<Semaphore> {
-	CGI_PERMITS
-		.get_or_init(|| {
-			let n = std::env::var("VANE_CGI_MAX_CONCURRENT")
-				.ok()
-				.and_then(|s| s.parse::<usize>().ok())
-				.filter(|n| *n > 0)
-				.unwrap_or(DEFAULT_MAX_CONCURRENT);
-			Arc::new(Semaphore::new(n))
-		})
-		.clone()
+	Arc::clone(
+		&CGI_PERMITS
+			.get_or_init(|| {
+				let cap = std::env::var("VANE_CGI_MAX_CONCURRENT")
+					.ok()
+					.and_then(|s| s.parse::<usize>().ok())
+					.filter(|n| *n > 0)
+					.unwrap_or(DEFAULT_MAX_CONCURRENT);
+				CgiPermitState { semaphore: Arc::new(Semaphore::new(cap)), cap }
+			})
+			.semaphore,
+	)
+}
+
+/// Snapshot of the CGI concurrency cap. Read-only: returns `None`
+/// until the semaphore is lazily initialised on the first CGI request.
+///
+/// The mgmt-verb path must not trigger first-init — operators reading
+/// `get_pools` before any CGI traffic should see the absent state, not
+/// implicitly bake `VANE_CGI_MAX_CONCURRENT` into a process-wide
+/// constant on a cold daemon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CgiPoolStats {
+	pub cap: usize,
+	pub available: usize,
+	pub in_use: usize,
+}
+
+#[must_use]
+pub fn pool_stats() -> Option<CgiPoolStats> {
+	let state = CGI_PERMITS.get()?;
+	let available = state.semaphore.available_permits();
+	let in_use = state.cap.saturating_sub(available);
+	Some(CgiPoolStats { cap: state.cap, available, in_use })
 }
 
 #[cfg(unix)]
@@ -1180,5 +1214,21 @@ mod tests {
 		assert!(is_reserved_env_key("HTTP_USER_AGENT"));
 		assert!(!is_reserved_env_key("DATABASE_URL"));
 		assert!(!is_reserved_env_key("APP_MODE"));
+	}
+
+	#[test]
+	fn pool_stats_reports_state_after_first_init() {
+		// Drive the lazy init exactly once via the same code path that
+		// CgiFetch::fetch uses. Once the semaphore is live, pool_stats
+		// must report a fully-available pool (no permits held).
+		//
+		// Cannot assert the pre-init `None` shape here because other
+		// unit tests in the crate's test binary may have already fired
+		// the OnceLock; the dispatcher / e2e tests cover that arm.
+		let _ = cgi_permits();
+		let stats = pool_stats().expect("semaphore initialised");
+		assert!(stats.cap > 0);
+		assert_eq!(stats.available, stats.cap, "no in-flight CGI children in this test binary");
+		assert_eq!(stats.in_use, 0);
 	}
 }

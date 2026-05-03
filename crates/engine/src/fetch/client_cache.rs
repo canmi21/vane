@@ -122,6 +122,64 @@ pub fn cache_len() -> usize {
 	CLIENT_CACHE.len()
 }
 
+/// Read-only summary of one cached client. Carries enough of the
+/// fingerprint to be useful in operator-facing observability without
+/// echoing PEM-bundle paths or other filesystem detail.
+///
+/// Surfaced via the `get_upstreams` mgmt verb; the daemon translates
+/// these into wire-shape entries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedClientSummary {
+	pub version: &'static str,
+	pub scheme: &'static str,
+	pub root_ca: &'static str,
+	pub verify_mode: &'static str,
+	pub alpn: Vec<String>,
+	pub dns: &'static str,
+}
+
+/// Snapshot every cached client. Allocation-free for the lookup,
+/// allocates once per entry to lossy-decode ALPN bytes. Read-only:
+/// never inserts, never builds.
+#[must_use]
+pub fn snapshot() -> Vec<CachedClientSummary> {
+	CLIENT_CACHE
+		.iter()
+		.map(|entry| {
+			let fp = entry.key();
+			let version = match fp.version {
+				UpstreamVersion::Auto => "auto",
+				UpstreamVersion::Http1 => "h1",
+				UpstreamVersion::Http2 => "h2",
+				#[cfg(feature = "h3")]
+				UpstreamVersion::Http3 => "h3",
+			};
+			let (scheme, root_ca, verify_mode, alpn) = match &fp.tls {
+				None => ("http", "none", "none", Vec::new()),
+				Some(tls) => {
+					let root_ca = match tls.root_ca {
+						RootCaSource::System => "system",
+						RootCaSource::Bundle(_) => "bundle",
+						RootCaSource::Skip => "insecure-skip",
+					};
+					let verify_mode = match tls.verify_mode {
+						VerifyMode::Full => "full",
+						VerifyMode::Skip => "skip",
+					};
+					let alpn =
+						tls.alpn_protocols.iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect();
+					("https", root_ca, verify_mode, alpn)
+				}
+			};
+			let dns = match fp.dns {
+				DnsConfig::System => "system",
+				DnsConfig::Custom(_) => "custom",
+			};
+			CachedClientSummary { version, scheme, root_ca, verify_mode, alpn, dns }
+		})
+		.collect()
+}
+
 /// Empty the cache. Test-only — integration tests call this between
 /// scenarios to keep accept-counter assertions independent. Calling
 /// it from production code would orphan in-flight `Arc<Client>`
@@ -297,5 +355,41 @@ mod tests {
 		let b = get_or_build(fp_b, make_dummy_client);
 		assert!(!Arc::ptr_eq(&a, &b));
 		assert!(cache_len() >= 2);
+	}
+
+	#[test]
+	fn snapshot_decodes_https_entry_fields() {
+		clear_cache_for_test();
+		crate::crypto::install_default_provider();
+		let fp = ClientFingerprint {
+			version: UpstreamVersion::Http2,
+			tls: Some(sample_tls_fp(false, vec![b"h2".to_vec()])),
+			dns: DnsConfig::System,
+		};
+		let _ = get_or_build(fp, make_dummy_client);
+		let entry = snapshot()
+			.into_iter()
+			.find(|s| s.version == "h2" && s.scheme == "https" && s.alpn == ["h2"])
+			.expect("https h2 entry should be present");
+		assert_eq!(entry.root_ca, "system");
+		assert_eq!(entry.verify_mode, "full");
+		assert_eq!(entry.dns, "system");
+	}
+
+	#[test]
+	fn snapshot_decodes_cleartext_entry_fields() {
+		clear_cache_for_test();
+		crate::crypto::install_default_provider();
+		let fp =
+			ClientFingerprint { version: UpstreamVersion::Http1, tls: None, dns: DnsConfig::System };
+		let _ = get_or_build(fp, make_dummy_client);
+		let entry = snapshot()
+			.into_iter()
+			.find(|s| s.version == "h1" && s.scheme == "http")
+			.expect("cleartext h1 entry should be present");
+		assert_eq!(entry.root_ca, "none");
+		assert_eq!(entry.verify_mode, "none");
+		assert!(entry.alpn.is_empty());
+		assert_eq!(entry.dns, "system");
 	}
 }
