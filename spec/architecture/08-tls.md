@@ -200,7 +200,26 @@ Session tickets let clients resume TLS sessions without a full handshake. The se
 
 The crypto-backend constructors use the RFC 5077 "Recommended Ticket Construction" (AES-256-CBC + HMAC-SHA256, randomly generated keys per rotation), with a 6-hour rotation period and a 12-hour ticket lifetime (a ticket may be accepted up to twice the rotation period).
 
-A daemon-wide `Arc<dyn ProducesTickets>` is installed at boot and shared by every listener's `ServerConfig.ticketer`. Configurable lifetime is post-MVP.
+A daemon-wide `Arc<dyn ProducesTickets>` is installed at boot and shared by every listener's `ServerConfig.ticketer` — **except** for listeners whose `enable_zero_rtt` is `true`. Configurable lifetime is post-MVP.
+
+#### Exception: 0-RTT-enabled listeners
+
+rustls 0.23's TLS 1.3 server state machine refuses to accept 0-RTT (early data) when `ServerConfig.ticketer.enabled() == true`. The constraint is in `rustls::server::tls13::decide_if_early_data_allowed`:
+
+```rust
+let early_data_configured = config.max_early_data_size > 0 && !config.ticketer.enabled();
+```
+
+This is a deliberate security choice on rustls's part, matching RFC 8446 §8.1: stateful server-side resumption (via `ServerConfig.session_storage`) lets the server detect ticket reuse — the load-bearing replay-attack mitigation for 0-RTT. Stateless rotating tickets (which `TicketRotator` produces) cannot detect reuse because the server has no memory of which tickets it issued. Mixing the two would silently make 0-RTT unsafe.
+
+`vane` honors this trade-off per listener:
+
+- **`enable_zero_rtt: false` (default)**: listener takes the daemon-wide rotating ticketer described above. Sessions resume across reload (encrypted ticket survives ServerConfig rebuilds). This is the high-throughput non-0-RTT posture.
+- **`enable_zero_rtt: true`**: listener's `ServerConfig.ticketer` is left at the rustls default (`NeverProducesTickets`). The listener's `ServerConfig.session_storage` defaults to rustls's per-`ServerConfig` `ServerSessionMemoryCache::new(256)`. Sessions resume only within a graph generation — a FlowGraph reload rebuilds the storage and the first connection after reload pays a full 1-RTT handshake before any subsequent connection from the same client can use 0-RTT. This is the trade-off for replay-safe 0-RTT.
+
+The listener-level aggregation rule (per `compile/lower.rs`) already handles `enable_zero_rtt` consistency across rules sharing one listener — see § _TLS 1.3 0-RTT_'s compile-time checks. `build_listener_server_config` reads the aggregated value and branches the ticketer install: skip it for 0-RTT-enabled listeners, install the daemon-wide rotating ticketer for the rest.
+
+A future post-MVP enhancement could install a daemon-wide `Arc<dyn StoresServerSessions>` for 0-RTT listeners to recover cross-reload session survival; for MVP the per-listener default storage is sufficient — operators who need 0-RTT typically tolerate the brief post-reload warmup.
 
 ### TLS 1.3 0-RTT (early data)
 
