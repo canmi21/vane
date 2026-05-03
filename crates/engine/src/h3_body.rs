@@ -50,25 +50,30 @@ pub trait H3StreamSource: Send {
 /// and adapts the buffer chain that `recv_data` returns (an `impl
 /// Buf` whose remaining slice is a contiguous `Bytes`) into a single
 /// `Bytes` chunk per call.
-pub struct ServerStreamSource<C: h3::quic::BidiStream<Bytes>> {
-	inner: h3::server::RequestStream<C, Bytes>,
+///
+/// The bound is `h3::quic::RecvStream` (not `BidiStream`) so this
+/// adapter accepts the recv half of a `RequestStream::split` —
+/// `handle_h3_request` splits the bidi stream so the request body can
+/// stream into the executor concurrently with response writeback on
+/// the send half.
+pub struct ServerStreamSource<S: h3::quic::RecvStream> {
+	inner: h3::server::RequestStream<S, Bytes>,
 	trailers_done: bool,
 }
 
-impl<C> ServerStreamSource<C>
+impl<S> ServerStreamSource<S>
 where
-	C: h3::quic::BidiStream<Bytes> + Send,
+	S: h3::quic::RecvStream + Send,
 {
-	pub fn new(inner: h3::server::RequestStream<C, Bytes>) -> Self {
+	pub fn new(inner: h3::server::RequestStream<S, Bytes>) -> Self {
 		Self { inner, trailers_done: false }
 	}
 }
 
 #[async_trait]
-impl<C> H3StreamSource for ServerStreamSource<C>
+impl<S> H3StreamSource for ServerStreamSource<S>
 where
-	C: h3::quic::BidiStream<Bytes> + Send,
-	<C as h3::quic::BidiStream<Bytes>>::RecvStream: Send,
+	S: h3::quic::RecvStream + Send,
 {
 	async fn recv_data(&mut self) -> Result<Option<Bytes>, Error> {
 		match self.inner.recv_data().await {

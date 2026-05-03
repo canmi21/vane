@@ -541,11 +541,20 @@ pub(crate) async fn drive_h3_server(
 /// back through the h3 stream half. Body frames are pulled via
 /// `http_body::Body::poll_frame` and forwarded to `send_data` /
 /// `send_trailers`; the stream is `finish`ed at end.
+///
+/// The bidi stream is split before invoking the executor: the recv
+/// half is wrapped in `H3Body` and handed to the executor as
+/// `Body::Stream(...)` so middleware / fetch can read request frames
+/// as they arrive, while the send half is held back for response
+/// writeback. The `H3Body` pump task (spawned inside `H3Body::new`)
+/// drives `recv_data` in parallel with the executor's read of the
+/// body channel, so a streaming upstream sees bytes as the client
+/// sends them rather than after a full request-body buffer.
 #[cfg(feature = "h3")]
 #[allow(clippy::too_many_arguments)]
 async fn handle_h3_request(
 	req: http::Request<()>,
-	mut stream: h3::server::RequestStream<h3_quinn::BidiStream<bytes::Bytes>, bytes::Bytes>,
+	stream: h3::server::RequestStream<h3_quinn::BidiStream<bytes::Bytes>, bytes::Bytes>,
 	graph: Arc<FlowGraph>,
 	entry: NodeId,
 	conn: Arc<vane_core::ConnContext>,
@@ -567,33 +576,16 @@ async fn handle_h3_request(
 	// at connection accept above.
 	parts.version = http::Version::HTTP_11;
 
-	// h3 0.0.8 splits stream into a request resolver and a stream
-	// handle; the body data is read on the same stream we'll later
-	// write the response to. To keep the H3Body alive concurrently
-	// with response writing we'd need a split; for this PR we drain
-	// the body inline before invoking the executor (works for small
-	// requests; spec-compliant streaming lands when the H3Body /
-	// stream split is done end-to-end).
-	// TODO(s3-01-followup): split the stream so request body can
-	// stream into the executor concurrently with response writing.
-	let mut body_bytes = Vec::new();
-	loop {
-		match stream.recv_data().await {
-			Ok(Some(mut chunk)) => {
-				use bytes::Buf as _;
-				let remaining = chunk.remaining();
-				let bytes = chunk.copy_to_bytes(remaining);
-				body_bytes.extend_from_slice(&bytes);
-			}
-			Ok(None) => break,
-			Err(e) => {
-				tracing::debug!(error = %e, conn_id = %conn.id, "h3 recv_data failed");
-				return;
-			}
-		}
-	}
-	let body =
-		if body_bytes.is_empty() { Body::Empty } else { Body::Static(bytes::Bytes::from(body_bytes)) };
+	// Split the bidi stream so the request body can stream concurrently
+	// with response writeback. h3's `RequestStream::split` returns
+	// `(send, recv)` — the recv half feeds `H3Body` (which spawns its
+	// own pump task pulling `recv_data` into a bounded channel), the
+	// send half is held for `send_response` / `send_data` /
+	// `send_trailers` / `finish` after the executor returns.
+	let (mut send_stream, recv_stream) = stream.split();
+	let body = Body::Stream(Box::pin(crate::h3_body::H3Body::new(
+		crate::h3_body::ServerStreamSource::new(recv_stream),
+	)));
 	let vane_req: Request = http::Request::from_parts(parts, body);
 
 	let span = tracing::info_span!(
@@ -630,7 +622,7 @@ async fn handle_h3_request(
 
 	let (rparts, mut rbody) = response.into_parts();
 	let resp_for_h3 = http::Response::from_parts(rparts, ());
-	if let Err(e) = stream.send_response(resp_for_h3).await {
+	if let Err(e) = send_stream.send_response(resp_for_h3).await {
 		tracing::debug!(error = %e, conn_id = %conn.id, "h3 send_response failed");
 		return;
 	}
@@ -639,12 +631,12 @@ async fn handle_h3_request(
 		match frame {
 			Some(Ok(f)) => {
 				if let Some(data) = f.data_ref()
-					&& let Err(e) = stream.send_data(data.clone()).await
+					&& let Err(e) = send_stream.send_data(data.clone()).await
 				{
 					tracing::debug!(error = %e, conn_id = %conn.id, "h3 send_data failed");
 					return;
 				} else if let Some(trailers) = f.trailers_ref()
-					&& let Err(e) = stream.send_trailers(trailers.clone()).await
+					&& let Err(e) = send_stream.send_trailers(trailers.clone()).await
 				{
 					tracing::debug!(error = %e, conn_id = %conn.id, "h3 send_trailers failed");
 					return;
@@ -657,7 +649,7 @@ async fn handle_h3_request(
 			None => break,
 		}
 	}
-	if let Err(e) = stream.finish().await {
+	if let Err(e) = send_stream.finish().await {
 		tracing::debug!(error = %e, conn_id = %conn.id, "h3 finish failed");
 	}
 }
