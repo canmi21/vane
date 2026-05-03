@@ -138,7 +138,13 @@ fn make_ctx_and_conn() -> (Arc<ConnContext>, FlowCtx) {
 		local: "127.0.0.1:0".parse().unwrap(),
 		transport: Transport::Tcp,
 		entered_at: std::time::Instant::now(),
-		tls: Mutex::new(Some(TlsInfo { sni: None, alpn: None, version: None, peer_cert: None })),
+		tls: Mutex::new(Some(TlsInfo {
+			sni: None,
+			alpn: None,
+			version: None,
+			peer_cert: None,
+			zero_rtt_used: false,
+		})),
 		http_version: std::sync::OnceLock::from(HttpVersion::Http1_1),
 		user: Mutex::new(http::Extensions::new()),
 	});

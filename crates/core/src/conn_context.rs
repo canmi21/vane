@@ -44,6 +44,14 @@ pub struct TlsInfo {
 	pub alpn: Option<Vec<u8>>,
 	pub version: Option<TlsVersion>,
 	pub peer_cert: Option<Arc<PeerCertificate>>,
+	/// Whether the client's request arrived (in part or wholly) as
+	/// TLS 1.3 0-RTT (early data). Set at handshake completion in the
+	/// engine's `run_tls` from rustls's `is_early_data_accepted()`.
+	/// The L7 executor consults this together with the matched rule's
+	/// `allow_zero_rtt` to decide whether to short-circuit the request
+	/// with a synthetic 425 Too Early. See
+	/// `spec/architecture/08-tls.md` § _TLS 1.3 0-RTT (early data)_.
+	pub zero_rtt_used: bool,
 }
 
 /// Verified client certificate captured at TLS handshake time, with

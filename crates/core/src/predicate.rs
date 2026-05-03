@@ -1834,6 +1834,7 @@ mod tests {
 			alpn: None,
 			version: None,
 			peer_cert: None,
+			zero_rtt_used: false,
 		});
 		conn
 	}
@@ -2028,6 +2029,7 @@ mod tests {
 			alpn: Some(alpn.to_vec()),
 			version: None,
 			peer_cert: None,
+			zero_rtt_used: false,
 		});
 		conn
 	}
@@ -2039,6 +2041,7 @@ mod tests {
 			alpn: None,
 			version: Some(v),
 			peer_cert: None,
+			zero_rtt_used: false,
 		});
 		conn
 	}
@@ -2437,6 +2440,7 @@ mod tests {
 			alpn: None,
 			version: None,
 			peer_cert: Some(Arc::new(pc)),
+			zero_rtt_used: false,
 		});
 		conn
 	}

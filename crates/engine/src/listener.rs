@@ -1029,7 +1029,7 @@ async fn run_tls<S>(
 		info.sni = sni;
 	}
 
-	let tls_stream = match start.into_stream(tls_cfg).await {
+	let mut tls_stream = match start.into_stream(tls_cfg).await {
 		Ok(s) => s,
 		Err(e) => {
 			tracing::debug!(
@@ -1042,9 +1042,13 @@ async fn run_tls<S>(
 		}
 	};
 
+	let alpn;
+	let tls_version;
+	let peer_cert;
+	let early_data_buf;
 	{
-		let (_io, server_conn) = tls_stream.get_ref();
-		let alpn = server_conn.alpn_protocol().map(<[u8]>::to_vec);
+		let (_io, server_conn) = tls_stream.get_mut();
+		alpn = server_conn.alpn_protocol().map(<[u8]>::to_vec);
 		match alpn.as_deref() {
 			Some(b"h2") => {
 				let _ = conn.http_version.set(HttpVersion::Http2);
@@ -1060,31 +1064,71 @@ async fn run_tls<S>(
 		// the cert can't be parsed we leave `peer_cert = None` —
 		// `tls.peer_cert.present` then reads as `false`, the
 		// sound-by-default arm.
-		let peer_cert = server_conn.peer_certificates().and_then(|chain| {
+		peer_cert = server_conn.peer_certificates().and_then(|chain| {
 			chain
 				.first()
 				.and_then(|leaf| vane_core::PeerCertificate::from_der(leaf).map(std::sync::Arc::new))
 		});
-
-		let mut guard = conn.tls.lock();
-		let info = guard.get_or_insert_with(TlsInfo::default);
-		info.alpn = alpn;
-		info.version = server_conn.protocol_version().and_then(|v| match v {
+		tls_version = server_conn.protocol_version().and_then(|v| match v {
 			rustls::ProtocolVersion::TLSv1_2 => Some(TlsVersion::Tls12),
 			rustls::ProtocolVersion::TLSv1_3 => Some(TlsVersion::Tls13),
 			_ => None,
 		});
-		info.peer_cert = peer_cert;
+
+		// TLS 1.3 0-RTT (early data) detection + drain. Per
+		// `08-tls.md` § _TLS 1.3 0-RTT (early data)_, rustls's server
+		// surface keeps early data in a separate buffer that is *not*
+		// drained by the regular `Read` path — the application has to
+		// pull it via `ServerConnection::early_data()`. We extract it
+		// once at handshake completion (before hyper sees the stream)
+		// and prepend it via `PeekedStream` so H1/H2 decoders read it
+		// from byte zero just like 1-RTT data.
+		//
+		// `early_data().is_some()` is rustls 0.23's way of expressing
+		// "the server accepted early data this connection" — the only
+		// public read path; `was_accepted()` itself is private.
+		early_data_buf = if let Some(mut early) = server_conn.early_data() {
+			use std::io::Read as _;
+			let mut buf = Vec::new();
+			match early.read_to_end(&mut buf) {
+				Ok(_) => Some(bytes::Bytes::from(buf)),
+				Err(e) => {
+					tracing::debug!(
+						error = %e,
+						conn_id = %conn.id,
+						?remote,
+						"early-data drain failed; treating as no 0-RTT",
+					);
+					None
+				}
+			}
+		} else {
+			None
+		};
 	}
 
-	let result = execute(
-		graph,
-		entry,
-		ExecutorInput::L4(Box::new(L4Conn::Tls(Box::new(tls_stream)))),
-		conn,
-		ctx,
-	)
-	.await;
+	let zero_rtt_used = early_data_buf.is_some();
+	{
+		let mut guard = conn.tls.lock();
+		let info = guard.get_or_insert_with(TlsInfo::default);
+		info.alpn = alpn;
+		info.version = tls_version;
+		info.peer_cert = peer_cert;
+		info.zero_rtt_used = zero_rtt_used;
+	}
+
+	// If early data was present, prepend it to the read side so hyper
+	// sees a continuous byte stream. Empty `Bytes` makes
+	// `PeekedStream` a no-op pass-through.
+	let stream: Box<dyn vane_core::AsyncReadWrite + Send> = match early_data_buf {
+		Some(bytes) if !bytes.is_empty() => {
+			Box::new(crate::peeked_stream::PeekedStream::new(bytes, tls_stream))
+		}
+		_ => Box::new(tls_stream),
+	};
+
+	let result =
+		execute(graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tls(stream))), conn, ctx).await;
 	if let Err(e) = result {
 		tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
 	}

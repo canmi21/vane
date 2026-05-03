@@ -503,6 +503,26 @@ fn build_listener_server_config(
 		server_config.ticketer = t;
 	}
 
+	// TLS 1.3 0-RTT (early data) opt-in. Per `08-tls.md` § _TLS 1.3
+	// 0-RTT (early data)_ § _Hardcoded limits_, the early-data size is
+	// fixed at 16 KiB — not exposed as a knob, since 0-RTT exists to
+	// save one RTT (not to carry payload) and raising the cap invites
+	// misuse. `0` is rustls's default and keeps the listener
+	// 0-RTT-disabled.
+	//
+	// TODO(s3-13-followup): wire H3 early-data path. QUIC's early-data
+	// semantics differ from TLS-over-TCP and live behind quinn / h3,
+	// not the rustls `ServerConfig` slot edited here.
+	//
+	// TODO(s3-13-followup): mTLS + 0-RTT interaction. Per RFC 8446
+	// §4.2.10 client certs are not exchanged in 0-RTT; a request that
+	// arrives as 0-RTT on a `client_auth.mode = "require"` listener
+	// will reach the application without `tls.peer_cert.*` populated
+	// and falls through to the existing `present == false` path.
+	if spec.enable_zero_rtt {
+		server_config.max_early_data_size = 16 * 1024;
+	}
+
 	Ok((server_config, Box::new(populator)))
 }
 
