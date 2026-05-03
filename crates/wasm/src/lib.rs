@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rand::Rng;
@@ -982,6 +982,12 @@ pub struct StatefulPoolHandle {
 	instances: Mutex<Vec<StatefulInstance>>,
 	#[allow(dead_code)]
 	pub capacity: usize,
+	/// Identity used by `WasmtimeRuntime::pool_snapshot` to label this
+	/// pool in mgmt verb output. Stored on the handle (rather than as
+	/// a side map keyed off `Arc::as_ptr`) so the snapshot can echo
+	/// the operator's module + export without a second registry.
+	pub module_id: String,
+	pub export_name: String,
 }
 
 struct StatefulInstance {
@@ -1064,6 +1070,12 @@ pub struct WasmtimeRuntime {
 	components: RwLock<HashMap<String, Arc<Component>>>,
 	metadata: RwLock<HashMap<String, Arc<PluginMetadata>>>,
 	stateless_pools: RwLock<HashMap<StatelessKey, Arc<StatelessPool>>>,
+	/// Weak-ref registry of every live stateful pool returned by
+	/// [`WasmtimeRuntime::create_stateful_pool`]. Holding `Weak` keeps
+	/// the runtime out of the pool-handle ownership graph: when a flow
+	/// graph reload drops the last `Arc`, the weak entry naturally
+	/// invalidates and the next snapshot prunes it.
+	stateful_pools: RwLock<Vec<Weak<StatefulPoolHandle>>>,
 }
 
 impl Drop for WasmtimeRuntime {
@@ -1147,6 +1159,7 @@ impl WasmtimeRuntime {
 			components: RwLock::new(HashMap::new()),
 			metadata: RwLock::new(HashMap::new()),
 			stateless_pools: RwLock::new(HashMap::new()),
+			stateful_pools: RwLock::new(Vec::new()),
 		}))
 	}
 
@@ -1166,7 +1179,7 @@ impl WasmtimeRuntime {
 	pub async fn create_stateful_pool(
 		&self,
 		module_id: &ModuleId,
-		_export_name: &str,
+		export_name: &str,
 		args_json: &str,
 		pool_size: u8,
 	) -> Result<Arc<StatefulPoolHandle>, Error> {
@@ -1200,15 +1213,87 @@ impl WasmtimeRuntime {
 			instances.push(StatefulInstance { store, plugin });
 		}
 
-		Ok(Arc::new(StatefulPoolHandle {
+		let handle = Arc::new(StatefulPoolHandle {
 			component,
 			engine: self.engine.clone(),
 			fetch_backend: Arc::clone(&self.fetch_backend),
 			args_json: args_json.to_owned(),
 			instances: Mutex::new(instances),
 			capacity: pool_size,
-		}))
+			module_id: key,
+			export_name: export_name.to_owned(),
+		});
+		// Register a weak ref so `pool_snapshot` can list this pool
+		// without inflating its lifetime. Stale entries are pruned in
+		// `pool_snapshot` itself.
+		{
+			let mut registry = self.stateful_pools.write().unwrap();
+			registry.push(Arc::downgrade(&handle));
+		}
+		Ok(handle)
 	}
+
+	/// Read-only snapshot of every pool the runtime tracks: stateful
+	/// pools (registered at creation time) and stateless pools (lazy,
+	/// keyed by `(module, export, args_json)`). Surfaced via the
+	/// `get_pools` mgmt verb.
+	///
+	/// Stateless pools have no pre-warmed capacity in MVP — each
+	/// invocation instantiates a fresh store on demand. The snapshot
+	/// reports `capacity = 0` and `available = 0` for those entries
+	/// so the wire shape stays consistent with stateful pools; richer
+	/// per-stateless counters (allocation totals, failures) land with
+	/// the spec-mandated counters tracked by `pool-counters`.
+	///
+	/// # Panics
+	///
+	/// Panics if the internal `stateless_pools` or `stateful_pools`
+	/// `RwLock` is poisoned.
+	#[must_use]
+	pub fn pool_snapshot(&self) -> Vec<WasmPoolSnapshot> {
+		let mut out = Vec::new();
+		// Stateful pools first: prune dead weak refs while we walk.
+		let live: Vec<Arc<StatefulPoolHandle>> = {
+			let mut registry = self.stateful_pools.write().unwrap();
+			registry.retain(|w| w.strong_count() > 0);
+			registry.iter().filter_map(Weak::upgrade).collect()
+		};
+		for pool in live {
+			let available = pool.instances.lock().unwrap().len();
+			out.push(WasmPoolSnapshot {
+				kind: "stateful",
+				key: pool.module_id.clone(),
+				export: pool.export_name.clone(),
+				capacity: pool.capacity,
+				available,
+			});
+		}
+		// Stateless pools: capacity / available are zero by design
+		// (on-demand instantiation, no warm cache).
+		let stateless = self.stateless_pools.read().unwrap();
+		for (k, _pool) in stateless.iter() {
+			out.push(WasmPoolSnapshot {
+				kind: "stateless",
+				key: k.module_id.clone(),
+				export: k.export_name.clone(),
+				capacity: 0,
+				available: 0,
+			});
+		}
+		out
+	}
+}
+
+/// One entry in [`WasmtimeRuntime::pool_snapshot`]. Mirrors the wire
+/// shape exposed by the `get_pools` mgmt verb. The translation to the
+/// management-protocol wire types lives in the daemon crate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WasmPoolSnapshot {
+	pub kind: &'static str,
+	pub key: String,
+	pub export: String,
+	pub capacity: usize,
+	pub available: usize,
 }
 
 #[async_trait::async_trait]
