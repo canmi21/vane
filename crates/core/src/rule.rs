@@ -274,6 +274,22 @@ impl<'de> serde::Deserialize<'de> for TerminateSpec {
 		{
 			obj.insert("transport".to_owned(), Value::String(transport.to_owned()));
 		}
+		// Every `HttpProxy` alias resolves to one of the upstream kinds
+		// the engine factory dispatches on: socket-based proxies
+		// (`http_proxy` / `httpN_proxy` / `unix_proxy`) carry
+		// `upstream_kind: "tcp"`; the CGI alias carries
+		// `upstream_kind: "cgi"`. Injecting the marker explicitly
+		// (rather than letting the factory infer from which fields are
+		// present) gives the engine a clean, fail-loud branch — a
+		// missing `upstream` on a socket-based rule produces "missing
+		// args.upstream", not "unknown CGI shape". An explicit
+		// `args.upstream_kind` always wins, same precedence rule as
+		// `version` / `transport`.
+		if let Some(upstream_kind) = upstream_kind_from_alias(&alias)
+			&& !obj.contains_key("upstream_kind")
+		{
+			obj.insert("upstream_kind".to_owned(), Value::String(upstream_kind.to_owned()));
+		}
 		Ok(Self { kind, args: v })
 	}
 }
@@ -307,6 +323,14 @@ fn transport_from_alias(alias: &str) -> Option<&'static str> {
 	}
 }
 
+fn upstream_kind_from_alias(alias: &str) -> Option<&'static str> {
+	match alias {
+		"http_proxy" | "http1_proxy" | "http2_proxy" | "http3_proxy" | "unix_proxy" => Some("tcp"),
+		"cgi" => Some("cgi"),
+		_ => None,
+	}
+}
+
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct SourceInfo {
 	#[serde(default)]
@@ -333,7 +357,10 @@ mod tests {
 		assert!(rule.match_predicate.is_none());
 		assert!(rule.middleware_chain.is_empty());
 		assert_eq!(rule.terminate.kind, FetchKind::HttpProxy);
-		assert_eq!(rule.terminate.args, serde_json::json!({ "upstream": "127.0.0.1:8080" }));
+		assert_eq!(
+			rule.terminate.args,
+			serde_json::json!({ "upstream": "127.0.0.1:8080", "upstream_kind": "tcp" }),
+		);
 		assert_eq!(rule.source.file, PathBuf::new());
 		assert_eq!(rule.source.line, 0);
 		assert_eq!(rule.max_body_bytes_request, 8 * 1024 * 1024);
@@ -376,6 +403,7 @@ mod tests {
 			rule.terminate.args,
 			serde_json::json!({
 				"upstream": "127.0.0.1:8080",
+				"upstream_kind": "tcp",
 				"timeouts": { "connect": "5s" }
 			}),
 		);
@@ -531,6 +559,7 @@ mod tests {
 			t.args,
 			serde_json::json!({
 				"upstream": "127.0.0.1:8080",
+				"upstream_kind": "tcp",
 				"timeouts": { "connect": "5s", "total": "60s" },
 			}),
 		);
@@ -554,6 +583,46 @@ mod tests {
 	}
 
 	#[test]
+	fn terminate_spec_cgi_alias_injects_upstream_kind_cgi() {
+		// The factory branches on `args.upstream_kind`; the alias
+		// resolution layer is what injects it. A bare `cgi` alias must
+		// surface as `upstream_kind: "cgi"` so the engine factory can
+		// dispatch without re-checking the alias.
+		let raw = serde_json::json!({ "type": "cgi", "binary": "/usr/bin/true" });
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.kind, FetchKind::HttpProxy);
+		assert_eq!(t.args["upstream_kind"], "cgi");
+	}
+
+	#[test]
+	fn terminate_spec_http_proxy_aliases_inject_upstream_kind_tcp() {
+		// Every socket-based HttpProxy alias carries
+		// `upstream_kind: "tcp"`. Explicit injection (rather than
+		// leaving the marker absent for socket variants) makes the
+		// factory's dispatch table closed — no implicit fallback.
+		for alias in ["http_proxy", "http1_proxy", "http2_proxy", "http3_proxy", "unix_proxy"] {
+			let raw = serde_json::json!({ "type": alias, "upstream": "127.0.0.1:8080" });
+			let t: TerminateSpec =
+				serde_json::from_value(raw).unwrap_or_else(|e| panic!("alias {alias} must parse: {e}"));
+			assert_eq!(t.args["upstream_kind"], "tcp", "alias {alias} must inject upstream_kind: tcp");
+		}
+	}
+
+	#[test]
+	fn terminate_spec_explicit_upstream_kind_wins_over_alias() {
+		// Same escape-hatch rule the version/transport injections
+		// follow: an operator-supplied `args.upstream_kind` is never
+		// overridden by the alias-derived value.
+		let raw = serde_json::json!({
+			"type": "http_proxy",
+			"upstream": "127.0.0.1:8080",
+			"upstream_kind": "tcp",
+		});
+		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
+		assert_eq!(t.args["upstream_kind"], "tcp");
+	}
+
+	#[test]
 	fn terminate_spec_explicit_transport_wins_over_alias() {
 		// Explicit `args.transport` always overrides the alias-derived
 		// value — escape hatch for hand-written configs that want to
@@ -564,15 +633,18 @@ mod tests {
 	}
 
 	#[test]
-	fn terminate_spec_alias_only_yields_empty_object_not_null() {
+	fn terminate_spec_alias_only_yields_object_with_injected_markers() {
 		// 14-presets.md § _RawRule shape_: the custom Deserialize removes `type`
-		// from a JSON object and keeps the rest. An alias-only terminate leaves
-		// an empty object behind — NOT Value::Null.
+		// from a JSON object and keeps the rest. An alias-only terminate keeps
+		// the object shape; it now also carries the alias-resolution markers
+		// (`upstream_kind` for `HttpProxy` aliases). The point of this test is
+		// to lock in "args is an object, not Value::Null" — which the marker
+		// injection only reinforces.
 		let raw = serde_json::json!({ "type": "http_proxy" });
 		let t: TerminateSpec = serde_json::from_value(raw).expect("parse");
 		assert_eq!(t.kind, FetchKind::HttpProxy);
-		assert_eq!(t.args, serde_json::Value::Object(serde_json::Map::new()));
 		assert!(t.args.is_object(), "args must be an object, got {:?}", t.args);
+		assert_eq!(t.args["upstream_kind"], "tcp");
 	}
 
 	#[test]

@@ -491,6 +491,30 @@ fn build_client(
 	builder.build(https)
 }
 
+/// Fork point for `args.upstream_kind` (injected by the alias-
+/// resolution layer in `vane_core::rule::TerminateSpec`, see §
+/// _Variant ergonomics in config_): socket-based aliases produce
+/// `"tcp"`; the `cgi` alias produces `"cgi"`. Hand-rolled rules
+/// without an alias fall through to the socket path for backwards
+/// compatibility, but anything else is a hard error so
+/// misconfiguration surfaces at link time rather than as a
+/// misleading "missing upstream" downstream.
+fn dispatch_upstream_kind(args: &serde_json::Value) -> Option<Result<FetchInst, FactoryError>> {
+	match args.get("upstream_kind").and_then(serde_json::Value::as_str) {
+		#[cfg(feature = "cgi")]
+		Some("cgi") => Some(crate::fetch::cgi::factory(args)),
+		#[cfg(not(feature = "cgi"))]
+		Some("cgi") => Some(Err(FactoryError(
+			"upstream_kind 'cgi' requires the 'cgi' cargo feature, which is not active in this build"
+				.to_string(),
+		))),
+		Some("tcp") | None => None,
+		Some(other) => Some(Err(FactoryError(format!(
+			"args.upstream_kind must be 'tcp' or 'cgi' (or absent for backwards-compat with hand-written socket rules) — got {other:?}",
+		)))),
+	}
+}
+
 /// Args parser exposed as a registry-friendly factory.
 ///
 /// Args shape:
@@ -517,6 +541,9 @@ fn build_client(
 /// `version: "h3"` is requested on a build without the `h3` feature,
 /// or when the TLS client config fails to build.
 pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
+	if let Some(out) = dispatch_upstream_kind(args) {
+		return out;
+	}
 	let upstream = args
 		.get("upstream")
 		.and_then(serde_json::Value::as_str)
