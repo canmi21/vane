@@ -89,23 +89,24 @@ enum Dispatch {
 /// State the H3 dispatch arm carries at factory time. `addr` is
 /// resolved per-request (from `upstream`) so DNS changes affect new
 /// pool entries; the existing entries keyed under the prior `addr`
-/// stay live until quinn's idle timeout retires them.
+/// stay live until quinn's idle timeout retires them. `connect_timeout`
+/// caps the H3 dial half (DNS + UDP bind + QUIC handshake + h3
+/// negotiation); pool-hit fast paths short-circuit before reaching
+/// it. Pool entries retired by quinn's own idle timeout are lazily
+/// re-dialed against this same ceiling on the next miss.
 #[cfg(feature = "h3")]
 struct QuicDispatchState {
 	rustls_cfg: Arc<rustls::ClientConfig>,
 	sni: Arc<str>,
 	tls_fp: crate::fetch::client_cache::TlsConfigFingerprint,
+	connect_timeout: std::time::Duration,
 }
 
-/// Spec default for `HttpProxyFetch.connect_timeout`
-/// (`spec/architecture/07-l7.md` § _Timeouts (proposal)_). Caps the
-/// H3 dial half (DNS + UDP bind + QUIC handshake + h3 negotiation);
-/// pool-hit fast paths short-circuit before reaching it. Pool entries
-/// retired by `quinn`'s own idle timeout are also lazily re-dialed
-/// against this same ceiling on the next miss.
-// TODO(s3-02-followup): make this configurable via args.connect_timeout.
+/// Spec default for the H3 dial half's `connect_timeout` when
+/// `args.connect_timeout` is absent.
+/// `spec/architecture/07-l7.md` § _Timeouts (proposal)_.
 #[cfg(feature = "h3")]
-const H3_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const H3_CONNECT_TIMEOUT_DEFAULT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[async_trait]
 impl L7Fetch for HttpProxyFetch {
@@ -282,7 +283,7 @@ impl HttpProxyFetch {
 
 		let fp = crate::fetch::quic_pool::QuicFingerprint { addr, tls: quic.tls_fp.clone() };
 		let entry = match tokio::time::timeout(
-			H3_CONNECT_TIMEOUT,
+			quic.connect_timeout,
 			crate::fetch::quic_pool::get_or_dial(fp.clone(), &quic.sni, Arc::clone(&quic.rustls_cfg)),
 		)
 		.await
@@ -292,7 +293,7 @@ impl HttpProxyFetch {
 			Err(_) => {
 				return Err(Error::upstream(UpstreamReason::Unreachable).with_source(std::io::Error::new(
 					std::io::ErrorKind::TimedOut,
-					"h3 upstream connect timeout (5s)",
+					format!("h3 upstream connect timeout ({:?})", quic.connect_timeout),
 				)));
 			}
 		};
@@ -580,10 +581,16 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 		let h3_rustls = Arc::new(h3_rustls);
 		let mut tls_fp = tls.fingerprint.clone();
 		tls_fp.alpn_protocols = vec![b"h3".to_vec()];
+		let connect_timeout = match args.get("connect_timeout").and_then(serde_json::Value::as_str) {
+			Some(s) => crate::fetch::retry::parse_duration(s)
+				.map_err(|e| FactoryError(format!("args.connect_timeout: {e}")))?,
+			None => H3_CONNECT_TIMEOUT_DEFAULT,
+		};
 		let dispatch = Dispatch::Quic(QuicDispatchState {
 			rustls_cfg: h3_rustls,
 			sni: Arc::from(tls.verify_hostname.as_str()),
 			tls_fp,
+			connect_timeout,
 		});
 		return Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
 			upstream: Arc::from(upstream),

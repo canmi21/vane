@@ -98,6 +98,16 @@ fn make_cert(sni: &str) -> CertFixture {
 // ---------------------------------------------------------------------------
 
 fn h3_proxy_graph(listen: SocketAddr, upstream: &str, sni: &str, insecure: bool) -> Arc<FlowGraph> {
+	h3_proxy_graph_with_connect_timeout(listen, upstream, sni, insecure, None)
+}
+
+fn h3_proxy_graph_with_connect_timeout(
+	listen: SocketAddr,
+	upstream: &str,
+	sni: &str,
+	insecure: bool,
+	connect_timeout: Option<&str>,
+) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
 	entries.insert(listen, NodeId::new(0));
 	let meta = FlowGraphMeta {
@@ -115,6 +125,14 @@ fn h3_proxy_graph(listen: SocketAddr, upstream: &str, sni: &str, insecure: bool)
 		"insecure_skip_verify": insecure,
 		"verify_hostname": sni,
 	});
+	let mut args = serde_json::json!({
+		"upstream": upstream,
+		"version": "h3",
+		"tls": tls_args,
+	});
+	if let Some(ct) = connect_timeout {
+		args["connect_timeout"] = serde_json::Value::String(ct.to_owned());
+	}
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
 			Node::Upgrade { next: NodeId::new(1) },
@@ -131,11 +149,7 @@ fn h3_proxy_graph(listen: SocketAddr, upstream: &str, sni: &str, insecure: bool)
 		middlewares: vec![],
 		fetches: vec![SymbolicFetchRef {
 			kind: FetchKind::HttpProxy,
-			args: serde_json::json!({
-				"upstream": upstream,
-				"version": "h3",
-				"tls": tls_args,
-			}),
+			args,
 			retry_buffer_required: false,
 			allow_zero_rtt: None,
 		}],
@@ -429,7 +443,17 @@ async fn h3_upstream_dial_failure_surfaces_5xx() {
 
 	let cert = make_cert("localhost");
 	let proxy_addr = pick_port().await;
-	let graph = h3_proxy_graph(proxy_addr, &dead_addr.to_string(), &cert.sni, true);
+	// Override the default 5 s connect timeout to 200 ms so the dial
+	// fails fast — the test asserts the failure mode, not the spec
+	// default. Default is exercised by the GET / POST round-trip tests
+	// above (they take the implicit fall-through to the const).
+	let graph = h3_proxy_graph_with_connect_timeout(
+		proxy_addr,
+		&dead_addr.to_string(),
+		&cert.sni,
+		true,
+		Some("200ms"),
+	);
 	let (set, proxy_addr) = start_listener(graph).await;
 
 	let mut sender = h1_client_empty(proxy_addr).await;
@@ -440,13 +464,12 @@ async fn h3_upstream_dial_failure_surfaces_5xx() {
 		.body(Empty::<Bytes>::new())
 		.expect("build GET");
 
-	// `HttpProxyFetch`'s H3 path caps the dial at 5s (spec default).
-	// Wait 15s — well above the connect timeout and quinn's
+	// 2 s outer cap — well above the 200 ms connect_timeout and quinn's
 	// post-timeout teardown — so a regression in the timeout wiring
 	// surfaces as a test failure rather than a CI hang.
-	let resp = tokio::time::timeout(Duration::from_secs(15), sender.send_request(req))
+	let resp = tokio::time::timeout(Duration::from_secs(2), sender.send_request(req))
 		.await
-		.expect("h1 send_request must not hang past 15s")
+		.expect("h1 send_request must not hang past 2s")
 		.expect("h1 send_request");
 	let status = resp.status().as_u16();
 	assert!(
