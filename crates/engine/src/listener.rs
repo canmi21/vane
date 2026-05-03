@@ -1087,6 +1087,16 @@ async fn run_tls<S>(
 		// `early_data().is_some()` is rustls 0.23's way of expressing
 		// "the server accepted early data this connection" — the only
 		// public read path; `was_accepted()` itself is private.
+		//
+		// Body-downgrade (spec § _Hardcoded limits_: "requests with a
+		// body are always served via 1-RTT") is automatic in this
+		// architecture: `into_stream().await` returns only after the
+		// handshake completes (server sent its Finished and received
+		// the client's Finished), so by the time we drain early data
+		// `is_handshaking()` is already false. Body bytes that don't
+		// fit in the 16 KiB early-data window arrive as regular 1-RTT
+		// data and are processed unchanged. No separate wait-point is
+		// needed before invoking the rule's terminator.
 		early_data_buf = if let Some(mut early) = server_conn.early_data() {
 			use std::io::Read as _;
 			let mut buf = Vec::new();

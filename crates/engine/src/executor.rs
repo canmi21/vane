@@ -309,6 +309,37 @@ pub async fn execute(
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Fetch, None);
 				match &graph[*id] {
 					FetchInst::L7(f) => {
+						// TLS 1.3 0-RTT (early data) gate. Per
+						// `08-tls.md` § _TLS 1.3 0-RTT (early data)_
+						// § _Runtime flow_, a request that arrived as
+						// 0-RTT data and matched a rule with
+						// `allow_zero_rtt: false` must receive a
+						// synthetic 425 Too Early instead of being
+						// handed to the rule's terminator. The
+						// connection itself stays open (a well-behaved
+						// client retries the request after a full
+						// handshake per RFC 8470).
+						//
+						// `zero_rtt_used` is populated by `run_tls`
+						// from rustls's `ServerConnection::early_data`
+						// state at handshake completion;
+						// `allow_zero_rtt` is lifted off the parent
+						// rule onto the symbolic fetch ref by the
+						// lower pass.
+						let zero_rtt_used = conn.tls.lock().as_ref().is_some_and(|t| t.zero_rtt_used);
+						let allow_zero_rtt = graph.symbolic().fetches[id.get() as usize].allow_zero_rtt;
+						if zero_rtt_used && allow_zero_rtt == Some(false) {
+							let _ = req.take();
+							let response = http::Response::builder()
+								.status(http::StatusCode::TOO_EARLY)
+								.header(http::header::CACHE_CONTROL, "no-store")
+								.body(Body::Empty)
+								.expect("static 425");
+							resp = Some(response);
+							cur = next_response.expect("validator guarantees Some on L7 paths for Response");
+							continue;
+						}
+
 						let r = req.take().expect("phase invariant: L7Fetch needs Request");
 						match f.fetch(r, conn, ctx).await {
 							Ok(vane_core::L7FetchOutput::Response(rp)) => {
