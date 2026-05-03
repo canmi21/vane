@@ -475,11 +475,27 @@ impl CgiFetch {
 		let body = req.into_body();
 		let stdin_task = tokio::spawn(stdin_drain(stdin, body, CGI_MAX_REQUEST_BODY));
 
+		// `read_until_header_end` is the single arbiter of the
+		// connect-phase outcome. It produces three possible signals:
+		//
+		// * `Ok((headers, leftover, stdout))` — header block parsed.
+		// * `Err(HeaderEofWithExitCode)` — stdout EOFed before a
+		//   `\r\n\r\n` was seen (child crashed without producing a
+		//   valid response → 502).
+		// * `Err(ConnectTimeout)` — the connect_timeout deadline
+		//   fired (504).
+		//
+		// We deliberately do NOT race a `child.wait()` arm against
+		// this future: a fast-exiting child that wrote a valid
+		// response can complete `wait()` before the parent's
+		// `read()` drains stdout, and treating that as an early
+		// exit would override an otherwise-good response with a
+		// false-positive 502. The "child exited without headers"
+		// case still surfaces — the kernel closes the stdout pipe
+		// on `_exit(2)`, the parent's read returns 0, and
+		// `read_until_header_end` reports `HeaderEofWithExitCode`.
 		let connect_deadline = Instant::now() + self.args.timeouts.connect;
-		let parsed = tokio::select! {
-			r = read_until_header_end(stdout, connect_deadline) => r,
-			r = wait_for_early_exit(&mut child) => Err(r),
-		};
+		let parsed = read_until_header_end(stdout, connect_deadline).await;
 
 		let (header_block, leftover, stdout) = match parsed {
 			Ok(triple) => triple,
@@ -797,14 +813,6 @@ async fn read_until_header_end(
 			// header block" so the caller surfaces 502.
 			Ok(_) | Err(_) => return Err(EarlyExit::HeaderEofWithExitCode(-1)),
 		}
-	}
-}
-
-#[cfg(unix)]
-async fn wait_for_early_exit(child: &mut tokio::process::Child) -> EarlyExit {
-	match child.wait().await {
-		Ok(status) => EarlyExit::HeaderEofWithExitCode(status.code().unwrap_or(-1)),
-		Err(_) => EarlyExit::HeaderEofWithExitCode(-1),
 	}
 }
 
