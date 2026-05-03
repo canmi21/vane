@@ -301,6 +301,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		tracing_broadcast,
 		security_cfg: Arc::clone(&security_cfg),
 		shutdown_trigger: shutdown_trigger.clone(),
+		// TODO(wasm-mgmt-wiring): plumb the `WasmtimeRuntime` into
+		// `MgmtState` once the daemon instantiates one at boot. Until
+		// then `get_pools` returns an empty `wasm` list — CGI / TCP /
+		// QUIC pool data still flows through.
+		wasm_pool_stats: None,
 	});
 	let mgmt_cancel = CancellationToken::new();
 	let mgmt_unix_handle = bind_mgmt_unix_server(Arc::clone(&mgmt_state), mgmt_cancel.clone()).await;

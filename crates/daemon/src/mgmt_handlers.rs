@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use vane_core::compile::compile;
-use vane_core::{FlowLogEvent, FlowLogSink};
+use vane_core::{FlowLogEvent, FlowLogSink, WasmPoolStats};
 use vane_engine::ListenerSet;
 use vane_engine::SecurityConfig;
 use vane_engine::VerbosityState;
@@ -30,9 +30,10 @@ use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
 use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
 use vane_mgmt::verb::{
 	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetConfigResult, GetConnectionsResult,
-	GetMetricsArgs, GetMetricsResult, ListenerStatus, PingResult, ReloadResult, ShutdownResult,
-	StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_CONFIG, VERB_GET_CONNECTIONS, VERB_GET_METRICS,
-	VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW, VERB_TAIL_LOG,
+	GetMetricsArgs, GetMetricsResult, GetPoolsResult, GetUpstreamsResult, ListenerStatus, PingResult,
+	ReloadResult, ShutdownResult, StatsResult, TcpUpstreamEntry, VERB_COMPILE_DRY_RUN,
+	VERB_GET_CONFIG, VERB_GET_CONNECTIONS, VERB_GET_METRICS, VERB_GET_POOLS, VERB_GET_UPSTREAMS,
+	VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW, VERB_TAIL_LOG, WasmPoolEntry,
 };
 
 use crate::providers::MetadataProviders;
@@ -60,6 +61,12 @@ pub(crate) struct MgmtState {
 	/// Fired by the `shutdown` verb. The daemon's main signal loop
 	/// awaits this alongside SIGINT/SIGTERM.
 	pub shutdown_trigger: CancellationToken,
+	/// Plumbing for the `get_pools` verb's WASM section. `None` when
+	/// the daemon is built without the `wasm` feature, or when a
+	/// `wasm`-built daemon has not yet instantiated the runtime —
+	/// `get_pools` then returns an empty `wasm` list, and CGI / TCP
+	/// pool data still flows through.
+	pub wasm_pool_stats: Option<Arc<dyn WasmPoolStats>>,
 }
 
 #[async_trait]
@@ -85,6 +92,8 @@ impl Handler for MgmtState {
 			VERB_COMPILE_DRY_RUN => self.handle_compile_dry_run(req.args),
 			VERB_GET_CONNECTIONS => self.handle_get_connections(),
 			VERB_GET_METRICS => self.handle_get_metrics(req.args),
+			VERB_GET_POOLS => self.handle_get_pools(),
+			VERB_GET_UPSTREAMS => self.handle_get_upstreams(),
 			other => Err(WireError {
 				kind: WireErrorKind::UnknownVerb,
 				message: format!("unknown verb {other:?}"),
@@ -168,6 +177,46 @@ fn parse_args<A: for<'de> serde::Deserialize<'de>>(
 ) -> Result<A, WireError> {
 	serde_json::from_value(value)
 		.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("args: {e}") })
+}
+
+/// Read the CGI semaphore snapshot. `None` when the `cgi` feature is
+/// off, or when the semaphore has not yet been lazily initialised
+/// (no CGI request has fired). Read-only — never triggers
+/// first-init, so `get_pools` on a cold daemon does not bake
+/// `VANE_CGI_MAX_CONCURRENT` into a process-wide constant.
+#[cfg(feature = "cgi")]
+fn cgi_pool_entry() -> Option<vane_mgmt::verb::CgiPoolEntry> {
+	vane_engine::fetch::cgi::pool_stats().map(|s| vane_mgmt::verb::CgiPoolEntry {
+		cap: s.cap,
+		available: s.available,
+		in_use: s.in_use,
+		total_allocations: 0,
+		failures: 0,
+	})
+}
+
+#[cfg(not(feature = "cgi"))]
+fn cgi_pool_entry() -> Option<vane_mgmt::verb::CgiPoolEntry> {
+	None
+}
+
+/// Snapshot the daemon-level QUIC pool. Empty when the `h3` feature
+/// is off; otherwise reports one entry per cached `(addr, tls)` pair.
+#[cfg(feature = "h3")]
+fn quic_upstream_entries() -> Vec<vane_mgmt::verb::QuicUpstreamEntry> {
+	vane_engine::fetch::quic_pool::snapshot()
+		.into_iter()
+		.map(|s| vane_mgmt::verb::QuicUpstreamEntry {
+			remote_addr: s.remote_addr,
+			sni: s.sni,
+			alpn: s.alpn,
+		})
+		.collect()
+}
+
+#[cfg(not(feature = "h3"))]
+fn quic_upstream_entries() -> Vec<vane_mgmt::verb::QuicUpstreamEntry> {
+	Vec::new()
 }
 
 fn json<R: serde::Serialize>(r: &R) -> Result<serde_json::Value, WireError> {
@@ -312,6 +361,45 @@ impl MgmtState {
 		})
 	}
 
+	fn handle_get_pools(&self) -> Result<serde_json::Value, WireError> {
+		let wasm = self
+			.wasm_pool_stats
+			.as_ref()
+			.map(|h| h.snapshot())
+			.unwrap_or_default()
+			.into_iter()
+			.map(|s| WasmPoolEntry {
+				kind: s.kind,
+				key: s.key,
+				export: s.export,
+				capacity: s.capacity,
+				available: s.available,
+				in_use: s.capacity.saturating_sub(s.available),
+				total_allocations: 0,
+				failures: 0,
+			})
+			.collect();
+		let cgi = cgi_pool_entry();
+		json(&GetPoolsResult { wasm, cgi })
+	}
+
+	#[allow(clippy::unused_self)]
+	fn handle_get_upstreams(&self) -> Result<serde_json::Value, WireError> {
+		let tcp = vane_engine::fetch::client_cache::snapshot()
+			.into_iter()
+			.map(|s| TcpUpstreamEntry {
+				version: s.version.to_string(),
+				scheme: s.scheme.to_string(),
+				root_ca: s.root_ca.to_string(),
+				verify_mode: s.verify_mode.to_string(),
+				alpn: s.alpn,
+				dns: s.dns.to_string(),
+			})
+			.collect();
+		let quic = quic_upstream_entries();
+		json(&GetUpstreamsResult { tcp, quic })
+	}
+
 	/// Walk the active graph's `entries` and report each listener's
 	/// runtime status. Used by both `stats` and `get_connections` —
 	/// they currently return the same per-listener shape; per-connection
@@ -406,6 +494,7 @@ mod tests {
 			tracing_broadcast: BroadcastTracingLayer::new(),
 			security_cfg: Arc::new(SecurityConfig::default()),
 			shutdown_trigger: CancellationToken::new(),
+			wasm_pool_stats: None,
 		})
 	}
 
@@ -612,5 +701,123 @@ mod tests {
 			.expect("stream still open");
 		assert_eq!(value["kind"], "Trajectory");
 		assert_eq!(value["conn"], 0xFEED);
+	}
+
+	#[tokio::test]
+	async fn dispatch_get_pools_returns_empty_wasm_when_runtime_absent() {
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41013);
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_GET_POOLS.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
+		let r: GetPoolsResult = serde_json::from_value(value).expect("decode");
+		assert!(r.wasm.is_empty(), "no WasmPoolStats plumbed in this fixture");
+		// CGI pool: present iff the engine semaphore has been
+		// initialised by some sibling test in this binary. The shape is
+		// what we lock here — None is acceptable, Some must validate.
+		if let Some(cgi) = r.cgi {
+			assert!(cgi.cap > 0);
+			assert_eq!(cgi.cap, cgi.available + cgi.in_use);
+		}
+	}
+
+	#[tokio::test]
+	async fn dispatch_get_upstreams_returns_known_shape() {
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41014);
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_GET_UPSTREAMS.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
+		let r: GetUpstreamsResult = serde_json::from_value(value).expect("decode");
+		// The client_cache + quic_pool are process-wide statics so other
+		// tests in this binary may have populated them. We only lock
+		// the fact that `tcp` decodes as a list and each entry is well-
+		// formed; cardinality is not asserted to keep the test stable
+		// under parallel scheduling.
+		for entry in &r.tcp {
+			assert!(matches!(entry.scheme.as_str(), "http" | "https"));
+		}
+		// QUIC list is empty unless a successful dial happened earlier
+		// in this binary; either way the field must decode.
+		let _ = r.quic;
+	}
+
+	#[tokio::test]
+	async fn dispatch_get_pools_includes_wasm_entries_via_stub() {
+		// Plumb a WasmPoolStats stub so the dispatcher's wasm branch
+		// surfaces non-empty entries with the expected `in_use`
+		// arithmetic.
+		struct Stub;
+		impl WasmPoolStats for Stub {
+			fn snapshot(&self) -> Vec<vane_core::WasmPoolSummary> {
+				vec![vane_core::WasmPoolSummary {
+					kind: "stateful".to_string(),
+					key: "/etc/vaned/plugins/edge.wasm".to_string(),
+					export: "l4-peek".to_string(),
+					capacity: 4,
+					available: 1,
+				}]
+			}
+		}
+
+		let tmp = tempfile::tempdir().unwrap();
+		let mut state = initial_state(&tmp, 41015);
+		// `Arc::get_mut` succeeds because no other clone of `state`
+		// exists at this point in the test.
+		Arc::get_mut(&mut state).expect("unique Arc").wasm_pool_stats =
+			Some(Arc::new(Stub) as Arc<dyn WasmPoolStats>);
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_GET_POOLS.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
+		let r: GetPoolsResult = serde_json::from_value(value).expect("decode");
+		assert_eq!(r.wasm.len(), 1);
+		let entry = &r.wasm[0];
+		assert_eq!(entry.kind, "stateful");
+		assert_eq!(entry.export, "l4-peek");
+		assert_eq!(entry.capacity, 4);
+		assert_eq!(entry.available, 1);
+		assert_eq!(entry.in_use, 3, "in_use must be capacity - available");
+		assert_eq!(entry.total_allocations, 0, "TODO(pool-counters)");
+		assert_eq!(entry.failures, 0, "TODO(pool-counters)");
+	}
+
+	#[tokio::test]
+	async fn dispatch_get_upstreams_lists_tcp_after_factory_call() {
+		// Drive the http_proxy factory with a cleartext upstream so the
+		// client_cache picks up a known fingerprint without us having
+		// to construct a TLS connector by hand. The dispatcher must
+		// surface that fingerprint among its TCP entries.
+		vane_engine::crypto::install_default_provider();
+		let _ = vane_engine::fetch::http_proxy::factory(&serde_json::json!({
+			"upstream": "127.0.0.1:9999",
+			"version": "h1",
+		}))
+		.expect("cleartext h1 factory must succeed");
+
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41016);
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_GET_UPSTREAMS.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
+		let r: GetUpstreamsResult = serde_json::from_value(value).expect("decode");
+		assert!(
+			r.tcp.iter().any(|e| e.version == "h1"
+				&& e.scheme == "http"
+				&& e.root_ca == "none"
+				&& e.dns == "system"),
+			"the cleartext h1 fingerprint we built must surface in the snapshot",
+		);
 	}
 }
