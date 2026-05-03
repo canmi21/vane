@@ -336,6 +336,16 @@ async fn h3_upstream_pool_reuses_connection_across_requests() {
 		"pool must hold exactly one entry for the single fingerprint",
 	);
 
+	// `snapshot()` must echo the dialed SNI (the operator's hostname),
+	// not the resolved IP-literal that previously stood in for it.
+	let summaries = quic_pool::snapshot();
+	assert_eq!(summaries.len(), 1, "snapshot must mirror cache_len");
+	assert_eq!(
+		summaries[0].sni, cert.sni,
+		"PooledQuicSummary.sni must report the dialed hostname, got {:?}",
+		summaries[0].sni,
+	);
+
 	set.shutdown(Duration::from_millis(500)).await;
 	upstream.shutdown().await;
 	drop(cert);

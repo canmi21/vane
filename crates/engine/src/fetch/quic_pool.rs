@@ -76,6 +76,13 @@ pub struct QuicPoolEntry {
 	/// Held on the entry so `Drop::drop` can close the endpoint
 	/// before aborting the driver.
 	endpoint: Endpoint,
+	/// TLS server name supplied to the dial. Stored on the entry
+	/// (rather than only on the fingerprint, which carries the
+	/// resolved address but no hostname) so `snapshot()` can echo
+	/// the operator's hostname for `get_upstreams`. Shared as
+	/// `Arc<str>` because the same SNI is typically reused across
+	/// pooled entries with the same TLS posture.
+	pub sni: Arc<str>,
 }
 
 impl Drop for QuicPoolEntry {
@@ -219,7 +226,7 @@ async fn dial_new(
 		tracing::debug!(?err, "h3 upstream connection driver exited");
 	});
 
-	Ok(Arc::new(QuicPoolEntry { send_request, driver, endpoint }))
+	Ok(Arc::new(QuicPoolEntry { send_request, driver, endpoint, sni: Arc::from(sni) }))
 }
 
 /// Number of pooled entries. Test-only: integration tests assert
@@ -242,17 +249,9 @@ pub struct PooledQuicSummary {
 }
 
 /// Snapshot every pooled QUIC connection. Read-only: never inserts,
-/// never dials.
-///
-/// `sni` is not stored on the fingerprint (only the resolved
-/// [`SocketAddr`] is — see [`QuicFingerprint::addr`]). Until SNI is
-/// promoted onto the entry the snapshot reports the IP-literal form
-/// of the address; the ALPN remains visible for filtering.
-//
-// TODO(quic-pool-sni): plumb the dialed SNI onto `QuicPoolEntry` so
-// the snapshot can echo the operator's hostname rather than the
-// resolved address. Tracked alongside the SNI-aware pool eviction
-// work in spec/architecture/07-l7.md § _Lifetime: daemon-level_.
+/// never dials. The `sni` field reports the hostname supplied to
+/// `get_or_dial` (stored on [`QuicPoolEntry`] — the fingerprint
+/// itself only carries the resolved address).
 #[must_use]
 pub fn snapshot() -> Vec<PooledQuicSummary> {
 	QUIC_POOL
@@ -261,7 +260,11 @@ pub fn snapshot() -> Vec<PooledQuicSummary> {
 			let fp = entry.key();
 			let alpn =
 				fp.tls.alpn_protocols.iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect();
-			PooledQuicSummary { remote_addr: fp.addr.to_string(), sni: fp.addr.ip().to_string(), alpn }
+			PooledQuicSummary {
+				remote_addr: fp.addr.to_string(),
+				sni: entry.value().sni.as_ref().to_owned(),
+				alpn,
+			}
 		})
 		.collect()
 }
