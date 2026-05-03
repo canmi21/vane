@@ -71,6 +71,14 @@ h3-quinn = { version = "0.0.10", optional = true }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
 quinn-proto = { version = "0.11", default-features = false, optional = true }
 
+# `libc` is already in the workspace dep graph (transitively via tokio,
+# rustls, hyper, ...). The CGI driver promotes it to a direct dep so
+# the `pre_exec` closure can call setuid / setgid / setrlimit
+# directly. Gated to `cfg(unix)` since CGI is unix-only — non-unix
+# builds simply never compile the CGI module's `pre_exec` path.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 async-trait = { workspace = true }
 http-body-util = "0.1"
