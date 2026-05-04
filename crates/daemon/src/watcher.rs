@@ -55,6 +55,7 @@ pub(crate) fn spawn_watcher(
 	mw_factories: Arc<MiddlewareFactories>,
 	fetch_factories: Arc<FetchFactories>,
 	security_cfg: Arc<SecurityConfig>,
+	plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>>,
 	cancel: CancellationToken,
 ) -> Result<tokio::task::JoinHandle<()>, notify::Error> {
 	let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
@@ -99,7 +100,14 @@ pub(crate) fn spawn_watcher(
 					if evt.is_none() {
 						return;
 					}
-					match reload_once(&config_dir, &graph, &mw_factories, &fetch_factories, &security_cfg) {
+					match reload_once(
+						&config_dir,
+						&graph,
+						&mw_factories,
+						&fetch_factories,
+						&security_cfg,
+						plugin_registry.as_ref(),
+					) {
 						Ok(ReloadOutcome::Swapped { hash }) => {
 							tracing::info!(
 								hash = %hex32(&hash), "reloaded — flow graph swapped",
@@ -339,6 +347,7 @@ mod tests {
 			mw,
 			fetch,
 			Arc::new(SecurityConfig::default()),
+			None,
 			cancel.clone(),
 		)
 		.expect("watcher init");
@@ -383,6 +392,7 @@ mod tests {
 			mw,
 			fetch,
 			Arc::new(SecurityConfig::default()),
+			None,
 			cancel.clone(),
 		)
 		.expect("watcher init");

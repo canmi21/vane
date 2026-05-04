@@ -281,18 +281,13 @@ impl MgmtState {
 	}
 
 	fn handle_reload(&self) -> Result<serde_json::Value, WireError> {
-		// TODO(reload-plugin-registry): the next commit threads
-		// `self.plugin_registry` through `reload_once` so reload-time
-		// recompiles see the same plugin set as boot. Until then a
-		// reload that runs after a wasm-backed boot would forget the
-		// plugin registry and surface bogus "unknown middleware"
-		// errors for `<module>:<export>` references.
 		match reload_once(
 			&self.config_dir,
 			&self.graph_swap,
 			&self.mw_factories,
 			&self.fetch_factories,
 			&self.security_cfg,
+			self.plugin_registry.as_ref(),
 		) {
 			Ok(ReloadOutcome::Swapped { hash }) => {
 				// Match the watcher's post-swap behaviour: reconcile the

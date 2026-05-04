@@ -337,6 +337,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		Arc::clone(&mw_factories),
 		Arc::clone(&fetch_factories),
 		Arc::clone(&security_cfg),
+		plugin_registry.clone(),
 		watcher_cancel.clone(),
 	) {
 		Ok(h) => {

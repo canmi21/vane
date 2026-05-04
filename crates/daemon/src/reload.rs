@@ -21,7 +21,7 @@ use vane_core::Error;
 use vane_core::compile::compile;
 use vane_engine::SecurityConfig;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
-use vane_engine::flow_graph::FlowGraph;
+use vane_engine::flow_graph::{FlowGraph, PluginRegistry};
 
 use crate::providers::MetadataProviders;
 
@@ -51,16 +51,32 @@ pub(crate) fn reload_once(
 	mw_factories: &MiddlewareFactories,
 	fetch_factories: &FetchFactories,
 	security_cfg: &Arc<SecurityConfig>,
+	plugin_registry: Option<&Arc<PluginRegistry>>,
 ) -> Result<ReloadOutcome, Error> {
 	let loaded = vane_core::config::load(config_dir)?;
-	let providers = MetadataProviders::new();
+	let providers = match plugin_registry {
+		#[cfg(feature = "wasm")]
+		Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
+		#[cfg(not(feature = "wasm"))]
+		Some(_) => MetadataProviders::new(),
+		None => MetadataProviders::new(),
+	};
 	let symbolic = compile(loaded.files, &providers, &providers)?;
-	let new_graph = FlowGraph::link_with_security(
-		symbolic,
-		mw_factories,
-		fetch_factories,
-		Arc::clone(security_cfg),
-	)
+	let new_graph = match plugin_registry {
+		Some(reg) => FlowGraph::link_with_plugins(
+			symbolic,
+			mw_factories,
+			reg,
+			fetch_factories,
+			Arc::clone(security_cfg),
+		),
+		None => FlowGraph::link_with_security(
+			symbolic,
+			mw_factories,
+			fetch_factories,
+			Arc::clone(security_cfg),
+		),
+	}
 	.map_err(|e| Error::compile(format!("link: {e}")))?;
 
 	let new_hash = new_graph.meta().version_hash;
@@ -136,7 +152,8 @@ mod tests {
 		let (mw, fetch) = build_factories();
 
 		write_rule(tmp.path(), &rule_v1(40001, "v2"));
-		let outcome = reload_once(tmp.path(), &swap, &mw, &fetch, &default_security()).expect("reload");
+		let outcome =
+			reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None).expect("reload");
 		match outcome {
 			ReloadOutcome::Swapped { hash } => assert_ne!(hash, h0, "hash must change with body"),
 			ReloadOutcome::Unchanged { .. } => panic!("expected Swapped, got Unchanged"),
@@ -155,7 +172,8 @@ mod tests {
 
 		// Rewrite the same content — hash should match, swap should skip.
 		write_rule(tmp.path(), &rule_v1(40002, "stable"));
-		let outcome = reload_once(tmp.path(), &swap, &mw, &fetch, &default_security()).expect("reload");
+		let outcome =
+			reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None).expect("reload");
 		assert!(matches!(outcome, ReloadOutcome::Unchanged { hash } if hash == h0));
 		assert_eq!(swap.load().meta().version_hash, h0);
 	}
@@ -171,7 +189,7 @@ mod tests {
 
 		// Corrupt the file with invalid JSON.
 		fs::write(tmp.path().join("rules").join("test.json"), "{ this is not json").unwrap();
-		let err = reload_once(tmp.path(), &swap, &mw, &fetch, &default_security())
+		let err = reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None)
 			.expect_err("must fail compile");
 		assert!(err.to_string().contains("parse"));
 		assert_eq!(swap.load().meta().version_hash, h0, "active graph untouched");
@@ -206,8 +224,8 @@ mod tests {
 		// Build factories WITHOUT registering websocket — that's the test fixture
 		// shape used in production until ws lands.
 		let (mw, fetch) = build_factories();
-		let err =
-			reload_once(tmp.path(), &swap, &mw, &fetch, &default_security()).expect_err("must fail link");
+		let err = reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None)
+			.expect_err("must fail link");
 		assert!(err.to_string().to_lowercase().contains("link"));
 		assert_eq!(swap.load().meta().version_hash, h0, "active graph untouched");
 	}
@@ -223,7 +241,8 @@ mod tests {
 
 		// Add a rule for the first time — the swap-once path.
 		write_rule(tmp.path(), &rule_v1(40006, "first"));
-		let outcome = reload_once(tmp.path(), &swap, &mw, &fetch, &default_security()).expect("reload");
+		let outcome =
+			reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None).expect("reload");
 		assert!(matches!(outcome, ReloadOutcome::Swapped { .. }));
 		// `127.0.0.1:N` is v4-only — `:N` shorthand would expand to both v4 + v6.
 		assert_eq!(swap.load().symbolic().entries.len(), 1, "single v4 entry for 127.0.0.1:40006");
