@@ -23,6 +23,8 @@
 mod mgmt_handlers;
 mod providers;
 mod reload;
+#[cfg(feature = "wasm")]
+mod wasm_loader;
 mod watcher;
 
 use std::net::SocketAddr;
