@@ -35,6 +35,10 @@ pub struct Env {
 	pub data_dir: PathBuf,
 	/// `VANE_CONFIG_DIR` — config-tree root (default `/etc/vaned`).
 	pub config_dir: PathBuf,
+	/// `VANE_WASM_DIR` — WASM plugin source directory scanned at boot.
+	/// Defaults to `<config_dir>/wasm`. See
+	/// `spec/architecture/11-wasm.md` § _Module lifecycle_.
+	pub wasm_dir: PathBuf,
 	/// `VANE_LOG_LEVEL` — passed through to the tracing subscriber
 	/// verbatim (default `"info"`).
 	pub log_level: String,
@@ -92,13 +96,15 @@ impl Env {
 	/// # Errors
 	/// As [`Self::from_process_env`].
 	pub fn from_reader<R: EnvReader>(r: &R) -> Result<Self, Error> {
+		let config_dir =
+			r.get("VANE_CONFIG_DIR").map_or_else(|| PathBuf::from("/etc/vaned"), PathBuf::from);
+		let wasm_dir = r.get("VANE_WASM_DIR").map_or_else(|| config_dir.join("wasm"), PathBuf::from);
 		Ok(Self {
 			data_dir: r
 				.get("VANE_DATA_DIR")
 				.map_or_else(|| PathBuf::from("/var/lib/vaned"), PathBuf::from),
-			config_dir: r
-				.get("VANE_CONFIG_DIR")
-				.map_or_else(|| PathBuf::from("/etc/vaned"), PathBuf::from),
+			config_dir,
+			wasm_dir,
 			log_level: r.get("VANE_LOG_LEVEL").unwrap_or_else(|| "info".to_string()),
 			bind_ipv4: parse_bool_default_true(r, "VANE_BIND_IPV4")?,
 			bind_ipv6: parse_bool_default_true(r, "VANE_BIND_IPV6")?,
@@ -294,5 +300,25 @@ mod tests {
 		.expect("ok");
 		assert_eq!(env.data_dir, PathBuf::from("/srv/vane/data"));
 		assert_eq!(env.config_dir, PathBuf::from("/srv/vane/etc"));
+	}
+
+	#[test]
+	fn env_wasm_dir_defaults_to_config_dir_subdir() {
+		let env = Env::from_reader(&FakeEnv::empty()).expect("defaults");
+		assert_eq!(env.wasm_dir, PathBuf::from("/etc/vaned/wasm"));
+
+		let env = Env::from_reader(&FakeEnv::with(&[("VANE_CONFIG_DIR", "/srv/vane/etc")]))
+			.expect("custom config_dir");
+		assert_eq!(env.wasm_dir, PathBuf::from("/srv/vane/etc/wasm"), "default tracks VANE_CONFIG_DIR");
+	}
+
+	#[test]
+	fn env_wasm_dir_explicit_override_wins() {
+		let env = Env::from_reader(&FakeEnv::with(&[
+			("VANE_CONFIG_DIR", "/etc/vaned"),
+			("VANE_WASM_DIR", "/var/lib/vane/plugins"),
+		]))
+		.expect("override");
+		assert_eq!(env.wasm_dir, PathBuf::from("/var/lib/vane/plugins"));
 	}
 }
