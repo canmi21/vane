@@ -3512,11 +3512,13 @@ name = "vane-wasm"
 version = "0.10.3"
 dependencies = [
  "async-trait",
+ "metrics",
  "rand 0.10.1",
  "sha2 0.11.0",
  "tempfile",
  "tokio",
  "tracing",
+ "url",
  "vane-core",
  "wasmtime",
  "wat",
