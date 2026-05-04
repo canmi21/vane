@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 use vane_core::{HttpFetchBackend, ModuleId, PluginMetadata, PluginPolicyTable, WasmRuntime};
 use vane_engine::flow_graph::PluginRegistry;
-use vane_engine::wasm_fetch::DenyAllHttpFetchBackend;
+use vane_engine::wasm_fetch::HyperHttpFetchBackend;
 use vane_wasm::WasmtimeRuntime;
 
 /// Outcome of [`load_all`] when at least one `.wasm` was loaded.
@@ -100,7 +100,16 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 		return None;
 	}
 
-	let backend: Arc<dyn HttpFetchBackend> = Arc::new(DenyAllHttpFetchBackend);
+	let backend: Arc<dyn HttpFetchBackend> = match HyperHttpFetchBackend::new() {
+		Ok(b) => Arc::new(b),
+		Err(e) => {
+			tracing::warn!(
+				error = %e,
+				"hyper http-fetch backend construction failed; skipping wasm runtime",
+			);
+			return None;
+		}
+	};
 	let runtime = match WasmtimeRuntime::new(backend) {
 		Ok(rt) => rt,
 		Err(e) => {
