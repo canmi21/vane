@@ -1,12 +1,41 @@
 use crate::error::Error;
 use crate::fetch::{FetchKind, FetchOutputModes, FetchPhase};
 use crate::middleware::MiddlewareKind;
+use crate::wasm_runtime::PluginExport;
 
 pub struct MiddlewareMetadata {
 	pub kind: MiddlewareKind,
 	pub stateless: bool,
 	pub needs_body: bool,
 	pub validate_args: fn(&serde_json::Value) -> Result<(), Error>,
+}
+
+/// Pass-through validator for plugin-backed middleware. Per-plugin
+/// arg schemas live inside the WASM module itself (the export's
+/// `validate-args` host call); the compile pipeline only needs
+/// `Some(meta)` to confirm the name resolves. Schema violations
+/// surface at link time when the runtime invokes the plugin.
+#[allow(clippy::unnecessary_wraps)]
+fn plugin_validate_args_pass(_: &serde_json::Value) -> Result<(), Error> {
+	Ok(())
+}
+
+impl MiddlewareMetadata {
+	/// Build a middleware-metadata record from a plugin export. Used by
+	/// the daemon-side metadata provider to satisfy compile-stage
+	/// queries for `<module>:<export>` references — the plugin's
+	/// `kind` / `stateless` / `needs_body` map directly onto the
+	/// middleware-metadata shape; `inspects` is plugin-internal and
+	/// has no analogue here.
+	#[must_use]
+	pub fn from_plugin(export: &PluginExport) -> Self {
+		Self {
+			kind: export.kind,
+			stateless: export.stateless,
+			needs_body: export.needs_body,
+			validate_args: plugin_validate_args_pass,
+		}
+	}
 }
 
 pub trait MiddlewareMetadataProvider {
@@ -118,5 +147,24 @@ mod tests {
 		let p: &dyn FetchMetadataProvider = &StaticFetchProvider;
 		assert!(p.get(FetchKind::HttpProxy).is_some());
 		assert!(p.get(FetchKind::WebSocketUpgrade).is_none());
+	}
+
+	#[test]
+	fn middleware_metadata_from_plugin_copies_fields() {
+		let export = PluginExport {
+			name: "jwt-validator".to_string(),
+			kind: MiddlewareKind::L7Request,
+			stateless: false,
+			needs_body: true,
+			inspects: vec!["http.header.authorization".to_string()],
+		};
+		let meta = MiddlewareMetadata::from_plugin(&export);
+		assert_eq!(meta.kind, MiddlewareKind::L7Request);
+		assert!(!meta.stateless);
+		assert!(meta.needs_body);
+		// Plugin-backed validate_args is a pass-through — schema lives
+		// in the WASM module, not in the metadata record.
+		assert!((meta.validate_args)(&Value::Null).is_ok());
+		assert!((meta.validate_args)(&json!({ "skew": 30 })).is_ok());
 	}
 }
