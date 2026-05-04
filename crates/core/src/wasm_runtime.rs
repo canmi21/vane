@@ -247,3 +247,195 @@ pub trait WasmPoolStats: Send + Sync {
 	/// weak refs as part of the snapshot.
 	fn snapshot(&self) -> Vec<WasmPoolSummary>;
 }
+
+/// Operator-owned per-plugin policy gating outbound `http-fetch`
+/// calls and bounding their body / timeout / redirect behaviour.
+///
+/// Plugin authors do not declare these fields — the WIT metadata
+/// only describes the plugin's exports. The daemon reads
+/// `<config_dir>/wasm/policy.json` (top-level keys = `.wasm` file
+/// stem) and constructs one [`PluginHttpPolicy`] per loaded module.
+/// Plugins missing from the config file get [`PluginHttpPolicy::default`]
+/// — an explicit deny-all posture (`allowed_hosts` empty) so an
+/// operator who hasn't reviewed a plugin's network surface can't
+/// be surprised by it reaching out.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct PluginHttpPolicy {
+	/// When `false` (default), `http-fetch` requests with
+	/// `verify_tls: false` short-circuit to `InsecureRejected` regardless
+	/// of the per-call value.
+	#[serde(default)]
+	pub allow_insecure: bool,
+	/// Allowed-host pattern list. Each entry is either a literal
+	/// hostname (`"api.internal"`), a wildcard prefix
+	/// (`"*.example.com"` matches `a.example.com` / `b.c.example.com`
+	/// but not `example.com`), or the universal wildcard `"*"`. An
+	/// empty list (the default) is deny-all.
+	#[serde(default)]
+	pub allowed_hosts: Vec<String>,
+	/// Per-request body cap (bytes) for the response body and the
+	/// outbound request body. Default 1 MiB matches
+	/// [`HttpFetchLimits::default`]'s `max_body_bytes`.
+	#[serde(default = "default_max_body_size")]
+	pub max_body_size: u32,
+	/// Default timeout when the per-call `timeout_ms` is `None`.
+	/// Default 30 s matches the spec's daemon default.
+	#[serde(default = "default_timeout_ms")]
+	pub default_timeout_ms: u32,
+	/// Default redirect follow cap when the per-call
+	/// `follow_redirects` is `None`. `0` disables redirects. Default 5.
+	#[serde(default = "default_follow_redirects")]
+	pub default_follow_redirects: u32,
+}
+
+const fn default_max_body_size() -> u32 {
+	1024 * 1024
+}
+
+const fn default_timeout_ms() -> u32 {
+	30_000
+}
+
+const fn default_follow_redirects() -> u32 {
+	5
+}
+
+impl Default for PluginHttpPolicy {
+	fn default() -> Self {
+		Self {
+			allow_insecure: false,
+			allowed_hosts: Vec::new(),
+			max_body_size: default_max_body_size(),
+			default_timeout_ms: default_timeout_ms(),
+			default_follow_redirects: default_follow_redirects(),
+		}
+	}
+}
+
+/// Operator-owned policy table keyed by `.wasm` file stem. Built at
+/// boot from `<config_dir>/wasm/policy.json` and looked up by the
+/// daemon's wasm loader when constructing per-plugin host state.
+#[derive(Debug, Clone, Default)]
+pub struct PluginPolicyTable {
+	pub policies: std::collections::HashMap<String, PluginHttpPolicy>,
+}
+
+impl PluginPolicyTable {
+	#[must_use]
+	pub fn new() -> Self {
+		Self { policies: std::collections::HashMap::new() }
+	}
+
+	/// Parse a `policy.json` whose top-level shape is
+	/// `{ "<stem>": { ...PluginHttpPolicy fields... } }`. Missing
+	/// fields per entry resolve to [`PluginHttpPolicy::default`]
+	/// values via serde defaults.
+	///
+	/// # Errors
+	/// Returns [`Error::compile`] when the JSON is malformed or any
+	/// entry fails to deserialize as [`PluginHttpPolicy`].
+	pub fn from_json(s: &str) -> Result<Self, Error> {
+		let policies: std::collections::HashMap<String, PluginHttpPolicy> =
+			serde_json::from_str(s).map_err(|e| Error::compile(format!("wasm/policy.json: {e}")))?;
+		Ok(Self { policies })
+	}
+
+	/// Load `<wasm_dir>/policy.json` into a [`PluginPolicyTable`].
+	/// Returns [`PluginPolicyTable::default`] (empty table) when the
+	/// file is absent. Surfaces parse errors verbatim.
+	///
+	/// # Errors
+	/// Returns [`Error::compile`] when the file exists but cannot be
+	/// read or parsed.
+	pub fn load_from_dir(wasm_dir: &std::path::Path) -> Result<Self, Error> {
+		let path = wasm_dir.join("policy.json");
+		match std::fs::read_to_string(&path) {
+			Ok(s) => Self::from_json(&s),
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::new()),
+			Err(e) => Err(Error::compile(format!("wasm/policy.json: read {}: {e}", path.display()))),
+		}
+	}
+
+	/// Get the policy for a plugin by file stem, or
+	/// [`PluginHttpPolicy::default`] when absent.
+	#[must_use]
+	pub fn get_or_default(&self, stem: &str) -> PluginHttpPolicy {
+		self.policies.get(stem).cloned().unwrap_or_default()
+	}
+}
+
+#[cfg(test)]
+mod policy_tests {
+	use super::*;
+
+	#[test]
+	fn default_policy_is_deny_all() {
+		let p = PluginHttpPolicy::default();
+		assert!(!p.allow_insecure);
+		assert!(p.allowed_hosts.is_empty(), "deny-all by default");
+		assert_eq!(p.max_body_size, 1024 * 1024);
+		assert_eq!(p.default_timeout_ms, 30_000);
+		assert_eq!(p.default_follow_redirects, 5);
+	}
+
+	#[test]
+	fn policy_table_round_trips_explicit_fields() {
+		let json = r#"{
+			"edge": {
+				"allow_insecure": true,
+				"allowed_hosts": ["api.internal", "*.example.com"],
+				"max_body_size": 65536,
+				"default_timeout_ms": 5000,
+				"default_follow_redirects": 0
+			}
+		}"#;
+		let t = PluginPolicyTable::from_json(json).expect("parse");
+		let p = t.get_or_default("edge");
+		assert!(p.allow_insecure);
+		assert_eq!(p.allowed_hosts, vec!["api.internal".to_string(), "*.example.com".to_string()]);
+		assert_eq!(p.max_body_size, 65_536);
+		assert_eq!(p.default_timeout_ms, 5000);
+		assert_eq!(p.default_follow_redirects, 0);
+	}
+
+	#[test]
+	fn policy_table_partial_entry_fills_defaults() {
+		let json = r#"{ "edge": { "allowed_hosts": ["x.y"] } }"#;
+		let t = PluginPolicyTable::from_json(json).expect("parse");
+		let p = t.get_or_default("edge");
+		assert_eq!(p.allowed_hosts, vec!["x.y".to_string()]);
+		assert_eq!(p.max_body_size, 1024 * 1024, "default fills");
+		assert_eq!(p.default_timeout_ms, 30_000);
+	}
+
+	#[test]
+	fn policy_table_missing_plugin_returns_deny_all_default() {
+		let t = PluginPolicyTable::from_json(r#"{ "other": {} }"#).expect("parse");
+		let p = t.get_or_default("missing");
+		assert_eq!(p, PluginHttpPolicy::default());
+	}
+
+	#[test]
+	fn policy_table_load_from_dir_handles_absent_file() {
+		let tmp = tempfile::tempdir().expect("tempdir");
+		let t = PluginPolicyTable::load_from_dir(tmp.path()).expect("absent ok");
+		assert!(t.policies.is_empty());
+	}
+
+	#[test]
+	fn policy_table_load_from_dir_parses_json() {
+		let tmp = tempfile::tempdir().expect("tempdir");
+		std::fs::write(tmp.path().join("policy.json"), r#"{ "x": { "allowed_hosts": ["*"] } }"#)
+			.expect("write");
+		let t = PluginPolicyTable::load_from_dir(tmp.path()).expect("parse");
+		assert_eq!(t.get_or_default("x").allowed_hosts, vec!["*".to_string()]);
+	}
+
+	#[test]
+	fn policy_table_load_from_dir_propagates_parse_errors() {
+		let tmp = tempfile::tempdir().expect("tempdir");
+		std::fs::write(tmp.path().join("policy.json"), "{ this is not json").expect("write");
+		let err = PluginPolicyTable::load_from_dir(tmp.path()).expect_err("must fail");
+		assert!(err.to_string().contains("policy.json"));
+	}
+}

@@ -34,7 +34,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vane_core::{HttpFetchBackend, ModuleId, PluginMetadata, WasmRuntime};
+use vane_core::{HttpFetchBackend, ModuleId, PluginMetadata, PluginPolicyTable, WasmRuntime};
 use vane_engine::flow_graph::PluginRegistry;
 use vane_engine::wasm_fetch::DenyAllHttpFetchBackend;
 use vane_wasm::WasmtimeRuntime;
@@ -43,6 +43,12 @@ use vane_wasm::WasmtimeRuntime;
 pub(crate) struct LoadedWasm {
 	pub runtime: Arc<WasmtimeRuntime>,
 	pub registry: Arc<PluginRegistry>,
+	/// Operator-owned per-plugin policy table loaded from
+	/// `<wasm_dir>/policy.json`. Empty when the file is absent —
+	/// every plugin then resolves to `PluginHttpPolicy::default`
+	/// (deny-all).
+	#[allow(dead_code, reason = "consumed by HostState wiring in the next commit")]
+	pub policies: Arc<PluginPolicyTable>,
 	#[allow(dead_code, reason = "diagnostic surface for future hot-reload work")]
 	pub modules: Vec<LoadedModuleInfo>,
 }
@@ -58,6 +64,7 @@ pub(crate) struct LoadedModuleInfo {
 /// first successful load, register every export, and return the
 /// bundle. Returns `None` when the directory is missing, empty, or
 /// every load failed — the daemon then runs without a wasm runtime.
+#[allow(clippy::too_many_lines, reason = "linear boot phase: scan + load + policy parse")]
 pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 	let entries = match std::fs::read_dir(wasm_dir) {
 		Ok(rd) => rd,
@@ -157,7 +164,30 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 		return None;
 	}
 
-	Some(LoadedWasm { runtime, registry: Arc::new(registry), modules })
+	let policies = match PluginPolicyTable::load_from_dir(wasm_dir) {
+		Ok(t) => {
+			if t.policies.is_empty() {
+				tracing::warn!(
+					wasm_dir = %wasm_dir.display(),
+					"no wasm/policy.json present; every plugin starts under deny-all http-fetch \
+					 (allowed_hosts = []). Add policy.json to grant outbound access.",
+				);
+			} else {
+				tracing::info!(policies = t.policies.len(), "loaded plugin http policy table",);
+			}
+			t
+		}
+		Err(e) => {
+			tracing::warn!(
+				wasm_dir = %wasm_dir.display(),
+				error = %e,
+				"wasm/policy.json failed to parse; falling back to deny-all defaults",
+			);
+			PluginPolicyTable::new()
+		}
+	};
+
+	Some(LoadedWasm { runtime, registry: Arc::new(registry), policies: Arc::new(policies), modules })
 }
 
 #[cfg(test)]
