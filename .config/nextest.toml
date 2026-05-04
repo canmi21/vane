@@ -23,3 +23,20 @@ slow-timeout = { period = "60s", terminate-after = 4 }
 [[profile.default.scripts]]
 filter = "binary(mgmt)"
 setup = ["build-vane-cli"]
+
+# The reload tests each spawn a real `vaned` process, then drive it
+# through watcher debounce + reload + listener reconcile. Wall-clock
+# is dominated by scheduler jitter when many of them race in parallel
+# against the rest of the workspace's TLS handshakes — the same test
+# that finishes in 1-2 s solo can take 5+ s under contention. Pinning
+# the binary to a max of one concurrent test removes the cross-test
+# competition and lets each one take its real time. Cost: ~3 s added
+# to wall-clock for `cargo nextest run --workspace`; reload tests
+# themselves get a hard 10 s ceiling inside the test (see
+# `crates/daemon/tests/reload.rs::RELOAD_BUDGET`).
+[test-groups]
+reload-serial = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "binary(reload)"
+test-group = "reload-serial"
