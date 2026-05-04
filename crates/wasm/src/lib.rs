@@ -188,22 +188,22 @@ impl vane::host::host::Host for HostState {
 
 	async fn metric_counter(
 		&mut self,
-		_name: String,
-		_delta: u64,
-		_labels: Vec<vane::host::host::MetricLabel>,
+		name: String,
+		delta: u64,
+		labels: Vec<vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_counter_core(self, &name, delta, &user_labels)
 	}
 
 	async fn metric_gauge(
 		&mut self,
-		_name: String,
-		_value: i64,
-		_labels: Vec<vane::host::host::MetricLabel>,
+		name: String,
+		value: i64,
+		labels: Vec<vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_gauge_core(self, &name, value, &user_labels)
 	}
 
 	async fn http_fetch(
@@ -280,22 +280,22 @@ impl invoke_l4peek::vane::host::host::Host for HostState {
 
 	async fn metric_counter(
 		&mut self,
-		_name: String,
-		_delta: u64,
-		_labels: Vec<invoke_l4peek::vane::host::host::MetricLabel>,
+		name: String,
+		delta: u64,
+		labels: Vec<invoke_l4peek::vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_counter_core(self, &name, delta, &user_labels)
 	}
 
 	async fn metric_gauge(
 		&mut self,
-		_name: String,
-		_value: i64,
-		_labels: Vec<invoke_l4peek::vane::host::host::MetricLabel>,
+		name: String,
+		value: i64,
+		labels: Vec<invoke_l4peek::vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_gauge_core(self, &name, value, &user_labels)
 	}
 
 	async fn http_fetch(
@@ -377,22 +377,22 @@ impl invoke_l4bytes::vane::host::host::Host for HostState {
 
 	async fn metric_counter(
 		&mut self,
-		_name: String,
-		_delta: u64,
-		_labels: Vec<invoke_l4bytes::vane::host::host::MetricLabel>,
+		name: String,
+		delta: u64,
+		labels: Vec<invoke_l4bytes::vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_counter_core(self, &name, delta, &user_labels)
 	}
 
 	async fn metric_gauge(
 		&mut self,
-		_name: String,
-		_value: i64,
-		_labels: Vec<invoke_l4bytes::vane::host::host::MetricLabel>,
+		name: String,
+		value: i64,
+		labels: Vec<invoke_l4bytes::vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_gauge_core(self, &name, value, &user_labels)
 	}
 
 	async fn http_fetch(
@@ -472,22 +472,22 @@ impl invoke_l7request::vane::host::host::Host for HostState {
 
 	async fn metric_counter(
 		&mut self,
-		_name: String,
-		_delta: u64,
-		_labels: Vec<invoke_l7request::vane::host::host::MetricLabel>,
+		name: String,
+		delta: u64,
+		labels: Vec<invoke_l7request::vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_counter_core(self, &name, delta, &user_labels)
 	}
 
 	async fn metric_gauge(
 		&mut self,
-		_name: String,
-		_value: i64,
-		_labels: Vec<invoke_l7request::vane::host::host::MetricLabel>,
+		name: String,
+		value: i64,
+		labels: Vec<invoke_l7request::vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_gauge_core(self, &name, value, &user_labels)
 	}
 
 	async fn http_fetch(
@@ -567,22 +567,22 @@ impl invoke_l7response::vane::host::host::Host for HostState {
 
 	async fn metric_counter(
 		&mut self,
-		_name: String,
-		_delta: u64,
-		_labels: Vec<invoke_l7response::vane::host::host::MetricLabel>,
+		name: String,
+		delta: u64,
+		labels: Vec<invoke_l7response::vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_counter_core(self, &name, delta, &user_labels)
 	}
 
 	async fn metric_gauge(
 		&mut self,
-		_name: String,
-		_value: i64,
-		_labels: Vec<invoke_l7response::vane::host::host::MetricLabel>,
+		name: String,
+		value: i64,
+		labels: Vec<invoke_l7response::vane::host::host::MetricLabel>,
 	) -> wasmtime::Result<()> {
-		// TODO(wasm-metrics): route to daemon metrics facade
-		Ok(())
+		let user_labels: Vec<(String, String)> = labels.into_iter().map(|l| (l.key, l.value)).collect();
+		metric_gauge_core(self, &name, value, &user_labels)
 	}
 
 	async fn http_fetch(
@@ -613,6 +613,105 @@ impl invoke_l7response::vane::host::host::Host for HostState {
 			Err(e) => Ok(Err(map_fetch_error_l7response(e))),
 		}
 	}
+}
+
+// ─── metric host helpers ─────────────────────────────────────────────────────
+
+/// Validate a plugin-supplied metric name against
+/// `^[a-zA-Z_][a-zA-Z0-9_]*$` per `spec/wasm-abi.md` § _Trap
+/// conditions_. Hand-rolled rather than pulling in `regex` for a
+/// 5-line scan.
+fn validate_metric_name(name: &str) -> wasmtime::Result<()> {
+	let bytes = name.as_bytes();
+	let valid_first = bytes.first().is_some_and(|b| matches!(*b, b'a'..=b'z' | b'A'..=b'Z' | b'_'));
+	let valid_rest =
+		bytes.iter().skip(1).all(|b| matches!(*b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_'));
+	if !valid_first || !valid_rest {
+		return Err(wasmtime::Error::msg(format!(
+			"metric name {name:?} fails [a-zA-Z_][a-zA-Z0-9_]* regex"
+		)));
+	}
+	Ok(())
+}
+
+/// `vane.*` label keys are reserved for the host (spec/wasm-abi.md
+/// § _Forward-compatibility hooks_). Plugin-supplied keys with that
+/// prefix produce a trap rather than silently shadowing host
+/// conventions.
+fn reject_reserved_labels(labels: &[(String, String)]) -> wasmtime::Result<()> {
+	for (k, _) in labels {
+		if k.starts_with("vane.") {
+			return Err(wasmtime::Error::msg(format!("label key {k:?} uses reserved 'vane.' prefix")));
+		}
+	}
+	Ok(())
+}
+
+/// Build the `Vec<metrics::Label>` for a plugin-emitted series:
+/// `(module_id, metadata_name, export, metric)` host-side labels
+/// followed by the plugin's user labels.
+fn build_metric_labels(
+	state: &HostState,
+	metric_name: &str,
+	user_labels: &[(String, String)],
+) -> Vec<metrics::Label> {
+	let mut out: Vec<metrics::Label> = Vec::with_capacity(4 + user_labels.len());
+	out.push(metrics::Label::new("module_id", state.module_id.to_string()));
+	out.push(metrics::Label::new("metadata_name", state.metadata_name.to_string()));
+	out.push(metrics::Label::new("export", state.export_name.to_string()));
+	out.push(metrics::Label::new("metric", metric_name.to_string()));
+	for (k, v) in user_labels {
+		out.push(metrics::Label::new(k.clone(), v.clone()));
+	}
+	out
+}
+
+/// Core `metric-counter` host fn body. Validates name + labels,
+/// applies the cardinality cap (silently dropping over-cap unique
+/// series after one WARN), and routes through the `metrics` facade
+/// under a single `vane_plugin_metric_counter` series — the
+/// plugin's user metric name lives on a `metric` label so a single
+/// recorder emits all plugin counters.
+fn metric_counter_core(
+	state: &HostState,
+	name: &str,
+	delta: u64,
+	user_labels: &[(String, String)],
+) -> wasmtime::Result<()> {
+	validate_metric_name(name)?;
+	reject_reserved_labels(user_labels)?;
+	if !state.cardinality.try_admit(&state.module_id, name, user_labels) {
+		return Ok(());
+	}
+	let labels = build_metric_labels(state, name, user_labels);
+	metrics::counter!("vane_plugin_metric_counter", labels).increment(delta);
+	Ok(())
+}
+
+/// Core `metric-gauge` body. Same validation + cap + label
+/// composition as the counter; emits as `f64` because the `metrics`
+/// crate's gauge interface is `f64`-typed (the ABI's `s64` plugin
+/// value is widened lossily for very large magnitudes — operators
+/// who need precise integer counts should use `metric-counter`).
+fn metric_gauge_core(
+	state: &HostState,
+	name: &str,
+	value: i64,
+	user_labels: &[(String, String)],
+) -> wasmtime::Result<()> {
+	validate_metric_name(name)?;
+	reject_reserved_labels(user_labels)?;
+	if !state.cardinality.try_admit(&state.module_id, name, user_labels) {
+		return Ok(());
+	}
+	let labels = build_metric_labels(state, name, user_labels);
+	#[allow(
+		clippy::cast_precision_loss,
+		reason = "spec defines gauge as numeric; metrics crate is f64"
+	)]
+	let value_f = value as f64;
+	metrics::gauge!("vane_plugin_metric_gauge", labels).set(value_f);
+	Ok(())
 }
 
 fn map_fetch_error(e: HttpFetchError) -> vane::host::host::NetError {
@@ -2341,6 +2440,77 @@ mod tests {
 			Some(args),
 			"args_received must be set after get-args is called"
 		);
+	}
+
+	// ─── metric host fn validation ──────────────────────────────────────────────
+
+	fn test_state_with_cap(cap: usize) -> HostState {
+		HostState::new(
+			String::new(),
+			mock_backend(),
+			Arc::from("/path/test.wasm"),
+			Arc::from("test-plugin"),
+			Arc::from("probe"),
+			Arc::new(PluginHttpPolicy::default()),
+			Arc::new(CardinalityRegistry::with_cap(cap)),
+		)
+	}
+
+	#[test]
+	fn validate_metric_name_accepts_well_formed_identifiers() {
+		assert!(validate_metric_name("foo").is_ok());
+		assert!(validate_metric_name("foo_bar").is_ok());
+		assert!(validate_metric_name("_leading_underscore").is_ok());
+		assert!(validate_metric_name("HTTPRequests1").is_ok());
+	}
+
+	#[test]
+	fn validate_metric_name_rejects_empty_dash_dot_digit_first() {
+		assert!(validate_metric_name("").is_err());
+		assert!(validate_metric_name("foo-bar").is_err(), "dash forbidden");
+		assert!(validate_metric_name("foo.bar").is_err(), "dot forbidden");
+		assert!(validate_metric_name("1foo").is_err(), "leading digit forbidden");
+	}
+
+	#[test]
+	fn reject_reserved_labels_traps_on_vane_dot_prefix() {
+		assert!(reject_reserved_labels(&[("plugin".into(), "v".into())]).is_ok());
+		assert!(reject_reserved_labels(&[("vane.module".into(), "v".into())]).is_err());
+		assert!(
+			reject_reserved_labels(&[("ok".into(), "v".into()), ("vane.x".into(), "v".into())]).is_err()
+		);
+	}
+
+	#[test]
+	fn metric_counter_core_traps_on_invalid_name() {
+		let state = test_state_with_cap(1000);
+		assert!(metric_counter_core(&state, "bad-name", 1, &[]).is_err());
+	}
+
+	#[test]
+	fn metric_counter_core_traps_on_reserved_label() {
+		let state = test_state_with_cap(1000);
+		let labels: Vec<(String, String)> = vec![("vane.x".into(), "y".into())];
+		assert!(metric_counter_core(&state, "foo", 1, &labels).is_err());
+	}
+
+	#[test]
+	fn metric_counter_core_silently_drops_over_cap() {
+		let state = test_state_with_cap(2);
+		// Two distinct series admitted.
+		assert!(metric_counter_core(&state, "a", 1, &[]).is_ok());
+		assert!(metric_counter_core(&state, "b", 1, &[]).is_ok());
+		// Third unique series silently dropped — Ok(()), not a trap.
+		assert!(metric_counter_core(&state, "c", 1, &[]).is_ok());
+		assert_eq!(state.cardinality.series_count_for_test(&state.module_id), 2);
+	}
+
+	#[test]
+	fn metric_gauge_core_silently_drops_over_cap() {
+		let state = test_state_with_cap(1);
+		assert!(metric_gauge_core(&state, "a", 5, &[]).is_ok());
+		assert!(metric_gauge_core(&state, "b", 5, &[]).is_ok(), "over-cap is silent, not a trap");
+		assert_eq!(state.cardinality.series_count_for_test(&state.module_id), 1);
 	}
 
 	// ─── validate_status ────────────────────────────────────────────────────────
