@@ -9,6 +9,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod cardinality;
+pub use cardinality::CardinalityRegistry;
+
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
