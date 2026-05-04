@@ -24,24 +24,35 @@ slow-timeout = { period = "60s", terminate-after = 4 }
 filter = "binary(mgmt)"
 setup = ["build-vane-cli"]
 
-# The reload tests each spawn a real `vaned` process, then drive it
-# through watcher debounce + reload + listener reconcile. Wall-clock
-# is dominated by scheduler jitter when many of them race in parallel
-# against the rest of the workspace's TLS handshakes — the same test
-# that finishes in 1-2 s solo can take 5+ s under contention. Pinning
-# the binary to a max of one concurrent test removes the cross-test
-# competition and lets each one take its real time. Cost: ~3 s added
-# to wall-clock for `cargo nextest run --workspace`; reload tests
-# themselves get a hard 10 s ceiling inside the test (see
-# `crates/daemon/tests/reload.rs::RELOAD_BUDGET`).
+# The reload + wasm_e2e tests each spawn a real `vaned` process and
+# drive it through watcher debounce + reload + listener reconcile.
+# Solo, each test finishes in 1-3 s. Under workspace parallelism the
+# binary races against the rest of the workspace's TLS handshakes for
+# CPU and OS scheduler attention; wait_until polls inflate as a
+# result.
 #
-# `wasm_e2e` joins the same group: each test there also spawns a
-# real `vaned` process for the boot-scan/refusal scenarios, and the
-# extra parallel daemon boots were measurably destabilising the
-# reload binary's port-bind deadlines.
+# Each binary gets its own single-thread group rather than sharing
+# one. Sharing meant 9 daemon-spawning tests serialised onto a single
+# scheduling slot — tests waiting later in the queue still had their
+# wait_until budgets running on wall-clock, and the slowest reload
+# scenario (`reload_adds_new_listen_port_serves_traffic`, which has
+# to bind a brand-new listener after reload) consistently lost to
+# the queue. Two parallel single-thread groups lets each binary make
+# progress without queueing behind the other.
+#
+# Cost: ~3 s added to wall-clock for `cargo nextest run --workspace`.
+# The reload tests get a 15 s in-test ceiling (see
+# `crates/daemon/tests/reload.rs::RELOAD_BUDGET`); wasm_e2e tests are
+# fast enough (~0.5 s each) that the workspace-level slow-timeout
+# above suffices.
 [test-groups]
 reload-serial = { max-threads = 1 }
+wasm-e2e-serial = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = "binary(reload) | binary(wasm_e2e)"
+filter = "binary(reload)"
 test-group = "reload-serial"
+
+[[profile.default.overrides]]
+filter = "binary(wasm_e2e)"
+test-group = "wasm-e2e-serial"
