@@ -182,6 +182,64 @@ async fn daemon_starts_with_rule_referencing_loaded_plugin() {
 	assert!(r.pong);
 }
 
+// ─── operator policy file integration ─────────────────────────────────
+
+/// Drop a `policy.json` into `wasm_dir` with the supplied raw JSON
+/// body. Tests that load this then assert the daemon's behaviour
+/// reflects what was on disk.
+fn write_policy_json(wasm_dir: &Path, body: &str) {
+	std::fs::create_dir_all(wasm_dir).expect("wasm dir");
+	std::fs::write(wasm_dir.join("policy.json"), body).expect("write policy.json");
+}
+
+#[tokio::test]
+async fn daemon_starts_with_explicit_policy_file_for_each_plugin() {
+	// Operator-owned `wasm/policy.json` lists per-plugin
+	// `allowed_hosts`. The daemon must load the file at boot, not
+	// emit the deny-all WARN, and serve mgmt normally.
+	let tmp = tempfile::tempdir().expect("tempdir");
+	let traffic_port = ephemeral_port();
+	let mgmt_port = ephemeral_port();
+	let wasm_dir = tmp.path().join("wasm");
+	install_fixture_as(&wasm_dir, "edge");
+	write_policy_json(
+		&wasm_dir,
+		r#"{
+			"edge": {
+				"allow_insecure": false,
+				"allowed_hosts": ["api.internal", "*.example.com"],
+				"max_body_size": 1048576,
+				"default_timeout_ms": 30000,
+				"default_follow_redirects": 5
+			}
+		}"#,
+	);
+	write_rule(tmp.path(), traffic_port, None);
+	let d = spawn_daemon(tmp, mgmt_port, "policy-tok");
+	let client = HttpMgmtClient::new(d.mgmt_addr, Some(Arc::<str>::from("policy-tok")));
+	let r: PingResult = client.call(VERB_PING, &NoArgs {}).await.expect("ping");
+	assert!(r.pong);
+}
+
+#[tokio::test]
+async fn daemon_starts_with_malformed_policy_file_falling_back_to_defaults() {
+	// `policy.json` exists but is not valid JSON. The loader logs a
+	// WARN and falls back to the empty (deny-all) table. The daemon
+	// still boots — the boot ref-check is what blocks unsafe rules,
+	// not the policy parser.
+	let tmp = tempfile::tempdir().expect("tempdir");
+	let traffic_port = ephemeral_port();
+	let mgmt_port = ephemeral_port();
+	let wasm_dir = tmp.path().join("wasm");
+	install_fixture_as(&wasm_dir, "edge");
+	write_policy_json(&wasm_dir, "{ this is not json");
+	write_rule(tmp.path(), traffic_port, None);
+	let d = spawn_daemon(tmp, mgmt_port, "bad-policy-tok");
+	let client = HttpMgmtClient::new(d.mgmt_addr, Some(Arc::<str>::from("bad-policy-tok")));
+	let r: PingResult = client.call(VERB_PING, &NoArgs {}).await.expect("ping");
+	assert!(r.pong, "malformed policy.json must not block daemon boot");
+}
+
 // ─── boot refusal test ────────────────────────────────────────────────
 
 #[test]
