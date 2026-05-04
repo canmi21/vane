@@ -11,12 +11,45 @@
 //! Lives in its own module so both `main.rs` boot path and `reload.rs`
 //! recompile path can share one source of truth.
 
+#[cfg(feature = "wasm")]
+use std::sync::Arc;
+
 use vane_core::{
 	Error, FetchKind, FetchMetadata, FetchMetadataProvider, FetchOutputModes, FetchPhase,
 	MiddlewareKind, MiddlewareMetadata, MiddlewareMetadataProvider,
 };
+#[cfg(feature = "wasm")]
+use vane_engine::flow_graph::PluginRegistry;
 
-pub(crate) struct MetadataProviders;
+#[derive(Default)]
+pub(crate) struct MetadataProviders {
+	/// Optional plugin registry consulted for `<module>:<export>`
+	/// (colon-bearing) middleware names. `None` when the daemon was
+	/// built without the `wasm` feature, or when the boot scan
+	/// produced no live plugins. Stored as `Arc` so a single registry
+	/// is shared across boot, reload, and `compile_dry_run`.
+	#[cfg(feature = "wasm")]
+	pub plugin_registry: Option<Arc<PluginRegistry>>,
+}
+
+impl MetadataProviders {
+	#[cfg(feature = "wasm")]
+	#[allow(dead_code, reason = "alternate constructor for tests + non-wasm code paths")]
+	pub(crate) fn new() -> Self {
+		Self { plugin_registry: None }
+	}
+
+	#[cfg(not(feature = "wasm"))]
+	#[allow(dead_code, reason = "alternate constructor for tests + non-wasm code paths")]
+	pub(crate) fn new() -> Self {
+		Self {}
+	}
+
+	#[cfg(feature = "wasm")]
+	pub(crate) fn with_plugins(registry: Arc<PluginRegistry>) -> Self {
+		Self { plugin_registry: Some(registry) }
+	}
+}
 
 #[allow(clippy::unnecessary_wraps)]
 fn validate_args_pass(_: &serde_json::Value) -> Result<(), Error> {
@@ -29,6 +62,12 @@ fn validate_args_pass(_: &serde_json::Value) -> Result<(), Error> {
 
 impl MiddlewareMetadataProvider for MetadataProviders {
 	fn get(&self, name: &str) -> Option<MiddlewareMetadata> {
+		// Colon-bearing names are plugin references (`<module>:<export>`).
+		// Native middleware names are pure ASCII identifiers and never
+		// contain a colon, so the split is unambiguous.
+		if name.contains(':') {
+			return self.lookup_plugin(name);
+		}
 		let (kind, stateless, needs_body) = match name {
 			"host_header_match" | "path_prefix" | "method_match" | "forward_client_ip" => {
 				(MiddlewareKind::L7Request, true, false)
@@ -41,6 +80,26 @@ impl MiddlewareMetadataProvider for MetadataProviders {
 			_ => return None,
 		};
 		Some(MiddlewareMetadata { kind, stateless, needs_body, validate_args: validate_args_pass })
+	}
+}
+
+impl MetadataProviders {
+	#[cfg(feature = "wasm")]
+	fn lookup_plugin(&self, name: &str) -> Option<MiddlewareMetadata> {
+		let registry = self.plugin_registry.as_ref()?;
+		let entry = registry.get(name)?;
+		// The registered export must exist on the cached metadata; if it
+		// doesn't the registry is internally inconsistent and we treat
+		// the name as unknown so the compile pipeline surfaces a clean
+		// error.
+		let export = entry.metadata.exports.iter().find(|e| e.name == entry.export_name)?;
+		Some(MiddlewareMetadata::from_plugin(export))
+	}
+
+	#[cfg(not(feature = "wasm"))]
+	#[allow(clippy::unused_self)]
+	fn lookup_plugin(&self, _name: &str) -> Option<MiddlewareMetadata> {
+		None
 	}
 }
 

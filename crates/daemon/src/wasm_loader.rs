@@ -40,7 +40,6 @@ use vane_engine::wasm_fetch::DenyAllHttpFetchBackend;
 use vane_wasm::WasmtimeRuntime;
 
 /// Outcome of [`load_all`] when at least one `.wasm` was loaded.
-#[allow(dead_code, reason = "main.rs wires this up in the next commit")]
 pub(crate) struct LoadedWasm {
 	pub runtime: Arc<WasmtimeRuntime>,
 	pub registry: Arc<PluginRegistry>,
@@ -59,7 +58,6 @@ pub(crate) struct LoadedModuleInfo {
 /// first successful load, register every export, and return the
 /// bundle. Returns `None` when the directory is missing, empty, or
 /// every load failed — the daemon then runs without a wasm runtime.
-#[allow(dead_code, reason = "main.rs wires this up in the next commit")]
 pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 	let entries = match std::fs::read_dir(wasm_dir) {
 		Ok(rd) => rd,

@@ -67,6 +67,17 @@ pub(crate) struct MgmtState {
 	/// `get_pools` then returns an empty `wasm` list, and CGI / TCP
 	/// pool data still flows through.
 	pub wasm_pool_stats: Option<Arc<dyn WasmPoolStats>>,
+	/// Plugin registry built at boot from `<wasm_dir>/*.wasm`. `None`
+	/// when the daemon was built without the `wasm` feature, or when
+	/// the boot scan loaded nothing. Reload + `compile_dry_run`
+	/// thread this through so plugin references resolve consistently
+	/// across reload cycles without re-scanning the filesystem
+	/// (live-add of new modules is a daemon-restart operation).
+	///
+	/// `vane_engine::flow_graph::PluginRegistry` itself is always
+	/// available (not feature-gated in vane-engine), so the field
+	/// stays unconditional even when daemon's `wasm` is off.
+	pub plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>>,
 }
 
 #[async_trait]
@@ -270,6 +281,12 @@ impl MgmtState {
 	}
 
 	fn handle_reload(&self) -> Result<serde_json::Value, WireError> {
+		// TODO(reload-plugin-registry): the next commit threads
+		// `self.plugin_registry` through `reload_once` so reload-time
+		// recompiles see the same plugin set as boot. Until then a
+		// reload that runs after a wasm-backed boot would forget the
+		// plugin registry and surface bogus "unknown middleware"
+		// errors for `<module>:<export>` references.
 		match reload_once(
 			&self.config_dir,
 			&self.graph_swap,
@@ -294,7 +311,6 @@ impl MgmtState {
 		}
 	}
 
-	#[allow(clippy::unused_self)]
 	fn handle_compile_dry_run(
 		&self,
 		args: serde_json::Value,
@@ -303,7 +319,13 @@ impl MgmtState {
 		let dir = PathBuf::from(args.config_dir);
 		let loaded = vane_core::config::load(&dir)
 			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("load: {e}") })?;
-		let providers = MetadataProviders;
+		let providers = match self.plugin_registry.as_ref() {
+			#[cfg(feature = "wasm")]
+			Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
+			#[cfg(not(feature = "wasm"))]
+			Some(_) => MetadataProviders::new(),
+			None => MetadataProviders::new(),
+		};
 		let symbolic = compile(loaded.files, &providers, &providers)
 			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("compile: {e}") })?;
 		let value = serde_json::to_value(&symbolic).map_err(|e| WireError {
@@ -477,7 +499,7 @@ mod tests {
 		fs::write(tmp.path().join("rules").join("site.json"), rule(port, "v1")).unwrap();
 
 		let loaded = vane_core::config::load(tmp.path()).expect("load");
-		let providers = MetadataProviders;
+		let providers = MetadataProviders::new();
 		let symbolic = compile(loaded.files, &providers, &providers).expect("compile");
 		let (mw, fetch) = build_factories();
 		let graph = FlowGraph::link(symbolic, &mw, &fetch).expect("link");
@@ -497,6 +519,7 @@ mod tests {
 			security_cfg: Arc::new(SecurityConfig::default()),
 			shutdown_trigger: CancellationToken::new(),
 			wasm_pool_stats: None,
+			plugin_registry: None,
 		})
 	}
 

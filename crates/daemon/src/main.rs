@@ -179,7 +179,28 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		.unwrap_or(100);
 	tracing::info!(cgi_max_concurrent, "cgi concurrency cap resolved");
 
-	let providers = MetadataProviders;
+	// Boot-time WASM scan: must happen before the first compile so the
+	// `MetadataProviders` knows which `<module>:<export>` plugin
+	// references resolve. `loaded_wasm` stays `None` when the daemon
+	// is built without `wasm`, when the dir is missing, or when every
+	// load failed — in every case we fall through to the no-plugin
+	// link path.
+	#[cfg(feature = "wasm")]
+	let loaded_wasm = wasm_loader::load_all(&loaded.env.wasm_dir).await;
+
+	#[cfg(feature = "wasm")]
+	let plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>> =
+		loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.registry));
+	#[cfg(not(feature = "wasm"))]
+	let plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>> = None;
+
+	let providers = match plugin_registry.as_ref() {
+		#[cfg(feature = "wasm")]
+		Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
+		#[cfg(not(feature = "wasm"))]
+		Some(_) => MetadataProviders::new(),
+		None => MetadataProviders::new(),
+	};
 	let symbolic = compile(loaded.files, &providers, &providers)?;
 	tracing::info!(
 		nodes = symbolic.nodes.len(),
@@ -188,6 +209,32 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		fetches = symbolic.fetches.len(),
 		"compiled symbolic flow graph",
 	);
+
+	// Boot ref-check: any rule referencing a plugin name (contains
+	// `:`) that the registry can't resolve is a hard refusal — restart
+	// once the operator has dropped the matching `.wasm` files into
+	// `wasm_dir`.
+	let missing_plugins: Vec<String> = symbolic
+		.middlewares
+		.iter()
+		.filter(|m| m.name.contains(':'))
+		.filter(|m| plugin_registry.as_ref().is_none_or(|reg| reg.get(m.name.as_ref()).is_none()))
+		.map(|m| m.name.as_ref().to_string())
+		.collect();
+	if !missing_plugins.is_empty() {
+		let mut unique = missing_plugins;
+		unique.sort();
+		unique.dedup();
+		return Err(
+			format!(
+				"refusing to start: rules reference unloaded wasm plugins: [{}]; \
+			 restart with the matching .wasm files present in {}",
+				unique.join(", "),
+				loaded.env.wasm_dir.display(),
+			)
+			.into(),
+		);
+	}
 
 	// L1 security floor: validate env floors, build daemon-scoped state.
 	let security_cfg = Arc::new(SecurityConfig::new(&loaded.env)?);
@@ -201,12 +248,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 	let mw_factories = Arc::new(build_middleware_factories());
 	let fetch_factories = Arc::new(build_fetch_factories());
-	let initial_graph = FlowGraph::link_with_security(
-		symbolic,
-		&mw_factories,
-		&fetch_factories,
-		Arc::clone(&security_cfg),
-	)?;
+	let initial_graph = match plugin_registry.as_ref() {
+		Some(reg) => FlowGraph::link_with_plugins(
+			symbolic,
+			&mw_factories,
+			reg,
+			&fetch_factories,
+			Arc::clone(&security_cfg),
+		)?,
+		None => FlowGraph::link_with_security(
+			symbolic,
+			&mw_factories,
+			&fetch_factories,
+			Arc::clone(&security_cfg),
+		)?,
+	};
 	let graph_swap: Arc<ArcSwap<FlowGraph>> = Arc::new(ArcSwap::new(initial_graph));
 	tracing::info!("linked flow graph");
 
@@ -310,11 +366,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		tracing_broadcast,
 		security_cfg: Arc::clone(&security_cfg),
 		shutdown_trigger: shutdown_trigger.clone(),
-		// TODO(wasm-mgmt-wiring): plumb the `WasmtimeRuntime` into
-		// `MgmtState` once the daemon instantiates one at boot. Until
-		// then `get_pools` returns an empty `wasm` list — CGI / TCP /
-		// QUIC pool data still flows through.
+		#[cfg(feature = "wasm")]
+		wasm_pool_stats: loaded_wasm
+			.as_ref()
+			.map(|lw| Arc::clone(&lw.runtime) as Arc<dyn vane_core::WasmPoolStats>),
+		#[cfg(not(feature = "wasm"))]
 		wasm_pool_stats: None,
+		plugin_registry: plugin_registry.clone(),
 	});
 	let mgmt_cancel = CancellationToken::new();
 	let mgmt_unix_handle = bind_mgmt_unix_server(Arc::clone(&mgmt_state), mgmt_cancel.clone()).await;

@@ -53,7 +53,7 @@ pub(crate) fn reload_once(
 	security_cfg: &Arc<SecurityConfig>,
 ) -> Result<ReloadOutcome, Error> {
 	let loaded = vane_core::config::load(config_dir)?;
-	let providers = MetadataProviders;
+	let providers = MetadataProviders::new();
 	let symbolic = compile(loaded.files, &providers, &providers)?;
 	let new_graph = FlowGraph::link_with_security(
 		symbolic,
@@ -119,7 +119,7 @@ mod tests {
 
 	fn initial_graph(dir: &Path) -> Arc<FlowGraph> {
 		let loaded = vane_core::config::load(dir).expect("initial load");
-		let providers = MetadataProviders;
+		let providers = MetadataProviders::new();
 		let symbolic =
 			vane_core::compile::compile(loaded.files, &providers, &providers).expect("initial compile");
 		let (mw, fetch) = build_factories();

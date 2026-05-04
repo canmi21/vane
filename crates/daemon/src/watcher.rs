@@ -295,7 +295,7 @@ mod tests {
 
 	fn initial_graph(dir: &std::path::Path) -> Arc<FlowGraph> {
 		let loaded = vane_core::config::load(dir).expect("load");
-		let providers = MetadataProviders;
+		let providers = MetadataProviders::new();
 		let symbolic =
 			vane_core::compile::compile(loaded.files, &providers, &providers).expect("compile");
 		let (mw, fetch) = build_factories();
