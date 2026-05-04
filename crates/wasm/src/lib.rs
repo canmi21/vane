@@ -21,10 +21,10 @@ use wasmtime::{Config, Engine, PoolingAllocationConfig, Store};
 use vane_core::middleware::MiddlewareKind;
 use vane_core::{
 	BytesView, ContextEntry, ContextValue, Error, Header, HttpFetchBackend, HttpFetchError,
-	HttpFetchLimits, HttpFetchRequest, L4BytesDecision, L4BytesInput, L4PeekDecision, L4PeekInput,
-	L7RequestDecision, L7RequestInput, L7ResponseDecision, L7ResponseInput, ModifiedResponse,
-	ModuleId, PluginError, PluginExport, PluginHttpPolicy, PluginMetadata, SynthResponse,
-	WasmPoolStats, WasmPoolSummary, WasmRuntime,
+	HttpFetchLimits, HttpFetchRequest, HttpFetchResponse, L4BytesDecision, L4BytesInput,
+	L4PeekDecision, L4PeekInput, L7RequestDecision, L7RequestInput, L7ResponseDecision,
+	L7ResponseInput, ModifiedResponse, ModuleId, PluginError, PluginExport, PluginHttpPolicy,
+	PluginMetadata, SynthResponse, WasmPoolStats, WasmPoolSummary, WasmRuntime,
 };
 
 // Generate host-side bindings from the WIT world. This produces:
@@ -219,8 +219,7 @@ impl vane::host::host::Host for HostState {
 			follow_redirects: req.follow_redirects,
 			verify_tls: req.verify_tls,
 		};
-		let limits = HttpFetchLimits::default();
-		match self.fetch_backend.fetch(vane_req, limits).await {
+		match http_fetch_core(self, vane_req).await? {
 			Ok(resp) => Ok(Ok(vane::host::host::HttpFetchResponse {
 				status: resp.status,
 				headers: resp.headers,
@@ -316,8 +315,7 @@ impl invoke_l4peek::vane::host::host::Host for HostState {
 			follow_redirects: req.follow_redirects,
 			verify_tls: req.verify_tls,
 		};
-		let limits = HttpFetchLimits::default();
-		match self.fetch_backend.fetch(vane_req, limits).await {
+		match http_fetch_core(self, vane_req).await? {
 			Ok(resp) => Ok(Ok(invoke_l4peek::vane::host::host::HttpFetchResponse {
 				status: resp.status,
 				headers: resp.headers,
@@ -413,8 +411,7 @@ impl invoke_l4bytes::vane::host::host::Host for HostState {
 			follow_redirects: req.follow_redirects,
 			verify_tls: req.verify_tls,
 		};
-		let limits = HttpFetchLimits::default();
-		match self.fetch_backend.fetch(vane_req, limits).await {
+		match http_fetch_core(self, vane_req).await? {
 			Ok(resp) => Ok(Ok(invoke_l4bytes::vane::host::host::HttpFetchResponse {
 				status: resp.status,
 				headers: resp.headers,
@@ -508,8 +505,7 @@ impl invoke_l7request::vane::host::host::Host for HostState {
 			follow_redirects: req.follow_redirects,
 			verify_tls: req.verify_tls,
 		};
-		let limits = HttpFetchLimits::default();
-		match self.fetch_backend.fetch(vane_req, limits).await {
+		match http_fetch_core(self, vane_req).await? {
 			Ok(resp) => Ok(Ok(invoke_l7request::vane::host::host::HttpFetchResponse {
 				status: resp.status,
 				headers: resp.headers,
@@ -603,8 +599,7 @@ impl invoke_l7response::vane::host::host::Host for HostState {
 			follow_redirects: req.follow_redirects,
 			verify_tls: req.verify_tls,
 		};
-		let limits = HttpFetchLimits::default();
-		match self.fetch_backend.fetch(vane_req, limits).await {
+		match http_fetch_core(self, vane_req).await? {
 			Ok(resp) => Ok(Ok(invoke_l7response::vane::host::host::HttpFetchResponse {
 				status: resp.status,
 				headers: resp.headers,
@@ -712,6 +707,98 @@ fn metric_gauge_core(
 	let value_f = value as f64;
 	metrics::gauge!("vane_plugin_metric_gauge", labels).set(value_f);
 	Ok(())
+}
+
+// ─── http-fetch host helpers ─────────────────────────────────────────────────
+
+/// Glob-style host match: `"*"` admits any host; `"*.suffix"` admits
+/// strict subdomains of `suffix` (host length must exceed the suffix
+/// length and the character preceding the suffix must be `.`); else
+/// exact case-sensitive equality. Hostnames here come from
+/// `url::Url::host_str`, which lowercases per RFC 3986.
+fn host_matches(pattern: &str, host: &str) -> bool {
+	if pattern == "*" {
+		return true;
+	}
+	if let Some(suffix) = pattern.strip_prefix("*.") {
+		if host.len() <= suffix.len() {
+			return false;
+		}
+		let pivot = host.len() - suffix.len();
+		let host_suffix = &host[pivot..];
+		let dot_before = host.as_bytes()[pivot - 1] == b'.';
+		return host_suffix == suffix && dot_before;
+	}
+	pattern == host
+}
+
+/// Core `http-fetch` body. Validates URL (RFC 3986 absolute, traps on
+/// fail), enforces operator-owned allowed-hosts list (`NotAllowed`
+/// when the host is absent), enforces the two-gate TLS check (per-call
+/// `verify_tls: false` rejected unless the operator's `allow_insecure`
+/// is `true`), resolves the three-level timeout / redirect / max-body
+/// fallback, and dispatches to the shared backend. Emits
+/// `vane_plugin_http_fetch_total` (count, status label) and
+/// `vane_plugin_http_fetch_duration_ms` (histogram) per call.
+async fn http_fetch_core(
+	state: &HostState,
+	req: HttpFetchRequest,
+) -> wasmtime::Result<Result<HttpFetchResponse, HttpFetchError>> {
+	// URL validation. Trap on malformed; `cannot_be_a_base` rejects
+	// schemes whose URL form is path-only (e.g. `data:`) — those
+	// don't make sense for outbound http-fetch.
+	let parsed = url::Url::parse(&req.url)
+		.map_err(|e| wasmtime::Error::msg(format!("invalid http-fetch url {:?}: {e}", req.url)))?;
+	if parsed.cannot_be_a_base() {
+		return Err(wasmtime::Error::msg(format!("http-fetch url {:?} is not absolute", req.url)));
+	}
+
+	// Allowed-hosts check.
+	let host = parsed.host_str().unwrap_or("");
+	let host_ok = state.policy.allowed_hosts.iter().any(|p| host_matches(p, host));
+	if !host_ok {
+		return Ok(Err(HttpFetchError::NotAllowed(format!("host {host:?} not in allowed_hosts"))));
+	}
+
+	// Two-gate TLS: per-call `verify_tls: false` is honoured only if
+	// the operator's policy explicitly sets `allow_insecure`.
+	if req.verify_tls == Some(false) && !state.policy.allow_insecure {
+		return Ok(Err(HttpFetchError::InsecureRejected));
+	}
+
+	// Three-level fallback: per-call → operator policy → daemon
+	// defaults baked into `PluginHttpPolicy::default`.
+	let timeout_ms = req.timeout_ms.unwrap_or(state.policy.default_timeout_ms);
+	let follow_redirects = req.follow_redirects.unwrap_or(state.policy.default_follow_redirects);
+	let limits = HttpFetchLimits {
+		max_body_bytes: u64::from(state.policy.max_body_size),
+		timeout_ms: Some(timeout_ms),
+		follow_redirects: Some(follow_redirects),
+		allow_insecure: state.policy.allow_insecure && req.verify_tls == Some(false),
+	};
+
+	let started = std::time::Instant::now();
+	let result = state.fetch_backend.fetch(req, limits).await;
+	let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+	let status_label = if result.is_ok() { "ok" } else { "err" };
+
+	let count_labels: Vec<metrics::Label> = vec![
+		metrics::Label::new("module_id", state.module_id.to_string()),
+		metrics::Label::new("metadata_name", state.metadata_name.to_string()),
+		metrics::Label::new("export", state.export_name.to_string()),
+		metrics::Label::new("status", status_label.to_string()),
+	];
+	metrics::counter!("vane_plugin_http_fetch_total", count_labels).increment(1);
+
+	let dur_labels: Vec<metrics::Label> = vec![
+		metrics::Label::new("module_id", state.module_id.to_string()),
+		metrics::Label::new("metadata_name", state.metadata_name.to_string()),
+	];
+	#[allow(clippy::cast_precision_loss, reason = "metrics histogram is f64-typed")]
+	let elapsed_f = elapsed_ms as f64;
+	metrics::histogram!("vane_plugin_http_fetch_duration_ms", dur_labels).record(elapsed_f);
+
+	Ok(result)
 }
 
 fn map_fetch_error(e: HttpFetchError) -> vane::host::host::NetError {
@@ -2511,6 +2598,111 @@ mod tests {
 		assert!(metric_gauge_core(&state, "a", 5, &[]).is_ok());
 		assert!(metric_gauge_core(&state, "b", 5, &[]).is_ok(), "over-cap is silent, not a trap");
 		assert_eq!(state.cardinality.series_count_for_test(&state.module_id), 1);
+	}
+
+	// ─── http-fetch host fn validation ──────────────────────────────────────────
+
+	#[test]
+	fn host_matches_universal_wildcard_admits_anything() {
+		assert!(host_matches("*", "example.com"));
+		assert!(host_matches("*", "127.0.0.1"));
+		assert!(host_matches("*", ""));
+	}
+
+	#[test]
+	fn host_matches_subdomain_pattern_admits_strict_subdomains() {
+		assert!(host_matches("*.example.com", "a.example.com"));
+		assert!(host_matches("*.example.com", "x.y.example.com"));
+		assert!(!host_matches("*.example.com", "example.com"), "bare suffix not admitted");
+		assert!(!host_matches("*.example.com", "evilexample.com"), "no dot before suffix");
+	}
+
+	#[test]
+	fn host_matches_exact_pattern_is_case_sensitive_eq() {
+		assert!(host_matches("api.internal", "api.internal"));
+		assert!(!host_matches("api.internal", "API.INTERNAL"));
+		assert!(!host_matches("api.internal", "other.internal"));
+	}
+
+	fn test_state_with_policy(policy: PluginHttpPolicy) -> HostState {
+		HostState::new(
+			String::new(),
+			mock_backend(),
+			Arc::from("/path/test.wasm"),
+			Arc::from("test-plugin"),
+			Arc::from("probe"),
+			Arc::new(policy),
+			Arc::new(CardinalityRegistry::with_cap(1000)),
+		)
+	}
+
+	fn fetch_request(url: &str, verify_tls: Option<bool>) -> HttpFetchRequest {
+		HttpFetchRequest {
+			method: "GET".to_string(),
+			url: url.to_string(),
+			headers: Vec::new(),
+			body: Vec::new(),
+			timeout_ms: None,
+			follow_redirects: None,
+			verify_tls,
+		}
+	}
+
+	#[tokio::test]
+	async fn http_fetch_core_traps_on_invalid_url() {
+		let state = test_state_with_policy(PluginHttpPolicy {
+			allowed_hosts: vec!["*".into()],
+			..PluginHttpPolicy::default()
+		});
+		let req = fetch_request("not-a-url", None);
+		let outcome = http_fetch_core(&state, req).await;
+		assert!(outcome.is_err(), "malformed URL must trap");
+	}
+
+	#[tokio::test]
+	async fn http_fetch_core_returns_not_allowed_outside_allowed_hosts() {
+		let state = test_state_with_policy(PluginHttpPolicy {
+			allowed_hosts: vec!["api.internal".into()],
+			..PluginHttpPolicy::default()
+		});
+		let req = fetch_request("https://example.com/", None);
+		let result = http_fetch_core(&state, req).await.expect("not a trap");
+		match result {
+			Err(HttpFetchError::NotAllowed(msg)) => {
+				assert!(msg.contains("example.com"), "msg names blocked host: {msg}");
+			}
+			other => panic!("expected NotAllowed, got {other:?}"),
+		}
+	}
+
+	#[tokio::test]
+	async fn http_fetch_core_rejects_insecure_when_policy_disallows() {
+		let state = test_state_with_policy(PluginHttpPolicy {
+			allowed_hosts: vec!["*".into()],
+			allow_insecure: false,
+			..PluginHttpPolicy::default()
+		});
+		let req = fetch_request("https://api.internal/", Some(false));
+		let result = http_fetch_core(&state, req).await.expect("not a trap");
+		assert!(matches!(result, Err(HttpFetchError::InsecureRejected)));
+	}
+
+	#[tokio::test]
+	async fn http_fetch_core_dispatches_when_host_and_tls_allowed() {
+		// MockFetch always errors with `Internal`; reaching it proves
+		// the gates passed and the backend was actually called. A
+		// `NotAllowed` / `InsecureRejected` here would mean a gate
+		// short-circuited.
+		let state = test_state_with_policy(PluginHttpPolicy {
+			allowed_hosts: vec!["*".into()],
+			..PluginHttpPolicy::default()
+		});
+		let req = fetch_request("https://api.internal/health", None);
+		let result = http_fetch_core(&state, req).await.expect("not a trap");
+		match result {
+			Err(HttpFetchError::Internal(_)) => {}
+			other => panic!("expected backend dispatch (Internal), got {other:?}"),
+		}
 	}
 
 	// ─── validate_status ────────────────────────────────────────────────────────

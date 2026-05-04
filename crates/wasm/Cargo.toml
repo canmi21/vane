@@ -25,6 +25,7 @@ rand = "0.10"
 sha2 = "0.11.0"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }
 tracing = "0.1"
+url = "2"
 vane-core = { workspace = true }
 wasmtime = { workspace = true }
 
