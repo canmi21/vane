@@ -187,6 +187,14 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 		}
 	};
 
+	// Apply each module's resolved policy onto the runtime so
+	// invoke_* calls see the operator-owned view at host-fn time.
+	for module in &modules {
+		let stem = module.path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+		let policy = Arc::new(policies.get_or_default(stem));
+		runtime.set_policy(&module.module_id, policy);
+	}
+
 	Some(LoadedWasm { runtime, registry: Arc::new(registry), policies: Arc::new(policies), modules })
 }
 

@@ -23,8 +23,8 @@ use vane_core::{
 	BytesView, ContextEntry, ContextValue, Error, Header, HttpFetchBackend, HttpFetchError,
 	HttpFetchLimits, HttpFetchRequest, L4BytesDecision, L4BytesInput, L4PeekDecision, L4PeekInput,
 	L7RequestDecision, L7RequestInput, L7ResponseDecision, L7ResponseInput, ModifiedResponse,
-	ModuleId, PluginError, PluginExport, PluginMetadata, SynthResponse, WasmPoolStats,
-	WasmPoolSummary, WasmRuntime,
+	ModuleId, PluginError, PluginExport, PluginHttpPolicy, PluginMetadata, SynthResponse,
+	WasmPoolStats, WasmPoolSummary, WasmRuntime,
 };
 
 // Generate host-side bindings from the WIT world. This produces:
@@ -85,6 +85,26 @@ mod invoke_l7response {
 struct HostState {
 	args: String,
 	fetch_backend: Arc<dyn HttpFetchBackend>,
+	/// Plugin identity. Surfaced to host fns as metric label / log
+	/// field so operator-side observability can distinguish emissions
+	/// across modules + exports.
+	#[allow(dead_code, reason = "consumed by metric / http-fetch host fns in the next commits")]
+	module_id: Arc<str>,
+	#[allow(dead_code, reason = "consumed by metric / http-fetch host fns in the next commits")]
+	metadata_name: Arc<str>,
+	#[allow(dead_code, reason = "consumed by metric / http-fetch host fns in the next commits")]
+	export_name: Arc<str>,
+	/// Operator-owned http-fetch policy snapshot. Cloned per-rental
+	/// from a single `Arc<PluginHttpPolicy>` so every host fn call
+	/// reads the same view; reload swaps the runtime, which rebuilds
+	/// every state with whatever the new policy table dictates.
+	#[allow(dead_code, reason = "consumed by metric / http-fetch host fns in the next commits")]
+	policy: Arc<PluginHttpPolicy>,
+	/// Shared cardinality registry for metric emissions. One per
+	/// `WasmtimeRuntime`; every plugin's host state holds the same
+	/// `Arc`.
+	#[allow(dead_code, reason = "consumed by metric host fn in the next commit")]
+	cardinality: Arc<CardinalityRegistry>,
 	/// Captures the last value returned by `get_args` during an invocation.
 	/// Used by `StatefulPoolHandle::last_args_received` in tests to verify
 	/// that the fixture plugin actually called host.get-args and received the
@@ -94,10 +114,24 @@ struct HostState {
 }
 
 impl HostState {
-	fn new(args: String, fetch_backend: Arc<dyn HttpFetchBackend>) -> Self {
+	#[allow(clippy::too_many_arguments, reason = "every field is a per-plugin context handle")]
+	fn new(
+		args: String,
+		fetch_backend: Arc<dyn HttpFetchBackend>,
+		module_id: Arc<str>,
+		metadata_name: Arc<str>,
+		export_name: Arc<str>,
+		policy: Arc<PluginHttpPolicy>,
+		cardinality: Arc<CardinalityRegistry>,
+	) -> Self {
 		Self {
 			args,
 			fetch_backend,
+			module_id,
+			metadata_name,
+			export_name,
+			policy,
+			cardinality,
 			#[cfg(test)]
 			args_received: None,
 		}
@@ -1080,6 +1114,14 @@ pub struct WasmtimeRuntime {
 	/// graph reload drops the last `Arc`, the weak entry naturally
 	/// invalidates and the next snapshot prunes it.
 	stateful_pools: RwLock<Vec<Weak<StatefulPoolHandle>>>,
+	/// Operator-owned http-fetch policy per loaded module. The
+	/// daemon registers an entry via [`WasmtimeRuntime::set_policy`]
+	/// after [`WasmtimeRuntime::load_component`]; lookups during
+	/// `invoke_*` fall back to [`PluginHttpPolicy::default`]
+	/// (deny-all) when no operator policy is registered.
+	policies: RwLock<HashMap<String, Arc<PluginHttpPolicy>>>,
+	/// Shared metric cardinality registry — see [`CardinalityRegistry`].
+	cardinality: Arc<CardinalityRegistry>,
 }
 
 impl Drop for WasmtimeRuntime {
@@ -1164,7 +1206,60 @@ impl WasmtimeRuntime {
 			metadata: RwLock::new(HashMap::new()),
 			stateless_pools: RwLock::new(HashMap::new()),
 			stateful_pools: RwLock::new(Vec::new()),
+			policies: RwLock::new(HashMap::new()),
+			cardinality: Arc::new(CardinalityRegistry::from_env()),
 		}))
+	}
+
+	/// Register the operator-owned policy for a loaded module. The
+	/// daemon's wasm loader resolves a [`PluginHttpPolicy`] per file
+	/// stem at boot and calls this once per module before the first
+	/// `invoke_*` runs. Calling without prior registration is fine —
+	/// `invoke_*` falls back to [`PluginHttpPolicy::default`].
+	///
+	/// # Panics
+	/// Panics if the internal `policies` `RwLock` is poisoned.
+	pub fn set_policy(&self, module_id: &ModuleId, policy: Arc<PluginHttpPolicy>) {
+		self.policies.write().unwrap().insert(module_id.0.as_ref().to_owned(), policy);
+	}
+
+	fn policy_for(&self, module_id: &str) -> Arc<PluginHttpPolicy> {
+		self
+			.policies
+			.read()
+			.unwrap()
+			.get(module_id)
+			.cloned()
+			.unwrap_or_else(|| Arc::new(PluginHttpPolicy::default()))
+	}
+
+	fn metadata_name_for(&self, module_id: &str) -> Arc<str> {
+		self
+			.metadata
+			.read()
+			.unwrap()
+			.get(module_id)
+			.map_or_else(|| Arc::from(""), |m| Arc::from(m.name.as_str()))
+	}
+
+	/// Build a [`HostState`] for one invocation. Collects the
+	/// per-module metadata + policy + shared cardinality registry +
+	/// fetch backend from runtime state.
+	fn build_host_state(
+		&self,
+		args_json: String,
+		module_id_str: &str,
+		export_name: &str,
+	) -> HostState {
+		HostState::new(
+			args_json,
+			Arc::clone(&self.fetch_backend),
+			Arc::from(module_id_str),
+			self.metadata_name_for(module_id_str),
+			Arc::from(export_name),
+			self.policy_for(module_id_str),
+			Arc::clone(&self.cardinality),
+		)
 	}
 
 	/// Pre-allocate a fixed-size pool of warm stateful instances for the named export.
@@ -1207,7 +1302,7 @@ impl WasmtimeRuntime {
 
 		let mut instances = Vec::with_capacity(pool_size);
 		for _ in 0..pool_size {
-			let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
+			let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 			let mut store = Store::new(&self.engine, host_state);
 			store.set_epoch_deadline(1000);
 			let plugin =
@@ -1328,7 +1423,13 @@ impl WasmRuntime for WasmtimeRuntime {
 		let cwasm_path = std::path::PathBuf::from(CWASM_CACHE_DIR).join(format!("{hash}.cwasm"));
 
 		let component = load_or_compile(&self.engine, path, &cwasm_path, &bytes)?;
-		let meta = get_metadata(&self.engine, &component, Arc::clone(&self.fetch_backend)).await?;
+		let meta = get_metadata(
+			&self.engine,
+			&component,
+			Arc::clone(&self.fetch_backend),
+			Arc::clone(&self.cardinality),
+		)
+		.await?;
 		validate_handler_exports(&self.engine, &component, &meta.exports)?;
 
 		let key = path.to_string_lossy().into_owned();
@@ -1388,7 +1489,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-		let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
+		let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 		let mut store = Store::new(&self.engine, host_state);
 		store.set_epoch_deadline(10);
 
@@ -1464,7 +1565,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-		let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
+		let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 		let mut store = Store::new(&self.engine, host_state);
 		store.set_epoch_deadline(10);
 
@@ -1540,7 +1641,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-		let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
+		let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 		let mut store = Store::new(&self.engine, host_state);
 		store.set_epoch_deadline(10);
 
@@ -1616,7 +1717,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-		let host_state = HostState::new(args_json.to_owned(), Arc::clone(&self.fetch_backend));
+		let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 		let mut store = Store::new(&self.engine, host_state);
 		store.set_epoch_deadline(10);
 
@@ -1711,12 +1812,27 @@ async fn get_metadata(
 	engine: &Engine,
 	component: &Component,
 	fetch_backend: Arc<dyn HttpFetchBackend>,
+	cardinality: Arc<CardinalityRegistry>,
 ) -> Result<Arc<PluginMetadata>, Error> {
 	let mut linker = Linker::<HostState>::new(engine);
 	Plugin::add_to_linker::<HostState, HasSelf<HostState>>(&mut linker, |x| x)
 		.map_err(|e| Error::internal(format!("linker setup: {e}")))?;
 
-	let host_state = HostState::new(String::new(), fetch_backend);
+	// Bootstrap host state for the metadata round-trip — the
+	// component's `get-metadata` host call only touches `args` /
+	// `log` / `now-unix-ms` / `random`. Plugin identity is empty
+	// (we don't yet know `metadata.name`), policy is the safe
+	// default (deny-all), cardinality registry is shared so any
+	// stray emit during metadata parse counts against the same cap.
+	let host_state = HostState::new(
+		String::new(),
+		fetch_backend,
+		Arc::from(""),
+		Arc::from(""),
+		Arc::from(""),
+		Arc::new(PluginHttpPolicy::default()),
+		cardinality,
+	);
 	let mut store = Store::new(engine, host_state);
 	// Allow up to 1000 ticks (≈1 s at 1 ms interval) for metadata loading.
 	store.set_epoch_deadline(1000);
@@ -2065,7 +2181,7 @@ mod tests {
 		// Both stores stay alive through the subsequent invocation attempt,
 		// which must trap because no component-instance slot is available.
 		let mut store_a =
-			Store::new(&rt.engine, HostState::new("{}".to_owned(), Arc::clone(&rt.fetch_backend)));
+			Store::new(&rt.engine, rt.build_host_state("{}".to_owned(), "test-fixture", "probe"));
 		store_a.set_epoch_deadline(10);
 		let plugin_a = invoke_l4peek::PluginL4PeekInvoke::instantiate_async(
 			&mut store_a,
@@ -2076,7 +2192,7 @@ mod tests {
 		.expect("first rental must succeed");
 
 		let mut store_b =
-			Store::new(&rt.engine, HostState::new("{}".to_owned(), Arc::clone(&rt.fetch_backend)));
+			Store::new(&rt.engine, rt.build_host_state("{}".to_owned(), "test-fixture", "probe"));
 		store_b.set_epoch_deadline(10);
 		let plugin_b = invoke_l4peek::PluginL4PeekInvoke::instantiate_async(
 			&mut store_b,
@@ -2208,7 +2324,15 @@ mod tests {
 	#[tokio::test]
 	async fn host_get_args_returns_bound_args_to_plugin() {
 		let args = r#"{"mode":"test"}"#;
-		let mut state = HostState::new(args.to_owned(), mock_backend());
+		let mut state = HostState::new(
+			args.to_owned(),
+			mock_backend(),
+			Arc::from("/test"),
+			Arc::from("test-plugin"),
+			Arc::from("probe"),
+			Arc::new(PluginHttpPolicy::default()),
+			Arc::new(CardinalityRegistry::with_cap(1000)),
+		);
 
 		let received = invoke_l4peek::vane::host::host::Host::get_args(&mut state).await.unwrap();
 		assert_eq!(received, args, "get-args must return the bound args string");
