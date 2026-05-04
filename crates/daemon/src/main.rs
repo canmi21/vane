@@ -194,6 +194,26 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	#[cfg(not(feature = "wasm"))]
 	let plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>> = None;
 
+	// Boot ref-check (must run *before* compile): walk the raw rule
+	// JSON for every `<module>:<export>` plugin reference and refuse
+	// to start when any of them is missing from `plugin_registry`.
+	// Compile would otherwise fail with the first single "unknown
+	// middleware" error; the curated list this produces gives the
+	// operator the full fix list at once, and runs even when rule
+	// shape would otherwise blow up downstream phase checks.
+	let missing_plugins = collect_missing_plugin_refs(&loaded.files, plugin_registry.as_ref());
+	if !missing_plugins.is_empty() {
+		return Err(
+			format!(
+				"refusing to start: rules reference unloaded wasm plugins: [{}]; \
+			 restart with the matching .wasm files present in {}",
+				missing_plugins.join(", "),
+				loaded.env.wasm_dir.display(),
+			)
+			.into(),
+		);
+	}
+
 	let providers = match plugin_registry.as_ref() {
 		#[cfg(feature = "wasm")]
 		Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
@@ -209,32 +229,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		fetches = symbolic.fetches.len(),
 		"compiled symbolic flow graph",
 	);
-
-	// Boot ref-check: any rule referencing a plugin name (contains
-	// `:`) that the registry can't resolve is a hard refusal — restart
-	// once the operator has dropped the matching `.wasm` files into
-	// `wasm_dir`.
-	let missing_plugins: Vec<String> = symbolic
-		.middlewares
-		.iter()
-		.filter(|m| m.name.contains(':'))
-		.filter(|m| plugin_registry.as_ref().is_none_or(|reg| reg.get(m.name.as_ref()).is_none()))
-		.map(|m| m.name.as_ref().to_string())
-		.collect();
-	if !missing_plugins.is_empty() {
-		let mut unique = missing_plugins;
-		unique.sort();
-		unique.dedup();
-		return Err(
-			format!(
-				"refusing to start: rules reference unloaded wasm plugins: [{}]; \
-			 restart with the matching .wasm files present in {}",
-				unique.join(", "),
-				loaded.env.wasm_dir.display(),
-			)
-			.into(),
-		);
-	}
 
 	// L1 security floor: validate env floors, build daemon-scoped state.
 	let security_cfg = Arc::new(SecurityConfig::new(&loaded.env)?);
@@ -651,4 +645,50 @@ async fn wait_for_shutdown_signal(
 	}
 	listeners.shutdown(drain).await;
 	tracing::info!("vaned exited cleanly");
+}
+
+/// Walk every rule file's raw JSON for `<module>:<export>` strings
+/// in `use:` slots, return the sorted, deduplicated set of plugin
+/// names that the supplied `plugin_registry` cannot resolve.
+///
+/// Native middleware names are pure ASCII identifiers and never
+/// contain `:`, so the colon split is unambiguous. The walk visits
+/// every nested object / array so plugin references buried under
+/// preset-specific shapes are caught regardless of where the rule
+/// schema places them.
+fn collect_missing_plugin_refs(
+	files: &[vane_core::compile::RawRuleFile],
+	plugin_registry: Option<&Arc<vane_engine::flow_graph::PluginRegistry>>,
+) -> Vec<String> {
+	use serde_json::Value;
+	let mut refs: Vec<String> = Vec::new();
+	for file in files {
+		let v = serde_json::to_value(file).unwrap_or(Value::Null);
+		walk_for_plugin_uses(&v, &mut refs);
+	}
+	refs.retain(|name| plugin_registry.is_none_or(|reg| reg.get(name).is_none()));
+	refs.sort();
+	refs.dedup();
+	refs
+}
+
+fn walk_for_plugin_uses(v: &serde_json::Value, out: &mut Vec<String>) {
+	match v {
+		serde_json::Value::Object(map) => {
+			if let Some(serde_json::Value::String(s)) = map.get("use")
+				&& s.contains(':')
+			{
+				out.push(s.clone());
+			}
+			for child in map.values() {
+				walk_for_plugin_uses(child, out);
+			}
+		}
+		serde_json::Value::Array(arr) => {
+			for child in arr {
+				walk_for_plugin_uses(child, out);
+			}
+		}
+		_ => {}
+	}
 }
