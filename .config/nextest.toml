@@ -34,9 +34,14 @@ setup = ["build-vane-cli"]
 # to wall-clock for `cargo nextest run --workspace`; reload tests
 # themselves get a hard 10 s ceiling inside the test (see
 # `crates/daemon/tests/reload.rs::RELOAD_BUDGET`).
+#
+# `wasm_e2e` joins the same group: each test there also spawns a
+# real `vaned` process for the boot-scan/refusal scenarios, and the
+# extra parallel daemon boots were measurably destabilising the
+# reload binary's port-bind deadlines.
 [test-groups]
 reload-serial = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = "binary(reload)"
+filter = "binary(reload) | binary(wasm_e2e)"
 test-group = "reload-serial"
