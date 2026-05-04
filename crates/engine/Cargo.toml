@@ -62,6 +62,9 @@ tokio-util = "0.7.18"
 tower-service = "0.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry"] }
+# Used by `wasm_fetch` to resolve relative `Location` headers when
+# following redirects. `hyper`'s `Uri` lacks a base-relative join.
+url = "2"
 vane-core = { workspace = true }
 x509-parser = "0.18"
 

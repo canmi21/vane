@@ -3458,6 +3458,7 @@ dependencies = [
  "tower-service",
  "tracing",
  "tracing-subscriber",
+ "url",
  "vane-core",
  "vane-testutil",
  "x509-parser",
