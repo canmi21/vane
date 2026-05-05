@@ -14,8 +14,12 @@
 //! production should leave it `false`. See
 //! `spec/architecture/08-tls.md` § _TLS library: rustls only_.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::sign::CertifiedKey;
+use sha2::Digest as _;
 use tokio::net::TcpStream;
 use vane_core::{AsyncReadWrite, Error, UpstreamReason};
 
@@ -51,6 +55,11 @@ pub struct UpstreamTls {
 	/// The bytes themselves live in the cache, not here. Empty when no
 	/// CRL sources are configured (the common case).
 	pub crls: Vec<(CrlSourceId, CrlFetchFailure)>,
+	/// Optional client certificate for upstream mTLS. Spec § _mTLS on
+	/// upstream_ — `Arc<CertifiedKey>` is the daemon-wide sharing
+	/// primitive (rustls' `CertifiedKey` is intentionally not `Clone`).
+	/// `None` is the common one-way TLS path.
+	pub client_cert: Option<Arc<CertifiedKey>>,
 }
 
 /// Dial `upstream` and optionally complete a TLS handshake using the
@@ -121,7 +130,7 @@ pub async fn dial_upstream(
 /// (compile/link errors prefer the lighter-weight shape over a full
 /// `Error`).
 pub fn build_client_config(insecure: bool) -> Result<Arc<rustls::ClientConfig>, String> {
-	build_client_config_with_crls(insecure, None, &[])
+	build_client_config_with_crls(insecure, None, &[], None)
 }
 
 /// Like [`build_client_config`] but installs a refreshable
@@ -142,19 +151,19 @@ pub fn build_client_config_with_crls(
 	insecure: bool,
 	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
 	crls: &[(CrlSourceId, CrlFetchFailure)],
+	client_cert: Option<&Arc<CertifiedKey>>,
 ) -> Result<Arc<rustls::ClientConfig>, String> {
 	if insecure {
-		let cfg = rustls::ClientConfig::builder()
+		let builder = rustls::ClientConfig::builder()
 			.dangerous()
-			.with_custom_certificate_verifier(Arc::new(NoVerify))
-			.with_no_client_auth();
-		return Ok(Arc::new(cfg));
+			.with_custom_certificate_verifier(Arc::new(NoVerify));
+		return Ok(Arc::new(finish_client_auth(builder, client_cert)));
 	}
 
 	let roots = crate::tls::native_roots().map_err(|e| e.message)?;
 	if crls.is_empty() {
-		let cfg = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
-		return Ok(Arc::new(cfg));
+		let builder = rustls::ClientConfig::builder().with_root_certificates(roots);
+		return Ok(Arc::new(finish_client_auth(builder, client_cert)));
 	}
 
 	let cache = crl_cache
@@ -162,11 +171,23 @@ pub fn build_client_config_with_crls(
 		.ok_or_else(|| "upstream tls.crls configured but daemon CrlCache not provided".to_string())?;
 	let sources: Vec<CrlSourceId> = crls.iter().map(|(id, _)| id.clone()).collect();
 	let verifier = crate::tls::RefreshableServerCertVerifier::new(cache, sources, roots);
-	let cfg = rustls::ClientConfig::builder()
-		.dangerous()
-		.with_custom_certificate_verifier(verifier)
-		.with_no_client_auth();
-	Ok(Arc::new(cfg))
+	let builder =
+		rustls::ClientConfig::builder().dangerous().with_custom_certificate_verifier(verifier);
+	Ok(Arc::new(finish_client_auth(builder, client_cert)))
+}
+
+fn finish_client_auth(
+	builder: rustls::ConfigBuilder<rustls::ClientConfig, rustls::client::WantsClientCert>,
+	client_cert: Option<&Arc<CertifiedKey>>,
+) -> rustls::ClientConfig {
+	match client_cert {
+		Some(ck) => {
+			let resolver: Arc<dyn rustls::client::ResolvesClientCert> =
+				Arc::new(rustls::sign::SingleCertAndKey::from(Arc::clone(ck)));
+			builder.with_client_cert_resolver(resolver)
+		}
+		None => builder.with_no_client_auth(),
+	}
 }
 
 /// `ServerCertVerifier` that accepts any certificate. **Testing only.**
@@ -247,12 +268,14 @@ pub fn parse_tls_args(
 	let insecure =
 		tls_args.get("insecure_skip_verify").and_then(serde_json::Value::as_bool).unwrap_or(false);
 	let crls = parse_crls(tls_args.get("crls"))?;
-	let client_config = build_client_config_with_crls(insecure, crl_cache, &crls)
-		.map_err(|e| format!("build tls client config: {e}"))?;
+	let client_cert = parse_client_cert(tls_args.get("client_cert"))?;
+	let client_config =
+		build_client_config_with_crls(insecure, crl_cache, &crls, client_cert.as_ref())
+			.map_err(|e| format!("build tls client config: {e}"))?;
 	// Fingerprint with `alpn_protocols` left empty — the factory
 	// patches it once `version` is known. CRL slots are populated from
-	// the parsed source list above; mTLS client_cert stays at its
-	// post-MVP placeholder.
+	// the parsed source list; client_cert_hash is SHA-256 of the leaf
+	// cert DER when upstream mTLS is on.
 	let crl_sources: Vec<CrlSource> = crls
 		.iter()
 		.map(|(id, _)| match id {
@@ -262,12 +285,75 @@ pub fn parse_tls_args(
 		.collect();
 	let fingerprint = TlsConfigFingerprint {
 		root_ca: if insecure { RootCaSource::Skip } else { RootCaSource::System },
-		client_cert_hash: None,
+		client_cert_hash: client_cert.as_ref().map(|ck| client_cert_fingerprint(ck)),
 		crl_sources,
 		verify_mode: if insecure { VerifyMode::Skip } else { VerifyMode::Full },
 		alpn_protocols: Vec::new(),
 	};
-	Ok(Some(UpstreamTls { client_config, verify_hostname, fingerprint, crls }))
+	Ok(Some(UpstreamTls { client_config, verify_hostname, fingerprint, crls, client_cert }))
+}
+
+/// SHA-256 of the leaf certificate DER. Used as the
+/// `client_cert_hash` slot on `TlsConfigFingerprint` so two rules
+/// loading the same upstream cert (and key) share one
+/// `Arc<ClientConfig>`; rotating the cert produces a new `Arc` and
+/// therefore a new pool entry.
+fn client_cert_fingerprint(ck: &CertifiedKey) -> [u8; 32] {
+	let mut hasher = sha2::Sha256::new();
+	if let Some(leaf) = ck.cert.first() {
+		hasher.update(leaf.as_ref());
+	}
+	hasher.finalize().into()
+}
+
+/// Parse `args.tls.client_cert` into an [`Arc<CertifiedKey>`]. Both
+/// `cert_path` and `key_path` are required when the object is
+/// present; either being absent is a rule-level compile error
+/// (spec § _mTLS on upstream_).
+fn parse_client_cert(
+	value: Option<&serde_json::Value>,
+) -> Result<Option<Arc<CertifiedKey>>, String> {
+	let Some(obj) = value else {
+		return Ok(None);
+	};
+	let cert_path = obj
+		.get("cert_path")
+		.and_then(serde_json::Value::as_str)
+		.ok_or_else(|| "tls.client_cert.cert_path missing".to_string())?;
+	let key_path = obj
+		.get("key_path")
+		.and_then(serde_json::Value::as_str)
+		.ok_or_else(|| "tls.client_cert.key_path missing".to_string())?;
+	load_certified_key(&PathBuf::from(cert_path), &PathBuf::from(key_path))
+		.map(Some)
+		.map_err(|e| format!("tls.client_cert: {e}"))
+}
+
+fn load_certified_key(
+	cert_path: &std::path::Path,
+	key_path: &std::path::Path,
+) -> Result<Arc<CertifiedKey>, String> {
+	let cert_bytes =
+		std::fs::read(cert_path).map_err(|e| format!("read cert_path {}: {e}", cert_path.display()))?;
+	let key_bytes =
+		std::fs::read(key_path).map_err(|e| format!("read key_path {}: {e}", key_path.display()))?;
+	let mut cert_reader = std::io::BufReader::new(cert_bytes.as_slice());
+	let mut chain: Vec<CertificateDer<'static>> = Vec::new();
+	for der in rustls_pemfile::certs(&mut cert_reader) {
+		chain.push(der.map_err(|e| format!("parse cert_path: {e}"))?);
+	}
+	if chain.is_empty() {
+		return Err(format!("cert_path {} has no certs", cert_path.display()));
+	}
+	let key_der: PrivateKeyDer<'static> =
+		rustls_pemfile::private_key(&mut std::io::BufReader::new(key_bytes.as_slice()))
+			.map_err(|e| format!("parse key_path: {e}"))?
+			.ok_or_else(|| format!("key_path {} has no private key", key_path.display()))?;
+	let provider = rustls::crypto::CryptoProvider::get_default()
+		.ok_or_else(|| "rustls crypto provider not installed".to_string())?;
+	let ck = CertifiedKey::from_der(chain, key_der, provider)
+		.map_err(|e| format!("CertifiedKey::from_der: {e}"))?;
+	Ok(Arc::new(ck))
 }
 
 fn parse_crls(

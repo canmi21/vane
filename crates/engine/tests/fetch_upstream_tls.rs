@@ -61,6 +61,7 @@ fn skip_verify_tls() -> UpstreamTls {
 		verify_hostname: "localhost".to_string(),
 		fingerprint,
 		crls: Vec::new(),
+		client_cert: None,
 	}
 }
 

@@ -170,14 +170,14 @@ async fn dial_new(
 	sni: &str,
 	rustls_cfg: Arc<rustls::ClientConfig>,
 ) -> Result<Arc<QuicPoolEntry>, Error> {
-	// TODO(s3-12-followup): wire upstream client_cert into quinn ClientConfig
-	// (the `client_cert_hash` slot on `TlsConfigFingerprint` is reserved
-	// for this; at present `parse_tls_args` always leaves it `None` and
-	// the rustls config has no client cert configured).
-
 	// `quinn::crypto::rustls::QuicClientConfig::try_from` consumes the
 	// rustls config — clone the inner so the cached `Arc` stays alive
-	// for sibling dials.
+	// for sibling dials. Upstream mTLS rides on the rustls
+	// `client_auth_cert_resolver` already installed by
+	// `build_client_config_with_crls`; quinn carries the entire rustls
+	// `ClientConfig` through (`QuicClientConfig` wraps `Arc<ClientConfig>`
+	// in `quinn-proto`'s `TryFrom`), so no additional QUIC-side wiring
+	// is required.
 	let inner_rustls: rustls::ClientConfig = (*rustls_cfg).clone();
 	let quic_crypto =
 		quinn::crypto::rustls::QuicClientConfig::try_from(inner_rustls).map_err(|e| {
