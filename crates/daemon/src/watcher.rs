@@ -10,6 +10,22 @@
 //! `spec/architecture/09-config.md` § _Watched events_) coalesces to a
 //! single `()` send. Metadata-only / access / unknown events are
 //! filtered out so reload CPU is spent only on real config changes.
+//!
+//! ## Two-phase startup
+//!
+//! Initial subscription to `FSEvents` must complete **before** the
+//! daemon's listeners become reachable on their bound ports — once
+//! the public surface is up, the operator can drop a new rule file in
+//! `<config_dir>/rules/` and rightly expects it to take effect. If
+//! we subscribed late (after listeners.start), that drop's fs event
+//! could fire in the gap and be lost (`FSEvents` on macOS does not
+//! replay events for files that already exist at subscription time).
+//!
+//! [`arm_watcher_subscription`] runs the `new_debouncer` +
+//! `debouncer.watch()` synchronous half early, BEFORE listener bind.
+//! Returned events queue into an unbounded mpsc that
+//! [`spawn_watcher_handler`] drains later, after the daemon is fully
+//! initialised — including when a watched event lands during the gap.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,7 +34,9 @@ use std::time::Duration;
 use arc_swap::ArcSwap;
 use notify::RecursiveMode;
 use notify::event::{EventKind, ModifyKind};
-use notify_debouncer_full::{DebounceEventResult, DebouncedEvent, new_debouncer};
+use notify_debouncer_full::{
+	DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache, new_debouncer,
+};
 use tokio_util::sync::CancellationToken;
 use vane_core::FlowLogSink;
 use vane_engine::ListenerSet;
@@ -29,43 +47,37 @@ use vane_engine::flow_graph::FlowGraph;
 
 use crate::reload::{ReloadOutcome, reload_once};
 
+/// Concrete debouncer type; the platform-recommended watcher backend
+/// (`FSEvents` on macOS, inotify on Linux) plus the recommended cache.
+type WatchHandle = Debouncer<notify::RecommendedWatcher, RecommendedCache>;
+
+/// Active `FSEvents` subscription with its companion mpsc receiver.
+/// Held by the caller across the listener-bind window so events
+/// landing in the gap are queued, not lost.
+pub(crate) struct WatcherSubscription {
+	debouncer: WatchHandle,
+	rx: tokio::sync::mpsc::UnboundedReceiver<()>,
+	config_dir: PathBuf,
+}
+
 /// Window over which fs events are coalesced before triggering a
 /// reload. 250ms matches `spec/architecture/09-config.md` § _Reload_.
 const DEBOUNCE_MS: u64 = 250;
 
-/// Spawn a tokio task that watches `config_dir` recursively. Each
-/// debounced batch of fs events triggers one [`reload_once`] call.
-/// Cancel the supplied [`CancellationToken`] to stop the watcher
-/// cleanly; the task drops the underlying `notify::Watcher` and
-/// returns.
+/// Phase 1 — build the debouncer and subscribe to `FSEvents`
+/// synchronously. Must be called **before** `ListenerSet::start` so
+/// the subscription is live by the time the daemon's bound ports are
+/// reachable; events landing in the gap before the handler task
+/// drains them queue into the unbounded mpsc.
 ///
 /// # Errors
-/// Returns `notify::Error` when initial watcher / debouncer
-/// construction fails (typically permission-denied at the directory
-/// level). The daemon logs and continues without auto-reload — there's
-/// no useful retry; the operator has to fix the underlying problem
-/// before a daemon restart picks up the watcher again.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn spawn_watcher(
+/// Propagates `notify::Error` from the underlying watcher backend
+/// (typically permission-denied on the directory).
+pub(crate) fn arm_watcher_subscription(
 	config_dir: PathBuf,
-	graph: Arc<ArcSwap<FlowGraph>>,
-	listeners: Arc<ListenerSet>,
-	verbosity: Arc<VerbosityState>,
-	log_sink: Arc<dyn FlowLogSink>,
-	mw_factories: Arc<MiddlewareFactories>,
-	fetch_factories: Arc<FetchFactories>,
-	security_cfg: Arc<SecurityConfig>,
-	plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>>,
-	cancel: CancellationToken,
-) -> Result<tokio::task::JoinHandle<()>, notify::Error> {
-	let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+) -> Result<WatcherSubscription, notify::Error> {
+	let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
-	// Build the debouncer in the calling thread so any setup error
-	// surfaces synchronously to the caller. The Debouncer's internal
-	// thread + RecommendedWatcher run in the background; we hold the
-	// Debouncer in the spawned tokio task to keep them alive for the
-	// task's lifetime.
-	//
 	// Canonicalize the watch root so `starts_with` in the event filter
 	// matches what notify reports. macOS's FSEvents returns paths under
 	// `/private/var/folders/...` while a `tempfile::tempdir()` may give
@@ -83,7 +95,28 @@ pub(crate) fn spawn_watcher(
 		})?;
 	debouncer.watch(&config_dir, RecursiveMode::Recursive)?;
 
-	let handle = tokio::spawn(async move {
+	Ok(WatcherSubscription { debouncer, rx, config_dir })
+}
+
+/// Phase 2 — spawn the tokio task that drains queued reload signals
+/// into [`reload_once`] + `ListenerSet::reconcile`. Consumes the
+/// subscription returned by [`arm_watcher_subscription`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_watcher_handler(
+	sub: WatcherSubscription,
+	graph: Arc<ArcSwap<FlowGraph>>,
+	listeners: Arc<ListenerSet>,
+	verbosity: Arc<VerbosityState>,
+	log_sink: Arc<dyn FlowLogSink>,
+	mw_factories: Arc<MiddlewareFactories>,
+	fetch_factories: Arc<FetchFactories>,
+	security_cfg: Arc<SecurityConfig>,
+	plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>>,
+	cancel: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+	let WatcherSubscription { debouncer, mut rx, config_dir } = sub;
+
+	tokio::spawn(async move {
 		// `_debouncer` is held here so the underlying RecommendedWatcher
 		// and its internal thread stay alive for the task's lifetime.
 		// Dropping the binding stops watching.
@@ -133,9 +166,7 @@ pub(crate) fn spawn_watcher(
 				}
 			}
 		}
-	});
-
-	Ok(handle)
+	})
 }
 
 fn hex32(bytes: &[u8; 32]) -> String {
@@ -338,8 +369,9 @@ mod tests {
 		let cancel = CancellationToken::new();
 		let (listeners, verbosity, sink) = watcher_extras();
 
-		let _handle = spawn_watcher(
-			tmp.path().to_path_buf(),
+		let sub = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
+		let _handle = spawn_watcher_handler(
+			sub,
 			Arc::clone(&swap),
 			listeners,
 			verbosity,
@@ -349,8 +381,7 @@ mod tests {
 			Arc::new(SecurityConfig::default()),
 			None,
 			cancel.clone(),
-		)
-		.expect("watcher init");
+		);
 
 		// Give notify a moment to register on the path before mutating.
 		tokio::time::sleep(Duration::from_millis(200)).await;
@@ -383,8 +414,9 @@ mod tests {
 		let cancel = CancellationToken::new();
 		let (listeners, verbosity, sink) = watcher_extras();
 
-		let handle = spawn_watcher(
-			tmp.path().to_path_buf(),
+		let sub = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
+		let handle = spawn_watcher_handler(
+			sub,
 			swap,
 			listeners,
 			verbosity,
@@ -394,8 +426,7 @@ mod tests {
 			Arc::new(SecurityConfig::default()),
 			None,
 			cancel.clone(),
-		)
-		.expect("watcher init");
+		);
 
 		cancel.cancel();
 		// Watcher task should join within 1s after cancellation.

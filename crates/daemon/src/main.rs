@@ -50,7 +50,7 @@ use vane_engine::{BindConfig, ListenerSet, SecurityConfig, SecurityState};
 
 use crate::mgmt_handlers::MgmtState;
 use crate::providers::MetadataProviders;
-use crate::watcher::spawn_watcher;
+use crate::watcher::{arm_watcher_subscription, spawn_watcher_handler};
 
 const FEATURES: &[&str] = &[
 	#[cfg(feature = "aws-lc-rs")]
@@ -301,6 +301,25 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		Arc::clone(&security),
 		BindConfig::from(&loaded.env),
 	));
+
+	// Phase 1 of file-watcher startup: build the FSEvents subscription
+	// BEFORE calling `listeners.start`. Once a listener is reachable on
+	// its bound port the operator can drop a new rule file and rightly
+	// expect it to take effect; if the watcher subscribed late, that
+	// drop's fs event would fire in the gap and be lost (FSEvents on
+	// macOS does not replay events that pre-date subscription). The
+	// debouncer's mpsc channel is unbounded — events queued before the
+	// handler task spawns just sit there until phase 2 drains them.
+	// Init failure (typically permission-denied at the directory) is
+	// logged and the daemon proceeds without auto-reload.
+	let watcher_sub = match arm_watcher_subscription(args.config_dir.clone()) {
+		Ok(s) => Some(s),
+		Err(e) => {
+			tracing::warn!(error = %e, "file watcher disabled — auto-reload unavailable");
+			None
+		}
+	};
+
 	listeners.start(Arc::clone(&graph_swap), Arc::clone(&verbosity), Arc::clone(&sink));
 	tracing::info!(active = listeners.len(), "listeners started");
 
@@ -337,30 +356,30 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		);
 	}
 
-	// File watcher: best-effort. Init failure is logged and the daemon
-	// continues without auto-reload — operators relying on watcher-driven
-	// reload have to fix the underlying problem and restart.
+	// Phase 2 of file-watcher startup: spawn the handler task that
+	// drains queued reload signals. Subscription was armed before
+	// listeners.start (above) so any event landing in the bind window
+	// is already queued in the unbounded mpsc; this task picks them
+	// up immediately on first poll.
 	let watcher_cancel = CancellationToken::new();
-	let watcher_handle = match spawn_watcher(
-		args.config_dir.clone(),
-		Arc::clone(&graph_swap),
-		Arc::clone(&listeners),
-		Arc::clone(&verbosity),
-		Arc::clone(&sink),
-		Arc::clone(&mw_factories),
-		Arc::clone(&fetch_factories),
-		Arc::clone(&security_cfg),
-		plugin_registry.clone(),
-		watcher_cancel.clone(),
-	) {
-		Ok(h) => {
+	let watcher_handle = match watcher_sub {
+		Some(sub) => {
+			let h = spawn_watcher_handler(
+				sub,
+				Arc::clone(&graph_swap),
+				Arc::clone(&listeners),
+				Arc::clone(&verbosity),
+				Arc::clone(&sink),
+				Arc::clone(&mw_factories),
+				Arc::clone(&fetch_factories),
+				Arc::clone(&security_cfg),
+				plugin_registry.clone(),
+				watcher_cancel.clone(),
+			);
 			tracing::info!("file watcher armed");
 			Some(h)
 		}
-		Err(e) => {
-			tracing::warn!(error = %e, "file watcher disabled — auto-reload unavailable");
-			None
-		}
+		None => None,
 	};
 
 	// Management plane: bind the Unix mgmt socket and dispatch verbs to

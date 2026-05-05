@@ -37,8 +37,6 @@ fn spawn_vaned(dir: &Path) -> Child {
 	Command::new(bin)
 		.arg("-c")
 		.arg(dir)
-		// Disable the HTTP mgmt transport so parallel test daemons
-		// don't fight over port 3333.
 		.env("VANE_MGMT_HTTP_PORT", "")
 		.stdout(Stdio::null())
 		.stderr(Stdio::null())
@@ -122,13 +120,12 @@ fn static_site_rule(port: u16, body: &str) -> String {
 /// (250 ms watcher debounce + recompile + `ArcSwap` + listener
 /// reconcile) finishes in 1-2 s solo; the binary is pinned to a
 /// single concurrent test under nextest (see `.config/nextest.toml`
-/// `[test-groups.reload-serial]`). The remaining variance comes
-/// from the broader workspace contending for CPU — `reload_adds_*`
-/// in particular has to bind a fresh listener post-reload, and that
-/// occasionally pushes total wall-clock past 10 s under heavy load.
-/// 15 s gives enough head-room without masking real bugs (any reload
-/// that takes more than 15 s is broken, not just slow).
-const RELOAD_BUDGET: Duration = Duration::from_secs(15);
+/// `[test-groups.reload-serial]`). 5 s is comfortable headroom now
+/// that the boot-ordering race that previously stretched these tests
+/// past 10 s is fixed (watcher subscription is armed before
+/// `listeners.start` so events landing in the bind window queue into
+/// the debouncer's mpsc instead of being dropped by `FSEvents`).
+const RELOAD_BUDGET: Duration = Duration::from_secs(5);
 
 /// Poll `predicate` every 50ms until it returns true, or panic at
 /// `RELOAD_BUDGET`.
@@ -230,7 +227,6 @@ fn reload_adds_new_listen_port_serves_traffic() {
 		|| http_get(port_b).is_ok_and(|r| r.contains('b')),
 		"reconcile never bound the new listen port",
 	);
-	// Original port still serves.
 	assert!(http_get(port_a).expect("a after reconcile").contains('a'));
 
 	kill_signal(&child, Signal::SIGTERM);
