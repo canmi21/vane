@@ -97,7 +97,7 @@ fn proxy_graph(listen: SocketAddr, args: serde_json::Value) -> Arc<FlowGraph> {
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
-	register_http_proxy(&mut fetch);
+	register_http_proxy(&mut fetch, None);
 	FlowGraph::link(sym, &mw, &fetch).expect("link http_proxy graph")
 }
 
@@ -296,10 +296,13 @@ async fn http_proxy_h2_cleartext_uses_prior_knowledge_h2c() {
 #[test]
 fn http_proxy_factory_rejects_version_h3_without_feature() {
 	vane_engine::crypto::install_default_provider();
-	let Err(FactoryError(msg)) = http_proxy_factory(&serde_json::json!({
-		"upstream": "127.0.0.1:9443",
-		"version": "h3",
-	})) else {
+	let Err(FactoryError(msg)) = http_proxy_factory(
+		&serde_json::json!({
+			"upstream": "127.0.0.1:9443",
+			"version": "h3",
+		}),
+		None,
+	) else {
 		panic!("h3 must be rejected without the cargo feature");
 	};
 	assert!(msg.contains("h3"), "error names the version: {msg}");
@@ -312,10 +315,13 @@ fn http_proxy_factory_accepts_auto_with_cleartext() {
 	// We don't pull `tracing-test` in just to assert log lines; the
 	// factory contract here is that the warning path doesn't error.
 	vane_engine::crypto::install_default_provider();
-	let result = http_proxy_factory(&serde_json::json!({
-		"upstream": "127.0.0.1:9443",
-		"version": "auto",
-	}));
+	let result = http_proxy_factory(
+		&serde_json::json!({
+			"upstream": "127.0.0.1:9443",
+			"version": "auto",
+		}),
+		None,
+	);
 	assert!(result.is_ok(), "auto + cleartext must build (h1 fallback)");
 }
 

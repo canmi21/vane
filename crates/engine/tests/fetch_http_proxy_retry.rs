@@ -93,7 +93,7 @@ fn proxy_graph(
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
-	register_http_proxy(&mut fetch);
+	register_http_proxy(&mut fetch, None);
 	FlowGraph::link(sym, &mw, &fetch).expect("link http_proxy graph")
 }
 

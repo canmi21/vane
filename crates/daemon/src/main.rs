@@ -241,7 +241,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	);
 
 	let mw_factories = Arc::new(build_middleware_factories());
-	let fetch_factories = Arc::new(build_fetch_factories());
+	let fetch_factories = Arc::new(build_fetch_factories(security_cfg.crl_cache.clone()));
 	let initial_graph = match plugin_registry.as_ref() {
 		Some(reg) => FlowGraph::link_with_plugins(
 			symbolic,
@@ -423,12 +423,12 @@ fn build_middleware_factories() -> MiddlewareFactories {
 	mw
 }
 
-fn build_fetch_factories() -> FetchFactories {
+fn build_fetch_factories(crl_cache: Option<Arc<vane_engine::tls::CrlCache>>) -> FetchFactories {
 	let mut fetch = FetchFactories::new();
 	vane_engine::fetch::l4_forward::register(&mut fetch);
-	vane_engine::fetch::http_proxy::register(&mut fetch);
+	vane_engine::fetch::http_proxy::register(&mut fetch, crl_cache.clone());
 	vane_engine::fetch::http_synthesize::register(&mut fetch);
-	vane_engine::fetch::websocket_upgrade::register(&mut fetch);
+	vane_engine::fetch::websocket_upgrade::register(&mut fetch, crl_cache);
 	fetch
 }
 

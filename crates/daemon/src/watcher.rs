@@ -283,7 +283,7 @@ mod tests {
 		forward_client_ip::register(&mut mw);
 		let mut fetch = FetchFactories::new();
 		l4_forward::register(&mut fetch);
-		http_proxy::register(&mut fetch);
+		http_proxy::register(&mut fetch, None);
 		http_synthesize::register(&mut fetch);
 		(Arc::new(mw), Arc::new(fetch))
 	}

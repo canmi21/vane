@@ -544,7 +544,10 @@ fn dispatch_upstream_kind(args: &serde_json::Value) -> Option<Result<FetchInst, 
 /// `version` is not one of the four accepted strings, when
 /// `version: "h3"` is requested on a build without the `h3` feature,
 /// or when the TLS client config fails to build.
-pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
+pub fn factory(
+	args: &serde_json::Value,
+	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
+) -> Result<FetchInst, FactoryError> {
 	if let Some(out) = dispatch_upstream_kind(args) {
 		return out;
 	}
@@ -575,7 +578,7 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 			)));
 		}
 	};
-	let tls = parse_tls_args(upstream, args.get("tls"))
+	let tls = parse_tls_args(upstream, args.get("tls"), crl_cache)
 		.map_err(|e| FactoryError(format!("args.tls: {e}")))?;
 
 	let dns = parse_dns_args(args.get("dns")).map_err(|e| FactoryError(format!("args.dns: {e}")))?;
@@ -668,9 +671,11 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 	})))
 }
 
-/// Plug `FetchKind::HttpProxy` into a `FetchFactories` registry.
-pub fn register(factories: &mut FetchFactories) {
-	factories.register(FetchKind::HttpProxy, factory);
+/// Plug `FetchKind::HttpProxy` into a `FetchFactories` registry. The
+/// `crl_cache` is captured by the registered closure so each factory
+/// invocation routes through the daemon-wide cache.
+pub fn register(factories: &mut FetchFactories, crl_cache: Option<Arc<crate::tls::CrlCache>>) {
+	factories.register(FetchKind::HttpProxy, move |args| factory(args, crl_cache.as_ref()));
 }
 
 #[cfg(test)]
@@ -684,7 +689,7 @@ mod tests {
 	#[test]
 	fn factory_rejects_missing_upstream() {
 		install_crypto();
-		match factory(&serde_json::json!({})) {
+		match factory(&serde_json::json!({}), None) {
 			Ok(_) => panic!("must reject missing upstream"),
 			Err(e) => assert!(e.0.contains("upstream"), "{}", e.0),
 		}
@@ -693,7 +698,7 @@ mod tests {
 	#[test]
 	fn factory_rejects_empty_upstream() {
 		install_crypto();
-		match factory(&serde_json::json!({ "upstream": "" })) {
+		match factory(&serde_json::json!({ "upstream": "" }), None) {
 			Ok(_) => panic!("must reject empty upstream"),
 			Err(e) => assert!(e.0.contains("must not be empty"), "{}", e.0),
 		}
@@ -702,10 +707,13 @@ mod tests {
 	#[test]
 	fn factory_accepts_tls_with_insecure_skip_verify() {
 		install_crypto();
-		let result = factory(&serde_json::json!({
-			"upstream": "127.0.0.1:9443",
-			"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
-		}));
+		let result = factory(
+			&serde_json::json!({
+				"upstream": "127.0.0.1:9443",
+				"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
+			}),
+			None,
+		);
 		assert!(result.is_ok(), "factory must accept insecure tls config");
 	}
 
@@ -713,10 +721,13 @@ mod tests {
 	#[test]
 	fn factory_rejects_version_h3_without_feature() {
 		install_crypto();
-		let Err(FactoryError(msg)) = factory(&serde_json::json!({
-			"upstream": "127.0.0.1:9443",
-			"version": "h3",
-		})) else {
+		let Err(FactoryError(msg)) = factory(
+			&serde_json::json!({
+				"upstream": "127.0.0.1:9443",
+				"version": "h3",
+			}),
+			None,
+		) else {
 			panic!("h3 must be rejected on builds without the feature");
 		};
 		assert!(msg.contains("h3"), "error names the missing feature: {msg}");
@@ -729,10 +740,13 @@ mod tests {
 		// H3 mandates QUIC + TLS 1.3 (RFC 9114) — the factory rejects
 		// `version: "h3"` without `args.tls` even with the cargo
 		// feature enabled.
-		let Err(FactoryError(msg)) = factory(&serde_json::json!({
-			"upstream": "127.0.0.1:9443",
-			"version": "h3",
-		})) else {
+		let Err(FactoryError(msg)) = factory(
+			&serde_json::json!({
+				"upstream": "127.0.0.1:9443",
+				"version": "h3",
+			}),
+			None,
+		) else {
 			panic!("h3 without tls must be rejected");
 		};
 		assert!(msg.contains("h3") && msg.contains("tls"), "error names h3 + tls: {msg}");
@@ -742,21 +756,27 @@ mod tests {
 	#[test]
 	fn factory_accepts_h3_with_tls() {
 		install_crypto();
-		let result = factory(&serde_json::json!({
-			"upstream": "127.0.0.1:9443",
-			"version": "h3",
-			"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
-		}));
+		let result = factory(
+			&serde_json::json!({
+				"upstream": "127.0.0.1:9443",
+				"version": "h3",
+				"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
+			}),
+			None,
+		);
 		assert!(result.is_ok(), "h3 + tls must build: {:?}", result.err());
 	}
 
 	#[test]
 	fn factory_rejects_unknown_version() {
 		install_crypto();
-		let Err(FactoryError(msg)) = factory(&serde_json::json!({
-			"upstream": "127.0.0.1:9443",
-			"version": "h7",
-		})) else {
+		let Err(FactoryError(msg)) = factory(
+			&serde_json::json!({
+				"upstream": "127.0.0.1:9443",
+				"version": "h7",
+			}),
+			None,
+		) else {
 			panic!("unknown version must be rejected");
 		};
 		assert!(msg.contains("auto") && msg.contains("h1"), "{msg}");
@@ -765,20 +785,26 @@ mod tests {
 	#[test]
 	fn factory_accepts_explicit_h1_version() {
 		install_crypto();
-		let result = factory(&serde_json::json!({
-			"upstream": "127.0.0.1:9443",
-			"version": "h1",
-		}));
+		let result = factory(
+			&serde_json::json!({
+				"upstream": "127.0.0.1:9443",
+				"version": "h1",
+			}),
+			None,
+		);
 		assert!(result.is_ok(), "h1 version must build");
 	}
 
 	#[test]
 	fn factory_accepts_explicit_h2_cleartext() {
 		install_crypto();
-		let result = factory(&serde_json::json!({
-			"upstream": "127.0.0.1:9443",
-			"version": "h2",
-		}));
+		let result = factory(
+			&serde_json::json!({
+				"upstream": "127.0.0.1:9443",
+				"version": "h2",
+			}),
+			None,
+		);
 		assert!(result.is_ok(), "h2 cleartext (h2c) must build");
 	}
 }

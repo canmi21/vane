@@ -118,7 +118,7 @@ fn ws_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
-	register_ws(&mut fetch);
+	register_ws(&mut fetch, None);
 	FlowGraph::link(sym, &mw, &fetch).expect("link ws graph")
 }
 
@@ -166,7 +166,7 @@ fn wss_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
-	register_ws(&mut fetch);
+	register_ws(&mut fetch, None);
 	FlowGraph::link(sym, &mw, &fetch).expect("link wss graph")
 }
 

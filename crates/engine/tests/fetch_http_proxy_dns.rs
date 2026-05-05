@@ -94,7 +94,7 @@ fn proxy_graph(listen: SocketAddr, args: serde_json::Value) -> Arc<FlowGraph> {
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
-	register_http_proxy(&mut fetch);
+	register_http_proxy(&mut fetch, None);
 	FlowGraph::link(sym, &mw, &fetch).expect("link http_proxy graph")
 }
 
@@ -204,17 +204,23 @@ async fn dns_custom_nameservers_appear_in_fingerprint() {
 	vane_engine::crypto::install_default_provider();
 	clear_cache_for_test();
 
-	http_proxy_factory(&json!({
-		"upstream": "127.0.0.1:9999",
-		"version": "h1",
-	}))
+	http_proxy_factory(
+		&json!({
+			"upstream": "127.0.0.1:9999",
+			"version": "h1",
+		}),
+		None,
+	)
 	.expect("system dns factory");
 
-	http_proxy_factory(&json!({
-		"upstream": "127.0.0.1:9999",
-		"version": "h1",
-		"dns": { "nameservers": ["127.0.0.1:53533"] },
-	}))
+	http_proxy_factory(
+		&json!({
+			"upstream": "127.0.0.1:9999",
+			"version": "h1",
+			"dns": { "nameservers": ["127.0.0.1:53533"] },
+		}),
+		None,
+	)
 	.expect("custom dns factory");
 
 	assert_eq!(cache_len(), 2, "system and custom dns must occupy distinct cache slots");
@@ -231,18 +237,24 @@ async fn dns_nameserver_order_is_significant() {
 	vane_engine::crypto::install_default_provider();
 	clear_cache_for_test();
 
-	http_proxy_factory(&json!({
-		"upstream": "127.0.0.1:9999",
-		"version": "h1",
-		"dns": { "nameservers": ["1.1.1.1", "8.8.8.8"] },
-	}))
+	http_proxy_factory(
+		&json!({
+			"upstream": "127.0.0.1:9999",
+			"version": "h1",
+			"dns": { "nameservers": ["1.1.1.1", "8.8.8.8"] },
+		}),
+		None,
+	)
 	.expect("primary 1.1.1.1");
 
-	http_proxy_factory(&json!({
-		"upstream": "127.0.0.1:9999",
-		"version": "h1",
-		"dns": { "nameservers": ["8.8.8.8", "1.1.1.1"] },
-	}))
+	http_proxy_factory(
+		&json!({
+			"upstream": "127.0.0.1:9999",
+			"version": "h1",
+			"dns": { "nameservers": ["8.8.8.8", "1.1.1.1"] },
+		}),
+		None,
+	)
 	.expect("primary 8.8.8.8");
 
 	assert_eq!(cache_len(), 2, "nameserver order must be load-bearing for the cache key");
@@ -253,11 +265,14 @@ async fn dns_nameserver_order_is_significant() {
 async fn dns_factory_rejects_bare_ipv6() {
 	vane_engine::crypto::install_default_provider();
 	clear_cache_for_test();
-	let Err(FactoryError(msg)) = http_proxy_factory(&json!({
-		"upstream": "127.0.0.1:9999",
-		"version": "h1",
-		"dns": { "nameservers": ["::1"] },
-	})) else {
+	let Err(FactoryError(msg)) = http_proxy_factory(
+		&json!({
+			"upstream": "127.0.0.1:9999",
+			"version": "h1",
+			"dns": { "nameservers": ["::1"] },
+		}),
+		None,
+	) else {
 		panic!("bare IPv6 must be rejected");
 	};
 	assert!(
@@ -271,10 +286,13 @@ async fn dns_factory_rejects_bare_ipv6() {
 async fn dns_factory_accepts_bracketed_ipv6() {
 	vane_engine::crypto::install_default_provider();
 	clear_cache_for_test();
-	http_proxy_factory(&json!({
-		"upstream": "127.0.0.1:9999",
-		"version": "h1",
-		"dns": { "nameservers": ["[::1]:53"] },
-	}))
+	http_proxy_factory(
+		&json!({
+			"upstream": "127.0.0.1:9999",
+			"version": "h1",
+			"dns": { "nameservers": ["[::1]:53"] },
+		}),
+		None,
+	)
 	.expect("bracketed IPv6 nameserver must be accepted");
 }

@@ -136,7 +136,7 @@ fn proxy_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
-	register_http_proxy(&mut fetch);
+	register_http_proxy(&mut fetch, None);
 	FlowGraph::link(sym, &mw, &fetch).expect("link http_proxy graph")
 }
 
@@ -523,7 +523,7 @@ fn http_proxy_factory_rejects_missing_upstream_arg() {
 	// Using let-else because `FetchInst` does not implement `Debug`; we
 	// cannot rely on `assert!(matches!(_, Err(_)))`-style helpers that
 	// would print the unexpected `Ok(_)` payload.
-	let Err(FactoryError(msg)) = http_proxy_factory(&serde_json::json!({})) else {
+	let Err(FactoryError(msg)) = http_proxy_factory(&serde_json::json!({}), None) else {
 		panic!("missing upstream must error; got Ok(_)");
 	};
 	assert!(

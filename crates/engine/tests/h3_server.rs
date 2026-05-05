@@ -166,7 +166,7 @@ fn h3_proxy_graph(listen: SocketAddr, upstream: &str, cert: &CertFixture) -> Arc
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
-	register_http_proxy(&mut fetch);
+	register_http_proxy(&mut fetch, None);
 	FlowGraph::link(sym, &mw, &fetch).expect("link h3 proxy graph")
 }
 

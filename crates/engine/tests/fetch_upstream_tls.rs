@@ -171,7 +171,7 @@ async fn http_proxy_factory_with_tls_routes_https_request_round_trip() {
 		"upstream": addr.to_string(),
 		"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
 	});
-	let inst = http_proxy_factory(&factory_args).expect("factory");
+	let inst = http_proxy_factory(&factory_args, None).expect("factory");
 	let FetchInst::L7(fetch) = inst else {
 		panic!("expected L7 fetch");
 	};

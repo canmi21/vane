@@ -159,7 +159,7 @@ fn h3_proxy_graph_with_connect_timeout(
 	});
 	let mw = MiddlewareFactories::new();
 	let mut fetch = FetchFactories::new();
-	register_http_proxy(&mut fetch);
+	register_http_proxy(&mut fetch, None);
 	FlowGraph::link(sym, &mw, &fetch).expect("link h3 upstream graph")
 }
 

@@ -183,7 +183,10 @@ impl L7Fetch for WebSocketUpgradeFetch {
 /// # Errors
 /// [`FactoryError`] when `upstream` is missing/empty or when the TLS
 /// client config fails to build.
-pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
+pub fn factory(
+	args: &serde_json::Value,
+	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
+) -> Result<FetchInst, FactoryError> {
 	let upstream = args
 		.get("upstream")
 		.and_then(serde_json::Value::as_str)
@@ -191,14 +194,15 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 	if upstream.is_empty() {
 		return Err(FactoryError("args.upstream must not be empty".to_string()));
 	}
-	let tls = parse_tls_args(upstream, args.get("tls"))
+	let tls = parse_tls_args(upstream, args.get("tls"), crl_cache)
 		.map_err(|e| FactoryError(format!("args.tls: {e}")))?;
 	Ok(FetchInst::L7(Arc::new(WebSocketUpgradeFetch { upstream: Arc::from(upstream), tls })))
 }
 
 /// Plug `FetchKind::WebSocketUpgrade` into a `FetchFactories` registry.
-pub fn register(factories: &mut FetchFactories) {
-	factories.register(FetchKind::WebSocketUpgrade, factory);
+/// The `crl_cache` is captured by the registered closure.
+pub fn register(factories: &mut FetchFactories, crl_cache: Option<Arc<crate::tls::CrlCache>>) {
+	factories.register(FetchKind::WebSocketUpgrade, move |args| factory(args, crl_cache.as_ref()));
 }
 
 #[cfg(test)]
@@ -207,7 +211,7 @@ mod tests {
 
 	#[test]
 	fn factory_rejects_missing_upstream() {
-		match factory(&serde_json::json!({})) {
+		match factory(&serde_json::json!({}), None) {
 			Ok(_) => panic!("must reject missing upstream"),
 			Err(e) => assert!(e.0.contains("upstream"), "{}", e.0),
 		}
@@ -215,7 +219,7 @@ mod tests {
 
 	#[test]
 	fn factory_rejects_empty_upstream() {
-		match factory(&serde_json::json!({ "upstream": "" })) {
+		match factory(&serde_json::json!({ "upstream": "" }), None) {
 			Ok(_) => panic!("must reject empty upstream"),
 			Err(e) => assert!(e.0.contains("must not be empty"), "{}", e.0),
 		}

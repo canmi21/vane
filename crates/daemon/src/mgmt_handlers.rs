@@ -461,7 +461,7 @@ mod tests {
 		forward_client_ip::register(&mut mw);
 		let mut fetch = FetchFactories::new();
 		l4_forward::register(&mut fetch);
-		http_proxy::register(&mut fetch);
+		http_proxy::register(&mut fetch, None);
 		http_synthesize::register(&mut fetch);
 		(Arc::new(mw), Arc::new(fetch))
 	}
@@ -821,10 +821,13 @@ mod tests {
 		// to construct a TLS connector by hand. The dispatcher must
 		// surface that fingerprint among its TCP entries.
 		vane_engine::crypto::install_default_provider();
-		let _ = vane_engine::fetch::http_proxy::factory(&serde_json::json!({
-			"upstream": "127.0.0.1:9999",
-			"version": "h1",
-		}))
+		let _ = vane_engine::fetch::http_proxy::factory(
+			&serde_json::json!({
+				"upstream": "127.0.0.1:9999",
+				"version": "h1",
+			}),
+			None,
+		)
 		.expect("cleartext h1 factory must succeed");
 
 		let tmp = tempfile::tempdir().unwrap();

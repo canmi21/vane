@@ -110,12 +110,39 @@ pub async fn dial_upstream(
 /// the engine doesn't gate it but operators are responsible for not
 /// shipping `insecure_skip_verify: true` to production.
 ///
+/// CRLs are not consulted on this path; callers that need revocation
+/// checking go through [`build_client_config_with_crls`] which installs
+/// a [`crate::tls::RefreshableServerCertVerifier`] over the same trust
+/// roots.
+///
 /// # Errors
 /// String description of any failure to load the system trust store.
 /// Returned as `String` because this happens at factory-link time
 /// (compile/link errors prefer the lighter-weight shape over a full
 /// `Error`).
 pub fn build_client_config(insecure: bool) -> Result<Arc<rustls::ClientConfig>, String> {
+	build_client_config_with_crls(insecure, None, &[])
+}
+
+/// Like [`build_client_config`] but installs a refreshable
+/// `ServerCertVerifier` when `crls` is non-empty. The CRL bytes
+/// themselves come from `crl_cache` per handshake.
+///
+/// `insecure == true` short-circuits (CRLs are meaningless against
+/// `NoVerify`); the call is silently equivalent to
+/// `build_client_config(true)`.
+///
+/// `cleartext` upstreams never reach this path — `parse_tls_args`
+/// returns `Ok(None)` and the dial path skips the rustls connector.
+///
+/// # Errors
+/// String description of any failure to load the system trust store
+/// or build the wrapper verifier.
+pub fn build_client_config_with_crls(
+	insecure: bool,
+	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
+	crls: &[(CrlSourceId, CrlFetchFailure)],
+) -> Result<Arc<rustls::ClientConfig>, String> {
 	if insecure {
 		let cfg = rustls::ClientConfig::builder()
 			.dangerous()
@@ -125,7 +152,20 @@ pub fn build_client_config(insecure: bool) -> Result<Arc<rustls::ClientConfig>, 
 	}
 
 	let roots = crate::tls::native_roots().map_err(|e| e.message)?;
-	let cfg = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
+	if crls.is_empty() {
+		let cfg = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
+		return Ok(Arc::new(cfg));
+	}
+
+	let cache = crl_cache
+		.cloned()
+		.ok_or_else(|| "upstream tls.crls configured but daemon CrlCache not provided".to_string())?;
+	let sources: Vec<CrlSourceId> = crls.iter().map(|(id, _)| id.clone()).collect();
+	let verifier = crate::tls::RefreshableServerCertVerifier::new(cache, sources, roots);
+	let cfg = rustls::ClientConfig::builder()
+		.dangerous()
+		.with_custom_certificate_verifier(verifier)
+		.with_no_client_auth();
 	Ok(Arc::new(cfg))
 }
 
@@ -189,6 +229,7 @@ impl rustls::client::danger::ServerCertVerifier for NoVerify {
 pub fn parse_tls_args(
 	upstream: &str,
 	tls_args: Option<&serde_json::Value>,
+	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
 ) -> Result<Option<UpstreamTls>, String> {
 	let Some(tls_args) = tls_args else {
 		return Ok(None);
@@ -206,8 +247,8 @@ pub fn parse_tls_args(
 	let insecure =
 		tls_args.get("insecure_skip_verify").and_then(serde_json::Value::as_bool).unwrap_or(false);
 	let crls = parse_crls(tls_args.get("crls"))?;
-	let client_config =
-		build_client_config(insecure).map_err(|e| format!("build tls client config: {e}"))?;
+	let client_config = build_client_config_with_crls(insecure, crl_cache, &crls)
+		.map_err(|e| format!("build tls client config: {e}"))?;
 	// Fingerprint with `alpn_protocols` left empty — the factory
 	// patches it once `version` is known. CRL slots are populated from
 	// the parsed source list above; mTLS client_cert stays at its
@@ -293,7 +334,7 @@ mod tests {
 
 	#[test]
 	fn parse_tls_args_returns_none_when_field_absent() {
-		assert!(parse_tls_args("api.example.com:443", None).expect("ok").is_none());
+		assert!(parse_tls_args("api.example.com:443", None, None).expect("ok").is_none());
 	}
 
 	#[test]
@@ -301,6 +342,7 @@ mod tests {
 		let parsed = parse_tls_args(
 			"api.example.com:443",
 			Some(&serde_json::json!({ "insecure_skip_verify": true })),
+			None,
 		)
 		.expect("ok")
 		.expect("Some");
@@ -315,6 +357,7 @@ mod tests {
 				"verify_hostname": "api.internal",
 				"insecure_skip_verify": true,
 			})),
+			None,
 		)
 		.expect("ok")
 		.expect("Some");
