@@ -230,13 +230,24 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		"compiled symbolic flow graph",
 	);
 
+	// CRL cache: collected once across all listener client_auth + upstream
+	// args.tls.crls sources, fetched synchronously at link time (30s per
+	// source), and shared daemon-wide. Per
+	// `spec/architecture/08-tls.md` § _CRL checking_, the cache key is
+	// source identity (path / URL string) so refreshing CRL bytes does
+	// not invalidate cached `Arc<ClientConfig>` / `Arc<ServerConfig>`.
+	let crl_cache = init_crl_cache(&symbolic)?;
+
 	// L1 security floor: validate env floors, build daemon-scoped state.
-	let security_cfg = Arc::new(SecurityConfig::new(&loaded.env)?);
+	let mut security_cfg_inner = SecurityConfig::new(&loaded.env)?;
+	security_cfg_inner.crl_cache = crl_cache.clone();
+	let security_cfg = Arc::new(security_cfg_inner);
 	let security = Arc::new(SecurityState::new((*security_cfg).clone()));
 	tracing::info!(
 		header_timeout_secs = security_cfg.header_timeout.as_secs(),
 		max_conn_per_ip = security_cfg.max_conn_per_ip,
 		max_total_conns = security_cfg.max_total_conns,
+		crl_cache = security_cfg.crl_cache.is_some(),
 		"L1 security floor configured",
 	);
 
@@ -298,6 +309,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// `wait_for_shutdown_signal` select loop. Constructed once here and
 	// cloned into each consumer.
 	let shutdown_trigger = CancellationToken::new();
+
+	// CRL background refresher: one tokio task per URL source, scheduled
+	// off `nextUpdate − 1h`. File sources are not refreshed here — they
+	// re-read on `FlowGraph` reload via `init_crl_cache` (the watcher
+	// path).
+	if let Some(cache) = &security_cfg.crl_cache {
+		cache.spawn_refresher(&shutdown_trigger);
+	}
 
 	// Background cleanup for L1 security state: prunes zero-count
 	// per-IP entries and stale log-dedup slots every 60 seconds.
@@ -421,6 +440,29 @@ fn build_middleware_factories() -> MiddlewareFactories {
 	vane_engine::middleware::rate_limit::register(&mut mw);
 	vane_engine::middleware::sni_peek::register(&mut mw);
 	mw
+}
+
+/// Construct the daemon-wide CRL cache when the loaded ruleset names at
+/// least one CRL source. The fetch is synchronous (block-in-place via
+/// `ensure_loaded`) — `reject` policy sources whose first fetch fails
+/// surface as a daemon-startup error, matching
+/// `spec/architecture/08-tls.md` § _Failure handling_.
+fn init_crl_cache(
+	sym: &vane_core::SymbolicFlowGraph,
+) -> Result<Option<Arc<vane_engine::tls::CrlCache>>, Box<dyn std::error::Error + Send + Sync>> {
+	let listener_sources = vane_engine::tls::collect_listener_crl_sources(&sym.meta.listener_tls);
+	let upstream_sources = vane_engine::tls::collect_upstream_crl_sources(sym);
+	let sources =
+		vane_engine::tls::dedupe_crl_sources(listener_sources.into_iter().chain(upstream_sources));
+	if sources.is_empty() {
+		tracing::debug!("no CRL sources in ruleset; skipping CRL cache init");
+		return Ok(None);
+	}
+	tracing::info!(count = sources.len(), "loading CRL sources");
+	let fetcher = vane_engine::tls::DefaultCrlFetcher::new_arc()?;
+	let cache = vane_engine::tls::CrlCache::new(fetcher);
+	cache.ensure_loaded(&sources)?;
+	Ok(Some(cache))
 }
 
 fn build_fetch_factories(crl_cache: Option<Arc<vane_engine::tls::CrlCache>>) -> FetchFactories {

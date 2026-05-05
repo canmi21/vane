@@ -62,6 +62,23 @@ pub(crate) fn reload_once(
 		None => MetadataProviders::new(),
 	};
 	let symbolic = compile(loaded.files, &providers, &providers)?;
+
+	// Pre-link CRL refresh: register any newly-named source with the
+	// daemon-wide cache so the upcoming `link` and subsequent handshakes
+	// see fresh bytes. URL sources already registered are left to the
+	// background refresher; file sources always re-read (spec § _CRL
+	// checking_, file source reload semantics).
+	if let Some(cache) = &security_cfg.crl_cache {
+		let listener_sources =
+			vane_engine::tls::collect_listener_crl_sources(&symbolic.meta.listener_tls);
+		let upstream_sources = vane_engine::tls::collect_upstream_crl_sources(&symbolic);
+		let sources =
+			vane_engine::tls::dedupe_crl_sources(listener_sources.into_iter().chain(upstream_sources));
+		if !sources.is_empty() {
+			cache.ensure_loaded_new(&sources).map_err(|e| Error::compile(format!("crl reload: {e}")))?;
+		}
+	}
+
 	let new_graph = match plugin_registry {
 		Some(reg) => FlowGraph::link_with_plugins(
 			symbolic,

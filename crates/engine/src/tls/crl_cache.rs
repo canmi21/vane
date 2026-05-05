@@ -183,6 +183,42 @@ impl CrlCache {
 		Ok(out)
 	}
 
+	/// Reload-friendly variant of [`Self::ensure_loaded`]: only fetches
+	/// sources whose entry is not already registered. Useful from the
+	/// reload path so an unchanged URL source doesn't re-block on a
+	/// cold fetch every time the watcher fires.
+	///
+	/// File sources are always re-fetched (their bytes are local; spec
+	/// § _CRL checking_ line 498 says file sources re-read on reload).
+	///
+	/// # Panics
+	///
+	/// Same multi-thread runtime requirement as [`Self::ensure_loaded`].
+	///
+	/// # Errors
+	///
+	/// As [`Self::ensure_loaded`].
+	pub fn ensure_loaded_new(
+		&self,
+		sources: &[(CrlSourceId, CrlFetchFailure)],
+	) -> Result<(), String> {
+		let to_fetch: Vec<(CrlSourceId, CrlFetchFailure)> = {
+			let guard = self.inner.read();
+			sources
+				.iter()
+				.filter(|(id, _)| match id {
+					CrlSourceId::File(_) => true,
+					CrlSourceId::Url(_) => !guard.contains_key(id),
+				})
+				.cloned()
+				.collect()
+		};
+		if to_fetch.is_empty() {
+			return Ok(());
+		}
+		self.ensure_loaded(&to_fetch)
+	}
+
 	/// Spawn the background refresh loop. One tokio task per URL
 	/// source — file sources don't refresh here (`FlowGraph` reload
 	/// re-reads them via [`Self::ensure_loaded`]). Cancellation token
@@ -400,6 +436,94 @@ impl DefaultCrlFetcher {
 			.map_err(|e| format!("crl body read: {e}"))?;
 		Ok(collected.to_bytes().to_vec())
 	}
+}
+
+/// Walk a fully-symbolic flow graph and gather every CRL source named
+/// by an HTTP-proxy or WebSocket-upgrade fetch's `args.tls.crls`.
+/// Listener-side sources are collected separately by
+/// [`collect_listener_crl_sources`] because they live in the parsed
+/// [`vane_core::rule::ListenerTlsSpec`], not in raw fetch args.
+///
+/// Errors in the source schema are skipped silently here — invalid
+/// shapes are caught at link time when `parse_tls_args` runs against
+/// the same value. The link step is the authoritative parser; this
+/// pass is just a best-effort pre-link source enumeration so the
+/// daemon can register everything with the cache before the first
+/// handshake.
+#[must_use]
+pub fn collect_upstream_crl_sources(
+	sym: &vane_core::SymbolicFlowGraph,
+) -> Vec<(CrlSourceId, CrlFetchFailure)> {
+	use vane_core::FetchKind;
+	let mut out = Vec::new();
+	for sf in &sym.fetches {
+		if !matches!(sf.kind, FetchKind::HttpProxy | FetchKind::WebSocketUpgrade) {
+			continue;
+		}
+		let Some(arr) = sf.args.get("tls").and_then(|t| t.get("crls")).and_then(|v| v.as_array())
+		else {
+			continue;
+		};
+		for entry in arr {
+			if let Ok(cfg) = serde_json::from_value::<vane_core::rule::CrlSourceConfig>(entry.clone()) {
+				out.push(crate::tls::client_trust::crl_source_from_config(&cfg));
+			}
+		}
+	}
+	out
+}
+
+/// Walk every listener TLS spec and collect its CRL source list.
+#[must_use]
+pub fn collect_listener_crl_sources(
+	listener_tls: &std::collections::BTreeMap<std::net::SocketAddr, vane_core::rule::ListenerTlsSpec>,
+) -> Vec<(CrlSourceId, CrlFetchFailure)> {
+	use vane_core::rule::ClientAuthSpec;
+	let mut out = Vec::new();
+	for spec in listener_tls.values() {
+		let trust_store = match &spec.client_auth {
+			ClientAuthSpec::None => continue,
+			ClientAuthSpec::Request { trust_store } | ClientAuthSpec::Require { trust_store } => {
+				trust_store
+			}
+		};
+		for cfg in &trust_store.crls {
+			out.push(crate::tls::client_trust::crl_source_from_config(cfg));
+		}
+	}
+	out
+}
+
+/// Dedupe a CRL source list by `CrlSourceId`, keeping the strictest
+/// policy (`reject` wins over `tolerate`) when the same source appears
+/// multiple times. Order in the result is the first-seen order.
+#[must_use]
+pub fn dedupe_crl_sources(
+	iter: impl IntoIterator<Item = (CrlSourceId, CrlFetchFailure)>,
+) -> Vec<(CrlSourceId, CrlFetchFailure)> {
+	use std::collections::HashMap;
+	let mut by_id: HashMap<CrlSourceId, CrlFetchFailure> = HashMap::new();
+	let mut order: Vec<CrlSourceId> = Vec::new();
+	for (id, policy) in iter {
+		match by_id.entry(id.clone()) {
+			std::collections::hash_map::Entry::Vacant(slot) => {
+				slot.insert(policy);
+				order.push(id);
+			}
+			std::collections::hash_map::Entry::Occupied(mut slot) => {
+				if matches!(policy, CrlFetchFailure::Reject) {
+					slot.insert(CrlFetchFailure::Reject);
+				}
+			}
+		}
+	}
+	order
+		.into_iter()
+		.map(|id| {
+			let policy = by_id[&id];
+			(id, policy)
+		})
+		.collect()
 }
 
 async fn read_crl_file(path: &Path) -> Result<Vec<u8>, String> {
