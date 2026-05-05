@@ -80,9 +80,11 @@ pub struct ClientFingerprint {
 	pub dns: DnsConfig,
 }
 
-// TODO(pool-drain): no eviction in MVP. Cache grows monotonically;
-// a `pool.drain <fingerprint>` management verb is the planned manual
-// escape hatch (see 07-l7.md § _Lifetime: daemon-level_).
+// Cache grows monotonically across reload cycles; manual eviction is
+// available via `pool.drain <fingerprint_id>` (see
+// `crate::fetch::client_cache::drain_by_fingerprint_id`). Live
+// `Arc<Client>` references survive eviction — operators removing a
+// fingerprint affect only future cache lookups.
 static CLIENT_CACHE: LazyLock<DashMap<ClientFingerprint, Arc<ProxyClient>>> =
 	LazyLock::new(DashMap::new);
 
@@ -130,6 +132,23 @@ pub struct CachedClientSummary {
 	pub verify_mode: &'static str,
 	pub alpn: Vec<String>,
 	pub dns: &'static str,
+	/// Stable identifier for this fingerprint within the running
+	/// process (16-char hex of `DefaultHasher`). Operators pass it back
+	/// to `pool.drain` to remove this entry; survives across calls and
+	/// reloads as long as the underlying fingerprint contents don't
+	/// change.
+	pub fingerprint_id: String,
+}
+
+/// Hash a `ClientFingerprint` into a stable 16-char hex string. Same
+/// inputs yield the same ID within a process; `DefaultHasher::new`
+/// uses fixed seeds so the value is stable for the process lifetime.
+#[must_use]
+pub fn fingerprint_id(fp: &ClientFingerprint) -> String {
+	use std::hash::{Hash as _, Hasher as _};
+	let mut h = std::collections::hash_map::DefaultHasher::new();
+	fp.hash(&mut h);
+	format!("{:016x}", h.finish())
 }
 
 /// Snapshot every cached client. Allocation-free for the lookup,
@@ -169,7 +188,8 @@ pub fn snapshot() -> Vec<CachedClientSummary> {
 				DnsConfig::System => "system",
 				DnsConfig::Custom(_) => "custom",
 			};
-			CachedClientSummary { version, scheme, root_ca, verify_mode, alpn, dns }
+			let fingerprint_id = fingerprint_id(fp);
+			CachedClientSummary { version, scheme, root_ca, verify_mode, alpn, dns, fingerprint_id }
 		})
 		.collect()
 }
@@ -181,6 +201,34 @@ pub fn snapshot() -> Vec<CachedClientSummary> {
 #[doc(hidden)]
 pub fn clear_cache_for_test() {
 	CLIENT_CACHE.clear();
+}
+
+/// Remove cache entries whose `fingerprint_id` matches `id`. Returns
+/// the number of entries actually removed (typically 0 or 1).
+///
+/// Live `Arc<Client>` references already issued by `get_or_build` are
+/// **not** invalidated — `DashMap` removal drops the cache's strong
+/// reference, but in-flight requests still hold their own `Arc`
+/// clone. New requests for the same fingerprint go through
+/// `get_or_build`'s build path and insert a fresh entry. This matches
+/// the spec's "operator drain affects only future lookups" contract.
+#[must_use]
+pub fn drain_by_fingerprint_id(id: &str) -> usize {
+	let to_remove: Vec<ClientFingerprint> = CLIENT_CACHE
+		.iter()
+		.filter_map(
+			|entry| {
+				if fingerprint_id(entry.key()) == id { Some(entry.key().clone()) } else { None }
+			},
+		)
+		.collect();
+	let mut removed = 0_usize;
+	for fp in to_remove {
+		if CLIENT_CACHE.remove(&fp).is_some() {
+			removed += 1;
+		}
+	}
+	removed
 }
 
 #[cfg(test)]
@@ -385,5 +433,62 @@ mod tests {
 		assert_eq!(entry.verify_mode, "none");
 		assert!(entry.alpn.is_empty());
 		assert_eq!(entry.dns, "system");
+	}
+
+	#[test]
+	fn fingerprint_id_is_stable_for_same_inputs() {
+		let fp = ClientFingerprint {
+			version: UpstreamVersion::Auto,
+			tls: Some(sample_tls_fp(false, vec![b"h2".to_vec()])),
+			dns: DnsConfig::System,
+		};
+		assert_eq!(fingerprint_id(&fp), fingerprint_id(&fp.clone()));
+		assert_eq!(fingerprint_id(&fp).len(), 16);
+	}
+
+	#[test]
+	fn fingerprint_id_differs_for_distinct_fingerprints() {
+		let a =
+			ClientFingerprint { version: UpstreamVersion::Http1, tls: None, dns: DnsConfig::System };
+		let b =
+			ClientFingerprint { version: UpstreamVersion::Http2, tls: None, dns: DnsConfig::System };
+		assert_ne!(fingerprint_id(&a), fingerprint_id(&b));
+	}
+
+	#[test]
+	fn drain_removes_matching_entry_only() {
+		clear_cache_for_test();
+		crate::crypto::install_default_provider();
+		let fp_a =
+			ClientFingerprint { version: UpstreamVersion::Http1, tls: None, dns: DnsConfig::System };
+		let fp_b =
+			ClientFingerprint { version: UpstreamVersion::Http2, tls: None, dns: DnsConfig::System };
+		let _ = get_or_build(fp_a.clone(), make_dummy_client);
+		let _ = get_or_build(fp_b.clone(), make_dummy_client);
+		let id_a = fingerprint_id(&fp_a);
+		let removed = drain_by_fingerprint_id(&id_a);
+		assert_eq!(removed, 1);
+		// `fp_a` is gone; `fp_b` still present.
+		assert!(snapshot().iter().all(|s| s.fingerprint_id != id_a));
+		assert!(snapshot().iter().any(|s| s.fingerprint_id == fingerprint_id(&fp_b)));
+	}
+
+	// In-flight Arc<Client> survives drain: the live reference returned
+	// before drain stays usable, only future cache lookups see the
+	// removal.
+	#[test]
+	fn drain_does_not_invalidate_existing_arc_clients() {
+		clear_cache_for_test();
+		crate::crypto::install_default_provider();
+		let fp =
+			ClientFingerprint { version: UpstreamVersion::Http1, tls: None, dns: DnsConfig::System };
+		let live = get_or_build(fp.clone(), make_dummy_client);
+		let id = fingerprint_id(&fp);
+		assert_eq!(drain_by_fingerprint_id(&id), 1);
+		// Cache miss now.
+		assert!(snapshot().iter().all(|s| s.fingerprint_id != id));
+		// Live `Arc<Client>` still alive — the drain only removes the
+		// cache's strong reference.
+		assert!(Arc::strong_count(&live) >= 1);
 	}
 }

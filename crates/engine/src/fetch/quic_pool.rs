@@ -95,10 +95,10 @@ impl Drop for QuicPoolEntry {
 	}
 }
 
-// TODO(s3-18): pool.drain management verb. No eviction sweep in MVP;
 // `quinn`'s connection idle timeout retires connections from the
-// inside, mirroring the TCP-side `client_cache` policy. Cache grows
-// monotonically across reload cycles (see `spec/architecture/07-l7.md`
+// inside; manual eviction is exposed via `pool.drain` (see
+// `drain_by_fingerprint_id`). Cache grows monotonically across reload
+// cycles otherwise (see `spec/architecture/07-l7.md`
 // § _Lifetime: daemon-level_).
 static QUIC_POOL: LazyLock<DashMap<QuicFingerprint, Arc<QuicPoolEntry>>> =
 	LazyLock::new(DashMap::new);
@@ -246,6 +246,19 @@ pub struct PooledQuicSummary {
 	pub remote_addr: String,
 	pub sni: String,
 	pub alpn: Vec<String>,
+	/// Stable identifier (16-char hex) the operator uses to address
+	/// this entry in `pool.drain`.
+	pub fingerprint_id: String,
+}
+
+/// Hash a `QuicFingerprint` into a stable 16-char hex string. Same
+/// shape as [`crate::fetch::client_cache::fingerprint_id`].
+#[must_use]
+pub fn fingerprint_id(fp: &QuicFingerprint) -> String {
+	use std::hash::{Hash as _, Hasher as _};
+	let mut h = std::collections::hash_map::DefaultHasher::new();
+	fp.hash(&mut h);
+	format!("{:016x}", h.finish())
 }
 
 /// Snapshot every pooled QUIC connection. Read-only: never inserts,
@@ -264,9 +277,33 @@ pub fn snapshot() -> Vec<PooledQuicSummary> {
 				remote_addr: fp.addr.to_string(),
 				sni: entry.value().sni.as_ref().to_owned(),
 				alpn,
+				fingerprint_id: fingerprint_id(fp),
 			}
 		})
 		.collect()
+}
+
+/// Remove pool entries whose `fingerprint_id` matches `id`. Returns
+/// the number of entries actually removed. Live `Arc<QuicPoolEntry>`
+/// references are unaffected — the operator's drain only changes
+/// future cache lookups.
+#[must_use]
+pub fn drain_by_fingerprint_id(id: &str) -> usize {
+	let to_remove: Vec<QuicFingerprint> = QUIC_POOL
+		.iter()
+		.filter_map(
+			|entry| {
+				if fingerprint_id(entry.key()) == id { Some(entry.key().clone()) } else { None }
+			},
+		)
+		.collect();
+	let mut removed = 0_usize;
+	for fp in to_remove {
+		if QUIC_POOL.remove(&fp).is_some() {
+			removed += 1;
+		}
+	}
+	removed
 }
 
 /// Empty the pool. Test-only — integration tests call this between

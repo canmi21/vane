@@ -105,6 +105,7 @@ impl Handler for MgmtState {
 			VERB_GET_METRICS => self.handle_get_metrics(req.args),
 			VERB_GET_POOLS => self.handle_get_pools(),
 			VERB_GET_UPSTREAMS => self.handle_get_upstreams(),
+			vane_mgmt::verb::VERB_POOL_DRAIN => Self::handle_pool_drain(req.args),
 			other => Err(WireError {
 				kind: WireErrorKind::UnknownVerb,
 				message: format!("unknown verb {other:?}"),
@@ -221,6 +222,7 @@ fn quic_upstream_entries() -> Vec<vane_mgmt::verb::QuicUpstreamEntry> {
 			remote_addr: s.remote_addr,
 			sni: s.sni,
 			alpn: s.alpn,
+			fingerprint_id: s.fingerprint_id,
 		})
 		.collect()
 }
@@ -228,6 +230,16 @@ fn quic_upstream_entries() -> Vec<vane_mgmt::verb::QuicUpstreamEntry> {
 #[cfg(not(feature = "h3"))]
 fn quic_upstream_entries() -> Vec<vane_mgmt::verb::QuicUpstreamEntry> {
 	Vec::new()
+}
+
+#[cfg(feature = "h3")]
+fn quic_drain_by_id(id: &str) -> usize {
+	vane_engine::fetch::quic_pool::drain_by_fingerprint_id(id)
+}
+
+#[cfg(not(feature = "h3"))]
+fn quic_drain_by_id(_id: &str) -> usize {
+	0
 }
 
 fn json<R: serde::Serialize>(r: &R) -> Result<serde_json::Value, WireError> {
@@ -413,10 +425,32 @@ impl MgmtState {
 				verify_mode: s.verify_mode.to_string(),
 				alpn: s.alpn,
 				dns: s.dns.to_string(),
+				fingerprint_id: s.fingerprint_id,
 			})
 			.collect();
 		let quic = quic_upstream_entries();
 		json(&GetUpstreamsResult { tcp, quic })
+	}
+
+	/// Manual pool eviction. Operators read `fingerprint_id` from
+	/// `get_upstreams` and pass it back to drain matching cache
+	/// entries. Live `Arc<Client>` references survive — only future
+	/// cache lookups are affected (per spec § _Lifetime: daemon-level_
+	/// drain semantics).
+	fn handle_pool_drain(args: serde_json::Value) -> Result<serde_json::Value, WireError> {
+		let parsed: vane_mgmt::verb::PoolDrainArgs = serde_json::from_value(args).map_err(|e| {
+			WireError { kind: WireErrorKind::BadArgs, message: format!("pool_drain args: {e}") }
+		})?;
+		let id = parsed.fingerprint_id.trim();
+		if id.is_empty() {
+			return Err(WireError {
+				kind: WireErrorKind::BadArgs,
+				message: "pool_drain: fingerprint_id must not be empty".to_string(),
+			});
+		}
+		let tcp_drained = vane_engine::fetch::client_cache::drain_by_fingerprint_id(id);
+		let quic_drained = quic_drain_by_id(id);
+		json(&vane_mgmt::verb::PoolDrainResult { tcp_drained, quic_drained })
 	}
 
 	/// Walk the active graph's `entries` and report each listener's
@@ -848,5 +882,64 @@ mod tests {
 				&& e.dns == "system"),
 			"the cleartext h1 fingerprint we built must surface in the snapshot",
 		);
+		assert!(
+			r.tcp.iter().all(|e| !e.fingerprint_id.is_empty()),
+			"every entry has a non-empty fingerprint_id",
+		);
+	}
+
+	#[tokio::test]
+	async fn dispatch_pool_drain_removes_matching_entry() {
+		vane_engine::crypto::install_default_provider();
+		// Build a unique fingerprint for this test, then drain by id.
+		let _ = vane_engine::fetch::http_proxy::factory(
+			&serde_json::json!({ "upstream": "127.0.0.1:9998", "version": "h2" }),
+			None,
+		)
+		.expect("h2 factory must succeed");
+
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41017);
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_GET_UPSTREAMS.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
+		let r: GetUpstreamsResult = serde_json::from_value(value).expect("decode");
+		let entry = r.tcp.iter().find(|e| e.version == "h2").expect("h2 entry present");
+		let id = entry.fingerprint_id.clone();
+		assert!(!id.is_empty());
+
+		let drain = one_shot(
+			&state,
+			Request {
+				id: 2,
+				verb: vane_mgmt::verb::VERB_POOL_DRAIN.into(),
+				args: serde_json::json!({ "fingerprint_id": id }),
+			},
+		)
+		.await
+		.expect("drain ok");
+		let r: vane_mgmt::verb::PoolDrainResult = serde_json::from_value(drain).expect("decode drain");
+		assert_eq!(r.tcp_drained, 1, "exactly one tcp entry drained");
+		assert_eq!(r.quic_drained, 0, "no quic entries drained for a tcp-only id");
+	}
+
+	#[tokio::test]
+	async fn dispatch_pool_drain_rejects_empty_id() {
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41018);
+		let err = one_shot(
+			&state,
+			Request {
+				id: 1,
+				verb: vane_mgmt::verb::VERB_POOL_DRAIN.into(),
+				args: serde_json::json!({ "fingerprint_id": "" }),
+			},
+		)
+		.await
+		.expect_err("empty id must fail");
+		assert!(matches!(err.kind, vane_mgmt::WireErrorKind::BadArgs));
 	}
 }

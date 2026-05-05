@@ -232,6 +232,11 @@ pub struct TcpUpstreamEntry {
 	/// `"system"` (read `/etc/resolv.conf`) or `"custom"` (operator-
 	/// pinned nameservers).
 	pub dns: String,
+	/// 16-char hex identifier for `pool.drain`. Stable for the
+	/// process lifetime as long as the underlying fingerprint contents
+	/// are unchanged.
+	#[serde(default)]
+	pub fingerprint_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -239,6 +244,32 @@ pub struct QuicUpstreamEntry {
 	pub remote_addr: String,
 	pub sni: String,
 	pub alpn: Vec<String>,
+	/// 16-char hex identifier for `pool.drain`.
+	#[serde(default)]
+	pub fingerprint_id: String,
+}
+
+// ─── pool_drain ─────────────────────────────────────────────────────────
+/// Verb name for the manual pool eviction RPC. Operators look up a
+/// `fingerprint_id` from `get_upstreams` and pass it back here to
+/// remove the matching cache entry. Live `Arc<Client>` /
+/// `Arc<QuicPoolEntry>` references survive — only future cache
+/// lookups are affected.
+pub const VERB_POOL_DRAIN: &str = "pool_drain";
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PoolDrainArgs {
+	pub fingerprint_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PoolDrainResult {
+	/// Number of TCP / TLS `client_cache` entries removed (almost
+	/// always 0 or 1).
+	pub tcp_drained: usize,
+	/// Number of QUIC pool entries removed. `0` when the `h3` feature
+	/// is disabled or no QUIC pool entry matches the id.
+	pub quic_drained: usize,
 }
 
 #[cfg(test)]
@@ -397,11 +428,13 @@ mod tests {
 				verify_mode: "full".to_string(),
 				alpn: vec!["h2".to_string(), "http/1.1".to_string()],
 				dns: "system".to_string(),
+				fingerprint_id: "abcdef0123456789".to_string(),
 			}],
 			quic: vec![QuicUpstreamEntry {
 				remote_addr: "127.0.0.1:443".to_string(),
 				sni: "example.com".to_string(),
 				alpn: vec!["h3".to_string()],
+				fingerprint_id: "fedcba9876543210".to_string(),
 			}],
 		};
 		assert_eq!(round_trip(&r), r);
