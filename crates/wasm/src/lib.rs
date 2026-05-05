@@ -1180,12 +1180,19 @@ struct StatelessKey {
 	args_json: String,
 }
 
-/// Pool metadata for a stateless export. Each rental instantiates a fresh store.
+/// Pool metadata for a stateless export. Each rental instantiates a
+/// fresh store.
+///
+/// `total_allocations` ticks once per successful rental.
+/// `failures` ticks when `instantiate_async` returns `Err` — the
+/// stateless path has no exhaustion failure mode (capacity is
+/// unbounded), so this only catches real instantiation problems.
 struct StatelessPool {
 	component: Arc<Component>,
 	#[allow(dead_code)]
 	args_json: String,
-	construction_count: Arc<std::sync::atomic::AtomicU64>,
+	total_allocations: Arc<std::sync::atomic::AtomicU64>,
+	failures: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// A pre-allocated pool of warm stateful WASM instances for a single export.
@@ -1212,6 +1219,12 @@ pub struct StatefulPoolHandle {
 	/// the operator's module + export without a second registry.
 	pub module_id: String,
 	pub export_name: String,
+	/// Cumulative checkout success count. Ticks once per `instances.pop()`
+	/// that returns `Some(_)`; surfaced via `WasmPoolSnapshot`.
+	pub total_allocations: Arc<std::sync::atomic::AtomicU64>,
+	/// Cumulative checkout failure count — every `PluginError::Exhausted`
+	/// path increments this.
+	pub failures: Arc<std::sync::atomic::AtomicU64>,
 }
 
 struct StatefulInstance {
@@ -1242,7 +1255,12 @@ impl StatefulPoolHandle {
 	) -> Result<L4PeekDecision, PluginError> {
 		let mut instance = {
 			let mut guard = self.instances.lock().unwrap();
-			guard.pop().ok_or(PluginError::Exhausted)?
+			let Some(inst) = guard.pop() else {
+				self.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+				return Err(PluginError::Exhausted);
+			};
+			self.total_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+			inst
 		};
 
 		instance.store.set_epoch_deadline(10);
@@ -1507,6 +1525,8 @@ impl WasmtimeRuntime {
 			capacity: pool_size,
 			module_id: key,
 			export_name: export_name.to_owned(),
+			total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+			failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 		});
 		// Register a weak ref so `pool_snapshot` can list this pool
 		// without inflating its lifetime. Stale entries are pruned in
@@ -1551,18 +1571,23 @@ impl WasmtimeRuntime {
 				export: pool.export_name.clone(),
 				capacity: pool.capacity,
 				available,
+				total_allocations: pool.total_allocations.load(std::sync::atomic::Ordering::Relaxed),
+				failures: pool.failures.load(std::sync::atomic::Ordering::Relaxed),
 			});
 		}
 		// Stateless pools: capacity / available are zero by design
-		// (on-demand instantiation, no warm cache).
+		// (on-demand instantiation, no warm cache); the counters
+		// nonetheless reflect real activity.
 		let stateless = self.stateless_pools.read().unwrap();
-		for (k, _pool) in stateless.iter() {
+		for (k, pool) in stateless.iter() {
 			out.push(WasmPoolSnapshot {
 				kind: "stateless",
 				key: k.module_id.clone(),
 				export: k.export_name.clone(),
 				capacity: 0,
 				available: 0,
+				total_allocations: pool.total_allocations.load(std::sync::atomic::Ordering::Relaxed),
+				failures: pool.failures.load(std::sync::atomic::Ordering::Relaxed),
 			});
 		}
 		out
@@ -1581,6 +1606,11 @@ pub struct WasmPoolSnapshot {
 	pub export: String,
 	pub capacity: usize,
 	pub available: usize,
+	/// Cumulative successful checkouts (stateful) or rentals
+	/// (stateless).
+	pub total_allocations: u64,
+	/// Cumulative checkout / instantiation failures.
+	pub failures: u64,
 }
 
 impl WasmPoolStats for WasmtimeRuntime {
@@ -1594,6 +1624,8 @@ impl WasmPoolStats for WasmtimeRuntime {
 				export: s.export,
 				capacity: s.capacity,
 				available: s.available,
+				total_allocations: s.total_allocations,
+				failures: s.failures,
 			})
 			.collect()
 	}
@@ -1667,13 +1699,14 @@ impl WasmRuntime for WasmtimeRuntime {
 			let new_pool = Arc::new(StatelessPool {
 				component: Arc::clone(&component),
 				args_json: args_json.to_owned(),
-				construction_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 			});
 			let mut pools = self.stateless_pools.write().unwrap();
 			pools.entry(skey).or_insert(Arc::clone(&new_pool)).clone()
 		};
 
-		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		pool.total_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
 		let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 		let mut store = Store::new(&self.engine, host_state);
@@ -1687,7 +1720,10 @@ impl WasmRuntime for WasmtimeRuntime {
 		.await
 		{
 			Ok(p) => p,
-			Err(e) => return Err(PluginError::Trap(e.to_string())),
+			Err(e) => {
+				pool.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+				return Err(PluginError::Trap(e.to_string()));
+			}
 		};
 
 		let wit_input = lower_input(input);
@@ -1743,13 +1779,14 @@ impl WasmRuntime for WasmtimeRuntime {
 			let new_pool = Arc::new(StatelessPool {
 				component: Arc::clone(&component),
 				args_json: args_json.to_owned(),
-				construction_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 			});
 			let mut pools = self.stateless_pools.write().unwrap();
 			pools.entry(skey).or_insert(Arc::clone(&new_pool)).clone()
 		};
 
-		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		pool.total_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
 		let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 		let mut store = Store::new(&self.engine, host_state);
@@ -1763,7 +1800,10 @@ impl WasmRuntime for WasmtimeRuntime {
 		.await
 		{
 			Ok(p) => p,
-			Err(e) => return Err(PluginError::Trap(e.to_string())),
+			Err(e) => {
+				pool.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+				return Err(PluginError::Trap(e.to_string()));
+			}
 		};
 
 		let wit_input = lower_l4bytes_input(input);
@@ -1819,13 +1859,14 @@ impl WasmRuntime for WasmtimeRuntime {
 			let new_pool = Arc::new(StatelessPool {
 				component: Arc::clone(&component),
 				args_json: args_json.to_owned(),
-				construction_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 			});
 			let mut pools = self.stateless_pools.write().unwrap();
 			pools.entry(skey).or_insert(Arc::clone(&new_pool)).clone()
 		};
 
-		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		pool.total_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
 		let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 		let mut store = Store::new(&self.engine, host_state);
@@ -1839,7 +1880,10 @@ impl WasmRuntime for WasmtimeRuntime {
 		.await
 		{
 			Ok(p) => p,
-			Err(e) => return Err(PluginError::Trap(e.to_string())),
+			Err(e) => {
+				pool.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+				return Err(PluginError::Trap(e.to_string()));
+			}
 		};
 
 		let wit_input = lower_l7request_input(input);
@@ -1895,13 +1939,14 @@ impl WasmRuntime for WasmtimeRuntime {
 			let new_pool = Arc::new(StatelessPool {
 				component: Arc::clone(&component),
 				args_json: args_json.to_owned(),
-				construction_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 			});
 			let mut pools = self.stateless_pools.write().unwrap();
 			pools.entry(skey).or_insert(Arc::clone(&new_pool)).clone()
 		};
 
-		pool.construction_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		pool.total_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
 		let host_state = self.build_host_state(args_json.to_owned(), &key, export_name);
 		let mut store = Store::new(&self.engine, host_state);
@@ -1915,7 +1960,10 @@ impl WasmRuntime for WasmtimeRuntime {
 		.await
 		{
 			Ok(p) => p,
-			Err(e) => return Err(PluginError::Trap(e.to_string())),
+			Err(e) => {
+				pool.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+				return Err(PluginError::Trap(e.to_string()));
+			}
 		};
 
 		let wit_input = lower_l7response_input(input);
@@ -2435,6 +2483,33 @@ mod tests {
 
 		assert!(matches!(result, Err(PluginError::Exhausted)), "should be Exhausted: {result:?}");
 		assert!(elapsed.as_millis() < 50, "should return immediately, took {elapsed:?}");
+		assert_eq!(
+			pool.failures.load(std::sync::atomic::Ordering::Relaxed),
+			1,
+			"exhaustion bumps failures",
+		);
+		assert_eq!(
+			pool.total_allocations.load(std::sync::atomic::Ordering::Relaxed),
+			0,
+			"exhaustion does not bump total_allocations",
+		);
+	}
+
+	// One successful invocation bumps total_allocations on the
+	// stateful path; failures stays at zero.
+	#[tokio::test(flavor = "multi_thread")]
+	async fn stateful_pool_total_allocations_increments_on_success() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		let pool = rt.create_stateful_pool(&mid, "probe", "{}", 1).await.expect("pool");
+		pool.invoke_l4_peek("probe", empty_input()).await.expect("first invoke");
+
+		let snap = rt.pool_snapshot();
+		let entry =
+			snap.iter().find(|s| s.kind == "stateful" && s.export == "probe").expect("stateful entry");
+		assert_eq!(entry.total_allocations, 1, "one successful checkout");
+		assert_eq!(entry.failures, 0, "no failures");
 	}
 
 	// Dropping pool1 and creating pool2 yields fresh state: both first invocations
@@ -2458,7 +2533,7 @@ mod tests {
 	}
 
 	// Two invocations with the same key share one StatelessPool entry.
-	// The construction_count must equal 2 after two rentals.
+	// `total_allocations` must equal 2 after two rentals.
 	#[tokio::test]
 	async fn stateless_dedup_shares_construction_count() {
 		let rt = loaded_runtime().await;
@@ -2474,8 +2549,8 @@ mod tests {
 		};
 		let pools = rt.stateless_pools.read().unwrap();
 		let pool = pools.get(&skey).expect("pool should exist");
-		let count = pool.construction_count.load(std::sync::atomic::Ordering::Relaxed);
-		assert_eq!(count, 2, "expected construction_count=2, got {count}");
+		let count = pool.total_allocations.load(std::sync::atomic::Ordering::Relaxed);
+		assert_eq!(count, 2, "expected total_allocations=2, got {count}");
 	}
 
 	// Two invocations with distinct args_json are tracked as separate pool entries.

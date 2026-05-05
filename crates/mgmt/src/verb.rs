@@ -181,12 +181,11 @@ pub struct WasmPoolEntry {
 	pub capacity: usize,
 	pub available: usize,
 	pub in_use: usize,
-	// TODO(pool-counters): per-pool allocation totals and failure
-	// counts are listed by spec § _State_ but the runtime does not
-	// yet maintain matching counters. Wire fields stay 0 until the
-	// metrics integration adds them.
+	/// Cumulative successful checkouts (stateful) or rentals
+	/// (stateless).
 	#[serde(default)]
 	pub total_allocations: u64,
+	/// Cumulative checkout / instantiation failures.
 	#[serde(default)]
 	pub failures: u64,
 }
@@ -196,10 +195,12 @@ pub struct CgiPoolEntry {
 	pub cap: usize,
 	pub available: usize,
 	pub in_use: usize,
-	// TODO(pool-counters): allocation totals + failures land with
-	// the same metrics integration as `WasmPoolEntry`.
+	/// Cumulative successful permit acquisitions (CGI fetches that
+	/// proceeded to fork/exec).
 	#[serde(default)]
 	pub total_allocations: u64,
+	/// Cumulative cap-rejected fetches (503 fast-rejects, spec
+	/// § _Concurrency cap_).
 	#[serde(default)]
 	pub failures: u64,
 }

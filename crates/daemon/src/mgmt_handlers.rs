@@ -201,8 +201,8 @@ fn cgi_pool_entry() -> Option<vane_mgmt::verb::CgiPoolEntry> {
 		cap: s.cap,
 		available: s.available,
 		in_use: s.in_use,
-		total_allocations: 0,
-		failures: 0,
+		total_allocations: s.total_allocations,
+		failures: s.failures,
 	})
 }
 
@@ -394,8 +394,8 @@ impl MgmtState {
 				capacity: s.capacity,
 				available: s.available,
 				in_use: s.capacity.saturating_sub(s.available),
-				total_allocations: 0,
-				failures: 0,
+				total_allocations: s.total_allocations,
+				failures: s.failures,
 			})
 			.collect();
 		let cgi = cgi_pool_entry();
@@ -786,6 +786,8 @@ mod tests {
 					export: "l4-peek".to_string(),
 					capacity: 4,
 					available: 1,
+					total_allocations: 17,
+					failures: 2,
 				}]
 			}
 		}
@@ -810,8 +812,8 @@ mod tests {
 		assert_eq!(entry.capacity, 4);
 		assert_eq!(entry.available, 1);
 		assert_eq!(entry.in_use, 3, "in_use must be capacity - available");
-		assert_eq!(entry.total_allocations, 0, "TODO(pool-counters)");
-		assert_eq!(entry.failures, 0, "TODO(pool-counters)");
+		assert_eq!(entry.total_allocations, 17, "counters surface from the stub");
+		assert_eq!(entry.failures, 2, "failures surface from the stub");
 	}
 
 	#[tokio::test]

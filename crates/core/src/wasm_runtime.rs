@@ -233,6 +233,12 @@ pub struct WasmPoolSummary {
 	/// number in flight; the daemon translates that to `in_use` on the
 	/// wire.
 	pub available: usize,
+	/// Cumulative successful allocations (stateful checkouts +
+	/// stateless rentals).
+	pub total_allocations: u64,
+	/// Cumulative allocation failures (stateful exhaustion + stateless
+	/// instantiation errors).
+	pub failures: u64,
 }
 
 /// Read-only introspection of WASM pool runtime state. Implemented by

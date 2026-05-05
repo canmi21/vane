@@ -374,6 +374,12 @@ fn validate_binary(binary: &std::path::Path, security: &CgiSecurity) -> Result<(
 struct CgiPermitState {
 	semaphore: Arc<Semaphore>,
 	cap: usize,
+	/// Cumulative successful permit acquisitions — i.e. CGI fetches that
+	/// crossed the cap gate and proceeded to fork/exec.
+	total_spawns: Arc<std::sync::atomic::AtomicU64>,
+	/// Cumulative `try_acquire_owned` failures — fast-rejects under the
+	/// concurrency cap (spec § _Concurrency cap_).
+	failures: Arc<std::sync::atomic::AtomicU64>,
 }
 
 static CGI_PERMITS: OnceLock<CgiPermitState> = OnceLock::new();
@@ -399,10 +405,23 @@ fn cgi_permits() -> Arc<Semaphore> {
 					.and_then(|s| s.parse::<usize>().ok())
 					.filter(|n| *n > 0)
 					.unwrap_or(DEFAULT_MAX_CONCURRENT);
-				CgiPermitState { semaphore: Arc::new(Semaphore::new(cap)), cap }
+				CgiPermitState {
+					semaphore: Arc::new(Semaphore::new(cap)),
+					cap,
+					total_spawns: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+					failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+				}
 			})
 			.semaphore,
 	)
+}
+
+/// Counter handles tied to the lazily-initialised permit state. Returns
+/// `None` when the state has not yet been touched (no CGI traffic yet).
+fn cgi_permit_counters()
+-> Option<(Arc<std::sync::atomic::AtomicU64>, Arc<std::sync::atomic::AtomicU64>)> {
+	let state = CGI_PERMITS.get()?;
+	Some((Arc::clone(&state.total_spawns), Arc::clone(&state.failures)))
 }
 
 /// Snapshot of the CGI concurrency cap. Read-only: returns `None`
@@ -417,6 +436,11 @@ pub struct CgiPoolStats {
 	pub cap: usize,
 	pub available: usize,
 	pub in_use: usize,
+	/// Cumulative successful permit acquisitions — translated to
+	/// `total_allocations` on the wire shape.
+	pub total_allocations: u64,
+	/// Cumulative cap-rejected acquisitions.
+	pub failures: u64,
 }
 
 #[must_use]
@@ -424,7 +448,13 @@ pub fn pool_stats() -> Option<CgiPoolStats> {
 	let state = CGI_PERMITS.get()?;
 	let available = state.semaphore.available_permits();
 	let in_use = state.cap.saturating_sub(available);
-	Some(CgiPoolStats { cap: state.cap, available, in_use })
+	Some(CgiPoolStats {
+		cap: state.cap,
+		available,
+		in_use,
+		total_allocations: state.total_spawns.load(std::sync::atomic::Ordering::Relaxed),
+		failures: state.failures.load(std::sync::atomic::Ordering::Relaxed),
+	})
 }
 
 #[cfg(unix)]
@@ -446,9 +476,21 @@ impl L7Fetch for CgiFetch {
 		// sustained overload amplifies pressure (each pending
 		// request still holds its connection); surfacing the cap to
 		// operators is the spec's explicit choice.
-		let Ok(permit) = cgi_permits().try_acquire_owned() else {
+		// Drive `cgi_permits()` first so the OnceLock is initialised
+		// before we try to read the counter handles — otherwise the
+		// first call would observe `None` and miss its own counter
+		// bump.
+		let semaphore = cgi_permits();
+		let counters = cgi_permit_counters();
+		let Ok(permit) = semaphore.try_acquire_owned() else {
+			if let Some((_, failures)) = &counters {
+				failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+			}
 			return Ok(L7FetchOutput::Response(static_response(StatusCode::SERVICE_UNAVAILABLE)));
 		};
+		if let Some((spawns, _)) = &counters {
+			spawns.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		}
 
 		let total_deadline = Instant::now() + self.args.timeouts.total;
 		match tokio::time::timeout_at(total_deadline, self.run(req, conn, permit, total_deadline)).await

@@ -177,4 +177,13 @@ async fn second_request_rejects_with_503_when_cap_is_one() {
 		http::StatusCode::OK,
 		"first request must complete normally once the slow script returns"
 	);
+
+	// Counters: one successful spawn, one cap-rejected fast-reject.
+	let stats = vane_engine::fetch::cgi::pool_stats().expect("pool initialised");
+	assert!(
+		stats.total_allocations >= 1,
+		"first request bumped total_allocations: {}",
+		stats.total_allocations,
+	);
+	assert!(stats.failures >= 1, "second request bumped failures: {}", stats.failures);
 }
