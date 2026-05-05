@@ -10,6 +10,7 @@
 
 pub mod cert_store;
 pub mod client_trust;
+pub mod crl_cache;
 pub mod native_roots;
 pub mod populator;
 pub mod resolver;
@@ -20,6 +21,7 @@ pub use cert_store::{CertEntry, CertStore};
 pub use client_trust::{
 	ClientTrustStore, ClientTrustStoreError, ClientTrustStoreHandle, build_client_verifier,
 };
+pub use crl_cache::{CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId, DefaultCrlFetcher};
 pub use native_roots::{NativeRootsError, native_roots, warm_native_roots};
 pub use populator::{CertPopulator, PopulatorError};
 pub use resolver::VaneCertResolver;

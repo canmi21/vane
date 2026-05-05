@@ -56,6 +56,10 @@ rustls-pki-types = "1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
+# `time` powers CRL `nextUpdate` parsing (via `x509-parser::ASN1Time`)
+# and the daemon-wide CRL refresh scheduler. `rcgen` (dev-dep) also
+# uses `time` so the workspace already pins a compatible version.
+time = "0.3"
 tokio = { version = "1.52.1", features = ["full"] }
 tokio-rustls = { version = "0.26", default-features = false }
 tokio-util = "0.7.18"
