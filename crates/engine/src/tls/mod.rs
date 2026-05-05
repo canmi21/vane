@@ -13,6 +13,7 @@ pub mod client_trust;
 pub mod crl_cache;
 pub mod native_roots;
 pub mod populator;
+pub mod refreshable_crl_verifier;
 pub mod resolver;
 pub mod static_populator;
 pub mod ticketer;
@@ -24,6 +25,7 @@ pub use client_trust::{
 pub use crl_cache::{CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId, DefaultCrlFetcher};
 pub use native_roots::{NativeRootsError, native_roots, warm_native_roots};
 pub use populator::{CertPopulator, PopulatorError};
+pub use refreshable_crl_verifier::{RefreshableClientCertVerifier, RefreshableServerCertVerifier};
 pub use resolver::VaneCertResolver;
 pub use static_populator::StaticCertPopulator;
 pub use ticketer::{default_ticketer, install_default_ticketer};

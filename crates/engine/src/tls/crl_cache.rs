@@ -93,6 +93,13 @@ pub struct CrlCache {
 	fetcher: Arc<dyn CrlFetcher>,
 }
 
+impl std::fmt::Debug for CrlCache {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let guard = self.inner.read();
+		f.debug_struct("CrlCache").field("entries", &guard.len()).finish_non_exhaustive()
+	}
+}
+
 impl CrlCache {
 	#[must_use]
 	pub fn new(fetcher: Arc<dyn CrlFetcher>) -> Arc<Self> {
