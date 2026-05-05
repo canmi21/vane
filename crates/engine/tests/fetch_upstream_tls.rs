@@ -56,7 +56,12 @@ fn skip_verify_tls() -> UpstreamTls {
 		verify_mode: VerifyMode::Skip,
 		alpn_protocols: Vec::new(),
 	};
-	UpstreamTls { client_config, verify_hostname: "localhost".to_string(), fingerprint }
+	UpstreamTls {
+		client_config,
+		verify_hostname: "localhost".to_string(),
+		fingerprint,
+		crls: Vec::new(),
+	}
 }
 
 /// Binds an ephemeral TLS server, accepts one connection, runs

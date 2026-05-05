@@ -19,7 +19,8 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use vane_core::{AsyncReadWrite, Error, UpstreamReason};
 
-use crate::fetch::client_cache::{RootCaSource, TlsConfigFingerprint, VerifyMode};
+use crate::fetch::client_cache::{CrlSource, RootCaSource, TlsConfigFingerprint, VerifyMode};
+use crate::tls::crl_cache::{CrlFetchFailure, CrlSourceId};
 
 /// Built TLS configuration for an upstream dial. Stored on each
 /// fetch's `Arc<…>` so the per-call `dial_upstream` only borrows.
@@ -45,6 +46,11 @@ pub struct UpstreamTls {
 	/// version is resolved. See `spec/architecture/08-tls.md`
 	/// § _Client cache: fingerprint and reuse_.
 	pub fingerprint: TlsConfigFingerprint,
+	/// Resolved `args.tls.crls` source list — kept on the value so the
+	/// daemon can register them with the shared `CrlCache` at link time.
+	/// The bytes themselves live in the cache, not here. Empty when no
+	/// CRL sources are configured (the common case).
+	pub crls: Vec<(CrlSourceId, CrlFetchFailure)>,
 }
 
 /// Dial `upstream` and optionally complete a TLS handshake using the
@@ -199,19 +205,46 @@ pub fn parse_tls_args(
 		);
 	let insecure =
 		tls_args.get("insecure_skip_verify").and_then(serde_json::Value::as_bool).unwrap_or(false);
+	let crls = parse_crls(tls_args.get("crls"))?;
 	let client_config =
 		build_client_config(insecure).map_err(|e| format!("build tls client config: {e}"))?;
 	// Fingerprint with `alpn_protocols` left empty — the factory
-	// patches it once `version` is known. CRL / mTLS slots stay at
-	// their post-MVP placeholders.
+	// patches it once `version` is known. CRL slots are populated from
+	// the parsed source list above; mTLS client_cert stays at its
+	// post-MVP placeholder.
+	let crl_sources: Vec<CrlSource> = crls
+		.iter()
+		.map(|(id, _)| match id {
+			CrlSourceId::File(p) => CrlSource::File(p.clone()),
+			CrlSourceId::Url(u) => CrlSource::Url(u.clone()),
+		})
+		.collect();
 	let fingerprint = TlsConfigFingerprint {
 		root_ca: if insecure { RootCaSource::Skip } else { RootCaSource::System },
 		client_cert_hash: None,
-		crl_sources: Vec::new(),
+		crl_sources,
 		verify_mode: if insecure { VerifyMode::Skip } else { VerifyMode::Full },
 		alpn_protocols: Vec::new(),
 	};
-	Ok(Some(UpstreamTls { client_config, verify_hostname, fingerprint }))
+	Ok(Some(UpstreamTls { client_config, verify_hostname, fingerprint, crls }))
+}
+
+fn parse_crls(
+	value: Option<&serde_json::Value>,
+) -> Result<Vec<(CrlSourceId, CrlFetchFailure)>, String> {
+	let Some(arr) = value else {
+		return Ok(Vec::new());
+	};
+	let entries = arr.as_array().ok_or_else(|| "args.tls.crls must be an array".to_string())?;
+	entries
+		.iter()
+		.enumerate()
+		.map(|(idx, entry)| {
+			let cfg: vane_core::rule::CrlSourceConfig =
+				serde_json::from_value(entry.clone()).map_err(|e| format!("args.tls.crls[{idx}]: {e}"))?;
+			Ok(crate::tls::client_trust::crl_source_from_config(&cfg))
+		})
+		.collect()
 }
 
 #[cfg(test)]
