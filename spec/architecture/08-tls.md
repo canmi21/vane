@@ -225,6 +225,16 @@ A future post-MVP enhancement could install a daemon-wide `Arc<dyn StoresServerS
 
 0-RTT (TLS 1.3 early data, RFC 8446 §2.3) lets clients send application data in the first flight, saving one round-trip on resumption.
 
+#### Scope: TLS-over-TCP listeners only
+
+This whole § applies to TLS-over-TCP listeners (H1.1 / H2). 0-RTT on the H3 listener path is **deferred post-MVP, target revisit 2027+**.
+
+The TCP path is mechanically clean because `rustls::ServerConnection::early_data()` exposes the early data buffer for the application to drain explicitly, giving vane an unambiguous per-request "this was 0-RTT" signal that feeds the per-rule `allow_zero_rtt` gate. QUIC 0-RTT on the listener side has no equivalent: `quinn::RecvStream::is_0rtt()` exists, but the wrapping `h3-quinn` ≤ 0.0.10 does not expose it through `h3::server::RequestStream`, and connection-level proxies (e.g. tracking when `quinn::ZeroRttAccepted` resolves) admit a TOCTOU between stream-accept and handshake-complete that can leak a true 0-RTT request past an `allow_zero_rtt: false` rule. That is a security-positive false-positive vs. security-negative false-negative trade-off, and we don't ship the negative side.
+
+H3 0-RTT will be picked up when h3-quinn (or a successor) publishes a stable per-stream 0-RTT signal that feeds through `h3::server::RequestStream`. Until then, the H3 listener always negotiates full 1-RTT regardless of `enable_zero_rtt`. Operators who configure `enable_zero_rtt: true` on a TLS+H3 listener get TCP-side 0-RTT and full-handshake H3; the field is not silently dropped on the H3 side, just inert there.
+
+(Upstream-side 0-RTT — vane → upstream — is already ruled out for a separate reason: see `07-l7.md` § _No 0-RTT to upstream_. That rationale is unchanged and not affected by this scope.)
+
 #### Replay risk — operator's responsibility
 
 0-RTT data is **not replay-protected** — an attacker who captures a 0-RTT ClientHello can replay it. The client cannot tell, the server has no signal.
@@ -550,7 +560,7 @@ These features have architectural positions defined above; MVP implementation or
 - **OCSP stapling** — populator framework exists; `ManagedCertPopulator` fetches OCSP on cert issuance in its first release. `StaticCertPopulator` gains optional OCSP fetch later.
 - **CRL checking** — Stage 3. Source schema, adaptive fetch cadence, per-source `fetch_failure`, daemon-wide CRL cache, and CRL/OCSP coexistence are all specified above in § _CRL checking_. Implementation lands with S3-11.
 - **Configurable session-ticket lifetime** — MVP uses the crypto-backend `Ticketer::new()` default (12-hour ticket lifetime, 6-hour rotation period). A configurable lifetime knob is post-MVP.
-- **TLS 1.3 0-RTT** — full design locked in § _TLS 1.3 0-RTT (early data)_ above: `enable_zero_rtt` / `allow_zero_rtt` field schema, idempotent-method gate, body-downgrade rule, 16 KiB hardcoded early data size. Implementation lands with S3-13.
+- **TLS 1.3 0-RTT** — full design locked in § _TLS 1.3 0-RTT (early data)_ above: `enable_zero_rtt` / `allow_zero_rtt` field schema, idempotent-method gate, body-downgrade rule, 16 KiB hardcoded early data size. The TLS-over-TCP path implementation lands with S3-13. The H3 listener path is deferred post-MVP (revisit 2027+) — see § _TLS 1.3 0-RTT (early data)_ § _Scope_.
 - **mTLS on listener** — Stage 3. `ClientAuth` enum, `ClientTrustStore`, the `client_auth` config schema, the seven `tls.peer_cert.*` predicate paths, and the Request-vs-Require semantics are specified above in § _Client certificate verification_. Implementation lands with S3-12.
 - **`ManagedCertPopulator` (integrated LazyCert)** — Stage 3. Full design — daemon-scoped `ManagedCertRegistry`, `AcmeStore` persistence, `tls.managed` config schema, HTTP-01 / DNS-01 mechanics, ARI-driven renewal, `force_renew` mgmt verb — is locked in [`spec/acme.md`](../acme.md). Built on [`instant-acme`](https://crates.io/crates/instant-acme).
 
