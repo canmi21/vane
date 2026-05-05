@@ -306,8 +306,9 @@ impl FlowGraph {
 		let mut listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>> =
 			BTreeMap::new();
 		for (addr, spec) in &sym.meta.listener_tls {
-			let (server_config, populator) = build_listener_server_config(spec)
-				.map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
+			let (server_config, populator) =
+				build_listener_server_config(spec, security_cfg.crl_cache.as_ref())
+					.map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
 			// Operator-visible record of which ticketer posture this
 			// listener resolved to. 0-RTT requires skipping the
 			// daemon-wide rotating ticketer (see
@@ -485,6 +486,7 @@ fn derive_kind(sym: &SymbolicFlowGraph, entry: NodeId) -> ListenerKind {
 
 fn build_listener_server_config(
 	spec: &ListenerTlsSpec,
+	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
 ) -> Result<(rustls::ServerConfig, Box<dyn CertPopulator + Send + Sync>), String> {
 	let populator = StaticCertPopulator::from_spec(spec).map_err(|e| e.to_string())?;
 	let store = populator.initial_store_sync().map_err(|e| e.to_string())?;
@@ -497,11 +499,12 @@ fn build_listener_server_config(
 	// builder's verifier slot is set accordingly; `with_no_client_auth`
 	// keeps the existing behaviour for `None`.
 	let builder = rustls::ServerConfig::builder();
-	let builder =
-		match crate::tls::build_client_verifier(&spec.client_auth).map_err(|e| e.to_string())? {
-			Some(verifier) => builder.with_client_cert_verifier(verifier),
-			None => builder.with_no_client_auth(),
-		};
+	let builder = match crate::tls::build_client_verifier(&spec.client_auth, crl_cache)
+		.map_err(|e| e.to_string())?
+	{
+		Some(verifier) => builder.with_client_cert_verifier(verifier),
+		None => builder.with_no_client_auth(),
+	};
 	let mut server_config = builder.with_cert_resolver(resolver);
 	// Two-protocol ALPN — h2 preferred, http/1.1 fallback. The executor's
 	// Upgrade arm reads the negotiated protocol off `ConnContext.tls.alpn`
@@ -648,7 +651,7 @@ mod tests {
 			enable_zero_rtt: false,
 		};
 		let (server, _populator) =
-			build_listener_server_config(&spec).expect("build_listener_server_config");
+			build_listener_server_config(&spec, None).expect("build_listener_server_config");
 		assert_eq!(server.alpn_protocols, vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
 	}
 

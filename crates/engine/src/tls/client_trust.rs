@@ -5,10 +5,10 @@
 //! (mTLS on listener)_, the trust store is built from per-rule
 //! `client_auth.trust_store` config: explicit PEM bundle paths
 //! (`ca_paths`), an optional CA directory (`ca_dir`, all `*.pem` files
-//! merged), and an optional list of CRL sources. This PR handles only
-//! `kind: "file"` CRLs; URL CRL fetch lives with the daemon-wide CRL
-//! cache (S3-11). The compile-time check for URL sources is in
-//! `vane-core::compile::lower::compile_client_auth`.
+//! merged), and an optional list of CRL sources. CRL bytes themselves
+//! are fetched and cached daemon-wide by [`crate::tls::CrlCache`]; this
+//! module only retains the source identities and policies so the
+//! refreshable verifier can pull a fresh snapshot per handshake.
 
 use std::collections::HashSet;
 use std::fs;
@@ -17,13 +17,16 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use rustls::RootCertStore;
-use rustls::server::WebPkiClientVerifier;
-use rustls_pki_types::CertificateRevocationListDer;
 use vane_core::rule::{ClientAuthSpec, ClientTrustStoreConfig, CrlSourceConfig};
 
+use crate::tls::crl_cache::{CrlCache, CrlFetchFailure, CrlSourceId};
+use crate::tls::refreshable_crl_verifier::RefreshableClientCertVerifier;
+
 /// Loaded trust store ready for `WebPkiClientVerifier::builder(...)`.
-/// CA roots are merged from every PEM source named in the config;
-/// CRLs are owned-DER for use with `with_crls`.
+/// CA roots are merged from every PEM source named in the config; CRL
+/// source identities and per-source `fetch_failure` policies are kept
+/// here so the wrapper verifier can ask the daemon-wide cache for the
+/// latest bytes per handshake (spec § _CRL checking_).
 ///
 /// Held inside `Arc<ArcSwap<_>>` per `08-tls.md` § _Cert resolver and
 /// rotation_ — symmetric to `CertStore`. Reload swaps in a fresh
@@ -31,7 +34,7 @@ use vane_core::rule::{ClientAuthSpec, ClientTrustStoreConfig, CrlSourceConfig};
 /// handshake time.
 pub struct ClientTrustStore {
 	pub cas: Arc<RootCertStore>,
-	pub crls: Vec<CertificateRevocationListDer<'static>>,
+	pub crls: Vec<(CrlSourceId, CrlFetchFailure)>,
 }
 
 /// Stringly error returned by trust-store construction. The bind path
@@ -56,15 +59,6 @@ pub enum ClientTrustStoreError {
 	#[error("read ca_dir {dir:?}: {source}")]
 	ReadCaDir { dir: PathBuf, source: std::io::Error },
 
-	#[error("read crl_path {path:?}: {source}")]
-	ReadCrlPath { path: PathBuf, source: std::io::Error },
-
-	#[error("parse crl_path {path:?}: {source}")]
-	ParseCrlPath { path: PathBuf, source: std::io::Error },
-
-	#[error("crl_path {path:?} has no CRLs")]
-	EmptyCrlPath { path: PathBuf },
-
 	#[error("rustls client verifier rejected the trust store: {source}")]
 	BuildVerifier { source: rustls::server::VerifierBuilderError },
 }
@@ -72,9 +66,9 @@ pub enum ClientTrustStoreError {
 impl ClientTrustStore {
 	/// Build a `ClientTrustStore` from the parsed config. Loads CAs
 	/// from every `ca_paths` entry and every `*.pem` file in `ca_dir`,
-	/// dedupes by full DER, then loads CRLs from `kind: "file"`
-	/// sources only. URL sources should already have been rejected at
-	/// compile time.
+	/// dedupes by full DER. CRL **bytes** are not loaded here — the
+	/// daemon-wide [`CrlCache`] owns them; this only records the source
+	/// identity + per-source `fetch_failure` policy.
 	///
 	/// # Errors
 	///
@@ -99,19 +93,7 @@ impl ClientTrustStore {
 			});
 		}
 
-		let mut crls: Vec<CertificateRevocationListDer<'static>> = Vec::new();
-		for src in &cfg.crls {
-			match src {
-				CrlSourceConfig::File { path, .. } => {
-					Self::add_crl_file(path, &mut crls)?;
-				}
-				// TODO(s3-11): wire `Url` CRL sources through a
-				// daemon-wide CRL cache. Today this branch is
-				// unreachable — the lower pass rejects URL sources
-				// at compile time.
-				CrlSourceConfig::Url { .. } => unreachable!("URL CRL rejected at compile"),
-			}
-		}
+		let crls = cfg.crls.iter().map(crl_source_from_config).collect();
 
 		Ok(Self { cas: Arc::new(roots), crls })
 	}
@@ -165,27 +147,29 @@ impl ClientTrustStore {
 		}
 		Ok(())
 	}
+}
 
-	fn add_crl_file(
-		path: &Path,
-		crls: &mut Vec<CertificateRevocationListDer<'static>>,
-	) -> Result<(), ClientTrustStoreError> {
-		let bytes = fs::read(path)
-			.map_err(|source| ClientTrustStoreError::ReadCrlPath { path: path.to_path_buf(), source })?;
-		let mut reader = std::io::BufReader::new(bytes.as_slice());
-		let mut count = 0_usize;
-		for crl in rustls_pemfile::crls(&mut reader) {
-			let crl = crl.map_err(|source| ClientTrustStoreError::ParseCrlPath {
-				path: path.to_path_buf(),
-				source,
-			})?;
-			crls.push(crl);
-			count += 1;
+/// Translate a `CrlSourceConfig` (parsed from rule JSON) into the
+/// `(CrlSourceId, CrlFetchFailure)` shape the cache and trust store
+/// share. The `CrlFetchFailure` enums in `vane-core` and `vane-engine`
+/// are structurally identical but live in separate crates; this is the
+/// single mapping point.
+#[must_use]
+pub fn crl_source_from_config(cfg: &CrlSourceConfig) -> (CrlSourceId, CrlFetchFailure) {
+	match cfg {
+		CrlSourceConfig::File { path, fetch_failure } => {
+			(CrlSourceId::File(path.clone()), map_fetch_failure(*fetch_failure))
 		}
-		if count == 0 {
-			return Err(ClientTrustStoreError::EmptyCrlPath { path: path.to_path_buf() });
+		CrlSourceConfig::Url { url, fetch_failure } => {
+			(CrlSourceId::Url(url.clone()), map_fetch_failure(*fetch_failure))
 		}
-		Ok(())
+	}
+}
+
+fn map_fetch_failure(p: vane_core::rule::CrlFetchFailure) -> CrlFetchFailure {
+	match p {
+		vane_core::rule::CrlFetchFailure::Tolerate => CrlFetchFailure::Tolerate,
+		vane_core::rule::CrlFetchFailure::Reject => CrlFetchFailure::Reject,
 	}
 }
 
@@ -197,13 +181,21 @@ impl ClientTrustStore {
 /// Returns `None` for `ClientAuthSpec::None` — the caller drops back
 /// to the existing `with_no_client_auth()` path.
 ///
+/// `crl_cache` is required when the resolved trust store carries any
+/// CRL sources; if it is `None` and `cfg.crls` is non-empty, the
+/// returned verifier still works but every handshake will fail with
+/// "crl source not registered" (same fail-closed posture as a reject
+/// source). Callers in production paths supply
+/// [`crate::SecurityConfig::crl_cache`].
+///
 /// # Errors
 ///
 /// Surfaces any [`ClientTrustStoreError`] from trust-store
 /// construction, plus rustls's own `BuildVerifier` rejection (e.g.
-/// no roots after dedup, CRL signature verification failure).
+/// no roots after dedup).
 pub fn build_client_verifier(
 	spec: &ClientAuthSpec,
+	crl_cache: Option<&Arc<CrlCache>>,
 ) -> Result<Option<Arc<dyn rustls::server::danger::ClientCertVerifier>>, ClientTrustStoreError> {
 	let (allow_unauth, ts) = match spec {
 		ClientAuthSpec::None => return Ok(None),
@@ -211,16 +203,42 @@ pub fn build_client_verifier(
 		ClientAuthSpec::Require { trust_store } => (false, trust_store),
 	};
 	let store = ClientTrustStore::from_config(ts)?;
-	let mut builder = WebPkiClientVerifier::builder(store.cas);
-	if !store.crls.is_empty() {
-		builder = builder.with_crls(store.crls);
+	let cas = store.cas;
+	if store.crls.is_empty() {
+		// No CRLs — keep the original direct construction so behaviour
+		// is unchanged for trust stores that don't opt into revocation.
+		let mut builder = rustls::server::WebPkiClientVerifier::builder(cas);
+		if allow_unauth {
+			builder = builder.allow_unauthenticated();
+		}
+		let verifier =
+			builder.build().map_err(|source| ClientTrustStoreError::BuildVerifier { source })?;
+		return Ok(Some(verifier));
 	}
-	if allow_unauth {
-		builder = builder.allow_unauthenticated();
+
+	// CRL sources present — wrap so each handshake reads the latest
+	// bytes from the daemon-wide cache.
+	let cache = crl_cache.cloned().unwrap_or_else(|| {
+		// Tests / fixtures that exercise the verifier without a real
+		// daemon get a degenerate cache that always reports
+		// `not registered`. Real daemons always provide one.
+		CrlCache::new(Arc::new(NeverFetcher))
+	});
+	let sources: Vec<CrlSourceId> = store.crls.iter().map(|(id, _)| id.clone()).collect();
+	let verifier = RefreshableClientCertVerifier::new(cache, sources, cas, allow_unauth);
+	Ok(Some(verifier as Arc<dyn rustls::server::danger::ClientCertVerifier>))
+}
+
+/// Test-only stand-in fetcher used when [`build_client_verifier`] is
+/// called without a real cache (defensive path for integration tests).
+/// Real daemon code always provides `Some(cache)`.
+struct NeverFetcher;
+
+#[async_trait::async_trait]
+impl crate::tls::CrlFetcher for NeverFetcher {
+	async fn fetch(&self, _src: &crate::tls::CrlSourceId) -> Result<Vec<u8>, String> {
+		Err("crl cache not configured".into())
 	}
-	let verifier =
-		builder.build().map_err(|source| ClientTrustStoreError::BuildVerifier { source })?;
-	Ok(Some(verifier))
 }
 
 /// Per-listener handle wrapping the trust store in `ArcSwap` so future

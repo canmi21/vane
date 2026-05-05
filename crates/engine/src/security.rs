@@ -15,6 +15,8 @@ use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
 use vane_core::{Error, config::Env};
 
+use crate::tls::CrlCache;
+
 // Spec-defined minimums from 13-rate-limit.md.
 const FLOOR_HEADER_TIMEOUT_SECS: u32 = 5;
 const FLOOR_MAX_HEADER_BYTES: usize = 4_096;
@@ -28,7 +30,7 @@ const FLOOR_MAX_TOTAL_CONNS: usize = 1_024;
 ///
 /// `Default` uses spec-defined defaults for test code that does not
 /// need to exercise floor enforcement.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SecurityConfig {
 	/// `VANE_SEC_HEADER_TIMEOUT` — wall-clock budget from TCP accept
 	/// to complete HTTP headers (default 30 s, floor 5 s). Applied to
@@ -50,6 +52,25 @@ pub struct SecurityConfig {
 	/// `VANE_SEC_MAX_TOTAL_CONNS` — daemon-wide maximum concurrent
 	/// connections (default 65536, floor 1024).
 	pub max_total_conns: usize,
+	/// Daemon-wide CRL cache shared by listener mTLS and upstream
+	/// verification. `None` for tests / default builds without CRL
+	/// support; populated by daemon main when at least one rule
+	/// references a CRL source. See `spec/architecture/08-tls.md`
+	/// § _CRL checking_ § _Daemon-wide CRL cache_.
+	pub crl_cache: Option<Arc<CrlCache>>,
+}
+
+impl std::fmt::Debug for SecurityConfig {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("SecurityConfig")
+			.field("header_timeout", &self.header_timeout)
+			.field("max_header_bytes", &self.max_header_bytes)
+			.field("max_headers_count", &self.max_headers_count)
+			.field("max_conn_per_ip", &self.max_conn_per_ip)
+			.field("max_total_conns", &self.max_total_conns)
+			.field("crl_cache", &self.crl_cache.is_some())
+			.finish()
+	}
 }
 
 impl Default for SecurityConfig {
@@ -60,6 +81,7 @@ impl Default for SecurityConfig {
 			max_headers_count: 100,
 			max_conn_per_ip: 100,
 			max_total_conns: 65_536,
+			crl_cache: None,
 		}
 	}
 }
@@ -99,6 +121,7 @@ impl SecurityConfig {
 			max_headers_count: env.sec_max_headers_count as usize,
 			max_conn_per_ip: env.sec_max_conn_per_ip as usize,
 			max_total_conns: env.sec_max_total_conns as usize,
+			crl_cache: None,
 		})
 	}
 }

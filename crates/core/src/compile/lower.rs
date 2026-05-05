@@ -1376,7 +1376,7 @@ fn compile_client_auth(
 	addrs: &[SocketAddr],
 	ca: &crate::rule::ClientAuthConfig,
 ) -> Result<crate::rule::ClientAuthSpec, Error> {
-	use crate::rule::{ClientAuthMode, ClientAuthSpec, CrlSourceConfig};
+	use crate::rule::{ClientAuthMode, ClientAuthSpec};
 	match ca.mode {
 		ClientAuthMode::None => {
 			if ca.trust_store.is_some() {
@@ -1401,13 +1401,6 @@ fn compile_client_auth(
 				return Err(Error::compile(format!(
 					"listener {addrs:?}: `trust_store` requires at least one of `ca_paths` or `ca_dir`"
 				)));
-			}
-			for src in &ts.crls {
-				if let CrlSourceConfig::Url { url, .. } = src {
-					return Err(Error::compile(format!(
-						"listener {addrs:?}: CRL URL sources not yet supported — got url {url:?}; use kind: \"file\" or omit `crls`"
-					)));
-				}
 			}
 			Ok(match ca.mode {
 				ClientAuthMode::Request => ClientAuthSpec::Request { trust_store: ts },
