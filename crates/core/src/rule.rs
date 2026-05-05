@@ -117,10 +117,9 @@ pub struct ClientTrustStoreConfig {
 }
 
 /// One CRL source entry — file or URL, with a per-source
-/// `fetch_failure` policy. URL sources are deferred (S3-11) and
-/// rejected at compile time in this PR.
-// TODO(s3-11): wire `Url` source kind, daemon-wide CRL cache,
-// adaptive fetch cadence per `08-tls.md` § _CRL checking_.
+/// `fetch_failure` policy. Bytes are owned by the daemon-wide CRL
+/// cache (`vane_engine::tls::CrlCache`); this struct only carries
+/// the parsed schema.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum CrlSourceConfig {
@@ -129,8 +128,7 @@ pub enum CrlSourceConfig {
 }
 
 /// CRL availability policy (per `08-tls.md` § _CRL checking_ § _Failure
-/// handling_). Parsed eagerly though only the structural error path is
-/// wired this PR — actual fetch / failure semantics land with S3-11.
+/// handling_).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CrlFetchFailure {

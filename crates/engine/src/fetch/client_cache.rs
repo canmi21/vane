@@ -56,16 +56,10 @@ pub enum CrlSource {
 }
 
 /// Fingerprint of one TLS posture. CRL participates by *source
-/// identity*, not by fetched content (see spec note).
-//
-// FIXME(crl-fetcher): `crl_sources` stays `Vec::new()` until rule
-// args parse `tls.crls` and the engine wires a
-// `rustls::WebPkiCrlProvider`. Fingerprint shape is correct already
-// so the cache key won't reshape when CRL lands.
-//
-// FIXME(mtls): `client_cert_hash` stays `None` until upstream mTLS
-// plumbs `args.tls.client_cert`. Once present, hash via SHA256 of
-// the leaf `CertifiedKey`'s cert DER bytes.
+/// identity*, not by fetched content (see spec note). `client_cert_hash`
+/// is `Some([u8; 32])` (SHA-256 of the leaf cert DER) when upstream
+/// mTLS is configured, `None` otherwise; cleartext upstreams keep
+/// `tls: None` on `ClientFingerprint` and never reach this struct.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TlsConfigFingerprint {
 	pub root_ca: RootCaSource,
