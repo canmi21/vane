@@ -1291,8 +1291,10 @@ impl StatefulPoolHandle {
 
 		let cur_gen = self.generation.load(Ordering::Acquire);
 		let mut instance = self.checkout(cur_gen, export_name).await?;
-		// Successful checkout increments accounting counters once.
-		self.in_flight.fetch_add(1, Ordering::AcqRel);
+		// `checkout` already reserved the `in_flight` slot atomically
+		// (the cap check + reservation live there to close a TOCTOU
+		// window between observing in_flight and racing concurrent
+		// lazy builds). Just record the cumulative success counter.
 		self.total_allocations.fetch_add(1, Ordering::Relaxed);
 
 		instance.store.set_epoch_deadline(10);
@@ -1329,16 +1331,34 @@ impl StatefulPoolHandle {
 	/// lazily build a fresh one against the current `Component`. Old-
 	/// generation instances popped from the buffer are dropped silently.
 	///
-	/// `cur_gen` is sampled by the caller so a concurrent generation
-	/// bump partway through the loop doesn't trip the `Exhausted` arm
-	/// — `checkout` only races against `bump_generation`, which never
-	/// shrinks `capacity` and never spuriously fails the lazy build.
+	/// Capacity is enforced by reserving an `in_flight` slot atomically
+	/// **before** observing the buffer or calling `lazy_build_instance`.
+	/// A `fetch_add(1)` whose previous value already exceeds `capacity`
+	/// rolls back via `fetch_sub(1)` and returns `Exhausted`, so two
+	/// concurrent checkouts can never both pass the cap check and both
+	/// proceed to a lazy build. Without this protocol, `load` + `fetch_add`
+	/// done separately would let a burst bump `in_flight` past `capacity`.
 	async fn checkout(
 		&self,
 		cur_gen: u64,
 		export_name: &str,
 	) -> Result<StatefulInstance, PluginError> {
 		use std::sync::atomic::Ordering;
+
+		// Atomic reservation — single fetch_add covers the entire
+		// checkout regardless of which arm (pre-built pop vs lazy
+		// build) ends up serving the slot. Old-generation pops drop
+		// and retry without releasing the reservation: dropping them
+		// frees no real capacity (they were not in_flight to begin
+		// with), and the next loop iteration either pops a current-
+		// generation instance or falls through to the lazy build for
+		// the same reserved slot.
+		let prev = self.in_flight.fetch_add(1, Ordering::AcqRel);
+		if prev >= self.capacity {
+			self.in_flight.fetch_sub(1, Ordering::AcqRel);
+			self.failures.fetch_add(1, Ordering::Relaxed);
+			return Err(PluginError::Exhausted);
+		}
 
 		loop {
 			let popped = {
@@ -1353,14 +1373,15 @@ impl StatefulPoolHandle {
 					// entries below it.
 				}
 				None => {
-					if self.in_flight.load(Ordering::Acquire) >= self.capacity {
-						self.failures.fetch_add(1, Ordering::Relaxed);
-						return Err(PluginError::Exhausted);
-					}
-					return self
-						.lazy_build_instance(cur_gen, export_name)
-						.await
-						.map_err(|e| PluginError::Trap(e.to_string()));
+					return match self.lazy_build_instance(cur_gen, export_name).await {
+						Ok(inst) => Ok(inst),
+						Err(e) => {
+							// Build failed — release the reserved slot
+							// so a subsequent checkout can use it.
+							self.in_flight.fetch_sub(1, Ordering::AcqRel);
+							Err(PluginError::Trap(e.to_string()))
+						}
+					};
 				}
 			}
 		}
@@ -2899,6 +2920,66 @@ mod tests {
 		let result = pool.invoke_l4_peek("probe", empty_input()).await;
 		assert!(result.is_ok(), "post-bump invoke succeeds: {result:?}");
 		assert_eq!(pool.instances.lock().unwrap().len(), 1, "lazy-built instance returned to buffer");
+	}
+
+	// Capacity must be a hard cap even when many concurrent checkouts
+	// race through the lazy-build path. Without an atomic reservation,
+	// `load(in_flight) + lazy_build` lets a burst of N tasks all see
+	// `in_flight < capacity` and all proceed to build, exceeding the
+	// cap. The fix bumps `in_flight` via `fetch_add` first and rolls
+	// back when the previous value already saturates.
+	#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+	async fn checkout_capacity_is_hard_under_concurrent_burst() {
+		use std::sync::atomic::Ordering;
+
+		const BURST: usize = 32;
+
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+		let pool = rt.create_stateful_pool(&mid, "probe", "{}", 2).await.expect("pool");
+
+		// Drain the pre-built buffer so every concurrent checkout takes
+		// the lazy-build path — exactly the racy decision window.
+		let component =
+			rt.components.read().unwrap().get(&mid.0.to_string()).cloned().expect("component");
+		pool.swap_component_and_bump(component);
+
+		// Fire many concurrent checkouts. Each successful one keeps its
+		// instance alive (we collect them) so `in_flight` peaks at the
+		// success count for the duration of the test.
+		let mut handles = Vec::with_capacity(BURST);
+		for _ in 0..BURST {
+			let pool = Arc::clone(&pool);
+			handles.push(tokio::spawn(async move {
+				let cur_gen = pool.generation.load(Ordering::Acquire);
+				pool.checkout(cur_gen, "probe").await
+			}));
+		}
+
+		let mut held = Vec::with_capacity(BURST);
+		let mut exhausted = 0usize;
+		for h in handles {
+			match h.await.expect("join") {
+				Ok(inst) => held.push(inst),
+				Err(PluginError::Exhausted) => exhausted += 1,
+				Err(other) => panic!("unexpected checkout error: {other:?}"),
+			}
+		}
+
+		assert!(
+			held.len() <= 2,
+			"capacity is 2 but {} concurrent checkouts succeeded — race in checkout's reservation",
+			held.len(),
+		);
+		assert_eq!(held.len() + exhausted, BURST, "every checkout returned either Ok or Exhausted");
+		// `in_flight` must equal the count we still hold (each held
+		// instance pins one slot until drop; this test bypasses the
+		// return-to-pool path, so the counter stays at the peak).
+		assert_eq!(
+			pool.in_flight.load(Ordering::Acquire),
+			held.len(),
+			"in_flight reflects the number of checked-out instances",
+		);
 	}
 
 	// One successful invocation bumps total_allocations on the
