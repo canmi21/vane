@@ -774,10 +774,14 @@ pub async fn dispatch_wasm(
 			}
 		}
 		Some(MiddlewareKind::L4Bytes) => {
-			// UDP carries the cold-path datagram on `UdpAssoc.first_packet`,
-			// so L4Bytes can inspect it directly. TCP would need to drain
-			// (and rewind) bytes from the live stream, which the current
-			// pipeline does not support — see TODO below.
+			// UDP carries the cold-path datagram on `UdpAssoc.first_packet`.
+			// On TCP / TLS the equivalent prefix lives on `ConnContext.user`
+			// as `PeekResult.buffer`, captured by the listener-side
+			// protocol-detection prelude (06-l4.md § _Protocol detection_) —
+			// the same buffer L4Peek reads. Reading from `L4Conn::Peeked`
+			// directly would consume the rewound bytes the L7 layer still
+			// needs, so the peek snapshot is the only safe TCP source.
+			// Continued post-peek byte streaming for L4Bytes is post-MVP.
 			let bytes_view = match l4.as_ref() {
 				Some(L4Conn::Udp(assoc)) => {
 					let pkt = &assoc.first_packet;
@@ -787,14 +791,18 @@ pub async fn dispatch_wasm(
 						BytesView { data: pkt.to_vec(), truncated: false }
 					}
 				}
-				// TODO(s3-14-followup): wire an L4-level lazy buffer (parallel
-				// to the request-side LazyBuffer, or a post-peek byte buffer
-				// on `L4Conn`) so L4Bytes plugins can inspect TCP traffic
-				// without consuming bytes the L7 layer still needs.
 				Some(L4Conn::Tcp(_) | L4Conn::Peeked(_) | L4Conn::Tls(_)) => {
-					return Err(Error::middleware(
-						"L4Bytes plugin invocation on TCP transport is not yet supported",
-					));
+					let peek_buf: Option<bytes::Bytes> = {
+						let user = conn.user.lock();
+						user.get::<vane_core::PeekResult>().map(|r| r.buffer.clone())
+					};
+					match peek_buf {
+						Some(buf) if buf.len() > WASM_BODY_LIMIT_L4 => {
+							BytesView { data: buf[..WASM_BODY_LIMIT_L4].to_vec(), truncated: true }
+						}
+						Some(buf) => BytesView { data: buf.to_vec(), truncated: false },
+						None => BytesView { data: vec![], truncated: false },
+					}
 				}
 				None => BytesView { data: vec![], truncated: false },
 			};
