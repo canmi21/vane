@@ -740,8 +740,12 @@ pub async fn dispatch_wasm(
 	resp: &mut Option<Response>,
 	conn: &Arc<ConnContext>,
 ) -> Result<Decision, Error> {
-	// TODO(s3-14-followup): inspects-driven context packing
-	let ctx: Vec<ContextEntry> = vec![];
+	let ctx: Vec<ContextEntry> = match w.metadata.exports.iter().find(|e| e.name == w.export_name) {
+		Some(export) => {
+			crate::wasm_context::pack_context(&export.inspects, conn, w.module_id.0.as_ref())
+		}
+		None => Vec::new(),
+	};
 
 	match w.metadata.exports.iter().find(|e| e.name == w.export_name).map(|e| e.kind) {
 		Some(MiddlewareKind::L4Peek) => {

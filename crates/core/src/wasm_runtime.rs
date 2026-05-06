@@ -35,6 +35,7 @@ pub struct PluginMetadata {
 pub struct ModuleId(pub Arc<str>);
 
 /// Mirrors the WIT `context-value` variant from `vane:plugin/types@0.1.0`.
+#[derive(Debug, Clone)]
 pub enum ContextValue {
 	Text(String),
 	Bytes(Vec<u8>),
@@ -45,6 +46,7 @@ pub enum ContextValue {
 }
 
 /// Mirrors the WIT `context-entry` record from `vane:plugin/types@0.1.0`.
+#[derive(Debug, Clone)]
 pub struct ContextEntry {
 	pub path: String,
 	pub value: ContextValue,

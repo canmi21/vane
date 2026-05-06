@@ -48,6 +48,7 @@ pub mod tracing_broadcast;
 pub mod tracing_init;
 pub mod upgrade;
 pub mod verbosity;
+pub(crate) mod wasm_context;
 pub mod wasm_fetch;
 
 pub use listener::{BindConfig, ListenerSet};
