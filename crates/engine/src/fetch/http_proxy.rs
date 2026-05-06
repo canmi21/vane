@@ -100,6 +100,18 @@ struct QuicDispatchState {
 	sni: Arc<str>,
 	tls_fp: crate::fetch::client_cache::TlsConfigFingerprint,
 	connect_timeout: std::time::Duration,
+	/// Per-fetch hickory resolver. Built once at factory time from the
+	/// rule's `args.dns`; every dial composes its `IpAddr` result with
+	/// `port` to feed `quinn::Endpoint::connect`. Sharing the resolver
+	/// across dials lets hickory's TTL cache absorb repeat lookups.
+	resolver: Arc<HickoryDnsResolver>,
+	/// Pre-parsed host portion of `args.upstream`. Bracketed IPv6
+	/// literals (`[::1]`) are stripped here so the resolver short-
+	/// circuit reaches `IpAddr::parse` cleanly.
+	host: Arc<str>,
+	/// Pre-parsed port portion of `args.upstream`. The dial composes
+	/// this with the resolved IP into a `SocketAddr`.
+	port: u16,
 }
 
 /// Spec default for the H3 dial half's `connect_timeout` when
@@ -267,23 +279,16 @@ impl HttpProxyFetch {
 
 		let start = std::time::Instant::now();
 
-		// Per-request DNS resolve via tokio's system resolver. The
-		// hickory resolver wired into the TCP path only feeds
-		// `hyper_util`'s connector and is not reachable from quinn
-		// directly; integrating it here is a separate task.
-		// TODO(s3-02-followup): route H3 dial through the per-fetch
-		// hickory resolver so `args.dns` overrides apply.
-		let addr = match tokio::net::lookup_host(self.upstream.as_ref()).await {
-			Ok(mut iter) => iter.next().ok_or_else(|| {
-				Error::upstream(UpstreamReason::Unreachable).with_source(std::io::Error::new(
-					std::io::ErrorKind::AddrNotAvailable,
-					format!("no addresses for upstream {:?}", self.upstream),
-				))
-			})?,
-			Err(e) => {
-				return Err(Error::upstream(UpstreamReason::Unreachable).with_source(e));
-			}
-		};
+		// Per-fetch hickory resolver — same code path as the TCP family
+		// (which threads `args.dns` into hyper-util's connector). H3
+		// has no equivalent connector layer, so the dial composes the
+		// resolved `IpAddr` with the upstream's static port directly.
+		let ip = quic
+			.resolver
+			.resolve_first_ip(&quic.host)
+			.await
+			.map_err(|e| Error::upstream(UpstreamReason::DnsFailure).with_source(e))?;
+		let addr = std::net::SocketAddr::new(ip, quic.port);
 
 		let fp = crate::fetch::quic_pool::QuicFingerprint { addr, tls: quic.tls_fp.clone() };
 		let entry = match tokio::time::timeout(
@@ -404,6 +409,23 @@ impl HttpProxyFetch {
 		)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(resp_parts, body)))
 	}
+}
+
+/// Split an `args.upstream` `host:port` string into its parts. The
+/// returned host has surrounding brackets stripped (`[::1]` → `::1`)
+/// so the resolver's IP-literal short-circuit reaches `IpAddr::parse`.
+/// Returns the host owned (callers wrap it into `Arc<str>`); port is
+/// validated as `u16`.
+#[cfg(feature = "h3")]
+fn split_host_port(upstream: &str) -> Result<(String, u16), String> {
+	let (host_part, port_part) =
+		upstream.rsplit_once(':').ok_or_else(|| "missing port".to_string())?;
+	let host = host_part.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(host_part);
+	if host.is_empty() {
+		return Err("empty host".to_string());
+	}
+	let port = port_part.parse::<u16>().map_err(|e| format!("invalid port: {e}"))?;
+	Ok((host.to_owned(), port))
 }
 
 /// `http::request::Parts` doesn't implement `Clone` because
@@ -544,6 +566,7 @@ fn dispatch_upstream_kind(args: &serde_json::Value) -> Option<Result<FetchInst, 
 /// `version` is not one of the four accepted strings, when
 /// `version: "h3"` is requested on a build without the `h3` feature,
 /// or when the TLS client config fails to build.
+#[allow(clippy::too_many_lines)]
 pub fn factory(
 	args: &serde_json::Value,
 	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
@@ -620,11 +643,18 @@ pub fn factory(
 				.map_err(|e| FactoryError(format!("args.connect_timeout: {e}")))?,
 			None => H3_CONNECT_TIMEOUT_DEFAULT,
 		};
+		let resolver = HickoryDnsResolver::build(&dns)
+			.map_err(|e| FactoryError(format!("args.dns hickory build: {e}")))?;
+		let (host, port) = split_host_port(upstream)
+			.map_err(|e| FactoryError(format!("args.upstream {upstream:?}: {e}")))?;
 		let dispatch = Dispatch::Quic(QuicDispatchState {
 			rustls_cfg: h3_rustls,
 			sni: Arc::from(tls.verify_hostname.as_str()),
 			tls_fp,
 			connect_timeout,
+			resolver: Arc::new(resolver),
+			host: Arc::from(host.as_str()),
+			port,
 		});
 		return Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
 			upstream: Arc::from(upstream),
@@ -806,5 +836,44 @@ mod tests {
 			None,
 		);
 		assert!(result.is_ok(), "h2 cleartext (h2c) must build");
+	}
+
+	#[cfg(feature = "h3")]
+	#[test]
+	fn split_host_port_accepts_ipv4() {
+		assert_eq!(split_host_port("127.0.0.1:443").unwrap(), ("127.0.0.1".to_owned(), 443));
+	}
+
+	#[cfg(feature = "h3")]
+	#[test]
+	fn split_host_port_strips_ipv6_brackets() {
+		assert_eq!(split_host_port("[::1]:8443").unwrap(), ("::1".to_owned(), 8443));
+	}
+
+	#[cfg(feature = "h3")]
+	#[test]
+	fn split_host_port_accepts_dns_name() {
+		assert_eq!(
+			split_host_port("api.example.com:443").unwrap(),
+			("api.example.com".to_owned(), 443),
+		);
+	}
+
+	#[cfg(feature = "h3")]
+	#[test]
+	fn split_host_port_rejects_no_port() {
+		assert!(split_host_port("127.0.0.1").is_err());
+	}
+
+	#[cfg(feature = "h3")]
+	#[test]
+	fn split_host_port_rejects_bad_port() {
+		assert!(split_host_port("127.0.0.1:abc").is_err());
+	}
+
+	#[cfg(feature = "h3")]
+	#[test]
+	fn split_host_port_rejects_empty_host() {
+		assert!(split_host_port(":443").is_err());
 	}
 }

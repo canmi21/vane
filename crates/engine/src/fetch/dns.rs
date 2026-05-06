@@ -85,6 +85,37 @@ impl HickoryDnsResolver {
 	}
 }
 
+impl HickoryDnsResolver {
+	/// Resolve `host` to a single [`IpAddr`] via the inner hickory
+	/// resolver. Used by code paths that already know their port and
+	/// need a typed `IpAddr` (the H3 dial composes the result with the
+	/// upstream's static port to feed `quinn::Endpoint::connect`).
+	///
+	/// IP literals short-circuit — `host.parse::<IpAddr>()` is tried
+	/// first so configurations like `127.0.0.1:443` or `[::1]:443`
+	/// don't issue a wire query (some hickory configurations would
+	/// attempt PTR resolution otherwise).
+	///
+	/// # Errors
+	///
+	/// `io::Error::NotFound` when hickory returns successfully but the
+	/// answer set is empty. Any underlying lookup failure is wrapped
+	/// with `kind = NotFound` to match the `Service<Name>` shape.
+	pub async fn resolve_first_ip(&self, host: &str) -> io::Result<IpAddr> {
+		if let Ok(ip) = host.parse::<IpAddr>() {
+			return Ok(ip);
+		}
+		let lookup = self
+			.inner
+			.lookup_ip(host)
+			.await
+			.map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("hickory: {e}")))?;
+		lookup.iter().next().ok_or_else(|| {
+			io::Error::new(io::ErrorKind::NotFound, format!("hickory: no addresses for {host:?}"))
+		})
+	}
+}
+
 impl Service<Name> for HickoryDnsResolver {
 	type Response = std::vec::IntoIter<SocketAddr>;
 	type Error = io::Error;
@@ -308,5 +339,30 @@ mod tests {
 	fn build_custom_resolver_with_ipv6_succeeds() {
 		let cfg = DnsConfig::Custom(vec!["[2606:4700:4700::1111]:53".parse().unwrap()]);
 		HickoryDnsResolver::build(&cfg).expect("ipv6 custom resolver builds");
+	}
+
+	#[tokio::test]
+	async fn resolve_first_ip_short_circuits_ipv4_literal() {
+		let r = HickoryDnsResolver::build(&DnsConfig::System).expect("build");
+		let ip = r.resolve_first_ip("127.0.0.1").await.expect("ipv4 literal");
+		assert_eq!(ip, IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+	}
+
+	#[tokio::test]
+	async fn resolve_first_ip_short_circuits_ipv6_literal() {
+		let r = HickoryDnsResolver::build(&DnsConfig::System).expect("build");
+		let ip = r.resolve_first_ip("::1").await.expect("ipv6 literal");
+		assert_eq!(ip, IpAddr::V6(std::net::Ipv6Addr::LOCALHOST));
+	}
+
+	#[tokio::test]
+	async fn resolve_first_ip_fails_on_unreachable_nameserver() {
+		// 127.0.0.1:1 is the reserved tcpmux port; no DNS server runs
+		// there. Forcing the resolver to point at it makes lookup fail
+		// without depending on the host's network.
+		let cfg = DnsConfig::Custom(vec!["127.0.0.1:1".parse().unwrap()]);
+		let r = HickoryDnsResolver::build(&cfg).expect("build");
+		let err = r.resolve_first_ip("nonexistent.invalid").await.expect_err("must fail");
+		assert_eq!(err.kind(), io::ErrorKind::NotFound);
 	}
 }
