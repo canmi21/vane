@@ -1,0 +1,28 @@
+[package]
+name = "clienthello"
+version = "0.1.0"
+categories = ["network-programming"]
+edition = "2024"
+keywords = ["quic", "tls", "sni"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/canmi21/vane"
+rust-version = "1.95"
+description = "Extract the TLS SNI from a QUIC client's Initial datagrams without performing a full handshake."
+
+[lints]
+workspace = true
+
+[dependencies]
+# AEAD + HKDF for RFC 9001 §5.2 initial keys derivation. Pure-Rust
+# RustCrypto stack — no C deps, ergonomic for downstream publishers.
+aes = "0.8"
+aes-gcm = "0.10"
+# AES-CTR for QUIC header protection (RFC 9001 §5.4).
+ctr = "0.9"
+hkdf = "0.12"
+sha2 = "0.10"
+# subtle: constant-time comparison primitives.
+subtle = "2"
+# thiserror: idiomatic error enum boilerplate.
+thiserror = "2"
