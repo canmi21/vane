@@ -139,19 +139,6 @@ impl L7Fetch for HttpProxyFetch {
 		*req.uri_mut() =
 			new_uri.parse().map_err(|e| Error::protocol("upstream uri rewrite").with_source(e))?;
 
-		// H3 dispatch: route through the QuicPool. Retry on H3 streams is
-		// not yet supported — the fetch dispatches a single attempt and
-		// surfaces any error directly. Per
-		// `spec/architecture/07-l7.md` § _Retry policy_, retry requires
-		// request-body replay; streaming bodies skip retry on the TCP
-		// path too. Adding H3-aware retry is a separate task.
-		// TODO(s3-02-followup): implement retry on the H3 dispatch path
-		// when the request body is `Body::Static` / `Body::Empty`.
-		#[cfg(feature = "h3")]
-		if let Dispatch::Quic(_) = &self.dispatch {
-			return self.send_one_attempt_h3(req).await;
-		}
-
 		// Snapshot the request body for replay. `Body::Stream` is
 		// one-shot — it collapses retry to a single attempt
 		// regardless of `max_attempts`. `Body::Static` clones via
@@ -161,7 +148,9 @@ impl L7Fetch for HttpProxyFetch {
 		// streaming bodies skip retry quietly. `force` buffering is
 		// implemented earlier in the lower pass — by the time the
 		// fetch sees the request, a `force` policy has already
-		// converted the body to `Body::Static`.
+		// converted the body to `Body::Static`. The TCP and H3 arms
+		// below share this snapshot — their retry semantics are
+		// symmetric per `spec/architecture/07-l7.md` § _Retry policy_.
 		let method_allowed = self.retry.methods.contains(req.method());
 		let replay: Option<Bytes> = match req.body() {
 			Body::Static(b) => Some(b.clone()),
@@ -170,7 +159,21 @@ impl L7Fetch for HttpProxyFetch {
 		};
 		let max_attempts = if replay.is_some() && method_allowed { self.retry.max_attempts } else { 1 };
 
-		// Streaming or non-retryable-method path: single attempt,
+		// H3 dispatch: route through the QuicPool. Single-attempt path
+		// (streaming body, non-whitelisted method, or `max_attempts: 1`)
+		// short-circuits; the multi-attempt arm below mirrors the TCP
+		// path's loop using the per-request `Bytes` replay snapshot.
+		#[cfg(feature = "h3")]
+		if let Dispatch::Quic(quic) = &self.dispatch {
+			if max_attempts <= 1 {
+				return self.send_one_attempt_h3(req).await;
+			}
+			let (parts, _orig) = req.into_parts();
+			let replay = replay.expect("max_attempts > 1 implies replay snapshot");
+			return self.dispatch_h3_with_retry(parts, replay, max_attempts, quic).await;
+		}
+
+		// Streaming or non-retryable-method TCP path: single attempt,
 		// original body, no clones.
 		if max_attempts <= 1 {
 			return self.send_one_attempt_tcp(req).await;
@@ -259,6 +262,49 @@ impl HttpProxyFetch {
 		// bodies_: never collect into `Body::Static`.
 		let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(parts, body)))
+	}
+
+	/// Multi-attempt H3 dispatch. Mirrors the TCP retry loop's shape:
+	/// rebuild the request from `(method, uri, version, headers)` plus
+	/// the cached `Bytes` snapshot on every attempt, run
+	/// `send_one_attempt_h3`, retry whenever
+	/// [`Error::is_retryable`] permits and `attempt < max_attempts`.
+	/// `quic_pool::evict` runs inside `send_one_attempt_h3` on dead
+	/// pool entries; the next loop iteration re-dials through
+	/// `get_or_dial`'s cache-miss path.
+	#[cfg(feature = "h3")]
+	async fn dispatch_h3_with_retry(
+		&self,
+		parts: http::request::Parts,
+		replay: Bytes,
+		max_attempts: u32,
+		_quic: &QuicDispatchState,
+	) -> Result<L7FetchOutput, Error> {
+		let mut last_err: Option<Error> = None;
+		for attempt in 1..=max_attempts {
+			let req_attempt =
+				http::Request::from_parts(clone_parts_for_retry(&parts), Body::Static(replay.clone()));
+			match self.send_one_attempt_h3(req_attempt).await {
+				Ok(out) => return Ok(out),
+				Err(err) => {
+					tracing::debug!(
+						attempt,
+						max_attempts,
+						version = ?self.version,
+						"upstream h3 request failed",
+					);
+					if attempt >= max_attempts || !err.is_retryable() {
+						return Err(err);
+					}
+					let delay = self.retry.backoff.delay_for_attempt(attempt + 1);
+					if !delay.is_zero() {
+						tokio::time::sleep(delay).await;
+					}
+					last_err = Some(err);
+				}
+			}
+		}
+		Err(last_err.expect("retry loop runs at least once"))
 	}
 
 	/// Single-attempt QUIC-family path. Resolves `self.upstream` to a
