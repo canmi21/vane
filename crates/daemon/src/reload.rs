@@ -18,12 +18,18 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use vane_core::Error;
+#[cfg(feature = "wasm")]
+use vane_core::PluginPolicyTable;
 use vane_core::compile::compile;
 use vane_engine::SecurityConfig;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FlowGraph, PluginRegistry};
+#[cfg(feature = "wasm")]
+use vane_wasm::WasmtimeRuntime;
 
 use crate::providers::MetadataProviders;
+#[cfg(feature = "wasm")]
+use crate::wasm_loader;
 
 /// Outcome of a single reload attempt. Both successful variants carry
 /// the post-link `version_hash` so observers (mgmt API, eventually) can
@@ -38,23 +44,48 @@ pub(crate) enum ReloadOutcome {
 	Swapped { hash: [u8; 32] },
 }
 
-/// Reload once: load → compile → link → swap. On any error, returns
-/// `Err` *without* touching the active graph.
+/// Reload once: WASM rescan → load → compile → link → swap. On any
+/// error, returns `Err` *without* touching the active graph.
+///
+/// The WASM phase reconciles `<wasm_dir>/*.wasm` against the runtime
+/// (see [`crate::wasm_loader::reload_dir`]). When WASM bytes change in
+/// a metadata-compatible way, the swap happens silently — the active
+/// graph stays valid because `MiddlewareInst::Wasm` keeps its existing
+/// `Arc<PluginMetadata>` and the runtime's `Component` is what changes.
+/// Metadata-incompatible WASM changes / additions / deletions force a
+/// rule recompile (`schema_changed = true`) so the new metadata
+/// threads into the freshly-built graph.
 ///
 /// # Errors
 /// Surfaces whatever failed: filesystem (`config::load`), compile
-/// (preset / merge / lower / validate), or link (factory rejection,
-/// kind mismatch, feature-disabled).
-pub(crate) fn reload_once(
+/// (preset / merge / lower / validate), link (factory rejection,
+/// kind mismatch, feature-disabled), or WASM rescan (dir unreadable,
+/// component validation failure).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn reload_once(
 	config_dir: &Path,
+	#[cfg(feature = "wasm")] wasm_dir: Option<&Path>,
+	#[cfg(feature = "wasm")] runtime: Option<&Arc<WasmtimeRuntime>>,
 	graph: &ArcSwap<FlowGraph>,
 	mw_factories: &MiddlewareFactories,
 	fetch_factories: &FetchFactories,
 	security_cfg: &Arc<SecurityConfig>,
-	plugin_registry: Option<&Arc<PluginRegistry>>,
+	plugin_registry: Option<&Arc<ArcSwap<PluginRegistry>>>,
+	#[cfg(feature = "wasm")] plugin_policies: Option<&Arc<ArcSwap<PluginPolicyTable>>>,
 ) -> Result<ReloadOutcome, Error> {
+	#[cfg(feature = "wasm")]
+	let wasm_outcome = match (wasm_dir, runtime, plugin_registry, plugin_policies) {
+		(Some(dir), Some(rt), Some(reg), Some(pol)) => {
+			Some(wasm_loader::reload_dir(dir, rt, reg, pol).await?)
+		}
+		_ => None,
+	};
+	#[cfg(not(feature = "wasm"))]
+	let wasm_outcome: Option<wasm_loader_stub::WasmReloadOutcome> = None;
+
 	let loaded = vane_core::config::load(config_dir)?;
-	let providers = match plugin_registry {
+	let registry_snap = plugin_registry.map(|r| r.load_full());
+	let providers = match registry_snap.as_ref() {
 		#[cfg(feature = "wasm")]
 		Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
 		#[cfg(not(feature = "wasm"))]
@@ -79,7 +110,7 @@ pub(crate) fn reload_once(
 		}
 	}
 
-	let new_graph = match plugin_registry {
+	let new_graph = match registry_snap.as_ref() {
 		Some(reg) => FlowGraph::link_with_plugins(
 			symbolic,
 			mw_factories,
@@ -97,11 +128,25 @@ pub(crate) fn reload_once(
 	.map_err(|e| Error::compile(format!("link: {e}")))?;
 
 	let new_hash = new_graph.meta().version_hash;
-	if graph.load().meta().version_hash == new_hash {
+	let active_hash = graph.load().meta().version_hash;
+	// `version_hash` covers the canonical rule set but not plugin
+	// metadata; if WASM schema changed we force a swap so
+	// `MiddlewareInst::Wasm` carries the new metadata Arc. Follow-up:
+	// extend `FlowGraphMeta::version_hash` to cover plugin metadata
+	// so this short-circuit goes away.
+	let force_swap = wasm_outcome.as_ref().is_some_and(|o| o.schema_changed);
+	if active_hash == new_hash && !force_swap {
 		return Ok(ReloadOutcome::Unchanged { hash: new_hash });
 	}
 	graph.store(new_graph);
 	Ok(ReloadOutcome::Swapped { hash: new_hash })
+}
+
+#[cfg(not(feature = "wasm"))]
+mod wasm_loader_stub {
+	pub(crate) struct WasmReloadOutcome {
+		pub schema_changed: bool,
+	}
 }
 
 #[cfg(test)]
@@ -159,8 +204,8 @@ mod tests {
 		FlowGraph::link(symbolic, &mw, &fetch).expect("initial link")
 	}
 
-	#[test]
-	fn reload_once_swaps_when_rule_set_changes() {
+	#[tokio::test]
+	async fn reload_once_swaps_when_rule_set_changes() {
 		let tmp = tempfile::tempdir().expect("tempdir");
 		write_rule(tmp.path(), &rule_v1(40001, "v1"));
 		let initial = initial_graph(tmp.path());
@@ -169,8 +214,22 @@ mod tests {
 		let (mw, fetch) = build_factories();
 
 		write_rule(tmp.path(), &rule_v1(40001, "v2"));
-		let outcome =
-			reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None).expect("reload");
+		let outcome = reload_once(
+			tmp.path(),
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+			&swap,
+			&mw,
+			&fetch,
+			&default_security(),
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+		)
+		.await
+		.expect("reload");
 		match outcome {
 			ReloadOutcome::Swapped { hash } => assert_ne!(hash, h0, "hash must change with body"),
 			ReloadOutcome::Unchanged { .. } => panic!("expected Swapped, got Unchanged"),
@@ -178,8 +237,8 @@ mod tests {
 		assert_ne!(swap.load().meta().version_hash, h0, "active graph hash updated");
 	}
 
-	#[test]
-	fn reload_once_skips_swap_when_unchanged() {
+	#[tokio::test]
+	async fn reload_once_skips_swap_when_unchanged() {
 		let tmp = tempfile::tempdir().expect("tempdir");
 		write_rule(tmp.path(), &rule_v1(40002, "stable"));
 		let initial = initial_graph(tmp.path());
@@ -189,14 +248,28 @@ mod tests {
 
 		// Rewrite the same content — hash should match, swap should skip.
 		write_rule(tmp.path(), &rule_v1(40002, "stable"));
-		let outcome =
-			reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None).expect("reload");
+		let outcome = reload_once(
+			tmp.path(),
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+			&swap,
+			&mw,
+			&fetch,
+			&default_security(),
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+		)
+		.await
+		.expect("reload");
 		assert!(matches!(outcome, ReloadOutcome::Unchanged { hash } if hash == h0));
 		assert_eq!(swap.load().meta().version_hash, h0);
 	}
 
-	#[test]
-	fn reload_once_compile_failure_keeps_active_graph() {
+	#[tokio::test]
+	async fn reload_once_compile_failure_keeps_active_graph() {
 		let tmp = tempfile::tempdir().expect("tempdir");
 		write_rule(tmp.path(), &rule_v1(40003, "v1"));
 		let initial = initial_graph(tmp.path());
@@ -206,14 +279,28 @@ mod tests {
 
 		// Corrupt the file with invalid JSON.
 		fs::write(tmp.path().join("rules").join("test.json"), "{ this is not json").unwrap();
-		let err = reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None)
-			.expect_err("must fail compile");
+		let err = reload_once(
+			tmp.path(),
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+			&swap,
+			&mw,
+			&fetch,
+			&default_security(),
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+		)
+		.await
+		.expect_err("must fail compile");
 		assert!(err.to_string().contains("parse"));
 		assert_eq!(swap.load().meta().version_hash, h0, "active graph untouched");
 	}
 
-	#[test]
-	fn reload_once_link_failure_keeps_active_graph() {
+	#[tokio::test]
+	async fn reload_once_link_failure_keeps_active_graph() {
 		// Use websocket fetch kind: registered in core's metadata provider
 		// but no engine factory is registered for it in this test, so link
 		// fails with UnknownFetch.
@@ -241,14 +328,28 @@ mod tests {
 		// Build factories WITHOUT registering websocket — that's the test fixture
 		// shape used in production until ws lands.
 		let (mw, fetch) = build_factories();
-		let err = reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None)
-			.expect_err("must fail link");
+		let err = reload_once(
+			tmp.path(),
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+			&swap,
+			&mw,
+			&fetch,
+			&default_security(),
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+		)
+		.await
+		.expect_err("must fail link");
 		assert!(err.to_string().to_lowercase().contains("link"));
 		assert_eq!(swap.load().meta().version_hash, h0, "active graph untouched");
 	}
 
-	#[test]
-	fn reload_once_initial_swap_to_arcswap_works() {
+	#[tokio::test]
+	async fn reload_once_initial_swap_to_arcswap_works() {
 		// Empty rules dir → graph compiles cleanly with zero entries.
 		let tmp = tempfile::tempdir().expect("tempdir");
 		fs::create_dir(tmp.path().join("rules")).unwrap();
@@ -258,8 +359,22 @@ mod tests {
 
 		// Add a rule for the first time — the swap-once path.
 		write_rule(tmp.path(), &rule_v1(40006, "first"));
-		let outcome =
-			reload_once(tmp.path(), &swap, &mw, &fetch, &default_security(), None).expect("reload");
+		let outcome = reload_once(
+			tmp.path(),
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+			&swap,
+			&mw,
+			&fetch,
+			&default_security(),
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+		)
+		.await
+		.expect("reload");
 		assert!(matches!(outcome, ReloadOutcome::Swapped { .. }));
 		// `127.0.0.1:N` is v4-only — `:N` shorthand would expand to both v4 + v6.
 		assert_eq!(swap.load().symbolic().entries.len(), 1, "single v4 entry for 127.0.0.1:40006");

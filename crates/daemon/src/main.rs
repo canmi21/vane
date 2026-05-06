@@ -188,11 +188,25 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	#[cfg(feature = "wasm")]
 	let loaded_wasm = wasm_loader::load_all(&loaded.env.wasm_dir).await;
 
+	// `Arc<ArcSwap<PluginRegistry>>` is what the reload pipeline
+	// rotates atomically; the rule pipeline reads a stable Arc
+	// snapshot via `load_full()` per compile/link cycle.
 	#[cfg(feature = "wasm")]
-	let plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>> =
+	let plugin_registry: Option<Arc<arc_swap::ArcSwap<vane_engine::flow_graph::PluginRegistry>>> =
 		loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.registry));
 	#[cfg(not(feature = "wasm"))]
-	let plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>> = None;
+	let plugin_registry: Option<Arc<arc_swap::ArcSwap<vane_engine::flow_graph::PluginRegistry>>> =
+		None;
+	#[cfg(feature = "wasm")]
+	let plugin_policies: Option<Arc<arc_swap::ArcSwap<vane_core::PluginPolicyTable>>> =
+		loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.policies));
+	#[cfg(not(feature = "wasm"))]
+	let _plugin_policies: Option<Arc<arc_swap::ArcSwap<vane_core::PluginPolicyTable>>> = None;
+
+	// Snapshot the registry once for boot-time use (ref-check, compile,
+	// link). Reload publishes a new Arc into `plugin_registry`; this
+	// initial Arc keeps the boot link path stable.
+	let registry_boot_snap = plugin_registry.as_ref().map(|s| s.load_full());
 
 	// Boot ref-check (must run *before* compile): walk the raw rule
 	// JSON for every `<module>:<export>` plugin reference and refuse
@@ -201,7 +215,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// middleware" error; the curated list this produces gives the
 	// operator the full fix list at once, and runs even when rule
 	// shape would otherwise blow up downstream phase checks.
-	let missing_plugins = collect_missing_plugin_refs(&loaded.files, plugin_registry.as_ref());
+	let missing_plugins = collect_missing_plugin_refs(&loaded.files, registry_boot_snap.as_ref());
 	if !missing_plugins.is_empty() {
 		return Err(
 			format!(
@@ -214,7 +228,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		);
 	}
 
-	let providers = match plugin_registry.as_ref() {
+	let providers = match registry_boot_snap.as_ref() {
 		#[cfg(feature = "wasm")]
 		Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
 		#[cfg(not(feature = "wasm"))]
@@ -253,7 +267,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 	let mw_factories = Arc::new(build_middleware_factories());
 	let fetch_factories = Arc::new(build_fetch_factories(security_cfg.crl_cache.clone()));
-	let initial_graph = match plugin_registry.as_ref() {
+	let initial_graph = match registry_boot_snap.as_ref() {
 		Some(reg) => FlowGraph::link_with_plugins(
 			symbolic,
 			&mw_factories,
@@ -374,6 +388,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 				Arc::clone(&fetch_factories),
 				Arc::clone(&security_cfg),
 				plugin_registry.clone(),
+				#[cfg(feature = "wasm")]
+				plugin_policies.clone(),
+				#[cfg(feature = "wasm")]
+				loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.runtime)),
+				#[cfg(feature = "wasm")]
+				Some(loaded.env.wasm_dir.clone()),
 				watcher_cancel.clone(),
 			);
 			tracing::info!("file watcher armed");
@@ -406,6 +426,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		#[cfg(not(feature = "wasm"))]
 		wasm_pool_stats: None,
 		plugin_registry: plugin_registry.clone(),
+		#[cfg(feature = "wasm")]
+		plugin_policies: plugin_policies.clone(),
+		#[cfg(feature = "wasm")]
+		wasm_runtime: loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.runtime)),
+		#[cfg(feature = "wasm")]
+		wasm_dir: loaded.env.wasm_dir.clone(),
 	});
 	let mgmt_cancel = CancellationToken::new();
 	let mgmt_unix_handle = bind_mgmt_unix_server(Arc::clone(&mgmt_state), mgmt_cancel.clone()).await;

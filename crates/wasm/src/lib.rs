@@ -1437,6 +1437,28 @@ impl StatefulPoolHandle {
 	}
 }
 
+/// Outcome of a single [`WasmtimeRuntime::reload_component`] call.
+/// Drives the daemon's reload pipeline — `Unchanged` short-circuits,
+/// `MetadataUnchanged` swaps the component without touching the
+/// graph, `MetadataChanged` triggers a full graph recompile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReloadComponentOutcome {
+	/// The on-disk bytes hash matches the last successfully-loaded
+	/// hash for this path; nothing to do.
+	Unchanged,
+	/// Bytes changed but the new metadata is structurally compatible
+	/// with the cached metadata (same exports, kinds, `stateless`,
+	/// `needs_body`, `inspects`). Pool generation is bumped so existing
+	/// stateful pools pick up the new component on the next
+	/// checkout; rules referencing this module need no recompile.
+	MetadataUnchanged,
+	/// Bytes changed and the new metadata differs in a graph-relevant
+	/// way (export added / removed / kind / `stateless` / `needs_body`
+	/// / `inspects`). The caller must recompile + relink the flow graph
+	/// so `MiddlewareInst::Wasm` carries the new metadata `Arc`.
+	MetadataChanged,
+}
+
 pub struct WasmtimeRuntime {
 	engine: Engine,
 	fetch_backend: Arc<dyn HttpFetchBackend>,
@@ -1447,6 +1469,11 @@ pub struct WasmtimeRuntime {
 	invoke_l7response_linker: Linker<HostState>,
 	components: RwLock<HashMap<String, Arc<Component>>>,
 	metadata: RwLock<HashMap<String, Arc<PluginMetadata>>>,
+	/// Per-path SHA-256 of the last successfully-loaded `.wasm` bytes.
+	/// `reload_component` consults this to short-circuit on identical
+	/// content — operators saving the same file (touch / cp -p) get
+	/// `Unchanged` rather than a redundant compile + swap.
+	module_hashes: RwLock<HashMap<String, [u8; 32]>>,
 	stateless_pools: RwLock<HashMap<StatelessKey, Arc<StatelessPool>>>,
 	/// Weak-ref registry of every live stateful pool returned by
 	/// [`WasmtimeRuntime::create_stateful_pool`]. Holding `Weak` keeps
@@ -1544,6 +1571,7 @@ impl WasmtimeRuntime {
 			invoke_l7response_linker,
 			components: RwLock::new(HashMap::new()),
 			metadata: RwLock::new(HashMap::new()),
+			module_hashes: RwLock::new(HashMap::new()),
 			stateless_pools: RwLock::new(HashMap::new()),
 			stateful_pools: RwLock::new(Vec::new()),
 			policies: RwLock::new(HashMap::new()),
@@ -1561,6 +1589,38 @@ impl WasmtimeRuntime {
 	/// Panics if the internal `policies` `RwLock` is poisoned.
 	pub fn set_policy(&self, module_id: &ModuleId, policy: Arc<PluginHttpPolicy>) {
 		self.policies.write().unwrap().insert(module_id.0.as_ref().to_owned(), policy);
+	}
+
+	/// Read-only accessor for a loaded module's metadata. Returns
+	/// `None` when the module key is not registered. Used by the
+	/// daemon's reload pipeline to fetch the post-`reload_component`
+	/// metadata Arc for re-registration into the new
+	/// `PluginRegistry`.
+	///
+	/// # Panics
+	///
+	/// Panics if the internal `metadata` `RwLock` is poisoned.
+	#[must_use]
+	pub fn metadata_for_module(&self, module_id: &ModuleId) -> Option<Arc<PluginMetadata>> {
+		self.metadata.read().unwrap().get(module_id.0.as_ref()).cloned()
+	}
+
+	/// Drop a module entirely from the runtime: removes its component,
+	/// metadata, hash, policy, and stateless-pool entries. Stateful
+	/// pools that referenced it stop being usable for the dropped
+	/// module — the daemon's reload pipeline replaces / drops them
+	/// via the new `PluginRegistry`.
+	///
+	/// # Panics
+	///
+	/// Panics if any internal `RwLock` is poisoned.
+	pub fn unload_module(&self, module_id: &ModuleId) {
+		let key = module_id.0.as_ref();
+		self.components.write().unwrap().remove(key);
+		self.metadata.write().unwrap().remove(key);
+		self.module_hashes.write().unwrap().remove(key);
+		self.policies.write().unwrap().remove(key);
+		self.stateless_pools.write().unwrap().retain(|k, _| k.module_id != key);
 	}
 
 	fn policy_for(&self, module_id: &str) -> Arc<PluginHttpPolicy> {
@@ -1739,6 +1799,144 @@ impl WasmtimeRuntime {
 		}
 		out
 	}
+
+	/// Re-read `path` from disk, re-compile / deserialize the
+	/// component, re-call `get-metadata`, and atomically swap the
+	/// runtime's component + metadata maps. Compares the new
+	/// metadata against the old to classify the outcome — see
+	/// [`ReloadComponentOutcome`].
+	///
+	/// On `MetadataUnchanged` the matching live stateful pools have
+	/// their generation bumped via [`StatefulPoolHandle::swap_component_and_bump`]
+	/// so subsequent checkouts pick up the new component without
+	/// recompiling the flow graph.
+	///
+	/// # Errors
+	///
+	/// Surfaces I/O errors reading the file, wasmtime compile errors,
+	/// `get-metadata` traps, or `validate_handler_exports` rejections.
+	///
+	/// # Panics
+	///
+	/// Panics if any internal `RwLock` is poisoned.
+	pub async fn reload_component(&self, path: &Path) -> Result<ReloadComponentOutcome, Error> {
+		let bytes =
+			std::fs::read(path).map_err(|e| Error::internal(format!("read {}: {e}", path.display())))?;
+		let new_hash = sha256_bytes(&bytes);
+		let key = path.to_string_lossy().into_owned();
+
+		// Fast path: identical bytes, nothing to do.
+		if let Some(prev_hash) = self.module_hashes.read().unwrap().get(&key)
+			&& *prev_hash == new_hash
+		{
+			return Ok(ReloadComponentOutcome::Unchanged);
+		}
+
+		let old_meta = self.metadata.read().unwrap().get(&key).cloned();
+
+		let cwasm_path =
+			std::path::PathBuf::from(CWASM_CACHE_DIR).join(format!("{}.cwasm", hex_sha256(&bytes)));
+		let component = load_or_compile(&self.engine, path, &cwasm_path, &bytes)?;
+		let new_meta = get_metadata(
+			&self.engine,
+			&component,
+			Arc::clone(&self.fetch_backend),
+			Arc::clone(&self.cardinality),
+		)
+		.await?;
+		validate_handler_exports(&self.engine, &component, &new_meta.exports)?;
+
+		let new_component = Arc::new(component);
+		// `Some(_)` (incompatible) and `None` (first-load) both fall
+		// through to `MetadataChanged`; the caller treats them the
+		// same — the registry needs to rebuild its export entries.
+		let outcome = match old_meta.as_ref() {
+			Some(old) if metadata_compatible(old, &new_meta) => ReloadComponentOutcome::MetadataUnchanged,
+			_ => ReloadComponentOutcome::MetadataChanged,
+		};
+
+		// Swap component + metadata + hash atomically per-table.
+		self.components.write().unwrap().insert(key.clone(), Arc::clone(&new_component));
+		self.metadata.write().unwrap().insert(key.clone(), Arc::clone(&new_meta));
+		self.module_hashes.write().unwrap().insert(key.clone(), new_hash);
+
+		// Drop stateless pool entries for this module so cumulative
+		// counters don't leak across reload — spec doesn't require
+		// counter continuity. Stateful: bump generation on every
+		// matching live pool.
+		self.drop_stateless_pools_for_module(&key);
+		self.bump_pool_generation_for_module(&key, &new_component);
+
+		Ok(outcome)
+	}
+
+	/// Bump generation + swap component on every live stateful pool
+	/// whose `module_id` matches `key`. Pre-built old-generation
+	/// instances drop; in-flight ones drop at return time.
+	fn bump_pool_generation_for_module(&self, key: &str, new_component: &Arc<Component>) {
+		let live: Vec<Arc<StatefulPoolHandle>> = {
+			let mut registry = self.stateful_pools.write().unwrap();
+			registry.retain(|w| w.upgrade().is_some());
+			registry.iter().filter_map(Weak::upgrade).filter(|h| h.module_id == key).collect()
+		};
+		for handle in live {
+			handle.swap_component_and_bump(Arc::clone(new_component));
+		}
+	}
+
+	/// Remove cached stateless pool entries for `module_id`. Called
+	/// from [`Self::reload_component`] so per-pool counters don't
+	/// outlive the component swap.
+	fn drop_stateless_pools_for_module(&self, key: &str) {
+		let mut pools = self.stateless_pools.write().unwrap();
+		pools.retain(|k, _| k.module_id != key);
+	}
+}
+
+/// Compare two `PluginMetadata` values for graph-relevance: same
+/// `abi_version`, same export set (by name) with matching `kind` /
+/// `stateless` / `needs_body` and equivalent `inspects` (order-
+/// independent). Top-level `name` and `version` differences are
+/// **not** graph-relevant — spec § _Module identity and reload_
+/// explicitly permits relabel-only releases without recompile.
+#[must_use]
+pub fn metadata_compatible(old: &PluginMetadata, new: &PluginMetadata) -> bool {
+	use std::collections::BTreeMap;
+	if old.abi_version != new.abi_version {
+		return false;
+	}
+	if old.exports.len() != new.exports.len() {
+		return false;
+	}
+	let old_by_name: BTreeMap<&str, &PluginExport> =
+		old.exports.iter().map(|e| (e.name.as_str(), e)).collect();
+	let new_by_name: BTreeMap<&str, &PluginExport> =
+		new.exports.iter().map(|e| (e.name.as_str(), e)).collect();
+	if old_by_name.len() != new_by_name.len()
+		|| old_by_name.keys().collect::<Vec<_>>() != new_by_name.keys().collect::<Vec<_>>()
+	{
+		return false;
+	}
+	for (name, old_e) in &old_by_name {
+		let Some(new_e) = new_by_name.get(name) else {
+			return false;
+		};
+		if old_e.kind != new_e.kind
+			|| old_e.stateless != new_e.stateless
+			|| old_e.needs_body != new_e.needs_body
+		{
+			return false;
+		}
+		// inspects is order-independent — compare as sorted vectors.
+		let mut a = old_e.inspects.clone();
+		let mut b = new_e.inspects.clone();
+		a.sort();
+		b.sort();
+		if a != b {
+			return false;
+		}
+	}
+	true
 }
 
 /// One entry in [`WasmtimeRuntime::pool_snapshot`]. Mirrors the wire
@@ -1783,6 +1981,7 @@ impl WasmRuntime for WasmtimeRuntime {
 	async fn load_component(&self, path: &Path) -> Result<Arc<PluginMetadata>, Error> {
 		let bytes =
 			std::fs::read(path).map_err(|e| Error::internal(format!("read {}: {e}", path.display())))?;
+		let bytes_hash = sha256_bytes(&bytes);
 
 		let hash = hex_sha256(&bytes);
 		let cwasm_path = std::path::PathBuf::from(CWASM_CACHE_DIR).join(format!("{hash}.cwasm"));
@@ -1799,7 +1998,8 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		let key = path.to_string_lossy().into_owned();
 		self.components.write().unwrap().insert(key.clone(), Arc::new(component));
-		self.metadata.write().unwrap().insert(key, Arc::clone(&meta));
+		self.metadata.write().unwrap().insert(key.clone(), Arc::clone(&meta));
+		self.module_hashes.write().unwrap().insert(key, bytes_hash);
 
 		Ok(meta)
 	}
@@ -2137,6 +2337,12 @@ fn build_engine(pool_cap: u32) -> wasmtime::Result<Engine> {
 }
 
 // ─── component loading ───────────────────────────────────────────────────────
+
+fn sha256_bytes(data: &[u8]) -> [u8; 32] {
+	let mut h = Sha256::new();
+	h.update(data);
+	h.finalize().into()
+}
 
 fn hex_sha256(data: &[u8]) -> String {
 	let mut h = Sha256::new();

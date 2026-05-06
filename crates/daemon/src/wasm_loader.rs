@@ -31,26 +31,40 @@
 //! the registry. For now reload reuses whatever the boot scan
 //! produced; adding new plugins requires a daemon restart.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vane_core::{HttpFetchBackend, ModuleId, PluginMetadata, PluginPolicyTable, WasmRuntime};
+use arc_swap::ArcSwap;
+use vane_core::{
+	Error, HttpFetchBackend, ModuleId, PluginMetadata, PluginPolicyTable, WasmRuntime,
+};
 use vane_engine::flow_graph::PluginRegistry;
 use vane_engine::wasm_fetch::HyperHttpFetchBackend;
-use vane_wasm::WasmtimeRuntime;
+use vane_wasm::{ReloadComponentOutcome, WasmtimeRuntime};
 
 /// Outcome of [`load_all`] when at least one `.wasm` was loaded.
 pub(crate) struct LoadedWasm {
 	pub runtime: Arc<WasmtimeRuntime>,
-	pub registry: Arc<PluginRegistry>,
+	/// Plugin registry held inside `ArcSwap` so the reload pipeline
+	/// publishes a fresh registry atomically while the read path
+	/// (compile, link) reads a stable `Arc<PluginRegistry>` snapshot.
+	pub registry: Arc<ArcSwap<PluginRegistry>>,
 	/// Operator-owned per-plugin policy table loaded from
-	/// `<wasm_dir>/policy.json`. Empty when the file is absent —
-	/// every plugin then resolves to `PluginHttpPolicy::default`
-	/// (deny-all).
-	#[allow(dead_code, reason = "consumed by HostState wiring in the next commit")]
-	pub policies: Arc<PluginPolicyTable>,
+	/// `<wasm_dir>/policy.json`. Held in `ArcSwap` for the same
+	/// reload-time atomic-swap reason as `registry`.
+	pub policies: Arc<ArcSwap<PluginPolicyTable>>,
 	#[allow(dead_code, reason = "diagnostic surface for future hot-reload work")]
 	pub modules: Vec<LoadedModuleInfo>,
+}
+
+/// Outcome of [`reload_dir`]: a single bit telling the caller whether
+/// the rule-side flow graph must be recompiled. Per-module byte-only
+/// changes (`MetadataUnchanged`) swap the component in place without
+/// graph churn; metadata-relevant changes / module add / module drop
+/// flip this to `true`.
+pub(crate) struct WasmReloadOutcome {
+	pub schema_changed: bool,
 }
 
 #[allow(dead_code, reason = "diagnostic surface for future hot-reload work")]
@@ -204,7 +218,190 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 		runtime.set_policy(&module.module_id, policy);
 	}
 
-	Some(LoadedWasm { runtime, registry: Arc::new(registry), policies: Arc::new(policies), modules })
+	Some(LoadedWasm {
+		runtime,
+		registry: Arc::new(ArcSwap::from_pointee(registry)),
+		policies: Arc::new(ArcSwap::from_pointee(policies)),
+		modules,
+	})
+}
+
+/// Re-scan `wasm_dir`, reconcile against the runtime's currently-
+/// loaded modules, and update `registry_swap` + `policies_swap`
+/// atomically. Per-module outcome:
+///
+/// * Bytes unchanged (hash match): no-op, registry entries stay.
+/// * Bytes changed, metadata-compatible: runtime swaps `Component`
+///   and bumps the stateful pool generation; the registry's
+///   `Arc<PluginMetadata>` for that stem is replaced (the
+///   `metadata.name` / `version` label may have moved). No graph
+///   recompile is required.
+/// * Bytes changed, metadata-incompatible: runtime updates and the
+///   stem's registry entries are rebuilt; `schema_changed` flips on.
+/// * New file: register every export against a freshly-loaded
+///   component; `schema_changed` flips on.
+/// * Removed file: `runtime.unload_module` drops the runtime state;
+///   the registry omits the stem; `schema_changed` flips on. Rules
+///   referencing the dropped stem fail at the next `link` step,
+///   which is the standard reload-failure path.
+///
+/// Errors from individual modules are surfaced via `tracing::warn` —
+/// a single broken `.wasm` does not abort the whole reload.
+///
+/// # Errors
+///
+/// Returns the first fatal error: `wasm_dir` unreadable, or
+/// `policy.json` re-parse failure that would otherwise leave the
+/// daemon with stale policy state.
+#[allow(clippy::too_many_lines, reason = "linear scan + reconcile + policy reload")]
+pub(crate) async fn reload_dir(
+	wasm_dir: &Path,
+	runtime: &Arc<WasmtimeRuntime>,
+	registry_swap: &Arc<ArcSwap<PluginRegistry>>,
+	policies_swap: &Arc<ArcSwap<PluginPolicyTable>>,
+) -> Result<WasmReloadOutcome, Error> {
+	let mut schema_changed = false;
+	let mut wasm_files: Vec<PathBuf> = match std::fs::read_dir(wasm_dir) {
+		Ok(rd) => rd
+			.filter_map(Result::ok)
+			.map(|e| e.path())
+			.filter(|p| p.is_file() && p.extension().is_some_and(|ext| ext == "wasm"))
+			.collect(),
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+		Err(e) => {
+			return Err(Error::internal(format!("read wasm dir {}: {e}", wasm_dir.display())));
+		}
+	};
+	wasm_files.sort();
+
+	// Snapshot the current registry so we can detect added / removed
+	// stems. Group registry entries by `<stem>` (the prefix of the
+	// `<stem>:<export>` key).
+	let current = registry_swap.load();
+	let mut current_by_stem: BTreeMap<String, Vec<String>> = BTreeMap::new();
+	for (key, _) in current.iter() {
+		if let Some((stem, _)) = key.split_once(':') {
+			current_by_stem.entry(stem.to_owned()).or_default().push(key.to_owned());
+		}
+	}
+	let on_disk_stems: BTreeSet<String> = wasm_files
+		.iter()
+		.filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(str::to_owned))
+		.collect();
+
+	// Build the new registry from scratch — entries we keep get
+	// re-registered against the latest metadata Arc, entries we
+	// drop simply don't get added.
+	let mut new_registry = PluginRegistry::new();
+	let mut modules_seen: Vec<LoadedModuleInfo> = Vec::new();
+
+	for path in &wasm_files {
+		let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else {
+			tracing::warn!(path = %path.display(), "wasm file has no UTF-8 stem; skipping");
+			continue;
+		};
+		let module_id = ModuleId(Arc::from(path.to_string_lossy().as_ref()));
+		let known_to_registry = current_by_stem.contains_key(&stem);
+		let metadata = if known_to_registry {
+			let reload_result = runtime.reload_component(path).await;
+			match reload_result {
+				Ok(ReloadComponentOutcome::Unchanged) => {
+					tracing::debug!(stem, "wasm module unchanged on disk; reusing entries");
+					runtime
+						.metadata_for_module(&module_id)
+						.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?
+				}
+				Ok(ReloadComponentOutcome::MetadataUnchanged) => {
+					tracing::info!(stem, "wasm module bytes changed; metadata-compatible swap");
+					runtime
+						.metadata_for_module(&module_id)
+						.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?
+				}
+				Ok(ReloadComponentOutcome::MetadataChanged) => {
+					tracing::info!(stem, "wasm module bytes changed; metadata-incompatible recompile");
+					schema_changed = true;
+					runtime
+						.metadata_for_module(&module_id)
+						.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?
+				}
+				Err(e) => {
+					tracing::warn!(
+						path = %path.display(),
+						error = %e,
+						"wasm reload failed; keeping prior registry entries for this stem",
+					);
+					let Some(prior) = current
+						.iter()
+						.find(|(_, v)| v.module_id == module_id)
+						.map(|(_, v)| Arc::clone(&v.metadata))
+					else {
+						continue;
+					};
+					prior
+				}
+			}
+		} else {
+			match runtime.load_component(path).await {
+				Ok(meta) => {
+					schema_changed = true;
+					tracing::info!(stem, "wasm module added");
+					meta
+				}
+				Err(e) => {
+					tracing::warn!(
+						path = %path.display(),
+						error = %e,
+						"wasm module load failed during reload; skipping",
+					);
+					continue;
+				}
+			}
+		};
+		let runtime_for_registry: Arc<dyn WasmRuntime> = Arc::clone(runtime) as _;
+		for export in &metadata.exports {
+			let plugin_name = format!("{stem}:{}", export.name);
+			new_registry.register(
+				&plugin_name,
+				module_id.clone(),
+				export.name.clone(),
+				Arc::clone(&metadata),
+				Arc::clone(&runtime_for_registry),
+			);
+		}
+		modules_seen.push(LoadedModuleInfo { path: path.clone(), module_id, metadata });
+	}
+
+	// Drop modules that disappeared from disk.
+	for stem in current_by_stem.keys() {
+		if !on_disk_stems.contains(stem) {
+			schema_changed = true;
+			if let Some(entry) = current.iter().find(|(k, _)| k.starts_with(&format!("{stem}:"))) {
+				let module_id = entry.1.module_id.clone();
+				runtime.unload_module(&module_id);
+				tracing::info!(stem, "wasm module removed; runtime state unloaded");
+			}
+		}
+	}
+
+	// Re-load policy.json. Apply each module's resolved policy onto
+	// the runtime so subsequent `invoke_*` calls see the operator-
+	// owned view.
+	let policies = match PluginPolicyTable::load_from_dir(wasm_dir) {
+		Ok(t) => t,
+		Err(e) => {
+			tracing::warn!(error = %e, "wasm/policy.json reload failed; keeping prior policy table");
+			(*policies_swap.load_full()).clone()
+		}
+	};
+	for module in &modules_seen {
+		let stem = module.path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+		let policy = Arc::new(policies.get_or_default(stem));
+		runtime.set_policy(&module.module_id, policy);
+	}
+
+	registry_swap.store(Arc::new(new_registry));
+	policies_swap.store(Arc::new(policies));
+	Ok(WasmReloadOutcome { schema_changed })
 }
 
 #[cfg(test)]
@@ -261,7 +458,7 @@ mod tests {
 		// Fixture exports `probe` of kind L4Peek; reference name is
 		// `<stem>:<export>` per spec § Module lifecycle.
 		assert!(
-			loaded.registry.get("plugin_a:probe").is_some(),
+			loaded.registry.load().get("plugin_a:probe").is_some(),
 			"registry must key by `<stem>:<export>`",
 		);
 		// Pool snapshot should be empty until rules instantiate pools.

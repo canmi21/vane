@@ -77,7 +77,22 @@ pub(crate) struct MgmtState {
 	/// `vane_engine::flow_graph::PluginRegistry` itself is always
 	/// available (not feature-gated in vane-engine), so the field
 	/// stays unconditional even when daemon's `wasm` is off.
-	pub plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>>,
+	pub plugin_registry: Option<Arc<arc_swap::ArcSwap<vane_engine::flow_graph::PluginRegistry>>>,
+	/// Operator-owned plugin policy table held in `ArcSwap` so reload
+	/// publishes a fresh table atomically. Only present when the
+	/// daemon was built with `wasm` and the boot scan succeeded.
+	#[cfg(feature = "wasm")]
+	pub plugin_policies: Option<Arc<arc_swap::ArcSwap<vane_core::PluginPolicyTable>>>,
+	/// Runtime handle the reload pipeline reuses when re-scanning
+	/// `<wasm_dir>` on every reload. `None` when wasm is off.
+	#[cfg(feature = "wasm")]
+	pub wasm_runtime: Option<Arc<vane_wasm::WasmtimeRuntime>>,
+	/// `<config_dir>/wasm` — re-scanned on every reload. `Option` is
+	/// not used here because the path is always derivable from the
+	/// daemon's `Env`; absent / empty dir is handled inside
+	/// `wasm_loader::reload_dir`.
+	#[cfg(feature = "wasm")]
+	pub wasm_dir: std::path::PathBuf,
 }
 
 #[async_trait]
@@ -99,7 +114,7 @@ impl Handler for MgmtState {
 			VERB_STATS => self.handle_stats(),
 			VERB_SHUTDOWN => self.handle_shutdown(),
 			VERB_GET_CONFIG => self.handle_get_config(),
-			VERB_RELOAD => self.handle_reload(),
+			VERB_RELOAD => self.handle_reload().await,
 			VERB_COMPILE_DRY_RUN => self.handle_compile_dry_run(req.args),
 			VERB_GET_CONNECTIONS => self.handle_get_connections(),
 			VERB_GET_METRICS => self.handle_get_metrics(req.args),
@@ -292,15 +307,23 @@ impl MgmtState {
 		json(&GetConfigResult { graph: serialized })
 	}
 
-	fn handle_reload(&self) -> Result<serde_json::Value, WireError> {
-		match reload_once(
+	async fn handle_reload(&self) -> Result<serde_json::Value, WireError> {
+		let outcome = reload_once(
 			&self.config_dir,
+			#[cfg(feature = "wasm")]
+			Some(self.wasm_dir.as_path()),
+			#[cfg(feature = "wasm")]
+			self.wasm_runtime.as_ref(),
 			&self.graph_swap,
 			&self.mw_factories,
 			&self.fetch_factories,
 			&self.security_cfg,
 			self.plugin_registry.as_ref(),
-		) {
+			#[cfg(feature = "wasm")]
+			self.plugin_policies.as_ref(),
+		)
+		.await;
+		match outcome {
 			Ok(ReloadOutcome::Swapped { hash }) => {
 				// Match the watcher's post-swap behaviour: reconcile the
 				// listener set with the new graph's `entries`.
@@ -326,7 +349,8 @@ impl MgmtState {
 		let dir = PathBuf::from(args.config_dir);
 		let loaded = vane_core::config::load(&dir)
 			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("load: {e}") })?;
-		let providers = match self.plugin_registry.as_ref() {
+		let registry_snap = self.plugin_registry.as_ref().map(|s| s.load_full());
+		let providers = match registry_snap.as_ref() {
 			#[cfg(feature = "wasm")]
 			Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
 			#[cfg(not(feature = "wasm"))]
@@ -549,6 +573,12 @@ mod tests {
 			shutdown_trigger: CancellationToken::new(),
 			wasm_pool_stats: None,
 			plugin_registry: None,
+			#[cfg(feature = "wasm")]
+			plugin_policies: None,
+			#[cfg(feature = "wasm")]
+			wasm_runtime: None,
+			#[cfg(feature = "wasm")]
+			wasm_dir: tmp.path().join("wasm"),
 		})
 	}
 

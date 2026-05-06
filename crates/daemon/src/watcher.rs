@@ -111,7 +111,12 @@ pub(crate) fn spawn_watcher_handler(
 	mw_factories: Arc<MiddlewareFactories>,
 	fetch_factories: Arc<FetchFactories>,
 	security_cfg: Arc<SecurityConfig>,
-	plugin_registry: Option<Arc<vane_engine::flow_graph::PluginRegistry>>,
+	plugin_registry: Option<Arc<arc_swap::ArcSwap<vane_engine::flow_graph::PluginRegistry>>>,
+	#[cfg(feature = "wasm")] plugin_policies: Option<
+		Arc<arc_swap::ArcSwap<vane_core::PluginPolicyTable>>,
+	>,
+	#[cfg(feature = "wasm")] wasm_runtime: Option<Arc<vane_wasm::WasmtimeRuntime>>,
+	#[cfg(feature = "wasm")] wasm_dir: Option<std::path::PathBuf>,
 	cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
 	let WatcherSubscription { debouncer, mut rx, config_dir } = sub;
@@ -133,14 +138,22 @@ pub(crate) fn spawn_watcher_handler(
 					if evt.is_none() {
 						return;
 					}
-					match reload_once(
+					let outcome = reload_once(
 						&config_dir,
+						#[cfg(feature = "wasm")]
+						wasm_dir.as_deref(),
+						#[cfg(feature = "wasm")]
+						wasm_runtime.as_ref(),
 						&graph,
 						&mw_factories,
 						&fetch_factories,
 						&security_cfg,
 						plugin_registry.as_ref(),
-					) {
+						#[cfg(feature = "wasm")]
+						plugin_policies.as_ref(),
+					)
+					.await;
+					match outcome {
 						Ok(ReloadOutcome::Swapped { hash }) => {
 							tracing::info!(
 								hash = %hex32(&hash), "reloaded — flow graph swapped",
@@ -380,6 +393,12 @@ mod tests {
 			fetch,
 			Arc::new(SecurityConfig::default()),
 			None,
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
+			None,
 			cancel.clone(),
 		);
 
@@ -424,6 +443,12 @@ mod tests {
 			mw,
 			fetch,
 			Arc::new(SecurityConfig::default()),
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "wasm")]
 			None,
 			cancel.clone(),
 		);

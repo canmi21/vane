@@ -92,6 +92,13 @@ impl PluginRegistry {
 	pub fn get(&self, name: &str) -> Option<&PluginRegistryEntry> {
 		self.inner.get(name)
 	}
+
+	/// Iterate every registered `<plugin_ref> → entry` pair. Used by
+	/// the daemon's reload pipeline to enumerate currently-known
+	/// modules so it can detect added / removed `.wasm` files.
+	pub fn iter(&self) -> impl Iterator<Item = (&str, &PluginRegistryEntry)> {
+		self.inner.iter().map(|(k, v)| (k.as_ref(), v))
+	}
 }
 
 pub enum FetchInst {
