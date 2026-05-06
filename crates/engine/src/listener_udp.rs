@@ -706,6 +706,56 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn advance_pending_peek_drops_on_byte_overflow() {
+		// First push exceeds the 16 KiB session cap → Drop without
+		// invoking the extractor (the byte budget gate is upstream).
+		let state = PendingPeekState::new();
+		let oversize = Bytes::from(vec![0u8; PENDING_PEEK_MAX_BYTES + 1]);
+		assert!(matches!(advance_pending_peek(&state, &oversize), PendingAdvance::Drop));
+	}
+
+	#[test]
+	fn advance_pending_peek_drops_on_lifetime_expiry() {
+		// `Instant::now() - Duration` panics on underflow; use
+		// `checked_sub` to satisfy clippy::unchecked_time_subtraction
+		// even though the test is gated to environments where the
+		// process has been up long enough for the subtraction to
+		// succeed (running an empty `cargo nextest` already exceeds
+		// the 2-s offset on every supported platform).
+		let aged = Instant::now()
+			.checked_sub(PENDING_PEEK_LIFETIME * 2)
+			.expect("test instant subtraction within process uptime");
+		let state = PendingPeekState { started_at: aged, ..PendingPeekState::new() };
+		// Datagram bytes don't matter — the lifetime check runs first.
+		let dgram = Bytes::from_static(&[0xc0, 0, 0, 0, 1]);
+		assert!(matches!(advance_pending_peek(&state, &dgram), PendingAdvance::Drop));
+	}
+
+	#[test]
+	fn advance_pending_peek_drops_on_extractor_error() {
+		// A short non-QUIC byte string fails `Extractor::push` with
+		// `NotInitial` (or `HeaderParse`), which surfaces as Drop.
+		let state = PendingPeekState::new();
+		let garbage = Bytes::from_static(b"hello");
+		assert!(matches!(advance_pending_peek(&state, &garbage), PendingAdvance::Drop));
+	}
+
+	#[test]
+	fn advance_pending_peek_drops_on_datagram_count_cap() {
+		// Pre-fill the buffer to the count cap, then any further push
+		// trips the gate before the extractor runs.
+		let state = PendingPeekState::new();
+		{
+			let mut buf = state.datagrams.lock();
+			for _ in 0..PENDING_PEEK_MAX_DATAGRAMS {
+				buf.push(Bytes::from_static(&[0u8; 16]));
+			}
+		}
+		let dgram = Bytes::from_static(&[0xc0, 0, 0, 0, 1]);
+		assert!(matches!(advance_pending_peek(&state, &dgram), PendingAdvance::Drop));
+	}
+
+	#[test]
 	fn quic_long_header_initial_recognised() {
 		// 0xc0 = long-header form, fixed bit set, type=Initial(00).
 		assert!(is_quic_long_header_initial(&[0xc0]));
