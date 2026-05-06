@@ -372,7 +372,7 @@ async fn handle_cold_path(
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};
 
-	let l4 = L4Conn::Udp(UdpAssoc { socket, peer, first_packet, quic: None });
+	let l4 = L4Conn::Udp(UdpAssoc { socket, peer, first_packets: vec![first_packet] });
 	let result = execute(&graph, entry, ExecutorInput::L4(Box::new(l4)), &conn, &mut ctx).await;
 	if let Err(e) = result {
 		tracing::warn!(error = %e, conn_id = %conn.id, "udp cold path ended with error");

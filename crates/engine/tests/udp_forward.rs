@@ -179,8 +179,9 @@ async fn spawn_udp_echo() -> (SocketAddr, Arc<AtomicUsize>) {
 
 #[tokio::test]
 async fn udp_forward_first_packet_reaches_upstream() {
-	// Cold-path entry binds the upstream socket, sends `first_packet`,
-	// spawns the forwarder task. The upstream's recv counter must
+	// Cold-path entry binds the upstream socket, sends every datagram in
+	// `first_packets` (length-1 in the immediate cold-path case here),
+	// and spawns the forwarder task. The upstream's recv counter must
 	// observe the datagram exactly once.
 	let (upstream_addr, upstream_recv) = spawn_udp_echo().await;
 	let cold_path = Arc::new(AtomicUsize::new(0));

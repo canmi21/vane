@@ -126,12 +126,17 @@ impl L4ForwardFetch {
 			.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
 		metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "udp")
 			.record(start.elapsed().as_secs_f64() * 1000.0);
-		// Forward the cold-path first packet so no inbound bytes are
-		// lost between dispatch-table miss and forwarder registration.
-		upstream_socket
-			.send(&assoc.first_packet)
-			.await
-			.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
+		// Forward every cold-path datagram in arrival order so no inbound
+		// bytes are lost between dispatch-table miss and forwarder
+		// registration. Single-datagram is the common case; multi-datagram
+		// arises from the pending-peek state machine (06-l4.md § _Replay
+		// to handler_).
+		for pkt in &assoc.first_packets {
+			upstream_socket
+				.send(pkt)
+				.await
+				.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
+		}
 
 		let dispatch_table =
 			conn.user.lock().get::<Arc<DispatchTable>>().cloned().ok_or_else(|| {

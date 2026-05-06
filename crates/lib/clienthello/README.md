@@ -19,7 +19,7 @@ ClientHello has been seen.
 
 ## Example
 
-```no_run
+```rust
 use clienthello::{Extractor, PushOutcome};
 
 let mut e = Extractor::new();
@@ -41,4 +41,4 @@ mechanical adds; not implemented in 0.1.0.
 
 ## License
 
-MIT.
+Released under the MIT License © 2026 [Canmi](https://canmi.net)

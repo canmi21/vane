@@ -774,7 +774,12 @@ pub async fn dispatch_wasm(
 			}
 		}
 		Some(MiddlewareKind::L4Bytes) => {
-			// UDP carries the cold-path datagram on `UdpAssoc.first_packet`.
+			// UDP carries the cold-path datagram on `UdpAssoc.first_packets`.
+			// L4Bytes reads the first datagram of the buffered set; multi-
+			// packet sets only arise after the pending-peek state machine
+			// completes (06-l4.md § _Multi-packet peek_), and even then the
+			// L4Bytes contract is "first data unit" semantics.
+			//
 			// On TCP / TLS the equivalent prefix lives on `ConnContext.user`
 			// as `PeekResult.buffer`, captured by the listener-side
 			// protocol-detection prelude (06-l4.md § _Protocol detection_) —
@@ -784,7 +789,10 @@ pub async fn dispatch_wasm(
 			// Continued post-peek byte streaming for L4Bytes is post-MVP.
 			let bytes_view = match l4.as_ref() {
 				Some(L4Conn::Udp(assoc)) => {
-					let pkt = &assoc.first_packet;
+					// Cold-path entry guarantees `first_packets` is non-empty
+					// (the listener never builds a UdpAssoc without at least
+					// one triggering datagram).
+					let pkt = assoc.first_packets.first().expect("UdpAssoc carries ≥1 datagram");
 					if pkt.len() > WASM_BODY_LIMIT_L4 {
 						BytesView { data: pkt[..WASM_BODY_LIMIT_L4].to_vec(), truncated: true }
 					} else {
