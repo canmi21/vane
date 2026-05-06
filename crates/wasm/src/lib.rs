@@ -3276,4 +3276,154 @@ mod tests {
 		assert!(validate_on_error_hint(Some(&"retry".to_owned())).is_err());
 		assert!(validate_on_error_hint(Some(&"pass-through".to_owned())).is_err());
 	}
+
+	// ─── metadata_compatible coverage ──────────────────────────────
+
+	fn export(
+		name: &str,
+		kind: vane_core::MiddlewareKind,
+		stateless: bool,
+		needs_body: bool,
+		inspects: &[&str],
+	) -> PluginExport {
+		PluginExport {
+			name: name.to_owned(),
+			kind,
+			stateless,
+			needs_body,
+			inspects: inspects.iter().map(|s| (*s).to_owned()).collect(),
+		}
+	}
+
+	fn meta(exports: Vec<PluginExport>) -> PluginMetadata {
+		PluginMetadata {
+			name: "fixture".to_owned(),
+			version: "0.1.0".to_owned(),
+			abi_version: "0.1.0".to_owned(),
+			exports,
+		}
+	}
+
+	#[test]
+	fn metadata_compatible_identical_yields_true() {
+		let m = meta(vec![export(
+			"probe",
+			vane_core::MiddlewareKind::L4Peek,
+			true,
+			false,
+			&["conn.peer_ip"],
+		)]);
+		assert!(metadata_compatible(&m, &m));
+	}
+
+	#[test]
+	fn metadata_compatible_name_version_diff_yields_true() {
+		let a = PluginMetadata {
+			name: "a".into(),
+			version: "0.1.0".into(),
+			abi_version: "0.1.0".into(),
+			exports: vec![export("e", vane_core::MiddlewareKind::L4Peek, true, false, &[])],
+		};
+		let b = PluginMetadata {
+			name: "b".into(),
+			version: "9.9.9".into(),
+			abi_version: a.abi_version.clone(),
+			exports: a.exports.clone(),
+		};
+		assert!(metadata_compatible(&a, &b), "name/version are not graph-relevant");
+	}
+
+	#[test]
+	fn metadata_compatible_abi_version_diff_yields_false() {
+		let a = meta(vec![export("e", vane_core::MiddlewareKind::L4Peek, true, false, &[])]);
+		let b = PluginMetadata {
+			name: a.name.clone(),
+			version: a.version.clone(),
+			abi_version: "0.2.0".into(),
+			exports: a.exports.clone(),
+		};
+		assert!(!metadata_compatible(&a, &b));
+	}
+
+	#[test]
+	fn metadata_compatible_export_kind_diff_yields_false() {
+		let a = meta(vec![export("e", vane_core::MiddlewareKind::L4Peek, true, false, &[])]);
+		let b = meta(vec![export("e", vane_core::MiddlewareKind::L7Request, true, false, &[])]);
+		assert!(!metadata_compatible(&a, &b));
+	}
+
+	#[test]
+	fn metadata_compatible_stateless_diff_yields_false() {
+		let a = meta(vec![export("e", vane_core::MiddlewareKind::L4Peek, true, false, &[])]);
+		let b = meta(vec![export("e", vane_core::MiddlewareKind::L4Peek, false, false, &[])]);
+		assert!(!metadata_compatible(&a, &b));
+	}
+
+	#[test]
+	fn metadata_compatible_needs_body_diff_yields_false() {
+		let a = meta(vec![export("e", vane_core::MiddlewareKind::L7Request, true, false, &[])]);
+		let b = meta(vec![export("e", vane_core::MiddlewareKind::L7Request, true, true, &[])]);
+		assert!(!metadata_compatible(&a, &b));
+	}
+
+	#[test]
+	fn metadata_compatible_inspects_reorder_yields_true() {
+		let a = meta(vec![export(
+			"e",
+			vane_core::MiddlewareKind::L4Peek,
+			true,
+			false,
+			&["conn.peer_ip", "conn.alpn"],
+		)]);
+		let b = meta(vec![export(
+			"e",
+			vane_core::MiddlewareKind::L4Peek,
+			true,
+			false,
+			&["conn.alpn", "conn.peer_ip"],
+		)]);
+		assert!(metadata_compatible(&a, &b), "inspects is order-independent");
+	}
+
+	#[test]
+	fn metadata_compatible_inspects_content_diff_yields_false() {
+		let a =
+			meta(vec![export("e", vane_core::MiddlewareKind::L4Peek, true, false, &["conn.peer_ip"])]);
+		let b =
+			meta(vec![export("e", vane_core::MiddlewareKind::L4Peek, true, false, &["conn.local_ip"])]);
+		assert!(!metadata_compatible(&a, &b));
+	}
+
+	#[test]
+	fn metadata_compatible_export_count_diff_yields_false() {
+		let a = meta(vec![export("e1", vane_core::MiddlewareKind::L4Peek, true, false, &[])]);
+		let b = meta(vec![
+			export("e1", vane_core::MiddlewareKind::L4Peek, true, false, &[]),
+			export("e2", vane_core::MiddlewareKind::L4Peek, true, false, &[]),
+		]);
+		assert!(!metadata_compatible(&a, &b));
+	}
+
+	#[test]
+	fn metadata_compatible_export_name_diff_yields_false() {
+		let a = meta(vec![export("e1", vane_core::MiddlewareKind::L4Peek, true, false, &[])]);
+		let b = meta(vec![export("e2", vane_core::MiddlewareKind::L4Peek, true, false, &[])]);
+		assert!(!metadata_compatible(&a, &b));
+	}
+
+	// ─── reload_component coverage ─────────────────────────────────
+
+	#[tokio::test]
+	async fn reload_component_unchanged_when_bytes_identical() {
+		let rt = loaded_runtime().await;
+		let outcome = rt.reload_component(fixture_path()).await.expect("reload");
+		assert!(matches!(outcome, ReloadComponentOutcome::Unchanged), "{outcome:?}");
+	}
+
+	#[tokio::test]
+	async fn reload_component_treats_first_load_as_metadata_changed() {
+		let rt = WasmtimeRuntime::new(mock_backend()).expect("rt");
+		let outcome = rt.reload_component(fixture_path()).await.expect("reload");
+		assert!(matches!(outcome, ReloadComponentOutcome::MetadataChanged), "{outcome:?}");
+	}
 }
