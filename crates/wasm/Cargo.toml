@@ -19,6 +19,7 @@ workspace = true
 all-features = true
 
 [dependencies]
+arc-swap = "1.9.1"
 async-trait = { workspace = true }
 metrics = "0.24"
 rand = "0.10"

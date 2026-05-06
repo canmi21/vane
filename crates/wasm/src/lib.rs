@@ -1181,14 +1181,16 @@ struct StatelessKey {
 }
 
 /// Pool metadata for a stateless export. Each rental instantiates a
-/// fresh store.
+/// fresh store; the underlying [`Component`] is **not** cached on the
+/// pool — every invocation reads `self.components` for the current
+/// `Arc<Component>`, so a hot-reload swap takes effect on the next
+/// call without per-pool reconstruction (spec § _Hot reload_).
 ///
 /// `total_allocations` ticks once per successful rental.
 /// `failures` ticks when `instantiate_async` returns `Err` — the
 /// stateless path has no exhaustion failure mode (capacity is
 /// unbounded), so this only catches real instantiation problems.
 struct StatelessPool {
-	component: Arc<Component>,
 	#[allow(dead_code)]
 	args_json: String,
 	total_allocations: Arc<std::sync::atomic::AtomicU64>,
@@ -1201,17 +1203,15 @@ struct StatelessPool {
 /// pool is empty, `invoke_l4_peek` returns `PluginError::Exhausted` immediately
 /// without blocking.
 pub struct StatefulPoolHandle {
-	// Stored for future dynamic pool growth and diagnostics.
-	#[allow(dead_code)]
-	component: Arc<Component>,
-	#[allow(dead_code)]
+	/// Current `Component` for this pool's module. Held inside
+	/// [`ArcSwap`] so a hot-reload swap publishes the new component
+	/// atomically; lazy-built instances after a generation bump pick
+	/// up the new component on their next checkout.
+	component: arc_swap::ArcSwap<Component>,
 	engine: Engine,
-	#[allow(dead_code)]
 	fetch_backend: Arc<dyn HttpFetchBackend>,
-	#[allow(dead_code)]
 	pub args_json: String,
 	instances: Mutex<Vec<StatefulInstance>>,
-	#[allow(dead_code)]
 	pub capacity: usize,
 	/// Identity used by `WasmtimeRuntime::pool_snapshot` to label this
 	/// pool in mgmt verb output. Stored on the handle (rather than as
@@ -1225,11 +1225,46 @@ pub struct StatefulPoolHandle {
 	/// Cumulative checkout failure count — every `PluginError::Exhausted`
 	/// path increments this.
 	pub failures: Arc<std::sync::atomic::AtomicU64>,
+	/// Reload epoch. Pre-built and lazily-constructed instances are
+	/// tagged with the value of this counter at creation time; on
+	/// reload, [`Self::bump_generation`] increments it and clears
+	/// pre-built instances so subsequent checkouts go through the
+	/// lazy-build path against the freshly-swapped `Component`.
+	/// In-flight instances finish naturally; their return path drops
+	/// mismatched-generation entries instead of pushing them back.
+	pub generation: std::sync::atomic::AtomicU64,
+	/// Number of instances currently checked out. Used by the
+	/// lazy-build path to enforce `capacity` after a generation bump
+	/// drained the pre-built buffer.
+	pub in_flight: std::sync::atomic::AtomicUsize,
+	/// `Arc<str>` snapshot of `module_id` for `HostState` construction
+	/// in the lazy-build path (`HostState`'s API is `Arc<str>`-typed).
+	module_id_arc: Arc<str>,
+	/// `Arc<str>` snapshot of `export_name` for the same reason.
+	export_name_arc: Arc<str>,
+	/// `metadata.name` snapshot at create time. Used as a label in
+	/// `HostState`'s cardinality bookkeeping. Reload may change the
+	/// underlying `metadata.name` field but pools carry the old label
+	/// until the next reload reaches them — the label is observability
+	/// only, never load-bearing.
+	metadata_name: Arc<str>,
+	/// Operator-owned http-fetch policy snapshot. Cached at create
+	/// time; later `set_policy` calls update the runtime's table but
+	/// existing pools see the snapshot — pool policy refresh is a
+	/// reload-time event (see follow-up flag in spec).
+	policy: Arc<PluginHttpPolicy>,
+	/// Shared cardinality registry — `Arc`-stable across reloads, so
+	/// we just clone the pointer at create time.
+	cardinality: Arc<CardinalityRegistry>,
 }
 
 struct StatefulInstance {
 	store: Store<HostState>,
 	plugin: invoke_l4peek::PluginL4PeekInvoke,
+	/// Generation this instance was built against. Compared on
+	/// checkout / return so old-generation instances drop after a
+	/// reload bump rather than re-pooling.
+	generation: u64,
 }
 
 impl StatefulPoolHandle {
@@ -1247,21 +1282,18 @@ impl StatefulPoolHandle {
 	/// # Panics
 	///
 	/// Panics if the internal instance mutex is poisoned.
-	#[allow(clippy::unused_async)] // async required for consistent call-site ergonomics
 	pub async fn invoke_l4_peek(
 		&self,
 		export_name: &str,
 		input: L4PeekInput,
 	) -> Result<L4PeekDecision, PluginError> {
-		let mut instance = {
-			let mut guard = self.instances.lock().unwrap();
-			let Some(inst) = guard.pop() else {
-				self.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-				return Err(PluginError::Exhausted);
-			};
-			self.total_allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-			inst
-		};
+		use std::sync::atomic::Ordering;
+
+		let cur_gen = self.generation.load(Ordering::Acquire);
+		let mut instance = self.checkout(cur_gen, export_name).await?;
+		// Successful checkout increments accounting counters once.
+		self.in_flight.fetch_add(1, Ordering::AcqRel);
+		self.total_allocations.fetch_add(1, Ordering::Relaxed);
 
 		instance.store.set_epoch_deadline(10);
 		let wit_input = lower_input(input);
@@ -1277,12 +1309,116 @@ impl StatefulPoolHandle {
 			Err(e) => Err(PluginError::Trap(e.to_string())),
 		};
 
-		{
+		// Return path: drop in_flight unconditionally, then re-pool only
+		// if the instance's generation still matches the current epoch.
+		// Mismatch means a reload bumped generation while this instance
+		// was checked out — drop it so the pool stays at-most one
+		// generation behind reload.
+		self.in_flight.fetch_sub(1, Ordering::AcqRel);
+		let cur_gen_after = self.generation.load(Ordering::Acquire);
+		if instance.generation == cur_gen_after {
 			let mut guard = self.instances.lock().unwrap();
 			guard.push(instance);
 		}
 
 		outcome
+	}
+
+	/// Acquire a current-generation instance: pop from the pre-built
+	/// buffer if one is available with the right generation, otherwise
+	/// lazily build a fresh one against the current `Component`. Old-
+	/// generation instances popped from the buffer are dropped silently.
+	///
+	/// `cur_gen` is sampled by the caller so a concurrent generation
+	/// bump partway through the loop doesn't trip the `Exhausted` arm
+	/// — `checkout` only races against `bump_generation`, which never
+	/// shrinks `capacity` and never spuriously fails the lazy build.
+	async fn checkout(
+		&self,
+		cur_gen: u64,
+		export_name: &str,
+	) -> Result<StatefulInstance, PluginError> {
+		use std::sync::atomic::Ordering;
+
+		loop {
+			let popped = {
+				let mut guard = self.instances.lock().unwrap();
+				guard.pop()
+			};
+			match popped {
+				Some(inst) if inst.generation == cur_gen => return Ok(inst),
+				Some(_old_gen) => {
+					// Drop the old-generation instance and loop — the
+					// pre-built buffer may still hold current-generation
+					// entries below it.
+				}
+				None => {
+					if self.in_flight.load(Ordering::Acquire) >= self.capacity {
+						self.failures.fetch_add(1, Ordering::Relaxed);
+						return Err(PluginError::Exhausted);
+					}
+					return self
+						.lazy_build_instance(cur_gen, export_name)
+						.await
+						.map_err(|e| PluginError::Trap(e.to_string()));
+				}
+			}
+		}
+	}
+
+	/// Build one new `StatefulInstance` against the current
+	/// `Component`. Used only by [`Self::checkout`]'s lazy-build path
+	/// after a generation bump drained the pre-built buffer.
+	async fn lazy_build_instance(
+		&self,
+		generation: u64,
+		_export_name: &str,
+	) -> Result<StatefulInstance, Error> {
+		// Linker setup is rebuilt per lazy build rather than cached on
+		// the handle; `Linker<HostState>` is `!Sync` and would break
+		// `Arc<StatefulPoolHandle>: Sync`. The cost is one host-fn
+		// `add_to_linker` call per checkout that misses the pre-built
+		// buffer — negligible compared to `instantiate_async`.
+		let mut linker = Linker::<HostState>::new(&self.engine);
+		invoke_l4peek::PluginL4PeekInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
+			&mut linker,
+			|x| x,
+		)
+		.map_err(|e| Error::internal(format!("stateful lazy linker: {e}")))?;
+
+		let component = self.component.load_full();
+		let host_state = HostState::new(
+			self.args_json.clone(),
+			Arc::clone(&self.fetch_backend),
+			Arc::clone(&self.module_id_arc),
+			Arc::clone(&self.metadata_name),
+			Arc::clone(&self.export_name_arc),
+			Arc::clone(&self.policy),
+			Arc::clone(&self.cardinality),
+		);
+		let mut store = Store::new(&self.engine, host_state);
+		store.set_epoch_deadline(1000);
+		let plugin =
+			invoke_l4peek::PluginL4PeekInvoke::instantiate_async(&mut store, &component, &linker)
+				.await
+				.map_err(|e| Error::internal(format!("stateful lazy instantiate: {e}")))?;
+		Ok(StatefulInstance { store, plugin, generation })
+	}
+
+	/// Replace this pool's `Component` with `new_component` and bump
+	/// the generation epoch. Pre-built old-generation instances are
+	/// drained eagerly; in-flight instances finish naturally and drop
+	/// at return time. Spec § _Hot reload_ — pool ownership stays
+	/// stable across reload, only the underlying `Component` changes.
+	///
+	/// # Panics
+	///
+	/// Panics if the internal `instances` mutex is poisoned.
+	pub fn swap_component_and_bump(&self, new_component: Arc<Component>) {
+		use std::sync::atomic::Ordering;
+		self.component.store(new_component);
+		self.generation.fetch_add(1, Ordering::AcqRel);
+		self.instances.lock().unwrap().clear();
 	}
 
 	/// Returns the args string that the plugin received via `host.get-args` on
@@ -1513,11 +1649,15 @@ impl WasmtimeRuntime {
 				invoke_l4peek::PluginL4PeekInvoke::instantiate_async(&mut store, &component, &linker)
 					.await
 					.map_err(|e| Error::internal(format!("stateful instantiate: {e}")))?;
-			instances.push(StatefulInstance { store, plugin });
+			instances.push(StatefulInstance { store, plugin, generation: 0 });
 		}
 
+		let module_id_arc: Arc<str> = Arc::from(key.as_str());
+		let export_name_arc: Arc<str> = Arc::from(export_name);
+		let metadata_name = self.metadata_name_for(&key);
+		let policy_snapshot = self.policy_for(&key);
 		let handle = Arc::new(StatefulPoolHandle {
-			component,
+			component: arc_swap::ArcSwap::new(component),
 			engine: self.engine.clone(),
 			fetch_backend: Arc::clone(&self.fetch_backend),
 			args_json: args_json.to_owned(),
@@ -1527,6 +1667,13 @@ impl WasmtimeRuntime {
 			export_name: export_name.to_owned(),
 			total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 			failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+			generation: std::sync::atomic::AtomicU64::new(0),
+			in_flight: std::sync::atomic::AtomicUsize::new(0),
+			module_id_arc,
+			export_name_arc,
+			metadata_name,
+			policy: policy_snapshot,
+			cardinality: Arc::clone(&self.cardinality),
 		});
 		// Register a weak ref so `pool_snapshot` can list this pool
 		// without inflating its lifetime. Stale entries are pruned in
@@ -1697,7 +1844,6 @@ impl WasmRuntime for WasmtimeRuntime {
 			p
 		} else {
 			let new_pool = Arc::new(StatelessPool {
-				component: Arc::clone(&component),
 				args_json: args_json.to_owned(),
 				total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 				failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -1714,7 +1860,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		let plugin = match invoke_l4peek::PluginL4PeekInvoke::instantiate_async(
 			&mut store,
-			&pool.component,
+			&component,
 			&self.invoke_linker,
 		)
 		.await
@@ -1777,7 +1923,6 @@ impl WasmRuntime for WasmtimeRuntime {
 			p
 		} else {
 			let new_pool = Arc::new(StatelessPool {
-				component: Arc::clone(&component),
 				args_json: args_json.to_owned(),
 				total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 				failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -1794,7 +1939,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		let plugin = match invoke_l4bytes::PluginL4BytesInvoke::instantiate_async(
 			&mut store,
-			&pool.component,
+			&component,
 			&self.invoke_l4bytes_linker,
 		)
 		.await
@@ -1857,7 +2002,6 @@ impl WasmRuntime for WasmtimeRuntime {
 			p
 		} else {
 			let new_pool = Arc::new(StatelessPool {
-				component: Arc::clone(&component),
 				args_json: args_json.to_owned(),
 				total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 				failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -1874,7 +2018,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		let plugin = match invoke_l7request::PluginL7RequestInvoke::instantiate_async(
 			&mut store,
-			&pool.component,
+			&component,
 			&self.invoke_l7request_linker,
 		)
 		.await
@@ -1937,7 +2081,6 @@ impl WasmRuntime for WasmtimeRuntime {
 			p
 		} else {
 			let new_pool = Arc::new(StatelessPool {
-				component: Arc::clone(&component),
 				args_json: args_json.to_owned(),
 				total_allocations: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 				failures: Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -1954,7 +2097,7 @@ impl WasmRuntime for WasmtimeRuntime {
 
 		let plugin = match invoke_l7response::PluginL7ResponseInvoke::instantiate_async(
 			&mut store,
-			&pool.component,
+			&component,
 			&self.invoke_l7response_linker,
 		)
 		.await
@@ -2466,7 +2609,9 @@ mod tests {
 		);
 	}
 
-	// A pool of N=1 with both slots checked out returns Exhausted immediately.
+	// A pool of N=1 with the slot held in-flight returns Exhausted on
+	// concurrent checkout — the lazy-build path is gated on `in_flight
+	// < capacity`, so a saturated pool still fails fast.
 	#[tokio::test(flavor = "multi_thread")]
 	async fn stateful_pool_exhaustion_no_queueing() {
 		let rt = loaded_runtime().await;
@@ -2474,8 +2619,11 @@ mod tests {
 
 		let pool = rt.create_stateful_pool(&mid, "probe", "{}", 1).await.expect("create_stateful_pool");
 
-		// Drain the single slot by popping it directly.
-		let _instance = pool.instances.lock().unwrap().pop().expect("instance");
+		// Simulate one in-flight checkout by bumping in_flight while
+		// also draining the pre-built buffer. checkout() will see
+		// `in_flight >= capacity` and short-circuit to Exhausted.
+		pool.in_flight.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+		let _drained = pool.instances.lock().unwrap().pop().expect("instance");
 
 		let start = std::time::Instant::now();
 		let result = pool.invoke_l4_peek("probe", empty_input()).await;
@@ -2493,6 +2641,58 @@ mod tests {
 			0,
 			"exhaustion does not bump total_allocations",
 		);
+	}
+
+	// Lazy-build kicks in when the pre-built buffer is drained but
+	// in_flight is below capacity. Mirrors the post-reload code path
+	// where `swap_component_and_bump` clears the buffer.
+	#[tokio::test(flavor = "multi_thread")]
+	async fn stateful_pool_lazy_builds_when_buffer_empty_and_in_flight_below_capacity() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		let pool = rt.create_stateful_pool(&mid, "probe", "{}", 1).await.expect("pool");
+		// Drain the pre-built buffer without bumping in_flight — same
+		// state `swap_component_and_bump` leaves the pool in.
+		pool.instances.lock().unwrap().clear();
+
+		let result = pool.invoke_l4_peek("probe", empty_input()).await;
+		assert!(matches!(result, Ok(L4PeekDecision::Continue)), "lazy build must succeed: {result:?}");
+		assert_eq!(
+			pool.total_allocations.load(std::sync::atomic::Ordering::Relaxed),
+			1,
+			"successful lazy checkout bumps total_allocations",
+		);
+		assert_eq!(
+			pool.failures.load(std::sync::atomic::Ordering::Relaxed),
+			0,
+			"successful lazy checkout does not bump failures",
+		);
+	}
+
+	// `swap_component_and_bump` clears pre-built instances and makes
+	// subsequent checkouts go through the lazy-build path. Returned
+	// in-flight old-generation instances drop instead of re-pooling.
+	#[tokio::test(flavor = "multi_thread")]
+	async fn stateful_pool_generation_bump_drops_pre_built_instances() {
+		let rt = loaded_runtime().await;
+		let mid = fixture_module_id();
+
+		let pool = rt.create_stateful_pool(&mid, "probe", "{}", 2).await.expect("pool");
+		assert_eq!(pool.instances.lock().unwrap().len(), 2, "pool starts with 2 instances");
+
+		let component =
+			rt.components.read().unwrap().get(&mid.0.to_string()).cloned().expect("component");
+		pool.swap_component_and_bump(component);
+		assert_eq!(pool.instances.lock().unwrap().len(), 0, "pre-built buffer drained");
+		assert_eq!(pool.generation.load(std::sync::atomic::Ordering::Relaxed), 1, "generation bumped");
+
+		// First post-bump checkout lazily builds against the new
+		// component. Subsequent checkouts (after return) re-pool only
+		// when generation still matches.
+		let result = pool.invoke_l4_peek("probe", empty_input()).await;
+		assert!(result.is_ok(), "post-bump invoke succeeds: {result:?}");
+		assert_eq!(pool.instances.lock().unwrap().len(), 1, "lazy-built instance returned to buffer");
 	}
 
 	// One successful invocation bumps total_allocations on the
