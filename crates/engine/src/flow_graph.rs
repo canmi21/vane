@@ -169,6 +169,87 @@ impl FlowGraph {
 		self.meta.listener_kinds.get(addr).copied().unwrap_or(ListenerKind::Http)
 	}
 
+	/// Rule-level reachability: does any path from `entry` to an
+	/// `L4Forward` fetch cross a `tls.sni` predicate `Check`? When
+	/// `true`, the UDP listener routes the cold-path datagram through
+	/// the pending-peek state machine — accumulate Initial datagrams,
+	/// extract SNI, then enter the `FlowGraph` with `ConnContext.tls.sni`
+	/// populated so the matching `tls.sni` rule routes correctly.
+	///
+	/// Per `spec/architecture/06-l4.md` § _When pending-peek activates_,
+	/// the spec definition is per-rule conjunction (`tls.sni` predicate
+	/// AND `L4Forward` terminator on the same rule). Implemented as a
+	/// DFS that carries a "saw `tls.sni` Check on this path" flag and
+	/// reports true on first `L4Forward` fetch reached with that flag set
+	/// — `(NodeId, sni_seen)` keyed visit set keeps the walk linear.
+	///
+	/// **Scope (Raw-only)**: `Auto` listeners (mixed `L4Forward` + H3
+	/// termination, spec table row 4) currently return `false` here
+	/// because the H3-from-pending hand-off (transferring buffered
+	/// Initial datagrams to the listener's `quinn::Endpoint` virtual
+	/// socket) is not yet implemented. Pure-`Http` listeners also
+	/// return `false`: their L7 paths cross `Upgrade` to H3 and never
+	/// hit `L4Forward`, so the spec already classifies them as
+	/// pending-peek = no.
+	// FIXME(pending-peek-h3): drop the Raw-only gate when the
+	// H3-from-pending channel exists; spec line 199-201 row 4
+	// (Mixed: yes) will then activate as written.
+	#[must_use]
+	pub fn needs_pending_peek(&self, addr: SocketAddr, entry: NodeId) -> bool {
+		use vane_core::predicate::FieldPath;
+
+		if !matches!(self.listener_kind(&addr), ListenerKind::Raw) {
+			return false;
+		}
+
+		let sym = self.symbolic.as_ref();
+		let mut visited: HashSet<(NodeId, bool)> = HashSet::new();
+		let mut stack: Vec<(NodeId, bool)> = vec![(entry, false)];
+		while let Some((node_id, sni_seen)) = stack.pop() {
+			if !visited.insert((node_id, sni_seen)) {
+				continue;
+			}
+			let Some(node) = sym.nodes.get(node_id.get() as usize) else {
+				continue;
+			};
+			match node {
+				Node::Check { predicate, on_match, on_miss, .. } => {
+					let predicate_is_sni = sym
+						.predicates
+						.get(predicate.get() as usize)
+						.is_some_and(|p| matches!(p.path, FieldPath::TlsSni));
+					let new_sni_seen = sni_seen || predicate_is_sni;
+					stack.push((*on_match, new_sni_seen));
+					stack.push((*on_miss, new_sni_seen));
+				}
+				Node::Middleware { next, on_error, .. } => {
+					stack.push((*next, sni_seen));
+					if let Some(e) = on_error {
+						stack.push((*e, sni_seen));
+					}
+				}
+				Node::Fetch { id, next_response, next_tunnel, .. } => {
+					let is_l4_forward = matches!(
+						sym.fetches.get(id.get() as usize).map(|f| f.kind),
+						Some(FetchKind::L4Forward),
+					);
+					if is_l4_forward && sni_seen {
+						return true;
+					}
+					if let Some(n) = next_response {
+						stack.push((*n, sni_seen));
+					}
+					if let Some(n) = next_tunnel {
+						stack.push((*n, sni_seen));
+					}
+				}
+				Node::Upgrade { next } => stack.push((*next, sni_seen)),
+				Node::Terminate(_) => {}
+			}
+		}
+		false
+	}
+
 	/// Reachability check: does any node walked from `entry` reference an
 	/// `L4Peek` middleware? The listener uses this at start-up to decide
 	/// whether to enable the peek prelude (the slow path that reads up
