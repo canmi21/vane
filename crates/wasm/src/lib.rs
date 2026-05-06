@@ -12,6 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod cardinality;
 pub use cardinality::CardinalityRegistry;
 
+pub mod inspects;
+
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
@@ -2478,6 +2480,15 @@ fn validate_handler_exports(
 				kind_str(export.kind),
 			)));
 		}
+		for path in &export.inspects {
+			if !crate::inspects::validate_inspects_path(path) {
+				return Err(Error::internal(format!(
+					"export '{}' declares unknown inspects path '{path}' \
+					 — see `spec/wasm-abi.md` § _Path grammar_ for the allowed set",
+					export.name,
+				)));
+			}
+		}
 	}
 	Ok(())
 }
@@ -2741,6 +2752,50 @@ mod tests {
 			msg.contains("handler") || msg.contains("l4-peek"),
 			"error should mention the missing handler: {msg}",
 		);
+	}
+
+	// validate_handler_exports must reject a PluginExport whose inspects list
+	// contains a path outside the documented grammar. Paired with the
+	// inspects::tests unit table, this ensures the load pipeline actually
+	// invokes the validator rather than the validator being dead code.
+	#[tokio::test]
+	async fn validate_handler_exports_rejects_unknown_inspects_path() {
+		let engine = build_engine(8).expect("engine");
+		let bytes = std::fs::read(fixture_path()).expect("read fixture");
+		let component = Component::from_binary(&engine, &bytes).expect("compile");
+
+		let exports = vec![PluginExport {
+			name: "probe".to_owned(),
+			kind: MiddlewareKind::L4Peek,
+			stateless: true,
+			needs_body: false,
+			inspects: vec!["conn.totally_made_up".to_owned()],
+		}];
+
+		let err = validate_handler_exports(&engine, &component, &exports).expect_err("must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("unknown inspects path"), "error should name the rejection: {msg}");
+	}
+
+	#[tokio::test]
+	async fn validate_handler_exports_accepts_known_inspects_paths() {
+		let engine = build_engine(8).expect("engine");
+		let bytes = std::fs::read(fixture_path()).expect("read fixture");
+		let component = Component::from_binary(&engine, &bytes).expect("compile");
+
+		let exports = vec![PluginExport {
+			name: "probe".to_owned(),
+			kind: MiddlewareKind::L4Peek,
+			stateless: true,
+			needs_body: false,
+			inspects: vec![
+				"conn.peer_ip".to_owned(),
+				"conn.tls.peer_cert.spki_sha256".to_owned(),
+				"http.header.authorization".to_owned(),
+			],
+		}];
+
+		validate_handler_exports(&engine, &component, &exports).expect("known paths must validate");
 	}
 
 	// Stateless rental always sees fresh linear memory: counter is zero on each call.
