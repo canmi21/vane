@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Parser, Subcommand};
 use owo_colors::{OwoColorize, Stream, Style};
 use vane_core::version::{BuildInfo, format_version};
@@ -34,12 +35,24 @@ const BUILD_INFO: BuildInfo = BuildInfo {
 
 const DEFAULT_SOCKET: &str = "/tmp/vaned.sock";
 
+/// Help-text palette for clap. clap 4's built-in styling is bold +
+/// underline only; this opts into the `cargo`/`ripgrep`-flavoured
+/// modern look (yellow section headers, cyan literals, green
+/// placeholders) while still routing through anstyle so non-TTY
+/// stdouts get plain text.
+const HELP_STYLES: Styles = Styles::styled()
+	.header(AnsiColor::Yellow.on_default().effects(Effects::BOLD))
+	.usage(AnsiColor::Yellow.on_default().effects(Effects::BOLD))
+	.literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+	.placeholder(AnsiColor::Green.on_default());
+
 #[derive(Parser, Debug)]
 #[command(
 	name = "vane",
 	about = "Vane — A compact programmable proxy engine",
 	version = env!("CARGO_PKG_VERSION"),
 	disable_version_flag = true,
+	styles = HELP_STYLES,
 )]
 struct Cli {
 	/// Print the build banner and exit.
