@@ -9,7 +9,6 @@ node_modules/
 .DS_Store
 *.log
 
-.refactor/
 .claude/
 
 result
