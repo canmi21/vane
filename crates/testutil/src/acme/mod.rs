@@ -29,6 +29,10 @@
 
 #![cfg(feature = "acme")]
 
+pub mod mock_dns;
+
+pub use mock_dns::{MockDns, MockDnsError};
+
 use std::time::Duration;
 
 use testcontainers::core::{IntoContainerPort, WaitFor};

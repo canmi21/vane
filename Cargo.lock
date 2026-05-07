@@ -1618,6 +1618,7 @@ dependencies = [
  "prefix-trie",
  "rand 0.10.1",
  "ring",
+ "serde",
  "thiserror 2.0.18",
  "tinyvec",
  "tracing",
@@ -1647,6 +1648,29 @@ dependencies = [
  "system-configuration",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "hickory-server"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "130236ba6abba90da6a7acf7a87b27d862b592c3145dc74bc47bf86d8ff198ec"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "cfg-if",
+ "data-encoding",
+ "futures-util",
+ "hickory-net",
+ "hickory-proto",
+ "ipnet",
+ "prefix-trie",
+ "serde",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -4527,11 +4551,16 @@ dependencies = [
 name = "vane-testutil"
 version = "0.10.3"
 dependencies = [
+ "async-trait",
  "bytes",
  "h3",
  "h3-quinn",
+ "hickory-proto",
+ "hickory-resolver",
+ "hickory-server",
  "http",
  "hyper",
+ "parking_lot",
  "quinn",
  "reqwest",
  "rustls",
@@ -4541,6 +4570,7 @@ dependencies = [
  "tokio",
  "tracing",
  "vane-core",
+ "vane-engine",
 ]
 
 [[package]]

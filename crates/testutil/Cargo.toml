@@ -27,11 +27,25 @@ h3 = [
 	"dep:bytes",
 	"dep:http",
 ]
-# Pulls in the Pebble fixture for ACME HTTP-01 e2e tests. Engine
-# tests opt in via `vane-testutil = { ..., features = ["acme"] }`.
-# Skips at runtime when Docker is unavailable so a CI / dev box
-# without a daemon can still cargo-test the rest of the workspace.
-acme = ["dep:reqwest", "dep:testcontainers", "dep:thiserror", "dep:tracing"]
+# Pulls in the Pebble fixture for ACME HTTP-01 e2e tests + the
+# in-process mock DNS server for DNS-01 tests. Engine tests opt
+# in via `vane-testutil = { ..., features = ["acme"] }`. The
+# Pebble fixture skips at runtime when Docker is unavailable; the
+# mock DNS fixture is pure-Rust and runs everywhere a tokio
+# runtime can spawn a UDP listener.
+acme = [
+	"dep:async-trait",
+	"dep:hickory-proto",
+	"dep:hickory-resolver",
+	"dep:hickory-server",
+	"dep:parking_lot",
+	"dep:reqwest",
+	"dep:testcontainers",
+	"dep:thiserror",
+	"dep:tracing",
+	"dep:vane-engine",
+	"vane-engine?/acme",
+]
 
 [dependencies]
 hyper = { version = "1.9.0", features = ["server", "http1", "client"] }
@@ -48,18 +62,22 @@ quinn = { version = "0.11", default-features = false, features = ["runtime-tokio
 rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
 
-# ACME e2e (Pebble) — gated behind the `acme` feature.
-# `testcontainers` runs the official Pebble image in Docker;
-# `reqwest` fetches Pebble's self-signed root CA over its
-# management endpoint. Both are optional so non-ACME consumers
-# don't pay the compile cost.
-# `rustls-tls-native-roots-no-provider` keeps reqwest from
-# locking in a specific crypto backend (the default
-# `rustls-tls-native-roots` selects `ring`). Vane installs
-# aws-lc-rs at process boot via
-# `vane_engine::crypto::install_default_provider` and tests do the
-# same — having two providers in the dep graph would break
-# rustls's auto-detect for the unrelated `parse_tls_args` tests.
+# ACME e2e — gated behind the `acme` feature.
+# - `testcontainers` runs the official Pebble image in Docker;
+#   pinned to `aws-lc-rs` so its default `ring` doesn't double-
+#   register the rustls crypto provider in the workspace dep graph.
+# - `reqwest` (`-no-provider` flavour) fetches Pebble's self-signed
+#   root CA over its management endpoint without pinning a backend.
+# - `hickory-server` + `hickory-proto` power the in-process MockDns
+#   server used by DNS-01 tests; `hickory-resolver` runs queries
+#   against it from the test process.
+# - `vane-engine` is needed because the MockDns provider implements
+#   `vane_engine::acme::DnsProvider`.
+async-trait = { version = "0.1", optional = true }
+hickory-proto = { version = "0.26", optional = true }
+hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"], optional = true }
+hickory-server = { version = "0.26", default-features = false, optional = true }
+parking_lot = { version = "0.12", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots-no-provider"], optional = true }
 # `default-features = false` on testcontainers + explicit
 # `aws-lc-rs` feature avoids pulling its `ring` default into the
@@ -69,3 +87,4 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-
 testcontainers = { version = "0.27", default-features = false, features = ["aws-lc-rs"], optional = true }
 thiserror = { version = "2", optional = true }
 tracing = { version = "0.1", optional = true }
+vane-engine = { workspace = true, optional = true }
