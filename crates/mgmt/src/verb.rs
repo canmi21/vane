@@ -272,6 +272,91 @@ pub struct PoolDrainResult {
 	pub quic_drained: usize,
 }
 
+// ─── force_renew ──────────────────────────────────────────────────────
+/// Verb name for the operator-driven "renew this cert NOW" RPC per
+/// `spec/acme.md` § _`force_renew` mgmt verb_. Bypasses the
+/// `renew_before` timer and any active backoff; useful for
+/// key-compromise rotation. The actual issuance runs asynchronously
+/// — `queued: true` means the registry accepted the request, not
+/// that the cert is in hand.
+pub const VERB_FORCE_RENEW: &str = "force_renew";
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForceRenewArgs {
+	pub sni: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForceRenewResult {
+	/// `true` when the registry accepted the request and spawned a
+	/// renewal task; `false` when the SNI is not declared managed
+	/// (no `tls.managed` rule references it) or no renewal job has
+	/// been registered for it.
+	pub queued: bool,
+	/// Cert lifecycle status at the moment the request was received:
+	/// `"valid"`, `"renewing"`, `"failed"`, or `"limited"` per spec
+	/// § _Rate-limit and failure handling_. `"unknown"` for SNIs
+	/// that have never been declared.
+	pub current_status: String,
+}
+
+// ─── get_certs ──────────────────────────────────────────────────────
+/// Verb name for the cert inventory RPC per `spec/acme.md`
+/// § _mgmt verbs § `get_certs`_. Lists every cert the daemon tracks —
+/// managed (full lifecycle detail) and static (SNI + source label).
+pub const VERB_GET_CERTS: &str = "get_certs";
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GetCertsResult {
+	pub certs: Vec<CertSummary>,
+}
+
+/// One cert's wire-shape summary. Field set matches
+/// `spec/acme.md` § _`get_certs` response shape_; static-source
+/// entries leave the lifecycle fields (`status`, `last_*`,
+/// `next_*`, `ari_window`) at their defaults — they're meaningful
+/// only for managed certs.
+///
+/// Named `CertSummary` to disambiguate from
+/// `vane_engine::tls::CertEntry` (the rustls-side handshake bundle);
+/// the wire shape is operator-facing, the engine type is
+/// resolver-internal.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CertSummary {
+	pub sni: String,
+	/// `"managed"` for ACME-issued certs, `"static"` for operator-
+	/// supplied PEMs.
+	pub source: String,
+	#[serde(default)]
+	pub san: Vec<String>,
+	/// ISO 8601 / RFC 3339 timestamp. `None` when no cert is
+	/// currently issued (managed SNI before first issuance).
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub not_after: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub issued_at: Option<String>,
+	/// `"valid"` | `"renewing"` | `"failed"` | `"limited"`. Empty
+	/// for static certs.
+	#[serde(default)]
+	pub status: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub last_attempt_at: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub last_error: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub next_attempt_at: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ari_window: Option<AriWindowWire>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AriWindowWire {
+	/// RFC 3339 timestamp of the suggested renewal window's start.
+	pub start: String,
+	/// RFC 3339 timestamp of the suggested renewal window's end.
+	pub end: String,
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

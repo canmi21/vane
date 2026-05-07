@@ -11,9 +11,10 @@ use clap::{Parser, Subcommand};
 use vane_core::version::{BuildInfo, format_version};
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
-	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetConfigResult, GetConnectionsResult,
-	GetMetricsArgs, GetMetricsResult, ListenerStatus, NoArgs, PingResult, ReloadResult,
-	ShutdownResult, StatsResult, VERB_COMPILE_DRY_RUN, VERB_GET_CONFIG, VERB_GET_CONNECTIONS,
+	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, ForceRenewArgs, ForceRenewResult,
+	GetCertsResult, GetConfigResult, GetConnectionsResult, GetMetricsArgs, GetMetricsResult,
+	ListenerStatus, NoArgs, PingResult, ReloadResult, ShutdownResult, StatsResult,
+	VERB_COMPILE_DRY_RUN, VERB_FORCE_RENEW, VERB_GET_CERTS, VERB_GET_CONFIG, VERB_GET_CONNECTIONS,
 	VERB_GET_METRICS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW,
 	VERB_TAIL_LOG,
 };
@@ -90,6 +91,21 @@ enum Cmd {
 		#[command(subcommand)]
 		what: TailCmd,
 	},
+	/// Trigger an immediate ACME renewal for one SNI, bypassing the
+	/// periodic timer and any active backoff. Useful for
+	/// key-compromise rotation; per `spec/acme.md`
+	/// § _`force_renew` mgmt verb_.
+	#[command(name = "force-renew")]
+	ForceRenew {
+		/// SNI to renew (must match a `tls.managed` rule in the
+		/// active config).
+		#[arg(long)]
+		sni: String,
+	},
+	/// List every cert the daemon tracks — managed (with full
+	/// status detail) + static (SNI / source label only).
+	#[command(name = "get-certs")]
+	GetCerts,
 }
 
 #[derive(Subcommand, Debug)]
@@ -139,6 +155,8 @@ async fn main() -> std::process::ExitCode {
 		Cmd::Get { what: GetCmd::Metrics } => run_get_metrics(&client, cli.json).await,
 		Cmd::Tail { what: TailCmd::Flow } => run_tail_flow(&client, cli.json).await,
 		Cmd::Tail { what: TailCmd::Log } => run_tail_log(&client, cli.json).await,
+		Cmd::ForceRenew { sni } => run_force_renew(&client, &sni, cli.json).await,
+		Cmd::GetCerts => run_get_certs(&client, cli.json).await,
 	};
 	match result {
 		Ok(()) => std::process::ExitCode::SUCCESS,
@@ -212,6 +230,37 @@ async fn run_compile_dry_run(client: &UnixMgmtClient, config_dir: &Path) -> anyh
 	let args = CompileDryRunArgs { config_dir: config_dir.to_string_lossy().into_owned() };
 	let r: CompileDryRunResult = client.call(VERB_COMPILE_DRY_RUN, &args).await?;
 	print_json(&r.graph)?;
+	Ok(())
+}
+
+async fn run_force_renew(client: &UnixMgmtClient, sni: &str, json: bool) -> anyhow::Result<()> {
+	let args = ForceRenewArgs { sni: sni.to_owned() };
+	let r: ForceRenewResult = client.call(VERB_FORCE_RENEW, &args).await?;
+	if json {
+		print_json(&r)?;
+	} else if r.queued {
+		println!("queued: status={} (sni={sni})", r.current_status);
+	} else {
+		println!("not queued: sni={sni:?} not declared managed (status={})", r.current_status);
+	}
+	Ok(())
+}
+
+async fn run_get_certs(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+	let r: GetCertsResult = client.call(VERB_GET_CERTS, &NoArgs {}).await?;
+	if json {
+		print_json(&r)?;
+	} else {
+		// Pretty: one row per cert. Width-aligned for readability.
+		// `<sni> <source> <status> <not_after> <last_error>`
+		println!("{:<32} {:<8} {:<10} {:<24} LAST_ERROR", "SNI", "SOURCE", "STATUS", "NOT_AFTER");
+		for entry in &r.certs {
+			let na = entry.not_after.as_deref().unwrap_or("-");
+			let err = entry.last_error.as_deref().unwrap_or("");
+			let status = if entry.status.is_empty() { "-" } else { entry.status.as_str() };
+			println!("{:<32} {:<8} {:<10} {:<24} {}", entry.sni, entry.source, status, na, err);
+		}
+	}
 	Ok(())
 }
 

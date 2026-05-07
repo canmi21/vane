@@ -467,6 +467,26 @@ impl ManagedCertRegistry {
 		Ok(())
 	}
 
+	/// Operator-driven immediate renewal per `spec/acme.md`
+	/// § _`force_renew` mgmt verb_. Looks up the registered job for
+	/// `sni` and spawns a one-shot [`Self::run_renewal_attempt`]
+	/// task; returns `Some(())` when the SNI was known and a job
+	/// existed, `None` when the SNI is undeclared or has no job.
+	///
+	/// Bypasses the scheduler tick + any active backoff — useful
+	/// for key-compromise rotation. The actual issuance runs
+	/// asynchronously: the caller gets immediate "queued" feedback
+	/// while the work proceeds in the background.
+	pub fn force_renew(self: &Arc<Self>, sni: &str) -> Option<()> {
+		let key = sni.to_ascii_lowercase();
+		let job = self.jobs.get(&key).map(|e| e.value().clone())?;
+		let registry = Arc::clone(self);
+		tokio::spawn(async move {
+			registry.run_renewal_attempt(&key, job).await;
+		});
+		Some(())
+	}
+
 	/// Spawn the periodic renewal scheduler: every 5 minutes the
 	/// task walks `collect_renewal_plans(now)` and dispatches one
 	/// `run_renewal_attempt` per plan. Returns the

@@ -32,8 +32,9 @@ use vane_mgmt::verb::{
 	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, GetConfigResult, GetConnectionsResult,
 	GetMetricsArgs, GetMetricsResult, GetPoolsResult, GetUpstreamsResult, ListenerStatus, PingResult,
 	ReloadResult, ShutdownResult, StatsResult, TcpUpstreamEntry, VERB_COMPILE_DRY_RUN,
-	VERB_GET_CONFIG, VERB_GET_CONNECTIONS, VERB_GET_METRICS, VERB_GET_POOLS, VERB_GET_UPSTREAMS,
-	VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW, VERB_TAIL_LOG, WasmPoolEntry,
+	VERB_FORCE_RENEW, VERB_GET_CERTS, VERB_GET_CONFIG, VERB_GET_CONNECTIONS, VERB_GET_METRICS,
+	VERB_GET_POOLS, VERB_GET_UPSTREAMS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS,
+	VERB_TAIL_FLOW, VERB_TAIL_LOG, WasmPoolEntry,
 };
 
 use crate::providers::MetadataProviders;
@@ -129,6 +130,18 @@ impl Handler for MgmtState {
 			VERB_GET_POOLS => self.handle_get_pools(),
 			VERB_GET_UPSTREAMS => self.handle_get_upstreams(),
 			vane_mgmt::verb::VERB_POOL_DRAIN => Self::handle_pool_drain(req.args),
+			#[cfg(feature = "acme")]
+			VERB_FORCE_RENEW => self.handle_force_renew(req.args),
+			#[cfg(feature = "acme")]
+			VERB_GET_CERTS => self.handle_get_certs(),
+			#[cfg(not(feature = "acme"))]
+			VERB_FORCE_RENEW | VERB_GET_CERTS => Err(WireError {
+				kind: WireErrorKind::UnknownVerb,
+				message: format!(
+					"verb {:?} requires the daemon to be built with the `acme` feature",
+					req.verb,
+				),
+			}),
 			other => Err(WireError {
 				kind: WireErrorKind::UnknownVerb,
 				message: format!("unknown verb {other:?}"),
@@ -268,6 +281,38 @@ fn quic_drain_by_id(_id: &str) -> usize {
 fn json<R: serde::Serialize>(r: &R) -> Result<serde_json::Value, WireError> {
 	serde_json::to_value(r)
 		.map_err(|e| WireError { kind: WireErrorKind::Internal, message: format!("encode: {e}") })
+}
+
+/// Render a [`std::time::SystemTime`] as RFC 3339 / ISO 8601 UTC.
+/// Used by `get_certs` to format the wire-shape timestamp fields
+/// per `spec/acme.md` § _get_certs response shape_. Falls back to
+/// `"<invalid>"` if the timestamp is pre-1970 (defensive — should
+/// never happen for ACME-issued certs, but the API accepts arbitrary
+/// `SystemTime` so we don't panic).
+#[cfg(feature = "acme")]
+fn rfc3339(t: std::time::SystemTime) -> String {
+	let dur = match t.duration_since(std::time::UNIX_EPOCH) {
+		Ok(d) => d,
+		Err(_) => return "<invalid>".to_owned(),
+	};
+	let secs = i64::try_from(dur.as_secs()).unwrap_or(i64::MAX);
+	time::OffsetDateTime::from_unix_timestamp(secs)
+		.ok()
+		.and_then(|dt| dt.format(&time::format_description::well_known::Rfc3339).ok())
+		.unwrap_or_else(|| "<invalid>".to_owned())
+}
+
+/// Translate [`vane_engine::acme::CertStatus`] into the wire-shape
+/// lowercase string per `spec/acme.md` § _get_certs response shape_.
+#[cfg(feature = "acme")]
+fn status_label(state: &vane_engine::acme::CertState) -> String {
+	use vane_engine::acme::CertStatus;
+	match state.status {
+		CertStatus::Valid => "valid".to_owned(),
+		CertStatus::Renewing => "renewing".to_owned(),
+		CertStatus::Failed => "failed".to_owned(),
+		CertStatus::Limited => "limited".to_owned(),
+	}
 }
 
 fn hex32(bytes: &[u8; 32]) -> String {
@@ -485,6 +530,127 @@ impl MgmtState {
 		let tcp_drained = vane_engine::fetch::client_cache::drain_by_fingerprint_id(id);
 		let quic_drained = quic_drain_by_id(id);
 		json(&vane_mgmt::verb::PoolDrainResult { tcp_drained, quic_drained })
+	}
+
+	/// `force_renew` verb: kick off an immediate renewal attempt for
+	/// `sni`, bypassing both the periodic timer and any active
+	/// backoff. Per `spec/acme.md` § _force_renew mgmt verb_ the
+	/// response shape is `{queued, current_status}`; the actual
+	/// issuance runs asynchronously, so `queued: true` is "request
+	/// accepted" — operators chain a `get_certs` poll if they need
+	/// to confirm the cert landed.
+	#[cfg(feature = "acme")]
+	fn handle_force_renew(&self, args: serde_json::Value) -> Result<serde_json::Value, WireError> {
+		use vane_mgmt::verb::{ForceRenewArgs, ForceRenewResult};
+
+		let parsed: ForceRenewArgs = serde_json::from_value(args).map_err(|e| WireError {
+			kind: WireErrorKind::BadArgs,
+			message: format!("force_renew args: {e}"),
+		})?;
+		let sni = parsed.sni.trim();
+		if sni.is_empty() {
+			return Err(WireError {
+				kind: WireErrorKind::BadArgs,
+				message: "force_renew: sni must not be empty".to_owned(),
+			});
+		}
+		let registry = match self.acme_registry.as_ref() {
+			Some(r) => Arc::clone(r),
+			None => {
+				// daemon was built with `acme` but the current config has
+				// no managed certs at all → registry was never opened.
+				return json(&ForceRenewResult { queued: false, current_status: "unknown".into() });
+			}
+		};
+
+		// Look up current status before dispatching so the response
+		// reflects the pre-spawn state — the spawned task will mutate
+		// it asynchronously.
+		let current_status =
+			registry.cert_state(sni).map_or_else(|| "unknown".to_owned(), |state| status_label(&state));
+
+		let job = registry.cert_states_snapshot().into_iter().find(|(s, _)| s == sni).and_then(|_| {
+			// Snapshot only carries state, not the job. Dispatching
+			// requires the job — fetch it via the registry-internal
+			// path. We expose `force_renew_dispatch` for this so the
+			// daemon doesn't need to reach into the jobs map directly.
+			registry.force_renew(sni)
+		});
+		let queued = job.is_some();
+		json(&ForceRenewResult { queued, current_status })
+	}
+
+	/// `get_certs` verb: list every cert the daemon tracks. Managed
+	/// certs surface full lifecycle detail (status, attempt
+	/// timestamps, last error, ARI window); static certs surface
+	/// SNI + `source: "static"` only — operators rotate static
+	/// certs by editing rules + reload, so the lifecycle fields are
+	/// not meaningful there.
+	#[cfg(feature = "acme")]
+	fn handle_get_certs(&self) -> Result<serde_json::Value, WireError> {
+		use vane_mgmt::verb::{AriWindowWire, CertSummary, GetCertsResult};
+
+		let mut certs: Vec<CertSummary> = Vec::new();
+
+		// Managed certs from the registry.
+		if let Some(registry) = self.acme_registry.as_ref() {
+			for (sni, state) in registry.cert_states_snapshot() {
+				let (not_after, issued_at) = match &state.stored {
+					Some(s) => (Some(rfc3339(s.not_after)), Some(rfc3339(s.last_renew_at))),
+					None => (None, None),
+				};
+				certs.push(CertSummary {
+					sni,
+					source: "managed".into(),
+					san: Vec::new(),
+					not_after,
+					issued_at,
+					status: status_label(&state),
+					last_attempt_at: state.last_attempt_at.map(rfc3339),
+					last_error: state.last_error.clone(),
+					next_attempt_at: state.next_attempt_at.map(rfc3339),
+					ari_window: state
+						.ari_window
+						.as_ref()
+						.map(|w| AriWindowWire { start: rfc3339(w.start), end: rfc3339(w.end) }),
+				});
+			}
+		}
+
+		// Static certs from the active graph's listener TLS specs.
+		// We surface SNI + source only — reading the PEMs to extract
+		// not_after / SANs would re-do the work the static populator
+		// already did at link time, and the rotation lifecycle for
+		// static certs is "edit + reload" which doesn't surface
+		// useful per-cert state through this verb.
+		let graph = self.graph_swap.load();
+		let mut static_snis: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+		for spec in graph.symbolic().meta.listener_tls.values() {
+			if let Some(default) = &spec.default
+				&& default.is_static()
+			{
+				static_snis.insert("<default>".to_owned());
+			}
+			for sni in spec.sni_certs.keys() {
+				static_snis.insert(sni.clone());
+			}
+		}
+		for sni in static_snis {
+			certs.push(CertSummary {
+				sni,
+				source: "static".into(),
+				san: Vec::new(),
+				not_after: None,
+				issued_at: None,
+				status: String::new(),
+				last_attempt_at: None,
+				last_error: None,
+				next_attempt_at: None,
+				ari_window: None,
+			});
+		}
+
+		json(&GetCertsResult { certs })
 	}
 
 	/// Walk the active graph's `entries` and report each listener's
@@ -983,5 +1149,106 @@ mod tests {
 		.await
 		.expect_err("empty id must fail");
 		assert!(matches!(err.kind, vane_mgmt::WireErrorKind::BadArgs));
+	}
+
+	#[cfg(feature = "acme")]
+	#[tokio::test]
+	async fn dispatch_force_renew_unknown_sni_when_no_registry() {
+		// When the daemon has no acme_registry (no managed rules in
+		// the active config), force_renew returns queued=false +
+		// status="unknown" rather than failing as an unknown verb.
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41021);
+		let value = one_shot(
+			&state,
+			Request {
+				id: 1,
+				verb: VERB_FORCE_RENEW.into(),
+				args: serde_json::json!({ "sni": "api.example.com" }),
+			},
+		)
+		.await
+		.expect("ok");
+		let r: vane_mgmt::verb::ForceRenewResult = serde_json::from_value(value).expect("decode");
+		assert!(!r.queued);
+		assert_eq!(r.current_status, "unknown");
+	}
+
+	#[cfg(feature = "acme")]
+	#[tokio::test]
+	async fn dispatch_force_renew_rejects_empty_sni() {
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41022);
+		let err = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_FORCE_RENEW.into(), args: serde_json::json!({ "sni": "" }) },
+		)
+		.await
+		.expect_err("empty sni must fail");
+		assert!(matches!(err.kind, vane_mgmt::WireErrorKind::BadArgs));
+	}
+
+	#[cfg(feature = "acme")]
+	#[tokio::test]
+	async fn dispatch_get_certs_returns_empty_when_no_managed_or_static() {
+		let tmp = tempfile::tempdir().unwrap();
+		let state = initial_state(&tmp, 41023);
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_GET_CERTS.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
+		let r: vane_mgmt::verb::GetCertsResult = serde_json::from_value(value).expect("decode");
+		assert!(r.certs.is_empty(), "fixture graph has no tls listeners");
+	}
+
+	#[cfg(feature = "acme")]
+	#[tokio::test]
+	async fn dispatch_force_renew_with_registry_queues_when_job_registered() {
+		use std::sync::Arc;
+
+		use vane_engine::acme::{ManagedCertRegistry, RenewalJob};
+
+		let tmp = tempfile::tempdir().unwrap();
+		let mut state = initial_state(&tmp, 41024);
+		// Open an in-memory registry; register a job for the SNI.
+		// Use the FsAcmeStore on a tmpdir so the lock + persistence
+		// pieces don't need mocking here.
+		let acme_dir = tmp.path().join("acme");
+		std::fs::create_dir_all(&acme_dir).unwrap();
+		let store = vane_engine::acme::FsAcmeStore::open(&acme_dir).expect("fs store");
+		let registry = ManagedCertRegistry::open(Arc::new(store)).await.expect("open registry");
+		let _ = registry.declare_managed(&["api.example.com".into()]);
+		registry.register_renewal_job(
+			"api.example.com",
+			RenewalJob {
+				directory_url: "https://acme.invalid/dir".into(),
+				contact: vec!["mailto:ops@example.com".into()],
+				challenge: vane_core::rule::ChallengeKind::Http01,
+				dns: None,
+				renew_before: std::time::Duration::from_secs(30 * 24 * 60 * 60),
+				extra_root_ca_pem: None,
+			},
+		);
+		// Inject the registry into the test fixture's MgmtState.
+		Arc::get_mut(&mut state).expect("unique state").acme_registry.replace(Arc::clone(&registry));
+
+		let value = one_shot(
+			&state,
+			Request {
+				id: 1,
+				verb: VERB_FORCE_RENEW.into(),
+				args: serde_json::json!({ "sni": "api.example.com" }),
+			},
+		)
+		.await
+		.expect("ok");
+		let r: vane_mgmt::verb::ForceRenewResult = serde_json::from_value(value).expect("decode");
+		assert!(r.queued, "registered job → queued");
+		// Status was "valid" (fresh state default) at the moment of
+		// the call; the spawn races forward asynchronously, but the
+		// returned status reflects pre-spawn state.
+		assert_eq!(r.current_status, "valid");
 	}
 }
