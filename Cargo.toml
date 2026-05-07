@@ -31,7 +31,7 @@ pedantic = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
 async-trait = "0.1"
-clienthello = { path = "crates/lib/clienthello", version = "0.1.0" }
+clienthello = { path = "crates/lib/clienthello", version = "0.2" }
 vane-core = { path = "crates/core", version = "0.10.3" }
 vane-engine = { path = "crates/engine", version = "0.10.3" }
 vane-mgmt = { path = "crates/mgmt", version = "0.10.3" }
