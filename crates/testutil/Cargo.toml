@@ -46,11 +46,36 @@ acme = [
 	"dep:vane-engine",
 	"vane-engine?/acme",
 ]
+# Pulls in the in-process mock OCSP responder used by populator
+# integration tests (both the static populator's `ocsp_fetch`
+# path and the registry's post-issuance fetch). Pure-Rust;
+# spawns one hyper HTTP/1.1 server per `MockOcspResponder::start`
+# call. Depends on `x509-ocsp` for response construction; the
+# response signature is a placeholder (parser doesn't validate
+# it — see `crates/engine/src/tls/ocsp.rs::parse_ocsp_response`).
+ocsp = [
+	"dep:der",
+	"dep:hyper-util",
+	"dep:http-body-util",
+	"dep:bytes",
+	"dep:parking_lot",
+	"dep:thiserror",
+	"dep:tracing",
+	"dep:x509-cert",
+	"dep:x509-ocsp",
+	"dep:sha1",
+	"dep:spki",
+	"dep:const-oid",
+]
 
 [dependencies]
-hyper = { version = "1.9.0", features = ["server", "http1", "client"] }
 tokio = { version = "1.52.2", features = ["net", "io-util", "rt", "time", "macros"] }
 vane-core = { workspace = true }
+
+# Hyper is used by both the H3 fixture (h3 feature) and the mock
+# OCSP responder (ocsp feature). Default-on to keep the existing
+# fixture wiring; ocsp adds `server-auto` via `dep:hyper-util`.
+hyper = { version = "1.9.0", features = ["server", "http1", "client"] }
 
 # H3 client stack — gated behind the `h3` feature; only engine tests
 # that exercise the H3 listener path opt in.
@@ -61,6 +86,16 @@ http = { version = "1.4.0", optional = true }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
+
+# Mock OCSP responder stack — gated behind the `ocsp` feature.
+const-oid = { version = "0.9", default-features = false, features = ["db"], optional = true }
+der = { version = "0.7", optional = true }
+http-body-util = { version = "0.1", optional = true }
+hyper-util = { version = "0.1.20", features = ["tokio"], optional = true }
+sha1 = { version = "0.10", features = ["oid"], optional = true }
+spki = { version = "0.7", optional = true }
+x509-cert = { version = "0.2", optional = true }
+x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"], optional = true }
 
 # ACME e2e — gated behind the `acme` feature.
 # - `testcontainers` runs the official Pebble image in Docker;
