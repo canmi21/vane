@@ -143,7 +143,7 @@ pub struct GetConnectionsResult {
 /// Snapshot of every daemon-bounded execution pool: WASM stateful /
 /// stateless instance pools and the CGI concurrency-cap semaphore.
 ///
-/// Spec § _State_ in `10-management.md` lists the per-pool fields as
+/// Spec § _State_ in `spec/crates/mgmt.md` lists the per-pool fields as
 /// "pool size, in-use count, total allocations, failures". The first
 /// two map directly onto `capacity` / `in_use`; the latter two are
 /// reserved on the wire (always `0`) until the daemon plumbs the
@@ -260,7 +260,7 @@ pub struct PoolDrainResult {
 }
 
 /// Verb name for the operator-driven "renew this cert NOW" RPC per
-/// `spec/acme.md` § _`force_renew` mgmt verb_. Bypasses the
+/// `spec/crates/engine-acme.md` § _`force_renew` mgmt verb_. Bypasses the
 /// `renew_before` timer and any active backoff; useful for
 /// key-compromise rotation. The actual issuance runs asynchronously
 /// — `queued: true` means the registry accepted the request, not
@@ -297,7 +297,7 @@ pub struct GetCertsResult {
 }
 
 /// One cert's wire-shape summary. Field set matches
-/// `spec/acme.md` § _`get_certs` response shape_; static-source
+/// `spec/crates/engine-acme.md` § _`get_certs` response shape_; static-source
 /// entries leave the lifecycle fields (`status`, `last_*`,
 /// `next_*`, `ari_window`) at their defaults — they're meaningful
 /// only for managed certs.
