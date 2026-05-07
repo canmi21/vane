@@ -315,6 +315,25 @@ fn status_label(state: &vane_engine::acme::CertState) -> String {
 	}
 }
 
+/// Compute the wire-shape `ocsp_status` value from the cert's
+/// stored OCSP fields. Three branches map directly onto operator
+/// dashboards:
+///
+/// - `"stapled"`: a fresh response is cached and rustls ships it
+///   on every handshake.
+/// - `"no_staple"`: the cert advertises no AIA OCSP URL, so OCSP
+///   isn't applicable.
+/// - `"fetch_failed"`: the AIA URL is known but the most recent
+///   fetch didn't produce usable bytes; the scheduler will retry.
+#[cfg(feature = "acme")]
+fn ocsp_status_label(staple: Option<&[u8]>, aia_url: Option<&str>) -> String {
+	match (staple, aia_url) {
+		(Some(_), _) => "stapled".to_owned(),
+		(None, Some(_)) => "fetch_failed".to_owned(),
+		(None, None) => "no_staple".to_owned(),
+	}
+}
+
 fn hex32(bytes: &[u8; 32]) -> String {
 	use std::fmt::Write as _;
 	let mut s = String::with_capacity(64);
@@ -595,10 +614,17 @@ impl MgmtState {
 		// Managed certs from the registry.
 		if let Some(registry) = self.acme_registry.as_ref() {
 			for (sni, state) in registry.cert_states_snapshot() {
-				let (not_after, issued_at) = match &state.stored {
-					Some(s) => (Some(rfc3339(s.not_after)), Some(rfc3339(s.last_renew_at))),
-					None => (None, None),
-				};
+				let (not_after, issued_at, ocsp_next_update, ocsp_aia_url, ocsp_status) =
+					match &state.stored {
+						Some(s) => (
+							Some(rfc3339(s.not_after)),
+							Some(rfc3339(s.last_renew_at)),
+							s.ocsp_next_update.map(rfc3339),
+							s.ocsp_aia_url.clone(),
+							ocsp_status_label(s.ocsp_response.as_deref(), s.ocsp_aia_url.as_deref()),
+						),
+						None => (None, None, None, None, "no_staple".to_owned()),
+					};
 				certs.push(CertSummary {
 					sni,
 					source: "managed".into(),
@@ -613,6 +639,9 @@ impl MgmtState {
 						.ari_window
 						.as_ref()
 						.map(|w| AriWindowWire { start: rfc3339(w.start), end: rfc3339(w.end) }),
+					ocsp_status,
+					ocsp_next_update,
+					ocsp_aia_url,
 				});
 			}
 		}
@@ -647,6 +676,15 @@ impl MgmtState {
 				last_error: None,
 				next_attempt_at: None,
 				ari_window: None,
+				// Static certs don't surface OCSP status through
+				// this verb — the static populator's OCSP cache is
+				// listener-side, not registry-side, and inventorying
+				// it would mean walking every listener's `ArcSwap`
+				// `CertStore`. Operators check static-cert OCSP
+				// health via the underlying populator's logs.
+				ocsp_status: String::new(),
+				ocsp_next_update: None,
+				ocsp_aia_url: None,
 			});
 		}
 
@@ -1250,5 +1288,95 @@ mod tests {
 		// the call; the spawn races forward asynchronously, but the
 		// returned status reflects pre-spawn state.
 		assert_eq!(r.current_status, "valid");
+	}
+
+	#[cfg(feature = "acme")]
+	#[test]
+	fn ocsp_status_label_branches() {
+		// stapled: bytes present.
+		assert_eq!(ocsp_status_label(Some(&[0u8; 4]), Some("http://x")), "stapled");
+		assert_eq!(ocsp_status_label(Some(&[0u8; 4]), None), "stapled");
+		// fetch_failed: AIA URL known but no staple cached yet.
+		assert_eq!(ocsp_status_label(None, Some("http://x")), "fetch_failed");
+		// no_staple: cert has no AIA URL at all.
+		assert_eq!(ocsp_status_label(None, None), "no_staple");
+	}
+
+	#[cfg(feature = "acme")]
+	#[tokio::test]
+	async fn dispatch_get_certs_surfaces_ocsp_fields_for_managed_cert() {
+		use std::sync::Arc;
+		use std::time::Duration;
+
+		use async_trait::async_trait;
+		use parking_lot::Mutex;
+		use vane_engine::acme::{
+			AcmeAccount, AcmeStore, LockGuard, ManagedCertRegistry, StoreError, StoredCert,
+		};
+
+		// Mock store that hydrates `api.example.com` with a cert
+		// that already carries OCSP fields. Avoids needing
+		// FsAcmeStore + on-disk cert files for what is really a
+		// wire-shape test.
+		#[derive(Default)]
+		struct MockStore {
+			certs: Mutex<std::collections::BTreeMap<String, StoredCert>>,
+		}
+		#[derive(Debug)]
+		struct MockGuard;
+		impl LockGuard for MockGuard {}
+		#[async_trait]
+		impl AcmeStore for MockStore {
+			async fn load_account(&self, _: &str) -> Result<Option<AcmeAccount>, StoreError> {
+				Ok(None)
+			}
+			async fn save_account(&self, _: &str, _: &AcmeAccount) -> Result<(), StoreError> {
+				Ok(())
+			}
+			async fn load_cert(&self, sni: &str) -> Result<Option<StoredCert>, StoreError> {
+				Ok(self.certs.lock().get(sni).cloned())
+			}
+			async fn save_cert(&self, sni: &str, cert: &StoredCert) -> Result<(), StoreError> {
+				self.certs.lock().insert(sni.to_owned(), cert.clone());
+				Ok(())
+			}
+			async fn list_cert_snis(&self) -> Result<Vec<String>, StoreError> {
+				Ok(self.certs.lock().keys().cloned().collect())
+			}
+			async fn lock(&self, _: &str) -> Result<Box<dyn LockGuard>, StoreError> {
+				Ok(Box::new(MockGuard))
+			}
+		}
+
+		let store = Arc::new(MockStore::default());
+		let stored = StoredCert {
+			leaf_pem: "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n".into(),
+			chain_pem: String::new(),
+			key_pem: "-----BEGIN PRIVATE KEY-----\nKEY\n-----END PRIVATE KEY-----\n".into(),
+			not_after: std::time::SystemTime::UNIX_EPOCH + Duration::from_hours(500_000),
+			ari_replacement_id: None,
+			last_renew_at: std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+			ocsp_response: Some(b"DER".to_vec()),
+			ocsp_next_update: Some(std::time::SystemTime::UNIX_EPOCH + Duration::from_hours(500_000)),
+			ocsp_aia_url: Some("http://ocsp.example.test/".into()),
+		};
+		store.save_cert("api.example.com", &stored).await.unwrap();
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.expect("open");
+
+		let tmp = tempfile::tempdir().unwrap();
+		let mut state = initial_state(&tmp, 41025);
+		Arc::get_mut(&mut state).expect("unique").acme_registry.replace(Arc::clone(&registry));
+
+		let value = one_shot(
+			&state,
+			Request { id: 1, verb: VERB_GET_CERTS.into(), args: serde_json::Value::Null },
+		)
+		.await
+		.expect("ok");
+		let r: vane_mgmt::verb::GetCertsResult = serde_json::from_value(value).expect("decode");
+		let entry = r.certs.iter().find(|c| c.sni == "api.example.com").expect("cert listed");
+		assert_eq!(entry.ocsp_status, "stapled");
+		assert_eq!(entry.ocsp_aia_url.as_deref(), Some("http://ocsp.example.test/"));
+		assert!(entry.ocsp_next_update.is_some());
 	}
 }

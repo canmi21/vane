@@ -4780,6 +4780,7 @@ dependencies = [
  "nix",
  "notify",
  "notify-debouncer-full",
+ "parking_lot",
  "predicates",
  "rcgen",
  "rustls",

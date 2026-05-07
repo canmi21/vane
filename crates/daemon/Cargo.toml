@@ -75,6 +75,7 @@ http-body-util = "0.1"
 hyper = { version = "1.9.0", features = ["server", "http1"] }
 hyper-util = { version = "0.1.20", features = ["tokio"] }
 nix = { version = "0.31", features = ["signal"] }
+parking_lot = "0.12"
 predicates = "3"
 rcgen = "0.14"
 rustls = { version = "0.23", default-features = false, features = ["std"] }

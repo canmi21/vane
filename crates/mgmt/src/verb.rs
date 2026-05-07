@@ -347,6 +347,27 @@ pub struct CertSummary {
 	pub next_attempt_at: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ari_window: Option<AriWindowWire>,
+	/// OCSP staple status from the cert's perspective:
+	///
+	/// - `"stapled"`: a fresh OCSP response is cached and rustls
+	///   ships it on every handshake.
+	/// - `"no_staple"`: the cert has no AIA OCSP URL (or none was
+	///   discovered yet) — OCSP isn't applicable here.
+	/// - `"fetch_failed"`: the AIA URL is known but the most
+	///   recent fetch failed; the scheduler will retry.
+	///
+	/// Empty for static certs that don't opt into OCSP.
+	#[serde(default)]
+	pub ocsp_status: String,
+	/// RFC 3339 of the cached OCSP staple's `nextUpdate`. `None`
+	/// when no staple is cached.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ocsp_next_update: Option<String>,
+	/// AIA-extracted OCSP responder URL. `None` when the cert
+	/// doesn't carry one (vane fetches OCSP only when the cert
+	/// advertises a responder).
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ocsp_aia_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
