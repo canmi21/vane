@@ -12,10 +12,10 @@
 #![allow(clippy::missing_panics_doc)]
 
 use aes::Aes128;
-use aes::cipher::BlockEncrypt;
+use aes::cipher::BlockCipherEncrypt;
 use aes_gcm::Aes128Gcm;
-use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::array::Array;
+use aes_gcm::aead::{Aead, KeyInit, Payload};
 use hkdf::Hkdf;
 use sha2::Sha256;
 
@@ -159,10 +159,9 @@ pub(crate) fn build_initial_datagram_with_sni(dcid: &[u8], sni: &str) -> Vec<u8>
 	let aad = header.clone();
 
 	// Encrypt with nonce = iv XOR (zero-padded PN=0) = iv.
-	let aead = <Aes128Gcm as KeyInit>::new(GenericArray::from_slice(&keys.key));
-	let ciphertext = aead
-		.encrypt(GenericArray::from_slice(&keys.iv), aes_gcm::aead::Payload { msg: &frame, aad: &aad })
-		.expect("encrypt");
+	let aead = <Aes128Gcm as KeyInit>::new(&Array(keys.key));
+	let ciphertext =
+		aead.encrypt(&Array(keys.iv), Payload { msg: &frame, aad: &aad }).expect("encrypt");
 
 	let mut datagram = header;
 	datagram.extend_from_slice(&ciphertext);
@@ -170,9 +169,9 @@ pub(crate) fn build_initial_datagram_with_sni(dcid: &[u8], sni: &str) -> Vec<u8>
 	// Apply header protection.
 	let sample_offset = pn_offset + 4;
 	let sample: [u8; 16] = datagram[sample_offset..sample_offset + 16].try_into().expect("sample");
-	let cipher = <Aes128 as KeyInit>::new(GenericArray::from_slice(&keys.hp));
-	let mut block = sample;
-	cipher.encrypt_block(GenericArray::from_mut_slice(&mut block));
+	let cipher = <Aes128 as KeyInit>::new(&Array(keys.hp));
+	let mut block: Array<u8, aes::cipher::consts::U16> = Array(sample);
+	cipher.encrypt_block(&mut block);
 	let mask: [u8; 5] = [block[0], block[1], block[2], block[3], block[4]];
 	datagram[0] ^= mask[0] & 0x0f;
 	datagram[pn_offset] ^= mask[1];
