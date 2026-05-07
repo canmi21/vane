@@ -2,7 +2,7 @@
 //! paths a plugin may declare.
 //!
 //! Mirrors `spec/wasm-abi.md` § _Path grammar_ (connection table) and
-//! `spec/architecture/18-predicate-schema.md` (request / response
+//! `spec/crates/core.md` (request / response
 //! table). Any addition here must update the spec table and the host
 //! pack site in the same commit, or load-time validation diverges
 //! from the documented grammar.
@@ -31,7 +31,7 @@ const CONN_PATHS: &[&str] = &[
 ];
 
 /// Request / response-level paths mirrored from
-/// `spec/architecture/18-predicate-schema.md`. These pass load-time
+/// `spec/crates/core.md`. These pass load-time
 /// validation as a known grammar; the current host pack path defers
 /// them, and dispatch logs a warn-once per `(module_id, path)` when
 /// one is declared.

@@ -1,6 +1,6 @@
 //! vane WASM plugin runtime: wasmtime + Component Model + instance pooling + host functions.
 //!
-//! See `spec/architecture/11-wasm.md`.
+//! See `spec/crates/engine-wasm.md`.
 
 #![allow(unsafe_code)] // Component::deserialize_file is unsafe per wasmtime API
 
@@ -80,8 +80,6 @@ mod invoke_l7response {
 		},
 	});
 }
-
-// ─── host state ──────────────────────────────────────────────────────────────
 
 /// Per-Store state threaded through every host function call.
 struct HostState {
@@ -232,8 +230,6 @@ impl vane::host::host::Host for HostState {
 	}
 }
 
-// ─── invoke_l4peek host trait impls ──────────────────────────────────────────
-
 impl invoke_l4peek::vane::plugin::types::Host for HostState {}
 
 impl invoke_l4peek::vane::host::host::Host for HostState {
@@ -327,8 +323,6 @@ impl invoke_l4peek::vane::host::host::Host for HostState {
 		}
 	}
 }
-
-// ─── host impls for invoke_l4bytes / invoke_l7request / invoke_l7response ───
 
 impl invoke_l4bytes::vane::plugin::types::Host for HostState {}
 
@@ -612,8 +606,6 @@ impl invoke_l7response::vane::host::host::Host for HostState {
 	}
 }
 
-// ─── metric host helpers ─────────────────────────────────────────────────────
-
 /// Validate a plugin-supplied metric name against
 /// `^[a-zA-Z_][a-zA-Z0-9_]*$` per `spec/wasm-abi.md` § _Trap
 /// conditions_. Hand-rolled rather than pulling in `regex` for a
@@ -710,8 +702,6 @@ fn metric_gauge_core(
 	metrics::gauge!("vane_plugin_metric_gauge", labels).set(value_f);
 	Ok(())
 }
-
-// ─── http-fetch host helpers ─────────────────────────────────────────────────
 
 /// Glob-style host match: `"*"` admits any host; `"*.suffix"` admits
 /// strict subdomains of `suffix` (host length must exceed the suffix
@@ -878,8 +868,6 @@ fn map_fetch_error_l7response(e: HttpFetchError) -> invoke_l7response::vane::hos
 	}
 }
 
-// ─── type translation helpers ────────────────────────────────────────────────
-
 fn lower_context_value(v: ContextValue) -> invoke_l4peek::vane::plugin::types::ContextValue {
 	use invoke_l4peek::vane::plugin::types::ContextValue as WitCV;
 	match v {
@@ -922,8 +910,6 @@ fn lift_plugin_error(pe: invoke_l4peek::vane::plugin::types::PluginError) -> Plu
 	PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint }
 }
 
-// ─── validation ──────────────────────────────────────────────────────────────
-
 fn validate_on_error_hint(hint: Option<&String>) -> Result<(), PluginError> {
 	match hint.map(String::as_str) {
 		None | Some("force-close" | "internal") => Ok(()),
@@ -954,8 +940,6 @@ fn validate_header_value(value: &str) -> Result<(), PluginError> {
 		Ok(())
 	}
 }
-
-// ─── type translation helpers (invoke_l4bytes) ───────────────────────────────
 
 fn lower_context_value_l4bytes(
 	v: ContextValue,
@@ -1010,8 +994,6 @@ fn lift_plugin_error_l4bytes(
 	validate_on_error_hint(pe.on_error_hint.as_ref())?;
 	Ok(PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint })
 }
-
-// ─── type translation helpers (invoke_l7request) ─────────────────────────────
 
 fn lower_context_value_l7request(
 	v: ContextValue,
@@ -1085,8 +1067,6 @@ fn lift_plugin_error_l7request(
 	validate_on_error_hint(pe.on_error_hint.as_ref())?;
 	Ok(PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint })
 }
-
-// ─── type translation helpers (invoke_l7response) ────────────────────────────
 
 fn lower_context_value_l7response(
 	v: ContextValue,
@@ -1164,8 +1144,6 @@ fn lift_plugin_error_l7response(
 	validate_on_error_hint(pe.on_error_hint.as_ref())?;
 	Ok(PluginError::Plugin { code: pe.code, message: pe.message, on_error_hint: pe.on_error_hint })
 }
-
-// ─── WasmtimeRuntime ─────────────────────────────────────────────────────────
 
 /// Expected ABI major version. Components whose `abi-version` has a different
 /// major component are rejected at load time.
@@ -2344,8 +2322,6 @@ impl WasmRuntime for WasmtimeRuntime {
 	}
 }
 
-// ─── engine construction ─────────────────────────────────────────────────────
-
 fn build_engine(pool_cap: u32) -> wasmtime::Result<Engine> {
 	let mut config = Config::new();
 	config.epoch_interruption(true);
@@ -2358,8 +2334,6 @@ fn build_engine(pool_cap: u32) -> wasmtime::Result<Engine> {
 
 	Engine::new(&config)
 }
-
-// ─── component loading ───────────────────────────────────────────────────────
 
 fn sha256_bytes(data: &[u8]) -> [u8; 32] {
 	let mut h = Sha256::new();
@@ -2412,8 +2386,6 @@ fn load_or_compile(
 	Ok(component)
 }
 
-// ─── metadata extraction ─────────────────────────────────────────────────────
-
 async fn get_metadata(
 	engine: &Engine,
 	component: &Component,
@@ -2454,8 +2426,6 @@ async fn get_metadata(
 
 	parse_metadata(raw)
 }
-
-// ─── handler-kind validation ─────────────────────────────────────────────────
 
 // For each metadata export claiming kind K, confirm the component actually
 // exports the corresponding handler interface at the component type level.
@@ -2562,8 +2532,6 @@ fn parse_metadata(
 		exports,
 	}))
 }
-
-// ─── tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
