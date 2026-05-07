@@ -421,7 +421,7 @@ dependencies = [
  "aes-gcm",
  "ctr",
  "hkdf",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "subtle",
  "thiserror 2.0.18",
 ]

@@ -27,7 +27,7 @@ aes-gcm = "0.10"
 # AES-CTR for QUIC header protection (RFC 9001 §5.4).
 ctr = "0.9"
 hkdf = "0.12"
-sha2 = "0.10"
+sha2 = "0.11"
 # subtle: constant-time comparison primitives.
 subtle = "2"
 # thiserror: idiomatic error enum boilerplate.
