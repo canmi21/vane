@@ -10,26 +10,27 @@
 //!
 //! Owns:
 //!
-//! - `accounts`: the live `instant-acme::Account` clients keyed by
-//!   directory URL hash — Stage 5 wires construction.
-//! - `pending`: in-flight HTTP-01 / DNS-01 challenge tokens.
-//!   Consulted by [`crate::fetch::acme_challenge::AcmeChallengeFetch`]
-//!   on every `/.well-known/acme-challenge/<token>` request and
-//!   cleaned up when issuance completes (or fails).
+//! - `live_accounts`: live `instant-acme::Account` HTTP clients
+//!   keyed by `directory_url`, lazily built on first issuance.
+//! - `pending`: in-flight HTTP-01 / DNS-01 challenge tokens, keyed
+//!   by `(host, token)`. Consulted by `AcmeChallengeFetch` on every
+//!   `/.well-known/acme-challenge/<token>` request and cleaned up
+//!   when issuance completes (RAII guard) or fails.
 //! - `certs`: in-memory cache of issued certs, keyed by SNI.
 //! - `schedule`: renewal scheduler stub for Stage 3.
-//! - `store`: the persistence trait object.
+//! - `store`: the persistence trait object (typically `FsAcmeStore`).
 //!
-//! `issue_http01` is the issuance entry point but lives in a
-//! follow-up commit (Stage 5 in this PR's commit ordering); the
-//! placeholder here panics if invoked, which is fine because the
-//! daemon doesn't call it until `kick_off_boot_issuance` lands.
+//! Issuance entry points: [`ManagedCertRegistry::issue_http01`] for
+//! production (default trust roots) and
+//! [`ManagedCertRegistry::issue_http01_with_root`] for test harnesses
+//! that need a custom CA root (Pebble).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
+use sha2::Digest;
 use tracing::{instrument, warn};
 
 use super::store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
@@ -75,16 +76,12 @@ pub struct ManagedCertRegistry {
 	/// `spec/acme.md` § _HTTP-01_; entries are added at issuance
 	/// start and removed on success/failure.
 	pending: DashMap<ChallengeKey, PendingChallenge>,
-	/// `instant-acme` account clients keyed by directory URL hash.
-	/// Built lazily on first issuance for a given directory; reused
-	/// across subsequent issuances against the same CA.
-	///
-	/// Stage 5 wires the construction logic in
-	/// [`Self::issue_http01`]; Stage 4 only owns the storage. Read
-	/// via [`Self::cached_account`] / written via
-	/// [`Self::cache_account`].
-	#[allow(dead_code, reason = "wired in the issue_http01 commit")]
-	accounts: parking_lot::Mutex<BTreeMap<String, Arc<AcmeAccount>>>,
+	/// Live `instant-acme` account clients keyed by `directory_url`.
+	/// Built lazily by [`Self::account_for`] on first issuance for
+	/// a given directory; reused across subsequent issuances against
+	/// the same CA. The persisted account material lives in
+	/// [`Self::store`]; this map only caches the live HTTP client.
+	live_accounts: parking_lot::Mutex<BTreeMap<String, Arc<instant_acme::Account>>>,
 	/// SNIs the registry has been told to consider managed. Updated
 	/// by [`Self::declare_managed`] on every reload that swaps the
 	/// `FlowGraph`; the boot-time issuance hook walks this set.
@@ -131,7 +128,7 @@ impl ManagedCertRegistry {
 			store,
 			certs: DashMap::new(),
 			pending: DashMap::new(),
-			accounts: parking_lot::Mutex::new(BTreeMap::new()),
+			live_accounts: parking_lot::Mutex::new(BTreeMap::new()),
 			declared: DashMap::new(),
 			schedule: Arc::new(RenewalScheduler::new()),
 		});
@@ -225,58 +222,371 @@ impl ManagedCertRegistry {
 		self.pending.remove(&key);
 	}
 
-	/// Update the in-memory cache. Used by `save_cert_in_place` and
-	/// `issue_http01` after they persist a fresh cert.
-	#[allow(dead_code, reason = "wired in the issue_http01 commit")]
+	/// Update the in-memory cache. Called by `issue_http01` after
+	/// it persists a fresh cert via the store.
 	pub(super) fn cache_cert(&self, sni: &str, cert: Arc<StoredCert>) {
 		self.certs.insert(sni.to_ascii_lowercase(), cert);
 	}
 
-	/// Cached account for `directory_url`, if loaded. Used by
-	/// `issue_http01` to short-circuit account creation when the
-	/// directory has been used before in this daemon lifetime.
-	#[must_use]
-	#[allow(dead_code, reason = "wired in the issue_http01 commit")]
-	pub(super) fn cached_account(&self, directory_url_hash: &str) -> Option<Arc<AcmeAccount>> {
-		self.accounts.lock().get(directory_url_hash).cloned()
+	/// Acquire (load-or-create) the live `instant-acme::Account`
+	/// for `directory_url`, persisting fresh credentials to the
+	/// store and caching the live client in [`Self::live_accounts`].
+	///
+	/// Locking: holds an `account/<hash>` advisory lock for the
+	/// load-or-create span so two boot-time issuance tasks racing
+	/// the same directory URL don't both ask the CA to register.
+	///
+	/// Atomicity: a fresh `Account::create` returns
+	/// `(Account, AccountCredentials)`. We persist the credentials
+	/// **before** returning the live account so a pkill during
+	/// issuance doesn't leave us with an unrecoverable
+	/// CA-registered account whose key we've lost. The store's
+	/// `save_account` is itself atomic (tmp + rename + fsync).
+	async fn account_for(
+		&self,
+		directory_url: &str,
+		contact: &[String],
+		extra_root_ca_pem: Option<&std::path::Path>,
+	) -> Result<Arc<instant_acme::Account>, RegistryError> {
+		// Fast path: already live for this directory.
+		if let Some(live) = self.live_accounts.lock().get(directory_url).cloned() {
+			return Ok(live);
+		}
+
+		// Slow path: serialised across tasks + processes by the
+		// store's advisory lock keyed on the directory URL hash.
+		let scope = format!("account/{}", directory_url_scope(directory_url));
+		let _guard = self.store.lock(&scope).await?;
+
+		// Re-check after acquiring the lock — another task may have
+		// raced ahead and populated the cache while we waited.
+		if let Some(live) = self.live_accounts.lock().get(directory_url).cloned() {
+			return Ok(live);
+		}
+
+		if let Some(stored) = self.store.load_account(directory_url).await? {
+			let creds: instant_acme::AccountCredentials = serde_json::from_value(stored.key_jwk)
+				.map_err(|e| RegistryError::Acme(format!("decode account credentials: {e}")))?;
+			let builder = build_account_builder(extra_root_ca_pem)?;
+			let live = builder.from_credentials(creds).await.map_err(map_acme_error)?;
+			let live = Arc::new(live);
+			self.live_accounts.lock().insert(directory_url.to_owned(), Arc::clone(&live));
+			return Ok(live);
+		}
+
+		// Fresh registration. Convert &[String] → &[&str] for NewAccount.
+		let contact_refs: Vec<&str> = contact.iter().map(String::as_str).collect();
+		let new_account = instant_acme::NewAccount {
+			contact: &contact_refs,
+			terms_of_service_agreed: true,
+			only_return_existing: false,
+		};
+		let builder = build_account_builder(extra_root_ca_pem)?;
+		let (live, creds) =
+			builder.create(&new_account, directory_url.to_owned(), None).await.map_err(map_acme_error)?;
+
+		// Persist before returning. Failure here means we have a
+		// CA-side account we can't recover — surface as Store error
+		// so the boot hook logs at ERROR and operators see it.
+		let key_jwk = serde_json::to_value(&creds)
+			.map_err(|e| RegistryError::Acme(format!("encode account credentials: {e}")))?;
+		let acme_account = AcmeAccount {
+			directory_url: directory_url.to_owned(),
+			key_jwk,
+			kid: live.id().to_owned(),
+			contacts: contact.to_vec(),
+			agreed_tos_at: std::time::SystemTime::now(),
+		};
+		self.store.save_account(directory_url, &acme_account).await?;
+
+		let live = Arc::new(live);
+		self.live_accounts.lock().insert(directory_url.to_owned(), Arc::clone(&live));
+		Ok(live)
 	}
 
-	/// Cache an account in memory after a successful load or
-	/// create. The store-side persistence is the caller's job —
-	/// this only touches in-memory state.
-	#[allow(dead_code, reason = "wired in the issue_http01 commit")]
-	pub(super) fn cache_account(&self, directory_url_hash: String, account: Arc<AcmeAccount>) {
-		self.accounts.lock().insert(directory_url_hash, account);
-	}
-
-	/// Borrow the underlying store. Stage 5 issuance code reads
-	/// account material through the same trait object the registry
-	/// was constructed with.
-	#[must_use]
-	#[allow(dead_code, reason = "wired in the issue_http01 commit")]
-	pub(super) fn store(&self) -> &dyn AcmeStore {
-		&*self.store
-	}
-
-	/// Issue a cert for `sni` via the HTTP-01 challenge. The
-	/// implementation lives in the next commit; this stub keeps the
-	/// public surface stable for Stage 7's boot-time hook.
+	/// Issue a cert for `sni` via the HTTP-01 challenge.
+	///
+	/// Walks the RFC 8555 issuance sequence end-to-end:
+	///
+	/// 1. Acquire the live ACME account for `directory_url`.
+	/// 2. Place a new order for the SAN list (Stage 1: `[sni]`).
+	/// 3. Stream-walk authorisations, register each HTTP-01 token in
+	///    the registry's `pending` table, and signal the challenge
+	///    ready to the CA.
+	/// 4. Poll the order until `Ready`.
+	/// 5. Generate an ECDSA P-256 keypair + CSR via `rcgen`.
+	/// 6. Finalize the order with the CSR.
+	/// 7. Poll until the cert chain PEM is downloadable.
+	/// 8. Parse `not_after`, persist the [`StoredCert`] to the
+	///    store, populate the in-memory cache.
+	///
+	/// Cleanup: a RAII [`ChallengeCleanup`] guard removes pending
+	/// challenges from the registry's `pending` table on every exit
+	/// path — including `?` short-circuits — so a failed issuance
+	/// doesn't leak entries.
 	///
 	/// # Errors
-	/// All variants of [`RegistryError`] are reachable from the
-	/// real impl; the stub only ever returns
-	/// `RegistryError::Internal("issue_http01 not yet implemented")`.
-	#[allow(clippy::unused_async, reason = "real impl is async; stub keeps signature stable")]
+	///
+	/// - [`RegistryError::Store`]: filesystem failure persisting
+	///   credentials or the issued cert.
+	/// - [`RegistryError::Acme`]: any `instant-acme` failure
+	///   (network, ACME protocol, JSON parse).
+	/// - [`RegistryError::RateLimited`]: CA returned
+	///   `urn:ietf:params:acme:error:rateLimited`.
+	/// - [`RegistryError::Http01Timeout`]: the order didn't reach
+	///   `Ready` within the issuance budget.
+	#[instrument(skip(self), fields(directory_url))]
 	pub async fn issue_http01(
 		&self,
 		sni: &str,
-		_directory_url: &str,
-		_contact: &[String],
+		directory_url: &str,
+		contact: &[String],
 	) -> Result<Arc<StoredCert>, RegistryError> {
-		// Use `sni` so the unimplemented log line is greppable per-SNI
-		// when grepping daemon logs during Stage 5 development.
-		Err(RegistryError::Internal(format!("issue_http01 not yet implemented (sni={sni})")))
+		self.issue_http01_inner(sni, directory_url, contact, None).await
 	}
+
+	/// Variant of [`Self::issue_http01`] that threads a custom root
+	/// CA into the `instant-acme` HTTP client. Used by integration
+	/// tests against Pebble (which uses a self-signed root).
+	///
+	/// # Errors
+	/// Identical to [`Self::issue_http01`].
+	#[instrument(skip(self, extra_root_ca_pem), fields(directory_url))]
+	pub async fn issue_http01_with_root(
+		&self,
+		sni: &str,
+		directory_url: &str,
+		contact: &[String],
+		extra_root_ca_pem: &std::path::Path,
+	) -> Result<Arc<StoredCert>, RegistryError> {
+		self.issue_http01_inner(sni, directory_url, contact, Some(extra_root_ca_pem)).await
+	}
+
+	async fn issue_http01_inner(
+		&self,
+		sni: &str,
+		directory_url: &str,
+		contact: &[String],
+		extra_root_ca_pem: Option<&std::path::Path>,
+	) -> Result<Arc<StoredCert>, RegistryError> {
+		let cert_scope = format!("cert/{sni}");
+		let _cert_lock = self.store.lock(&cert_scope).await?;
+
+		// If the cache already has a cert (race vs another task on
+		// the same SNI), short-circuit. Stage 3's scheduler handles
+		// renewal triggers separately.
+		if let Some(existing) = self.cert_for(sni) {
+			return Ok(existing);
+		}
+
+		let account = self.account_for(directory_url, contact, extra_root_ca_pem).await?;
+		let identifiers = vec![instant_acme::Identifier::Dns(sni.to_owned())];
+		let new_order = instant_acme::NewOrder::new(&identifiers);
+		let mut order = account.new_order(&new_order).await.map_err(map_acme_error)?;
+
+		// Walk authorizations + register http-01 challenges. The
+		// cleanup guard tracks every (host, token) so panics, ?
+		// short-circuits, and Ok returns all unregister cleanly.
+		let mut cleanup = ChallengeCleanup::new(self);
+		register_http01_challenges(self, &mut order, &mut cleanup).await?;
+
+		// Poll the order through Pending → Ready. instant-acme's
+		// RetryPolicy default is 5s; managed-CA HTTP-01 validation
+		// often takes 10–30s, so widen the timeout to 60s with a
+		// 250ms initial delay (matches the default cadence).
+		let retry = instant_acme::RetryPolicy::default()
+			.timeout(Duration::from_mins(1))
+			.initial_delay(Duration::from_millis(250))
+			.backoff(2.0);
+		match order.poll_ready(&retry).await.map_err(map_acme_error)? {
+			instant_acme::OrderStatus::Ready => {}
+			other => {
+				return Err(RegistryError::Http01Timeout(format!(
+					"order for {sni:?} stalled at {other:?} (expected Ready)"
+				)));
+			}
+		}
+
+		// Generate keypair + CSR. ECDSA P-256 is the Stage 1
+		// hard-coded choice; `tls.managed.key_type` flows in here
+		// once Stage 7 wires the boot hook.
+		let (key_pem, csr_der) = generate_ecdsa_p256_csr(sni)?;
+		order.finalize_csr(&csr_der).await.map_err(map_acme_error)?;
+		let chain_pem = order.poll_certificate(&retry).await.map_err(map_acme_error)?;
+
+		let (leaf_pem, intermediates_pem) = split_leaf_chain(&chain_pem);
+		let not_after = parse_not_after_pem(&leaf_pem)?;
+		let now = std::time::SystemTime::now();
+		let stored = StoredCert {
+			leaf_pem,
+			chain_pem: intermediates_pem,
+			key_pem,
+			not_after,
+			ari_replacement_id: None,
+			last_renew_at: now,
+		};
+		self.store.save_cert(sni, &stored).await?;
+		let arc = Arc::new(stored);
+		self.cache_cert(sni, Arc::clone(&arc));
+
+		// Cleanup runs on guard drop — explicit to make the
+		// intent visible at the success-path bottom.
+		drop(cleanup);
+		Ok(arc)
+	}
+}
+
+/// RAII tracker for HTTP-01 challenge tokens registered during a
+/// single [`ManagedCertRegistry::issue_http01`] call. On drop —
+/// whether via normal return, `?` short-circuit, or panic — every
+/// tracked entry is removed from the registry's `pending` table.
+struct ChallengeCleanup<'a> {
+	registry: &'a ManagedCertRegistry,
+	keys: Vec<(String, String)>,
+}
+
+impl<'a> ChallengeCleanup<'a> {
+	fn new(registry: &'a ManagedCertRegistry) -> Self {
+		Self { registry, keys: Vec::new() }
+	}
+
+	fn track(&mut self, host: String, token: String) {
+		self.keys.push((host, token));
+	}
+}
+
+impl Drop for ChallengeCleanup<'_> {
+	fn drop(&mut self) {
+		for (host, token) in self.keys.drain(..) {
+			self.registry.unregister_http01(&host, &token);
+		}
+	}
+}
+
+/// Walk the order's authorisations stream, register every HTTP-01
+/// challenge token in the registry's pending table, signal each
+/// ready to the CA. Returns when every authorisation has been
+/// signalled; failures short-circuit with cleanup running through
+/// the [`ChallengeCleanup`] guard the caller passes in.
+async fn register_http01_challenges(
+	registry: &ManagedCertRegistry,
+	order: &mut instant_acme::Order,
+	cleanup: &mut ChallengeCleanup<'_>,
+) -> Result<(), RegistryError> {
+	let mut auth_stream = order.authorizations();
+	while let Some(item) = auth_stream.next().await {
+		let mut authz = item.map_err(map_acme_error)?;
+		// Read the http-01 token directly off the AuthorizationState
+		// (AuthorizationHandle Derefs to it). Cloning the token frees
+		// the borrow before we call `.challenge()` below, which
+		// needs `&mut self` on the handle.
+		let token = authz
+			.challenges
+			.iter()
+			.find(|c| c.r#type == instant_acme::ChallengeType::Http01)
+			.map(|c| c.token.clone())
+			.ok_or_else(|| RegistryError::Acme("no http-01 challenge offered".into()))?;
+		let host = match &authz.identifier().identifier {
+			instant_acme::Identifier::Dns(s) => s.clone(),
+			other => {
+				return Err(RegistryError::Acme(format!(
+					"unexpected identifier kind for http-01: {other:?}"
+				)));
+			}
+		};
+		let mut handle = authz
+			.challenge(instant_acme::ChallengeType::Http01)
+			.ok_or_else(|| RegistryError::Acme("no http-01 challenge handle".into()))?;
+		let key_auth = handle.key_authorization().as_str().to_owned();
+		registry.register_http01(&host, token.clone(), key_auth);
+		cleanup.track(host, token);
+		handle.set_ready().await.map_err(map_acme_error)?;
+	}
+	Ok(())
+}
+
+/// Generate an ECDSA P-256 keypair and a CSR for `sni`. Returns
+/// the PKCS#8 PEM private key and the DER-encoded CSR.
+fn generate_ecdsa_p256_csr(sni: &str) -> Result<(String, Vec<u8>), RegistryError> {
+	let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+		.map_err(|e| RegistryError::Acme(format!("rcgen keypair: {e}")))?;
+	let params = rcgen::CertificateParams::new(vec![sni.to_owned()])
+		.map_err(|e| RegistryError::Acme(format!("rcgen params: {e}")))?;
+	let csr = params
+		.serialize_request(&key_pair)
+		.map_err(|e| RegistryError::Acme(format!("rcgen csr: {e}")))?;
+	let key_pem = key_pair.serialize_pem();
+	let csr_der: Vec<u8> = csr.der().to_vec();
+	Ok((key_pem, csr_der))
+}
+
+/// Split a `leaf+intermediate` PEM blob into the leaf and the rest
+/// using the second `BEGIN CERTIFICATE` boundary as the cut point.
+fn split_leaf_chain(pem: &str) -> (String, String) {
+	const BEGIN: &str = "-----BEGIN CERTIFICATE-----";
+	let mut iter = pem.match_indices(BEGIN);
+	let _first = iter.next();
+	match iter.next() {
+		Some((idx, _)) => (pem[..idx].to_owned(), pem[idx..].to_owned()),
+		None => (pem.to_owned(), String::new()),
+	}
+}
+
+/// Extract the leaf's `notAfter` from a PEM blob via `x509-parser`.
+fn parse_not_after_pem(leaf_pem: &str) -> Result<std::time::SystemTime, RegistryError> {
+	use x509_parser::prelude::FromDer;
+	let der = rustls_pemfile::certs(&mut leaf_pem.as_bytes())
+		.next()
+		.ok_or_else(|| RegistryError::Acme("CA returned no certificate PEM".into()))?
+		.map_err(|e| RegistryError::Acme(format!("PEM parse: {e}")))?;
+	let (_, cert) = x509_parser::prelude::X509Certificate::from_der(der.as_ref())
+		.map_err(|e| RegistryError::Acme(format!("x509 parse: {e}")))?;
+	let secs = cert.validity().not_after.timestamp();
+	let secs: u64 = u64::try_from(secs)
+		.map_err(|_| RegistryError::Acme(format!("notAfter has negative epoch {secs}")))?;
+	Ok(std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
+}
+
+/// Translate `instant_acme::Error` into the registry's typed error
+/// enum. Surfaces ACME rate-limit responses as a typed
+/// [`RegistryError::RateLimited`] so the Stage 3 backoff scheduler
+/// can branch on it without string-matching.
+fn map_acme_error(err: instant_acme::Error) -> RegistryError {
+	match err {
+		instant_acme::Error::Api(problem)
+			if problem.r#type.as_deref() == Some("urn:ietf:params:acme:error:rateLimited") =>
+		{
+			RegistryError::RateLimited { retry_after: None }
+		}
+		other => RegistryError::Acme(other.to_string()),
+	}
+}
+
+/// Build an `instant_acme::AccountBuilder`. `extra_root_ca_pem` is
+/// a path to a PEM file containing a trusted root for the CA's
+/// HTTPS endpoint — used by Pebble integration tests.
+fn build_account_builder(
+	extra_root_ca_pem: Option<&std::path::Path>,
+) -> Result<instant_acme::AccountBuilder, RegistryError> {
+	match extra_root_ca_pem {
+		Some(path) => instant_acme::Account::builder_with_root(path)
+			.map_err(|e| RegistryError::Acme(format!("instant-acme builder_with_root: {e}"))),
+		None => instant_acme::Account::builder()
+			.map_err(|e| RegistryError::Acme(format!("instant-acme builder: {e}"))),
+	}
+}
+
+/// `sha256(directory_url)[..16]` — matches the [`super::FsAcmeStore`]
+/// account directory naming so the [`AcmeStore::lock`] scope
+/// translates to the right `.lock` file path.
+fn directory_url_scope(directory_url: &str) -> String {
+	use std::fmt::Write as _;
+	let digest = sha2::Sha256::digest(directory_url.as_bytes());
+	let mut hex = String::with_capacity(64);
+	for b in &digest {
+		let _ = write!(hex, "{b:02x}");
+	}
+	hex.chars().take(16).collect()
 }
 
 /// Errors surfaced by [`ManagedCertRegistry`]. Categorised so the
@@ -432,15 +742,112 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn issue_http01_stub_returns_internal_error() {
+	async fn issue_http01_short_circuits_when_cert_already_cached() {
+		// When a cert is already in the registry's cache (e.g. from
+		// a prior boot's hydration), issue_http01 returns the
+		// cached value without touching the network. This is the
+		// only network-free assertion we can make about the public
+		// surface; full issuance flows live in the Pebble e2e tests.
 		let store = Arc::new(MockStore::default());
+		store.save_cert("api.example.com", &fixture_cert()).await.unwrap();
 		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
-		match registry
-			.issue_http01("api.example.com", "https://acme/dir", &["mailto:ops@example.com".into()])
+		let got = registry
+			.issue_http01(
+				"api.example.com",
+				"https://acme.invalid/dir",
+				&["mailto:ops@example.com".into()],
+			)
 			.await
-		{
-			Err(RegistryError::Internal(_)) => {}
-			other => panic!("expected stub Internal, got {other:?}"),
+			.expect("cached cert");
+		assert_eq!(got.leaf_pem, fixture_cert().leaf_pem);
+	}
+
+	#[test]
+	fn directory_url_scope_is_16_hex_chars() {
+		let s = directory_url_scope("https://acme-v02.api.letsencrypt.org/directory");
+		assert_eq!(s.len(), 16);
+		assert!(s.chars().all(|c| c.is_ascii_hexdigit()));
+	}
+
+	#[test]
+	fn split_leaf_chain_separates_two_certs() {
+		let pem = format!(
+			"{}{}",
+			"-----BEGIN CERTIFICATE-----\nleaf\n-----END CERTIFICATE-----\n",
+			"-----BEGIN CERTIFICATE-----\nintermediate\n-----END CERTIFICATE-----\n",
+		);
+		let (leaf, chain) = split_leaf_chain(&pem);
+		assert!(leaf.contains("leaf"));
+		assert!(chain.contains("intermediate"));
+	}
+
+	#[test]
+	fn split_leaf_chain_returns_empty_chain_on_single_cert() {
+		let pem = "-----BEGIN CERTIFICATE-----\nleaf\n-----END CERTIFICATE-----\n";
+		let (leaf, chain) = split_leaf_chain(pem);
+		assert_eq!(leaf, pem);
+		assert!(chain.is_empty());
+	}
+
+	#[test]
+	fn generate_ecdsa_p256_csr_round_trip_through_rcgen() {
+		let (key_pem, csr_der) = generate_ecdsa_p256_csr("api.example.com").expect("rcgen ok");
+		assert!(key_pem.contains("-----BEGIN PRIVATE KEY-----"), "{key_pem}");
+		assert!(!csr_der.is_empty());
+		// The CSR should be a valid DER-encoded PKCS #10 — a
+		// well-formed CSR always starts with the SEQUENCE tag 0x30.
+		assert_eq!(csr_der[0], 0x30, "CSR DER must start with SEQUENCE tag");
+	}
+
+	#[test]
+	fn parse_not_after_pem_extracts_validity_end() {
+		// Generate a self-signed cert with rcgen so we have a known
+		// PEM whose notAfter we can recover.
+		let mut params =
+			rcgen::CertificateParams::new(vec!["test.example".to_owned()]).expect("params");
+		// rcgen 0.14 defaults `not_after` to "well in the future";
+		// we just need parse_not_after_pem to return *some*
+		// reasonable timestamp, so accept whatever rcgen picks.
+		let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).expect("key");
+		params.distinguished_name.push(rcgen::DnType::CommonName, "test");
+		let issued = params.self_signed(&key_pair).expect("self-signed");
+		let pem = issued.pem();
+		let not_after = parse_not_after_pem(&pem).expect("parse");
+		// Sanity: the cert's notAfter must be in the future
+		// relative to the test's wall-clock.
+		assert!(
+			not_after > std::time::SystemTime::now(),
+			"not_after {not_after:?} should be in the future",
+		);
+	}
+
+	#[test]
+	fn map_acme_error_classifies_rate_limited_problem() {
+		let problem = instant_acme::Problem {
+			r#type: Some("urn:ietf:params:acme:error:rateLimited".to_owned()),
+			detail: Some("too many orders".to_owned()),
+			status: Some(429),
+			subproblems: Vec::new(),
+		};
+		let err = instant_acme::Error::Api(problem);
+		match map_acme_error(err) {
+			RegistryError::RateLimited { .. } => {}
+			other => panic!("expected RateLimited, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn map_acme_error_passes_through_non_rate_limited_problems() {
+		let problem = instant_acme::Problem {
+			r#type: Some("urn:ietf:params:acme:error:malformed".to_owned()),
+			detail: Some("nope".to_owned()),
+			status: Some(400),
+			subproblems: Vec::new(),
+		};
+		let err = instant_acme::Error::Api(problem);
+		match map_acme_error(err) {
+			RegistryError::Acme(_) => {}
+			other => panic!("expected Acme, got {other:?}"),
 		}
 	}
 
