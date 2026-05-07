@@ -12,6 +12,7 @@ pub mod cert_store;
 pub mod client_trust;
 pub mod crl_cache;
 pub mod native_roots;
+pub mod ocsp;
 pub mod populator;
 pub mod refreshable_crl_verifier;
 pub mod resolver;
@@ -27,6 +28,7 @@ pub use crl_cache::{
 	collect_listener_crl_sources, collect_upstream_crl_sources, dedupe_crl_sources,
 };
 pub use native_roots::{NativeRootsError, native_roots, warm_native_roots};
+pub use ocsp::{OcspError, OcspStaple};
 pub use populator::{CertPopulator, PopulatorError};
 pub use refreshable_crl_verifier::{RefreshableClientCertVerifier, RefreshableServerCertVerifier};
 pub use resolver::VaneCertResolver;

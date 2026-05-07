@@ -188,6 +188,12 @@ OCSP stapling is carried inline on the cert: `CertifiedKey.ocsp: Option<Vec<u8>>
 
 The populator is responsible for keeping OCSP fresh. OCSP responses typically validate for 4–7 days; refresh daily.
 
+#### Transport policy: HTTP-only
+
+OCSP responder URLs in production CAs (Let's Encrypt, DigiCert, Sectigo, Entrust, GlobalSign, …) all use plaintext `http://`. OCSP responses are independently signed by the CA's OCSP responder cert (RFC 6960 §4.2.2.1), so the transport adds nothing the response signature doesn't already provide; HTTPS OCSP responders are exceptionally rare in deployment.
+
+`vane` therefore commits to **HTTP-only OCSP fetching**. An HTTPS responder URL surfaces as `OcspError::HttpsNotSupported` and the cert ships without a staple; operators in that situation use the static populator's `ocsp_path` field to deliver a pre-fetched response on disk.
+
 ### Session ticket rotation
 
 Session tickets let clients resume TLS sessions without a full handshake. The server encrypts session state with a key that must rotate periodically — a leaked key compromises all sessions encrypted with it.

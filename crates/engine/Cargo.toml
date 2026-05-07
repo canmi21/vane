@@ -46,6 +46,14 @@ base64 = "0.22"
 bytes = "1.11.1"
 clienthello = { workspace = true }
 dashmap = "6.1.0"
+# RustCrypto formats stack used by the OCSP module:
+# - `der` for the `Decode` / `Encode` trait imports the OCSP
+#   request / response types implement.
+# - `x509-cert` to decode issuer + leaf certs into the `Certificate`
+#   shape the x509-ocsp builder accepts.
+# Direct dep to avoid leaning on `pub use` re-exports through
+# x509-ocsp (some types we need aren't re-exported).
+der = "0.7"
 hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"] }
 http = "1.4.0"
 http-body = "1.0.1"
@@ -68,6 +76,12 @@ rustls-pemfile = "2"
 rustls-pki-types = "1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+# Required by `x509_ocsp::CertId::from_cert::<Sha1>` — RFC 6960
+# §4.1.1 mandates SHA-1 for the cert ID (this is a routing
+# identifier, not a security hash). `oid` provides the
+# `AssociatedOid` impl `x509-ocsp` needs (not on by default; the
+# `default` set is just `["std"]`).
+sha1 = { version = "0.10", features = ["oid"] }
 sha2 = "0.11.0"
 thiserror = "2.0.18"
 # `time` powers CRL `nextUpdate` parsing (via `x509-parser::ASN1Time`)
@@ -84,6 +98,11 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # following redirects. `hyper`'s `Uri` lacks a base-relative join.
 url = "2"
 vane-core = { workspace = true }
+x509-cert = "0.2"
+# OCSP request build / response parse via the RustCrypto stack.
+# `builder` enables the request builder API; `std` lets us use
+# `SystemTime::try_into::<OcspGeneralizedTime>` in tests.
+x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
 x509-parser = "0.18"
 
 # H3 stack — gated behind the `h3` feature per spec/architecture/16-crate-layout.md.
