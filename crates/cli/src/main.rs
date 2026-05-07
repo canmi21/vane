@@ -46,6 +46,15 @@ const HELP_STYLES: Styles = Styles::styled()
 	.literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
 	.placeholder(AnsiColor::Green.on_default());
 
+/// Help template, identical to clap's stock body. The leading blank
+/// line comes from `before_help = ""` (an empty `{before-help}`
+/// renders as a bare `\n` thanks to clap's auto-spacing); the
+/// trailing blank line is added by the manual help printer in
+/// `main()` because clap trims whitespace at both ends of
+/// `{after-help}`, including unicode space.
+const HELP_TEMPLATE: &str =
+	"{before-help}{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}";
+
 #[derive(Parser, Debug)]
 #[command(
 	name = "vane",
@@ -53,6 +62,8 @@ const HELP_STYLES: Styles = Styles::styled()
 	version = env!("CARGO_PKG_VERSION"),
 	disable_version_flag = true,
 	styles = HELP_STYLES,
+	help_template = HELP_TEMPLATE,
+	before_help = "",
 )]
 struct Cli {
 	/// Print the build banner and exit.
@@ -155,6 +166,21 @@ enum PoolCmd {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::process::ExitCode {
+	// Pre-clap intercept for the bare `vane --help` / `vane -h` form.
+	// clap auto-handles `--help` and exits before main can append
+	// anything; routing through `print_help` ourselves lets us add a
+	// trailing blank line so the next shell prompt has breathing room.
+	// Subcommand help (`vane get --help`, etc.) still goes through
+	// clap's default flow — the asymmetry is acceptable and keeps the
+	// override logic to the top-level surface.
+	let raw: Vec<String> = std::env::args().collect();
+	if raw.len() == 2 && (raw[1] == "--help" || raw[1] == "-h") {
+		let mut cmd = <Cli as clap::CommandFactory>::command();
+		let _ = cmd.print_help();
+		println!();
+		return std::process::ExitCode::SUCCESS;
+	}
+
 	let cli = Cli::parse();
 	if cli.version {
 		print_banner(&BUILD_INFO);
