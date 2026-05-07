@@ -1132,12 +1132,12 @@ mod tests {
 		assert!(rule.allow_zero_rtt.is_none());
 	}
 
-	// ─── tls.managed schema + validation (spec/crates/engine-acme.md § _Configuration schema_)
-	// Each test exercises one of the six compile-time invariants the
-	// spec lists, plus parser round-trips. `TlsConfig::validate`
-	// returns the first violation in declaration order; tests assert
-	// on the substring rather than the full message so wording can
-	// evolve without churning fixtures.
+	// `tls.managed` schema + validation. Each test exercises one of the
+	// compile-time invariants from `spec/crates/engine-acme.md`
+	// § _Configuration schema_, plus parser round-trips.
+	// `TlsConfig::validate` returns the first violation in declaration
+	// order; tests assert on the substring rather than the full message
+	// so wording can evolve without churning fixtures.
 
 	fn managed_tls(challenge: &str, with_dns_provider: bool) -> serde_json::Value {
 		let mut managed = serde_json::json!({

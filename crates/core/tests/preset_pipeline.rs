@@ -23,11 +23,9 @@ use vane_core::middleware::MiddlewareKind;
 use vane_core::preset::{PresetInvocation, RuleEntry};
 use vane_core::rule::SourceInfo;
 
-// ---------------------------------------------------------------------------
 // Test scaffolding — mirror of the `Providers` fixture in
 // `crates/core/src/compile.rs` so the integration tests can compile rules
 // that name `forward_client_ip` (stateless) and `rate_limit` (stateful).
-// ---------------------------------------------------------------------------
 
 struct Providers;
 
@@ -74,10 +72,8 @@ impl FetchMetadataProvider for Providers {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Helpers for building `RawRuleFile`s out of preset invocations and
 // hand-written raw rules.
-// ---------------------------------------------------------------------------
 
 fn preset_entry(name: &str, preset: &str, listen: &str, args: serde_json::Value) -> RuleEntry {
 	RuleEntry::Preset(PresetInvocation {
@@ -94,10 +90,6 @@ fn rule_file(path: &str, entries: Vec<RuleEntry>) -> RawRuleFile {
 	RawRuleFile { path: PathBuf::from(path), order: 0, rules: entries }
 }
 
-// ---------------------------------------------------------------------------
-// 1. port_forward
-// ---------------------------------------------------------------------------
-
 #[test]
 fn port_forward_preset_compiles_to_graph_with_byte_tunnel_terminator() {
 	// Spec § _`port_forward`_: expansion is one rule terminating in
@@ -113,10 +105,6 @@ fn port_forward_preset_compiles_to_graph_with_byte_tunnel_terminator() {
 		graph.terminators,
 	);
 }
-
-// ---------------------------------------------------------------------------
-// 2. static_site
-// ---------------------------------------------------------------------------
 
 #[test]
 fn static_site_preset_compiles_to_graph_with_http_synthesize_fetch() {
@@ -140,10 +128,6 @@ fn static_site_preset_compiles_to_graph_with_http_synthesize_fetch() {
 	);
 }
 
-// ---------------------------------------------------------------------------
-// 3. redirect_https
-// ---------------------------------------------------------------------------
-
 #[test]
 fn redirect_https_preset_compiles_to_graph_with_308_synth() {
 	// Spec § _`redirect_https`_: expansion is a single rule emitting an
@@ -158,15 +142,6 @@ fn redirect_https_preset_compiles_to_graph_with_308_synth() {
 		"expected HttpSynthesize in fetch slab",
 	);
 }
-
-// ---------------------------------------------------------------------------
-// 4-7. reverse_proxy variants — multi-rule L7 listener compilation.
-//
-// Originally `#[ignore]`d on a lower-stage Upgrade-chaining bug discovered
-// by these tests; C13.5 (single shared Upgrade per L7 listener +
-// WebSocketUpgrade dual terminator) fixed both root causes and the tests
-// went green without body changes.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn reverse_proxy_default_compiles_to_graph_with_http_proxy() {
@@ -292,10 +267,6 @@ fn reverse_proxy_forward_client_ip_false_no_middleware() {
 	);
 }
 
-// ---------------------------------------------------------------------------
-// 10. Mixed raw + preset in same file
-// ---------------------------------------------------------------------------
-
 #[test]
 fn mixed_raw_and_preset_in_same_file_compiles() {
 	// Spec § _Two-tier rule system_: a single file may interleave
@@ -321,10 +292,6 @@ fn mixed_raw_and_preset_in_same_file_compiles() {
 	);
 }
 
-// ---------------------------------------------------------------------------
-// 11. Duplicate preset names across the merged set
-// ---------------------------------------------------------------------------
-
 #[test]
 fn two_reverse_proxy_presets_with_same_name_fail_at_expand_with_dup_error() {
 	// `expand` runs the post-expansion duplicate-name check (see
@@ -339,10 +306,6 @@ fn two_reverse_proxy_presets_with_same_name_fail_at_expand_with_dup_error() {
 	assert!(msg.contains("api"), "error names the offending base name: {msg}");
 }
 
-// ---------------------------------------------------------------------------
-// 12. Unknown preset name
-// ---------------------------------------------------------------------------
-
 #[test]
 fn unknown_preset_name_fails_compile_with_pointed_error() {
 	// Dispatcher rejects unknown names with a pointed message naming the
@@ -353,10 +316,6 @@ fn unknown_preset_name_fails_compile_with_pointed_error() {
 	let msg = err.to_string();
 	assert!(msg.contains("no_such"), "error names the unknown preset: {msg}");
 }
-
-// ---------------------------------------------------------------------------
-// 13. TLS plumbing — preset propagation + lower-stage aggregation / conflicts
-// ---------------------------------------------------------------------------
 
 fn tls_preset_entry(
 	name: &str,

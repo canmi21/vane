@@ -16,10 +16,6 @@ use vane_core::{
 	TrajectoryBuilder, TrajectoryOutcome, TrajectoryStep,
 };
 
-// ---------------------------------------------------------------------------
-// 1. trajectory_builder_pushes_in_order_and_finalizes_terminated
-// ---------------------------------------------------------------------------
-
 #[test]
 fn trajectory_builder_pushes_in_order_and_finalizes_terminated() {
 	// Spec (02-flow.md § _Flow log verbosity_): `TrajectoryBuilder::push`
@@ -68,10 +64,6 @@ fn trajectory_builder_pushes_in_order_and_finalizes_terminated() {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// 2. trajectory_builder_finalizes_with_error_outcome
-// ---------------------------------------------------------------------------
-
 #[test]
 fn trajectory_builder_finalizes_with_error_outcome() {
 	// Spec (02-flow.md § _Flow log verbosity_): the error path finalizes
@@ -95,10 +87,6 @@ fn trajectory_builder_finalizes_with_error_outcome() {
 	}
 	assert_eq!(traj.finished_at_ms, 2_000);
 }
-
-// ---------------------------------------------------------------------------
-// 3. flow_trajectory_round_trips_through_json
-// ---------------------------------------------------------------------------
 
 fn assert_trajectories_match(a: &FlowTrajectory, b: &FlowTrajectory) {
 	// `FlowTrajectory` doesn't impl `PartialEq`, so compare field by field.
@@ -162,10 +150,6 @@ fn flow_trajectory_round_trips_through_json() {
 	assert_trajectories_match(&err, &decoded);
 }
 
-// ---------------------------------------------------------------------------
-// 4. flow_log_kind_trajectory_serde_round_trip
-// ---------------------------------------------------------------------------
-
 #[test]
 fn flow_log_kind_trajectory_serde_round_trip() {
 	// `FlowLogKind::Trajectory` is the new variant gating per-request
@@ -175,10 +159,6 @@ fn flow_log_kind_trajectory_serde_round_trip() {
 	let decoded: FlowLogKind = serde_json::from_str(&encoded).expect("deserialize");
 	assert_eq!(decoded, FlowLogKind::Trajectory);
 }
-
-// ---------------------------------------------------------------------------
-// 5. flow_log_verbosity_serde_round_trip_per_variant
-// ---------------------------------------------------------------------------
 
 #[test]
 fn flow_log_verbosity_serde_round_trip_per_variant() {
