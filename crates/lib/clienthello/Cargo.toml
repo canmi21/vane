@@ -16,6 +16,12 @@ workspace = true
 [dependencies]
 # AEAD + HKDF for RFC 9001 §5.2 initial keys derivation. Pure-Rust
 # RustCrypto stack — no C deps, ergonomic for downstream publishers.
+# Pinned to the v0.9-generation set (aes 0.8 / aes-gcm 0.10 / ctr 0.9
+# / hkdf 0.12 / sha2 0.10): `aes-gcm` does not yet have a stable
+# release on the v0.10-generation (only 0.11.0-rc.x), and a 0.1.0
+# publishable crate should not depend on a release-candidate. Cargo
+# deduplicates `sha2` 0.10 alongside the workspace's 0.11 with
+# negligible build-time cost.
 aes = "0.8"
 aes-gcm = "0.10"
 # AES-CTR for QUIC header protection (RFC 9001 §5.4).

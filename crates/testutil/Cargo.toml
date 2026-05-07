@@ -30,7 +30,7 @@ h3 = [
 
 [dependencies]
 hyper = { version = "1.9.0", features = ["server", "http1", "client"] }
-tokio = { version = "1.52.1", features = ["net", "io-util", "rt", "time", "macros"] }
+tokio = { version = "1.52.2", features = ["net", "io-util", "rt", "time", "macros"] }
 vane-core = { workspace = true }
 
 # H3 client stack — gated behind the `h3` feature; only engine tests
