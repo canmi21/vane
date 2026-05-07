@@ -32,8 +32,7 @@ use vane_core::middleware::MiddlewareKind;
 /// every serial test so prior values from the host environment, dotenvy
 /// loads, or sibling tests don't leak across.
 const TOUCHED_KEYS: &[&str] = &[
-	"VANE_DATA_DIR",
-	"VANE_CONFIG_DIR",
+	"VANE_WASM_DIR",
 	"VANE_LOG_LEVEL",
 	"VANE_BIND_IPV4",
 	"VANE_BIND_IPV6",
@@ -42,7 +41,8 @@ const TOUCHED_KEYS: &[&str] = &[
 	"VANE_SEC_HEADER_TIMEOUT",
 	"VANE_SEC_MAX_CONN_PER_IP",
 	"VANE_MGMT_UNIX",
-	"VANE_MGMT_HTTP_BIND",
+	"VANE_MGMT_HTTP_PORT",
+	"VANE_MGMT_HTTP_PUBLIC",
 	"VANE_MGMT_HTTP_TOKEN",
 ];
 

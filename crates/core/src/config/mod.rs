@@ -85,7 +85,7 @@ pub fn load(config_dir: &Path) -> Result<LoadedConfig, Error> {
 
 	let rules_dir = config_dir.join("rules");
 	let files = scan_rules_dir(&rules_dir)?;
-	let env = Env::from_process_env()?;
+	let env = Env::from_process_env(config_dir)?;
 
 	Ok(LoadedConfig { files, env })
 }

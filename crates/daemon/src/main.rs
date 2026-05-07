@@ -96,7 +96,9 @@ const BUILD_INFO: BuildInfo = BuildInfo {
 struct Args {
 	/// Path to the config directory (must contain a `rules/`
 	/// sub-directory; optionally a `.env` for `VANE_*` overrides).
-	#[arg(short = 'c', long = "config", default_value = "/etc/vaned")]
+	/// `VANE_CONFIG_DIR` is honored when the flag is omitted, matching
+	/// `spec/architecture/09-config.md`.
+	#[arg(short = 'c', long = "config", env = "VANE_CONFIG_DIR", default_value = "/etc/vaned")]
 	config_dir: PathBuf,
 }
 
@@ -130,12 +132,30 @@ async fn main() -> std::process::ExitCode {
 #[allow(clippy::too_many_lines)]
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let args = Args::parse();
+
+	// Load config + .env BEFORE initialising tracing so the file's
+	// `VANE_LOG_LEVEL` is honored. dotenvy never overrides pre-existing
+	// OS env, so `RUST_LOG` from the operator's shell still wins. The
+	// trade-off is that `load()`'s own internal warnings (malformed
+	// .env) emit before any subscriber is attached and are lost — that's
+	// acceptable: a malformed .env will still surface as a parse error
+	// from `Env::from_process_env`.
+	let loaded = vane_core::config::load(&args.config_dir)?;
+
 	// Construct the broadcast tracing layer first so the subscriber
 	// stack composes it alongside the stderr fmt layer. The layer
 	// itself is Clone (cheap — wraps a broadcast::Sender); we hand one
 	// clone to the subscriber and keep the original for `MgmtState`.
 	let tracing_broadcast = BroadcastTracingLayer::new();
-	init_tracing(tracing_broadcast.clone());
+	init_tracing(tracing_broadcast.clone(), &loaded.env.log_level);
+
+	tracing::info!(config_dir = %args.config_dir.display(), "loading config");
+	tracing::info!(
+		rule_files = loaded.files.len(),
+		bind_ipv4 = loaded.env.bind_ipv4,
+		bind_ipv6 = loaded.env.bind_ipv6,
+		"config loaded",
+	);
 
 	// Install rustls's process-wide default crypto provider before any
 	// `ServerConfig::builder()` runs in `FlowGraph::link`. The selection
@@ -158,15 +178,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// macOS keychain queue even when the daemon won't use HTTPS
 	// upstream. The lazy path's outcome is logged once per process
 	// inside `native_roots`'s init.
-
-	tracing::info!(config_dir = %args.config_dir.display(), "loading config");
-	let loaded = vane_core::config::load(&args.config_dir)?;
-	tracing::info!(
-		rule_files = loaded.files.len(),
-		bind_ipv4 = loaded.env.bind_ipv4,
-		bind_ipv6 = loaded.env.bind_ipv6,
-		"config loaded",
-	);
 
 	// Surface operator-tunable env vars not in the typed `Env` struct
 	// (those that affect feature-gated subsystems and are read via
@@ -491,14 +502,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		acme_registry: acme_registry.clone(),
 	});
 	let mgmt_cancel = CancellationToken::new();
-	let mgmt_unix_handle = bind_mgmt_unix_server(Arc::clone(&mgmt_state), mgmt_cancel.clone()).await;
-	let mgmt_http_handles = bind_mgmt_http_server(
-		Arc::clone(&mgmt_state),
-		mgmt_cancel.clone(),
-		loaded.env.bind_ipv4,
-		loaded.env.bind_ipv6,
-	)
-	.await?;
+	let mgmt_unix_handle =
+		bind_mgmt_unix_server(Arc::clone(&mgmt_state), mgmt_cancel.clone(), &loaded.env.mgmt_unix)
+			.await;
+	let mgmt_http_handles =
+		bind_mgmt_http_server(Arc::clone(&mgmt_state), mgmt_cancel.clone(), &loaded.env).await?;
 
 	wait_for_shutdown_signal(
 		listeners,
@@ -516,19 +524,23 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	Ok(())
 }
 
-fn init_tracing(tail_layer: BroadcastTracingLayer) {
-	// `RUST_LOG` (env-filter) gates only the fmt-to-stderr layer —
-	// the broadcast layer is intentionally unfiltered so that `vane
-	// `tail log` shows every event the daemon emits regardless of how
-	// noisy the operator's terminal is configured to be. Operators
-	// who want to thin the stream client-side can pipe to `jq`.
+fn init_tracing(tail_layer: BroadcastTracingLayer, fallback_filter: &str) {
+	// The fmt-to-stderr layer's filter source priority:
+	//   1. `RUST_LOG` (operator ad-hoc override at the shell)
+	//   2. `VANE_LOG_LEVEL` from `<config>/.env` or OS env (typed via
+	//      `loaded.env.log_level`, supplied here as `fallback_filter`)
+	//   3. The `"info"` default baked into `Env`.
 	//
-	// Default `info` for the fmt layer matches the `VANE_LOG_LEVEL`
-	// default surfaced by `Env`.
+	// The broadcast layer is intentionally unfiltered so that `vane
+	// tail log` shows every event the daemon emits regardless of how
+	// noisy the operator's terminal is configured to be. Operators who
+	// want to thin the stream client-side can pipe to `jq`.
 	use tracing_subscriber::Layer;
 	use tracing_subscriber::layer::SubscriberExt;
 	use tracing_subscriber::util::SubscriberInitExt;
-	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+		EnvFilter::try_new(fallback_filter).unwrap_or_else(|_| EnvFilter::new("info"))
+	});
 	let fmt_layer = tracing_subscriber::fmt::layer().with_target(true).with_filter(filter);
 	tracing_subscriber::registry().with(fmt_layer).with(tail_layer).init();
 }
@@ -589,16 +601,16 @@ fn build_fetch_factories(
 async fn bind_mgmt_unix_server(
 	mgmt_state: Arc<MgmtState>,
 	cancel: CancellationToken,
+	socket: &std::path::Path,
 ) -> Option<tokio::task::JoinHandle<()>> {
-	let socket = std::env::var("VANE_MGMT_UNIX").unwrap_or_else(|_| "/tmp/vaned.sock".to_string());
-	match vane_mgmt::spawn_unix_server(std::path::Path::new(&socket), mgmt_state, cancel).await {
+	match vane_mgmt::spawn_unix_server(socket, mgmt_state, cancel).await {
 		Ok(h) => {
-			tracing::info!(socket = %socket, "mgmt unix server bound");
+			tracing::info!(socket = %socket.display(), "mgmt unix server bound");
 			Some(h)
 		}
 		Err(e) => {
 			tracing::warn!(
-				socket = %socket,
+				socket = %socket.display(),
 				error = %e,
 				"mgmt unix server bind failed; daemon continues without mgmt",
 			);
@@ -620,15 +632,14 @@ async fn bind_mgmt_unix_server(
 async fn bind_mgmt_http_server(
 	mgmt_state: Arc<MgmtState>,
 	cancel: CancellationToken,
-	bind_ipv4: bool,
-	bind_ipv6: bool,
+	env: &vane_core::Env,
 ) -> Result<Vec<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error + Send + Sync>> {
-	let Some(port) = parse_http_port()? else {
+	let Some(port) = env.mgmt_http_port else {
 		tracing::info!("mgmt http transport disabled (VANE_MGMT_HTTP_PORT is empty)");
 		return Ok(Vec::new());
 	};
-	let public = parse_truthy(std::env::var("VANE_MGMT_HTTP_PUBLIC").ok().as_deref());
-	let token = std::env::var("VANE_MGMT_HTTP_TOKEN").ok().filter(|s| !s.is_empty());
+	let public = env.mgmt_http_public;
+	let token = env.mgmt_http_token.clone();
 
 	// Boot validation table — see spec/architecture/10-management.md
 	// § _Auth model_. Public-without-token is a hard refuse so the
@@ -647,7 +658,7 @@ async fn bind_mgmt_http_server(
 			 can issue management calls. Set VANE_MGMT_HTTP_TOKEN to enable bearer auth.",
 		);
 	}
-	if !bind_ipv4 && !bind_ipv6 {
+	if !env.bind_ipv4 && !env.bind_ipv6 {
 		return Err(
 			"VANE_BIND_IPV4 and VANE_BIND_IPV6 are both disabled — no IP family available \
 			 for management HTTP transport"
@@ -657,17 +668,17 @@ async fn bind_mgmt_http_server(
 
 	let mut binds: Vec<SocketAddr> = Vec::new();
 	if public {
-		if bind_ipv4 {
+		if env.bind_ipv4 {
 			binds.push(format!("0.0.0.0:{port}").parse().expect("v4 wildcard"));
 		}
-		if bind_ipv6 {
+		if env.bind_ipv6 {
 			binds.push(format!("[::]:{port}").parse().expect("v6 wildcard"));
 		}
 	} else {
-		if bind_ipv4 {
+		if env.bind_ipv4 {
 			binds.push(format!("127.0.0.1:{port}").parse().expect("v4 loopback"));
 		}
-		if bind_ipv6 {
+		if env.bind_ipv6 {
 			binds.push(format!("[::1]:{port}").parse().expect("v6 loopback"));
 		}
 	}
@@ -676,27 +687,6 @@ async fn bind_mgmt_http_server(
 	let handles = vane_mgmt::spawn_http_server(cfg, mgmt_state, cancel).await?;
 	tracing::info!(count = handles.len(), port, public, "mgmt http server bound",);
 	Ok(handles)
-}
-
-/// Parse `VANE_MGMT_HTTP_PORT`. `None` (env var unset) defaults to
-/// 3333; an explicit empty string disables the transport entirely
-/// (returns `Ok(None)`).
-fn parse_http_port() -> Result<Option<u16>, Box<dyn std::error::Error + Send + Sync>> {
-	match std::env::var("VANE_MGMT_HTTP_PORT").ok().as_deref() {
-		None => Ok(Some(3333)),
-		Some("") => Ok(None),
-		Some(s) => match s.parse::<u16>() {
-			Ok(p) => Ok(Some(p)),
-			Err(e) => Err(format!("VANE_MGMT_HTTP_PORT: {e}").into()),
-		},
-	}
-}
-
-/// Boolean env-var parse used for `VANE_MGMT_HTTP_PUBLIC`. Truthy =
-/// `1` / `true` / `yes` / `on` (case-insensitive). Anything else,
-/// including unset / empty / `0` / `false` / `no` / `off`, is falsy.
-fn parse_truthy(s: Option<&str>) -> bool {
-	matches!(s.map(str::to_ascii_lowercase).as_deref(), Some("1" | "true" | "yes" | "on"),)
 }
 
 /// Boot-time health check. Spawns a background task that polls

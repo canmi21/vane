@@ -471,14 +471,17 @@ The HTTP-over-TCP management transport is **not** feature-gated. `hyper` is alre
 Instead, HTTP management is driven by env vars:
 
 ```
-VANE_MGMT_UNIX=/var/run/vaned.sock     # default, always bound
-VANE_MGMT_HTTP_BIND=127.0.0.1:4479     # unset = Unix only; set = additional HTTP binding
-VANE_MGMT_HTTP_TOKEN=<bearer-hash>      # required when HTTP bind is non-loopback
-VANE_MGMT_HTTP_TLS_CERT=/etc/vaned/mgmt.crt
-VANE_MGMT_HTTP_TLS_KEY=/etc/vaned/mgmt.key
+VANE_MGMT_UNIX=/tmp/vaned.sock     # default, always bound
+VANE_MGMT_HTTP_PORT=3333           # default-on; empty string disables the HTTP transport
+VANE_MGMT_HTTP_PUBLIC=             # falsy = loopback only (default); truthy = wildcard bind
+VANE_MGMT_HTTP_TOKEN=              # bearer token; mandatory when HTTP_PUBLIC is truthy
 ```
 
-Unix socket is always bound. HTTP-over-TCP is opt-in per deployment.
+Unix socket is always bound. HTTP-over-TCP defaults to port 3333 on
+loopback; operators disable it by setting `VANE_MGMT_HTTP_PORT=`. TLS
+for the management endpoint is intentionally not in this set —
+operators who want HTTPS terminate it via a vane reverse-proxy rule
+fronting the loopback admin port (see `10-management.md` § _Auth model_).
 
 ### Build matrix examples
 
@@ -583,7 +586,7 @@ Strict order; any failure in steps 1–6 aborts with non-zero exit and a descrip
 5. **Scan and parse** `<config-dir>/config.json` and `<config-dir>/rules/*.json`.
 6. **Expand / merge / analyze / lower / validate** (core) to produce `Arc<SymbolicFlowGraph>`, then **link** (engine) to produce the runtime `Arc<FlowGraph>`.
 7. **Bind listeners** (per `01-topology.md`). Individual per-listener bind failures are logged but don't abort boot.
-8. **Start management transports** — Unix socket always (`VANE_MGMT_UNIX`), HTTP-over-TCP only if `VANE_MGMT_HTTP_BIND` is set.
+8. **Start management transports** — Unix socket always (`VANE_MGMT_UNIX`), HTTP-over-TCP default-on at `VANE_MGMT_HTTP_PORT` (3333) and disabled by an explicit empty string.
 9. **Spawn file watcher** on `<config-dir>`, enter run loop.
 
 ## Build info and version strings

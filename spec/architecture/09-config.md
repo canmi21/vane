@@ -268,9 +268,9 @@ Content: things that describe the runtime environment rather than the traffic mo
 
 ```
 # /etc/vaned/.env
-VANE_DATA_DIR=/var/lib/vaned
-VANE_CONFIG_DIR=/etc/vaned
-VANE_LOG_LEVEL=info
+VANE_CONFIG_DIR=/etc/vaned                 # honored when `vaned --config` is omitted
+VANE_LOG_LEVEL=info                        # tracing-subscriber filter (RUST_LOG overrides)
+VANE_WASM_DIR=                             # default `<config-dir>/wasm`
 
 # Address-family toggles. Default 1 = bind this family. Set to 0 to globally
 # suppress — useful on hosts where one stack is disabled at the kernel level.
@@ -308,7 +308,7 @@ VANE_SEC_MAX_TOTAL_CONNS=65536
 # bind without a token is allowed but warns at boot. See 10-management.md
 # § _Auth model_ for the full table and the recommended TLS deployment
 # (vane reverse-proxies its own admin endpoint).
-VANE_MGMT_UNIX=/var/run/vaned.sock
+VANE_MGMT_UNIX=/tmp/vaned.sock
 VANE_MGMT_HTTP_PORT=3333                   # empty = HTTP transport disabled
 VANE_MGMT_HTTP_PUBLIC=                     # empty / "0" / "false" = loopback only; truthy = wildcard
 VANE_MGMT_HTTP_TOKEN=                      # bearer token; mandatory when HTTP_PUBLIC is truthy
