@@ -13,6 +13,7 @@ pub mod dns;
 pub mod fs_store;
 pub mod populator;
 pub mod registry;
+pub mod scheduler;
 pub mod store;
 
 pub use dns::{DnsProvider, DnsProviderError};
@@ -21,4 +22,5 @@ pub use populator::ManagedCertPopulator;
 pub use registry::{
 	ChallengeKey, ManagedCertRegistry, PendingChallenge, RegistryError, RenewalScheduler,
 };
+pub use scheduler::{CertState, CertStatus, RenewalJob, RenewalPlan};
 pub use store::{AcmeAccount, AcmeStore, LockGuard, StoreError, StoredCert};

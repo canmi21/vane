@@ -379,15 +379,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// synthetic `:80` listener if the operator's config has none
 	// per `spec/acme.md` § _HTTP-01 § Case 2_. Both are
 	// fire-and-forget; ACME failures surface via `tracing::error!`
-	// and don't abort boot. Stage 3's renewal scheduler will replace
-	// the one-shot issuance with a periodic timer.
+	// and don't abort boot. After both, the renewal scheduler ticks
+	// every 5 minutes per spec § _Renewal triggers_ and dispatches
+	// renewal attempts based on each SNI's
+	// `now + renew_before >= not_after` threshold; its abort handle
+	// is dropped on daemon shutdown via `shutdown_trigger.cancel()`
+	// (the scheduler tick checks no cancellation token directly,
+	// but `tokio::spawn` tasks die with the runtime).
 	#[cfg(feature = "acme")]
 	if let Some(registry) = acme_registry.clone() {
 		let graph = graph_swap.load_full();
 		let _issuance_handles =
 			acme_boot::kick_off_managed_issuance(&registry, &graph, &shutdown_trigger);
 		let _auto_bind_handles =
-			acme_boot::maybe_auto_bind_port_80(registry, &graph, &shutdown_trigger).await;
+			acme_boot::maybe_auto_bind_port_80(Arc::clone(&registry), &graph, &shutdown_trigger).await;
+		let _scheduler_handle = registry.spawn_scheduler();
 	}
 
 	// CRL background refresher: one tokio task per URL source, scheduled

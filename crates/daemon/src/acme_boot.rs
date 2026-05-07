@@ -40,8 +40,8 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use vane_core::ir::SymbolicFlowGraph;
-use vane_core::rule::ChallengeKind;
-use vane_engine::acme::{FsAcmeStore, ManagedCertRegistry, RegistryError};
+use vane_core::rule::{ChallengeKind, ManagedSpec};
+use vane_engine::acme::{FsAcmeStore, ManagedCertRegistry, RegistryError, RenewalJob};
 use vane_engine::flow_graph::FlowGraph;
 
 /// Default storage root per `spec/acme.md` § _Storage layout
@@ -98,6 +98,27 @@ pub(crate) fn kick_off_managed_issuance(
 	let needs_issue = registry.declare_managed(&snis);
 	let needs_set: BTreeSet<String> = needs_issue.into_iter().collect();
 
+	// Register renewal jobs for *every* declared SNI — including ones
+	// already covered by hydrated certs — so the scheduler can pick
+	// up renewal triggers (`now + renew_before >= not_after`, ARI,
+	// `force_renew`) without re-walking the listener spec at tick
+	// time. Jobs are keyed by SNI + replaced on reload, so a
+	// challenge-kind switch (http-01 → dns-01) takes effect at the
+	// next tick without a daemon restart.
+	for plan in &plans {
+		match build_renewal_job(plan) {
+			Ok(job) => registry.register_renewal_job(&plan.sni, job),
+			Err(e) => {
+				error!(
+					target: "vane::acme",
+					sni = %plan.sni,
+					error = %e,
+					"renewal job build failed; scheduler will not retry this SNI",
+				);
+			}
+		}
+	}
+
 	let mut handles = Vec::new();
 	for plan in plans {
 		if !needs_set.contains(&plan.sni) {
@@ -112,6 +133,26 @@ pub(crate) fn kick_off_managed_issuance(
 	handles
 }
 
+/// Translate an [`IssuancePlan`] into a [`RenewalJob`] the registry
+/// can use at scheduler-tick time. Builds the DNS provider once
+/// here (per `spec/acme.md` § _DNS-01_) so the scheduler doesn't
+/// have to re-parse the JSON config at every tick.
+fn build_renewal_job(plan: &IssuancePlan) -> Result<RenewalJob, String> {
+	let renew_before = plan.renew_before;
+	let dns = match plan.challenge {
+		ChallengeKind::Http01 => None,
+		ChallengeKind::Dns01 => Some(build_dns_provider(plan.dns_provider.as_ref())?),
+	};
+	Ok(RenewalJob {
+		directory_url: plan.directory_url.clone(),
+		contact: plan.contact.clone(),
+		challenge: plan.challenge,
+		dns,
+		renew_before,
+		extra_root_ca_pem: None,
+	})
+}
+
 #[derive(Clone, Debug)]
 struct IssuancePlan {
 	sni: String,
@@ -123,6 +164,11 @@ struct IssuancePlan {
 	/// inside [`run_one_issuance`] so the boot path doesn't have
 	/// to know about every provider kind.
 	dns_provider: Option<serde_json::Value>,
+	/// Pre-parsed `renew_before` from the rule's
+	/// [`ManagedSpec::renew_before`]. Carried into the
+	/// [`RenewalJob`] so the scheduler doesn't have to re-parse the
+	/// duration literal at every tick.
+	renew_before: std::time::Duration,
 }
 
 fn collect_issuance_plans(graph: &FlowGraph) -> Vec<IssuancePlan> {
@@ -136,10 +182,30 @@ fn collect_issuance_plans(graph: &FlowGraph) -> Vec<IssuancePlan> {
 				contact: managed.contact.clone(),
 				challenge: managed.challenge,
 				dns_provider: managed.dns_provider.clone(),
+				// `ManagedSpec::renew_before_duration` returns a
+				// post-validate `Duration`; the upstream `compile`
+				// pass guarantees it parses cleanly, so a parse error
+				// here would be an engine bug. We surface it as a
+				// best-effort 30d fallback rather than crashing the
+				// daemon — the worst case is a renewal cadence
+				// mismatch the operator can fix at next reload.
+				renew_before: validated_renew_before(managed),
 			});
 		}
 	}
 	by_sni.into_values().collect()
+}
+
+fn validated_renew_before(managed: &ManagedSpec) -> std::time::Duration {
+	managed.renew_before_duration().unwrap_or_else(|e| {
+		warn!(
+			target: "vane::acme",
+			renew_before = %managed.renew_before,
+			error = %e,
+			"managed cert renew_before failed to re-parse; defaulting to 30d",
+		);
+		std::time::Duration::from_secs(30 * 24 * 60 * 60)
+	})
 }
 
 async fn run_one_issuance(

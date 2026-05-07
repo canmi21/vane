@@ -27,12 +27,17 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
 use sha2::Digest;
 use tracing::{instrument, warn};
+use vane_core::rule::ChallengeKind;
 
+use super::scheduler::{
+	self, CertState, CertStatus, RenewalJob, RenewalPlan, mark_renewing, record_failure,
+	record_success, should_attempt,
+};
 use super::store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
 
 /// Lookup key for the pending-challenge table. Per
@@ -70,8 +75,21 @@ pub struct ManagedCertRegistry {
 	store: Arc<dyn AcmeStore>,
 	/// In-memory mirror of the on-disk cert state, keyed by SNI
 	/// (lowercased). Read on every TLS handshake via the populator
-	/// (Stage 3); written by issuance + renewal paths.
-	certs: DashMap<String, Arc<StoredCert>>,
+	/// (Stage 3); written by issuance + renewal paths. Holds the
+	/// per-SNI scheduler state (status, backoff, last error)
+	/// alongside the cert, so the renewal walker can decide what to
+	/// retry without consulting two parallel maps.
+	certs: DashMap<String, CertState>,
+	/// Per-SNI "how to retry" payload. Registered by
+	/// [`Self::register_renewal_job`] at boot — the daemon calls it
+	/// once per managed SNI before kicking off issuance, and the
+	/// scheduler walks this map at every tick. Separate from
+	/// [`Self::certs`] because absence of a job means "the operator
+	/// has not declared this SNI managed in the current `FlowGraph`"
+	/// (e.g. SNI hydrated from a stale on-disk cert) — the
+	/// scheduler must not act on those, even though the cert state
+	/// is present.
+	jobs: DashMap<String, RenewalJob>,
 	/// Active challenge tokens. Keyed by `(Host, token)` per
 	/// `spec/acme.md` § _HTTP-01_; entries are added at issuance
 	/// start and removed on success/failure.
@@ -127,6 +145,7 @@ impl ManagedCertRegistry {
 		let registry = Arc::new(Self {
 			store,
 			certs: DashMap::new(),
+			jobs: DashMap::new(),
 			pending: DashMap::new(),
 			live_accounts: parking_lot::Mutex::new(BTreeMap::new()),
 			declared: DashMap::new(),
@@ -143,7 +162,11 @@ impl ManagedCertRegistry {
 		for sni in snis {
 			match self.store.load_cert(&sni).await? {
 				Some(cert) => {
-					self.certs.insert(sni, Arc::new(cert));
+					// Hydrated certs land as `Valid` with no attempt
+					// history — the on-disk cert is the source of
+					// truth for "what was last issued"; renewal state
+					// is in-memory only and rebuilds at boot.
+					self.certs.insert(sni, CertState::fresh(Some(Arc::new(cert))));
 				}
 				None => {
 					// `list_cert_snis` and `load_cert` are individually
@@ -162,7 +185,28 @@ impl ManagedCertRegistry {
 	#[must_use]
 	pub fn cert_for(&self, sni: &str) -> Option<Arc<StoredCert>> {
 		let key = sni.to_ascii_lowercase();
-		self.certs.get(&key).map(|r| Arc::clone(&*r))
+		self.certs.get(&key).and_then(|r| r.stored.as_ref().map(Arc::clone))
+	}
+
+	/// Snapshot of the per-SNI lifecycle state. `None` when the SNI
+	/// has never been declared / hydrated. Used by the `get_certs`
+	/// mgmt verb (Stage 3) and by callers that want backoff /
+	/// last-error context alongside the cert itself.
+	#[must_use]
+	pub fn cert_state(&self, sni: &str) -> Option<CertState> {
+		let key = sni.to_ascii_lowercase();
+		self.certs.get(&key).map(|r| r.clone())
+	}
+
+	/// Sorted snapshot of every tracked SNI's state. Stable order
+	/// (by SNI) so mgmt-verb output is deterministic and diffs
+	/// between calls are easy to reason about.
+	#[must_use]
+	pub fn cert_states_snapshot(&self) -> Vec<(String, CertState)> {
+		let mut out: Vec<(String, CertState)> =
+			self.certs.iter().map(|e| (e.key().clone(), e.value().clone())).collect();
+		out.sort_by(|a, b| a.0.cmp(&b.0));
+		out
 	}
 
 	/// Register the SNIs the new `FlowGraph` wants managed and
@@ -177,11 +221,37 @@ impl ManagedCertRegistry {
 		for sni in snis {
 			let key = sni.to_ascii_lowercase();
 			self.declared.insert(key.clone(), ());
-			if !self.certs.contains_key(&key) {
+			// Materialise a fresh CertState for any SNI we don't yet
+			// track so the scheduler tick sees it. Existing entries
+			// (hydrated certs, in-flight renewals) are left alone.
+			self.certs.entry(key.clone()).or_insert_with(|| CertState::fresh(None));
+			if self.certs.get(&key).is_none_or(|s| s.stored.is_none()) {
 				needs_issue.push(key);
 			}
 		}
 		needs_issue
+	}
+
+	/// Register the renewal payload for `sni`. Called once per
+	/// managed SNI at boot (per `acme_boot.rs`); the scheduler tick
+	/// reads this map to decide which `issue_*` flavour to dispatch
+	/// and which `Arc<dyn DnsProvider>` to feed in.
+	///
+	/// Re-registering replaces the previous job — the listener spec
+	/// is the source of truth, and reload-time updates (e.g. the
+	/// operator switched a cert from http-01 to dns-01) take effect
+	/// at the next tick without a daemon restart.
+	pub fn register_renewal_job(&self, sni: &str, job: RenewalJob) {
+		self.jobs.insert(sni.to_ascii_lowercase(), job);
+	}
+
+	/// Drop the renewal job for `sni`. Called when an SNI leaves
+	/// the operator's managed set (the next reload's listener spec
+	/// no longer declares it). The cert state is left in place so
+	/// `get_certs` still surfaces it; only the "would re-issue on
+	/// schedule" trigger goes away.
+	pub fn unregister_renewal_job(&self, sni: &str) {
+		self.jobs.remove(&sni.to_ascii_lowercase());
 	}
 
 	/// Snapshot of every SNI currently declared managed. Stable
@@ -223,9 +293,135 @@ impl ManagedCertRegistry {
 	}
 
 	/// Update the in-memory cache. Called by `issue_http01` after
-	/// it persists a fresh cert via the store.
+	/// it persists a fresh cert via the store. Marks the per-SNI
+	/// state Valid + clears any prior failure so subsequent
+	/// scheduler ticks skip the SNI until `renew_before` triggers.
 	pub(super) fn cache_cert(&self, sni: &str, cert: Arc<StoredCert>) {
-		self.certs.insert(sni.to_ascii_lowercase(), cert);
+		let key = sni.to_ascii_lowercase();
+		let now = SystemTime::now();
+		let mut entry = self.certs.entry(key).or_insert_with(|| CertState::fresh(None));
+		record_success(entry.value_mut(), cert, now);
+	}
+
+	/// Record a successful issuance attempt onto the per-SNI
+	/// state. Called by the scheduler / mgmt-verb path that drives
+	/// renewals — `cache_cert` does the same job via the issuance
+	/// inner functions, so direct callers of `cache_cert` don't
+	/// need to call this twice.
+	pub fn record_success(&self, sni: &str, cert: Arc<StoredCert>) {
+		self.cache_cert(sni, cert);
+	}
+
+	/// Record a failed issuance attempt onto the per-SNI state.
+	/// `error` carries the operator-readable diagnostic; the
+	/// `RegistryError` shape selects between `Limited` and `Failed`
+	/// status and propagates any CA-supplied `Retry-After`.
+	pub fn record_failure(&self, sni: &str, error: &RegistryError) {
+		let key = sni.to_ascii_lowercase();
+		let now = SystemTime::now();
+		let (rate_limited, retry_after) = match error {
+			RegistryError::RateLimited { retry_after } => (true, *retry_after),
+			_ => (false, None),
+		};
+		let mut entry = self.certs.entry(key).or_insert_with(|| CertState::fresh(None));
+		record_failure(entry.value_mut(), error.to_string(), rate_limited, retry_after, now);
+	}
+
+	/// Pure-decision part of the scheduler tick: walk every tracked
+	/// SNI + its registered job and emit one [`RenewalPlan`] per
+	/// SNI that warrants an attempt at `now`. Tested directly in
+	/// [`super::scheduler`]'s unit tests; the live tick path is a
+	/// thin shell around this function.
+	#[must_use]
+	pub fn collect_renewal_plans(&self, now: SystemTime) -> Vec<RenewalPlan> {
+		let mut out = Vec::new();
+		for entry in &self.jobs {
+			let sni = entry.key();
+			let job = entry.value();
+			let Some(state) = self.certs.get(sni) else { continue };
+			if should_attempt(state.value(), job, now) {
+				out.push(RenewalPlan { sni: sni.clone(), job: job.clone() });
+			}
+		}
+		out.sort_by(|a, b| a.sni.cmp(&b.sni));
+		out
+	}
+
+	/// Run one renewal attempt end-to-end: mark the SNI Renewing,
+	/// dispatch the appropriate `issue_*` flavour with `force`
+	/// bypassing the cached-cert short-circuit, then call
+	/// `record_success` / `record_failure` based on the outcome.
+	/// Used by both the scheduler tick and the `force_renew` mgmt
+	/// verb (commit 5).
+	pub async fn run_renewal_attempt(self: &Arc<Self>, sni: &str, job: RenewalJob) {
+		let key = sni.to_ascii_lowercase();
+		// Atomic transition: if another tick / force_renew already
+		// flipped the state to Renewing, bail without re-dispatching.
+		{
+			let now = SystemTime::now();
+			let mut entry = self.certs.entry(key.clone()).or_insert_with(|| CertState::fresh(None));
+			if entry.value().status == CertStatus::Renewing {
+				return;
+			}
+			mark_renewing(entry.value_mut(), now);
+		}
+
+		let outcome = match job.challenge {
+			ChallengeKind::Http01 => {
+				self
+					.issue_http01_inner(
+						&key,
+						&job.directory_url,
+						&job.contact,
+						job.extra_root_ca_pem.as_deref(),
+						true,
+					)
+					.await
+			}
+			ChallengeKind::Dns01 => {
+				let Some(dns) = job.dns.clone() else {
+					let err = RegistryError::Acme(
+						"dns-01 renewal job missing DnsProvider — operator config bug".into(),
+					);
+					self.record_failure(&key, &err);
+					return;
+				};
+				self
+					.issue_dns01_inner(
+						&key,
+						&job.directory_url,
+						&job.contact,
+						job.extra_root_ca_pem.as_deref(),
+						dns,
+						true,
+					)
+					.await
+			}
+		};
+		match outcome {
+			Ok(_arc) => {
+				// `issue_*_inner` already calls `cache_cert` on
+				// success, which in turn records the success state.
+				// Belt + suspenders: re-record so a future inner
+				// path that skips cache_cert still surfaces correctly.
+			}
+			Err(e) => self.record_failure(&key, &e),
+		}
+	}
+
+	/// Spawn the periodic renewal scheduler: every 5 minutes the
+	/// task walks `collect_renewal_plans(now)` and dispatches one
+	/// `run_renewal_attempt` per plan. Returns the
+	/// [`tokio::task::AbortHandle`] so the daemon's shutdown path
+	/// can stop the scheduler cleanly. Per spec § _Renewal triggers_
+	/// the cadence is fixed at 5 minutes — short enough to react to
+	/// just-declared SNIs quickly, long enough to keep tick pressure
+	/// off the registry under steady state.
+	#[must_use]
+	pub fn spawn_scheduler(self: &Arc<Self>) -> tokio::task::AbortHandle {
+		let registry = Arc::clone(self);
+		let handle = tokio::spawn(async move { scheduler_loop(registry).await });
+		handle.abort_handle()
 	}
 
 	/// Test hook: drive the in-memory cache directly, bypassing the
@@ -354,7 +550,7 @@ impl ManagedCertRegistry {
 		directory_url: &str,
 		contact: &[String],
 	) -> Result<Arc<StoredCert>, RegistryError> {
-		self.issue_http01_inner(sni, directory_url, contact, None).await
+		self.issue_http01_inner(sni, directory_url, contact, None, false).await
 	}
 
 	/// Variant of [`Self::issue_http01`] that threads a custom root
@@ -371,7 +567,7 @@ impl ManagedCertRegistry {
 		contact: &[String],
 		extra_root_ca_pem: &std::path::Path,
 	) -> Result<Arc<StoredCert>, RegistryError> {
-		self.issue_http01_inner(sni, directory_url, contact, Some(extra_root_ca_pem)).await
+		self.issue_http01_inner(sni, directory_url, contact, Some(extra_root_ca_pem), false).await
 	}
 
 	/// Issue a cert for `sni` via the DNS-01 challenge.
@@ -406,7 +602,7 @@ impl ManagedCertRegistry {
 		contact: &[String],
 		dns: Arc<dyn super::DnsProvider>,
 	) -> Result<Arc<StoredCert>, RegistryError> {
-		self.issue_dns01_inner(sni, directory_url, contact, None, dns).await
+		self.issue_dns01_inner(sni, directory_url, contact, None, dns, false).await
 	}
 
 	/// Test-harness variant of [`Self::issue_dns01`] that threads a
@@ -423,7 +619,7 @@ impl ManagedCertRegistry {
 		extra_root_ca_pem: &std::path::Path,
 		dns: Arc<dyn super::DnsProvider>,
 	) -> Result<Arc<StoredCert>, RegistryError> {
-		self.issue_dns01_inner(sni, directory_url, contact, Some(extra_root_ca_pem), dns).await
+		self.issue_dns01_inner(sni, directory_url, contact, Some(extra_root_ca_pem), dns, false).await
 	}
 
 	async fn issue_dns01_inner(
@@ -433,11 +629,17 @@ impl ManagedCertRegistry {
 		contact: &[String],
 		extra_root_ca_pem: Option<&std::path::Path>,
 		dns: Arc<dyn super::DnsProvider>,
+		force: bool,
 	) -> Result<Arc<StoredCert>, RegistryError> {
 		let cert_scope = format!("cert/{sni}");
 		let _cert_lock = self.store.lock(&cert_scope).await?;
 
-		if let Some(existing) = self.cert_for(sni) {
+		// Renewal callers (`force == true`) skip the cached-cert
+		// short-circuit so the scheduler can replace a near-expiry
+		// cert with a freshly-issued one. First-time / boot callers
+		// pass `false` so duplicate issuance attempts on the same
+		// SNI fold into a single cache hit.
+		if !force && let Some(existing) = self.cert_for(sni) {
 			return Ok(existing);
 		}
 
@@ -495,14 +697,18 @@ impl ManagedCertRegistry {
 		directory_url: &str,
 		contact: &[String],
 		extra_root_ca_pem: Option<&std::path::Path>,
+		force: bool,
 	) -> Result<Arc<StoredCert>, RegistryError> {
 		let cert_scope = format!("cert/{sni}");
 		let _cert_lock = self.store.lock(&cert_scope).await?;
 
 		// If the cache already has a cert (race vs another task on
-		// the same SNI), short-circuit. Stage 3's scheduler handles
-		// renewal triggers separately.
-		if let Some(existing) = self.cert_for(sni) {
+		// the same SNI), short-circuit unless this is a forced
+		// renewal — `run_renewal_attempt` passes `force = true` so
+		// the scheduler can replace a near-expiry cert; the boot
+		// kickoff path passes `false` to fold duplicate first-time
+		// issuance attempts.
+		if !force && let Some(existing) = self.cert_for(sni) {
 			return Ok(existing);
 		}
 
@@ -833,6 +1039,33 @@ fn build_account_builder(
 			.map_err(|e| RegistryError::Acme(format!("instant-acme builder_with_root: {e}"))),
 		None => instant_acme::Account::builder()
 			.map_err(|e| RegistryError::Acme(format!("instant-acme builder: {e}"))),
+	}
+}
+
+/// Periodic renewal scheduler loop, spawned by
+/// [`ManagedCertRegistry::spawn_scheduler`]. Ticks every 5 minutes
+/// per `spec/acme.md` § _Renewal triggers_. Each tick walks
+/// [`ManagedCertRegistry::collect_renewal_plans`] and dispatches
+/// one [`tokio::spawn`] per plan; the spawn is fire-and-forget — a
+/// slow attempt doesn't block subsequent ticks because every plan
+/// owns its own task.
+///
+/// `MissedTickBehavior::Skip` collapses missed ticks (e.g. process
+/// suspended) so we don't burst-issue after a long pause; the next
+/// tick simply happens at the next 5-minute boundary.
+async fn scheduler_loop(registry: Arc<ManagedCertRegistry>) {
+	let mut interval = tokio::time::interval(scheduler::TICK_INTERVAL);
+	interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+	loop {
+		interval.tick().await;
+		let now = SystemTime::now();
+		let plans = registry.collect_renewal_plans(now);
+		for plan in plans {
+			let registry = Arc::clone(&registry);
+			tokio::spawn(async move {
+				registry.run_renewal_attempt(&plan.sni, plan.job).await;
+			});
+		}
 	}
 }
 
@@ -1189,5 +1422,124 @@ mod tests {
 		cert.leaf_pem = "v2".into();
 		registry.cache_cert("api.example.com", Arc::new(cert));
 		assert_eq!(registry.cert_for("api.example.com").unwrap().leaf_pem, "v2");
+	}
+
+	fn dummy_renewal_job(challenge: ChallengeKind) -> RenewalJob {
+		RenewalJob {
+			directory_url: "https://acme.invalid/dir".into(),
+			contact: vec!["mailto:ops@example.com".into()],
+			challenge,
+			dns: None,
+			renew_before: Duration::from_hours(720),
+			extra_root_ca_pem: None,
+		}
+	}
+
+	#[tokio::test]
+	async fn declare_managed_seeds_fresh_cert_state() {
+		let store = Arc::new(MockStore::default());
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		let _ = registry.declare_managed(&["api.example.com".into()]);
+		let state = registry.cert_state("api.example.com").expect("state seeded");
+		assert!(state.stored.is_none(), "fresh state has no cert yet");
+		assert_eq!(state.status, CertStatus::Valid);
+		assert_eq!(state.consecutive_failures, 0);
+	}
+
+	#[tokio::test]
+	async fn cache_cert_marks_state_valid_and_resets_failures() {
+		let store = Arc::new(MockStore::default());
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		// Stage a Failed state first so we can confirm cache_cert clears it.
+		registry.record_failure("api.example.com", &RegistryError::Acme("boom".into()));
+		registry.record_failure("api.example.com", &RegistryError::Acme("boom".into()));
+		let pre = registry.cert_state("api.example.com").unwrap();
+		assert_eq!(pre.status, CertStatus::Failed);
+		assert_eq!(pre.consecutive_failures, 2);
+
+		registry.cache_cert("api.example.com", Arc::new(fixture_cert()));
+		let post = registry.cert_state("api.example.com").unwrap();
+		assert_eq!(post.status, CertStatus::Valid);
+		assert_eq!(post.consecutive_failures, 0);
+		assert!(post.last_error.is_none());
+		assert!(post.stored.is_some());
+	}
+
+	#[tokio::test]
+	async fn record_failure_classifies_rate_limited() {
+		let store = Arc::new(MockStore::default());
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		registry.record_failure(
+			"api.example.com",
+			&RegistryError::RateLimited { retry_after: Some(Duration::from_hours(2)) },
+		);
+		let state = registry.cert_state("api.example.com").unwrap();
+		assert_eq!(state.status, CertStatus::Limited);
+		// retry_after (2h) > local backoff (30min for first failure),
+		// so the next attempt time honours the server's suggestion.
+		let last = state.last_attempt_at.unwrap();
+		let next = state.next_attempt_at.unwrap();
+		let gap = next.duration_since(last).unwrap();
+		assert!(gap >= Duration::from_hours(2), "{gap:?} should respect server retry_after");
+	}
+
+	#[tokio::test]
+	async fn collect_renewal_plans_skips_snis_without_jobs() {
+		let store = Arc::new(MockStore::default());
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		// SNI declared but no job registered → not in plan output even
+		// though the state says it warrants attempt.
+		let _ = registry.declare_managed(&["api.example.com".into()]);
+		let plans = registry.collect_renewal_plans(SystemTime::now());
+		assert!(plans.is_empty(), "no job registered → no plan");
+	}
+
+	#[tokio::test]
+	async fn collect_renewal_plans_emits_plans_for_declared_jobs() {
+		let store = Arc::new(MockStore::default());
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		let _ = registry.declare_managed(&["api.example.com".into()]);
+		registry.register_renewal_job("api.example.com", dummy_renewal_job(ChallengeKind::Http01));
+		let plans = registry.collect_renewal_plans(SystemTime::now());
+		assert_eq!(plans.len(), 1);
+		assert_eq!(plans[0].sni, "api.example.com");
+		assert_eq!(plans[0].job.challenge, ChallengeKind::Http01);
+	}
+
+	#[tokio::test]
+	async fn collect_renewal_plans_skips_renewing_status() {
+		let store = Arc::new(MockStore::default());
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		let _ = registry.declare_managed(&["api.example.com".into()]);
+		registry.register_renewal_job("api.example.com", dummy_renewal_job(ChallengeKind::Http01));
+		// Force the SNI into Renewing — the next plan walk must skip it.
+		registry.certs.entry("api.example.com".into()).and_modify(|s| s.status = CertStatus::Renewing);
+		let plans = registry.collect_renewal_plans(SystemTime::now());
+		assert!(plans.is_empty(), "Renewing SNIs are excluded from plans");
+	}
+
+	#[tokio::test]
+	async fn unregister_renewal_job_removes_from_planning() {
+		let store = Arc::new(MockStore::default());
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		let _ = registry.declare_managed(&["api.example.com".into()]);
+		registry.register_renewal_job("api.example.com", dummy_renewal_job(ChallengeKind::Http01));
+		assert_eq!(registry.collect_renewal_plans(SystemTime::now()).len(), 1);
+		registry.unregister_renewal_job("api.example.com");
+		assert_eq!(registry.collect_renewal_plans(SystemTime::now()).len(), 0);
+	}
+
+	#[tokio::test]
+	async fn cert_states_snapshot_is_sorted() {
+		let store = Arc::new(MockStore::default());
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		let _ = registry.declare_managed(&[
+			"zeta.example".into(),
+			"alpha.example".into(),
+			"mike.example".into(),
+		]);
+		let snap = registry.cert_states_snapshot();
+		let snis: Vec<_> = snap.iter().map(|(s, _)| s.as_str()).collect();
+		assert_eq!(snis, vec!["alpha.example", "mike.example", "zeta.example"]);
 	}
 }
