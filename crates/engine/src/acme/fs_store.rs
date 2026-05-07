@@ -48,8 +48,8 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex as TokioMutex, OwnedMutexGuard};
 
 use super::store::{
-	AccountFileV1, AcmeAccount, AcmeStore, CertMetaV1, LockGuard, StoreError, StoredCert,
-	system_time_to_unix_ms, unix_ms_to_system_time,
+	AccountFileV1, AcmeAccount, AcmeStore, CertMetaV1, CertMetaV2, CertMetaVersionProbe, LockGuard,
+	StoreError, StoredCert, system_time_to_unix_ms, unix_ms_to_system_time,
 };
 
 const ACCOUNTS_DIR: &str = "accounts";
@@ -59,6 +59,12 @@ const CERT_FILE: &str = "cert.pem";
 const KEY_FILE: &str = "key.pem";
 const META_FILE: &str = "meta.json";
 const LOCK_FILE: &str = ".lock";
+/// Sibling of `cert.pem` carrying the cached OCSP staple as raw DER.
+/// Distinct file (rather than base64-in-`meta.json`) because the
+/// staple is already binary and `cat ocsp.der | openssl ocsp ...` is
+/// the obvious operator gesture for inspection. Permissions match
+/// `cert.pem` (`MODE_PUBLIC_FILE`); the staple is not secret.
+const OCSP_FILE: &str = "ocsp.der";
 
 const MODE_PRIVATE_DIR: u32 = 0o700;
 const MODE_PRIVATE_FILE: u32 = 0o600;
@@ -159,23 +165,67 @@ impl AcmeStore for FsAcmeStore {
 		let cert_path = dir.join(CERT_FILE);
 		let key_path = dir.join(KEY_FILE);
 		let meta_path = dir.join(META_FILE);
+		let ocsp_path = dir.join(OCSP_FILE);
 		match (
 			std::fs::read_to_string(&cert_path),
 			std::fs::read_to_string(&key_path),
 			std::fs::read(&meta_path),
 		) {
 			(Ok(cert_chain_pem), Ok(key_pem), Ok(meta_bytes)) => {
-				let meta: CertMetaV1 = serde_json::from_slice(&meta_bytes)
+				// Read the version field first so we can dispatch to
+				// the right meta-shape variant. Old (v1) stores
+				// upgrade transparently with OCSP fields = None.
+				let probe: CertMetaVersionProbe = serde_json::from_slice(&meta_bytes)
 					.map_err(|e| StoreError::Decode(format!("{}: {e}", meta_path.display())))?;
 				let (leaf_pem, chain_pem) = split_leaf_chain(&cert_chain_pem);
-				Ok(Some(StoredCert {
-					leaf_pem,
-					chain_pem,
-					key_pem,
-					not_after: unix_ms_to_system_time(meta.not_after_unix_ms),
-					ari_replacement_id: meta.ari_replacement_id,
-					last_renew_at: unix_ms_to_system_time(meta.last_renew_at_unix_ms),
-				}))
+				let stored = match probe.version {
+					1 => {
+						let meta: CertMetaV1 = serde_json::from_slice(&meta_bytes)
+							.map_err(|e| StoreError::Decode(format!("{}: {e}", meta_path.display())))?;
+						StoredCert {
+							leaf_pem,
+							chain_pem,
+							key_pem,
+							not_after: unix_ms_to_system_time(meta.not_after_unix_ms),
+							ari_replacement_id: meta.ari_replacement_id,
+							last_renew_at: unix_ms_to_system_time(meta.last_renew_at_unix_ms),
+							ocsp_response: None,
+							ocsp_next_update: None,
+							ocsp_aia_url: None,
+						}
+					}
+					2 => {
+						let meta: CertMetaV2 = serde_json::from_slice(&meta_bytes)
+							.map_err(|e| StoreError::Decode(format!("{}: {e}", meta_path.display())))?;
+						// `ocsp.der` is optional — a v2 store can have
+						// `ocsp_aia_url` set (cached for later fetch
+						// retries) without `ocsp.der` actually existing
+						// (last fetch failed).
+						let ocsp_response = match std::fs::read(&ocsp_path) {
+							Ok(bytes) => Some(bytes),
+							Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+							Err(e) => return Err(StoreError::Io(e)),
+						};
+						StoredCert {
+							leaf_pem,
+							chain_pem,
+							key_pem,
+							not_after: unix_ms_to_system_time(meta.not_after_unix_ms),
+							ari_replacement_id: meta.ari_replacement_id,
+							last_renew_at: unix_ms_to_system_time(meta.last_renew_at_unix_ms),
+							ocsp_response,
+							ocsp_next_update: meta.ocsp_next_update_unix_ms.map(unix_ms_to_system_time),
+							ocsp_aia_url: meta.ocsp_aia_url,
+						}
+					}
+					other => {
+						return Err(StoreError::Decode(format!(
+							"{}: unknown meta version {other}",
+							meta_path.display(),
+						)));
+					}
+				};
+				Ok(Some(stored))
 			}
 			(Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e))
 				if e.kind() == std::io::ErrorKind::NotFound =>
@@ -203,15 +253,31 @@ impl AcmeStore for FsAcmeStore {
 		};
 		atomic_write_file(&dir.join(CERT_FILE), cert_combined.as_bytes(), MODE_PUBLIC_FILE)?;
 		atomic_write_file(&dir.join(KEY_FILE), cert.key_pem.as_bytes(), MODE_PRIVATE_FILE)?;
-		let meta = CertMetaV1 {
-			version: CertMetaV1::VERSION,
+		let meta = CertMetaV2 {
+			version: CertMetaV2::VERSION,
 			not_after_unix_ms: system_time_to_unix_ms(cert.not_after),
 			last_renew_at_unix_ms: system_time_to_unix_ms(cert.last_renew_at),
 			ari_replacement_id: cert.ari_replacement_id.clone(),
+			ocsp_next_update_unix_ms: cert.ocsp_next_update.map(system_time_to_unix_ms),
+			ocsp_aia_url: cert.ocsp_aia_url.clone(),
 		};
 		let meta_bytes =
 			serde_json::to_vec_pretty(&meta).map_err(|e| StoreError::Encode(format!("{e}")))?;
 		atomic_write_file(&dir.join(META_FILE), &meta_bytes, MODE_PUBLIC_FILE)?;
+		// OCSP staple sidecar: write or remove to match the in-memory
+		// state. A renewal that loses its OCSP staple (responder
+		// unreachable, refresh hasn't run yet) must remove the stale
+		// `ocsp.der` so the next load doesn't surface a staple bound
+		// to the prior cert.
+		let ocsp_path = dir.join(OCSP_FILE);
+		match &cert.ocsp_response {
+			Some(bytes) => atomic_write_file(&ocsp_path, bytes, MODE_PUBLIC_FILE)?,
+			None => match std::fs::remove_file(&ocsp_path) {
+				Ok(()) => {}
+				Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+				Err(e) => return Err(StoreError::Io(e)),
+			},
+		}
 		Ok(())
 	}
 
@@ -414,6 +480,9 @@ mod tests {
 			not_after: SystemTime::UNIX_EPOCH + Duration::from_hours(500_000),
 			ari_replacement_id: None,
 			last_renew_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+			ocsp_response: None,
+			ocsp_next_update: None,
+			ocsp_aia_url: None,
 		}
 	}
 
@@ -452,6 +521,89 @@ mod tests {
 		assert_eq!(back.not_after, cert.not_after);
 		assert_eq!(back.ari_replacement_id, cert.ari_replacement_id);
 		assert_eq!(back.last_renew_at, cert.last_renew_at);
+		assert_eq!(back.ocsp_response, cert.ocsp_response);
+		assert_eq!(back.ocsp_next_update, cert.ocsp_next_update);
+		assert_eq!(back.ocsp_aia_url, cert.ocsp_aia_url);
+	}
+
+	#[tokio::test]
+	async fn meta_v1_loads_with_ocsp_fields_as_none() {
+		// Hand-write a v1-shaped meta.json + cert.pem + key.pem and
+		// confirm load_cert hydrates StoredCert with ocsp_* = None.
+		let tmp = TempDir::new().unwrap();
+		let store = FsAcmeStore::open(tmp.path()).unwrap();
+		let dir = tmp.path().join(CERTS_DIR).join("legacy.example");
+		std::fs::create_dir_all(&dir).unwrap();
+		std::fs::write(
+			dir.join(CERT_FILE),
+			"-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n",
+		)
+		.unwrap();
+		std::fs::write(
+			dir.join(KEY_FILE),
+			"-----BEGIN PRIVATE KEY-----\nKEY\n-----END PRIVATE KEY-----\n",
+		)
+		.unwrap();
+		std::fs::write(
+			dir.join(META_FILE),
+			r#"{"version":1,"not_after_unix_ms":1700000000000,"last_renew_at_unix_ms":1690000000000}"#,
+		)
+		.unwrap();
+
+		let back = store.load_cert("legacy.example").await.unwrap().unwrap();
+		assert!(back.ocsp_response.is_none());
+		assert!(back.ocsp_next_update.is_none());
+		assert!(back.ocsp_aia_url.is_none());
+		assert_eq!(back.not_after, unix_ms_to_system_time(1_700_000_000_000));
+	}
+
+	#[tokio::test]
+	async fn meta_v2_round_trips_with_ocsp_response() {
+		let tmp = TempDir::new().unwrap();
+		let store = FsAcmeStore::open(tmp.path()).unwrap();
+		let mut cert = fixture_cert();
+		cert.ocsp_response = Some(b"\x30\x0a\x0bRAW OCSP DER".to_vec());
+		// 1_800_000_000 s ≈ 2027-01 — picked to be plainly future
+		// relative to the test wall-clock without sliding into the
+		// `Duration::from_days` rounding range clippy prefers.
+		cert.ocsp_next_update = Some(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
+		cert.ocsp_aia_url = Some("http://ocsp.example.test/".into());
+		store.save_cert("api.example.com", &cert).await.unwrap();
+
+		let back = store.load_cert("api.example.com").await.unwrap().unwrap();
+		assert_eq!(back.ocsp_response, cert.ocsp_response);
+		assert_eq!(back.ocsp_next_update, cert.ocsp_next_update);
+		assert_eq!(back.ocsp_aia_url, cert.ocsp_aia_url);
+	}
+
+	#[tokio::test]
+	async fn save_cert_removes_ocsp_der_when_response_cleared() {
+		let tmp = TempDir::new().unwrap();
+		let store = FsAcmeStore::open(tmp.path()).unwrap();
+		let mut cert = fixture_cert();
+		cert.ocsp_response = Some(b"DER".to_vec());
+		store.save_cert("api.example.com", &cert).await.unwrap();
+		let ocsp_path = tmp.path().join(CERTS_DIR).join("api.example.com").join(OCSP_FILE);
+		assert!(ocsp_path.exists(), "ocsp.der written on first save");
+
+		// Re-save without an OCSP staple — the sidecar must be removed
+		// so a subsequent load doesn't surface a stale staple.
+		cert.ocsp_response = None;
+		store.save_cert("api.example.com", &cert).await.unwrap();
+		assert!(!ocsp_path.exists(), "ocsp.der removed when staple cleared");
+	}
+
+	#[tokio::test]
+	async fn ocsp_der_perms_match_cert_pem() {
+		let tmp = TempDir::new().unwrap();
+		let store = FsAcmeStore::open(tmp.path()).unwrap();
+		let mut cert = fixture_cert();
+		cert.ocsp_response = Some(b"DER".to_vec());
+		store.save_cert("api.example.com", &cert).await.unwrap();
+		let ocsp_path = tmp.path().join(CERTS_DIR).join("api.example.com").join(OCSP_FILE);
+		let mode = std::fs::metadata(&ocsp_path).unwrap().permissions().mode() & 0o777;
+		// OCSP staples are not secret — `0644` matches `cert.pem`.
+		assert_eq!(mode, MODE_PUBLIC_FILE);
 	}
 
 	#[tokio::test]

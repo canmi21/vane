@@ -142,6 +142,19 @@ pub struct AcmeAccount {
 /// `None` until ARI is wired (Stage 3); `last_renew_at` is set to
 /// the issuance time on first save and updated on each successful
 /// renewal so the renewal scheduler has an idempotent reference.
+///
+/// OCSP fields (`ocsp_response` / `ocsp_next_update` / `ocsp_aia_url`)
+/// land alongside the cert from the OCSP fetcher (see
+/// `crates/engine/src/tls/ocsp.rs`). `ocsp_response` carries the
+/// raw DER staple bytes — the populator hands them straight to
+/// `rustls::sign::CertifiedKey.ocsp` so rustls staples them to the
+/// `ServerHello`. `ocsp_next_update` is the responder's `nextUpdate`,
+/// driving the renewal scheduler's "refresh OCSP within 24 h of
+/// expiry" decision; `ocsp_aia_url` is cached at issuance time so
+/// the scheduler doesn't have to re-parse the cert at every tick.
+/// All three are `None` immediately after issuance when the
+/// responder is unreachable — the cert ships without a staple, and
+/// the scheduler retries on its next pass.
 #[derive(Debug, Clone)]
 pub struct StoredCert {
 	pub leaf_pem: String,
@@ -150,6 +163,9 @@ pub struct StoredCert {
 	pub not_after: SystemTime,
 	pub ari_replacement_id: Option<String>,
 	pub last_renew_at: SystemTime,
+	pub ocsp_response: Option<Vec<u8>>,
+	pub ocsp_next_update: Option<SystemTime>,
+	pub ocsp_aia_url: Option<String>,
 }
 
 /// On-disk JSON shape for [`AcmeAccount`]. Versioned so future
@@ -189,9 +205,15 @@ impl AccountFileV1 {
 	}
 }
 
-/// On-disk JSON shape for [`StoredCert`]'s metadata. The PEM bodies
-/// (`cert.pem`, `key.pem`) live in their own files alongside this
-/// `meta.json` so `cat key.pem` works from a shell session.
+/// On-disk JSON shape for [`StoredCert`]'s metadata, version 1.
+/// The PEM bodies (`cert.pem`, `key.pem`) live in their own files
+/// alongside this `meta.json` so `cat key.pem` works from a shell
+/// session.
+///
+/// V1 is the pre-OCSP-stapling shape; the loader supports it for
+/// backwards compatibility with stores written before
+/// `crates/engine/src/tls/ocsp.rs` landed. New writes produce
+/// [`CertMetaV2`].
 #[derive(Serialize, Deserialize)]
 pub(super) struct CertMetaV1 {
 	pub version: u32,
@@ -202,7 +224,44 @@ pub(super) struct CertMetaV1 {
 }
 
 impl CertMetaV1 {
+	/// Read-only constant — `CertMetaV1` is only emitted by old
+	/// stores (the loader handles them on the read path) so the
+	/// constant is referenced via documentation rather than active
+	/// writes. Tests + the `meta_v1_loads_with_ocsp_fields_as_none`
+	/// fixture write the v1 shape inline.
+	#[allow(dead_code, reason = "v1 is read-only — write path uses CertMetaV2")]
 	pub(super) const VERSION: u32 = 1;
+}
+
+/// V2 metadata: V1 + OCSP fetch state (`ocsp_next_update` and the
+/// cached `ocsp_aia_url`). The staple bytes themselves don't sit in
+/// JSON — they're a separate `ocsp.der` file alongside `cert.pem`
+/// to keep the meta file readable and to skip base64-encoding the
+/// OCSP DER (which is already binary; double-encoding would just
+/// inflate the meta file by ~33%).
+#[derive(Serialize, Deserialize)]
+pub(super) struct CertMetaV2 {
+	pub version: u32,
+	pub not_after_unix_ms: u64,
+	pub last_renew_at_unix_ms: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ari_replacement_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ocsp_next_update_unix_ms: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ocsp_aia_url: Option<String>,
+}
+
+impl CertMetaV2 {
+	pub(super) const VERSION: u32 = 2;
+}
+
+/// Probe just the `version` field of any meta JSON. Used by the
+/// loader to dispatch to the right de-shape variant without
+/// committing to `CertMetaV2`'s required `version: 2` constant.
+#[derive(Deserialize)]
+pub(super) struct CertMetaVersionProbe {
+	pub version: u32,
 }
 
 #[derive(Debug, thiserror::Error)]

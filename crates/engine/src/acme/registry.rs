@@ -757,6 +757,13 @@ impl ManagedCertRegistry {
 			not_after,
 			ari_replacement_id: None,
 			last_renew_at: now,
+			// OCSP fields are populated post-issuance by
+			// `refresh_ocsp_after_issuance` (next commit). For now,
+			// every fresh cert lands without a staple; the renewal
+			// scheduler picks up the gap on its next tick.
+			ocsp_response: None,
+			ocsp_next_update: None,
+			ocsp_aia_url: None,
 		};
 		self.store.save_cert(sni, &stored).await?;
 		let arc = Arc::new(stored);
@@ -845,6 +852,13 @@ impl ManagedCertRegistry {
 			not_after,
 			ari_replacement_id: None,
 			last_renew_at: now,
+			// OCSP fields are populated post-issuance by
+			// `refresh_ocsp_after_issuance` (next commit). For now,
+			// every fresh cert lands without a staple; the renewal
+			// scheduler picks up the gap on its next tick.
+			ocsp_response: None,
+			ocsp_next_update: None,
+			ocsp_aia_url: None,
 		};
 		self.store.save_cert(sni, &stored).await?;
 		let arc = Arc::new(stored);
@@ -1257,6 +1271,9 @@ mod tests {
 			not_after: SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000_000),
 			ari_replacement_id: None,
 			last_renew_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+			ocsp_response: None,
+			ocsp_next_update: None,
+			ocsp_aia_url: None,
 		}
 	}
 

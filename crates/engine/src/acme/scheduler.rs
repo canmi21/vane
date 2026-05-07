@@ -290,6 +290,9 @@ mod tests {
 			not_after,
 			ari_replacement_id: None,
 			last_renew_at: SystemTime::UNIX_EPOCH,
+			ocsp_response: None,
+			ocsp_next_update: None,
+			ocsp_aia_url: None,
 		})
 	}
 

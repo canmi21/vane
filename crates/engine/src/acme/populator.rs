@@ -231,6 +231,9 @@ mod tests {
 			not_after: SystemTime::now() + Duration::from_hours(24 * 30),
 			ari_replacement_id: None,
 			last_renew_at: SystemTime::now(),
+			ocsp_response: None,
+			ocsp_next_update: None,
+			ocsp_aia_url: None,
 		}
 	}
 
