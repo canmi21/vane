@@ -76,8 +76,9 @@ pub mod version {
 	/// - **Vane** brand → yellow + bold
 	/// - section labels (`Built:`, `Rust:`, `Homepage:` …) → cyan + bold
 	/// - MIT-licence prose lead-in (the two lines that introduce the
-	///   warranty disclaimer) → plain cyan, softer than the bold
-	///   labels but still distinct from body text
+	///   warranty disclaimer) → green, mirroring the placeholder
+	///   colour from clap help so the disclaimer block reads as a
+	///   single styled paragraph
 	/// - `ABSOLUTELY NO WARRANTY` substring → red + bold
 	/// - everything else (description, version values, copyright,
 	///   URL values) → plain
@@ -108,7 +109,7 @@ pub mod version {
 		const INDENT: &str = "  ";
 
 		let brand = Style::new().yellow().bold();
-		let prose = Style::new().cyan();
+		let prose = Style::new().green();
 		let warning = Style::new().red().bold();
 
 		println!();
