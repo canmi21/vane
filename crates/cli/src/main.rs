@@ -11,12 +11,14 @@ use clap::{Parser, Subcommand};
 use vane_core::version::{BuildInfo, format_version};
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
-	CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, ForceRenewArgs, ForceRenewResult,
-	GetCertsResult, GetConfigResult, GetConnectionsResult, GetMetricsArgs, GetMetricsResult,
-	ListenerStatus, NoArgs, PingResult, ReloadResult, ShutdownResult, StatsResult,
-	VERB_COMPILE_DRY_RUN, VERB_FORCE_RENEW, VERB_GET_CERTS, VERB_GET_CONFIG, VERB_GET_CONNECTIONS,
-	VERB_GET_METRICS, VERB_PING, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW,
-	VERB_TAIL_LOG,
+	CgiPoolEntry, CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, ForceRenewArgs,
+	ForceRenewResult, GetCertsResult, GetConfigResult, GetConnectionsResult, GetMetricsArgs,
+	GetMetricsResult, GetPoolsResult, GetUpstreamsResult, ListenerStatus, NoArgs, PingResult,
+	PoolDrainArgs, PoolDrainResult, QuicUpstreamEntry, ReloadResult, ShutdownResult, StatsResult,
+	TcpUpstreamEntry, VERB_COMPILE_DRY_RUN, VERB_FORCE_RENEW, VERB_GET_CERTS, VERB_GET_CONFIG,
+	VERB_GET_CONNECTIONS, VERB_GET_METRICS, VERB_GET_POOLS, VERB_GET_UPSTREAMS, VERB_PING,
+	VERB_POOL_DRAIN, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW, VERB_TAIL_LOG,
+	WasmPoolEntry,
 };
 
 const BUILD_INFO: BuildInfo = BuildInfo {
@@ -106,6 +108,15 @@ enum Cmd {
 	/// status detail) + static (SNI / source label only).
 	#[command(name = "get-certs")]
 	GetCerts,
+	/// Drop a single TCP / TLS or QUIC upstream pool entry by its
+	/// `fingerprint_id` (look one up with `vane get upstreams`).
+	/// Live in-flight requests on the entry survive — only future
+	/// cache lookups are affected.
+	#[command(name = "pool-drain")]
+	PoolDrain {
+		/// 16-char hex id from `get_upstreams`.
+		fingerprint_id: String,
+	},
 }
 
 #[derive(Subcommand, Debug)]
@@ -117,6 +128,15 @@ enum GetCmd {
 	/// Counter/gauge snapshot. Default Prometheus text; `--json` returns
 	/// the parsed JSON form.
 	Metrics,
+	/// Snapshot of every WASM stateful / stateless instance pool plus
+	/// the CGI concurrency-cap semaphore. Empty sections are omitted in
+	/// the pretty render; `--json` is exhaustive.
+	Pools,
+	/// Snapshot of cached upstream connection objects (TCP / TLS pool
+	/// entries from `hyper-util` plus QUIC pool entries when `h3` is
+	/// built). Each row shows the `fingerprint_id` accepted by
+	/// `pool-drain`.
+	Upstreams,
 }
 
 #[derive(Subcommand, Debug)]
@@ -153,10 +173,13 @@ async fn main() -> std::process::ExitCode {
 		Cmd::Get { what: GetCmd::Config } => run_get_config(&client).await,
 		Cmd::Get { what: GetCmd::Connections } => run_get_connections(&client, cli.json).await,
 		Cmd::Get { what: GetCmd::Metrics } => run_get_metrics(&client, cli.json).await,
+		Cmd::Get { what: GetCmd::Pools } => run_get_pools(&client, cli.json).await,
+		Cmd::Get { what: GetCmd::Upstreams } => run_get_upstreams(&client, cli.json).await,
 		Cmd::Tail { what: TailCmd::Flow } => run_tail_flow(&client, cli.json).await,
 		Cmd::Tail { what: TailCmd::Log } => run_tail_log(&client, cli.json).await,
 		Cmd::ForceRenew { sni } => run_force_renew(&client, &sni, cli.json).await,
 		Cmd::GetCerts => run_get_certs(&client, cli.json).await,
+		Cmd::PoolDrain { fingerprint_id } => run_pool_drain(&client, &fingerprint_id, cli.json).await,
 	};
 	match result {
 		Ok(()) => std::process::ExitCode::SUCCESS,
@@ -284,6 +307,47 @@ async fn run_get_metrics(client: &UnixMgmtClient, json: bool) -> anyhow::Result<
 	match r {
 		GetMetricsResult::Prometheus { body } => print!("{body}"),
 		GetMetricsResult::Json { metrics } => print_json(&metrics)?,
+	}
+	Ok(())
+}
+
+async fn run_get_pools(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+	let r: GetPoolsResult = client.call(VERB_GET_POOLS, &NoArgs {}).await?;
+	if json {
+		print_json(&r)?;
+	} else {
+		println!("wasm:");
+		print_wasm_pool_rows(&r.wasm);
+		println!("cgi:");
+		print_cgi_pool_row(r.cgi.as_ref());
+	}
+	Ok(())
+}
+
+async fn run_get_upstreams(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+	let r: GetUpstreamsResult = client.call(VERB_GET_UPSTREAMS, &NoArgs {}).await?;
+	if json {
+		print_json(&r)?;
+	} else {
+		println!("tcp:");
+		print_tcp_upstream_rows(&r.tcp);
+		println!("quic:");
+		print_quic_upstream_rows(&r.quic);
+	}
+	Ok(())
+}
+
+async fn run_pool_drain(
+	client: &UnixMgmtClient,
+	fingerprint_id: &str,
+	json: bool,
+) -> anyhow::Result<()> {
+	let args = PoolDrainArgs { fingerprint_id: fingerprint_id.to_owned() };
+	let r: PoolDrainResult = client.call(VERB_POOL_DRAIN, &args).await?;
+	if json {
+		print_json(&r)?;
+	} else {
+		println!("drained: tcp={} quic={}", r.tcp_drained, r.quic_drained);
 	}
 	Ok(())
 }
@@ -422,6 +486,79 @@ fn print_listener_rows(rows: &[ListenerStatus]) {
 			width = max_addr_width,
 			state = state,
 			count = row.in_flight_count,
+		);
+	}
+}
+
+fn print_wasm_pool_rows(rows: &[WasmPoolEntry]) {
+	if rows.is_empty() {
+		println!("  (none)");
+		return;
+	}
+	let max_key = rows.iter().map(|r| r.key.len()).max().unwrap_or(0);
+	let max_export = rows.iter().map(|r| r.export.len()).max().unwrap_or(0);
+	for row in rows {
+		println!(
+			"  {kind:<10}  {key:<kw$}  {export:<ew$}  cap={cap} in_use={in_use} avail={avail} alloc={alloc} fail={fail}",
+			kind = row.kind,
+			key = row.key,
+			kw = max_key,
+			export = row.export,
+			ew = max_export,
+			cap = row.capacity,
+			in_use = row.in_use,
+			avail = row.available,
+			alloc = row.total_allocations,
+			fail = row.failures,
+		);
+	}
+}
+
+fn print_cgi_pool_row(row: Option<&CgiPoolEntry>) {
+	match row {
+		None => println!("  (cgi disabled or no requests yet)"),
+		Some(r) => println!(
+			"  cap={cap} in_use={in_use} avail={avail} alloc={alloc} fail={fail}",
+			cap = r.cap,
+			in_use = r.in_use,
+			avail = r.available,
+			alloc = r.total_allocations,
+			fail = r.failures,
+		),
+	}
+}
+
+fn print_tcp_upstream_rows(rows: &[TcpUpstreamEntry]) {
+	if rows.is_empty() {
+		println!("  (none)");
+		return;
+	}
+	for row in rows {
+		println!(
+			"  {fp}  {scheme}/{version}  alpn=[{alpn}] dns={dns} root={root} verify={verify}",
+			fp = row.fingerprint_id,
+			scheme = row.scheme,
+			version = row.version,
+			alpn = row.alpn.join(","),
+			dns = row.dns,
+			root = row.root_ca,
+			verify = row.verify_mode,
+		);
+	}
+}
+
+fn print_quic_upstream_rows(rows: &[QuicUpstreamEntry]) {
+	if rows.is_empty() {
+		println!("  (none)");
+		return;
+	}
+	for row in rows {
+		println!(
+			"  {fp}  {addr}  sni={sni} alpn=[{alpn}]",
+			fp = row.fingerprint_id,
+			addr = row.remote_addr,
+			sni = row.sni,
+			alpn = row.alpn.join(","),
 		);
 	}
 }
