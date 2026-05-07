@@ -135,18 +135,47 @@ fn stored_to_cert_entry(stored: &StoredCert) -> Result<CertEntry, PopulatorError
 		.load_private_key(private_key)
 		.map_err(|e| PopulatorError::source(format!("load_private_key: {e}")))?;
 
+	let mut certified = rustls::sign::CertifiedKey::new(cert_chain, signing_key);
+	// Stage the OCSP staple onto the rustls key bundle. rustls reads
+	// `CertifiedKey.ocsp` during handshake and emits a
+	// `CertificateStatus` extension to the ServerHello automatically;
+	// no further plumbing is required. `clone_from` reuses any
+	// existing allocation in `certified.ocsp` (none on a fresh
+	// CertifiedKey, but the lint catches it anyway).
+	certified.ocsp.clone_from(&stored.ocsp_response);
+
 	Ok(CertEntry {
-		key: Arc::new(rustls::sign::CertifiedKey::new(cert_chain, signing_key)),
+		key: Arc::new(certified),
 		not_after: stored.not_after,
-		ocsp_next_update: None,
+		// `CertEntry.ocsp_next_update` is `Option<Instant>` so the
+		// listener-side refresh loop can compare against `Instant::now()`
+		// without re-decoding the OCSP DER. Convert wall-clock
+		// `SystemTime` → monotonic `Instant` via the standard
+		// `now()` offset trick — same pattern used by the wasm pool.
+		ocsp_next_update: stored.ocsp_next_update.and_then(system_time_to_instant),
 	})
 }
 
-/// Structural equivalence check for two `CertStore`s: same SNI set
-/// and same leaf DER bytes per SNI. Used by [`ManagedCertPopulator::refresh`]
-/// to skip the `ArcSwap` install when nothing actually changed
-/// (avoids spurious resolver rebuilds on every 5-minute tick when no
-/// certs renewed).
+/// Wall-clock → monotonic conversion. Returns `None` when
+/// `target` is in the past — the caller treats that as "no
+/// freshness signal" rather than going negative.
+fn system_time_to_instant(target: std::time::SystemTime) -> Option<std::time::Instant> {
+	let now_sys = std::time::SystemTime::now();
+	let now_inst = std::time::Instant::now();
+	target.duration_since(now_sys).ok().map(|delta| now_inst + delta)
+}
+
+/// Structural equivalence check for two `CertStore`s: same SNI set,
+/// same leaf DER bytes per SNI, AND same OCSP staple bytes per SNI.
+/// Used by [`ManagedCertPopulator::refresh`] to skip the `ArcSwap`
+/// install when nothing actually changed (avoids spurious resolver
+/// rebuilds on every 5-minute tick when no certs renewed and no
+/// OCSP staple was refreshed).
+///
+/// OCSP comparison matters: the renewal scheduler can refresh a
+/// staple without rotating the cert; the new staple must reach the
+/// resolver via an `ArcSwap` install, otherwise rustls keeps
+/// stapling the stale bytes.
 ///
 /// Defaults are not compared because `ManagedCertPopulator` always
 /// produces `default: None` — defaults are owned by the static
@@ -158,6 +187,9 @@ fn cert_stores_equivalent(a: &CertStore, b: &CertStore) -> bool {
 	for (sni, ae) in &a.by_sni {
 		let Some(be) = b.by_sni.get(sni) else { return false };
 		if leaf_der(ae) != leaf_der(be) {
+			return false;
+		}
+		if ae.key.ocsp != be.key.ocsp {
 			return false;
 		}
 	}
@@ -308,6 +340,37 @@ mod tests {
 		let refreshed = populator.refresh(&initial).await.expect("refresh").expect("rotated");
 		let new_der = refreshed.by_sni.get("a.example").map(|e| leaf_der(e).to_vec()).unwrap();
 		assert_ne!(initial_der, new_der, "rotated cert must surface as a new DER");
+	}
+
+	#[tokio::test]
+	async fn populator_loads_ocsp_into_certified_key() {
+		let mut stored = make_stored_cert("a.example");
+		stored.ocsp_response = Some(b"FAKE OCSP DER".to_vec());
+		stored.ocsp_next_update = Some(SystemTime::now() + Duration::from_hours(48));
+		let registry = registry_with(&[("a.example", stored)]).await;
+		let populator = ManagedCertPopulator::new(Arc::clone(&registry), vec!["a.example".into()]);
+		let store = populator.initial_store().await.expect("initial_store");
+		let entry = store.by_sni.get("a.example").expect("entry");
+		assert_eq!(
+			entry.key.ocsp.as_deref(),
+			Some(&b"FAKE OCSP DER"[..]),
+			"populator must surface OCSP staple via CertifiedKey.ocsp",
+		);
+		assert!(entry.ocsp_next_update.is_some(), "ocsp_next_update should convert into Instant");
+	}
+
+	#[tokio::test]
+	async fn refresh_returns_some_when_only_ocsp_changes() {
+		let stored_v1 = make_stored_cert("a.example");
+		let registry = registry_with(&[("a.example", stored_v1.clone())]).await;
+		let populator = ManagedCertPopulator::new(Arc::clone(&registry), vec!["a.example".into()]);
+		let initial = populator.initial_store().await.expect("initial_store");
+		// Cache the *same* cert but with a freshly-cached OCSP staple.
+		let mut stored_v2 = stored_v1;
+		stored_v2.ocsp_response = Some(b"NEW OCSP STAPLE".to_vec());
+		registry.cache_cert_for_test("a.example", Arc::new(stored_v2));
+		let refreshed = populator.refresh(&initial).await.expect("refresh");
+		assert!(refreshed.is_some(), "OCSP staple change alone must trigger an ArcSwap install");
 	}
 
 	#[tokio::test]

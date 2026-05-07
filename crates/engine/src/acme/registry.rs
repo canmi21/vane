@@ -37,9 +37,10 @@ use vane_core::rule::ChallengeKind;
 use super::ari::{self, AriOutcome};
 use super::scheduler::{
 	self, CertState, CertStatus, RenewalJob, RenewalPlan, mark_renewing, record_failure,
-	record_success, should_attempt,
+	record_success, should_attempt, should_refresh_ocsp,
 };
 use super::store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
+use crate::tls::ocsp::{self, FETCH_TIMEOUT, OcspError};
 
 /// Lookup key for the pending-challenge table. Per
 /// `spec/acme.md` § _HTTP-01 § Case 1_ the responder verifies
@@ -467,6 +468,104 @@ impl ManagedCertRegistry {
 		Ok(())
 	}
 
+	/// Walk every tracked SNI and collect the SNIs that need an
+	/// OCSP refresh at `now`. Excludes SNIs that already appear in
+	/// [`Self::collect_renewal_plans`] (cert renewal trumps OCSP
+	/// refresh — the new cert will fetch its own staple at issuance
+	/// time, no point patching the old one).
+	#[must_use]
+	pub fn collect_ocsp_refresh_plans(&self, now: SystemTime) -> Vec<String> {
+		let renewing: std::collections::BTreeSet<String> =
+			self.collect_renewal_plans(now).into_iter().map(|p| p.sni).collect();
+		let mut out: Vec<String> = self
+			.certs
+			.iter()
+			.filter_map(|entry| {
+				if renewing.contains(entry.key()) {
+					return None;
+				}
+				if should_refresh_ocsp(entry.value(), now) { Some(entry.key().clone()) } else { None }
+			})
+			.collect();
+		out.sort();
+		out
+	}
+
+	/// Update `cert.ocsp_response` / `ocsp_next_update` /
+	/// `ocsp_aia_url` and persist via the store. Used by both the
+	/// post-issuance OCSP fetch and the scheduler's refresh tick.
+	async fn persist_ocsp_state(
+		&self,
+		sni: &str,
+		ocsp_response: Option<Vec<u8>>,
+		ocsp_next_update: Option<SystemTime>,
+		ocsp_aia_url: Option<String>,
+	) -> Result<(), RegistryError> {
+		// Read-modify-write the cached cert state. We hold the
+		// per-cert advisory lock for the disk write so the renewal
+		// scheduler's tick can't race the post-issuance write.
+		let key = sni.to_ascii_lowercase();
+		let updated_arc = match self.certs.get(&key).map(|s| s.stored.clone()) {
+			Some(Some(stored_arc)) => {
+				let mut updated = (*stored_arc).clone();
+				updated.ocsp_response = ocsp_response;
+				updated.ocsp_next_update = ocsp_next_update;
+				updated.ocsp_aia_url = ocsp_aia_url;
+				let arc = Arc::new(updated);
+				let scope = format!("cert/{sni}");
+				let _guard = self.store.lock(&scope).await?;
+				self.store.save_cert(sni, &arc).await?;
+				arc
+			}
+			_ => return Ok(()),
+		};
+		// Update in-memory cache. Carefully scoped — we don't want
+		// to call `record_success` (would clobber attempt timestamps)
+		// or churn status; only swap in the new `stored`.
+		if let Some(mut entry) = self.certs.get_mut(&key) {
+			entry.value_mut().stored = Some(updated_arc);
+		}
+		Ok(())
+	}
+
+	/// Run one OCSP fetch for `sni` and persist the result. Called
+	/// from both the post-issuance hook (`refresh_ocsp_after_issuance`)
+	/// and the scheduler's refresh tick.
+	///
+	/// Failures are logged + the AIA URL is stashed so a future tick
+	/// can retry; the cert state itself isn't perturbed.
+	pub async fn refresh_ocsp_for_sni(&self, sni: &str) {
+		let key = sni.to_ascii_lowercase();
+		let Some(Some(stored)) = self.certs.get(&key).map(|s| s.stored.clone()) else {
+			tracing::trace!(target: "vane::acme::ocsp", sni, "no cert cached; OCSP refresh skipped");
+			return;
+		};
+		let outcome = fetch_ocsp_for_stored(&stored).await;
+		match outcome {
+			OcspFetchOutcome::Stapled { staple, next_update, aia_url } => {
+				if let Err(e) =
+					self.persist_ocsp_state(sni, Some(staple), Some(next_update), Some(aia_url)).await
+				{
+					warn!(target: "vane::acme::ocsp", sni, error = %e, "OCSP staple persist failed");
+				}
+			}
+			OcspFetchOutcome::CacheUrlOnly { aia_url } => {
+				// Responder unreachable / parse failed — keep the URL
+				// so the next tick retries; clear stale staple.
+				if let Err(e) = self.persist_ocsp_state(sni, None, None, Some(aia_url)).await {
+					warn!(target: "vane::acme::ocsp", sni, error = %e, "OCSP url-only persist failed");
+				}
+			}
+			OcspFetchOutcome::NotApplicable => {
+				// Cert has no AIA URL or no OCSP responder. Clear
+				// any stale entries so the scheduler stops polling.
+				if let Err(e) = self.persist_ocsp_state(sni, None, None, None).await {
+					warn!(target: "vane::acme::ocsp", sni, error = %e, "OCSP clear persist failed");
+				}
+			}
+		}
+	}
+
 	/// Operator-driven immediate renewal per `spec/acme.md`
 	/// § _`force_renew` mgmt verb_. Looks up the registered job for
 	/// `sni` and spawns a one-shot [`Self::run_renewal_attempt`]
@@ -779,6 +878,11 @@ impl ManagedCertRegistry {
 			warn!(target: "vane::acme", sni, error = %e, "ARI window refresh after issuance failed");
 		}
 
+		// Best-effort OCSP fetch + persist. Same posture as ARI:
+		// failure is non-fatal (cert is usable without a staple),
+		// the scheduler retries on the next tick.
+		self.refresh_ocsp_for_sni(sni).await;
+
 		// Synchronous cleanup on success so the operator's DNS state
 		// is known-clean by the time the function returns. The guard
 		// is now disarmed and drops as a no-op.
@@ -869,6 +973,11 @@ impl ManagedCertRegistry {
 		if let Err(e) = self.refresh_ari_window(sni, &account, arc.as_ref()).await {
 			warn!(target: "vane::acme", sni, error = %e, "ARI window refresh after issuance failed");
 		}
+
+		// Best-effort OCSP fetch + persist. Same posture as ARI:
+		// failure is non-fatal (cert is usable without a staple),
+		// the scheduler retries on the next tick.
+		self.refresh_ocsp_for_sni(sni).await;
 
 		// Cleanup runs on guard drop — explicit to make the
 		// intent visible at the success-path bottom.
@@ -1158,6 +1267,13 @@ fn build_account_builder(
 /// slow attempt doesn't block subsequent ticks because every plan
 /// owns its own task.
 ///
+/// In addition to renewal, each tick walks
+/// [`ManagedCertRegistry::collect_ocsp_refresh_plans`] and dispatches
+/// OCSP fetches for SNIs whose staples are within `OCSP_REFRESH_BEFORE`
+/// of expiry (or whose first fetch never succeeded). Cert renewal
+/// trumps OCSP refresh on the same SNI — the new cert will fetch
+/// its own staple at issuance.
+///
 /// `MissedTickBehavior::Skip` collapses missed ticks (e.g. process
 /// suspended) so we don't burst-issue after a long pause; the next
 /// tick simply happens at the next 5-minute boundary.
@@ -1173,6 +1289,77 @@ async fn scheduler_loop(registry: Arc<ManagedCertRegistry>) {
 			tokio::spawn(async move {
 				registry.run_renewal_attempt(&plan.sni, plan.job).await;
 			});
+		}
+		let ocsp_snis = registry.collect_ocsp_refresh_plans(now);
+		for sni in ocsp_snis {
+			let registry = Arc::clone(&registry);
+			tokio::spawn(async move {
+				registry.refresh_ocsp_for_sni(&sni).await;
+			});
+		}
+	}
+}
+
+/// One-shot OCSP fetch result for a stored cert. Three branches so
+/// callers can distinguish "got a staple" from "responder
+/// unreachable, but URL is known so retry later" from "cert isn't
+/// OCSP-eligible (no AIA / no responder URL / HTTPS responder)".
+enum OcspFetchOutcome {
+	Stapled { staple: Vec<u8>, next_update: SystemTime, aia_url: String },
+	CacheUrlOnly { aia_url: String },
+	NotApplicable,
+}
+
+/// Run the full OCSP fetch pipeline for a stored cert: extract AIA
+/// URL → build request → fetch → parse. Categorises failures so
+/// the registry can decide whether to keep retrying (URL stash)
+/// or stop polling (cert is OCSP-ineligible).
+async fn fetch_ocsp_for_stored(stored: &StoredCert) -> OcspFetchOutcome {
+	use rustls::pki_types::CertificateDer;
+	use rustls_pemfile::certs;
+	let leaf_pem_bytes = stored.leaf_pem.as_bytes();
+	let leaf_der: CertificateDer<'static> = match certs(&mut &leaf_pem_bytes[..]).next() {
+		Some(Ok(d)) => d,
+		_ => return OcspFetchOutcome::NotApplicable,
+	};
+	let chain_pem_bytes = stored.chain_pem.as_bytes();
+	let issuer_der: CertificateDer<'static> = match certs(&mut &chain_pem_bytes[..]).next() {
+		Some(Ok(d)) => d,
+		_ => {
+			// No intermediate to use as issuer — self-signed (test
+			// fixtures) or operator-supplied PEM with the chain
+			// missing. We can't build a valid OCSP request, so the
+			// staple is non-applicable.
+			return OcspFetchOutcome::NotApplicable;
+		}
+	};
+	let aia_url = match ocsp::extract_ocsp_url(leaf_der.as_ref()) {
+		Ok(url) => url,
+		Err(OcspError::NoAia | OcspError::NoOcspUrl) => return OcspFetchOutcome::NotApplicable,
+		Err(OcspError::HttpsNotSupported(_)) => {
+			tracing::debug!(
+				target: "vane::acme::ocsp",
+				"cert AIA url is HTTPS — vane fetches OCSP only over HTTP; staple deferred to ocsp_path",
+			);
+			return OcspFetchOutcome::NotApplicable;
+		}
+		Err(e) => {
+			tracing::warn!(target: "vane::acme::ocsp", error = %e, "AIA URL extraction failed");
+			return OcspFetchOutcome::NotApplicable;
+		}
+	};
+	match ocsp::fetch_ocsp_for_cert(leaf_der.as_ref(), issuer_der.as_ref(), FETCH_TIMEOUT).await {
+		Ok(staple) => {
+			OcspFetchOutcome::Stapled { staple: staple.staple, next_update: staple.next_update, aia_url }
+		}
+		Err(e) => {
+			tracing::warn!(
+				target: "vane::acme::ocsp",
+				url = %aia_url,
+				error = %e,
+				"OCSP fetch failed; will retry on next scheduler tick",
+			);
+			OcspFetchOutcome::CacheUrlOnly { aia_url }
 		}
 	}
 }
@@ -1652,5 +1839,62 @@ mod tests {
 		let snap = registry.cert_states_snapshot();
 		let snis: Vec<_> = snap.iter().map(|(s, _)| s.as_str()).collect();
 		assert_eq!(snis, vec!["alpha.example", "mike.example", "zeta.example"]);
+	}
+
+	fn fixture_cert_with_ocsp(aia_url: Option<&str>, response: Option<&[u8]>) -> StoredCert {
+		let mut cert = fixture_cert();
+		cert.ocsp_aia_url = aia_url.map(str::to_owned);
+		cert.ocsp_response = response.map(<[u8]>::to_vec);
+		cert
+	}
+
+	#[tokio::test]
+	async fn collect_ocsp_refresh_plans_includes_aia_url_with_no_staple() {
+		let store = Arc::new(MockStore::default());
+		store
+			.save_cert(
+				"api.example.com",
+				&fixture_cert_with_ocsp(Some("http://ocsp.example.test/"), None),
+			)
+			.await
+			.unwrap();
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		let plans = registry.collect_ocsp_refresh_plans(SystemTime::now());
+		assert_eq!(plans, vec!["api.example.com".to_owned()]);
+	}
+
+	#[tokio::test]
+	async fn collect_ocsp_refresh_plans_skips_certs_without_aia() {
+		let store = Arc::new(MockStore::default());
+		store.save_cert("api.example.com", &fixture_cert()).await.unwrap();
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		let plans = registry.collect_ocsp_refresh_plans(SystemTime::now());
+		assert!(plans.is_empty(), "no AIA → no OCSP refresh");
+	}
+
+	#[tokio::test]
+	async fn collect_ocsp_refresh_plans_skips_snis_being_renewed() {
+		let store = Arc::new(MockStore::default());
+		// Cert near expiry → renewal trigger.
+		let mut soon_expire = fixture_cert_with_ocsp(Some("http://ocsp.example.test/"), None);
+		soon_expire.not_after = SystemTime::now() + Duration::from_mins(1);
+		store.save_cert("api.example.com", &soon_expire).await.unwrap();
+		let registry = ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.unwrap();
+		// Register a renewal job so collect_renewal_plans surfaces it.
+		registry.register_renewal_job(
+			"api.example.com",
+			RenewalJob {
+				directory_url: "https://acme.invalid/dir".into(),
+				contact: vec!["mailto:ops@example.com".into()],
+				challenge: ChallengeKind::Http01,
+				dns: None,
+				renew_before: Duration::from_hours(24 * 30),
+				extra_root_ca_pem: None,
+			},
+		);
+		// Cert is in both renewal-pending and OCSP-needs-fetch state;
+		// renewal trumps OCSP refresh on the same SNI.
+		assert_eq!(registry.collect_renewal_plans(SystemTime::now()).len(), 1);
+		assert!(registry.collect_ocsp_refresh_plans(SystemTime::now()).is_empty());
 	}
 }

@@ -154,6 +154,14 @@ pub struct RenewalPlan {
 /// heartbeat.
 pub const TICK_INTERVAL: Duration = Duration::from_mins(5);
 
+/// Refresh the cached OCSP staple when the responder's
+/// `nextUpdate` falls inside this window. Per `08-tls.md` § _OCSP
+/// stapling_, OCSP responses typically validate for 4–7 days and
+/// the spec recommends "refresh daily"; 24 h gives a comfortable
+/// margin (one tick at default cadence overshooting still leaves
+/// hours of headroom before the staple expires).
+pub const OCSP_REFRESH_BEFORE: Duration = Duration::from_hours(24);
+
 /// Backoff base — first failure waits this long before retry. Per
 /// `spec/acme.md` § _Rate-limit and failure handling_.
 pub const BACKOFF_BASE: Duration = Duration::from_mins(30);
@@ -226,6 +234,37 @@ pub fn record_failure(
 pub fn mark_renewing(state: &mut CertState, now: SystemTime) {
 	state.status = CertStatus::Renewing;
 	state.last_attempt_at = Some(now);
+}
+
+/// Pure-decision: should the scheduler dispatch an OCSP refresh for
+/// `state` at `now`? Two trigger conditions per
+/// `spec/acme.md` § _OCSP stapling_:
+///
+/// - `state.stored.is_some()` AND no staple has been cached yet
+///   (`ocsp_response.is_none()`) AND a responder URL is known
+///   (`ocsp_aia_url.is_some()`): a previous fetch failed; retry on
+///   this tick.
+/// - `ocsp_response.is_some()` AND
+///   `now + OCSP_REFRESH_BEFORE >= ocsp_next_update`: the staple
+///   is approaching its `nextUpdate`; refresh proactively.
+///
+/// Returns `false` when no cert is cached (nothing to staple) or
+/// when no AIA URL is known (the cert legitimately has no
+/// responder; nothing to refresh).
+#[must_use]
+pub fn should_refresh_ocsp(state: &CertState, now: SystemTime) -> bool {
+	let Some(stored) = &state.stored else { return false };
+	if stored.ocsp_aia_url.is_none() {
+		return false;
+	}
+	match (&stored.ocsp_response, stored.ocsp_next_update) {
+		(None, _) => true,
+		(Some(_), None) => false,
+		(Some(_), Some(next_update)) => match next_update.checked_sub(OCSP_REFRESH_BEFORE) {
+			Some(deadline) => now >= deadline,
+			None => true,
+		},
+	}
 }
 
 /// Decide whether `state` warrants a renewal attempt at `now` for a
@@ -441,6 +480,53 @@ mod tests {
 		assert!(!should_attempt(&state, &dummy_job(), now));
 		state.next_attempt_at = Some(now - Duration::from_secs(1));
 		assert!(should_attempt(&state, &dummy_job(), now));
+	}
+
+	#[test]
+	fn should_refresh_ocsp_skips_when_no_cert() {
+		let state = CertState::fresh(None);
+		assert!(!should_refresh_ocsp(&state, SystemTime::UNIX_EPOCH));
+	}
+
+	#[test]
+	fn should_refresh_ocsp_skips_when_no_aia_url() {
+		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+		let stored = dummy_stored(now + Duration::from_hours(24 * 30));
+		let state = CertState::fresh(Some(stored));
+		assert!(!should_refresh_ocsp(&state, now));
+	}
+
+	#[test]
+	fn should_refresh_ocsp_fires_when_aia_known_but_no_staple() {
+		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+		let mut stored_inner = (*dummy_stored(now + Duration::from_hours(24 * 30))).clone();
+		stored_inner.ocsp_aia_url = Some("http://ocsp.example.test/".into());
+		let state = CertState::fresh(Some(Arc::new(stored_inner)));
+		assert!(should_refresh_ocsp(&state, now), "missing staple → fetch");
+	}
+
+	#[test]
+	fn should_refresh_ocsp_fires_when_within_refresh_window() {
+		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+		let mut stored_inner = (*dummy_stored(now + Duration::from_hours(24 * 30))).clone();
+		stored_inner.ocsp_aia_url = Some("http://ocsp.example.test/".into());
+		stored_inner.ocsp_response = Some(b"DER".to_vec());
+		// next_update inside the 24h window from now → refresh.
+		stored_inner.ocsp_next_update = Some(now + Duration::from_hours(12));
+		let state = CertState::fresh(Some(Arc::new(stored_inner)));
+		assert!(should_refresh_ocsp(&state, now));
+	}
+
+	#[test]
+	fn should_refresh_ocsp_skips_when_staple_still_fresh() {
+		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+		let mut stored_inner = (*dummy_stored(now + Duration::from_hours(24 * 30))).clone();
+		stored_inner.ocsp_aia_url = Some("http://ocsp.example.test/".into());
+		stored_inner.ocsp_response = Some(b"DER".to_vec());
+		// next_update beyond the 24h window → no refresh yet.
+		stored_inner.ocsp_next_update = Some(now + Duration::from_hours(48));
+		let state = CertState::fresh(Some(Arc::new(stored_inner)));
+		assert!(!should_refresh_ocsp(&state, now));
 	}
 
 	#[test]
