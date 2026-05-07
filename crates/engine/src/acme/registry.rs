@@ -550,7 +550,9 @@ fn parse_not_after_pem(leaf_pem: &str) -> Result<std::time::SystemTime, Registry
 /// Translate `instant_acme::Error` into the registry's typed error
 /// enum. Surfaces ACME rate-limit responses as a typed
 /// [`RegistryError::RateLimited`] so the Stage 3 backoff scheduler
-/// can branch on it without string-matching.
+/// can branch on it without string-matching. Other errors carry
+/// the full chained-cause render so transient connect / TLS
+/// failures aren't reduced to "client error".
 fn map_acme_error(err: instant_acme::Error) -> RegistryError {
 	match err {
 		instant_acme::Error::Api(problem)
@@ -558,8 +560,19 @@ fn map_acme_error(err: instant_acme::Error) -> RegistryError {
 		{
 			RegistryError::RateLimited { retry_after: None }
 		}
-		other => RegistryError::Acme(other.to_string()),
+		other => RegistryError::Acme(format_chained(&other)),
 	}
+}
+
+fn format_chained(err: &(dyn std::error::Error + 'static)) -> String {
+	use std::fmt::Write as _;
+	let mut out = err.to_string();
+	let mut src = err.source();
+	while let Some(e) = src {
+		let _ = write!(out, ": {e}");
+		src = e.source();
+	}
+	out
 }
 
 /// Build an `instant_acme::AccountBuilder`. `extra_root_ca_pem` is

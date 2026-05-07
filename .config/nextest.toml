@@ -48,6 +48,7 @@ setup = ["build-vane-cli"]
 [test-groups]
 reload-serial = { max-threads = 1 }
 wasm-e2e-serial = { max-threads = 1 }
+acme-e2e-serial = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = "binary(reload)"
@@ -56,3 +57,13 @@ test-group = "reload-serial"
 [[profile.default.overrides]]
 filter = "binary(wasm_e2e)"
 test-group = "wasm-e2e-serial"
+
+# The Pebble-backed ACME e2e tests pull a Docker image on first
+# run (~10s on a fresh box) and exercise the full RFC 8555 round
+# trip; their wall-clock comfortably exceeds the workspace
+# slow-timeout. Bump the per-test budget and serialise so the two
+# tests don't race for the same Docker daemon's container slots.
+[[profile.default.overrides]]
+filter = "binary(acme_http01_e2e)"
+test-group = "acme-e2e-serial"
+slow-timeout = { period = "30s", terminate-after = 4 }

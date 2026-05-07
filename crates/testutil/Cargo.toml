@@ -27,6 +27,11 @@ h3 = [
 	"dep:bytes",
 	"dep:http",
 ]
+# Pulls in the Pebble fixture for ACME HTTP-01 e2e tests. Engine
+# tests opt in via `vane-testutil = { ..., features = ["acme"] }`.
+# Skips at runtime when Docker is unavailable so a CI / dev box
+# without a daemon can still cargo-test the rest of the workspace.
+acme = ["dep:reqwest", "dep:testcontainers", "dep:thiserror", "dep:tracing"]
 
 [dependencies]
 hyper = { version = "1.9.0", features = ["server", "http1", "client"] }
@@ -42,3 +47,25 @@ http = { version = "1.4.0", optional = true }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
+
+# ACME e2e (Pebble) — gated behind the `acme` feature.
+# `testcontainers` runs the official Pebble image in Docker;
+# `reqwest` fetches Pebble's self-signed root CA over its
+# management endpoint. Both are optional so non-ACME consumers
+# don't pay the compile cost.
+# `rustls-tls-native-roots-no-provider` keeps reqwest from
+# locking in a specific crypto backend (the default
+# `rustls-tls-native-roots` selects `ring`). Vane installs
+# aws-lc-rs at process boot via
+# `vane_engine::crypto::install_default_provider` and tests do the
+# same — having two providers in the dep graph would break
+# rustls's auto-detect for the unrelated `parse_tls_args` tests.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots-no-provider"], optional = true }
+# `default-features = false` on testcontainers + explicit
+# `aws-lc-rs` feature avoids pulling its `ring` default into the
+# workspace's rustls dep graph. Two crypto backends in the same
+# rustls instance break `CryptoProvider::install_default`'s
+# auto-detect, which the engine's TLS tests rely on.
+testcontainers = { version = "0.27", default-features = false, features = ["aws-lc-rs"], optional = true }
+thiserror = { version = "2", optional = true }
+tracing = { version = "0.1", optional = true }

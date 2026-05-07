@@ -20,8 +20,17 @@ features = ["aws-lc-rs", "h3", "cgi"]
 
 [features]
 default = ["aws-lc-rs", "h3", "cgi"]
-aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs", "hyper-rustls/aws-lc-rs"]
-ring = ["rustls/ring", "tokio-rustls/ring", "hyper-rustls/ring"]
+aws-lc-rs = [
+	"rustls/aws-lc-rs",
+	"tokio-rustls/aws-lc-rs",
+	"hyper-rustls/aws-lc-rs",
+	# Propagate the crypto backend choice into instant-acme so its
+	# default features (which pull in *both* aws-lc-rs and ring)
+	# don't double-register and break rustls's auto-detect. The `?`
+	# only fires when `acme` is also enabled.
+	"instant-acme?/aws-lc-rs",
+]
+ring = ["rustls/ring", "tokio-rustls/ring", "hyper-rustls/ring", "instant-acme?/ring"]
 h3 = ["dep:quinn", "dep:quinn-proto", "dep:h3", "dep:h3-quinn"]
 cgi = []
 acme = ["dep:fs4", "dep:futures", "dep:instant-acme", "dep:rcgen"]
@@ -88,7 +97,14 @@ quinn-proto = { version = "0.11", default-features = false, optional = true }
 # `rcgen` generates ECDSA / RSA keypairs and CSRs at issuance time.
 fs4 = { version = "1.1", default-features = false, features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
-instant-acme = { version = "0.8", optional = true }
+# `default-features = false` to keep instant-acme from pulling
+# `aws-lc-rs` AND `ring` simultaneously (its default feature set
+# includes both, which makes rustls's `CryptoProvider::install_default`
+# auto-detect fail). The active crypto backend is wired via the
+# `aws-lc-rs?` / `ring?` features above. `hyper-rustls` is
+# instant-acme's HTTP client feature; `rcgen` is unused (we
+# build our own CSR via vane-engine's rcgen dep).
+instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls"], optional = true }
 rcgen = { version = "0.14", optional = true }
 
 # `libc` is already in the workspace dep graph (transitively via tokio,
@@ -108,4 +124,4 @@ tempfile = "3"
 # production builds (which use the runtime [dependencies] entry) don't
 # pull this feature.
 tokio-rustls = { version = "0.26", default-features = false, features = ["early-data"] }
-vane-testutil = { workspace = true, features = ["h3"] }
+vane-testutil = { workspace = true, features = ["h3", "acme"] }
