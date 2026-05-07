@@ -228,6 +228,18 @@ impl ManagedCertRegistry {
 		self.certs.insert(sni.to_ascii_lowercase(), cert);
 	}
 
+	/// Test hook: drive the in-memory cache directly, bypassing the
+	/// real ACME flow. Lets sibling modules (the populator unit
+	/// tests, the future renewal-scheduler tests) simulate
+	/// "issuance landed" without spinning up a Pebble container or
+	/// a mock CA. `#[cfg(test)]` so production callers can't reach
+	/// it — the persistence path through `save_cert` is the only
+	/// supported way to land a cert in production.
+	#[cfg(test)]
+	pub(crate) fn cache_cert_for_test(&self, sni: &str, cert: Arc<StoredCert>) {
+		self.cache_cert(sni, cert);
+	}
+
 	/// Acquire (load-or-create) the live `instant-acme::Account`
 	/// for `directory_url`, persisting fresh credentials to the
 	/// store and caching the live client in [`Self::live_accounts`].

@@ -11,11 +11,13 @@
 
 pub mod dns;
 pub mod fs_store;
+pub mod populator;
 pub mod registry;
 pub mod store;
 
 pub use dns::{DnsProvider, DnsProviderError};
 pub use fs_store::FsAcmeStore;
+pub use populator::ManagedCertPopulator;
 pub use registry::{
 	ChallengeKey, ManagedCertRegistry, PendingChallenge, RegistryError, RenewalScheduler,
 };
