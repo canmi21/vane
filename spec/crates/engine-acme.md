@@ -24,15 +24,17 @@ This separation isolates ACME state lifetime (daemon-scoped, survives reload) fr
 
 ```rust
 pub struct ManagedCertRegistry {
-    store:     Arc<dyn AcmeStore>,
-    accounts:  DashMap<DirectoryUrlHash, Arc<AcmeAccount>>,
-    pending:   DashMap<(Sni, ChallengeToken), PendingChallenge>,
-    certs:     DashMap<Sni, Arc<RegisteredCert>>,
-    schedule:  Arc<RenewalScheduler>,
+    store:         Arc<dyn AcmeStore>,
+    certs:         DashMap<String, CertState>,                                              // keyed by SNI
+    jobs:          DashMap<String, RenewalJob>,                                             // per-SNI retry payload
+    pending:       DashMap<ChallengeKey, PendingChallenge>,                                 // (host, token)
+    live_accounts: parking_lot::Mutex<BTreeMap<String, Arc<instant_acme::Account>>>,       // keyed by directory_url
+    declared:      DashMap<String, ()>,                                                     // SNIs the registry treats as managed
+    schedule:      Arc<RenewalScheduler>,
 }
 ```
 
-Source: `crates/engine/src/acme/registry.rs`.
+Source: `crates/engine/src/acme/registry.rs`. `CertState` collapses the cached cert plus per-SNI scheduler state (status, backoff, last error) so the renewal walker reads from one map.
 
 ## `AcmeStore`
 
@@ -285,6 +287,6 @@ Response shape and field semantics: [`mgmt.md`](mgmt.md).
 
 `crates/engine/tests/acme_*_e2e.rs` — gated behind the `acme` feature.
 
-- HTTP-01: [Pebble](https://github.com/letsencrypt/pebble) via `testcontainers`. `vane-testutil::pebble()` spawns Pebble on a free port; one test exercises the inject path (operator has explicit `:80`), one exercises the auto-bind path (no `:80`).
-- DNS-01: mock DNS server via [`hickory-server`](https://crates.io/crates/hickory-server). `vane-testutil::mock_dns()` returns an in-process `DnsProvider` impl that records `set_txt` / `delete_txt` calls and serves the TXT through a hickory-server instance Pebble is configured to use as its resolver.
+- HTTP-01: [Pebble](https://github.com/letsencrypt/pebble) via `testcontainers`. `vane_testutil::acme::Pebble::start` spawns Pebble on a free port; one test exercises the inject path (operator has explicit `:80`), one exercises the auto-bind path (no `:80`). Tests soft-skip when Docker is unreachable.
+- DNS-01: mock DNS server via [`hickory-server`](https://crates.io/crates/hickory-server). `vane_testutil::acme::MockDns` records `set_txt` / `delete_txt` calls and serves the TXT through an in-process hickory-server that Pebble is configured to use as its resolver.
 - Real Cloudflare testing is `#[ignore]`'d by default (requires a real zone and API token); CI runs on-demand via opt-in flag.

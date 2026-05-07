@@ -13,9 +13,9 @@ TLS is in [`engine-tls.md`](engine-tls.md). ACME is in [`engine-acme.md`](engine
 - **Factories** — `MiddlewareFactories`, `FetchFactories`. Registries mapping `name` → constructor. Engine registers built-ins at startup; WASM factories come from `vane-wasm`. Source: `factories.rs`.
 - **Metadata provider impls** — concrete `MiddlewareMetadataProvider` / `FetchMetadataProvider` the daemon passes into core's `compile`. Stateless / `needs_body` / `kind` come from the same registry so compile-time analysis and link-time construction agree.
 - **Executor** — iterative walker. Source: `executor.rs`.
-- **Listeners** — per-`(transport, addr)` accept loop with bind retry, cancellation, drain. Source: `listener.rs`, `listener_udp.rs`, `h3_listener.rs`.
+- **Listeners** — per-`(transport, addr)` accept loop with bind retry, cancellation, drain. Source: `listener.rs`, `listener_udp.rs`, `h3/listener.rs`.
 - **Hot reload** — `ArcSwap<FlowGraph>` plumbing. Source: `hot_reload.rs`.
-- **HTTP server integration** — hyper for H1/H2 (`upgrade.rs`), engine's `H3Body` + h3 path for H3 (`h3_body.rs`, `h3_listener.rs`).
+- **HTTP server integration** — hyper for H1/H2 (`upgrade.rs`), engine's `H3Body` + h3 path for H3 (`h3/body.rs`, `h3/listener.rs`).
 - **Upstream fetch** — `HttpProxy`, `HttpSynthesize`, `WebSocketUpgrade`, `L4Forward`. Source: `fetch/`.
 - **Built-in middleware** — `host_header_match`, `path_prefix`, `method_match`, `forward_client_ip`, `sni_peek`, `rate_limit`. Source: `middleware/`.
 - **Protocol detect** — listener-side L4 peek that classifies TLS / H1 / H2 / QUIC / DNS / Unknown. Source: `protocol_detect.rs`.

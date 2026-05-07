@@ -8,7 +8,7 @@ The foundation: types, traits, the symbolic IR, the compile pipeline. Knows noth
 
 `http`, `http-body`, `bytes`, `serde`, `serde_json`, `arc-swap`, `parking_lot`, `thiserror`, `tracing`, `async-trait`, `fancy-regex`, `ipnet` (with `serde`), `base64`, `sha2`, `tokio-util` (no default features, for `CancellationToken`), `rustls-pki-types` (pure-Rust shared types).
 
-No async runtime executor dependency. Constructing and observing a `CancellationToken` works outside a tokio context; only `.cancelled().await` requires one, and that is the executor's concern. `vane lint` and `vane compile <DIR>` link only this crate.
+No async runtime executor dependency. Constructing and observing a `CancellationToken` works outside a tokio context; only `.cancelled().await` requires one, and that is the executor's concern. The crate is shaped to support an in-process compile path (no hyper, no wasmtime, no tokio runtime) so that pure-pipeline tooling can be built on top.
 
 ## Owns
 
@@ -23,7 +23,7 @@ No async runtime executor dependency. Constructing and observing a `Cancellation
 - **Predicate** — `Predicate`, `CheckMap`, `Operator`, `Value` (config form); `PredicateInst`, `CompiledOperator`, `CompiledValue` (runtime form). Source: `predicate.rs`.
 - **Preset expansion** — `port_forward`, `static_site`, `redirect_https`, `reverse_proxy` expand to `RawRule` bundles before merge. Source: `preset/`.
 - **Config loader** — directory scan, dotenvy precedence, top-level merge. Source: `config/`.
-- **Build / version metadata** — `BuildInfo`, project constants. Source: `meta.rs` (when present), `version.rs`.
+- **Build / version metadata** — `BuildInfo`, project constants. Source: `lib.rs::{meta, version}` (inline modules).
 
 ## Types
 
@@ -107,7 +107,7 @@ Top-level `ErrorKind` is flat and stable (9 variants) for low-cardinality metric
 
 `SerializedError` is the `Clone + Serialize` POD shape for flow log fan-out; constructed once at emit time with size caps (`message` 4 KiB, `ctx` 1 KiB, `source_chain` 16 entries × 1 KiB) so a pathological TLS chain or deep WASM error cannot ship multi-MiB events to every subscriber.
 
-`From<>` impls bridge `std::io::Error`, `hyper::Error`, `h3::Error`, `rustls::Error`, `fancy_regex::Error`, `serde_json::Error`, `ipnet::AddrParseError`, `hickory_resolver::ResolveError`, `tokio::time::error::Elapsed`. Each preserves the original as `source` for the chain.
+`From<>` impls bridge `std::io::Error`, `serde_json::Error`, `fancy_regex::Error`, `ipnet::AddrParseError`, and `tokio::time::error::Elapsed` (each preserves the original via `source`). Engine-side error sources (`hyper::Error`, `h3::Error`, `rustls::Error`, `hickory_resolver::ResolveError`) are mapped at the engine call site rather than via blanket `From<>` — the bridge belongs in the crate that owns the upstream type.
 
 ## Config layers
 

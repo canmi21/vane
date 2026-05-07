@@ -29,9 +29,12 @@ RustCrypto: `aes-gcm`, `aes`, `ctr`, `hkdf`, `sha2`, `subtle`. Pure Rust, no C d
 
 ## API
 
-`extract` returns `Some(sni)` when a complete ClientHello has been observed and SNI parsed; `None` otherwise (more datagrams needed). Errors during decryption or parsing (malformed packet, version mismatch) drop the pending session — the crate does not attempt recovery.
+Two surfaces, both in `lib.rs`:
 
-Source: `lib.rs`.
+- `Extractor::new` + `Extractor::push(&[u8]) -> Result<PushOutcome, Error>` for incremental feed. `PushOutcome::Sni(String)` once a complete ClientHello is reassembled; `PushOutcome::NeedMore` while the buffer is short.
+- `extract_sni(&[&[u8]]) -> Result<Option<String>, Error>` for a one-shot fully-buffered call.
+
+Errors during decryption or parsing (malformed packet, version mismatch, conflicting CRYPTO ranges) abort with a typed `Error` — the crate does not attempt recovery.
 
 ## QUIC v2
 

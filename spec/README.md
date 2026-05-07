@@ -8,7 +8,7 @@ Vane is a network proxy daemon. The spec describes the architecture; the source 
 2. [`conventions.md`](conventions.md) — language, naming, comments, testing.
 3. [`topology.md`](topology.md) — processes, filesystem, daemon and listener lifecycle.
 4. [`flow-model.md`](flow-model.md) — funnel, FlowGraph IR, compile/link, executor, LazyBuffer, phase machine.
-5. [`crates/`](crates/) — one file per workspace member.
+5. [`crates/`](crates/) — one file per workspace member, covering both the top-level crates under `crates/` and the standalone publishable libraries under `crates/lib/`.
 6. [`tui.md`](tui.md) — the only outstanding implementation surface.
 
 Plugin authors entry: [`wasm-abi.md`](wasm-abi.md) — the WIT contract `vaned` honors.

@@ -24,7 +24,7 @@ Operators write rules, not graphs:
 - `rule` — globally unique; used for conflict resolution, log attribution, metrics.
 - `listen` — ports or addresses this rule applies to.
 - `match` — zero or more predicates; all must hold (zero = always match).
-- `terminate` — see [`crates/engine.md` § _Fetch and Terminator_](crates/engine.md#fetch-and-terminator).
+- `terminate` — see [`crates/engine.md` § _Fetch_](crates/engine.md#fetch).
 
 A predicate reads a field from the connection context (`transport`, `tls.sni`, `http.header.host`, `http.body`, …) and applies an operator. It does not name hooks; the compiler derives required hooks from predicate field access.
 
@@ -59,8 +59,8 @@ Source: `crates/core/src/compile/{merge,expand,analyze,lower,validate}.rs`, `cra
 
 `SymbolicFlowGraph` is pure IR (no trait objects, JSON-serializable). `FlowGraph` is the linked form holding `Vec<MiddlewareInst>` and `Vec<FetchInst>` of `Arc<dyn Trait>`; it only exists in engine.
 
-- `vane compile <DIR>` and `vane lint` link only `vane-core` — they produce `SymbolicFlowGraph` and serialize as JSON. No hyper, no wasmtime, no tokio runtime.
-- `vaned` boot and reload run both stages.
+- `vane compile <DIR>` is the operator-facing dry-run. It calls the `compile_dry_run` mgmt verb on a running daemon — see [`crates/cli.md`](crates/cli.md). The daemon runs the symbolic pipeline without touching the live `FlowGraph` and returns the `SymbolicFlowGraph` JSON.
+- `vaned` boot and reload run both stages (symbolic compile then engine link).
 
 Both Arcs are cheap to swap; only the linked `FlowGraph` is `ArcSwap`-managed at runtime. Each stage's input fully determines its output; stages are independently testable.
 
@@ -196,7 +196,7 @@ Intentionally none. When `ArcSwap` installs a new graph, the old `Arc<FlowGraph>
 | External stateless WASM | Pool drains naturally; new pool starts fresh                  |
 | External stateful WASM  | Linear memory resets — new pool pre-allocates fresh instances |
 
-State-preserving alternatives (identity-based migration, externalised KV) are out of scope. Vane is a small, fast, fully in-memory proxy; its HMR contract is "in-flight connections see no disruption", not "stateful middleware survive arbitrary config edits". State that must survive reloads belongs in a dedicated layer between vane and the origin, or inside the application itself. For DDoS-class coarse protection that must survive, see the L1 floor (daemon-scoped, `ArcSwap` does not touch it) — [`crates/core.md` § _Rate limit_](crates/core.md#rate-limit).
+State-preserving alternatives (identity-based migration, externalised KV) are out of scope. Vane is a small, fast, fully in-memory proxy; its HMR contract is "in-flight connections see no disruption", not "stateful middleware survive arbitrary config edits". State that must survive reloads belongs in a dedicated layer between vane and the origin, or inside the application itself. For DDoS-class coarse protection that must survive, see the L1 floor (daemon-scoped, `ArcSwap` does not touch it) — [`crates/core.md` § _Rate limit (L2)_](crates/core.md#rate-limit-l2).
 
 ## Flow log verbosity
 

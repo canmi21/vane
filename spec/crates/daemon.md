@@ -92,7 +92,7 @@ After listeners start, the daemon polls each listener's bind-ready flag for up t
 - Every IR change (new node kind, new field, hash-cons key change) would require explicit cache versioning + invalidation. Forgetting once produces silent miscompiles in production.
 - Performance is a non-issue — sub-millisecond pipeline for typical rule counts, dominated by JSON parsing.
 
-Operators who want to inspect compiled state query `get_config` (live) or run `vane compile <DIR>` (offline; same pipeline without binding listeners; same JSON, useful for review of a proposed deploy before swap).
+Operators who want to inspect compiled state query `get_config` (live), or run `vane compile <DIR>` to dry-run a candidate config tree against the daemon via the `compile_dry_run` mgmt verb (the daemon runs the symbolic pipeline without touching the live graph).
 
 ## Tests
 
@@ -106,4 +106,4 @@ Operators who want to inspect compiled state query `get_config` (live) or run `v
 - `rate_limit_e2e.rs` — L1 floor + L2 middleware end-to-end.
 - `wasm_e2e.rs`, `websocket_e2e.rs` — feature-gated end-to-end paths.
 
-All daemon E2E tests use `vane-testutil::VanedFixture` which spawns `vaned` as a subprocess, owns a tmp config dir, and waits for socket-ready before returning.
+Daemon E2E tests spawn `vaned` as a subprocess (via `assert_cmd` / direct `std::process::Command`) and tear it down at the end of each test; the shared `vane-testutil::VanedFixture` helper is documentation-only today (see `crates/testutil/src/vaned_fixture.rs`).

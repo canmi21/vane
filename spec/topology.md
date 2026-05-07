@@ -26,7 +26,7 @@ CLI and TUI link the same management client (`vane-mgmt`); both speak the protoc
 /var/log/vaned.log          # structured log (when not using journald)
 ```
 
-Compiled FlowGraph artifacts are not persisted. The pipeline runs on every boot and reload. Operators inspect compiled state via `vane compile <DIR>` (offline) or the `get_config` mgmt verb (live).
+Compiled FlowGraph artifacts are not persisted. The pipeline runs on every boot and reload. Operators inspect compiled state via `vane compile <DIR>` (dry-run via `compile_dry_run` mgmt verb against a running daemon) or `get_config` (live).
 
 ## Daemon lifecycle
 

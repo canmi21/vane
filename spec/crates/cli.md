@@ -1,6 +1,6 @@
 # vane (CLI binary)
 
-Source: [`crates/cli/`](../../crates/cli/). Package name: `vane`. Folder: `crates/cli/`.
+Source: [`crates/cli/`](../../crates/cli/). Package name: `vane`.
 
 User-facing terminal binary. Two modes: stateless CLI for short-lived calls, plus a long-lived TUI mode that connects to one running `vaned`. Does not depend on `vane-engine` — CLI / TUI are pure clients of the management protocol.
 
@@ -8,8 +8,7 @@ User-facing terminal binary. Two modes: stateless CLI for short-lived calls, plu
 
 - CLI entry point (`clap` derive), command dispatch. Source: `main.rs`.
 - TUI shell. Source: `tui.rs`. See [`../tui.md`](../tui.md).
-- Client wiring against `vane-mgmt`.
-- `vane compile <DIR>` compiles via `vane-core` (no engine needed; outputs JSON).
+- Client wiring against `vane-mgmt`. Every CLI subcommand (`compile`, `reload`, the `get` / `tail` / `cert` / `pool` groups) is a thin wrapper over the corresponding mgmt verb against a running daemon.
 - `build.rs` — emits compile-time env vars consumed by `main.rs` via `env!()`.
 
 ## Crate dependencies
