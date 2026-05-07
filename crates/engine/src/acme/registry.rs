@@ -2,11 +2,10 @@
 //! ACME state per `spec/crates/engine-acme.md` § _Architecture_.
 //!
 //! Lifetime: constructed once at daemon boot from the operator's
-//! [`AcmeStore`], lives until shutdown. Reload churn rebuilds
-//! `ManagedCertPopulator` (FlowGraph-scoped, Stage 3) but **not**
-//! the registry — accounts and issued certs survive reloads, so
-//! ACME rate-limit ceilings aren't exposed to operator config-
-//! cycling.
+//! [`AcmeStore`], lives until shutdown. Reload churn rebuilds the
+//! FlowGraph-scoped `ManagedCertPopulator` but **not** the registry
+//! — accounts and issued certs survive reloads, so ACME rate-limit
+//! ceilings aren't exposed to operator config-cycling.
 //!
 //! Owns:
 //!
@@ -17,7 +16,7 @@
 //!   `/.well-known/acme-challenge/<token>` request and cleaned up
 //!   when issuance completes (RAII guard) or fails.
 //! - `certs`: in-memory cache of issued certs, keyed by SNI.
-//! - `schedule`: renewal scheduler stub for Stage 3.
+//! - `schedule`: renewal scheduler handle (see [`RenewalScheduler`]).
 //! - `store`: the persistence trait object (typically `FsAcmeStore`).
 //!
 //! Issuance entry points: [`ManagedCertRegistry::issue_http01`] for
@@ -76,8 +75,8 @@ pub struct ManagedCertRegistry {
 	/// manager) without touching the registry.
 	store: Arc<dyn AcmeStore>,
 	/// In-memory mirror of the on-disk cert state, keyed by SNI
-	/// (lowercased). Read on every TLS handshake via the populator
-	/// (Stage 3); written by issuance + renewal paths. Holds the
+	/// (lowercased). Read on every TLS handshake via the populator;
+	/// written by issuance + renewal paths. Holds the
 	/// per-SNI scheduler state (status, backoff, last error)
 	/// alongside the cert, so the renewal walker can decide what to
 	/// retry without consulting two parallel maps.
@@ -106,17 +105,23 @@ pub struct ManagedCertRegistry {
 	/// by [`Self::declare_managed`] on every reload that swaps the
 	/// `FlowGraph`; the boot-time issuance hook walks this set.
 	declared: DashMap<String, ()>,
-	/// Renewal scheduler handle. Stage 1 leaves this an inert
-	/// placeholder; Stage 3 fills in the periodic timer + ARI
-	/// poller per `spec/crates/engine-acme.md` § _Renewal triggers_.
+	/// Renewal scheduler handle.
+	//
+	// TODO(renewal-scheduler-impl): the inert placeholder still owns
+	// only `tick_interval`. The actual periodic-tick loop + ARI poller
+	// per `spec/crates/engine-acme.md` § _Renewal triggers_ is driven
+	// today by the daemon-side reload pipeline calling into the
+	// scheduler module's pure decision functions; landing the inner
+	// loop here keeps the call site uniform.
 	#[allow(dead_code)]
 	schedule: Arc<RenewalScheduler>,
 }
 
-/// Stage 3 will replace this stub with the real periodic timer +
-/// ARI poller. Exists now so the registry's struct shape doesn't
-/// need to churn when Stage 3 lands; downstream code can already
-/// take an `Arc<RenewalScheduler>` parameter.
+/// Owns the renewal scheduling configuration for the registry. Holds
+/// `tick_interval` today; the inner periodic-loop + ARI poller is
+/// driven from the daemon side (see scheduler module's pure decision
+/// functions). The struct exists so downstream code already takes an
+/// `Arc<RenewalScheduler>` parameter against a stable shape.
 #[derive(Debug, Default)]
 pub struct RenewalScheduler {
 	#[allow(dead_code)]
@@ -183,7 +188,7 @@ impl ManagedCertRegistry {
 
 	/// Look up a cert by SNI (lowercased). Returns the cached
 	/// `Arc<StoredCert>` when one is available, `None` otherwise.
-	/// Called by `ManagedCertPopulator` (Stage 3) on every refresh.
+	/// Called by `ManagedCertPopulator` on every refresh.
 	#[must_use]
 	pub fn cert_for(&self, sni: &str) -> Option<Arc<StoredCert>> {
 		let key = sni.to_ascii_lowercase();
@@ -192,7 +197,7 @@ impl ManagedCertRegistry {
 
 	/// Snapshot of the per-SNI lifecycle state. `None` when the SNI
 	/// has never been declared / hydrated. Used by the `get_certs`
-	/// mgmt verb (Stage 3) and by callers that want backoff /
+	/// mgmt verb and by callers that want backoff /
 	/// last-error context alongside the cert itself.
 	#[must_use]
 	pub fn cert_state(&self, sni: &str) -> Option<CertState> {
@@ -215,7 +220,7 @@ impl ManagedCertRegistry {
 	/// return the subset that lacks a cached cert (those need
 	/// first-time issuance).
 	///
-	/// Called by Stage 7's boot-time issuance hook after each
+	/// Called by the boot-time issuance hook after each
 	/// successful `FlowGraph::link`. Idempotent — re-registering
 	/// the same SNI is a no-op.
 	pub fn declare_managed(&self, snis: &[String]) -> Vec<String> {
@@ -694,7 +699,7 @@ impl ManagedCertRegistry {
 	/// Walks the RFC 8555 issuance sequence end-to-end:
 	///
 	/// 1. Acquire the live ACME account for `directory_url`.
-	/// 2. Place a new order for the SAN list (Stage 1: `[sni]`).
+	/// 2. Place a new order for the SAN list (currently `[sni]`).
 	/// 3. Stream-walk authorisations, register each HTTP-01 token in
 	///    the registry's `pending` table, and signal the challenge
 	///    ready to the CA.
@@ -939,9 +944,10 @@ impl ManagedCertRegistry {
 			}
 		}
 
-		// Generate keypair + CSR. ECDSA P-256 is the Stage 1
-		// hard-coded choice; `tls.managed.key_type` flows in here
-		// once Stage 7 wires the boot hook.
+		// Generate keypair + CSR. ECDSA P-256 is hard-coded today.
+		//
+		// TODO(managed-key-type): plumb `tls.managed.key_type` from the
+		// rule schema down here so operators can opt into RSA-2048.
 		let (key_pem, csr_der) = generate_ecdsa_p256_csr(sni)?;
 		order.finalize_csr(&csr_der).await.map_err(map_acme_error)?;
 		let chain_pem = order.poll_certificate(&retry).await.map_err(map_acme_error)?;
@@ -1219,7 +1225,7 @@ fn parse_not_after_pem(leaf_pem: &str) -> Result<std::time::SystemTime, Registry
 
 /// Translate `instant_acme::Error` into the registry's typed error
 /// enum. Surfaces ACME rate-limit responses as a typed
-/// [`RegistryError::RateLimited`] so the Stage 3 backoff scheduler
+/// [`RegistryError::RateLimited`] so the backoff scheduler
 /// can branch on it without string-matching. Other errors carry
 /// the full chained-cause render so transient connect / TLS
 /// failures aren't reduced to "client error".
@@ -1378,7 +1384,7 @@ fn directory_url_scope(directory_url: &str) -> String {
 }
 
 /// Errors surfaced by [`ManagedCertRegistry`]. Categorised so the
-/// Stage 3 backoff scheduler can branch on `RateLimited` without
+/// the backoff scheduler can branch on `RateLimited` without
 /// string-matching the CA's response body.
 #[derive(Debug, thiserror::Error)]
 pub enum RegistryError {

@@ -1,11 +1,13 @@
 //! Built-in middleware implementations + registration against the
 //! `MiddlewareMetadataProvider` / `MiddlewareFactories` surfaces.
 //!
-//! Stage 1 L7 stateless set: `host_header_match`, `path_prefix`,
-//! `method_match`, `forward_client_ip`. `rate_limit` (L2 stateful) lands
-//! in Stage 2.
+//! Catalog:
+//! - L7 stateless: `host_header_match`, `path_prefix`, `method_match`,
+//!   `forward_client_ip`.
+//! - L7 stateful: `rate_limit`.
+//! - L4 peek: `sni_peek`.
 //!
-//! See `spec/architecture/04-middleware.md` § _Internal middleware_.
+//! See [`spec/crates/engine.md` § _Middleware_](../../../spec/crates/engine.md#middleware).
 
 pub mod forward_client_ip;
 pub mod host_header_match;

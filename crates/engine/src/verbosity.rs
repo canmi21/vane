@@ -4,7 +4,7 @@ use vane_core::FlowLogVerbosity;
 
 /// Daemon-global flow-log verbosity selector. Listeners read `current()`
 /// once per accepted connection to populate `FlowCtx::verbosity`; the
-/// management API toggles via `set(..)` (S1-29 verb).
+/// management API toggles via `set(..)`.
 ///
 /// Stored as `AtomicU8` so reads are lock-free and writes are uncontended.
 /// In-flight connections retain whatever verbosity they were built with;

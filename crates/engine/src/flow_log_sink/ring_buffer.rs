@@ -25,7 +25,7 @@ impl RingBufferSink {
 	}
 
 	/// Snapshot the current ring contents in arrival order. Used by the
-	/// management API's `tail_flow` backfill (S1-29).
+	/// management API's `tail_flow` backfill.
 	#[must_use]
 	pub fn snapshot(&self) -> Vec<FlowLogEvent> {
 		self.inner.lock().iter().cloned().collect()

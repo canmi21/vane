@@ -2,14 +2,13 @@
 //! [Pebble](https://github.com/letsencrypt/pebble), Let's
 //! Encrypt's official test ACME server.
 //!
-//! Stage 1 covers the `instant-acme` round-trip — account create,
-//! order, finalize, cert download — driven through
+//! Covers the `instant-acme` round-trip — account create, order,
+//! finalize, cert download — driven through
 //! [`vane_engine::acme::ManagedCertRegistry::issue_http01_with_root`].
-//! The Pebble fixture runs in `PEBBLE_VA_ALWAYS_VALID=1` mode so
-//! the actual challenge fetch isn't exercised here; the
-//! challenge-handler unit tests in
-//! `crates/engine/src/fetch/acme_challenge.rs` cover that
-//! independently.
+//! The Pebble fixture runs in `PEBBLE_VA_ALWAYS_VALID=1` mode so the
+//! actual challenge fetch isn't exercised here; the challenge-handler
+//! unit tests in `crates/engine/src/fetch/acme_challenge.rs` cover
+//! that independently.
 //!
 //! Both tests are `#[ignore]`'d so the default
 //! `cargo nextest run --workspace` doesn't fail on machines

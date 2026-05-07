@@ -69,8 +69,8 @@ impl L7Fetch for HttpSynthesizeFetch {
 /// `status` is required (HTTP integer in `100..=599`). `headers` is
 /// optional (string-only values). `body` is optional, base64-encoded
 /// raw bytes — JSON has no native byte type, so the preset expansion
-/// pass (S1-22) is responsible for translating user-friendly text into
-/// base64 before reaching this factory.
+/// pass is responsible for translating user-friendly text into base64
+/// before reaching this factory.
 ///
 /// # Errors
 /// Returns [`FactoryError`] for any of: missing/non-integer/out-of-range

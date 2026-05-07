@@ -1,16 +1,16 @@
 //! End-to-end tests for the full ACME issuance → `ArcSwap` → rustls
 //! handshake loop against [Pebble](https://github.com/letsencrypt/pebble).
 //!
-//! Stage 1's `acme_http01_e2e` covers the issuance round-trip; Stage
-//! 3's `ManagedCertPopulator` + `FlowGraph::link` wiring is what
-//! these tests verify: a cert that just landed in the registry's
-//! cache surfaces through the populator into a `CertStore` and
-//! satisfies a real rustls `ClientHello` against a bound TCP listener.
+//! `acme_http01_e2e` covers the issuance round-trip; this file
+//! verifies the `ManagedCertPopulator` + `FlowGraph::link` wiring
+//! on top: a cert that just landed in the registry's cache surfaces
+//! through the populator into a `CertStore` and satisfies a real
+//! rustls `ClientHello` against a bound TCP listener.
 //!
 //! Two scenarios:
 //!
 //! 1. `first_handshake_after_acme_issuance_uses_managed_cert` — the
-//!    "did Stage 3's plumbing actually wire up?" smoke test.
+//!    "did the populator → resolver plumbing actually wire up?" smoke test.
 //! 2. `managed_cert_persists_across_registry_reopen` — the persistence
 //!    side: re-opening the registry on the same store directory
 //!    re-hydrates the cached cert without triggering a fresh ACME
@@ -63,10 +63,10 @@ async fn first_handshake_after_acme_issuance_uses_managed_cert() {
 		return;
 	};
 
-	// 1. Issue a cert through the registry. This re-uses the
-	//    Stage-1 `issue_http01_with_root` path since Stage 3's
-	//    contribution is the populator → resolver wiring on top of
-	//    an already-populated registry.
+	// 1. Issue a cert through the registry. This re-uses the existing
+	//    `issue_http01_with_root` path; what this test exercises on top
+	//    is the populator → resolver wiring against an already-populated
+	//    registry.
 	let acme_dir = TempDir::new().expect("acme tmpdir");
 	let store = Arc::new(FsAcmeStore::open(acme_dir.path()).expect("open store"));
 	let registry = ManagedCertRegistry::open(Arc::clone(&store) as Arc<dyn AcmeStore>)

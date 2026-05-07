@@ -1,5 +1,5 @@
 //! Preset expansion implementations registered against core's `expand`
-//! stage. Stage 1 catalog: `port_forward`, `reverse_proxy` (without the
-//! WS gate — WebSocket lands in Stage 2), `static_site`, `redirect_https`.
+//! stage. Catalog: `port_forward`, `reverse_proxy` (with the WS gate),
+//! `static_site`, `redirect_https`.
 //!
-//! See `spec/crates/core.md`.
+//! See [`spec/crates/core.md` § _Compile pipeline_](../../../spec/crates/core.md#compile-pipeline).

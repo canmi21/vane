@@ -2,8 +2,8 @@
 //!
 //! Per `spec/crates/engine-acme.md` § _`AcmeStore` trait_. The trait is abstract
 //! over the storage backend so an alternative (object store, secrets
-//! manager) can drop in without touching the registry; the default
-//! [`super::FsAcmeStore`] is the one shipped in Stage 1.
+//! manager) can drop in without touching the registry; the default impl
+//! is [`super::FsAcmeStore`].
 
 use std::time::SystemTime;
 
@@ -138,8 +138,8 @@ pub struct AcmeAccount {
 /// (zero or more, concatenated). `key_pem` is the PKCS#8-PEM private
 /// key matching `leaf_pem`.
 ///
-/// `ari_replacement_id` is RFC 9773's hint for paired-renewal —
-/// `None` until ARI is wired (Stage 3); `last_renew_at` is set to
+/// `ari_replacement_id` is RFC 9773's hint for paired-renewal;
+/// `last_renew_at` is set to
 /// the issuance time on first save and updated on each successful
 /// renewal so the renewal scheduler has an idempotent reference.
 ///

@@ -468,8 +468,9 @@ async fn execute_middleware_err_routes_via_on_error() {
 
 #[tokio::test]
 async fn execute_middleware_err_without_on_error_propagates() {
-	// Without on_error, 04-middleware.md and the S1-15 contract say the Err
-	// propagates verbatim. Assert the simulated message shows in to_string().
+	// Without `on_error`, the executor contract (per
+	// `spec/crates/engine.md` § _Middleware_) lets `Err` propagate
+	// verbatim. Assert the simulated message shows in to_string().
 	let counter = Arc::new(AtomicUsize::new(0));
 	let sym = build_graph(
 		vec![

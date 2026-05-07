@@ -92,7 +92,7 @@ pub trait DnsProvider: Send + Sync + std::fmt::Debug {
 /// Errors a [`DnsProvider`] surfaces. Categorised so the registry's
 /// orchestrator can branch on auth-vs-propagation failures without
 /// string-matching, and so operator-facing diagnostics
-/// (`get_certs.last_error` in Stage 3) carry stable error kinds.
+/// (`get_certs.last_error`) carry stable error kinds.
 #[derive(Debug, thiserror::Error)]
 pub enum DnsProviderError {
 	#[error("dns api request failed: {0}")]

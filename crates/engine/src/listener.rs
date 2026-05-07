@@ -453,7 +453,7 @@ impl ListenerSet {
 			running.drain().collect()
 		};
 
-		// Stage 1: fire all accept_cancels at once so accept loops stop
+		// Step 1: fire all accept_cancels at once so accept loops stop
 		// admitting new work in parallel, not one-by-one.
 		for (_, h) in &handles {
 			h.accept_cancel.cancel();
@@ -474,7 +474,7 @@ impl ListenerSet {
 			// task panicked, JoinHandle returns Err and we proceed anyway.
 			let _ = join.await;
 
-			// Stage 2: wait drain_timeout for in-flight to clear naturally.
+			// Step 2: wait drain_timeout for in-flight to clear naturally.
 			if tokio::time::timeout(drain_timeout, drain_in_flight(&in_flight)).await.is_ok() {
 				tracing::debug!(?addr, "in-flight drain completed within timeout");
 			} else {
@@ -483,12 +483,12 @@ impl ListenerSet {
 					?drain_timeout,
 					"drain timed out — firing force_cancel for in-flight",
 				);
-				// Stage 3: signal in-flight executors to unwind.
+				// Step 3: signal in-flight executors to unwind.
 				force_cancel.cancel();
 				// Secondary grace window for cooperative shutdown.
 				let _ =
 					tokio::time::timeout(self.bind_cfg.force_cancel_grace, drain_in_flight(&in_flight)).await;
-				// Stage 4: anything still alive gets the abort hammer.
+				// Step 4: anything still alive gets the abort hammer.
 				let mut g = in_flight.lock().await;
 				g.abort_all();
 				while g.join_next().await.is_some() {}
