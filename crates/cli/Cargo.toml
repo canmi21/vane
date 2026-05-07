@@ -22,6 +22,12 @@ tui = []
 [dependencies]
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive"] }
+# Stream-aware coloring for our own pretty output. clap already ships
+# its own help-text colors via the anstyle family; owo_colors is just
+# for the section headers / status badges in section-printers below.
+# `supports-colors` enables `if_supports_color(Stream::Stdout, ...)`
+# so piped output stays plain-text.
+owo-colors = { version = "4.3", features = ["supports-colors"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.52.2", features = ["rt", "macros", "signal", "io-util", "net"] }

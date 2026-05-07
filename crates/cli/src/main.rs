@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use owo_colors::{OwoColorize, Stream, Style};
 use vane_core::version::{BuildInfo, format_version};
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
@@ -36,21 +37,20 @@ const DEFAULT_SOCKET: &str = "/tmp/vaned.sock";
 #[derive(Parser, Debug)]
 #[command(
 	name = "vane",
-	about = "vane proxy CLI",
+	about = "Vane — A compact programmable proxy engine",
 	version = env!("CARGO_PKG_VERSION"),
 	disable_version_flag = true,
 )]
 struct Cli {
-	/// Print build banner (version, commit, build date, toolchain) and exit.
-	#[arg(short = 'V', long = "version", global = true)]
+	/// Print the build banner and exit.
+	#[arg(short = 'v', long = "version", global = true)]
 	version: bool,
 
-	/// Path to the daemon's mgmt Unix socket. Falls back to
-	/// `VANE_MGMT_UNIX` then `/tmp/vaned.sock`.
+	/// Mgmt Unix socket path (env `VANE_MGMT_UNIX`, default `/tmp/vaned.sock`).
 	#[arg(long, global = true)]
 	socket: Option<PathBuf>,
 
-	/// Emit machine-readable JSON instead of human pretty output.
+	/// Emit JSON instead of human-readable output.
 	#[arg(long, global = true)]
 	json: bool,
 
@@ -60,30 +60,23 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-	/// Liveness check. Returns the daemon's build version.
+	/// Liveness check.
 	Ping,
-	/// Daemon stats: uptime, graph hash, per-listener bound state and
-	/// in-flight connection counts.
+	/// Uptime, graph hash, listener summary.
 	Stats,
-	/// Trigger graceful drain + shutdown. The daemon enters its
-	/// 30-second soft-drain window; this CLI returns as soon as the
-	/// daemon acknowledges the verb.
+	/// Graceful drain + shutdown.
 	Shutdown,
-	/// Trigger the reload pipeline (load → compile → link → swap),
-	/// equivalent to a file-watcher event.
+	/// Reload config (compile + swap).
 	Reload,
-	/// Run merge → compile → validate against the given config
-	/// directory without affecting the active graph. Output is the
-	/// resulting `SymbolicFlowGraph` as JSON.
+	/// Dry-run compile a config directory; emit the symbolic graph as JSON.
 	Compile {
-		/// Currently the only supported mode; flag exists for
-		/// future-proofing (e.g. `--apply` would go through `reload`).
+		/// Reserved; today the verb only runs in dry-run mode.
 		#[arg(long = "dry-run")]
 		dry_run: bool,
-		/// Filesystem path to the candidate config tree.
+		/// Path to the candidate config tree.
 		config_dir: PathBuf,
 	},
-	/// Read a snapshot from the daemon.
+	/// Snapshot a read-only view of the daemon.
 	Get {
 		#[command(subcommand)]
 		what: GetCmd,
@@ -93,58 +86,58 @@ enum Cmd {
 		#[command(subcommand)]
 		what: TailCmd,
 	},
-	/// Trigger an immediate ACME renewal for one SNI, bypassing the
-	/// periodic timer and any active backoff. Useful for
-	/// key-compromise rotation; per `spec/acme.md`
-	/// § _`force_renew` mgmt verb_.
-	#[command(name = "force-renew")]
-	ForceRenew {
-		/// SNI to renew (must match a `tls.managed` rule in the
-		/// active config).
-		#[arg(long)]
-		sni: String,
+	/// ACME-managed certificate operations.
+	Cert {
+		#[command(subcommand)]
+		what: CertCmd,
 	},
-	/// List every cert the daemon tracks — managed (with full
-	/// status detail) + static (SNI / source label only).
-	#[command(name = "get-certs")]
-	GetCerts,
-	/// Drop a single TCP / TLS or QUIC upstream pool entry by its
-	/// `fingerprint_id` (look one up with `vane get upstreams`).
-	/// Live in-flight requests on the entry survive — only future
-	/// cache lookups are affected.
-	#[command(name = "pool-drain")]
-	PoolDrain {
-		/// 16-char hex id from `get_upstreams`.
-		fingerprint_id: String,
+	/// Upstream connection pool operations.
+	Pool {
+		#[command(subcommand)]
+		what: PoolCmd,
 	},
 }
 
 #[derive(Subcommand, Debug)]
 enum GetCmd {
-	/// Active `SymbolicFlowGraph` as JSON.
+	/// Active symbolic flow graph as JSON.
 	Config,
 	/// In-flight connections snapshot.
 	Connections,
-	/// Counter/gauge snapshot. Default Prometheus text; `--json` returns
-	/// the parsed JSON form.
+	/// Counters and gauges (Prometheus text by default; --json for parsed).
 	Metrics,
-	/// Snapshot of every WASM stateful / stateless instance pool plus
-	/// the CGI concurrency-cap semaphore. Empty sections are omitted in
-	/// the pretty render; `--json` is exhaustive.
+	/// WASM and CGI pool occupancy.
 	Pools,
-	/// Snapshot of cached upstream connection objects (TCP / TLS pool
-	/// entries from `hyper-util` plus QUIC pool entries when `h3` is
-	/// built). Each row shows the `fingerprint_id` accepted by
-	/// `pool-drain`.
+	/// Cached TCP / TLS / QUIC upstream entries.
 	Upstreams,
+	/// Tracked managed and static certificates.
+	Certs,
 }
 
 #[derive(Subcommand, Debug)]
 enum TailCmd {
-	/// Subscribe to `FlowLogEvent` broadcast.
+	/// Stream flow-log events.
 	Flow,
-	/// Subscribe to structured tracing log.
+	/// Stream tracing log frames.
 	Log,
+}
+
+#[derive(Subcommand, Debug)]
+enum CertCmd {
+	/// Renew one managed cert now, bypassing the periodic timer.
+	Renew {
+		/// SNI of the managed cert.
+		sni: String,
+	},
+}
+
+#[derive(Subcommand, Debug)]
+enum PoolCmd {
+	/// Drop one upstream cache entry by fingerprint id.
+	Drain {
+		/// 16-char hex id from `vane get upstreams`.
+		fingerprint_id: String,
+	},
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -155,7 +148,10 @@ async fn main() -> std::process::ExitCode {
 		return std::process::ExitCode::SUCCESS;
 	}
 	let Some(cmd) = cli.cmd else {
-		eprintln!("vane: no subcommand — try `vane --help`");
+		eprintln!(
+			"{} no subcommand — try `vane --help`",
+			"vane:".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold())),
+		);
 		return std::process::ExitCode::FAILURE;
 	};
 	let socket = cli
@@ -175,16 +171,21 @@ async fn main() -> std::process::ExitCode {
 		Cmd::Get { what: GetCmd::Metrics } => run_get_metrics(&client, cli.json).await,
 		Cmd::Get { what: GetCmd::Pools } => run_get_pools(&client, cli.json).await,
 		Cmd::Get { what: GetCmd::Upstreams } => run_get_upstreams(&client, cli.json).await,
+		Cmd::Get { what: GetCmd::Certs } => run_get_certs(&client, cli.json).await,
 		Cmd::Tail { what: TailCmd::Flow } => run_tail_flow(&client, cli.json).await,
 		Cmd::Tail { what: TailCmd::Log } => run_tail_log(&client, cli.json).await,
-		Cmd::ForceRenew { sni } => run_force_renew(&client, &sni, cli.json).await,
-		Cmd::GetCerts => run_get_certs(&client, cli.json).await,
-		Cmd::PoolDrain { fingerprint_id } => run_pool_drain(&client, &fingerprint_id, cli.json).await,
+		Cmd::Cert { what: CertCmd::Renew { sni } } => run_cert_renew(&client, &sni, cli.json).await,
+		Cmd::Pool { what: PoolCmd::Drain { fingerprint_id } } => {
+			run_pool_drain(&client, &fingerprint_id, cli.json).await
+		}
 	};
 	match result {
 		Ok(()) => std::process::ExitCode::SUCCESS,
 		Err(e) => {
-			eprintln!("vane: {e}");
+			eprintln!(
+				"{} {e}",
+				"vane:".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold()))
+			);
 			std::process::ExitCode::FAILURE
 		}
 	}
@@ -207,7 +208,7 @@ async fn run_stats(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
 	} else {
 		println!("uptime: {}", format_uptime(Duration::from_millis(r.uptime_ms)));
 		println!("graph: {}", abbreviate_hash(&r.graph_version_hash));
-		println!("listeners:");
+		print_section("listeners:");
 		print_listener_rows(&r.listeners);
 	}
 	Ok(())
@@ -256,7 +257,7 @@ async fn run_compile_dry_run(client: &UnixMgmtClient, config_dir: &Path) -> anyh
 	Ok(())
 }
 
-async fn run_force_renew(client: &UnixMgmtClient, sni: &str, json: bool) -> anyhow::Result<()> {
+async fn run_cert_renew(client: &UnixMgmtClient, sni: &str, json: bool) -> anyhow::Result<()> {
 	let args = ForceRenewArgs { sni: sni.to_owned() };
 	let r: ForceRenewResult = client.call(VERB_FORCE_RENEW, &args).await?;
 	if json {
@@ -274,9 +275,15 @@ async fn run_get_certs(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()
 	if json {
 		print_json(&r)?;
 	} else {
-		// Pretty: one row per cert. Width-aligned for readability.
-		// `<sni> <source> <status> <not_after> <last_error>`
-		println!("{:<32} {:<8} {:<10} {:<24} LAST_ERROR", "SNI", "SOURCE", "STATUS", "NOT_AFTER");
+		// One row per cert. The header is bold-styled via print_section
+		// so it visually anchors above the data rows; columns themselves
+		// are fixed-width on the unstyled string to survive piping.
+		let header =
+			format!("{:<32} {:<8} {:<10} {:<24} LAST_ERROR", "SNI", "SOURCE", "STATUS", "NOT_AFTER");
+		print_section(&header);
+		if r.certs.is_empty() {
+			print_none_row();
+		}
 		for entry in &r.certs {
 			let na = entry.not_after.as_deref().unwrap_or("-");
 			let err = entry.last_error.as_deref().unwrap_or("");
@@ -292,9 +299,9 @@ async fn run_get_connections(client: &UnixMgmtClient, json: bool) -> anyhow::Res
 	if json {
 		print_json(&r)?;
 	} else {
-		println!("listeners:");
+		print_section("listeners:");
 		print_listener_rows(&r.listeners);
-		println!("connections:");
+		print_section("connections:");
 		print_connection_rows(&r.connections);
 	}
 	Ok(())
@@ -316,9 +323,9 @@ async fn run_get_pools(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()
 	if json {
 		print_json(&r)?;
 	} else {
-		println!("wasm:");
+		print_section("wasm:");
 		print_wasm_pool_rows(&r.wasm);
-		println!("cgi:");
+		print_section("cgi:");
 		print_cgi_pool_row(r.cgi.as_ref());
 	}
 	Ok(())
@@ -329,9 +336,9 @@ async fn run_get_upstreams(client: &UnixMgmtClient, json: bool) -> anyhow::Resul
 	if json {
 		print_json(&r)?;
 	} else {
-		println!("tcp:");
+		print_section("tcp:");
 		print_tcp_upstream_rows(&r.tcp);
-		println!("quic:");
+		print_section("quic:");
 		print_quic_upstream_rows(&r.quic);
 	}
 	Ok(())
@@ -472,19 +479,40 @@ fn print_json<T: serde::Serialize>(value: &T) -> anyhow::Result<()> {
 	Ok(())
 }
 
+/// Print one section header (`listeners:`, `wasm:`, etc.) — bold on a
+/// TTY, plain on a pipe. Centralised so every section uses the same
+/// styling and so the color crate import stays in one place.
+fn print_section(label: &str) {
+	println!("{}", label.if_supports_color(Stream::Stdout, |t| t.bold()));
+}
+
+/// Print the "(none)" placeholder rows reach when their data set is
+/// empty. Dim on TTY so it visually sinks below real rows.
+fn print_none_row() {
+	println!("  {}", "(none)".if_supports_color(Stream::Stdout, |t| t.dimmed()));
+}
+
 fn print_listener_rows(rows: &[ListenerStatus]) {
 	if rows.is_empty() {
-		println!("  (none)");
+		print_none_row();
 		return;
 	}
 	let max_addr_width = rows.iter().map(|r| r.addr.len()).max().unwrap_or(0);
 	for row in rows {
-		let state = if row.bound { "bound" } else { "down" };
+		let state_raw = if row.bound { "bound" } else { "down" };
+		// Pad to a fixed 5-char column on the *uncolored* string so that
+		// columns line up regardless of whether the ANSI escapes get
+		// emitted (TTY) or stripped (pipe).
+		let padded = format!("{state_raw:<5}");
+		let state = if row.bound {
+			format!("{}", padded.if_supports_color(Stream::Stdout, |t| t.green()))
+		} else {
+			format!("{}", padded.if_supports_color(Stream::Stdout, |t| t.red()))
+		};
 		println!(
-			"  {addr:<width$}  {state:<5}  in_flight={count}",
+			"  {addr:<width$}  {state}  in_flight={count}",
 			addr = row.addr,
 			width = max_addr_width,
-			state = state,
 			count = row.in_flight_count,
 		);
 	}
@@ -492,7 +520,7 @@ fn print_listener_rows(rows: &[ListenerStatus]) {
 
 fn print_wasm_pool_rows(rows: &[WasmPoolEntry]) {
 	if rows.is_empty() {
-		println!("  (none)");
+		print_none_row();
 		return;
 	}
 	let max_key = rows.iter().map(|r| r.key.len()).max().unwrap_or(0);
@@ -530,7 +558,7 @@ fn print_cgi_pool_row(row: Option<&CgiPoolEntry>) {
 
 fn print_tcp_upstream_rows(rows: &[TcpUpstreamEntry]) {
 	if rows.is_empty() {
-		println!("  (none)");
+		print_none_row();
 		return;
 	}
 	for row in rows {
@@ -549,7 +577,7 @@ fn print_tcp_upstream_rows(rows: &[TcpUpstreamEntry]) {
 
 fn print_quic_upstream_rows(rows: &[QuicUpstreamEntry]) {
 	if rows.is_empty() {
-		println!("  (none)");
+		print_none_row();
 		return;
 	}
 	for row in rows {
@@ -565,7 +593,7 @@ fn print_quic_upstream_rows(rows: &[QuicUpstreamEntry]) {
 
 fn print_connection_rows(rows: &[ConnectionInfo]) {
 	if rows.is_empty() {
-		println!("  (none)");
+		print_none_row();
 		return;
 	}
 	let max_remote = rows.iter().map(|r| r.remote.len()).max().unwrap_or(0);

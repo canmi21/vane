@@ -550,28 +550,35 @@ vane --version | -v
 vane --help    | -h
 
 # Global actions
-vane ping                  liveness check
-vane stats                 daemon summary (uptime, graph hash, listener state)
-vane reload                trigger reload of running daemon
-vane shutdown              graceful drain + exit
-vane compile <DIR>         dry-run compile; emit SymbolicFlowGraph JSON
+vane ping                       liveness check
+vane stats                      daemon summary (uptime, graph hash, listener state)
+vane reload                     trigger reload of running daemon
+vane shutdown                   graceful drain + exit
+vane compile <DIR>              dry-run compile; emit SymbolicFlowGraph JSON
 
 # Snapshots (`get` group)
-vane get config            active SymbolicFlowGraph as JSON
-vane get connections       in-flight connections snapshot
-vane get metrics           counter/gauge snapshot (default Prometheus text; `--json` for parsed)
-vane get pools             stateful WASM pool status (post-MVP)
-vane get upstreams         pooled upstream connections (post-MVP)
+vane get config                 active SymbolicFlowGraph as JSON
+vane get connections            in-flight connections snapshot
+vane get metrics                counter/gauge snapshot (default Prometheus text; `--json` for parsed)
+vane get pools                  WASM + CGI pool occupancy
+vane get upstreams              cached TCP / TLS / QUIC upstream entries
+vane get certs                  managed + static certs the daemon tracks
 
 # Streams (`tail` group)
-vane tail flow             subscribe to FlowLogEvent broadcast (NDJSON)
-vane tail log              subscribe to structured tracing log (NDJSON)
+vane tail flow                  subscribe to FlowLogEvent broadcast (NDJSON)
+vane tail log                   subscribe to structured tracing log (NDJSON)
+
+# Certificates (`cert` group)
+vane cert renew <SNI>           force-renew one managed cert (bypasses the renewal timer)
+
+# Pools (`pool` group)
+vane pool drain <FINGERPRINT>   drop one cached upstream entry by id
 
 # TUI
-vane tui                   launch TUI (requires `tui` feature)
+vane tui                        launch TUI (requires `tui` feature)
 ```
 
-CLI subcommand → wire verb mapping is one-to-one and mechanical: `vane get config` calls `get_config`, `vane tail flow` calls `tail_flow`, etc. The CLI does not hide or rename verbs; it only nests.
+CLI subcommand → wire verb mapping is one-to-one and mechanical: `vane get config` calls `get_config`, `vane cert renew` calls `force_renew`, `vane pool drain` calls `pool_drain`, etc. The CLI does not hide or rename verbs; it only nests.
 
 ## Startup sequence (`vaned`)
 
