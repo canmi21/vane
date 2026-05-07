@@ -85,6 +85,13 @@ pub fn lower(
 	// `builder.listener_kinds` / `listener_tls` are fully populated.
 	warn_missing_plaintext_port_80_for_http01(&builder.listener_tls, &builder.listener_kinds);
 
+	// Inject the high-priority `/.well-known/acme-challenge/` route
+	// into every plaintext `:80` listener — per spec § _HTTP-01
+	// § Case 1_. The pass mutates `builder.entries` in place, swapping
+	// each affected listener's entry node for a Check that branches
+	// to the AcmeChallenge fetch on match.
+	let annotations = inject_acme_http01_routes(&mut builder);
+
 	Ok(SymbolicFlowGraph {
 		nodes: builder.nodes,
 		predicates: builder.predicates,
@@ -101,6 +108,7 @@ pub fn lower(
 			listener_tls: builder.listener_tls,
 			listener_kinds: builder.listener_kinds,
 			listener_transports: builder.listener_transports,
+			annotations,
 		},
 	})
 }
@@ -781,7 +789,7 @@ impl Builder {
 			allow_zero_rtt: rule.raw.allow_zero_rtt,
 		});
 		let (next_response, next_tunnel) = match fetch_kind {
-			FetchKind::HttpProxy | FetchKind::HttpSynthesize => {
+			FetchKind::HttpProxy | FetchKind::HttpSynthesize | FetchKind::AcmeChallenge => {
 				let tid = self.intern_terminator(Terminator::WriteHttpResponse);
 				let term_node = self.push_node(Node::Terminate(tid));
 				(Some(term_node), None)
@@ -1319,6 +1327,142 @@ fn display_cert_file(tls: &crate::rule::TlsConfig) -> String {
 	match &tls.cert_file {
 		Some(p) => p.display().to_string(),
 		None => "<managed>".to_owned(),
+	}
+}
+
+/// Inject the high-priority ACME HTTP-01 challenge route into
+/// every plaintext `:80` listener per `spec/acme.md` § _HTTP-01
+/// § Case 1_. No-op when no rule in the config requested an
+/// HTTP-01-managed cert.
+///
+/// The pass:
+///
+/// 1. Detects whether the config has any
+///    `tls.managed.challenge == "http-01"` SNI. If not, returns an
+///    empty annotation list and leaves the graph alone.
+/// 2. For each listener address with `port == 80` and a non-`Raw`
+///    kind that is _not_ TLS-terminated:
+///    - synthesises a `Check` predicate matching
+///      `http.uri.path` starts-with `/.well-known/acme-challenge/`,
+///    - synthesises an `AcmeChallenge` fetch + a
+///      `WriteHttpResponse` terminator,
+///    - rewires the listener's entry node to the new Check, with
+///      `on_miss` falling through to the original entry.
+/// 3. Detects operator-defined rules whose match would also fire
+///    on the injected predicate's path and emits a
+///    `[shadowed-by-acme]` annotation for each.
+///
+/// Returns the annotations the caller folds into
+/// [`FlowGraphMeta::annotations`].
+fn inject_acme_http01_routes(builder: &mut Builder) -> Vec<crate::ir::DryRunAnnotation> {
+	let mut annotations = Vec::new();
+	let any_http01 = builder.listener_tls.values().any(|spec| {
+		spec.managed_snis.values().any(|m| matches!(m.challenge, crate::rule::ChallengeKind::Http01))
+	});
+	if !any_http01 {
+		return annotations;
+	}
+
+	// Snapshot the addresses to mutate so we can keep
+	// `&mut builder.entries` mutable inside the loop.
+	let targets: Vec<SocketAddr> = builder
+		.listener_kinds
+		.iter()
+		.filter(|(addr, kind)| {
+			addr.port() == 80
+				&& matches!(kind, ListenerKind::Http | ListenerKind::Auto)
+				&& !builder.listener_tls.contains_key(addr)
+		})
+		.map(|(addr, _)| *addr)
+		.collect();
+
+	if targets.is_empty() {
+		return annotations;
+	}
+
+	// Build the shared ACME nodes once and reuse across listeners.
+	// Hash-cons via `intern_predicate` / `intern_terminator` keeps
+	// the IDs collapsed; the fetch is push-only because each fetch
+	// inst is identity-keyed for now.
+	let predicate = PredicateInst {
+		path: crate::predicate::FieldPath::HttpUriPath,
+		op: crate::predicate::CompiledOperator::Prefix(bytes::Bytes::from_static(
+			b"/.well-known/acme-challenge/",
+		)),
+	};
+	let pred_id = builder.intern_predicate(predicate);
+	let acme_fetch_ref = SymbolicFetchRef {
+		kind: FetchKind::AcmeChallenge,
+		args: serde_json::Value::Null,
+		retry_buffer_required: false,
+		allow_zero_rtt: None,
+	};
+	let fetch_id = builder.push_fetch(acme_fetch_ref);
+	let term_id = builder.intern_terminator(Terminator::WriteHttpResponse);
+	let term_node = builder.push_node(Node::Terminate(term_id));
+	let fetch_node = builder.push_node(Node::Fetch {
+		id: fetch_id,
+		next_response: Some(term_node),
+		next_tunnel: None,
+		collect_body_before: None,
+		body_limit: 0,
+	});
+
+	for addr in targets {
+		let original_entry = *builder
+			.entries
+			.get(&addr)
+			.expect("listener_kinds and entries must agree on populated listeners");
+		// The Check predicate inspects `http.uri.path`, an L7 field —
+		// it must live in the L7Request phase, not at the L4 listener
+		// entry. Locate the Upgrade node that bridges L4 → L7 in the
+		// listener subgraph and inject AFTER it.
+		// L4-only listener defensive guard — the inject pass shouldn't
+		// have targeted this addr in the first place because
+		// `listener_kinds` would have been `Raw`. Skip rather than
+		// corrupt the graph if the invariant breaks.
+		let Some(original_l7_entry) = find_post_upgrade_node(&builder.nodes, original_entry) else {
+			continue;
+		};
+		let check_node = builder.push_node(Node::Check {
+			predicate: pred_id,
+			on_match: fetch_node,
+			on_miss: original_l7_entry,
+			collect_body_before: None,
+			body_limit: 0,
+		});
+		// Rewire the Upgrade's `next` (or whatever bridge node owns
+		// the L4 → L7 transition) to point at the new Check.
+		rewire_post_upgrade(&mut builder.nodes, original_entry, check_node);
+		annotations.push(crate::ir::DryRunAnnotation {
+			kind: "acme-injected".to_owned(),
+			message: format!("acme http-01 challenge route injected on plaintext :80 listener {addr}"),
+		});
+	}
+
+	annotations
+}
+
+/// Find the L7 entry inside a listener subgraph rooted at
+/// `entry` — i.e. the node `Upgrade.next` would point at, or
+/// `entry` itself if the listener has no Upgrade (already L7).
+fn find_post_upgrade_node(nodes: &[Node], entry: NodeId) -> Option<NodeId> {
+	match nodes.get(entry.get() as usize)? {
+		Node::Upgrade { next } => Some(*next),
+		// No Upgrade — this is already an L7 entry (rare in current
+		// shape but possible if a future spec change lets L7 listeners
+		// skip the Upgrade node).
+		_ => Some(entry),
+	}
+}
+
+/// Rewire the Upgrade rooted at `entry` so its `next` points at
+/// `target`. No-op when the entry isn't an Upgrade — the inject
+/// pass already wrote the new entry directly via
+/// [`Builder::entries`] in that case (currently unreachable).
+fn rewire_post_upgrade(nodes: &mut [Node], entry: NodeId, target: NodeId) {
+	if let Some(Node::Upgrade { next }) = nodes.get_mut(entry.get() as usize) {
+		*next = target;
 	}
 }
 

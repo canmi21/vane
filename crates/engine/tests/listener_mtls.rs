@@ -205,6 +205,7 @@ fn meta_with_client_auth(
 		listener_tls,
 		listener_kinds: BTreeMap::new(),
 		listener_transports: BTreeMap::new(),
+		annotations: Vec::new(),
 	}
 }
 

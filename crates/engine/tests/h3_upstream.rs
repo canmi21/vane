@@ -119,6 +119,7 @@ fn h3_proxy_graph_with_connect_timeout(
 		listener_tls: std::collections::BTreeMap::new(),
 		listener_kinds: std::collections::BTreeMap::new(),
 		listener_transports: std::collections::BTreeMap::new(),
+		annotations: Vec::new(),
 	};
 
 	let tls_args = serde_json::json!({

@@ -5,6 +5,8 @@
 //! Features: S1-18 (`L4ForwardFetch`), S1-19 (`HttpProxyFetch`, H1→H1),
 //! S1-20 (`HttpSynthesizeFetch`).
 
+#[cfg(feature = "acme")]
+pub mod acme_challenge;
 #[cfg(feature = "cgi")]
 pub mod cgi;
 pub mod client_cache;

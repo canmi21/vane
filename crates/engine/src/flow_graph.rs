@@ -437,6 +437,7 @@ impl FlowGraph {
 			listener_tls: sym.meta.listener_tls.clone(),
 			listener_kinds,
 			listener_transports: sym.meta.listener_transports.clone(),
+			annotations: sym.meta.annotations.clone(),
 		};
 
 		Ok(Arc::new(Self {
@@ -766,8 +767,8 @@ mod tests {
 				short_circuit_response_entry: BTreeMap::new(),
 				listener_tls: BTreeMap::new(),
 				listener_kinds: BTreeMap::new(),
-
 				listener_transports: BTreeMap::new(),
+				annotations: Vec::new(),
 			}
 		}
 
@@ -934,6 +935,7 @@ mod tests {
 				listener_tls: BTreeMap::new(),
 				listener_kinds,
 				listener_transports: BTreeMap::new(),
+				annotations: Vec::new(),
 			}
 		}
 
@@ -949,6 +951,7 @@ mod tests {
 				listener_tls: BTreeMap::new(),
 				listener_kinds,
 				listener_transports: BTreeMap::new(),
+				annotations: Vec::new(),
 			}
 		}
 

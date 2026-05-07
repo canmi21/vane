@@ -61,6 +61,7 @@ pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 		PhaseNodeKind::Fetch(FetchKind::HttpProxy) => L7_REQ,
 		PhaseNodeKind::Fetch(FetchKind::HttpSynthesize) => L7_REQ,
 		PhaseNodeKind::Fetch(FetchKind::WebSocketUpgrade) => L7_REQ,
+		PhaseNodeKind::Fetch(FetchKind::AcmeChallenge) => L7_REQ,
 		PhaseNodeKind::Terminate(Terminator::WriteHttpResponse) => L7_RESP,
 		PhaseNodeKind::Terminate(Terminator::ByteTunnel) => TUNNEL,
 		// `Close` is phase-agnostic per 05-terminator.md — lower emits it on
@@ -90,6 +91,7 @@ pub fn transition(kind: PhaseNodeKind, cur: Phase) -> Result<Transition, PhaseEr
 		PhaseNodeKind::Fetch(FetchKind::L4Forward) => Transition::Into(Phase::Tunnel),
 		PhaseNodeKind::Fetch(FetchKind::HttpProxy) => Transition::Into(Phase::L7Response),
 		PhaseNodeKind::Fetch(FetchKind::HttpSynthesize) => Transition::Into(Phase::L7Response),
+		PhaseNodeKind::Fetch(FetchKind::AcmeChallenge) => Transition::Into(Phase::L7Response),
 		PhaseNodeKind::Fetch(FetchKind::WebSocketUpgrade) => {
 			Transition::BiOutcome { response: Phase::L7Response, tunnel: Phase::Tunnel }
 		}
@@ -170,7 +172,12 @@ mod tests {
 
 	#[test]
 	fn http_fetches_accept_only_l7_request() {
-		for f in [FetchKind::HttpProxy, FetchKind::HttpSynthesize, FetchKind::WebSocketUpgrade] {
+		for f in [
+			FetchKind::HttpProxy,
+			FetchKind::HttpSynthesize,
+			FetchKind::WebSocketUpgrade,
+			FetchKind::AcmeChallenge,
+		] {
 			assert_eq!(accepted_in_phases(PhaseNodeKind::Fetch(f)), &[Phase::L7Request] as &[Phase],);
 		}
 	}
@@ -253,7 +260,7 @@ mod tests {
 
 	#[test]
 	fn http_fetch_variants_go_to_l7_response() {
-		for f in [FetchKind::HttpProxy, FetchKind::HttpSynthesize] {
+		for f in [FetchKind::HttpProxy, FetchKind::HttpSynthesize, FetchKind::AcmeChallenge] {
 			assert_eq!(
 				transition(PhaseNodeKind::Fetch(f), Phase::L7Request),
 				Ok(Transition::Into(Phase::L7Response)),

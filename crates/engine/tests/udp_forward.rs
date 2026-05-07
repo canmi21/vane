@@ -79,6 +79,7 @@ fn meta_with_udp(addr: SocketAddr) -> FlowGraphMeta {
 		listener_tls: BTreeMap::new(),
 		listener_kinds: BTreeMap::new(),
 		listener_transports,
+		annotations: Vec::new(),
 	}
 }
 

@@ -180,6 +180,38 @@ pub struct FlowGraphMeta {
 	/// snapshots loadable; absent listeners are treated as `Tcp`.
 	#[serde(default)]
 	pub listener_transports: std::collections::BTreeMap<SocketAddr, Transport>,
+
+	/// Compile-time annotations the lower pass emits as observations
+	/// about the produced graph — surfaced in `vane compile --dry-run`
+	/// so operators see synthetic-route insertions and rule-shadowing
+	/// warnings without grepping logs. Stable wire format keyed by
+	/// `kind` (e.g. `"acme-injected"`, `"shadowed-by-acme"`).
+	///
+	/// `#[serde(default)]` keeps older snapshots loadable: an absent
+	/// field decodes to an empty Vec, matching pre-ACME graph shape.
+	#[serde(default)]
+	pub annotations: Vec<DryRunAnnotation>,
+}
+
+/// One observation about the compiled graph, surfaced through
+/// `compile_dry_run` for operator visibility. Currently used by the
+/// ACME inject pass to mark synthesised `:80` challenge routes and
+/// any operator-defined rule whose path overlaps the injected one.
+///
+/// Intentionally schemaless on `target` — different annotation
+/// kinds describe different things (a listener address, a rule
+/// name, a node id). `kind` plus `message` is the human-readable
+/// surface; structured fields can land in a follow-up if a tool
+/// needs them programmatically.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DryRunAnnotation {
+	/// Annotation taxonomy — currently `"acme-injected"` (a route
+	/// the lower pass synthesised) or `"shadowed-by-acme"` (an
+	/// operator rule whose match is preempted by an injected one).
+	pub kind: String,
+	/// Operator-readable explanation of the annotation, including
+	/// the listener address and any relevant identifiers.
+	pub message: String,
 }
 
 const fn empty_feature_set() -> &'static [&'static str] {
@@ -467,8 +499,8 @@ mod tests {
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
 			listener_kinds: std::collections::BTreeMap::new(),
-
 			listener_transports: std::collections::BTreeMap::new(),
+			annotations: Vec::new(),
 		}
 	}
 
@@ -667,8 +699,8 @@ mod tests {
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
 			listener_kinds: std::collections::BTreeMap::new(),
-
 			listener_transports: std::collections::BTreeMap::new(),
+			annotations: Vec::new(),
 		};
 		let encoded = serde_json::to_string(&meta).expect("serialize meta");
 		assert!(

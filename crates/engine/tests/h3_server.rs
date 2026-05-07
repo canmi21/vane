@@ -140,6 +140,7 @@ fn h3_proxy_graph(listen: SocketAddr, upstream: &str, cert: &CertFixture) -> Arc
 		listener_tls,
 		listener_kinds,
 		listener_transports,
+		annotations: Vec::new(),
 	};
 
 	let sym = Arc::new(SymbolicFlowGraph {

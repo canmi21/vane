@@ -83,6 +83,7 @@ fn sample_meta() -> FlowGraphMeta {
 		listener_kinds: std::collections::BTreeMap::new(),
 
 		listener_transports: std::collections::BTreeMap::new(),
+		annotations: Vec::new(),
 	}
 }
 

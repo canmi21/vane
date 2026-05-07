@@ -107,7 +107,7 @@ impl FetchMetadataProvider for MetadataProviders {
 	fn get(&self, kind: FetchKind) -> Option<FetchMetadata> {
 		let (phase, output_modes) = match kind {
 			FetchKind::L4Forward => (FetchPhase::L4, FetchOutputModes { response: false, tunnel: true }),
-			FetchKind::HttpProxy | FetchKind::HttpSynthesize => {
+			FetchKind::HttpProxy | FetchKind::HttpSynthesize | FetchKind::AcmeChallenge => {
 				(FetchPhase::L7, FetchOutputModes { response: true, tunnel: false })
 			}
 			FetchKind::WebSocketUpgrade => {

@@ -85,14 +85,16 @@ fn check_id_ranges(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 }
 
 fn check_fetch_edges(graph: &SymbolicFlowGraph) -> Result<(), Error> {
-	use crate::fetch::FetchKind::{HttpProxy, HttpSynthesize, L4Forward, WebSocketUpgrade};
+	use crate::fetch::FetchKind::{
+		AcmeChallenge, HttpProxy, HttpSynthesize, L4Forward, WebSocketUpgrade,
+	};
 	for (idx, node) in graph.nodes.iter().enumerate() {
 		let Node::Fetch { id, next_response, next_tunnel, .. } = node else {
 			continue;
 		};
 		let kind = graph[*id].kind;
 		match kind {
-			HttpProxy | HttpSynthesize => {
+			HttpProxy | HttpSynthesize | AcmeChallenge => {
 				if next_response.is_none() {
 					return Err(Error::compile(format!("node {idx}: {kind:?} requires next_response")));
 				}
@@ -292,8 +294,8 @@ mod tests {
 			short_circuit_response_entry: std::collections::BTreeMap::new(),
 			listener_tls: std::collections::BTreeMap::new(),
 			listener_kinds: std::collections::BTreeMap::new(),
-
 			listener_transports: std::collections::BTreeMap::new(),
+			annotations: Vec::new(),
 		}
 	}
 

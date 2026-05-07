@@ -94,6 +94,7 @@ fn sample_meta() -> FlowGraphMeta {
 		listener_kinds: std::collections::BTreeMap::new(),
 
 		listener_transports: std::collections::BTreeMap::new(),
+		annotations: Vec::new(),
 	}
 }
 
@@ -309,6 +310,7 @@ fn link_preserves_version_hash_but_overrides_feature_set() {
 			listener_kinds: std::collections::BTreeMap::new(),
 
 			listener_transports: std::collections::BTreeMap::new(),
+			annotations: Vec::new(),
 		},
 	});
 	let mw = MiddlewareFactories::new();

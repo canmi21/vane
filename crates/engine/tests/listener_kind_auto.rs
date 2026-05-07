@@ -71,6 +71,7 @@ fn sample_meta(
 		listener_kinds: BTreeMap::new(),
 
 		listener_transports: BTreeMap::new(),
+		annotations: Vec::new(),
 	}
 }
 

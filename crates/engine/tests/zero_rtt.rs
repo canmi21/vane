@@ -164,6 +164,7 @@ fn tls_zero_rtt_graph(
 		listener_tls,
 		listener_kinds: BTreeMap::new(),
 		listener_transports: BTreeMap::new(),
+		annotations: Vec::new(),
 	};
 
 	let sym = Arc::new(SymbolicFlowGraph {

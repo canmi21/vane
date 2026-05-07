@@ -85,6 +85,14 @@ pub enum FetchKind {
 	HttpSynthesize,
 	WebSocketUpgrade,
 	L4Forward,
+	/// HTTP-01 ACME challenge responder. Injected by the lower
+	/// pass on every plaintext `:80` listener whose listener kind
+	/// is `Http` / `Auto` per `spec/acme.md` § _HTTP-01 § Case 1_;
+	/// returns 200 + the key authorisation when `(Host, token)`
+	/// resolves in the registry's pending table, 404 otherwise.
+	/// Operator-defined rules cannot reference this fetch kind
+	/// directly — only the lower pass produces it.
+	AcmeChallenge,
 }
 
 impl FetchKind {
@@ -97,7 +105,9 @@ impl FetchKind {
 	pub const fn phase(self) -> FetchPhase {
 		match self {
 			Self::L4Forward => FetchPhase::L4,
-			Self::HttpProxy | Self::HttpSynthesize | Self::WebSocketUpgrade => FetchPhase::L7,
+			Self::HttpProxy | Self::HttpSynthesize | Self::WebSocketUpgrade | Self::AcmeChallenge => {
+				FetchPhase::L7
+			}
 		}
 	}
 }
@@ -418,6 +428,7 @@ mod tests {
 			FetchKind::HttpSynthesize,
 			FetchKind::WebSocketUpgrade,
 			FetchKind::L4Forward,
+			FetchKind::AcmeChallenge,
 		] {
 			let encoded = serde_json::to_string(&k).expect("serialize");
 			let decoded: FetchKind = serde_json::from_str(&encoded).expect("deserialize");

@@ -116,6 +116,7 @@ fn tls_static_ok_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) ->
 		listener_kinds: BTreeMap::new(),
 
 		listener_transports: BTreeMap::new(),
+		annotations: Vec::new(),
 	};
 
 	let sym = Arc::new(SymbolicFlowGraph {
@@ -386,6 +387,7 @@ fn tls_multi_sni_graph(
 		listener_kinds: BTreeMap::new(),
 
 		listener_transports: BTreeMap::new(),
+		annotations: Vec::new(),
 	};
 
 	let sym = Arc::new(SymbolicFlowGraph {
