@@ -10,7 +10,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// ─── Verb names ─────────────────────────────────────────────────────────
 pub const VERB_PING: &str = "ping";
 pub const VERB_STATS: &str = "stats";
 pub const VERB_SHUTDOWN: &str = "shutdown";
@@ -24,12 +23,10 @@ pub const VERB_GET_METRICS: &str = "get_metrics";
 pub const VERB_GET_POOLS: &str = "get_pools";
 pub const VERB_GET_UPSTREAMS: &str = "get_upstreams";
 
-// ─── Empty args sentinel ────────────────────────────────────────────────
 /// Placeholder for verbs that accept no arguments. Round-trips as `{}`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NoArgs {}
 
-// ─── ping ───────────────────────────────────────────────────────────────
 /// `ping` is the cheapest liveness verb. The 6 spec verbs all touch
 /// daemon state; `ping` only confirms the dispatcher is alive and
 /// reports the daemon's build version. Probes / health checks should
@@ -41,7 +38,6 @@ pub struct PingResult {
 	pub version: String,
 }
 
-// ─── stats ──────────────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StatsResult {
 	pub uptime_ms: u64,
@@ -65,7 +61,6 @@ pub struct ListenerStatus {
 	pub in_flight_count: usize,
 }
 
-// ─── shutdown ───────────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShutdownResult {
 	/// Always `true` on a successful shutdown verb — the daemon has
@@ -74,7 +69,6 @@ pub struct ShutdownResult {
 	pub draining: bool,
 }
 
-// ─── get_config ─────────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetConfigResult {
 	/// Serialized `vane_core::SymbolicFlowGraph`. Kept as
@@ -83,7 +77,6 @@ pub struct GetConfigResult {
 	pub graph: serde_json::Value,
 }
 
-// ─── reload ─────────────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ReloadResult {
@@ -93,7 +86,6 @@ pub enum ReloadResult {
 	Unchanged { hash: String },
 }
 
-// ─── compile_dry_run ────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileDryRunArgs {
 	/// Filesystem path to the candidate config tree.
@@ -106,7 +98,6 @@ pub struct CompileDryRunResult {
 	pub graph: serde_json::Value,
 }
 
-// ─── get_connections ────────────────────────────────────────────────────
 /// One in-flight connection on the wire. `conn_id` is hex (16 chars,
 /// matches `ConnId`'s `Display`); addresses use the standard
 /// `SocketAddr` Display form.
@@ -118,7 +109,6 @@ pub struct ConnectionInfo {
 	pub age_ms: u64,
 }
 
-// ─── get_metrics ────────────────────────────────────────────────────────
 /// Args for `get_metrics`. `format` selects the output shape.
 ///
 /// - `"prometheus"` (default, or `null` / missing / `""`) — Prometheus
@@ -150,7 +140,6 @@ pub struct GetConnectionsResult {
 	pub connections: Vec<ConnectionInfo>,
 }
 
-// ─── get_pools ──────────────────────────────────────────────────────────
 /// Snapshot of every daemon-bounded execution pool: WASM stateful /
 /// stateless instance pools and the CGI concurrency-cap semaphore.
 ///
@@ -205,7 +194,6 @@ pub struct CgiPoolEntry {
 	pub failures: u64,
 }
 
-// ─── get_upstreams ──────────────────────────────────────────────────────
 /// Snapshot of cached upstream connection objects: the TCP / TLS
 /// `hyper-util` client cache and (when `h3` is built) the QUIC pool.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -249,7 +237,6 @@ pub struct QuicUpstreamEntry {
 	pub fingerprint_id: String,
 }
 
-// ─── pool_drain ─────────────────────────────────────────────────────────
 /// Verb name for the manual pool eviction RPC. Operators look up a
 /// `fingerprint_id` from `get_upstreams` and pass it back here to
 /// remove the matching cache entry. Live `Arc<Client>` /
@@ -272,7 +259,6 @@ pub struct PoolDrainResult {
 	pub quic_drained: usize,
 }
 
-// ─── force_renew ──────────────────────────────────────────────────────
 /// Verb name for the operator-driven "renew this cert NOW" RPC per
 /// `spec/acme.md` § _`force_renew` mgmt verb_. Bypasses the
 /// `renew_before` timer and any active backoff; useful for
@@ -300,8 +286,7 @@ pub struct ForceRenewResult {
 	pub current_status: String,
 }
 
-// ─── get_certs ──────────────────────────────────────────────────────
-/// Verb name for the cert inventory RPC per `spec/acme.md`
+/// Verb name for the cert inventory RPC per `spec/crates/engine-acme.md`
 /// § _mgmt verbs § `get_certs`_. Lists every cert the daemon tracks —
 /// managed (full lifecycle detail) and static (SNI + source label).
 pub const VERB_GET_CERTS: &str = "get_certs";
