@@ -117,6 +117,7 @@ pub(crate) fn spawn_watcher_handler(
 	>,
 	#[cfg(feature = "wasm")] wasm_runtime: Option<Arc<vane_wasm::WasmtimeRuntime>>,
 	#[cfg(feature = "wasm")] wasm_dir: Option<std::path::PathBuf>,
+	#[cfg(feature = "acme")] acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
 	cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
 	let WatcherSubscription { debouncer, mut rx, config_dir } = sub;
@@ -151,6 +152,8 @@ pub(crate) fn spawn_watcher_handler(
 						plugin_registry.as_ref(),
 						#[cfg(feature = "wasm")]
 						plugin_policies.as_ref(),
+						#[cfg(feature = "acme")]
+						acme_registry.as_ref(),
 					)
 					.await;
 					match outcome {
@@ -399,6 +402,8 @@ mod tests {
 			None,
 			#[cfg(feature = "wasm")]
 			None,
+			#[cfg(feature = "acme")]
+			None,
 			cancel.clone(),
 		);
 
@@ -449,6 +454,8 @@ mod tests {
 			#[cfg(feature = "wasm")]
 			None,
 			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "acme")]
 			None,
 			cancel.clone(),
 		);

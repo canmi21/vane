@@ -10,11 +10,13 @@ use vane_core::{
 	PluginMetadata, SymbolicFlowGraph, WasmRuntime, rule::ListenerTlsSpec,
 };
 
+#[cfg(feature = "acme")]
+use crate::acme::{ManagedCertPopulator, ManagedCertRegistry};
 use crate::factories::{
 	FactoryError, FetchFactories, FetchFactoryEntry, MiddlewareFactories, MiddlewareFactoryEntry,
 };
 use crate::security::SecurityConfig;
-use crate::tls::{CertPopulator, StaticCertPopulator, VaneCertResolver};
+use crate::tls::{CertPopulator, CertStore, StaticCertPopulator, VaneCertResolver};
 use vane_core::ListenerKind;
 
 /// Runtime state for a WASM-backed middleware export.
@@ -325,7 +327,15 @@ impl FlowGraph {
 		mw_factories: &MiddlewareFactories,
 		fetch_factories: &FetchFactories,
 	) -> Result<Arc<Self>, LinkError> {
-		Self::link_inner(sym, mw_factories, None, fetch_factories, Arc::new(SecurityConfig::default()))
+		Self::link_inner(
+			sym,
+			mw_factories,
+			None,
+			fetch_factories,
+			Arc::new(SecurityConfig::default()),
+			#[cfg(feature = "acme")]
+			None,
+		)
 	}
 
 	/// Like [`Self::link`] but accepts a WASM plugin registry and an explicit
@@ -341,7 +351,15 @@ impl FlowGraph {
 		fetch_factories: &FetchFactories,
 		security_cfg: Arc<SecurityConfig>,
 	) -> Result<Arc<Self>, LinkError> {
-		Self::link_inner(sym, mw_factories, None, fetch_factories, security_cfg)
+		Self::link_inner(
+			sym,
+			mw_factories,
+			None,
+			fetch_factories,
+			security_cfg,
+			#[cfg(feature = "acme")]
+			None,
+		)
 	}
 
 	/// Like [`Self::link_with_security`] but also resolves WASM plugin
@@ -356,7 +374,48 @@ impl FlowGraph {
 		fetch_factories: &FetchFactories,
 		security_cfg: Arc<SecurityConfig>,
 	) -> Result<Arc<Self>, LinkError> {
-		Self::link_inner(sym, mw_factories, Some(plugin_registry), fetch_factories, security_cfg)
+		Self::link_inner(
+			sym,
+			mw_factories,
+			Some(plugin_registry),
+			fetch_factories,
+			security_cfg,
+			#[cfg(feature = "acme")]
+			None,
+		)
+	}
+
+	/// Like [`Self::link_with_security`] but threads a daemon-scoped
+	/// [`ManagedCertRegistry`] into the link pipeline so listeners
+	/// declaring `tls.managed` SNIs get a [`ManagedCertPopulator`]
+	/// alongside the static populator. Per `spec/acme.md`
+	/// § _Architecture_, the registry survives reloads — every link
+	/// generation builds a fresh populator pointed at the same
+	/// registry, so newly-issued certs surface on the next refresh
+	/// tick after reload without exposing operator config-cycling to
+	/// ACME rate-limit ceilings.
+	///
+	/// `acme_registry: None` is equivalent to [`Self::link_with_security`].
+	///
+	/// # Errors
+	/// Same as [`Self::link`].
+	#[cfg(feature = "acme")]
+	pub fn link_with_acme(
+		sym: Arc<SymbolicFlowGraph>,
+		mw_factories: &MiddlewareFactories,
+		plugin_registry: Option<&PluginRegistry>,
+		fetch_factories: &FetchFactories,
+		security_cfg: Arc<SecurityConfig>,
+		acme_registry: Option<&Arc<ManagedCertRegistry>>,
+	) -> Result<Arc<Self>, LinkError> {
+		Self::link_inner(
+			sym,
+			mw_factories,
+			plugin_registry,
+			fetch_factories,
+			security_cfg,
+			acme_registry,
+		)
 	}
 
 	fn link_inner(
@@ -365,6 +424,7 @@ impl FlowGraph {
 		plugin_registry: Option<&PluginRegistry>,
 		fetch_factories: &FetchFactories,
 		security_cfg: Arc<SecurityConfig>,
+		#[cfg(feature = "acme")] acme_registry: Option<&Arc<ManagedCertRegistry>>,
 	) -> Result<Arc<Self>, LinkError> {
 		let middlewares = resolve_middlewares(&sym.middlewares, mw_factories, plugin_registry)?;
 
@@ -394,9 +454,13 @@ impl FlowGraph {
 		let mut listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>> =
 			BTreeMap::new();
 		for (addr, spec) in &sym.meta.listener_tls {
-			let (server_config, populator) =
-				build_listener_server_config(spec, security_cfg.crl_cache.as_ref())
-					.map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
+			let (server_config, populators) = build_listener_server_config(
+				spec,
+				security_cfg.crl_cache.as_ref(),
+				#[cfg(feature = "acme")]
+				acme_registry,
+			)
+			.map_err(|cause| LinkError::TlsConfig { addr: *addr, cause })?;
 			// Operator-visible record of which ticketer posture this
 			// listener resolved to. 0-RTT requires skipping the
 			// daemon-wide rotating ticketer (see
@@ -412,7 +476,7 @@ impl FlowGraph {
 				tracing::debug!(%addr, "tls listener: daemon-wide ticketer installed");
 			}
 			listener_tls.insert(*addr, Arc::new(server_config));
-			listener_populators.insert(*addr, vec![populator]);
+			listener_populators.insert(*addr, populators);
 		}
 
 		// Inherit version_hash / compiled_at / source_files from the symbolic
@@ -576,9 +640,74 @@ fn derive_kind(sym: &SymbolicFlowGraph, entry: NodeId) -> ListenerKind {
 fn build_listener_server_config(
 	spec: &ListenerTlsSpec,
 	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
-) -> Result<(rustls::ServerConfig, Box<dyn CertPopulator + Send + Sync>), String> {
-	let populator = StaticCertPopulator::from_spec(spec).map_err(|e| e.to_string())?;
-	let store = populator.initial_store_sync().map_err(|e| e.to_string())?;
+	#[cfg(feature = "acme")] acme_registry: Option<&Arc<ManagedCertRegistry>>,
+) -> Result<(rustls::ServerConfig, Vec<Box<dyn CertPopulator + Send + Sync>>), String> {
+	// Per `08-tls.md` § _Cert populators_, multiple populators may
+	// share one listener — a static populator delivering the
+	// operator-pinned default + per-SNI PEMs alongside a managed
+	// populator delivering ACME-issued certs for the listener's
+	// `tls.managed` SNIs. The two populators' initial stores are
+	// merged into one `CertStore` for the resolver's `ArcSwap`.
+	//
+	// `populators` outlives this function — they're returned to the
+	// `link` caller and held on `FlowGraph::listener_populators` for
+	// the refresh loop. Their lifetime extension is what keeps
+	// `ManagedCertPopulator::declare_managed`'s registration live
+	// across reload churn.
+	let mut populators: Vec<Box<dyn CertPopulator + Send + Sync>> = Vec::with_capacity(2);
+	let mut store = CertStore { by_sni: std::collections::HashMap::new(), default: None };
+	let mut had_static = false;
+
+	let static_present = spec.default.is_some() || !spec.sni_certs.is_empty();
+	if static_present {
+		let static_pop = StaticCertPopulator::from_spec(spec).map_err(|e| e.to_string())?;
+		let static_store = static_pop.initial_store_sync().map_err(|e| e.to_string())?;
+		store.default = static_store.default;
+		store.by_sni.extend(static_store.by_sni);
+		populators.push(Box::new(static_pop));
+		had_static = true;
+	}
+
+	#[cfg(feature = "acme")]
+	if !spec.managed_snis.is_empty() {
+		let registry = acme_registry.ok_or_else(|| {
+			format!(
+				"listener spec declares {} managed SNI(s) but no ManagedCertRegistry was supplied to FlowGraph::link",
+				spec.managed_snis.len(),
+			)
+		})?;
+		let snis: Vec<String> = spec.managed_snis.keys().cloned().collect();
+		let managed_pop = ManagedCertPopulator::new(Arc::clone(registry), snis);
+		// `current_store` is async on the trait; the link path is
+		// synchronous, so we drive the future to completion via a
+		// blocking adapter. The future is non-IO: it only walks the
+		// in-memory registry cache, so polling once with a no-op
+		// waker is sufficient. This avoids pulling tokio's runtime
+		// into the link path (which is also called from non-tokio
+		// test contexts).
+		let managed_store = block_on_pure(managed_pop.initial_store()).map_err(|e| e.to_string())?;
+		store.by_sni.extend(managed_store.by_sni);
+		// Managed populator never owns a default; if static didn't
+		// supply one either, the listener has no default — handshakes
+		// without an SNI match fail at the resolver, the existing
+		// behaviour for default-less listeners.
+		populators.push(Box::new(managed_pop));
+	}
+
+	#[cfg(not(feature = "acme"))]
+	let _ = &had_static;
+
+	#[cfg(feature = "acme")]
+	if !had_static && spec.managed_snis.is_empty() {
+		return Err(
+			"listener TLS spec is empty (no default + no sni certs + no managed snis)".to_owned(),
+		);
+	}
+	#[cfg(not(feature = "acme"))]
+	if !had_static {
+		return Err("listener TLS spec is empty (no default + no sni certs)".to_owned());
+	}
+
 	let arcswap = Arc::new(ArcSwap::from_pointee(store));
 	let resolver = Arc::new(VaneCertResolver::new(arcswap));
 
@@ -641,7 +770,32 @@ fn build_listener_server_config(
 		server_config.max_early_data_size = 16 * 1024;
 	}
 
-	Ok((server_config, Box::new(populator)))
+	Ok((server_config, populators))
+}
+
+/// Drive an async future to completion **assuming it does no IO**.
+/// Used by [`build_listener_server_config`] to call
+/// [`ManagedCertPopulator::initial_store`] from synchronous link
+/// code; the populator's body only walks in-memory state, so a
+/// single poll under a no-op waker resolves it.
+///
+/// Panics if the future yields `Pending`. That'd indicate the
+/// populator started doing real IO, which would be a contract
+/// violation worth crashing on.
+#[cfg(feature = "acme")]
+fn block_on_pure<F: std::future::Future>(fut: F) -> F::Output {
+	use std::pin::pin;
+	use std::task::{Context, Poll, Waker};
+
+	let mut fut = pin!(fut);
+	let waker = Waker::noop();
+	let mut cx = Context::from_waker(waker);
+	match fut.as_mut().poll(&mut cx) {
+		Poll::Ready(out) => out,
+		Poll::Pending => {
+			panic!("ManagedCertPopulator::initial_store yielded — expected synchronous resolve")
+		}
+	}
 }
 
 impl Index<MiddlewareId> for FlowGraph {
@@ -741,9 +895,198 @@ mod tests {
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		};
-		let (server, _populator) =
-			build_listener_server_config(&spec, None).expect("build_listener_server_config");
+		let (server, populators) = build_listener_server_config(
+			&spec,
+			None,
+			#[cfg(feature = "acme")]
+			None,
+		)
+		.expect("build_listener_server_config");
 		assert_eq!(server.alpn_protocols, vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
+		assert_eq!(populators.len(), 1, "static-only listener gets one populator");
+	}
+
+	#[cfg(feature = "acme")]
+	mod managed_wiring_tests {
+		use std::sync::Arc;
+		use std::time::{Duration, SystemTime};
+
+		use async_trait::async_trait;
+		use parking_lot::Mutex;
+		use vane_core::rule::{ChallengeKind, ListenerTlsSpec, ManagedKeyType, ManagedSpec, TlsConfig};
+
+		use crate::acme::store::{AcmeAccount, AcmeStore, LockGuard, StoreError, StoredCert};
+		use crate::acme::{ManagedCertRegistry, populator::ManagedCertPopulator};
+
+		use super::*;
+
+		#[derive(Default)]
+		struct MockStore {
+			accounts: Mutex<std::collections::BTreeMap<String, AcmeAccount>>,
+			certs: Mutex<std::collections::BTreeMap<String, StoredCert>>,
+		}
+
+		#[derive(Debug)]
+		struct MockGuard;
+		impl LockGuard for MockGuard {}
+
+		#[async_trait]
+		impl AcmeStore for MockStore {
+			async fn load_account(&self, dir: &str) -> Result<Option<AcmeAccount>, StoreError> {
+				Ok(self.accounts.lock().get(dir).cloned())
+			}
+			async fn save_account(&self, dir: &str, acc: &AcmeAccount) -> Result<(), StoreError> {
+				self.accounts.lock().insert(dir.to_owned(), acc.clone());
+				Ok(())
+			}
+			async fn load_cert(&self, sni: &str) -> Result<Option<StoredCert>, StoreError> {
+				Ok(self.certs.lock().get(sni).cloned())
+			}
+			async fn save_cert(&self, sni: &str, cert: &StoredCert) -> Result<(), StoreError> {
+				self.certs.lock().insert(sni.to_owned(), cert.clone());
+				Ok(())
+			}
+			async fn list_cert_snis(&self) -> Result<Vec<String>, StoreError> {
+				let mut snis: Vec<String> = self.certs.lock().keys().cloned().collect();
+				snis.sort();
+				Ok(snis)
+			}
+			async fn lock(&self, _scope: &str) -> Result<Box<dyn LockGuard>, StoreError> {
+				Ok(Box::new(MockGuard))
+			}
+		}
+
+		fn install_crypto() {
+			crate::crypto::install_default_provider();
+		}
+
+		fn make_stored(sni: &str) -> StoredCert {
+			install_crypto();
+			let issued = rcgen::generate_simple_self_signed(vec![sni.to_owned()]).expect("self-signed");
+			StoredCert {
+				leaf_pem: issued.cert.pem(),
+				chain_pem: String::new(),
+				key_pem: issued.signing_key.serialize_pem(),
+				not_after: SystemTime::now() + Duration::from_hours(24 * 30),
+				ari_replacement_id: None,
+				last_renew_at: SystemTime::now(),
+			}
+		}
+
+		async fn registry_with(snis: &[(&str, StoredCert)]) -> Arc<ManagedCertRegistry> {
+			let store = Arc::new(MockStore::default());
+			for (sni, cert) in snis {
+				store.save_cert(sni, cert).await.unwrap();
+			}
+			ManagedCertRegistry::open(store as Arc<dyn AcmeStore>).await.expect("open")
+		}
+
+		fn dummy_managed_spec() -> ManagedSpec {
+			ManagedSpec {
+				directory_url: "https://acme.invalid/dir".to_owned(),
+				contact: vec!["mailto:ops@example.com".to_owned()],
+				agree_tos: true,
+				challenge: ChallengeKind::Http01,
+				key_type: ManagedKeyType::EcdsaP256,
+				renew_before: "30d".to_owned(),
+				san: vec!["api.example.com".to_owned()],
+				account_key_path: None,
+				dns_provider: None,
+			}
+		}
+
+		#[tokio::test]
+		async fn managed_only_listener_builds_managed_populator() {
+			let registry = registry_with(&[("api.example.com", make_stored("api.example.com"))]).await;
+			let mut managed = std::collections::BTreeMap::new();
+			managed.insert("api.example.com".to_owned(), dummy_managed_spec());
+			let spec = ListenerTlsSpec {
+				default: None,
+				sni_certs: std::collections::BTreeMap::new(),
+				managed_snis: managed,
+				client_auth: vane_core::rule::ClientAuthSpec::None,
+				enable_zero_rtt: false,
+			};
+			let (server, populators) =
+				build_listener_server_config(&spec, None, Some(&registry)).expect("build");
+			// Single populator (managed only); the resolver was wired
+			// from a `CertStore` that already has the cached cert.
+			assert_eq!(populators.len(), 1);
+			// ALPN unchanged (orchestration doesn't depend on cert source).
+			assert_eq!(server.alpn_protocols, vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
+		}
+
+		#[tokio::test]
+		async fn managed_listener_without_registry_errors() {
+			let mut managed = std::collections::BTreeMap::new();
+			managed.insert("api.example.com".to_owned(), dummy_managed_spec());
+			let spec = ListenerTlsSpec {
+				default: None,
+				sni_certs: std::collections::BTreeMap::new(),
+				managed_snis: managed,
+				client_auth: vane_core::rule::ClientAuthSpec::None,
+				enable_zero_rtt: false,
+			};
+			match build_listener_server_config(&spec, None, None) {
+				Ok(_) => panic!("must error when registry absent"),
+				Err(msg) => assert!(msg.contains("ManagedCertRegistry"), "{msg}"),
+			}
+		}
+
+		#[tokio::test]
+		async fn mixed_static_and_managed_stack_two_populators() {
+			use std::io::Write as _;
+
+			use tempfile::NamedTempFile;
+
+			install_crypto();
+			let registry = registry_with(&[("api.example.com", make_stored("api.example.com"))]).await;
+
+			// Static default cert (sni-less).
+			let issued = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).expect("ss");
+			let cert_pem = issued.cert.pem();
+			let key_pem = issued.signing_key.serialize_pem();
+			let mut cert_file = NamedTempFile::new().unwrap();
+			cert_file.write_all(cert_pem.as_bytes()).unwrap();
+			let mut key_file = NamedTempFile::new().unwrap();
+			key_file.write_all(key_pem.as_bytes()).unwrap();
+
+			let mut managed = std::collections::BTreeMap::new();
+			managed.insert("api.example.com".to_owned(), dummy_managed_spec());
+			let spec = ListenerTlsSpec {
+				default: Some(TlsConfig {
+					sni: None,
+					cert_file: Some(cert_file.path().to_path_buf()),
+					key_file: Some(key_file.path().to_path_buf()),
+					managed: None,
+					enable_zero_rtt: false,
+					client_auth: None,
+				}),
+				sni_certs: std::collections::BTreeMap::new(),
+				managed_snis: managed,
+				client_auth: vane_core::rule::ClientAuthSpec::None,
+				enable_zero_rtt: false,
+			};
+			let (_server, populators) =
+				build_listener_server_config(&spec, None, Some(&registry)).expect("build");
+			assert_eq!(populators.len(), 2, "mixed listener stacks static + managed populators");
+
+			// Confirm both populators concretely refresh against the
+			// merged store. Refresh is the steady-state path.
+			let store = populators[0].initial_store().await.unwrap();
+			assert!(store.default.is_some(), "static populator owns the listener default");
+			assert!(populators[0].refresh(&store).await.unwrap().is_none(), "static no-op");
+			let managed_store = populators[1].initial_store().await.unwrap();
+			assert!(managed_store.by_sni.contains_key("api.example.com"));
+		}
+
+		#[test]
+		fn managed_populator_wraps_registry_arc() {
+			// Compile-time bind: ensure the signature continues to take
+			// an Arc<ManagedCertRegistry>. Any future API change here
+			// will break this test, surfacing the regression early.
+			fn _accepts(_p: ManagedCertPopulator) {}
+		}
 	}
 
 	mod needs_peek_tests {

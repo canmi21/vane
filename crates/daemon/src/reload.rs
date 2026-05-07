@@ -72,6 +72,7 @@ pub(crate) async fn reload_once(
 	security_cfg: &Arc<SecurityConfig>,
 	plugin_registry: Option<&Arc<ArcSwap<PluginRegistry>>>,
 	#[cfg(feature = "wasm")] plugin_policies: Option<&Arc<ArcSwap<PluginPolicyTable>>>,
+	#[cfg(feature = "acme")] acme_registry: Option<&Arc<vane_engine::acme::ManagedCertRegistry>>,
 ) -> Result<ReloadOutcome, Error> {
 	#[cfg(feature = "wasm")]
 	let wasm_outcome = match (wasm_dir, runtime, plugin_registry, plugin_policies) {
@@ -110,22 +111,39 @@ pub(crate) async fn reload_once(
 		}
 	}
 
-	let new_graph = match registry_snap.as_ref() {
-		Some(reg) => FlowGraph::link_with_plugins(
-			symbolic,
-			mw_factories,
-			reg,
-			fetch_factories,
-			Arc::clone(security_cfg),
-		),
-		None => FlowGraph::link_with_security(
-			symbolic,
-			mw_factories,
-			fetch_factories,
-			Arc::clone(security_cfg),
-		),
-	}
-	.map_err(|e| Error::compile(format!("link: {e}")))?;
+	let new_graph = {
+		#[cfg(feature = "acme")]
+		{
+			FlowGraph::link_with_acme(
+				symbolic,
+				mw_factories,
+				registry_snap.as_deref(),
+				fetch_factories,
+				Arc::clone(security_cfg),
+				acme_registry,
+			)
+			.map_err(|e| Error::compile(format!("link: {e}")))?
+		}
+		#[cfg(not(feature = "acme"))]
+		{
+			match registry_snap.as_ref() {
+				Some(reg) => FlowGraph::link_with_plugins(
+					symbolic,
+					mw_factories,
+					reg,
+					fetch_factories,
+					Arc::clone(security_cfg),
+				),
+				None => FlowGraph::link_with_security(
+					symbolic,
+					mw_factories,
+					fetch_factories,
+					Arc::clone(security_cfg),
+				),
+			}
+			.map_err(|e| Error::compile(format!("link: {e}")))?
+		}
+	};
 
 	let new_hash = new_graph.meta().version_hash;
 	let active_hash = graph.load().meta().version_hash;
@@ -227,6 +245,8 @@ mod tests {
 			None,
 			#[cfg(feature = "wasm")]
 			None,
+			#[cfg(feature = "acme")]
+			None,
 		)
 		.await
 		.expect("reload");
@@ -261,6 +281,8 @@ mod tests {
 			None,
 			#[cfg(feature = "wasm")]
 			None,
+			#[cfg(feature = "acme")]
+			None,
 		)
 		.await
 		.expect("reload");
@@ -291,6 +313,8 @@ mod tests {
 			&default_security(),
 			None,
 			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "acme")]
 			None,
 		)
 		.await
@@ -341,6 +365,8 @@ mod tests {
 			None,
 			#[cfg(feature = "wasm")]
 			None,
+			#[cfg(feature = "acme")]
+			None,
 		)
 		.await
 		.expect_err("must fail link");
@@ -371,6 +397,8 @@ mod tests {
 			&default_security(),
 			None,
 			#[cfg(feature = "wasm")]
+			None,
+			#[cfg(feature = "acme")]
 			None,
 		)
 		.await

@@ -282,20 +282,36 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		#[cfg(feature = "acme")]
 		acme_registry.clone(),
 	));
-	let initial_graph = match registry_boot_snap.as_ref() {
-		Some(reg) => FlowGraph::link_with_plugins(
-			symbolic,
-			&mw_factories,
-			reg,
-			&fetch_factories,
-			Arc::clone(&security_cfg),
-		)?,
-		None => FlowGraph::link_with_security(
-			symbolic,
-			&mw_factories,
-			&fetch_factories,
-			Arc::clone(&security_cfg),
-		)?,
+	let initial_graph = {
+		#[cfg(feature = "acme")]
+		{
+			FlowGraph::link_with_acme(
+				symbolic,
+				&mw_factories,
+				registry_boot_snap.as_deref(),
+				&fetch_factories,
+				Arc::clone(&security_cfg),
+				acme_registry.as_ref(),
+			)?
+		}
+		#[cfg(not(feature = "acme"))]
+		{
+			match registry_boot_snap.as_ref() {
+				Some(reg) => FlowGraph::link_with_plugins(
+					symbolic,
+					&mw_factories,
+					reg,
+					&fetch_factories,
+					Arc::clone(&security_cfg),
+				)?,
+				None => FlowGraph::link_with_security(
+					symbolic,
+					&mw_factories,
+					&fetch_factories,
+					Arc::clone(&security_cfg),
+				)?,
+			}
+		}
 	};
 	let graph_swap: Arc<ArcSwap<FlowGraph>> = Arc::new(ArcSwap::new(initial_graph));
 	tracing::info!("linked flow graph");
@@ -425,6 +441,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 				loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.runtime)),
 				#[cfg(feature = "wasm")]
 				Some(loaded.env.wasm_dir.clone()),
+				#[cfg(feature = "acme")]
+				acme_registry.clone(),
 				watcher_cancel.clone(),
 			);
 			tracing::info!("file watcher armed");
@@ -463,6 +481,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		wasm_runtime: loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.runtime)),
 		#[cfg(feature = "wasm")]
 		wasm_dir: loaded.env.wasm_dir.clone(),
+		#[cfg(feature = "acme")]
+		acme_registry: acme_registry.clone(),
 	});
 	let mgmt_cancel = CancellationToken::new();
 	let mgmt_unix_handle = bind_mgmt_unix_server(Arc::clone(&mgmt_state), mgmt_cancel.clone()).await;

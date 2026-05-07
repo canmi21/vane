@@ -93,6 +93,14 @@ pub(crate) struct MgmtState {
 	/// `wasm_loader::reload_dir`.
 	#[cfg(feature = "wasm")]
 	pub wasm_dir: std::path::PathBuf,
+	/// Daemon-scoped ACME registry (per `spec/acme.md` § _Architecture_).
+	/// Threaded into `reload_once` so post-reload `FlowGraph::link`
+	/// re-attaches the same registry to fresh per-listener
+	/// `ManagedCertPopulator`s — accounts and issued certs survive
+	/// reloads. `None` when the daemon was built without `acme` or
+	/// when boot found no `tls.managed` rules.
+	#[cfg(feature = "acme")]
+	pub acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
 }
 
 #[async_trait]
@@ -321,6 +329,8 @@ impl MgmtState {
 			self.plugin_registry.as_ref(),
 			#[cfg(feature = "wasm")]
 			self.plugin_policies.as_ref(),
+			#[cfg(feature = "acme")]
+			self.acme_registry.as_ref(),
 		)
 		.await;
 		match outcome {
@@ -579,6 +589,8 @@ mod tests {
 			wasm_runtime: None,
 			#[cfg(feature = "wasm")]
 			wasm_dir: tmp.path().join("wasm"),
+			#[cfg(feature = "acme")]
+			acme_registry: None,
 		})
 	}
 
