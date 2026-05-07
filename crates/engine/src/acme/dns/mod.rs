@@ -19,6 +19,9 @@
 #[cfg(feature = "cloudflare")]
 pub mod cloudflare;
 
+#[cfg(feature = "cloudflare")]
+pub use cloudflare::{CloudflareConfig, CloudflareDnsProvider};
+
 use std::time::Duration;
 
 use async_trait::async_trait;

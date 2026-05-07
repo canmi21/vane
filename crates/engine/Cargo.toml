@@ -34,7 +34,10 @@ ring = ["rustls/ring", "tokio-rustls/ring", "hyper-rustls/ring", "instant-acme?/
 h3 = ["dep:quinn", "dep:quinn-proto", "dep:h3", "dep:h3-quinn"]
 cgi = []
 acme = ["dep:fs4", "dep:futures", "dep:instant-acme", "dep:rcgen"]
-cloudflare = ["acme"]
+# Cloudflare DNS-01 provider. Pulls reqwest only in this feature
+# combination so the default `acme`-only build doesn't carry the
+# HTTP client unnecessarily.
+cloudflare = ["acme", "dep:reqwest"]
 
 [dependencies]
 arc-swap = "1.9.1"
@@ -106,6 +109,11 @@ futures = { version = "0.3", optional = true }
 # build our own CSR via vane-engine's rcgen dep).
 instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls"], optional = true }
 rcgen = { version = "0.14", optional = true }
+# Cloudflare provider HTTP client. `rustls-tls-native-roots-no-provider`
+# matches the workspace policy: stay backend-agnostic so the
+# `aws-lc-rs?` / `ring?` features in this crate can pick the rustls
+# crypto provider without conflicting with reqwest's default `ring`.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots-no-provider", "json"], optional = true }
 
 # `libc` is already in the workspace dep graph (transitively via tokio,
 # rustls, hyper, ...). The CGI driver promotes it to a direct dep so
@@ -125,3 +133,7 @@ tempfile = "3"
 # pull this feature.
 tokio-rustls = { version = "0.26", default-features = false, features = ["early-data"] }
 vane-testutil = { workspace = true, features = ["h3", "acme"] }
+# Cloudflare provider unit tests use wiremock to stub the v4 API
+# without hitting the real Cloudflare endpoint. Dev-only — never
+# enters the runtime dep graph.
+wiremock = "0.6"
