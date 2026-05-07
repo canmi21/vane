@@ -1,7 +1,7 @@
 //! Public types for protocol detection results stored on
 //! `ConnContext.user` by the listener-side peek prelude.
 //!
-//! See `spec/architecture/06-l4.md` § _Protocol detection_. The
+//! See `spec/crates/engine.md` § _Protocol detection_. The
 //! detector functions themselves (which run rustls's `Acceptor` to
 //! parse a `ClientHello`) live in `vane-engine` since rustls is an
 //! engine-level dependency. Predicates and middleware in `vane-core`
@@ -35,7 +35,7 @@ pub struct TlsClientHello {
 
 /// Maximum number of bytes the listener-side peek prelude accumulates
 /// before declaring the connection's prefix `Unknown`. Mirrors
-/// `spec/architecture/06-l4.md` § _Protocol detection_'s 8 KiB cap.
+/// `spec/crates/engine.md` § _Protocol detection_'s 8 KiB cap.
 pub const MAX_PEEK_BYTES: usize = 8 * 1024;
 
 #[cfg(test)]

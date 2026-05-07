@@ -3,7 +3,7 @@
 //! Drives the full `merge → expand → analyze → lower → validate`
 //! pipeline through `compile()` so each error path here matches what
 //! an operator would see from `vane compile --dry-run`. See
-//! `spec/architecture/08-tls.md` § _TLS 1.3 0-RTT (early data)_
+//! `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_
 //! § _Compile-time constraints_ for the rule list.
 
 use std::path::PathBuf;

@@ -8,7 +8,7 @@
 //! anchor on the public IR shape (terminator slab, fetch slab,
 //! middleware slab, entries map).
 //!
-//! See `spec/architecture/14-presets.md` for the input/output contract.
+//! See `spec/crates/core.md` for the input/output contract.
 
 use std::path::PathBuf;
 

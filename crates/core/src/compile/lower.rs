@@ -76,7 +76,7 @@ pub fn lower(
 		}
 	}
 
-	// Per `spec/acme.md` § _HTTP-01 § Compile-time checks_: when any
+	// Per `spec/crates/engine-acme.md` § _HTTP-01 § Compile-time checks_: when any
 	// rule declares a `tls.managed.challenge == "http-01"` SNI but
 	// the operator has no plaintext `:80` listener anywhere in the
 	// config, the daemon will auto-bind one at runtime. Emit a
@@ -587,12 +587,12 @@ struct Builder {
 	/// `Terminate(WriteHttpResponse)` `NodeId`. Populated by `lower_port`
 	/// for each listener that emits an `Upgrade`; consumed by the
 	/// executor when a request middleware returns `Short(Response(_))`.
-	/// See spec/architecture/02-flow.md § _`FlowGraph` metadata_.
+	/// See spec/flow-model.md § _`FlowGraph` metadata_.
 	short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
 	/// Per-listener cert pool (symbolic). Populated by `resolve_listener_tls`
 	/// after aggregating every rule's `tls` block on this address; the
 	/// engine's `link` parses each entry into a `rustls::ServerConfig`.
-	/// See spec/architecture/08-tls.md § _TLS termination_.
+	/// See spec/crates/engine-tls.md § _TLS termination_.
 	listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::ListenerTlsSpec>,
 	/// Per-listener dispatch posture (symbolic). Populated as
 	/// `lower_port` finishes each address group; see
@@ -731,7 +731,7 @@ impl Builder {
 				// has somewhere to land. The executor sets the response slot
 				// on the `Decision::Short` arm and jumps to this synth target;
 				// the standard `WriteHttpResponse` write path emits the bytes.
-				// See spec/architecture/02-flow.md § _`FlowGraph` metadata_.
+				// See spec/flow-model.md § _`FlowGraph` metadata_.
 				//
 				// The map key is `inner_entry` — the node Upgrade's `next`
 				// points at — *not* the listener-level Upgrade NodeId.
@@ -816,7 +816,7 @@ impl Builder {
 		// entry, so by the time the fetch runs the body has been
 		// drained from the upstream `Body::Stream` into a
 		// `Body::Static` snapshot the retry loop can replay. See
-		// `spec/architecture/05-terminator.md` § _Retry buffering_.
+		// `spec/crates/engine.md` § _Retry buffering_.
 		let (fetch_collect, fetch_body_limit) = if retry_buffer_required {
 			(Some(BodySide::Request), rule.raw.max_body_bytes_request)
 		} else {
@@ -1263,7 +1263,7 @@ fn resolve_listener_tls(
 	for rule in rules {
 		let Some(tls) = rule.raw.tls.as_ref() else { continue };
 		// `analyze::analyze_rule` has already enforced
-		// `TlsConfig::validate` per spec/acme.md § _Compile-time checks_,
+		// `TlsConfig::validate` per spec/crates/engine-acme.md § _Compile-time checks_,
 		// so by the time lower iterates each `tls` block here the
 		// invariants (exactly one cert source, managed-required SNI,
 		// etc.) hold. Branch on cert source to route the rule into
@@ -1333,7 +1333,7 @@ fn display_cert_file(tls: &crate::rule::TlsConfig) -> String {
 }
 
 /// Inject the high-priority ACME HTTP-01 challenge route into
-/// every plaintext `:80` listener per `spec/acme.md` § _HTTP-01
+/// every plaintext `:80` listener per `spec/crates/engine-acme.md` § _HTTP-01
 /// § Case 1_. No-op when no rule in the config requested an
 /// HTTP-01-managed cert.
 ///
@@ -1468,7 +1468,7 @@ fn rewire_post_upgrade(nodes: &mut [Node], entry: NodeId, target: NodeId) {
 	}
 }
 
-/// Cross-listener compile-time warning per `spec/acme.md`
+/// Cross-listener compile-time warning per `spec/crates/engine-acme.md`
 /// § _HTTP-01 § Compile-time checks_: when any rule asks for an
 /// HTTP-01 ACME cert but no plaintext `:80` listener exists in the
 /// compiled config, the operator should know `vaned` will try to
@@ -1877,7 +1877,7 @@ fn coerce_value(
 			Ok(CompiledValue::Int(*n))
 		}
 		FieldValueType::Bytes => {
-			// spec/architecture/18-predicate-schema.md § _Value JSON
+			// spec/crates/core.md § _Value JSON
 			// encoding_: bytes-typed fields take a STANDARD base64
 			// string. Decoding here keeps the lower-time IR aligned
 			// with the dry-run JSON form (which the shadow-enum's
@@ -2478,7 +2478,7 @@ mod compat_tests {
 	fn parse_and_lower_spec_example_decodes_base64_contains() {
 		// Round-trip through Predicate::Check just like a real rule
 		// would. The spec example is verbatim from
-		// spec/architecture/18-predicate-schema.md § _Value JSON encoding_.
+		// spec/crates/core.md § _Value JSON encoding_.
 		let raw = serde_json::json!({ "http.body": { "contains": "aGVsbG8=" } });
 		let pred: crate::predicate::Predicate = serde_json::from_value(raw).expect("parse predicate");
 		let check = match pred {

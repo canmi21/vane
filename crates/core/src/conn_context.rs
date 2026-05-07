@@ -50,7 +50,7 @@ pub struct TlsInfo {
 	/// The L7 executor consults this together with the matched rule's
 	/// `allow_zero_rtt` to decide whether to short-circuit the request
 	/// with a synthetic 425 Too Early. See
-	/// `spec/architecture/08-tls.md` § _TLS 1.3 0-RTT (early data)_.
+	/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_.
 	pub zero_rtt_used: bool,
 }
 
@@ -67,7 +67,7 @@ pub struct TlsInfo {
 ///
 /// All `String`-typed fields are byte-for-byte canonical: hex digests
 /// are ASCII-lowercase; `serial` is hex (lowercase, no leading-zero
-/// stripping). See `spec/architecture/18-predicate-schema.md` §
+/// stripping). See `spec/crates/core.md` §
 /// _Authoritative field paths_ for the canonical formats.
 #[derive(Clone, Debug, Default)]
 pub struct PeerCertificate {

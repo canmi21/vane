@@ -2,7 +2,7 @@
 //!
 //! Expands to a single `RawRule` whose terminate is `L4Forward`. No
 //! middleware — there is no HTTP layer to set headers on. See
-//! `spec/architecture/14-presets.md` § _`port_forward`_.
+//! `spec/crates/core.md` § _`port_forward`_.
 
 use crate::error::Error;
 use crate::fetch::FetchKind;

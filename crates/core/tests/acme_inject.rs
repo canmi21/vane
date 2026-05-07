@@ -1,5 +1,5 @@
 //! End-to-end tests for the lower pass's ACME HTTP-01 inject step
-//! (`spec/acme.md` § _HTTP-01 § Case 1_).
+//! (`spec/crates/engine-acme.md` § _HTTP-01 § Case 1_).
 //!
 //! Fixtures drive the full `compile(merge → expand → analyze →
 //! lower → validate)` facade so the assertions land on the same

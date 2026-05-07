@@ -1,7 +1,7 @@
 //! Integration tests for `vane_core::flow_log` trajectory types.
 //!
 //! Covers the `FlowTrajectory` shape and `TrajectoryBuilder` contract
-//! defined in `spec/architecture/02-flow.md` § _Flow log verbosity_:
+//! defined in `spec/flow-model.md` § _Flow log verbosity_:
 //! `TrajectoryBuilder` accumulates `TrajectoryStep`s in push order and
 //! `finalize` snapshots them into a `FlowTrajectory` whose outcome is
 //! either `Terminated` or `Error`. Also exercises the `serde` round-trip

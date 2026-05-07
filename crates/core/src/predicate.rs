@@ -27,7 +27,7 @@ pub enum FieldPath {
 	/// DNS-type Subject Alternative Names from the verified peer
 	/// cert. `Vec<Str>`-typed: `contains`/`not_contains` against a
 	/// single-element operand are the only legal operators (per
-	/// `spec/architecture/18-predicate-schema.md` § _Operator × value
+	/// `spec/crates/core.md` § _Operator × value
 	/// type compatibility_).
 	TlsPeerCertSanDns,
 	/// SHA-256 of the full DER-encoded leaf cert, lowercase hex.
@@ -49,7 +49,7 @@ pub enum FieldPath {
 }
 
 /// Value type a [`FieldPath`] reads from. Drives the operator
-/// compatibility matrix in `spec/architecture/18-predicate-schema.md`
+/// compatibility matrix in `spec/crates/core.md`
 /// § _Operator × value type compatibility_ and the `coerce_value`
 /// validator in the lower pass.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -81,7 +81,7 @@ impl FieldValueType {
 impl FieldPath {
 	/// Authoritative `FieldPath` → value type mapping. Mirrors the
 	/// "Authoritative field paths" table in
-	/// `spec/architecture/18-predicate-schema.md`.
+	/// `spec/crates/core.md`.
 	#[must_use]
 	pub fn value_type(&self) -> FieldValueType {
 		match self {
@@ -133,7 +133,7 @@ impl FieldPath {
 }
 
 /// Operator family used by the type-compatibility matrix. Mirrors the
-/// rows of `spec/architecture/18-predicate-schema.md`'s "Operator ×
+/// rows of `spec/crates/core.md`'s "Operator ×
 /// value type compatibility" table — operators in the same row share a
 /// compatibility set.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -183,7 +183,7 @@ impl Operator {
 }
 
 impl OperatorFamily {
-	/// Compatibility check from `spec/architecture/18-predicate-schema.md`
+	/// Compatibility check from `spec/crates/core.md`
 	/// § _Operator × value type compatibility_. The matrix is small and
 	/// closed; enumerated here rather than data-driven so a future spec
 	/// change forces a recompile-sized review.
@@ -334,7 +334,7 @@ impl<'a> PredicateView<'a> {
 	/// (phase `L7Request`), otherwise falls back to `L4`.
 	///
 	/// `peek` carries the bytes the listener-side prelude buffered on
-	/// the connection — see `spec/architecture/06-l4.md` § _Protocol
+	/// the connection — see `spec/crates/engine.md` § _Protocol
 	/// detection_. The executor extracts it from `ConnContext.user`
 	/// (where the listener stashed a `PeekResult`) and forwards a
 	/// borrow with a lifetime that outlives this view.
@@ -551,7 +551,7 @@ fn tls_version_str(v: crate::conn_context::TlsVersion) -> &'static str {
 // `PeerCertificate::from_der`); the per-Check predicate readers just
 // look up the cached scalar.
 
-/// Bool-typed reader. Per `spec/architecture/18-predicate-schema.md`
+/// Bool-typed reader. Per `spec/crates/core.md`
 /// § _Operator × value type compatibility_, only `equals` /
 /// `not_equals` against a Bool literal are legal; everything else
 /// matrix-rejects at compile and falls through to `false` here as a
@@ -1270,7 +1270,7 @@ mod tests {
 	}
 
 	// Parse-layer coverage for Predicate / CheckMap / Operator / Value.
-	// Tests exercise the wire format defined in spec/architecture/18-predicate-schema.md.
+	// Tests exercise the wire format defined in spec/crates/core.md.
 
 	fn parse_predicate(v: serde_json::Value) -> Result<Predicate, serde_json::Error> {
 		serde_json::from_value(v)
@@ -1973,7 +1973,7 @@ mod tests {
 
 	// ──────────────────────────────────────────────────────────────────────
 	// Full operator × value-type matrix coverage. Each cell marked `yes` in
-	// spec/architecture/18-predicate-schema.md § _Operator × value type
+	// spec/crates/core.md § _Operator × value type
 	// compatibility_ has a happy + miss test below. Field paths are picked
 	// representatively per value type — string-family ops on tls.sni cover
 	// every Str-typed path because the runtime reads them all via the same

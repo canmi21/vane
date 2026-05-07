@@ -1147,7 +1147,7 @@ mod tests {
 		// `retry: { max_attempts: 3, buffering: "force" }` flags the
 		// fetch node itself with `collect_body_before:
 		// Some(BodySide::Request)` so the executor buffers the body
-		// before the fetch runs. See `spec/architecture/05-terminator.md`
+		// before the fetch runs. See `spec/crates/engine.md`
 		// § _Retry buffering_.
 		let r = parse_rule(serde_json::json!({
 			"name": "r",

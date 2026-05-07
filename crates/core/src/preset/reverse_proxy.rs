@@ -16,7 +16,7 @@
 //! - `<name>.ws` (allow-all) — emitted when `websocket: true`. Matches
 //!   WS upgrade and routes to `WebSocketUpgrade(upstream)`.
 //!
-//! See `spec/architecture/14-presets.md` § _`reverse_proxy`_ and
+//! See `spec/crates/core.md` § _`reverse_proxy`_ and
 //! § _WebSocket handling_.
 //!
 //! ## Spec deviations (carried as known debts)

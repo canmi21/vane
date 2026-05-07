@@ -1,6 +1,6 @@
 //! Config loading entry point.
 //!
-//! See `spec/architecture/09-config.md`. The MVP scope of this module:
+//! See `spec/crates/core.md`. The MVP scope of this module:
 //!
 //! 1. Best-effort `dotenvy` load of `<config_dir>/.env`. **OS env wins**
 //!    — `dotenvy::from_path` does not override pre-existing keys, which

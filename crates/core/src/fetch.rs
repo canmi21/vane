@@ -47,7 +47,7 @@ pub enum L7FetchOutput {
 /// forwarder task; the executor's role degenerates to awaiting
 /// `join` so `ConnContext` cleanup runs at the right moment.
 ///
-/// See `spec/architecture/06-l4.md` § _`udp_dispatch`_ for the UDP
+/// See `spec/crates/engine.md` § _`udp_dispatch`_ for the UDP
 /// session lifecycle and § _`l4_forward`_ for the TCP arm.
 pub enum Tunnel {
 	Bidi {
@@ -87,7 +87,7 @@ pub enum FetchKind {
 	L4Forward,
 	/// HTTP-01 ACME challenge responder. Injected by the lower
 	/// pass on every plaintext `:80` listener whose listener kind
-	/// is `Http` / `Auto` per `spec/acme.md` § _HTTP-01 § Case 1_;
+	/// is `Http` / `Auto` per `spec/crates/engine-acme.md` § _HTTP-01 § Case 1_;
 	/// returns 200 + the key authorisation when `(Host, token)`
 	/// resolves in the registry's pending table, 404 otherwise.
 	/// Operator-defined rules cannot reference this fetch kind
@@ -132,7 +132,7 @@ pub struct SymbolicFetchRef {
 	/// with `max_attempts > 1`. Drives `collect_body_before`
 	/// placement on the fetch node in the lower pass; the full
 	/// `RetryPolicy` lives in the engine's factory layer. See
-	/// `spec/architecture/05-terminator.md` § _Retry buffering_.
+	/// `spec/crates/engine.md` § _Retry buffering_.
 	#[serde(default)]
 	pub retry_buffer_required: bool,
 	/// Per-rule TLS 1.3 0-RTT acceptance, lifted off the parent rule's
@@ -143,7 +143,7 @@ pub struct SymbolicFetchRef {
 	/// to the terminator. `None` means the rule's listener is not
 	/// TLS-terminating L7 (the runtime check is unreachable; this
 	/// arm exists so non-TLS fixtures need not populate the field).
-	/// See `spec/architecture/08-tls.md` § _TLS 1.3 0-RTT (early data)_
+	/// See `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_
 	/// _Runtime flow_.
 	#[serde(default)]
 	pub allow_zero_rtt: Option<bool>,
@@ -232,7 +232,7 @@ pub enum HttpFetchError {
 ///
 /// Declared in `vane-core` so `vane-wasm` can call it without depending on
 /// `vane-engine`. `vane-engine` provides the concrete impl wrapping `TcpPool`.
-/// Tests substitute a mock. See `spec/architecture/11-wasm.md` § _http-fetch policy_.
+/// Tests substitute a mock. See `spec/crates/engine-wasm.md` § _http-fetch policy_.
 #[async_trait]
 pub trait HttpFetchBackend: Send + Sync {
 	async fn fetch(

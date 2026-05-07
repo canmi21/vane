@@ -1,5 +1,5 @@
 //! Typed accessors for `VANE_*` deployment-constant env vars
-//! (`spec/architecture/09-config.md` § _Three-layer configuration_).
+//! (`spec/crates/core.md` § _Three-layer configuration_).
 //!
 //! The [`EnvReader`] trait abstracts the source so unit tests pass a
 //! `HashMap`-backed fake instead of mutating process-global state — Rust
@@ -26,7 +26,7 @@ impl EnvReader for ProcessEnv {
 }
 
 /// Typed snapshot of every `VANE_*` deployment constant the daemon
-/// reads at startup. Defaults match `spec/architecture/09-config.md`
+/// reads at startup. Defaults match `spec/crates/core.md`
 /// § _Three-layer configuration_.
 ///
 /// `config_dir` is **not** modeled as a field — the daemon's `--config`
@@ -38,7 +38,7 @@ pub struct Env {
 	/// `VANE_WASM_DIR` — WASM plugin source directory scanned at boot.
 	/// Defaults to `<config_dir>/wasm` where `config_dir` is the
 	/// daemon's `--config` argument. See
-	/// `spec/architecture/11-wasm.md` § _Module lifecycle_.
+	/// `spec/crates/engine-wasm.md` § _Module lifecycle_.
 	pub wasm_dir: PathBuf,
 	/// `VANE_LOG_LEVEL` — `tracing-subscriber` filter directive
 	/// (default `"info"`). Honors the same syntax as `RUST_LOG`
@@ -79,7 +79,7 @@ pub struct Env {
 	pub mgmt_unix: PathBuf,
 	/// `VANE_MGMT_HTTP_PORT` — TCP port for the HTTP management transport.
 	/// `Some(3333)` by default; an explicit empty string disables the
-	/// transport (`None`). Matches `spec/architecture/09-config.md`
+	/// transport (`None`). Matches `spec/crates/core.md`
 	/// § _Deployment constants_.
 	pub mgmt_http_port: Option<u16>,
 	/// `VANE_MGMT_HTTP_PUBLIC` — when truthy, bind the HTTP management

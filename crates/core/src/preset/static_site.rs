@@ -6,7 +6,7 @@
 //! `crates/engine/src/fetch/http_synthesize.rs` (`body` is base64
 //! because JSON has no native byte type).
 //!
-//! See `spec/architecture/14-presets.md` § _`static_site`_.
+//! See `spec/crates/core.md` § _`static_site`_.
 
 use std::collections::BTreeMap;
 

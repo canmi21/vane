@@ -4,7 +4,7 @@
 //! intent into raw-rule bundles. The four MVP presets are
 //! `reverse_proxy`, `port_forward`, `static_site`, and `redirect_https`.
 //!
-//! See `spec/architecture/14-presets.md`. Feature: S1-22.
+//! See `spec/crates/core.md`. Feature: S1-22.
 
 mod port_forward;
 mod redirect_https;

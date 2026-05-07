@@ -1,6 +1,6 @@
 //! Foundation types, traits, `FlowGraph` IR, and compilation pipeline for vane.
 //!
-//! See `spec/architecture/03-types.md`, `02-flow.md`, `04-middleware.md`.
+//! See `spec/crates/core.md`, `02-flow.md`, `04-middleware.md`.
 
 pub mod body;
 pub use body::*;

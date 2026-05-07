@@ -2,7 +2,7 @@
 //!
 //! Expands to a single `RawRule` whose terminate is `HttpSynthesize`
 //! emitting a 308 with `Location: https://${host}${uri}`. See
-//! `spec/architecture/14-presets.md` § _`redirect_https`_.
+//! `spec/crates/core.md` § _`redirect_https`_.
 //!
 //! SPEC DEVIATION (carried as a known debt): the spec implies runtime
 //! template substitution (`${host}` / `${uri}` resolve to the request's
