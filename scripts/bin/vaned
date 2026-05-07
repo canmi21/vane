@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# `vaned` shim resolved by direnv inside this checkout. Mirrors
-# scripts/bin/vane: build the daemon in debug mode then exec, so
-# `vaned --version` / `vaned -c <dir>` from inside the repo always
-# runs the freshly-compiled binary.
 set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"

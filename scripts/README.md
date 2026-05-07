@@ -1,0 +1,37 @@
+# scripts/
+
+Repo-local helper scripts. Not on `PATH` by default — direnv puts
+`scripts/bin/` on `PATH` only while the working directory is inside
+this checkout (see `.envrc`).
+
+## `bin/vane`, `bin/vaned`
+
+Build the corresponding crate in debug mode and `exec` the resulting
+binary. Edits under `crates/cli/src/**` or `crates/daemon/src/**`
+are picked up by the next invocation; nothing is cached outside
+`target/`.
+
+Two-step (build, then exec) rather than `cargo run`: cargo's progress
+output leaks through `--quiet` to stderr in some scenarios, and the
+TUI's drawing buffer doesn't survive that. Doing the build first
+pushes those bytes ahead of the terminal takeover.
+
+## Setup
+
+direnv must be installed and hooked into the shell. On macOS + fish:
+
+```fish
+brew install direnv
+echo 'direnv hook fish | source' >> ~/.config/fish/config.fish
+```
+
+Then, once per checkout:
+
+```
+cd <repo>
+direnv allow
+```
+
+After that, `cd`-ing into the repo loads `.envrc` automatically and
+`vane` / `vaned` resolve to these wrappers. `cd`-ing out unloads it
+and the names fall off `PATH`.
