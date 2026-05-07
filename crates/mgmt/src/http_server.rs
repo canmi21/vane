@@ -2,8 +2,7 @@
 //!
 //! Plaintext HTTP/1.1 only — TLS for the management endpoint is the
 //! operator's concern, layered as a vane reverse-proxy rule per
-//! `spec/architecture/10-management.md` § _Auth model_ /
-//! _Recommended deployment_.
+//! [`spec/crates/mgmt.md` § _Auth model_](../../../spec/crates/mgmt.md#auth-model).
 //!
 //! Wire shape:
 //! - request: `POST /` with a JSON body matching [`Request`]; any other
@@ -46,7 +45,7 @@ const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 /// encoded NDJSON frame; backpressure flows naturally from a slow client
 /// (TCP buffer fills → hyper stops draining → channel fills → producer
 /// awaits). Mirrors the broadcast capacities chosen for `tail_flow`
-/// in `spec/architecture/10-management.md` § _Streaming verb lifecycle_.
+/// in [`spec/crates/mgmt.md` § _Streaming verb lifecycle_](../../../spec/crates/mgmt.md#streaming-verb-lifecycle).
 const STREAM_CHANNEL_DEPTH: usize = 64;
 
 #[derive(Clone, Debug)]
@@ -265,7 +264,7 @@ fn streaming_response(
 	// and the producer task terminates — which drops `stream`,
 	// triggering the EventStream's own cleanup. That is the
 	// cancellation contract documented in
-	// `spec/architecture/10-management.md` § _Streaming verb lifecycle_.
+	// `spec/crates/mgmt.md` § _Streaming verb lifecycle_.
 	let (tx, rx) = mpsc::channel::<Bytes>(STREAM_CHANNEL_DEPTH);
 	tokio::spawn(async move {
 		loop {

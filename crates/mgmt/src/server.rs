@@ -1,12 +1,9 @@
 //! Management server: Unix-socket accept loop + per-connection
-//! line-delimited JSON dispatch to verb handlers.
+//! line-delimited JSON dispatch to verb handlers. The HTTP-over-TCP
+//! transport ([`crate::http_server`]) speaks the same frame shapes,
+//! so dispatch logic is shared.
 //!
-//! Stage 1: Unix transport only. Streaming verbs (`tail_flow`,
-//! `tail_log`) and HTTP-over-TCP transport land in S2. The framing
-//! contract here is identical to what Stage 2 will speak, so the
-//! server-side dispatch survives the transport change.
-//!
-//! See `spec/architecture/10-management.md`. Features: S1-24, S1-25.
+//! See [`spec/crates/mgmt.md`](../../../spec/crates/mgmt.md).
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

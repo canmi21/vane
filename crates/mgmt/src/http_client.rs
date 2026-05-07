@@ -33,7 +33,7 @@ impl HttpMgmtClient {
 	/// Build a client targeting the given mgmt HTTP endpoint. The
 	/// `token` argument matches the server's `bearer_token` setting:
 	/// pass `None` only when the server runs anonymous (loopback +
-	/// no token, per `spec/architecture/10-management.md` § _Auth model_).
+	/// no token, per `spec/crates/mgmt.md` § _Auth model_).
 	#[must_use]
 	pub fn new(addr: SocketAddr, token: Option<Arc<str>>) -> Self {
 		Self { addr, token }

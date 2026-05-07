@@ -1,6 +1,6 @@
 //! vane management protocol: wire format + verb schemas + server + client.
 //!
-//! See `spec/architecture/10-management.md`.
+//! See [`spec/crates/mgmt.md`](../../../spec/crates/mgmt.md).
 
 pub mod client;
 pub mod http_client;

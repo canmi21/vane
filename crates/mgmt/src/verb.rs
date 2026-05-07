@@ -6,7 +6,7 @@
 //! Verbs: `compile_dry_run`, `reload`, `get_config`, `stats`,
 //! `shutdown`, `get_connections`, plus `ping` for cheap liveness checks.
 //!
-//! See `spec/architecture/10-management.md` § _Verbs_.
+//! See [`spec/crates/mgmt.md` § _Verbs_](../../../spec/crates/mgmt.md#verbs).
 
 use serde::{Deserialize, Serialize};
 

@@ -4,7 +4,7 @@
 //! a future multiplexed transport can be slotted in without changing
 //! the call shape.
 //!
-//! See `spec/architecture/10-management.md`.
+//! See [`spec/crates/mgmt.md`](../../../spec/crates/mgmt.md).
 
 use std::path::{Path, PathBuf};
 
