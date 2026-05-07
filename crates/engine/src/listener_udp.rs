@@ -85,7 +85,7 @@ pub enum DispatchHandle {
 	L4Forward(Arc<L4ForwardSession>),
 	PendingPeek(Arc<PendingPeekState>),
 	#[cfg(feature = "h3")]
-	Quic(Arc<crate::h3_listener::VirtualUdpSocket>),
+	Quic(Arc<crate::h3::listener::VirtualUdpSocket>),
 }
 
 /// Per-session forwarder handle. The listener pushes inbound datagrams
@@ -202,7 +202,7 @@ pub async fn run_udp_listener(
 			.unwrap_or(vane_core::ListenerKind::Raw);
 		if matches!(kind, vane_core::ListenerKind::Http) {
 			if let Some(tls_cfg) = captured.listener_tls(&addr).cloned() {
-				match crate::h3_listener::spawn_h3_endpoint(
+				match crate::h3::listener::spawn_h3_endpoint(
 					addr,
 					Arc::clone(&socket),
 					tls_cfg,

@@ -32,9 +32,7 @@ pub mod fetch;
 pub mod flow_graph;
 pub mod flow_log_sink;
 #[cfg(feature = "h3")]
-pub mod h3_body;
-#[cfg(feature = "h3")]
-pub mod h3_listener;
+pub mod h3;
 pub mod hot_reload;
 pub mod listener;
 pub mod listener_udp;

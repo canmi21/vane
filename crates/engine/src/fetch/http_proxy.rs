@@ -450,8 +450,8 @@ impl HttpProxyFetch {
 		// downstream encoder accepts it.
 		let (mut resp_parts, _empty) = resp_head.into_parts();
 		resp_parts.version = http::Version::HTTP_11;
-		let body = Body::Stream(Box::pin(crate::h3_body::H3Body::new(
-			crate::h3_body::ClientStreamSource::new(stream),
+		let body = Body::Stream(Box::pin(crate::h3::body::H3Body::new(
+			crate::h3::body::ClientStreamSource::new(stream),
 		)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(resp_parts, body)))
 	}
