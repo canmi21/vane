@@ -29,6 +29,7 @@ use std::time::{Duration, SystemTime};
 
 use vane_core::rule::ChallengeKind;
 
+use super::ari::AriWindow;
 use super::dns::DnsProvider;
 use super::store::StoredCert;
 
@@ -77,6 +78,13 @@ pub struct CertState {
 	/// by [`next_backoff`] to compute the next gap. Reset to 0 on
 	/// success.
 	pub consecutive_failures: u32,
+	/// Most recent CA-suggested ARI window per RFC 9773. `None`
+	/// when the directory hasn't returned a window yet, when the
+	/// directory doesn't support ARI, or when the cert lacks an
+	/// AKI extension. The renewal scheduler triggers on
+	/// `now ∈ window` membership in addition to the `renew_before`
+	/// threshold.
+	pub ari_window: Option<AriWindow>,
 }
 
 impl CertState {
@@ -92,6 +100,7 @@ impl CertState {
 			last_error: None,
 			next_attempt_at: None,
 			consecutive_failures: 0,
+			ari_window: None,
 		}
 	}
 }
@@ -221,30 +230,37 @@ pub fn mark_renewing(state: &mut CertState, now: SystemTime) {
 
 /// Decide whether `state` warrants a renewal attempt at `now` for a
 /// cert that was issued under `job` (specifically: `job.renew_before`
-/// + the cert's `not_after`).
+/// + the cert's `not_after`, plus any cached ARI window).
 ///
-/// Three independent triggers per spec § _Renewal triggers_:
+/// Triggers per spec § _Renewal triggers_:
 ///
 /// - status `Valid` AND `now + renew_before >= not_after` (timer);
 ///   when no cert is cached yet (first-time issuance never ran), the
 ///   timer also fires so the scheduler picks up newly-declared SNIs.
+/// - status `Valid` AND `now ∈ ari_window` (RFC 9773): renew even
+///   before `renew_before` would otherwise fire; this lets CAs
+///   spread renewal load and signal forced rotation.
 /// - status `Failed` / `Limited` AND `now >= next_attempt_at` (backoff
 ///   elapsed).
 /// - status `Renewing` is always skipped (already in flight).
-///
-/// ARI window membership lives in commit 4; this function will gain
-/// the third clause then.
 #[must_use]
 pub fn should_attempt(state: &CertState, job: &RenewalJob, now: SystemTime) -> bool {
 	match state.status {
 		CertStatus::Renewing => false,
-		CertStatus::Valid => match &state.stored {
-			None => true,
-			Some(stored) => match stored.not_after.checked_sub(job.renew_before) {
-				Some(deadline) => now >= deadline,
+		CertStatus::Valid => {
+			if let Some(window) = &state.ari_window
+				&& window.contains(now)
+			{
+				return true;
+			}
+			match &state.stored {
 				None => true,
-			},
-		},
+				Some(stored) => match stored.not_after.checked_sub(job.renew_before) {
+					Some(deadline) => now >= deadline,
+					None => true,
+				},
+			}
+		}
 		CertStatus::Failed | CertStatus::Limited => {
 			state.next_attempt_at.is_none_or(|next| now >= next)
 		}
@@ -381,6 +397,36 @@ mod tests {
 		let stored2 = dummy_stored(now + Duration::from_mins(30));
 		let state2 = CertState::fresh(Some(stored2));
 		assert!(should_attempt(&state2, &job, now));
+	}
+
+	#[test]
+	fn should_attempt_fires_on_ari_window_membership() {
+		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+		let mut job = dummy_job();
+		// Set renew_before tight so the timer alone wouldn't fire.
+		job.renew_before = Duration::from_mins(1);
+		// Cert valid for another year — far past `renew_before`.
+		let stored = dummy_stored(now + Duration::from_hours(8760));
+		let mut state = CertState::fresh(Some(stored));
+		// Without ARI window, no renewal yet.
+		assert!(!should_attempt(&state, &job, now));
+		// CA-suggested window covers `now` — renew despite the
+		// timer being satisfied.
+		state.ari_window =
+			Some(AriWindow { start: now - Duration::from_mins(1), end: now + Duration::from_mins(1) });
+		assert!(should_attempt(&state, &job, now));
+	}
+
+	#[test]
+	fn should_attempt_skips_when_ari_window_in_future() {
+		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+		let mut job = dummy_job();
+		job.renew_before = Duration::from_mins(1);
+		let stored = dummy_stored(now + Duration::from_hours(8760));
+		let mut state = CertState::fresh(Some(stored));
+		state.ari_window =
+			Some(AriWindow { start: now + Duration::from_hours(2), end: now + Duration::from_hours(4) });
+		assert!(!should_attempt(&state, &job, now), "future window doesn't fire yet");
 	}
 
 	#[test]

@@ -107,7 +107,12 @@ futures = { version = "0.3", optional = true }
 # `aws-lc-rs?` / `ring?` features above. `hyper-rustls` is
 # instant-acme's HTTP client feature; `rcgen` is unused (we
 # build our own CSR via vane-engine's rcgen dep).
-instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls"], optional = true }
+instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", # RFC 9773 ARI support: `time` enables the `RenewalInfo` /
+	# `SuggestedWindow` types and `Account::renewal_info()`.
+	# `x509-parser` enables `CertificateIdentifier::try_from(&CertificateDer)`
+	# so we can derive the cert's AKI + serial from its DER bytes
+	# without re-implementing the extraction.
+	"time","x509-parser",], optional = true }
 rcgen = { version = "0.14", optional = true }
 # Cloudflare provider HTTP client. `rustls-tls-native-roots-no-provider`
 # matches the workspace policy: stay backend-agnostic so the

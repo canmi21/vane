@@ -9,6 +9,7 @@
 //! tree out so a `--no-default-features --features aws-lc-rs` build
 //! never pulls `instant-acme` / `rcgen` / `fs4` / `futures`.
 
+pub mod ari;
 pub mod dns;
 pub mod fs_store;
 pub mod populator;
@@ -16,6 +17,7 @@ pub mod registry;
 pub mod scheduler;
 pub mod store;
 
+pub use ari::{AriOutcome, AriWindow};
 pub use dns::{DnsProvider, DnsProviderError};
 pub use fs_store::FsAcmeStore;
 pub use populator::ManagedCertPopulator;

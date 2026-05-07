@@ -34,6 +34,7 @@ use sha2::Digest;
 use tracing::{instrument, warn};
 use vane_core::rule::ChallengeKind;
 
+use super::ari::{self, AriOutcome};
 use super::scheduler::{
 	self, CertState, CertStatus, RenewalJob, RenewalPlan, mark_renewing, record_failure,
 	record_success, should_attempt,
@@ -409,6 +410,63 @@ impl ManagedCertRegistry {
 		}
 	}
 
+	/// Update the cached ARI window for `sni`. Called by the
+	/// post-issuance ARI fetch path; clearing (`window = None`)
+	/// happens automatically when [`Self::cache_cert`] resets state
+	/// via [`record_success`] — the new cert deserves a fresh
+	/// query, not a stale window from the prior cert.
+	pub fn set_ari_window(&self, sni: &str, window: Option<super::AriWindow>) {
+		let key = sni.to_ascii_lowercase();
+		let Some(mut entry) = self.certs.get_mut(&key) else { return };
+		entry.value_mut().ari_window = window;
+	}
+
+	/// Fetch the ARI window for `sni` via `account` and cache it on
+	/// the per-SNI state. `Unsupported` outcomes (directory has no
+	/// renewalInfo, cert lacks AKI) clear any stale window without
+	/// surfacing as errors. Network / parse errors return `Err` so
+	/// the caller can log; the window remains whatever it was.
+	///
+	/// Called from [`Self::issue_http01_inner`] /
+	/// [`Self::issue_dns01_inner`] right after a successful issuance.
+	async fn refresh_ari_window(
+		&self,
+		sni: &str,
+		account: &instant_acme::Account,
+		stored: &StoredCert,
+	) -> Result<(), RegistryError> {
+		use rustls::pki_types::CertificateDer;
+		use x509_parser::prelude::FromDer;
+		// Decode leaf DER from the persisted PEM. We re-parse here
+		// rather than threading the in-flight DER through the
+		// issuance pipeline because `instant_acme`'s `poll_certificate`
+		// hands us PEM, not DER, and re-parsing is cheap.
+		let Some(Ok(der)) = rustls_pemfile::certs(&mut stored.leaf_pem.as_bytes()).next() else {
+			return Err(RegistryError::Acme(
+				"refresh_ari_window: stored leaf PEM has no certificate".into(),
+			));
+		};
+		// Sanity-check: the cert is well-formed before we hand its
+		// DER off. `from_der` returns Err on a structurally invalid
+		// cert; we'd rather surface that here than have ARI fail
+		// inside instant_acme.
+		let _ = x509_parser::prelude::X509Certificate::from_der(der.as_ref())
+			.map_err(|e| RegistryError::Acme(format!("refresh_ari_window: x509 parse: {e}")))?;
+		let der_owned: CertificateDer<'static> = der.into_owned();
+		match ari::fetch_window(account, &der_owned).await? {
+			AriOutcome::Window(window) => {
+				self.set_ari_window(sni, Some(window));
+			}
+			AriOutcome::Unsupported => {
+				// Clear so a previous window from a different CA /
+				// cert doesn't leak through if the operator switched
+				// directory_url between issuances.
+				self.set_ari_window(sni, None);
+			}
+		}
+		Ok(())
+	}
+
 	/// Spawn the periodic renewal scheduler: every 5 minutes the
 	/// task walks `collect_renewal_plans(now)` and dispatches one
 	/// `run_renewal_attempt` per plan. Returns the
@@ -684,6 +742,16 @@ impl ManagedCertRegistry {
 		let arc = Arc::new(stored);
 		self.cache_cert(sni, Arc::clone(&arc));
 
+		// Best-effort ARI window fetch per `spec/acme.md`
+		// § _ARI (RFC 9773)_. Failure to query (CA doesn't expose
+		// `renewalInfo`, network blip, parse error) is non-fatal:
+		// log + carry on. The renewal scheduler will retry next
+		// tick when `should_attempt` falls back to the
+		// `renew_before` threshold.
+		if let Err(e) = self.refresh_ari_window(sni, &account, arc.as_ref()).await {
+			warn!(target: "vane::acme", sni, error = %e, "ARI window refresh after issuance failed");
+		}
+
 		// Synchronous cleanup on success so the operator's DNS state
 		// is known-clean by the time the function returns. The guard
 		// is now disarmed and drops as a no-op.
@@ -761,6 +829,12 @@ impl ManagedCertRegistry {
 		self.store.save_cert(sni, &stored).await?;
 		let arc = Arc::new(stored);
 		self.cache_cert(sni, Arc::clone(&arc));
+
+		// Best-effort ARI window fetch per `spec/acme.md`
+		// § _ARI (RFC 9773)_; same posture as the dns-01 path.
+		if let Err(e) = self.refresh_ari_window(sni, &account, arc.as_ref()).await {
+			warn!(target: "vane::acme", sni, error = %e, "ARI window refresh after issuance failed");
+		}
 
 		// Cleanup runs on guard drop — explicit to make the
 		// intent visible at the success-path bottom.
