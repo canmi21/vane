@@ -32,7 +32,7 @@ wasmtime = { workspace = true }
 
 [build-dependencies]
 wat = "1.248.0"
-wit-component = "0.244.0"
+wit-component = "0.248.0"
 wit-parser = "0.244.0"
 
 [dev-dependencies]
