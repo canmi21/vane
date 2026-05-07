@@ -75,10 +75,12 @@ pub mod version {
 	/// Palette (kept consistent with `vane`'s clap help output):
 	/// - **Vane** brand → yellow + bold
 	/// - section labels (`Built:`, `Rust:`, `Homepage:` …) → cyan + bold
-	/// - URL values (`Homepage:`, `Source:`, `License:`) → green
+	/// - MIT-licence prose lead-in (the two lines that introduce the
+	///   warranty disclaimer) → plain cyan, softer than the bold
+	///   labels but still distinct from body text
 	/// - `ABSOLUTELY NO WARRANTY` substring → red + bold
 	/// - everything else (description, version values, copyright,
-	///   licence prose) → plain
+	///   URL values) → plain
 	///
 	/// Layout (uncoloured shape):
 	/// ```text
@@ -106,6 +108,7 @@ pub mod version {
 		const INDENT: &str = "  ";
 
 		let brand = Style::new().yellow().bold();
+		let prose = Style::new().cyan();
 		let warning = Style::new().red().bold();
 
 		println!();
@@ -118,47 +121,43 @@ pub mod version {
 		print_label(
 			"Built:",
 			&format!("{} ({} {})", info.version, info.commit, info.build_date),
-			false,
 			WIDTH,
 			INDENT,
 		);
-		print_label("Rust:", info.rustc, false, WIDTH, INDENT);
-		print_label("Cargo:", info.cargo, false, WIDTH, INDENT);
+		print_label("Rust:", info.rustc, WIDTH, INDENT);
+		print_label("Cargo:", info.cargo, WIDTH, INDENT);
 		if !info.features.is_empty() {
-			print_label("Features:", &info.features.join(", "), false, WIDTH, INDENT);
+			print_label("Features:", &info.features.join(", "), WIDTH, INDENT);
 		}
 		if !info.protocols.is_empty() {
-			print_label("Protocols:", &info.protocols.join(", "), false, WIDTH, INDENT);
+			print_label("Protocols:", &info.protocols.join(", "), WIDTH, INDENT);
 		}
 
 		println!();
 		println!("{INDENT}{COPYRIGHT}");
 		println!();
-		println!("{INDENT}Released under the MIT License without restriction.");
 		println!(
-			"{INDENT}This software comes with {}.",
+			"{INDENT}{}",
+			"Released under the MIT License without restriction."
+				.if_supports_color(Stream::Stdout, |t| t.style(prose)),
+		);
+		println!(
+			"{INDENT}{}{}.",
+			"This software comes with ".if_supports_color(Stream::Stdout, |t| t.style(prose)),
 			"ABSOLUTELY NO WARRANTY".if_supports_color(Stream::Stdout, |t| t.style(warning)),
 		);
 		println!();
 
-		print_label("Homepage:", HOMEPAGE, true, WIDTH, INDENT);
-		print_label("Source:", REPOSITORY, true, WIDTH, INDENT);
-		print_label("License:", LICENSE_URL, true, WIDTH, INDENT);
+		print_label("Homepage:", HOMEPAGE, WIDTH, INDENT);
+		print_label("Source:", REPOSITORY, WIDTH, INDENT);
+		print_label("License:", LICENSE_URL, WIDTH, INDENT);
 		println!();
 	}
 
-	fn print_label(label: &str, value: &str, value_is_url: bool, width: usize, indent: &str) {
+	fn print_label(label: &str, value: &str, width: usize, indent: &str) {
 		let label_style = Style::new().cyan().bold();
-		let url_style = Style::new().green();
 		let padded = format!("{label:<width$}");
 		let label_styled = padded.if_supports_color(Stream::Stdout, |t| t.style(label_style));
-		if value_is_url {
-			println!(
-				"{indent}{label_styled}{}",
-				value.if_supports_color(Stream::Stdout, |t| t.style(url_style)),
-			);
-		} else {
-			println!("{indent}{label_styled}{value}");
-		}
+		println!("{indent}{label_styled}{value}");
 	}
 }
