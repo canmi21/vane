@@ -1,6 +1,6 @@
 //! Boot-time WASM module discovery, instantiation, and registry build.
 //!
-//! Per `spec/architecture/11-wasm.md` § _Module lifecycle_, the daemon
+//! Per `spec/crates/engine-wasm.md` § _Module lifecycle_, the daemon
 //! scans `<config_dir>/wasm/*.wasm` once at startup and loads every
 //! component it can validate. This module owns that scan + the lazy
 //! [`WasmtimeRuntime`] instantiation:

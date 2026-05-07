@@ -472,7 +472,7 @@ async fn mgmt_tail_log_streams_tracing_events_via_cli() {
 	// as tail flow: the CLI subscriber registers asynchronously and
 	// `broadcast` does not replay missed events. Body must alternate
 	// because the reload path skips the swap (and the `reloaded` log)
-	// when version_hash is unchanged (S1-28).
+	// when `version_hash` is unchanged.
 	let client = UnixMgmtClient::new(&d.socket);
 	let bodies = ["v2", "v3"];
 	let mut iter = 0_usize;

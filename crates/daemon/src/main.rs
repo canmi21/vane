@@ -1,6 +1,6 @@
 //! `vaned` — vane proxy daemon entry point.
 //!
-//! Boot flow per `spec/architecture/01-topology.md` § _Daemon lifecycle_:
+//! Boot flow per `spec/topology.md` § _Daemon lifecycle_:
 //! parse args → init tracing → load config (rules + env) → compile core
 //! pipeline → link engine factories → wrap into `ArcSwap` → start
 //! listeners → spawn file watcher (best-effort) → wait for signal →
@@ -97,7 +97,7 @@ struct Args {
 	/// Path to the config directory (must contain a `rules/`
 	/// sub-directory; optionally a `.env` for `VANE_*` overrides).
 	/// `VANE_CONFIG_DIR` is honored when the flag is omitted, matching
-	/// `spec/architecture/09-config.md`.
+	/// `spec/crates/core.md`.
 	#[arg(short = 'c', long = "config", env = "VANE_CONFIG_DIR", default_value = "/etc/vaned")]
 	config_dir: PathBuf,
 }
@@ -160,14 +160,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// Install rustls's process-wide default crypto provider before any
 	// `ServerConfig::builder()` runs in `FlowGraph::link`. The selection
 	// (aws-lc-rs vs ring) is fixed at compile time by the engine's
-	// crypto-backend feature; see 16-crate-layout.md § _Crypto backend_.
+	// crypto-backend feature; see spec/crates/daemon.md § _Crypto backend_.
 	vane_engine::crypto::install_default_provider();
 
 	// Daemon-wide TLS session ticketer — must follow
 	// `install_default_provider` (the backend RNG fuels the initial
 	// key) and precede any `FlowGraph::link` (which reads the ticketer
 	// into each listener's `ServerConfig`). Failure here is fatal —
-	// it implies the kernel CSPRNG is unavailable. See 08-tls.md
+	// it implies the kernel CSPRNG is unavailable. See spec/crates/engine-tls.md
 	// § _Session ticket rotation_.
 	vane_engine::tls::install_default_ticketer().expect("install rustls session ticketer");
 	vane_engine::metrics::install_recorder().expect("install metrics recorder");
@@ -184,7 +184,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// `OnceLock` at first invocation rather than at boot). Logging
 	// here makes the active value visible in the startup log even
 	// when no CGI request has fired yet. See
-	// `spec/architecture/15-cgi.md` § _Concurrency cap_.
+	// `spec/crates/engine.md` § _Concurrency cap_.
 	let cgi_max_concurrent = std::env::var("VANE_CGI_MAX_CONCURRENT")
 		.ok()
 		.and_then(|s| s.parse::<usize>().ok())
@@ -260,7 +260,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// CRL cache: collected once across all listener client_auth + upstream
 	// args.tls.crls sources, fetched synchronously at link time (30s per
 	// source), and shared daemon-wide. Per
-	// `spec/architecture/08-tls.md` § _CRL checking_, the cache key is
+	// `spec/crates/engine-tls.md` § _CRL checking_, the cache key is
 	// source identity (path / URL string) so refreshing CRL bytes does
 	// not invalidate cached `Arc<ClientConfig>` / `Arc<ServerConfig>`.
 	let crl_cache = init_crl_cache(&symbolic)?;
@@ -388,7 +388,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// ACME boot tasks: kick off first-time issuance for every
 	// `tls.managed` SNI without a cached cert, and auto-bind a
 	// synthetic `:80` listener if the operator's config has none
-	// per `spec/acme.md` § _HTTP-01 § Case 2_. Both are
+	// per `spec/crates/engine-acme.md` § _HTTP-01 § Case 2_. Both are
 	// fire-and-forget; ACME failures surface via `tracing::error!`
 	// and don't abort boot. After both, the renewal scheduler ticks
 	// every 5 minutes per spec § _Renewal triggers_ and dispatches
@@ -560,7 +560,7 @@ fn build_middleware_factories() -> MiddlewareFactories {
 /// least one CRL source. The fetch is synchronous (block-in-place via
 /// `ensure_loaded`) — `reject` policy sources whose first fetch fails
 /// surface as a daemon-startup error, matching
-/// `spec/architecture/08-tls.md` § _Failure handling_.
+/// `spec/crates/engine-tls.md` § _Failure handling_.
 fn init_crl_cache(
 	sym: &vane_core::SymbolicFlowGraph,
 ) -> Result<Option<Arc<vane_engine::tls::CrlCache>>, Box<dyn std::error::Error + Send + Sync>> {
@@ -620,8 +620,8 @@ async fn bind_mgmt_unix_server(
 }
 
 /// Bind the HTTP-over-TCP mgmt transport per
-/// `spec/architecture/10-management.md` § _Auth model_ and
-/// `09-config.md` env-var section. Boot-validates the
+/// `spec/crates/mgmt.md` § _Auth model_ and
+/// `spec/crates/core.md` env-var section. Boot-validates the
 /// `(VANE_MGMT_HTTP_PUBLIC, VANE_MGMT_HTTP_TOKEN)` pairing; bind
 /// failures are fatal (the operator opted into HTTP transport, so a
 /// missing port surfaces as a boot error rather than a silent
@@ -641,7 +641,7 @@ async fn bind_mgmt_http_server(
 	let public = env.mgmt_http_public;
 	let token = env.mgmt_http_token.clone();
 
-	// Boot validation table — see spec/architecture/10-management.md
+	// Boot validation table — see spec/crates/mgmt.md
 	// § _Auth model_. Public-without-token is a hard refuse so the
 	// daemon never exposes plaintext mgmt to the public network.
 	if public && token.is_none() {

@@ -9,7 +9,7 @@
 //! compile, link) leaves the active graph completely unchanged.
 //!
 //! Idempotency: `FlowGraphMeta::version_hash` is a SHA-256 over the
-//! canonical rule set (02-flow.md § _`FlowGraph` metadata_). When a
+//! canonical rule set (spec/flow-model.md § _`FlowGraph` metadata_). When a
 //! recompile reproduces the same hash — typical for `cp -p` mtime
 //! bumps or whitespace-only edits — the swap is skipped.
 

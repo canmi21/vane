@@ -73,7 +73,7 @@ impl MiddlewareMetadataProvider for MetadataProviders {
 				(MiddlewareKind::L7Request, true, false)
 			}
 			// `rate_limit` is the canonical stateful middleware — per
-			// spec/architecture/04-middleware.md § _Stateful internal_,
+			// spec/crates/engine.md § _Stateful internal_,
 			// `stateless: false` so `lower::intern_middleware` skips
 			// dedup and every call site gets its own bucket.
 			"rate_limit" => (MiddlewareKind::L7Request, false, false),

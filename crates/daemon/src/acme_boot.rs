@@ -5,7 +5,7 @@
 //! 1. Open `FsAcmeStore` + `ManagedCertRegistry` if the compiled
 //!    config declares any `tls.managed` cert. The store path comes
 //!    from the `VANE_ACME_DIR` env var (default
-//!    `/var/lib/vaned/acme/` per `spec/acme.md` § _Storage layout_).
+//!    `/var/lib/vaned/acme/` per `spec/crates/engine-acme.md` § _Storage layout_).
 //! 2. After `FlowGraph::link` succeeds, kick off background
 //!    issuance tasks for every declared SNI that doesn't already
 //!    have a cached cert. Each task surfaces failures via
@@ -44,7 +44,7 @@ use vane_core::rule::{ChallengeKind, ManagedSpec};
 use vane_engine::acme::{FsAcmeStore, ManagedCertRegistry, RegistryError, RenewalJob};
 use vane_engine::flow_graph::FlowGraph;
 
-/// Default storage root per `spec/acme.md` § _Storage layout
+/// Default storage root per `spec/crates/engine-acme.md` § _Storage layout
 /// (default `FsAcmeStore`)_. Overridden by `VANE_ACME_DIR`.
 const DEFAULT_ACME_DIR: &str = "/var/lib/vaned/acme";
 
@@ -135,7 +135,7 @@ pub(crate) fn kick_off_managed_issuance(
 
 /// Translate an [`IssuancePlan`] into a [`RenewalJob`] the registry
 /// can use at scheduler-tick time. Builds the DNS provider once
-/// here (per `spec/acme.md` § _DNS-01_) so the scheduler doesn't
+/// here (per `spec/crates/engine-acme.md` § _DNS-01_) so the scheduler doesn't
 /// have to re-parse the JSON config at every tick.
 fn build_renewal_job(plan: &IssuancePlan) -> Result<RenewalJob, String> {
 	let renew_before = plan.renew_before;
@@ -272,7 +272,7 @@ async fn run_one_issuance(
 
 /// Translate the operator's `dns_provider` JSON object into a
 /// concrete `Arc<dyn DnsProvider>`. Each provider kind has its
-/// own `kind` discriminator per `spec/acme.md` § _Available
+/// own `kind` discriminator per `spec/crates/engine-acme.md` § _Available
 /// providers_. Unknown kinds and missing config are
 /// boot-time-fatal for the affected SNI (we surface them via
 /// the calling `run_one_issuance` log).
@@ -323,9 +323,8 @@ pub(crate) async fn maybe_auto_bind_port_80(
 	if !needs_auto_bind(graph) {
 		return Vec::new();
 	}
-	// Spec § _HTTP-01 § Case 2_: dual-stack `0.0.0.0:80` + `[::]:80`
-	// per S1-14. Each task binds independently; one failing doesn't
-	// block the other.
+	// Spec § _HTTP-01 § Case 2_: dual-stack `0.0.0.0:80` + `[::]:80`.
+	// Each task binds independently; one failing doesn't block the other.
 	let addrs = [
 		SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 80),
 		SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 80),

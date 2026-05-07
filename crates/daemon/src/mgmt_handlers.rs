@@ -94,7 +94,7 @@ pub(crate) struct MgmtState {
 	/// `wasm_loader::reload_dir`.
 	#[cfg(feature = "wasm")]
 	pub wasm_dir: std::path::PathBuf,
-	/// Daemon-scoped ACME registry (per `spec/acme.md` § _Architecture_).
+	/// Daemon-scoped ACME registry (per `spec/crates/engine-acme.md` § _Architecture_).
 	/// Threaded into `reload_once` so post-reload `FlowGraph::link`
 	/// re-attaches the same registry to fresh per-listener
 	/// `ManagedCertPopulator`s — accounts and issued certs survive
@@ -285,7 +285,7 @@ fn json<R: serde::Serialize>(r: &R) -> Result<serde_json::Value, WireError> {
 
 /// Render a [`std::time::SystemTime`] as RFC 3339 / ISO 8601 UTC.
 /// Used by `get_certs` to format the wire-shape timestamp fields
-/// per `spec/acme.md` § _get_certs response shape_. Falls back to
+/// per `spec/crates/engine-acme.md` § _get_certs response shape_. Falls back to
 /// `"<invalid>"` if the timestamp is pre-1970 (defensive — should
 /// never happen for ACME-issued certs, but the API accepts arbitrary
 /// `SystemTime` so we don't panic).
@@ -303,7 +303,7 @@ fn rfc3339(t: std::time::SystemTime) -> String {
 }
 
 /// Translate [`vane_engine::acme::CertStatus`] into the wire-shape
-/// lowercase string per `spec/acme.md` § _get_certs response shape_.
+/// lowercase string per `spec/crates/engine-acme.md` § _get_certs response shape_.
 #[cfg(feature = "acme")]
 fn status_label(state: &vane_engine::acme::CertState) -> String {
 	use vane_engine::acme::CertStatus;
@@ -553,7 +553,7 @@ impl MgmtState {
 
 	/// `force_renew` verb: kick off an immediate renewal attempt for
 	/// `sni`, bypassing both the periodic timer and any active
-	/// backoff. Per `spec/acme.md` § _force_renew mgmt verb_ the
+	/// backoff. Per `spec/crates/engine-acme.md` § _force_renew mgmt verb_ the
 	/// response shape is `{queued, current_status}`; the actual
 	/// issuance runs asynchronously, so `queued: true` is "request
 	/// accepted" — operators chain a `get_certs` poll if they need
