@@ -9,10 +9,12 @@
 //! tree out so a `--no-default-features --features aws-lc-rs` build
 //! never pulls `instant-acme` / `rcgen` / `fs4` / `futures`.
 
+pub mod dns;
 pub mod fs_store;
 pub mod registry;
 pub mod store;
 
+pub use dns::{DnsProvider, DnsProviderError};
 pub use fs_store::FsAcmeStore;
 pub use registry::{
 	ChallengeKey, ManagedCertRegistry, PendingChallenge, RegistryError, RenewalScheduler,
