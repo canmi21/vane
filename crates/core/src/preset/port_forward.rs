@@ -33,7 +33,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		"upstream": args.upstream,
 		"transport": args.transport,
 	});
-	// Presets emit `allow_zero_rtt` explicitly per `08-tls.md` § _TLS
+	// Presets emit `allow_zero_rtt` explicitly per `spec/crates/engine-tls.md` § _TLS
 	// 1.3 0-RTT_'s "CLI / TUI emits `false` when 0-RTT is not in use".
 	// `port_forward` is L4 only; the lower pass rejects an L4 rule with
 	// `allow_zero_rtt` set, so emit `None` regardless of `inv.tls`.

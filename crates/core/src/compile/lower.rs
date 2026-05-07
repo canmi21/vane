@@ -46,12 +46,12 @@ pub fn lower(
 		// TLS termination is per-listener, not per-rule: every rule
 		// sharing an address contributes to the listener's cert pool.
 		// `resolve_listener_tls` aggregates and rejects conflicts —
-		// see 08-tls.md § _TLS termination_ + § _Certificate resolver_.
+		// see spec/crates/engine-tls.md § _TLS termination_ + § _Certificate resolver_.
 		let resolved_tls = resolve_listener_tls(&addrs, &rules)?;
 		// Per-rule `allow_zero_rtt` checks (presence + idempotent-method
 		// gate) live alongside the TLS aggregation since they reference
 		// the listener-level posture (TLS-L7 vs plaintext / L4) that
-		// `resolve_listener_tls` already established. See `08-tls.md`
+		// `resolve_listener_tls` already established. See `spec/crates/engine-tls.md`
 		// § _TLS 1.3 0-RTT (early data)_ § _Compile-time constraints_.
 		validate_zero_rtt_for_listener(&addrs, &rules, resolved_tls.as_ref())?;
 		let entry = builder.lower_port(&rules, mw_meta, fetch_meta)?;
@@ -65,7 +65,7 @@ pub fn lower(
 		}
 		let kind = derive_listener_kind(&builder.nodes, &builder.fetches, entry);
 		// Listener transport comes from the parsed `tcp:` / `udp:`
-		// prefix on `listen` (09-config.md § _ListenSpec grammar_).
+		// prefix on `listen` (spec/crates/core.md § _ListenSpec grammar_).
 		// `validate_listener_fetches` walks the entry subgraph and
 		// rejects any L4Forward whose `args.transport` disagrees with
 		// the declared listener transport.
@@ -116,7 +116,7 @@ pub fn lower(
 /// Walk the entry subgraph collecting every reachable
 /// [`SymbolicFetchRef`]. Map each to a [`FetchPhase`] via
 /// [`FetchKind::phase`] and pick the [`ListenerKind`] from the
-/// resulting set per `06-l4.md` § _Listener kind derivation_:
+/// resulting set per `spec/crates/engine.md` § _Listener kind derivation_:
 ///
 /// | reachable phases     | derived kind |
 /// | -------------------- | ------------ |
@@ -184,7 +184,7 @@ fn derive_listener_kind(
 /// any whose `args.transport` disagrees with the listener's declared
 /// transport.
 ///
-/// Per `09-config.md` § _`ListenSpec` grammar_ the listener prefix is
+/// Per `spec/crates/core.md` § _`ListenSpec` grammar_ the listener prefix is
 /// authoritative: a `tcp:` listener with a UDP `L4Forward`, or a
 /// `udp:` listener with a TCP `L4Forward`, is a hard compile error.
 /// `L7` fetches and `L4Forward` whose `args.transport` is unset
@@ -703,7 +703,7 @@ impl Builder {
 		// of catch-all (predicate-less) rules produces a chain whose entry
 		// is the first rule's first node — the default-miss is dead code.
 		// Both L4 and L7 postures terminate the miss path in `Terminator::Close`
-		// per 05-terminator.md § _Variants_ C5.5 update: unmatched traffic
+		// per spec/crates/engine.md § _Variants_ C5.5 update: unmatched traffic
 		// is silently dropped (port scans, protocol probes, misroutes).
 		let needs_fallback = ordered.iter().any(|r| r.raw.match_predicate.is_some());
 		let fallback_miss =
@@ -711,7 +711,7 @@ impl Builder {
 
 		// Build the inner chain (no per-rule Upgrade). For an L7 listener
 		// we wrap the resulting entry in ONE shared `Node::Upgrade` below.
-		// 02-flow.md § _Listener-level Upgrade placement_: emitting one
+		// spec/flow-model.md § _Listener-level Upgrade placement_: emitting one
 		// Upgrade per rule and stitching them via on_miss puts the second
 		// Upgrade in `Phase::L7Request`, which the validator rejects. A
 		// single listener-level Upgrade keeps every cross-rule on_miss edge
@@ -755,7 +755,7 @@ impl Builder {
 		// Unified across postures: unmatched traffic silently drops via
 		// `Terminator::Close`. Operators who want a branded HTTP error for
 		// unmatched L7 requests add an explicit catch-all rule with
-		// `type: "static"` (HttpSynthesize) — spec 05-terminator.md.
+		// `type: "static"` (HttpSynthesize) — spec spec/crates/engine.md.
 		let tid = self.intern_terminator(Terminator::Close);
 		self.push_node(Node::Terminate(tid))
 	}
@@ -886,7 +886,7 @@ impl Builder {
 		// PredicateView's `L7Req` variant carries `conn`, so L4-only fields
 		// (`remote.ip`, `tls.sni`) remain readable here.
 		//
-		// SPEC DEVIATION (intentional, documented in 02-flow.md § _Listener-
+		// SPEC DEVIATION (intentional, documented in spec/flow-model.md § _Listener-
 		// level Upgrade placement_): the C5.5-era "L4-level Check fails fast
 		// before HTTP decode" optimisation is lost — L7 listeners now decode
 		// the request before evaluating L4-level predicates. See spec for
@@ -1139,7 +1139,7 @@ type ListenerGroup<'a> = (Transport, Vec<SocketAddr>, Vec<&'a AnalyzedRule>);
 /// into a `ListenerTlsSpec` cert pool.
 ///
 /// Each rule with `tls = Some(_)` contributes one cert into the pool,
-/// keyed by `tls.sni` (lowercased ASCII per 08-tls.md § _SNI
+/// keyed by `tls.sni` (lowercased ASCII per spec/crates/engine-tls.md § _SNI
 /// normalization_). `sni: None` is the listener's _default_ — at most
 /// one is allowed.
 ///
@@ -1271,7 +1271,7 @@ fn resolve_listener_tls(
 	}
 
 	// Aggregate per-rule `tls.client_auth` into one listener-level
-	// `ClientAuthSpec`. Per `08-tls.md` § _Client certificate
+	// `ClientAuthSpec`. Per `spec/crates/engine-tls.md` § _Client certificate
 	// verification_, mTLS is per-listener: rules on the same listener
 	// must agree on `mode` AND `trust_store`. The first rule's spec
 	// (after structural validation) becomes the listener's policy;
@@ -1298,7 +1298,7 @@ fn resolve_listener_tls(
 	// Aggregate per-rule `tls.enable_zero_rtt` into the listener-level
 	// flag. Mirrors the `client_auth` pattern above: rules on the same
 	// listener must agree, since the listener owns one `ServerConfig`
-	// (and thus one `max_early_data_size`). Per `08-tls.md` § _TLS 1.3
+	// (and thus one `max_early_data_size`). Per `spec/crates/engine-tls.md` § _TLS 1.3
 	// 0-RTT (early data)_.
 	let mut zero_rtt_resolved: Option<bool> = None;
 	for rule in rules {
@@ -1510,7 +1510,7 @@ fn warn_missing_plaintext_port_80_for_http01(
 /// Per-listener structural validation of the rule-level
 /// `allow_zero_rtt` field and its interaction with the listener's
 /// `tls.enable_zero_rtt`. Mirrors the constraint table in
-/// `08-tls.md` § _TLS 1.3 0-RTT_ § _Compile-time constraints_:
+/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Compile-time constraints_:
 ///
 /// - On a TLS-L7 listener (`resolved_tls.is_some()`) every rule must
 ///   set `allow_zero_rtt` to `Some(_)`.
@@ -1564,7 +1564,7 @@ fn validate_zero_rtt_for_listener(
 /// Walk a rule's match predicate and return `true` iff it structurally
 /// restricts `http.method` to a subset of the idempotent set
 /// {GET, HEAD, OPTIONS}. Implements the compile-time gate described in
-/// `08-tls.md` § _TLS 1.3 0-RTT_ § _Compile-time constraints_.
+/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Compile-time constraints_.
 ///
 /// Recursive rules:
 /// - `Check{ HttpMethod, equals "GET"|"HEAD"|"OPTIONS" }` → idempotent
@@ -1618,7 +1618,7 @@ fn is_idempotent_method(method: &str) -> bool {
 
 /// Validate one rule's `client_auth` block and produce the
 /// listener-level `ClientAuthSpec` it implies. Compile errors surface
-/// every structural omission listed in `08-tls.md` § _Client
+/// every structural omission listed in `spec/crates/engine-tls.md` § _Client
 /// certificate verification_'s schema table.
 fn compile_client_auth(
 	addrs: &[SocketAddr],
@@ -1702,7 +1702,7 @@ fn group_by_listener<'a>(rules: &'a [AnalyzedRule]) -> Result<Vec<ListenerGroup<
 }
 
 /// Parse one `ListenSpec` entry into its declared `(transport, addrs)`
-/// pair per `09-config.md` § _`ListenSpec` grammar_. The optional
+/// pair per `spec/crates/core.md` § _`ListenSpec` grammar_. The optional
 /// `tcp:` / `udp:` prefix declares the listener's wire transport;
 /// bare entries default to TCP for backwards compatibility (the spec
 /// table's `_(none)_` row).
@@ -1729,7 +1729,7 @@ fn parse_listen(spec: &str) -> Result<(Transport, Vec<SocketAddr>), Error> {
 		(Transport::Tcp, s, false)
 	};
 
-	// Per `09-config.md` § _ListenSpec grammar_'s composition table,
+	// Per `spec/crates/core.md` § _ListenSpec grammar_'s composition table,
 	// `tcp:443` / `udp:443` are valid (the spec example concatenates
 	// the prefix with a bare port form). After stripping the prefix
 	// the remainder is a naked digit string; treat that as the
@@ -1753,7 +1753,7 @@ fn parse_listen(spec: &str) -> Result<(Transport, Vec<SocketAddr>), Error> {
 /// transport-prefix path can reuse it without re-stripping; tests on
 /// the address grammar exercise this directly.
 fn parse_listen_address(rest: &str, original: &str) -> Result<Vec<SocketAddr>, Error> {
-	// Wildcard-port rejection per 09-config.md.
+	// Wildcard-port rejection per spec/crates/core.md.
 	if rest == ":0" || rest == "*:0" {
 		return Err(Error::compile(format!("wildcard port rejected: {original:?}")));
 	}

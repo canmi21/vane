@@ -74,7 +74,7 @@ pub enum CloseReason {
 	PolicyDenied(std::borrow::Cow<'static, str>),
 	ProtocolError(std::borrow::Cow<'static, str>),
 	/// Daemon-initiated cancellation — listener `force_cancel` fired during
-	/// shutdown drain (01-topology.md § _Listener lifecycle_), or any other
+	/// shutdown drain (spec/topology.md § _Listener lifecycle_), or any other
 	/// `ctx.cancel.cancelled()` propagation. Distinct from `Graceful` so
 	/// management observers can distinguish "client EOF'd" from "daemon
 	/// pulled the plug while in-flight."
@@ -248,7 +248,7 @@ mod tests {
 	// Compile-time assertion helper: the type `F` must be `Send`. `async_trait`
 	// rewrites `async fn run(...)` to return `Pin<Box<dyn Future + Send>>`, so
 	// every `run` invocation's future must satisfy this bound — that is the
-	// load-bearing contract per 04-middleware.md § _Async Send via async_trait_.
+	// load-bearing contract per spec/crates/engine.md § _Async Send via async_trait_.
 	fn assert_send<F: Send>(_: &F) {}
 
 	struct NullSink;
@@ -271,7 +271,7 @@ mod tests {
 	}
 
 	// `async_trait` makes these traits dyn-compatible. `MiddlewareInst` stores
-	// each variant as `Arc<dyn Trait>` per 04-middleware.md § _Symbolic forms_
+	// each variant as `Arc<dyn Trait>` per spec/crates/engine.md § _Symbolic forms_
 	// and § _Async Send via async_trait_; constructing that exact shape from a
 	// concrete impl is the contract we guard.
 
@@ -496,7 +496,7 @@ mod tests {
 	}
 
 	// Dry-run JSON wire-format contract: SymbolicMiddlewareRef participates
-	// in the compiled-form JSON per 02-flow.md § _The compiled form_. The
+	// in the compiled-form JSON per spec/flow-model.md § _The compiled form_. The
 	// whole struct uses derive(Serialize/Deserialize); all fields round-trip.
 	// PartialEq uses canonical-json equality on `args`, so key-order
 	// perturbation must still compare equal after a round-trip.

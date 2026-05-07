@@ -216,7 +216,7 @@ mod tests {
 	#[test]
 	fn tls_version_variants_are_exhaustive_at_two() {
 		// Adding a TlsVersion variant without updating this arm would be a
-		// compile error — the spec (08-tls.md) constrains accepted versions
+		// compile error — the spec (spec/crates/engine-tls.md) constrains accepted versions
 		// to 1.2 and 1.3 only.
 		for v in [TlsVersion::Tls12, TlsVersion::Tls13] {
 			let matched = match v {

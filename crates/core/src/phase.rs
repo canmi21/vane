@@ -40,7 +40,7 @@ const TUNNEL: &[Phase] = &[Phase::Tunnel];
 const ANY_PHASE: &[Phase] =
 	&[Phase::L4Raw, Phase::L4Peeked, Phase::L7Request, Phase::L7Response, Phase::Tunnel];
 
-// Each arm mirrors one row of the 02-flow.md § _Transition table_. Merging
+// Each arm mirrors one row of the spec/flow-model.md § _Transition table_. Merging
 // arms with equal bodies would hide the table structure, which the spec
 // calls out as the whole point of the single-source design.
 #[must_use]
@@ -64,7 +64,7 @@ pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 		PhaseNodeKind::Fetch(FetchKind::AcmeChallenge) => L7_REQ,
 		PhaseNodeKind::Terminate(Terminator::WriteHttpResponse) => L7_RESP,
 		PhaseNodeKind::Terminate(Terminator::ByteTunnel) => TUNNEL,
-		// `Close` is phase-agnostic per 05-terminator.md — lower emits it on
+		// `Close` is phase-agnostic per spec/crates/engine.md — lower emits it on
 		// L4 and L7 paths alike as the default-miss fallback.
 		PhaseNodeKind::Terminate(Terminator::Close) => ANY_PHASE,
 	}
@@ -74,7 +74,7 @@ pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 ///
 /// # Errors
 /// Returns [`PhaseError`] when `cur` is not in the node's accepted in-phase
-/// set. Validator consumers translate this into the 02-flow.md error format.
+/// set. Validator consumers translate this into the spec/flow-model.md error format.
 #[allow(clippy::match_same_arms)]
 pub fn transition(kind: PhaseNodeKind, cur: Phase) -> Result<Transition, PhaseError> {
 	let accepted = accepted_in_phases(kind);

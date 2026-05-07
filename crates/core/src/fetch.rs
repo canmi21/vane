@@ -100,7 +100,7 @@ impl FetchKind {
 	/// this to derive each listener's [`crate::ir::ListenerKind`] from
 	/// the set of reachable terminators per entry; new fetch kinds
 	/// pick their phase here so the derivation table in
-	/// `06-l4.md` § _Listener kind derivation_ stays single-source.
+	/// `spec/crates/engine.md` § _Listener kind derivation_ stays single-source.
 	#[must_use]
 	pub const fn phase(self) -> FetchPhase {
 		match self {
@@ -263,7 +263,7 @@ mod tests {
 
 	// A runtime-free `AsyncRead + AsyncWrite` witness. `UnixStream::pair` and
 	// `tokio::io::duplex` both require a running reactor; core tests
-	// deliberately do not spin one up (16-crate-layout.md: no async-runtime
+	// deliberately do not spin one up (spec/crates/daemon.md: no async-runtime
 	// dep).
 	struct NoopStream;
 
@@ -384,7 +384,7 @@ mod tests {
 	}
 
 	// `async_trait` makes `L7Fetch` and `L4Fetch` dyn-compatible. `FetchInst`
-	// stores them as `Arc<dyn _>` per 05-terminator.md § _Trait surface_;
+	// stores them as `Arc<dyn _>` per spec/crates/engine.md § _Trait surface_;
 	// constructing that exact shape from a concrete impl is the contract we
 	// guard here.
 
@@ -502,7 +502,7 @@ mod tests {
 	}
 
 	// Dry-run JSON wire-format contract: SymbolicFetchRef participates in
-	// the compiled-form JSON per 02-flow.md § _The compiled form_. Both the
+	// the compiled-form JSON per spec/flow-model.md § _The compiled form_. Both the
 	// `kind` tag and the opaque `args` payload must round-trip.
 	#[test]
 	fn symbolic_fetch_ref_round_trip_preserves_kind_and_args() {

@@ -18,7 +18,7 @@ use vane_core::{
 
 #[test]
 fn trajectory_builder_pushes_in_order_and_finalizes_terminated() {
-	// Spec (02-flow.md § _Flow log verbosity_): `TrajectoryBuilder::push`
+	// Spec (spec/flow-model.md § _Flow log verbosity_): `TrajectoryBuilder::push`
 	// appends in order; `finalize` snapshots into a `FlowTrajectory` whose
 	// `steps` preserve push order, with `started_at_ms` / `finished_at_ms`
 	// taken from `new` and `finalize` respectively.
@@ -66,7 +66,7 @@ fn trajectory_builder_pushes_in_order_and_finalizes_terminated() {
 
 #[test]
 fn trajectory_builder_finalizes_with_error_outcome() {
-	// Spec (02-flow.md § _Flow log verbosity_): the error path finalizes
+	// Spec (spec/flow-model.md § _Flow log verbosity_): the error path finalizes
 	// with `TrajectoryOutcome::Error { node, message }`. An empty step list
 	// is a valid "errored before any step ran" trajectory.
 	let b = TrajectoryBuilder::new(ConnId(7), NodeId::new(0), 1_000);
@@ -121,7 +121,7 @@ fn assert_trajectories_match(a: &FlowTrajectory, b: &FlowTrajectory) {
 
 #[test]
 fn flow_trajectory_round_trips_through_json() {
-	// Spec (02-flow.md § _Flow log verbosity_): `FlowTrajectory` derives
+	// Spec (spec/flow-model.md § _Flow log verbosity_): `FlowTrajectory` derives
 	// `Serialize + Deserialize`; every field round-trips through serde_json.
 	// Cover both `TrajectoryOutcome` variants in the same test.
 
@@ -153,7 +153,7 @@ fn flow_trajectory_round_trips_through_json() {
 #[test]
 fn flow_log_kind_trajectory_serde_round_trip() {
 	// `FlowLogKind::Trajectory` is the new variant gating per-request
-	// summary events (02-flow.md § _Flow log verbosity_). It must round-
+	// summary events (spec/flow-model.md § _Flow log verbosity_). It must round-
 	// trip through serde so the management API can transmit it verbatim.
 	let encoded = serde_json::to_string(&FlowLogKind::Trajectory).expect("serialize");
 	let decoded: FlowLogKind = serde_json::from_str(&encoded).expect("deserialize");
@@ -163,7 +163,7 @@ fn flow_log_kind_trajectory_serde_round_trip() {
 #[test]
 fn flow_log_verbosity_serde_round_trip_per_variant() {
 	// Both verbosity variants round-trip — the management API toggle wire
-	// form depends on the `Serialize + Deserialize` derive (02-flow.md §
+	// form depends on the `Serialize + Deserialize` derive (spec/flow-model.md §
 	// _Flow log verbosity_).
 	for v in [FlowLogVerbosity::Trajectory, FlowLogVerbosity::Debug] {
 		let encoded = serde_json::to_string(&v).expect("serialize");

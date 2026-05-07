@@ -508,7 +508,7 @@ impl PredicateInst {
 			// byte-exact (RFC 9110 § 5.5). Multi-value headers expose
 			// the first value only — predicates wanting "any of the
 			// values" compose with `any_of` per
-			// 18-predicate-schema.md § _http.header.<name>_.
+			// spec/crates/core.md § _http.header.<name>_.
 			FieldPath::HttpHeader(name) => {
 				let Some(req) = view.request() else { return false };
 				let Some(value) = req.headers().get(name.as_ref()) else { return false };
@@ -522,7 +522,7 @@ impl PredicateInst {
 				test_str(&self.op, s)
 			}
 			// `http.body` reads the request body bytes. Per
-			// 18-predicate-schema.md § _Runtime_, the analyze pass marks
+			// spec/crates/core.md § _Runtime_, the analyze pass marks
 			// the incoming edge of any `http.body` Check with
 			// `collect_body_before = Some(BodySide::Request)`, so by the
 			// time `test()` runs the executor has already collected
@@ -1434,7 +1434,7 @@ mod tests {
 	#[test]
 	fn parse_http_header_any_of_is_a_check_not_combinator() {
 		// A header literally named "any_of" is a multi-segment dotted path and is a Check,
-		// not the combinator form. 18-predicate-schema.md § "Why this doesn't need reserved-word policy".
+		// not the combinator form. spec/crates/core.md § "Why this doesn't need reserved-word policy".
 		let raw = serde_json::json!({ "http.header.any_of": { "equals": "x" } });
 		let p = parse_predicate(raw).expect("parse");
 		let c = expect_check(&p);
@@ -1627,7 +1627,7 @@ mod tests {
 	}
 
 	// ──────────────────────────────────────────────────────────────────────
-	// Dry-run JSON wire-format contract (02-flow.md § _The compiled form_).
+	// Dry-run JSON wire-format contract (spec/flow-model.md § _The compiled form_).
 	// The compiled IR round-trips through the shadow-enum convention
 	// documented in spec: externally-tagged snake_case for both `FieldPath`
 	// and `CompiledValue` / `CompiledOperator`, bytes as STANDARD base64,
@@ -1684,7 +1684,7 @@ mod tests {
 	#[test]
 	fn compiled_value_bytes_emits_standard_base64_literal() {
 		// STANDARD base64 ("hello" → "aGVsbG8="). Pins the alphabet choice per
-		// 02-flow.md § _The compiled form_ — a url-safe switch would break
+		// spec/flow-model.md § _The compiled form_ — a url-safe switch would break
 		// external dry-run consumers.
 		let v = CompiledValue::Bytes(Bytes::from_static(b"hello"));
 		let encoded = serde_json::to_string(&v).expect("serialize");
@@ -1963,7 +1963,7 @@ mod tests {
 	#[test]
 	fn predicate_test_tls_sni_equals_works_in_l4_view_too() {
 		// `tls.sni`'s inspection level is L4-peek per
-		// 18-predicate-schema.md; the predicate must work in both
+		// spec/crates/core.md; the predicate must work in both
 		// `PredicateView::L4 { conn, peek }` and `L7Req { conn, .. }`
 		// since both views carry `conn` and post-handshake SNI is
 		// stored on `ConnContext.tls`.

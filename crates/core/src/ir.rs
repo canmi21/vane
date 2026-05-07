@@ -687,7 +687,7 @@ mod tests {
 
 	#[test]
 	fn flow_graph_meta_round_trip_preserves_all_but_feature_set() {
-		// 02-flow.md § _FlowGraph metadata_: feature_set is a compile-time
+		// spec/flow-model.md § _FlowGraph metadata_: feature_set is a compile-time
 		// slice the daemon fills in at link and is NOT emitted to dry-run JSON.
 		// version_hash / compiled_at / source_files must round-trip.
 		use std::time::Duration;

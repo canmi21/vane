@@ -35,7 +35,7 @@ pub struct RawRule {
 	/// every rule whose listener is TLS-terminating L7; absent on
 	/// rules whose listener is plaintext or pure-L4 (a present value
 	/// in those positions is a compile error). See
-	/// `08-tls.md` § _TLS 1.3 0-RTT (early data)_.
+	/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_.
 	#[serde(default)]
 	pub allow_zero_rtt: Option<bool>,
 	/// Maximum bytes to buffer for request body `LazyBuffer` collection.
@@ -63,7 +63,7 @@ fn default_max_body_bytes() -> usize {
 /// most one default cert.
 ///
 /// SNI hostnames are normalised to ASCII-lowercase at every ingest
-/// boundary per 08-tls.md § _SNI normalization_; comparison against
+/// boundary per spec/crates/engine-tls.md § _SNI normalization_; comparison against
 /// rustls's already-lowercased `ClientHello::server_name()` is then
 /// byte-for-byte.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -88,9 +88,9 @@ pub struct TlsConfig {
 	/// Listener-side TLS 1.3 0-RTT opt-in. Required on every rule that
 	/// carries a `tls` block; rules sharing one listener must agree on
 	/// this value (lower aggregates them). See
-	/// `08-tls.md` § _TLS 1.3 0-RTT (early data)_.
+	/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_.
 	pub enable_zero_rtt: bool,
-	/// Listener-side mTLS — per `08-tls.md` § _Client certificate
+	/// Listener-side mTLS — per `spec/crates/engine-tls.md` § _Client certificate
 	/// verification_. Per-rule input; the lower pass aggregates each
 	/// rule's `client_auth` into one `ClientAuthSpec` per listener
 	/// address (rules on the same listener must agree, else compile
@@ -101,7 +101,7 @@ pub struct TlsConfig {
 	/// populator reads this file at every refresh and stages the
 	/// bytes into the resolver. Useful for HTTPS-only OCSP
 	/// responders (which `vane` does not fetch from — see
-	/// `08-tls.md` § _OCSP stapling § Transport policy_) and for
+	/// `spec/crates/engine-tls.md` § _OCSP stapling § Transport policy_) and for
 	/// air-gapped deployments where the operator cron-runs
 	/// `openssl ocsp` themselves. Mutually exclusive with
 	/// [`Self::ocsp_fetch`].
@@ -110,7 +110,7 @@ pub struct TlsConfig {
 	/// When `true`, the populator extracts the OCSP responder URL
 	/// from the cert's AIA extension and fetches the response over
 	/// HTTP at refresh time. HTTP-only by policy (per
-	/// `08-tls.md` § _OCSP stapling § Transport policy_).
+	/// `spec/crates/engine-tls.md` § _OCSP stapling § Transport policy_).
 	/// Mutually exclusive with [`Self::ocsp_path`].
 	#[serde(default, skip_serializing_if = "is_default_false")]
 	pub ocsp_fetch: bool,
@@ -158,7 +158,7 @@ impl TlsConfig {
 	}
 
 	/// Per-rule pre-lower validation per `spec/crates/engine-acme.md` § _Compile-time
-	/// checks_ and `08-tls.md` § _Cert source mutex_:
+	/// checks_ and `spec/crates/engine-tls.md` § _Cert source mutex_:
 	///
 	/// 1. Exactly one of (`cert_file` ∧ `key_file`) or `managed` is
 	///    present.
@@ -173,7 +173,7 @@ impl TlsConfig {
 	/// the offending field. The error string is operator-readable —
 	/// the `vane compile` UI surfaces it verbatim.
 	pub fn validate(&self) -> Result<(), Error> {
-		// OCSP source mutex per `08-tls.md` § _OCSP stapling_:
+		// OCSP source mutex per `spec/crates/engine-tls.md` § _OCSP stapling_:
 		// `ocsp_path` and `ocsp_fetch` are independent strategies
 		// for the same goal and must not both be set on one rule.
 		// We check this before the cert-source branching so the
@@ -402,7 +402,7 @@ pub enum CrlSourceConfig {
 	Url { url: String, fetch_failure: CrlFetchFailure },
 }
 
-/// CRL availability policy (per `08-tls.md` § _CRL checking_ § _Failure
+/// CRL availability policy (per `spec/crates/engine-tls.md` § _CRL checking_ § _Failure
 /// handling_).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -436,7 +436,7 @@ pub struct ListenerTlsSpec {
 	/// the renewal scheduler.
 	#[serde(default)]
 	pub managed_snis: BTreeMap<String, ManagedSpec>,
-	/// Resolved per-listener mTLS policy. Per `08-tls.md` § _Client
+	/// Resolved per-listener mTLS policy. Per `spec/crates/engine-tls.md` § _Client
 	/// certificate verification_ this is per-listener, derived from the
 	/// union of every rule's `tls.client_auth` on the same address;
 	/// rules that disagree on `mode` or `trust_store` produce a compile
@@ -449,7 +449,7 @@ pub struct ListenerTlsSpec {
 	/// engine's link wires this into `ServerConfig.max_early_data_size`
 	/// (16 KiB when `true`, default 0 when `false`). Defaults to
 	/// `false` for cleartext / non-TLS listeners. See
-	/// `08-tls.md` § _TLS 1.3 0-RTT (early data)_.
+	/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_.
 	#[serde(default)]
 	pub enable_zero_rtt: bool,
 }
@@ -540,7 +540,7 @@ impl<'de> serde::Deserialize<'de> for TerminateSpec {
 		};
 		let kind = fetch_kind_from_alias(&alias)
 			.ok_or_else(|| serde::de::Error::custom(format!("unknown terminate type: {alias:?}")))?;
-		// 05-terminator.md § _Variant ergonomics in config_:
+		// spec/crates/engine.md § _Variant ergonomics in config_:
 		// `httpN_proxy` is sugar for `http_proxy` + `version: "hN"`.
 		// Inject the version when the alias names a specific HTTP
 		// version and the user has not already set one explicitly —
@@ -807,7 +807,7 @@ mod tests {
 
 	#[test]
 	fn terminate_spec_alias_table_maps_to_fetch_kind() {
-		// Every row of 05-terminator.md § _Variant ergonomics in config_.
+		// Every row of spec/crates/engine.md § _Variant ergonomics in config_.
 		let cases: &[(&str, FetchKind)] = &[
 			("tcp_forward", FetchKind::L4Forward),
 			("udp_forward", FetchKind::L4Forward),
@@ -831,7 +831,7 @@ mod tests {
 
 	#[test]
 	fn terminate_spec_args_preserves_all_non_type_keys_verbatim() {
-		// 14-presets.md § _RawRule shape_: "every other key goes into `args`
+		// spec/crates/core.md § _RawRule shape_: "every other key goes into `args`
 		// verbatim". Covers top-level scalars AND nested objects.
 		let raw = serde_json::json!({
 			"type": "http_proxy",
@@ -919,7 +919,7 @@ mod tests {
 
 	#[test]
 	fn terminate_spec_alias_only_yields_object_with_injected_markers() {
-		// 14-presets.md § _RawRule shape_: the custom Deserialize removes `type`
+		// spec/crates/core.md § _RawRule shape_: the custom Deserialize removes `type`
 		// from a JSON object and keeps the rest. An alias-only terminate keeps
 		// the object shape; it now also carries the alias-resolution markers
 		// (`upstream_kind` for `HttpProxy` aliases). The point of this test is
@@ -1090,7 +1090,7 @@ mod tests {
 	#[test]
 	fn tls_config_missing_enable_zero_rtt_field_rejected() {
 		// `enable_zero_rtt` is required (no implicit default) per
-		// `08-tls.md` § _TLS 1.3 0-RTT_; absence on a `tls` block is a
+		// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_; absence on a `tls` block is a
 		// hard parse error before the lower pass even sees the rule.
 		let raw = serde_json::json!({
 			"cert_file": "/etc/vaned/certs/default.pem",

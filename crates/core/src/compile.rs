@@ -135,7 +135,7 @@ mod tests {
 	#[test]
 	fn predicate_hash_cons_shares_id_across_rules() {
 		// Two rules on different listeners both match `tls.sni == "api"`.
-		// Spec 02-flow.md § _Hash-consing_: predicates always dedup.
+		// Spec spec/flow-model.md § _Hash-consing_: predicates always dedup.
 		let a = parse_rule(serde_json::json!({
 			"name": "a",
 			"listen": [":8443"],
@@ -296,7 +296,7 @@ mod tests {
 
 	#[test]
 	fn symbolic_flow_graph_round_trip_preserves_structure_and_revalidates() {
-		// Dry-run JSON contract (02-flow.md § _The compiled form_): a compiled
+		// Dry-run JSON contract (spec/flow-model.md § _The compiled form_): a compiled
 		// SymbolicFlowGraph serializes to JSON and the result deserializes
 		// back to an equivalent graph that re-`validate()`s green. Slab
 		// contents and `entries` map key set must survive the round-trip.
@@ -432,7 +432,7 @@ mod tests {
 	fn find_entry_check(graph: &SymbolicFlowGraph, port: u16) -> NodeId {
 		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
 		let entry = *graph.entries.get(&v4).expect("entry present");
-		// Per 02-flow.md § _Listener-level Upgrade placement_, every L7
+		// Per spec/flow-model.md § _Listener-level Upgrade placement_, every L7
 		// listener carries one shared Upgrade above the rule chains. Tests
 		// that probe Check structure below the Upgrade skip past it here.
 		match &graph[entry] {
@@ -591,7 +591,7 @@ mod tests {
 	#[test]
 	fn any_of_hash_cons_shares_predicate_slot_across_rules() {
 		// Two rules on different listeners both use the same `tls.sni ==
-		// "shared"` predicate inside any_of. Per 02-flow.md § _Hash-consing_,
+		// "shared"` predicate inside any_of. Per spec/flow-model.md § _Hash-consing_,
 		// predicates dedup transparently regardless of the combinator tree
 		// they're nested inside.
 		let a = check_rule(
@@ -613,7 +613,7 @@ mod tests {
 
 	#[test]
 	fn l4_predicate_on_l7_rule_sits_post_upgrade() {
-		// 02-flow.md § _Listener-level Upgrade placement_ (C13.5): the
+		// spec/flow-model.md § _Listener-level Upgrade placement_ (C13.5): the
 		// C5.5-era "L4-level Check fails fast before HTTP decode" optimisation
 		// is gone. Every L7 listener carries one shared Upgrade above the
 		// rule chains, so L4-level Check leaves on L7 rules now sit AFTER
@@ -912,7 +912,7 @@ mod tests {
 
 	#[test]
 	fn l7_listener_emits_single_upgrade_at_top_for_two_rules() {
-		// 02-flow.md § _Listener-level Upgrade placement_: two L7 rules on
+		// spec/flow-model.md § _Listener-level Upgrade placement_: two L7 rules on
 		// the same listener share one Upgrade — the entire graph must
 		// contain exactly one Upgrade node, not two.
 		let a = parse_rule(serde_json::json!({
@@ -1012,7 +1012,7 @@ mod tests {
 	#[test]
 	fn lower_derives_raw_when_only_l4_forward_terminator() {
 		// `port_forward`-shaped rule: single `tcp_forward` upstream on a
-		// listener with no L7 path. Per `06-l4.md` § _Listener kind
+		// listener with no L7 path. Per `spec/crates/engine.md` § _Listener kind
 		// derivation_, every reachable terminator is L4 → `Raw`.
 		let r = parse_rule(serde_json::json!({
 			"name": "r",
@@ -1040,7 +1040,7 @@ mod tests {
 
 	#[test]
 	fn lower_derives_http_for_udp_prefix_listener() {
-		// `06-l4.md` § _Listener kind derivation_ is graph-shape-only —
+		// `spec/crates/engine.md` § _Listener kind derivation_ is graph-shape-only —
 		// transport doesn't enter the rule. The `udp:` prefix flows
 		// through `parse_listen` to `listener_transports`, while the
 		// L7 terminator independently picks `Http`. The combination is

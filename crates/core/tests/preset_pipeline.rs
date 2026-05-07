@@ -431,7 +431,7 @@ fn lower_aggregates_two_rules_same_port_distinct_sni_into_pool() {
 #[test]
 fn lower_lowercases_sni_keys_in_pool() {
 	// SNI hostnames are normalised to ASCII-lowercase per
-	// 08-tls.md § _SNI normalization_.
+	// spec/crates/engine-tls.md § _SNI normalization_.
 	let entry: RuleEntry = serde_json::from_value(json!({
 		"name": "api",
 		"listen": [":443"],

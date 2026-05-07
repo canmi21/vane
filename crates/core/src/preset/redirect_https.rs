@@ -27,7 +27,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		"headers": { "location": "https://${host}${uri}" },
 	});
 
-	// Presets emit `allow_zero_rtt` explicitly per `08-tls.md` § _TLS
+	// Presets emit `allow_zero_rtt` explicitly per `spec/crates/engine-tls.md` § _TLS
 	// 1.3 0-RTT_'s "CLI / TUI emits `false` when 0-RTT is not in use".
 	// `Some(false)` mirrors the operator-default posture; rules whose
 	// listener is plaintext propagate `None` so the lower pass does not
