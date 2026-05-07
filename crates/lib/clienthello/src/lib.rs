@@ -26,9 +26,9 @@
 //!
 //! # Versions
 //!
-//! Currently supports **QUIC v1** (transport version `0x00000001`,
-//! RFC 9000). v2 (RFC 9369) salt + TLS 1.3 cipher suite are mechanical
-//! adds; not implemented in 0.1.0.
+//! Supports **QUIC v1** (transport version `0x00000001`, RFC 9000).
+//! QUIC v2 (RFC 9369) is mechanical to add — different initial salt,
+//! TLS 1.3 cipher suite — but not yet wired up.
 //!
 //! # Example
 //!

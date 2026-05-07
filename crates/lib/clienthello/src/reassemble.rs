@@ -49,12 +49,10 @@ impl CryptoStream {
 			.checked_add(u64::try_from(data.len()).map_err(|_| Error::FrameDecode)?)
 			.ok_or(Error::FrameDecode)?;
 
-		// Inspect any segment whose range intersects [offset, new_end);
-		// confirm overlapping bytes match. The narrow-from-u64 casts
-		// here can't truncate in practice — the caller bounds total
-		// buffered bytes per session at 16 KiB, well under usize::MAX
-		// even on 32-bit pointer-width targets — but `try_from` keeps
-		// the bound contractual rather than implicit.
+		// Confirm any pre-existing segment overlapping [offset, new_end)
+		// has matching bytes. `try_from` keeps the u64→usize narrowing
+		// contractual; the caller's per-session 16 KiB bound puts every
+		// real value well below `usize::MAX` even on 32-bit targets.
 		for (&seg_off, seg_data) in &self.segments {
 			let seg_end = seg_off + seg_data.len() as u64;
 			if seg_end <= offset || seg_off >= new_end {
