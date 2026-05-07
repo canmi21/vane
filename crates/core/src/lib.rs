@@ -108,14 +108,16 @@ pub mod version {
 		const WIDTH: usize = 12;
 		const INDENT: &str = "  ";
 
-		let brand = Style::new().yellow().bold();
-		let prose = Style::new().green();
+		let brand_bold = Style::new().yellow().bold();
+		let brand = Style::new().yellow();
+		let prose = Style::new().cyan();
+		let email = Style::new().green();
 		let warning = Style::new().red().bold();
 
 		println!();
 		println!(
 			"{INDENT}{} — {DESCRIPTION}",
-			"Vane".if_supports_color(Stream::Stdout, |t| t.style(brand)),
+			"Vane".if_supports_color(Stream::Stdout, |t| t.style(brand_bold)),
 		);
 		println!();
 
@@ -135,16 +137,32 @@ pub mod version {
 		}
 
 		println!();
-		println!("{INDENT}{COPYRIGHT}");
-		println!();
+		// Split COPYRIGHT into three styled spans:
+		//   "Copyright"          → yellow (matches the brand tone, no bold)
+		//   " (C) 2025 Canmi "   → cyan, currently — second pass may flip
+		//                          this to plain depending on review
+		//   "<t@canmi.icu>"      → green, mirrors the prose accent
+		let (copyright_word, rest) = COPYRIGHT.split_at("Copyright".len());
+		let (middle, email_addr) = match rest.find('<') {
+			Some(i) => rest.split_at(i),
+			None => (rest, ""),
+		};
 		println!(
-			"{INDENT}{}",
-			"Released under the MIT License without restriction."
-				.if_supports_color(Stream::Stdout, |t| t.style(prose)),
+			"{INDENT}{}{}{}",
+			copyright_word.if_supports_color(Stream::Stdout, |t| t.style(brand)),
+			middle.if_supports_color(Stream::Stdout, |t| t.style(prose)),
+			email_addr.if_supports_color(Stream::Stdout, |t| t.style(email)),
+		);
+		println!();
+		// Each licence line keeps prose plain and styles only the
+		// noun phrase that carries the meaning — cyan for the licence
+		// reference, red-bold for the warranty disclaimer.
+		println!(
+			"{INDENT}Released under the {} without restriction.",
+			"MIT License".if_supports_color(Stream::Stdout, |t| t.style(prose)),
 		);
 		println!(
-			"{INDENT}{}{}.",
-			"This software comes with ".if_supports_color(Stream::Stdout, |t| t.style(prose)),
+			"{INDENT}This software comes with {}.",
 			"ABSOLUTELY NO WARRANTY".if_supports_color(Stream::Stdout, |t| t.style(warning)),
 		);
 		println!();
