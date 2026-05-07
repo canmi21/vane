@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# `vane` shim resolved by direnv inside this checkout. Builds the
+# CLI in debug mode and execs the resulting binary, so edits under
+# `crates/cli/src/**` are picked up by the next `vane <subcommand>`
+# invocation without a separate `cargo build` step.
+#
+# Two-step (build, then exec) rather than `cargo run`: cargo's
+# progress chatter occasionally leaks through `--quiet` to stderr,
+# and the TUI's drawing buffer doesn't survive that. Building first
+# pushes those bytes ahead of the takeover.
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+cargo build --quiet -p vane --bin vane
+exec "$ROOT/target/debug/vane" "$@"
