@@ -89,6 +89,8 @@ fn rcgen_default_cert() -> TlsFiles {
 		managed: None,
 		client_auth: None,
 		enable_zero_rtt: false,
+		ocsp_path: None,
+		ocsp_fetch: false,
 	};
 	TlsFiles { _cert_file: cert_file, _key_file: key_file, tls_cfg }
 }

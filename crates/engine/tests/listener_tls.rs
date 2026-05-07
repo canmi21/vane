@@ -83,6 +83,8 @@ fn rcgen_self_signed_for_localhost() -> TlsFixture {
 		managed: None,
 		client_auth: None,
 		enable_zero_rtt: false,
+		ocsp_path: None,
+		ocsp_fetch: false,
 	};
 
 	TlsFixture { _cert_file: cert_file, _key_file: key_file, cert_pem, tls_cfg }
@@ -356,6 +358,8 @@ fn tls_multi_sni_graph(
 				managed: None,
 				client_auth: None,
 				enable_zero_rtt: false,
+				ocsp_path: None,
+				ocsp_fetch: false,
 			},
 		);
 	}
@@ -367,6 +371,8 @@ fn tls_multi_sni_graph(
 			managed: None,
 			client_auth: None,
 			enable_zero_rtt: false,
+			ocsp_path: None,
+			ocsp_fetch: false,
 		}),
 		sni_certs: spec_sni,
 		managed_snis: BTreeMap::new(),

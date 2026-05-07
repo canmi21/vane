@@ -97,6 +97,34 @@ pub struct TlsConfig {
 	/// error). `None` keeps the listener at `ClientAuth::None`.
 	#[serde(default)]
 	pub client_auth: Option<ClientAuthConfig>,
+	/// Path to a pre-fetched OCSP response (DER) on disk. The
+	/// populator reads this file at every refresh and stages the
+	/// bytes into the resolver. Useful for HTTPS-only OCSP
+	/// responders (which `vane` does not fetch from — see
+	/// `08-tls.md` § _OCSP stapling § Transport policy_) and for
+	/// air-gapped deployments where the operator cron-runs
+	/// `openssl ocsp` themselves. Mutually exclusive with
+	/// [`Self::ocsp_fetch`].
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ocsp_path: Option<PathBuf>,
+	/// When `true`, the populator extracts the OCSP responder URL
+	/// from the cert's AIA extension and fetches the response over
+	/// HTTP at refresh time. HTTP-only by policy (per
+	/// `08-tls.md` § _OCSP stapling § Transport policy_).
+	/// Mutually exclusive with [`Self::ocsp_path`].
+	#[serde(default, skip_serializing_if = "is_default_false")]
+	pub ocsp_fetch: bool,
+}
+
+// `skip_serializing_if` requires a `fn(&T) -> bool` signature; the
+// argument cannot be by-value, so the trivially-copy-pass-by-ref
+// lint is a false positive here.
+#[allow(
+	clippy::trivially_copy_pass_by_ref,
+	reason = "serde skip_serializing_if signature is fn(&T) -> bool"
+)]
+fn is_default_false(b: &bool) -> bool {
+	!*b
 }
 
 impl TlsConfig {
@@ -145,6 +173,17 @@ impl TlsConfig {
 	/// the offending field. The error string is operator-readable —
 	/// the `vane compile` UI surfaces it verbatim.
 	pub fn validate(&self) -> Result<(), Error> {
+		// OCSP source mutex per `08-tls.md` § _OCSP stapling_:
+		// `ocsp_path` and `ocsp_fetch` are independent strategies
+		// for the same goal and must not both be set on one rule.
+		// We check this before the cert-source branching so the
+		// error message points operators at OCSP rather than the
+		// cert-mode confusion that would otherwise mask it.
+		if self.ocsp_path.is_some() && self.ocsp_fetch {
+			return Err(Error::compile(
+				"tls: `ocsp_path` and `ocsp_fetch` are mutually exclusive — pick one OCSP source",
+			));
+		}
 		let static_present = self.cert_file.is_some() || self.key_file.is_some();
 		match (static_present, &self.managed) {
 			(true, Some(_)) => Err(Error::compile(
@@ -1017,6 +1056,8 @@ mod tests {
 			managed: None,
 			enable_zero_rtt: false,
 			client_auth: None,
+			ocsp_path: None,
+			ocsp_fetch: false,
 		};
 		let encoded = serde_json::to_string(&original).expect("serialize");
 		let decoded: TlsConfig = serde_json::from_str(&encoded).expect("deserialize");

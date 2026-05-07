@@ -98,6 +98,8 @@ fn rcgen_self_signed_for_localhost() -> TlsFixture {
 		// so rustls's per-`ServerConfig` session storage becomes the
 		// stateful resumption backend.
 		enable_zero_rtt: true,
+		ocsp_path: None,
+		ocsp_fetch: false,
 	};
 	TlsFixture { _cert_file: cert_file, _key_file: key_file, cert_pem, tls_cfg }
 }

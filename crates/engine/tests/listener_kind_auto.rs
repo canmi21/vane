@@ -97,6 +97,8 @@ fn rcgen_cert(host: &str) -> CertFiles {
 		managed: None,
 		client_auth: None,
 		enable_zero_rtt: false,
+		ocsp_path: None,
+		ocsp_fetch: false,
 	};
 	CertFiles { _cert: cert, _key: key, cert_pem, tls_cfg }
 }

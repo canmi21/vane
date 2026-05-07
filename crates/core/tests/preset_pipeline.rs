@@ -387,6 +387,8 @@ fn reverse_proxy_preset_propagates_tls_default_into_pool() {
 		managed: None,
 		enable_zero_rtt: false,
 		client_auth: None,
+		ocsp_path: None,
+		ocsp_fetch: false,
 	};
 	let entry = tls_preset_entry(
 		"api",
@@ -428,6 +430,8 @@ fn raw_rule_with_tls_aggregates_into_listener_pool() {
 		managed: None,
 		enable_zero_rtt: false,
 		client_auth: None,
+		ocsp_path: None,
+		ocsp_fetch: false,
 	};
 	assert_eq!(graph.meta.listener_tls.len(), 2);
 	for spec in graph.meta.listener_tls.values() {
@@ -578,6 +582,8 @@ fn l4_listener_with_tls_block_is_rejected() {
 		managed: None,
 		enable_zero_rtt: false,
 		client_auth: None,
+		ocsp_path: None,
+		ocsp_fetch: false,
 	};
 	let entry = tls_preset_entry(
 		"ssh",

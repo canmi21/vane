@@ -111,6 +111,8 @@ fn rcgen_pki(client_cn: &str, client_san: &[&str]) -> PkiFixture {
 		managed: None,
 		client_auth: None, // populated per-test
 		enable_zero_rtt: false,
+		ocsp_path: None,
+		ocsp_fetch: false,
 	};
 
 	// Client cert (CA-signed)

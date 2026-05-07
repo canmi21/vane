@@ -117,6 +117,8 @@ fn h3_proxy_graph(listen: SocketAddr, upstream: &str, cert: &CertFixture) -> Arc
 				managed: None,
 				client_auth: None,
 				enable_zero_rtt: false,
+				ocsp_path: None,
+				ocsp_fetch: false,
 			}),
 			sni_certs: BTreeMap::new(),
 			managed_snis: BTreeMap::new(),

@@ -1202,6 +1202,8 @@ fn route_tls_config_into_spec(
 		managed: None,
 		enable_zero_rtt: tls.enable_zero_rtt,
 		client_auth: tls.client_auth.clone(),
+		ocsp_path: tls.ocsp_path.clone(),
+		ocsp_fetch: tls.ocsp_fetch,
 	};
 	match normalised_sni {
 		None => match &spec.default {
