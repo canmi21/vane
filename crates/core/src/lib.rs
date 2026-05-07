@@ -47,7 +47,7 @@ pub mod meta {
 }
 
 pub mod version {
-	use std::fmt::Write as _;
+	use owo_colors::{OwoColorize, Stream, Style};
 
 	use super::meta::{COPYRIGHT, DESCRIPTION, HOMEPAGE, LICENSE_URL, REPOSITORY};
 
@@ -66,13 +66,21 @@ pub mod version {
 		pub protocols: &'static [&'static str],
 	}
 
-	/// Format the shared version banner used by both `vane` and `vaned`.
+	/// Print the shared build banner used by both `vane -v` and
+	/// `vaned -v`. Goes straight to stdout. ANSI colour escapes are
+	/// emitted only when stdout is detected as a TTY (via owo-colors'
+	/// `Stream::Stdout` check), so `vane -v | cat` still produces flat
+	/// ASCII.
 	///
-	/// Every content line is indented with two spaces; the output is bracketed
-	/// by a leading and trailing blank line for vertical breathing room in the
-	/// terminal.
+	/// Palette (kept consistent with `vane`'s clap help output):
+	/// - **Vane** brand → yellow + bold
+	/// - section labels (`Built:`, `Rust:`, `Homepage:` …) → cyan + bold
+	/// - URL values (`Homepage:`, `Source:`, `License:`) → green
+	/// - `ABSOLUTELY NO WARRANTY` substring → red + bold
+	/// - everything else (description, version values, copyright,
+	///   licence prose) → plain
 	///
-	/// Layout:
+	/// Layout (uncoloured shape):
 	/// ```text
 	///
 	///   Vane — A compact programmable proxy engine
@@ -93,53 +101,64 @@ pub mod version {
 	///   License:    https://opensource.org/licenses/MIT
 	///
 	/// ```
-	#[must_use]
-	pub fn format_version(info: &BuildInfo) -> String {
+	pub fn print_banner(info: &BuildInfo) {
 		const WIDTH: usize = 12;
 		const INDENT: &str = "  ";
-		let mut out = String::new();
 
-		let _ = writeln!(out);
-		let _ = writeln!(out, "{INDENT}Vane — {DESCRIPTION}");
-		let _ = writeln!(out);
+		let brand = Style::new().yellow().bold();
+		let warning = Style::new().red().bold();
 
-		let _ = writeln!(
-			out,
-			"{INDENT}{label:<WIDTH$}{version} ({commit} {date})",
-			label = "Built:",
-			version = info.version,
-			commit = info.commit,
-			date = info.build_date,
+		println!();
+		println!(
+			"{INDENT}{} — {DESCRIPTION}",
+			"Vane".if_supports_color(Stream::Stdout, |t| t.style(brand)),
 		);
-		let _ = writeln!(out, "{INDENT}{label:<WIDTH$}{value}", label = "Rust:", value = info.rustc);
-		let _ = writeln!(out, "{INDENT}{label:<WIDTH$}{value}", label = "Cargo:", value = info.cargo);
+		println!();
+
+		print_label(
+			"Built:",
+			&format!("{} ({} {})", info.version, info.commit, info.build_date),
+			false,
+			WIDTH,
+			INDENT,
+		);
+		print_label("Rust:", info.rustc, false, WIDTH, INDENT);
+		print_label("Cargo:", info.cargo, false, WIDTH, INDENT);
 		if !info.features.is_empty() {
-			let _ = writeln!(
-				out,
-				"{INDENT}{label:<WIDTH$}{value}",
-				label = "Features:",
-				value = info.features.join(", "),
-			);
+			print_label("Features:", &info.features.join(", "), false, WIDTH, INDENT);
 		}
 		if !info.protocols.is_empty() {
-			let _ = writeln!(
-				out,
-				"{INDENT}{label:<WIDTH$}{value}",
-				label = "Protocols:",
-				value = info.protocols.join(", "),
-			);
+			print_label("Protocols:", &info.protocols.join(", "), false, WIDTH, INDENT);
 		}
-		let _ = writeln!(out);
-		let _ = writeln!(out, "{INDENT}{COPYRIGHT}");
-		let _ = writeln!(out);
-		let _ = writeln!(out, "{INDENT}Released under the MIT License without restriction.");
-		let _ = writeln!(out, "{INDENT}This software comes with ABSOLUTELY NO WARRANTY.");
-		let _ = writeln!(out);
-		let _ = writeln!(out, "{INDENT}{label:<WIDTH$}{HOMEPAGE}", label = "Homepage:");
-		let _ = writeln!(out, "{INDENT}{label:<WIDTH$}{REPOSITORY}", label = "Source:");
-		let _ = writeln!(out, "{INDENT}{label:<WIDTH$}{LICENSE_URL}", label = "License:");
-		let _ = writeln!(out);
 
-		out
+		println!();
+		println!("{INDENT}{COPYRIGHT}");
+		println!();
+		println!("{INDENT}Released under the MIT License without restriction.");
+		println!(
+			"{INDENT}This software comes with {}.",
+			"ABSOLUTELY NO WARRANTY".if_supports_color(Stream::Stdout, |t| t.style(warning)),
+		);
+		println!();
+
+		print_label("Homepage:", HOMEPAGE, true, WIDTH, INDENT);
+		print_label("Source:", REPOSITORY, true, WIDTH, INDENT);
+		print_label("License:", LICENSE_URL, true, WIDTH, INDENT);
+		println!();
+	}
+
+	fn print_label(label: &str, value: &str, value_is_url: bool, width: usize, indent: &str) {
+		let label_style = Style::new().cyan().bold();
+		let url_style = Style::new().green();
+		let padded = format!("{label:<width$}");
+		let label_styled = padded.if_supports_color(Stream::Stdout, |t| t.style(label_style));
+		if value_is_url {
+			println!(
+				"{indent}{label_styled}{}",
+				value.if_supports_color(Stream::Stdout, |t| t.style(url_style)),
+			);
+		} else {
+			println!("{indent}{label_styled}{value}");
+		}
 	}
 }

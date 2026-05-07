@@ -10,7 +10,7 @@ use std::time::Duration;
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Parser, Subcommand};
 use owo_colors::{OwoColorize, Stream, Style};
-use vane_core::version::BuildInfo;
+use vane_core::version::{BuildInfo, print_banner};
 use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
 	CgiPoolEntry, CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, ForceRenewArgs,
@@ -497,72 +497,6 @@ fn print_json<T: serde::Serialize>(value: &T) -> anyhow::Result<()> {
 /// styling and so the color crate import stays in one place.
 fn print_section(label: &str) {
 	println!("{}", label.if_supports_color(Stream::Stdout, |t| t.bold()));
-}
-
-/// Pretty-print the build banner produced by `vane -v`. Mirrors the
-/// layout of `vane_core::version::format_version` (`vaned` still goes
-/// through that uncolored helper) but applies the same palette as
-/// clap help: yellow-bold for the header, cyan-bold for label
-/// columns, dimmed for the copyright / warranty lines. URLs and
-/// version values stay plain so they copy cleanly out of the
-/// terminal.
-fn print_banner(info: &BuildInfo) {
-	use vane_core::meta::{COPYRIGHT, DESCRIPTION, HOMEPAGE, LICENSE_URL, REPOSITORY};
-	const WIDTH: usize = 12;
-	const INDENT: &str = "  ";
-
-	let dim = Style::new().dimmed();
-	let header_style = Style::new().yellow().bold();
-
-	let header = format!("Vane — {DESCRIPTION}");
-	println!();
-	println!("{INDENT}{}", header.if_supports_color(Stream::Stdout, |t| t.style(header_style)));
-	println!();
-
-	print_banner_label(
-		"Built:",
-		&format!("{} ({} {})", info.version, info.commit, info.build_date),
-		WIDTH,
-		INDENT,
-	);
-	print_banner_label("Rust:", info.rustc, WIDTH, INDENT);
-	print_banner_label("Cargo:", info.cargo, WIDTH, INDENT);
-	if !info.features.is_empty() {
-		print_banner_label("Features:", &info.features.join(", "), WIDTH, INDENT);
-	}
-	if !info.protocols.is_empty() {
-		print_banner_label("Protocols:", &info.protocols.join(", "), WIDTH, INDENT);
-	}
-
-	println!();
-	println!("{INDENT}{}", COPYRIGHT.if_supports_color(Stream::Stdout, |t| t.style(dim)));
-	println!();
-	println!(
-		"{INDENT}{}",
-		"Released under the MIT License without restriction."
-			.if_supports_color(Stream::Stdout, |t| t.style(dim)),
-	);
-	println!(
-		"{INDENT}{}",
-		"This software comes with ABSOLUTELY NO WARRANTY."
-			.if_supports_color(Stream::Stdout, |t| t.style(dim)),
-	);
-	println!();
-
-	print_banner_label("Homepage:", HOMEPAGE, WIDTH, INDENT);
-	print_banner_label("Source:", REPOSITORY, WIDTH, INDENT);
-	print_banner_label("License:", LICENSE_URL, WIDTH, INDENT);
-	println!();
-}
-
-/// One row of the banner: a width-padded label (cyan-bold on TTY)
-/// followed by the value verbatim. Padding is applied to the
-/// uncolored string so columns line up whether ANSI escapes survive
-/// or not.
-fn print_banner_label(label: &str, value: &str, width: usize, indent: &str) {
-	let padded = format!("{label:<width$}");
-	let label_style = Style::new().cyan().bold();
-	println!("{indent}{}{value}", padded.if_supports_color(Stream::Stdout, |t| t.style(label_style)));
 }
 
 /// Print the "(none)" placeholder rows reach when their data set is

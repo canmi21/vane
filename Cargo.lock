@@ -4649,6 +4649,7 @@ dependencies = [
  "http",
  "http-body",
  "ipnet",
+ "owo-colors",
  "parking_lot",
  "rcgen",
  "rustls-pki-types",

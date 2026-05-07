@@ -42,7 +42,7 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use vane_core::FlowLogSink;
 use vane_core::compile::compile;
-use vane_core::version::{BuildInfo, format_version};
+use vane_core::version::{BuildInfo, print_banner};
 use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
@@ -115,7 +115,7 @@ async fn main() -> std::process::ExitCode {
 	// without `/etc/vaned` should still be able to verify the build.
 	let raw: Vec<String> = std::env::args().collect();
 	if raw.iter().any(|a| a == "--version" || a == "-v") {
-		print!("{}", format_version(&BUILD_INFO));
+		print_banner(&BUILD_INFO);
 		return std::process::ExitCode::SUCCESS;
 	}
 
