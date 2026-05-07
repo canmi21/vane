@@ -1,6 +1,16 @@
 //! vane WASM plugin runtime: wasmtime + Component Model + instance pooling + host functions.
 //!
-//! See `spec/crates/engine-wasm.md`.
+//! See [`spec/crates/engine-wasm.md`](../../../spec/crates/engine-wasm.md).
+//
+// TODO(wasm-lib-split): the file weighs ~3500 lines and groups several
+// loosely-coupled concerns: host state, the four `invoke_*` trait impls
+// (one per middleware-kind), metric / http-fetch host helpers, the four
+// per-kind type-translation modules + validation, the `WasmtimeRuntime`
+// type, engine construction, component loading, metadata extraction,
+// handler-kind validation, and the tests. Splitting into per-concern
+// sibling modules would shrink lib.rs to coordination + re-exports and
+// make the type-translation surface easier to evolve. No functional
+// change required.
 
 #![allow(unsafe_code)] // Component::deserialize_file is unsafe per wasmtime API
 
