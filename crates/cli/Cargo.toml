@@ -17,7 +17,16 @@ workspace = true
 
 [features]
 default = ["tui"]
-tui = []
+# When on, bare `vane` (no subcommand) launches the interactive TUI;
+# `vane tui` is the explicit form. Off-builds (`--no-default-features`)
+# leave the no-subcommand path emitting the help hint and skip pulling
+# in `ratatui` / `crossterm`.
+tui = ["dep:ratatui", "dep:crossterm"]
+
+# `dep:crossterm` here is the same version `ratatui`'s `crossterm`
+# feature pulls — keeping a separate dep entry lets the TUI module
+# import the event / terminal types directly without going through
+# `ratatui::crossterm`.
 
 [dependencies]
 anyhow = "1.0.102"
@@ -34,6 +43,13 @@ tokio = { version = "1.52.2", features = ["rt", "macros", "signal", "io-util", "
 tracing = "0.1.44"
 vane-core = { workspace = true }
 vane-mgmt = { workspace = true }
+
+# TUI stack — gated behind the `tui` feature so packagers can drop
+# the dependency tree on minimal builds. ratatui pulls crossterm
+# transitively, but pinning crossterm explicitly keeps version drift
+# obvious in the lockfile.
+crossterm = { version = "0.29", optional = true }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"], optional = true }
 
 [[bin]]
 name = "vane"

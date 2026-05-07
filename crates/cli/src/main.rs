@@ -4,6 +4,9 @@
 //!
 //! See `spec/architecture/16-crate-layout.md` § _CLI_.
 
+#[cfg(feature = "tui")]
+mod tui;
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -120,6 +123,10 @@ enum Cmd {
 		#[command(subcommand)]
 		what: PoolCmd,
 	},
+	/// Launch the interactive TUI (default action when `vane` is
+	/// invoked with no subcommand).
+	#[cfg(feature = "tui")]
+	Tui,
 }
 
 #[derive(Subcommand, Debug)]
@@ -186,6 +193,13 @@ async fn main() -> std::process::ExitCode {
 		print_banner(&BUILD_INFO);
 		return std::process::ExitCode::SUCCESS;
 	}
+	// Bare `vane` (no subcommand) opens the TUI when the feature is
+	// compiled in. With `--no-default-features` the TUI is gone, so
+	// we fall back to the original "no subcommand — try --help" hint
+	// rather than launching a missing binary path.
+	#[cfg(feature = "tui")]
+	let cmd = cli.cmd.unwrap_or(Cmd::Tui);
+	#[cfg(not(feature = "tui"))]
 	let Some(cmd) = cli.cmd else {
 		eprintln!(
 			"{} no subcommand — try `vane --help`",
@@ -217,6 +231,8 @@ async fn main() -> std::process::ExitCode {
 		Cmd::Pool { what: PoolCmd::Drain { fingerprint_id } } => {
 			run_pool_drain(&client, &fingerprint_id, cli.json).await
 		}
+		#[cfg(feature = "tui")]
+		Cmd::Tui => tui::run(&BUILD_INFO),
 	};
 	match result {
 		Ok(()) => std::process::ExitCode::SUCCESS,
