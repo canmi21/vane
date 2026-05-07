@@ -24,7 +24,7 @@ aws-lc-rs = ["rustls/aws-lc-rs", "tokio-rustls/aws-lc-rs", "hyper-rustls/aws-lc-
 ring = ["rustls/ring", "tokio-rustls/ring", "hyper-rustls/ring"]
 h3 = ["dep:quinn", "dep:quinn-proto", "dep:h3", "dep:h3-quinn"]
 cgi = []
-acme = []
+acme = ["dep:fs4", "dep:futures", "dep:instant-acme", "dep:rcgen"]
 cloudflare = ["acme"]
 
 [dependencies]
@@ -80,6 +80,16 @@ h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
 quinn-proto = { version = "0.11", default-features = false, optional = true }
+
+# ACME stack — gated behind the `acme` feature.
+# `fs4` provides cross-platform `flock(2)` for `AcmeStore::with_lock`.
+# `futures` is needed for `BoxFuture` in the `with_lock` closure signature.
+# `instant-acme` is the RFC 8555 client (HTTP-01 + DNS-01).
+# `rcgen` generates ECDSA / RSA keypairs and CSRs at issuance time.
+fs4 = { version = "1.1", default-features = false, features = ["sync"], optional = true }
+futures = { version = "0.3", optional = true }
+instant-acme = { version = "0.8", optional = true }
+rcgen = { version = "0.14", optional = true }
 
 # `libc` is already in the workspace dep graph (transitively via tokio,
 # rustls, hyper, ...). The CGI driver promotes it to a direct dep so

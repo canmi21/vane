@@ -70,11 +70,14 @@ pub trait AcmeStore: Send + Sync {
         -> Result<()>;
     async fn list_cert_snis(&self) -> Result<Vec<String>>;
 
-    async fn with_lock<F, T>(&self, scope: &str, f: F) -> Result<T>
-    where
-        F: for<'a> FnOnce(&'a dyn AcmeStore)
-            -> futures::future::BoxFuture<'a, Result<T>> + Send;
+    /// Acquire an exclusive advisory lock for `scope`. The returned
+    /// guard releases on drop (RAII). Different `scope` strings are
+    /// independent; the same `scope` serialises across both async
+    /// tasks and OS processes.
+    async fn lock(&self, scope: &str) -> Result<Box<dyn LockGuard>>;
 }
+
+pub trait LockGuard: Send + Sync + std::fmt::Debug {}
 
 pub struct AcmeAccount {
     pub directory_url:  String,
@@ -94,7 +97,7 @@ pub struct StoredCert {
 }
 ```
 
-`with_lock` provides advisory locking scoped to a string (e.g. account directory URL or cert SNI). The default fs impl uses `flock(2)` on a `.lock` file beside the target.
+`lock` provides advisory locking scoped to a string (e.g. account directory URL or cert SNI). The default fs impl uses `flock(2)` on a `.lock` file beside the target, plus a per-process `tokio::sync::Mutex` keyed by scope to close the same-process flock gap (where multiple FDs in one process can hold the same flock concurrently on Linux).
 
 ## Storage layout (default `FsAcmeStore`)
 

@@ -23,6 +23,8 @@ compile_error!(
 	 32-bit / no-C-toolchain targets).",
 );
 
+#[cfg(feature = "acme")]
+pub mod acme;
 pub(crate) mod body_adapter;
 pub mod executor;
 pub mod factories;
