@@ -321,7 +321,7 @@ async fn h1_client_handshake_full(
 // ---------------------------------------------------------------------------
 
 /// Synthesises a `200 OK` whose body is `payload`. `Body::Static` per
-/// `03-types.md` § _L7 body_.
+/// `spec/crates/core.md` § _L7 body_.
 struct StaticOkFetch {
 	payload: Bytes,
 }
@@ -343,7 +343,7 @@ impl L7Fetch for StaticOkFetch {
 }
 
 /// Drains the request body to the last frame and echoes the aggregated
-/// payload back as a `Body::Static` response. Per `02-flow.md` § _Execution
+/// payload back as a `Body::Static` response. Per `spec/flow-model.md` § _Execution
 /// model_, the request body that reached `L7Fetch::fetch` is the `Body`
 /// adapted from `hyper::body::Incoming` by `drive_h1_server`'s
 /// `IncomingAdapter`.
@@ -369,7 +369,7 @@ impl L7Fetch for EchoFetch {
 }
 
 /// Returns a streaming response — five 1KB chunks then EOF, exposed through
-/// `Body::Stream` per the type contract in `03-types.md` § _L7 body_.
+/// `Body::Stream` per the type contract in `spec/crates/core.md` § _L7 body_.
 struct StreamFiveKbFetch;
 
 #[async_trait]
@@ -448,7 +448,7 @@ impl L7Fetch for ErrFetch {
 
 // 1. h1_get_request_returns_synthesized_response
 //
-// Spec anchor: `02-flow.md` § _Execution model_. Upgrade hands the TCP
+// Spec anchor: `spec/flow-model.md` § _Execution model_. Upgrade hands the TCP
 // stream to the H1 driver; per-request the executor walks
 // `Fetch -> Terminate(WriteHttpResponse)` and the driver serialises the
 // `Response` onto the wire. The client receives the synthesised 200.
@@ -485,7 +485,7 @@ async fn h1_get_request_returns_synthesized_response() {
 
 // 2. h1_request_body_flows_through_to_l7_fetch
 //
-// Spec anchor: `02-flow.md` § _Execution model_ + `03-types.md` § _L7 body_.
+// Spec anchor: `spec/flow-model.md` § _Execution model_ + `spec/crates/core.md` § _L7 body_.
 // The hyper-decoded request body lands in `Body::Stream` via
 // `IncomingAdapter` (an internal `drive_h1_server` adapter; that detail is
 // covered separately by the upgrade module). The L7 fixture drains it and
@@ -516,7 +516,7 @@ async fn h1_request_body_flows_through_to_l7_fetch() {
 
 // 3. h1_keep_alive_two_requests_share_connection
 //
-// Spec anchor: `02-flow.md` § _Execution model_, Upgrade arm — for each
+// Spec anchor: `spec/flow-model.md` § _Execution model_, Upgrade arm — for each
 // decoded request the driver constructs a fresh `FlowCtx` and re-enters
 // the executor. Two back-to-back GETs over the same `SendRequest` exercise
 // hyper's H1 keep-alive: both must succeed and return 200.
@@ -557,7 +557,7 @@ async fn h1_keep_alive_two_requests_share_connection() {
 
 // 4. h1_response_body_static_writes_full_payload
 //
-// Spec anchor: `03-types.md` § _L7 body_, `Body::Static` variant — a
+// Spec anchor: `spec/crates/core.md` § _L7 body_, `Body::Static` variant — a
 // 100KB static payload must reach the client unchanged. Asserts both the
 // status and the exact byte count, guarding against any chunked-framing
 // truncation in the H1 server response writer.
@@ -593,7 +593,7 @@ async fn h1_response_body_static_writes_full_payload() {
 
 // 5. h1_response_body_stream_drains_to_completion
 //
-// Spec anchor: `03-types.md` § _L7 body_, `Body::Stream` variant. The L7
+// Spec anchor: `spec/crates/core.md` § _L7 body_, `Body::Stream` variant. The L7
 // fetch returns a hand-rolled `http_body::Body` producer that emits five
 // 1KB frames. The client collects exactly 5KB. This guards the "stream
 // frames pass through to the egress encoder" half of the body story.
@@ -665,7 +665,7 @@ async fn h1_l7_fetch_error_surfaces_as_500() {
 
 // 7. h1_no_route_returns_404_with_connection_close
 //
-// Spec anchor: 02-flow.md § _Execution model_ — `Terminate(Close)` is a
+// Spec anchor: spec/flow-model.md § _Execution model_ — `Terminate(Close)` is a
 // proxy-layer "no route" signal. Inside an H1 connection the L4 RST
 // analogue is "synthesise 404 + Connection: close" so the H1 socket
 // terminates cleanly without leaking origin-server semantics. (HTTP/2
@@ -705,7 +705,7 @@ async fn h1_no_route_returns_404_with_connection_close() {
 
 // 8. h1_middleware_policy_denied_short_close_returns_404
 //
-// Spec anchor: 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP
+// Spec anchor: spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP
 // server_. A `Decision::Short(Close(PolicyDenied))` from a middleware
 // flows through the executor's CloseReason router as
 // `Ok(ExecutorOutput::Closed)`, indistinguishable on the wire from a

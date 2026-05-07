@@ -2,7 +2,7 @@
 //! `FlowGraph` entry. Hot-path datagrams are demultiplexed to the
 //! registered [`DispatchHandle`]: live `L4Forward` sessions, in-
 //! formation pending-peek sessions (QUIC SNI passthrough — see
-//! `06-l4.md` § _Multi-packet peek_), and the per-listener QUIC
+//! `spec/crates/engine.md` § _Multi-packet peek_), and the per-listener QUIC
 //! virtual socket on `Http` UDP listeners.
 //!
 //! See `spec/crates/engine.md` § _`udp_dispatch`_ +
@@ -55,7 +55,7 @@ pub const PENDING_PEEK_MAX_PER_LISTENER: usize = 1024;
 /// `Peer` keys 4-tuple-identified `L4Forward` sessions. `PendingPeek`
 /// keys cold-path sessions in formation (the QUIC SNI passthrough
 /// state machine). `QuicConnId` keys the per-listener QUIC virtual
-/// socket — `06-l4.md` § _UDP socket multiplexing: physical and
+/// socket — `spec/crates/engine.md` § _UDP socket multiplexing: physical and
 /// virtual_ locks one `quinn::Endpoint` per `Http` UDP listener, so
 /// that variant only ever holds one entry per listener at the
 /// empty-CID slot. `vane` does not index by per-connection CID;
@@ -67,7 +67,7 @@ pub const PENDING_PEEK_MAX_PER_LISTENER: usize = 1024;
 pub enum DispatchKey {
 	Peer(SocketAddr),
 	/// Cold-path session in formation, keyed by peer 4-tuple. Per
-	/// `06-l4.md` § _Indexing key_ the SCID is intentionally not used
+	/// `spec/crates/engine.md` § _Indexing key_ the SCID is intentionally not used
 	/// (the first datagram has not been parsed at lookup time, so the
 	/// SCID is unavailable).
 	PendingPeek(SocketAddr),
@@ -148,7 +148,7 @@ pub struct UdpListenerHandle {
 /// spawn one tracked task each (`in_flight`), inheriting
 /// `force_cancel` through `FlowCtx::cancel` for shutdown drain.
 ///
-/// Spec: `06-l4.md` § _`udp_dispatch`_ for the dispatch table flow,
+/// Spec: `spec/crates/engine.md` § _`udp_dispatch`_ for the dispatch table flow,
 /// § _UDP idle timeout is single-authority_ for the per-session
 /// timeout (owned by the `L4Forward` forwarder).
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -189,7 +189,7 @@ pub async fn run_udp_listener(
 	// On UDP+Http listeners, bring up the H3 stack: per-listener
 	// quinn::Endpoint wrapping a VirtualUdpSocket, registered in the
 	// dispatch table under the well-known `QuicConnId(empty)` slot —
-	// see `06-l4.md` § _UDP socket multiplexing: physical and virtual_.
+	// see `spec/crates/engine.md` § _UDP socket multiplexing: physical and virtual_.
 	#[cfg(feature = "h3")]
 	{
 		let captured = graph.load_full();
@@ -288,7 +288,7 @@ pub async fn run_udp_listener(
 					continue;
 				}
 
-				// Pending-peek state machine, per `06-l4.md` §
+				// Pending-peek state machine, per `spec/crates/engine.md` §
 				// _Multi-packet peek_ § _State machine_. Existing
 				// PendingPeek entries always get the datagram first,
 				// regardless of listener kind.
@@ -333,7 +333,7 @@ pub async fn run_udp_listener(
 
 				// On Http UDP listeners, route any unmatched datagram to
 				// the listener-level QUIC virtual socket — one per
-				// listener per `06-l4.md` § _UDP socket multiplexing:
+				// listener per `spec/crates/engine.md` § _UDP socket multiplexing:
 				// physical and virtual_; `quinn::Endpoint` then performs
 				// CID-keyed demultiplexing internally for the connections
 				// it terminates.
@@ -550,7 +550,7 @@ enum RouteH3 {
 /// per-listener QUIC virtual socket if and only if the listener's
 /// derived [`vane_core::ListenerKind`] is `Http`. The virtual socket
 /// is registered at listener boot under the well-known
-/// `QuicConnId(empty)` slot — `06-l4.md` § _UDP socket multiplexing:
+/// `QuicConnId(empty)` slot — `spec/crates/engine.md` § _UDP socket multiplexing:
 /// physical and virtual_ holds one virtual socket per listener, so
 /// the empty-CID slot is the listener's single QUIC fan-in entry
 /// rather than a per-connection key.

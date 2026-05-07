@@ -2,7 +2,7 @@
 //!
 //! Covers the link-pass contract described in `spec/flow-model.md`
 //! § _Compile and link — two stages, two crates_ / _`FlowGraph` metadata_ and
-//! `spec/architecture/16-crate-layout.md` § _Feature-off → rule compile-time
+//! `spec/crates/daemon.md` § _Feature-off → rule compile-time
 //! rejection_. Each test hand-builds a minimal `SymbolicFlowGraph` rather
 //! than routing through `vane_core::compile`, so that the link pass is
 //! exercised in isolation.
@@ -155,7 +155,7 @@ fn link_empty_graph_succeeds() {
 	let mw = MiddlewareFactories::new();
 	let fetch = FetchFactories::new();
 	let linked = FlowGraph::link(sym, &mw, &fetch).expect("link empty graph");
-	// Spec 02-flow.md § _FlowGraph metadata_: link installs the engine's
+	// Spec spec/flow-model.md § _FlowGraph metadata_: link installs the engine's
 	// feature-set snapshot. Core's crypto backend leads per lib.rs:43.
 	assert!(
 		linked.meta().feature_set.contains(&vane_engine::crypto::BACKEND_NAME),
@@ -242,7 +242,7 @@ fn link_fails_on_kind_mismatch() {
 	// Symbolic ref declares L7Request; registry declares L7Request too
 	// (so the registry-vs-declared check passes); but the closure produces
 	// an L4Peek variant. The link pass must catch the variant-vs-declared
-	// mismatch per 04-middleware.md § _Symbolic forms_ (the variant *is*
+	// mismatch per spec/crates/engine.md § _Symbolic forms_ (the variant *is*
 	// the kind).
 	let sym = graph_with_middleware(l7_req_ref("m"));
 	let mut mw = MiddlewareFactories::new();

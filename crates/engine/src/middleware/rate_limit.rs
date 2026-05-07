@@ -7,9 +7,9 @@
 //! `meta.short_circuit_response_entry` routing is in place; until that
 //! lands the middleware itself is correct but the daemon emits 500.
 //!
-//! See `spec/architecture/13-rate-limit.md` § _L2 — User
+//! See `spec/crates/core.md` § _L2 — User
 //! application-layer rate limiting_, and
-//! `spec/architecture/04-middleware.md` § _Stateful internal_ —
+//! `spec/crates/engine.md` § _Stateful internal_ —
 //! `rate_limit` is the canonical example of a per-call-site stateful
 //! middleware. The metadata provider must mark `stateless: false` so
 //! `lower::intern_middleware` skips dedup; two rules each declaring
@@ -34,7 +34,7 @@ use vane_core::{
 use crate::factories::{FactoryError, MiddlewareFactories};
 use crate::flow_graph::MiddlewareInst;
 
-/// Spec `13-rate-limit.md § _L2_` constrains the window range to `[1s, 60s]`.
+/// Spec `spec/crates/core.md § _L2_` constrains the window range to `[1s, 60s]`.
 const MIN_WINDOW_SECS: u64 = 1;
 const MAX_WINDOW_SECS: u64 = 60;
 
@@ -192,7 +192,7 @@ pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError>
 			return Err(FactoryError(format!(
 				"unsupported args.key {other:?}; supported: remote_ip / global \
 				 (header / cookie / query / composite are post-MVP per \
-				 spec/architecture/13-rate-limit.md § _Key derivation_)"
+				 spec/crates/core.md § _Key derivation_)"
 			)));
 		}
 	};
@@ -219,7 +219,7 @@ fn parse_window(s: &str) -> Result<Duration, FactoryError> {
 	let n: u64 = trimmed.parse().map_err(|e| FactoryError(format!("args.window {s:?}: {e}")))?;
 	if !(MIN_WINDOW_SECS..=MAX_WINDOW_SECS).contains(&n) {
 		return Err(FactoryError(format!(
-			"args.window {s:?}: must be in [1s, 60s] per spec/architecture/13-rate-limit.md"
+			"args.window {s:?}: must be in [1s, 60s] per spec/crates/core.md"
 		)));
 	}
 	Ok(Duration::from_secs(n))

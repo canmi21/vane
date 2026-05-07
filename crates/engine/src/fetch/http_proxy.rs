@@ -258,7 +258,7 @@ impl HttpProxyFetch {
 		metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "http_proxy")
 			.record(start.elapsed().as_secs_f64() * 1000.0);
 		let (parts, incoming) = resp.into_parts();
-		// 07-l7.md § _`HttpProxyFetch` commits to streaming response
+		// spec/crates/engine.md § _`HttpProxyFetch` commits to streaming response
 		// bodies_: never collect into `Body::Static`.
 		let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(parts, body)))

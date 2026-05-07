@@ -132,7 +132,7 @@ impl RenewalScheduler {
 	#[must_use]
 	pub fn new() -> Self {
 		// 5-minute tick per `spec/crates/engine-acme.md` § _Renewal triggers_;
-		// matches `08-tls.md`'s `refresh()` cadence.
+		// matches `spec/crates/engine-tls.md`'s `refresh()` cadence.
 		Self { tick_interval: Duration::from_mins(5) }
 	}
 }

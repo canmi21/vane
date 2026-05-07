@@ -3,7 +3,7 @@
 //! startup.
 //!
 //! State is daemon-scoped (lives outside `FlowGraph`), so config reload
-//! does not reset counters. See `spec/architecture/13-rate-limit.md` §
+//! does not reset counters. See `spec/crates/core.md` §
 //! _L1 — Daemon self-preservation_.
 
 use std::net::IpAddr;
@@ -17,7 +17,7 @@ use vane_core::{Error, config::Env};
 
 use crate::tls::CrlCache;
 
-// Spec-defined minimums from 13-rate-limit.md.
+// Spec-defined minimums from spec/crates/core.md.
 const FLOOR_HEADER_TIMEOUT_SECS: u32 = 5;
 const FLOOR_MAX_HEADER_BYTES: usize = 4_096;
 const FLOOR_MAX_HEADERS_COUNT: usize = 20;

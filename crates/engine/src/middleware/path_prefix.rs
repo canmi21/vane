@@ -5,7 +5,7 @@
 //! scheme/authority), so `/Api` and `/api` are distinct. Use the bare
 //! `"/"` prefix to match every path.
 //!
-//! See `spec/architecture/04-middleware.md` § _Stateless internal_.
+//! See `spec/crates/engine.md` § _Stateless internal_.
 
 use std::borrow::Cow;
 use std::sync::Arc;

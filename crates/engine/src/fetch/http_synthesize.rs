@@ -3,7 +3,7 @@
 //! Used for redirects, "maintenance" pages, default-deny responses, and
 //! trivial health checks — anywhere a rule wants to answer without
 //! contacting an upstream. Always returns `Body::Static` (or
-//! `Body::Empty` for an empty payload), per 07-l7.md
+//! `Body::Empty` for an empty payload), per spec/crates/engine.md
 //! § _`HttpProxyFetch` commits to streaming response bodies_:
 //! "`HttpSynthesizeFetch` always produces `Body::Static` by construction
 //! — that is the point of synthesis."

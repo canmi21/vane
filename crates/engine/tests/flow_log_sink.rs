@@ -45,7 +45,7 @@ fn make_event(t: u64, seq: u32) -> FlowLogEvent {
 
 #[test]
 fn ring_buffer_evicts_on_cap_overflow() {
-	// Spec (02-flow.md § _Default sink composition_): the ring is a sliding
+	// Spec (spec/flow-model.md § _Default sink composition_): the ring is a sliding
 	// window of size `cap`. Emitting more than `cap` events with no ttl
 	// pressure must drop the oldest by arrival order.
 	let ring = RingBufferSink::new(3, Duration::from_hours(1));
@@ -64,7 +64,7 @@ fn ring_buffer_evicts_on_cap_overflow() {
 
 #[test]
 fn ring_buffer_evicts_on_ttl_expiry() {
-	// Spec (02-flow.md § _Default sink composition_): the 60s default ttl
+	// Spec (spec/flow-model.md § _Default sink composition_): the 60s default ttl
 	// is a sliding window keyed on `event.t` differences. We stub a 10ms
 	// ttl and emit two events 20ms apart; the elder must be evicted.
 	let ring = RingBufferSink::new(10, Duration::from_millis(10));
@@ -82,7 +82,7 @@ fn ring_buffer_evicts_on_ttl_expiry() {
 
 #[test]
 fn ring_buffer_snapshot_returns_clone_in_order() {
-	// Spec (02-flow.md § _Default sink composition_): `snapshot` returns
+	// Spec (spec/flow-model.md § _Default sink composition_): `snapshot` returns
 	// the contents in arrival order so the management API's `tail_flow`
 	// can stream them. It must be a clone — mutating the returned vec must
 	// not disturb subsequent snapshots.
@@ -115,7 +115,7 @@ fn ring_buffer_snapshot_returns_clone_in_order() {
 
 #[test]
 fn fanout_emits_to_all_wrapped() {
-	// Spec (02-flow.md § _Default sink composition_): the daemon's default
+	// Spec (spec/flow-model.md § _Default sink composition_): the daemon's default
 	// sink is a `FanoutSink` of a `RingBufferSink` plus an optional
 	// `FileSink`; each wrapped sink must observe every emitted event.
 	let a = Arc::new(RingBufferSink::with_defaults());
@@ -142,7 +142,7 @@ fn fanout_emits_to_all_wrapped() {
 
 #[tokio::test]
 async fn file_sink_writes_ndjson_to_path() {
-	// Spec (02-flow.md § _Default sink composition_): `FileSink` is the
+	// Spec (spec/flow-model.md § _Default sink composition_): `FileSink` is the
 	// opt-in NDJSON appender. `emit` is sync and non-blocking; a tokio
 	// background task drains an mpsc channel and writes one
 	// serde_json-encoded line per event. Drop closes the channel; the
@@ -196,7 +196,7 @@ async fn file_sink_writes_ndjson_to_path() {
 
 #[test]
 fn verbosity_state_starts_trajectory_and_set_debug_then_back() {
-	// Spec (02-flow.md § _Flow log verbosity_): the daemon-global
+	// Spec (spec/flow-model.md § _Flow log verbosity_): the daemon-global
 	// `VerbosityState` starts as `Trajectory`. The management API toggle
 	// flips it to `Debug` and back; the read is lock-free.
 	let state = VerbosityState::new();

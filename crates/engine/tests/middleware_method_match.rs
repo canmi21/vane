@@ -1,6 +1,6 @@
 //! Integration tests for `vane_engine::middleware::method_match`.
 //!
-//! Validates the public contract from `spec/architecture/04-middleware.md`
+//! Validates the public contract from `spec/crates/engine.md`
 //! § _Stateless internal_ and the doc-comment on `method_match::factory`:
 //!
 //! - Continue when the request method is on the allow-list.
@@ -263,7 +263,7 @@ async fn method_match_continues_when_method_in_list() {
 
 #[tokio::test]
 async fn method_match_short_close_when_method_not_in_list() {
-	// Per 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP
+	// Per spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP
 	// server_, a `Short(Close(PolicyDenied))` refusal flows back as
 	// `Ok(ExecutorOutput::Closed)`; the H1 service-fn maps that to 404
 	// + `Connection: close`. (Method-not-allowed is conventionally 405,

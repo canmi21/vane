@@ -7,7 +7,7 @@
 //!
 //! All vane-emit metrics go through the `metrics::counter!` /
 //! `metrics::gauge!` / `metrics::histogram!` macros (spec
-//! 10-management.md:80 — "no bespoke facade").
+//! spec/crates/mgmt.md — "no bespoke facade").
 
 use std::sync::OnceLock;
 

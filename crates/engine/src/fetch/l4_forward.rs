@@ -129,7 +129,7 @@ impl L4ForwardFetch {
 		// Forward every cold-path datagram in arrival order so no inbound
 		// bytes are lost between dispatch-table miss and forwarder
 		// registration. Single-datagram is the common case; multi-datagram
-		// arises from the pending-peek state machine (06-l4.md § _Replay
+		// arises from the pending-peek state machine (spec/crates/engine.md § _Replay
 		// to handler_).
 		for pkt in &assoc.first_packets {
 			upstream_socket

@@ -124,7 +124,7 @@ pub struct FlowGraph {
 	/// Per-listener cert populators. Held only for lifetime extension
 	/// — the resolver reads from the populator-owned `ArcSwap` directly.
 	/// Each `FlowGraph::link` builds a fresh populator (rebuild on
-	/// reload, see `08-tls.md` § _Populator lifecycle_); reserved for
+	/// reload, see `spec/crates/engine-tls.md` § _Populator lifecycle_); reserved for
 	/// cross-reload reuse, post-MVP.
 	#[allow(dead_code, reason = "lifetime-extension only; reused post-MVP per spec")]
 	listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>>,
@@ -306,7 +306,7 @@ impl FlowGraph {
 
 	/// Resolve every `SymbolicMiddlewareRef` / `SymbolicFetchRef` against
 	/// the factory registries, construct `Arc<dyn Trait>` values, and emit
-	/// the runtime `FlowGraph`. See 02-flow.md § _link_.
+	/// the runtime `FlowGraph`. See spec/flow-model.md § _link_.
 	///
 	/// Uses `SecurityConfig::default()` for the L1 floor config.
 	/// Production callers that have validated env-var values use
@@ -448,7 +448,7 @@ impl FlowGraph {
 		// Parse every symbolic-meta `listener_tls` entry into a
 		// `rustls::ServerConfig`. PEM I/O happens here (link stage) so a
 		// missing or malformed cert/key is caught at config-load time
-		// rather than per-accept. See 08-tls.md § _TLS termination
+		// rather than per-accept. See spec/crates/engine-tls.md § _TLS termination
 		// (L4 → L7 upgrade)_ and § _Cert resolver and rotation_.
 		let mut listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>> = BTreeMap::new();
 		let mut listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>> =
@@ -480,7 +480,7 @@ impl FlowGraph {
 		}
 
 		// Inherit version_hash / compiled_at / source_files from the symbolic
-		// meta; overwrite feature_set with this binary's snapshot per 02-flow.md
+		// meta; overwrite feature_set with this binary's snapshot per spec/flow-model.md
 		// § _FlowGraph metadata_ — `feature_set` is "what the daemon linked",
 		// not "what the rule-set intended".
 		//
@@ -588,7 +588,7 @@ fn resolve_middlewares(
 /// link path runs this for any address absent from
 /// `sym.meta.listener_kinds` so hand-built test fixtures that skip
 /// lowering still produce sensible dispatch behaviour. Keep the rule
-/// in sync with `06-l4.md` § _Listener kind derivation_.
+/// in sync with `spec/crates/engine.md` § _Listener kind derivation_.
 fn derive_kind(sym: &SymbolicFlowGraph, entry: NodeId) -> ListenerKind {
 	use vane_core::FetchPhase;
 	let mut seen_l4 = false;
@@ -642,7 +642,7 @@ fn build_listener_server_config(
 	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
 	#[cfg(feature = "acme")] acme_registry: Option<&Arc<ManagedCertRegistry>>,
 ) -> Result<(rustls::ServerConfig, Vec<Box<dyn CertPopulator + Send + Sync>>), String> {
-	// Per `08-tls.md` § _Cert populators_, multiple populators may
+	// Per `spec/crates/engine-tls.md` § _Cert populators_, multiple populators may
 	// share one listener — a static populator delivering the
 	// operator-pinned default + per-SNI PEMs alongside a managed
 	// populator delivering ACME-issued certs for the listener's
@@ -711,7 +711,7 @@ fn build_listener_server_config(
 	let arcswap = Arc::new(ArcSwap::from_pointee(store));
 	let resolver = Arc::new(VaneCertResolver::new(arcswap));
 
-	// Per `08-tls.md` § _Client certificate verification_, the listener
+	// Per `spec/crates/engine-tls.md` § _Client certificate verification_, the listener
 	// chooses one of three client-auth dispositions per the resolved
 	// per-listener `ClientAuthSpec` (None / Request / Require). The
 	// builder's verifier slot is set accordingly; `with_no_client_auth`
@@ -733,9 +733,9 @@ fn build_listener_server_config(
 	// `ServerConfig` shares one `Arc<dyn ProducesTickets>` so clients
 	// can resume sessions across reload boundaries. Skipping the
 	// install (test fixtures) keeps rustls's default
-	// `NeverProducesTickets`. See 08-tls.md § _Session ticket rotation_.
+	// `NeverProducesTickets`. See spec/crates/engine-tls.md § _Session ticket rotation_.
 	//
-	// Per 08-tls.md § _Exception: 0-RTT-enabled listeners_, listeners
+	// Per spec/crates/engine-tls.md § _Exception: 0-RTT-enabled listeners_, listeners
 	// that opt into 0-RTT skip the daemon-wide install: rustls 0.23's
 	// `decide_if_early_data_allowed` refuses early data when
 	// `ServerConfig.ticketer.enabled() == true` (RFC 8446 §8.1's replay
@@ -750,7 +750,7 @@ fn build_listener_server_config(
 		server_config.ticketer = t;
 	}
 
-	// TLS 1.3 0-RTT (early data) opt-in. Per `08-tls.md` § _TLS 1.3
+	// TLS 1.3 0-RTT (early data) opt-in. Per `spec/crates/engine-tls.md` § _TLS 1.3
 	// 0-RTT (early data)_ § _Hardcoded limits_, the early-data size is
 	// fixed at 16 KiB — not exposed as a knob, since 0-RTT exists to
 	// save one RTT (not to carry payload) and raising the cap invites
@@ -832,7 +832,7 @@ pub enum LinkError {
 	#[error("fetch {kind:?}: {cause}")]
 	FetchFactoryRejected { kind: FetchKind, cause: String },
 
-	// Spec 02-flow.md § _link_ (line 111) pins the wording:
+	// Spec spec/flow-model.md § _link_ (line 111) pins the wording:
 	//   "this binary was built without the 'h3' feature — rebuild with
 	//    --features h3 or remove the rule"
 	// single quotes around the feature name. (The C6 task prompt used

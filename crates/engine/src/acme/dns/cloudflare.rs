@@ -4,7 +4,7 @@
 //! auth via a Cloudflare API Token scoped to "Zone DNS Edit"; the
 //! rule-side config carries only the env-var name that holds the
 //! token, never the token itself, matching the
-//! `09-config.md` `.env`-vs-config split.
+//! `spec/crates/core.md` `.env`-vs-config split.
 //!
 //! `wait_propagated` queries a small fixed pool of public recursive
 //! resolvers (`1.1.1.1`, `8.8.8.8`) via `hickory-resolver`. Per

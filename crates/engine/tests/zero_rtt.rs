@@ -15,7 +15,7 @@
 //! What the tests prove:
 //!
 //! * `enable_zero_rtt: true` actually wires the rustls server-side
-//!   acceptance (the ticketer is skipped per `08-tls.md` § _Exception:
+//!   acceptance (the ticketer is skipped per `spec/crates/engine-tls.md` § _Exception:
 //!   0-RTT-enabled listeners_, `max_early_data_size = 16 KiB`, and
 //!   per-`ServerConfig` `ServerSessionMemoryCache` is the stateful
 //!   resumption store rustls 0.23 requires for 0-RTT).
@@ -465,7 +465,7 @@ fn lowercase_header_block(response: &[u8]) -> String {
 
 /// 0-RTT GET with a small body on a rule that allows 0-RTT must still
 /// complete (200) and the body bytes must reach the L7 fetch. Per
-/// `08-tls.md` § _Hardcoded limits_, the body is architecturally
+/// `spec/crates/engine-tls.md` § _Hardcoded limits_, the body is architecturally
 /// "downgraded" to 1-RTT (`tokio_rustls::into_stream` returns only after
 /// the handshake completes, so the bytes are processed alongside any
 /// post-handshake 1-RTT data).

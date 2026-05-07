@@ -2,7 +2,7 @@
 //! `context` channel.
 //!
 //! Spec: `wasm-abi.md` § _Context exposure_ and § _Path grammar_;
-//! `architecture/11-wasm.md` § _Plugin metadata drives compilation_.
+//! `architecture/spec/crates/engine-wasm.md` § _Plugin metadata drives compilation_.
 //! Capability semantics — the host packs only declared paths; reading
 //! any other field from a plugin is impossible because the data is not
 //! delivered.

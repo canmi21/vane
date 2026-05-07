@@ -7,7 +7,7 @@
 //! whitespace, control bytes, or other RFC-7230-illegal characters is
 //! rejected before the rule reaches runtime.
 //!
-//! See `spec/architecture/04-middleware.md` § _Stateless internal_.
+//! See `spec/crates/engine.md` § _Stateless internal_.
 
 use std::borrow::Cow;
 use std::sync::Arc;

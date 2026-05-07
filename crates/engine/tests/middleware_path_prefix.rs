@@ -1,6 +1,6 @@
 //! Integration tests for `vane_engine::middleware::path_prefix`.
 //!
-//! Validates the public contract from `spec/architecture/04-middleware.md`
+//! Validates the public contract from `spec/crates/engine.md`
 //! § _Stateless internal_ and the doc-comment on `path_prefix::factory`:
 //!
 //! - Continue when the request's URI path starts with one of the
@@ -283,7 +283,7 @@ async fn path_prefix_continues_when_any_of_multiple_prefixes_matches() {
 
 #[tokio::test]
 async fn path_prefix_short_close_when_no_prefix_matches() {
-	// Per 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP
+	// Per spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP
 	// server_, a `Short(Close(PolicyDenied))` routing-level refusal flows
 	// back as `Ok(ExecutorOutput::Closed)`. The H1 service-fn maps that
 	// to 404 + `Connection: close` for the wire client.

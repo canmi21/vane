@@ -46,7 +46,7 @@ pub enum VerifyMode {
 }
 
 /// CRL source identity participates in the fingerprint by *string*,
-/// not by fetched bytes. See `08-tls.md` § _Client cache_ rationale —
+/// not by fetched bytes. See `spec/crates/engine-tls.md` § _Client cache_ rationale —
 /// hashing CRL content would force a new client on every refresh,
 /// defeating the cache.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]

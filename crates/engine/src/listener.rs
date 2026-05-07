@@ -1,9 +1,9 @@
 //! TCP accept loop + bind-retry + cancellation tier + soft drain.
 //!
-//! See `spec/architecture/01-topology.md` § _Listener lifecycle_ /
+//! See `spec/topology.md` § _Listener lifecycle_ /
 //! _Bind_ / _Accept loop_ / _Shutdown_, and `spec/crates/engine.md`.
 //!
-//! Shape of the cancellation tier (01-topology.md § _Listener lifecycle_
+//! Shape of the cancellation tier (spec/topology.md § _Listener lifecycle_
 //! step 3 — listeners removed):
 //!
 //! 1. `accept_cancel` fires → accept loop stops binding new connections.
@@ -46,7 +46,7 @@ use vane_core::{MAX_PEEK_BYTES, PeekResult};
 const TCP_LISTEN_BACKLOG: u32 = 1024;
 
 /// Operational knobs for the listener subsystem. All values have
-/// spec-defined defaults (01-topology.md § _Bind_ / _Listener lifecycle_);
+/// spec-defined defaults (spec/topology.md § _Bind_ / _Listener lifecycle_);
 /// operators override via the `VANE_*` env vars documented in
 /// `spec/crates/core.md`.
 #[derive(Clone, Debug)]
@@ -108,7 +108,7 @@ fn unix_ms_now() -> u64 {
 /// Per-(transport, address) listener registry. Today: TCP only.
 ///
 /// Listener configuration changes only occur at boot and reload
-/// (01-topology.md § _Listener lifecycle_). `start` is idempotent on
+/// (spec/topology.md § _Listener lifecycle_). `start` is idempotent on
 /// duplicate addresses (already-running keys are skipped with a warn).
 pub struct ListenerSet {
 	running: Mutex<HashMap<SocketAddr, ListenerHandle>>,
@@ -241,7 +241,7 @@ impl ListenerSet {
 	/// required because `NodeId` is a slab index that
 	/// `compile/lower.rs::lower_port` reassigns from scratch on every
 	/// recompile — the index in the post-reload graph need not name the
-	/// same logical node as the pre-reload graph (09-config.md
+	/// same logical node as the pre-reload graph (spec/crates/core.md
 	/// § _`NodeId` stability across reloads_). `SocketAddr` is the
 	/// stable identifier; the lookup costs an `entries.get(&addr)` per
 	/// connection.
@@ -269,7 +269,7 @@ impl ListenerSet {
 		};
 
 		// Every entry binds. The lower pass guarantees entry nodes start in
-		// phase L4Raw (02-flow.md § _Phase state machine_), so the executor
+		// phase L4Raw (spec/flow-model.md § _Phase state machine_), so the executor
 		// always sees the L4 input shape it expects. L4 → L7 transitions
 		// happen inside the executor at `Node::Upgrade`, which now hands
 		// the stream to `drive_h1_server` for hyper to decode.
@@ -425,7 +425,7 @@ impl ListenerSet {
 		self.running.lock().len()
 	}
 
-	/// Soft-drain shutdown per 01-topology.md § _Listener lifecycle_ step 3.
+	/// Soft-drain shutdown per spec/topology.md § _Listener lifecycle_ step 3.
 	///
 	/// Stages:
 	/// 1. Fire every accept-loop cancel → accept loops drop their listening
@@ -510,7 +510,7 @@ impl ListenerSet {
 	///   `force_cancel` and abort if needed.
 	/// - **Unchanged** addresses: untouched. The accept loop's per-accept
 	///   `entries.get(&addr)` lookup picks up the new graph's `NodeId`
-	///   on the next accepted connection (09-config.md § _`NodeId`
+	///   on the next accepted connection (spec/crates/core.md § _`NodeId`
 	///   stability across reloads_).
 	///
 	/// Returns immediately — the per-listener drain runs in the
@@ -684,7 +684,7 @@ async fn run_accept_loop(
 				// entry lookup by `addr`. `NodeId` is a slab index that
 				// `lower_port` reassigns on every recompile, so a baked-in
 				// boot-time `NodeId` would route post-reload connections to
-				// the wrong logical entry (09-config.md § _NodeId stability
+				// the wrong logical entry (spec/crates/core.md § _NodeId stability
 				// across reloads_). The captured `Arc<FlowGraph>` then
 				// travels with this connection to natural completion;
 				// `ArcSwap::store` from the reload pipeline never disturbs
@@ -846,7 +846,7 @@ async fn handle_connection(
 	// Pre-fill ConnContext.tls.sni from the parsed ClientHello so L4
 	// middleware running before an `Upgrade` node can read it. `tls.alpn`
 	// and `tls.version` are post-handshake values; they are populated in
-	// the TLS termination path below (06-l4.md § _L4 → L7 upgrade_).
+	// the TLS termination path below (spec/crates/engine.md § _L4 → L7 upgrade_).
 	if let Some(tls_hello) = peek_result.tls.as_ref()
 		&& tls_hello.sni.is_some()
 	{
@@ -868,7 +868,7 @@ async fn handle_connection(
 /// `needs_peek = false` dispatch: the graph has no `L4Peek` middleware
 /// reachable from `entry`, so we never read a prefix and `detected`
 /// is always `None`. The decision table reduces to `(kind,
-/// listener_tls)`. Spec: 06-l4.md § _Dispatch decision table_.
+/// listener_tls)`. Spec: spec/crates/engine.md § _Dispatch decision table_.
 #[allow(clippy::too_many_arguments)]
 async fn dispatch_no_peek(
 	stream: TcpStream,
@@ -916,7 +916,7 @@ async fn dispatch_no_peek(
 	}
 }
 
-/// Post-peek dispatch implementing 06-l4.md § _Dispatch decision table_
+/// Post-peek dispatch implementing spec/crates/engine.md § _Dispatch decision table_
 /// in full. `detected` may be `None` if the peek prelude exited
 /// without a detector committing — treated as `Unknown` per spec.
 #[allow(clippy::too_many_arguments)]
@@ -939,7 +939,7 @@ async fn dispatch_peeked(
 			run_tls(peeked, tls_cfg, graph, entry, conn, ctx, remote).await;
 		}
 		// Http: cleartext / TLS-without-cert / unknown all reject.
-		// 06-l4.md § _Dispatch decision table_.
+		// spec/crates/engine.md § _Dispatch decision table_.
 		(ListenerKind::Http, _, _) => {
 			tracing::debug!(
 				conn_id = %conn.id,
@@ -1075,7 +1075,7 @@ async fn run_tls<S>(
 		});
 
 		// TLS 1.3 0-RTT (early data) detection + drain. Per
-		// `08-tls.md` § _TLS 1.3 0-RTT (early data)_, rustls's server
+		// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_, rustls's server
 		// surface keeps early data in a separate buffer that is *not*
 		// drained by the regular `Read` path — the application has to
 		// pull it via `ServerConnection::early_data()`. We extract it
@@ -1191,7 +1191,7 @@ async fn run_peek_phase(
 	}
 }
 
-/// Bind-with-retry per 01-topology.md § _Bind_:
+/// Bind-with-retry per spec/topology.md § _Bind_:
 /// - `SO_REUSEADDR` on (best-effort).
 /// - Exponential backoff from `backoff_initial` up to `backoff_max`.
 /// - Up to `max_attempts` tries.

@@ -105,7 +105,7 @@ x509-cert = "0.2"
 x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
 x509-parser = "0.18"
 
-# H3 stack — gated behind the `h3` feature per spec/architecture/16-crate-layout.md.
+# H3 stack — gated behind the `h3` feature per spec/crates/daemon.md.
 # Optional so non-H3 builds don't pull quinn / h3 / quinn-proto into the dep graph.
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }

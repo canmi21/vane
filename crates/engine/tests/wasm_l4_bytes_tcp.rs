@@ -1,6 +1,6 @@
 //! `L4Bytes` plugin invocation on TCP / TLS listeners reads the same
 //! peek buffer `L4Peek` sees — captured by the protocol-detection
-//! prelude on `ConnContext.user` (06-l4.md § _Protocol detection_).
+//! prelude on `ConnContext.user` (spec/crates/engine.md § _Protocol detection_).
 //! These tests exercise `dispatch_wasm` directly with a minimal mock
 //! runtime so the assertions land squarely on the host-side
 //! peek-buffer wiring rather than on a real wasm round-trip.

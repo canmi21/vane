@@ -28,7 +28,7 @@ pub enum ExecutorInput {
 /// to do" answer: `Close` is fully done, `ByteTunnel` already drove the
 /// copy in-executor, but `WriteHttpResponse` needs the caller to serialise
 /// the `Response` onto a socket (hyper service-fn returns it from the H1/H2
-/// handler; H3 is the same shape). 02-flow.md § _Execution model_'s
+/// handler; H3 is the same shape). spec/flow-model.md § _Execution model_'s
 /// pseudocode currently shows `write_http_response(resp, conn, ctx).await`
 /// as an internal helper — this design moves that write to the caller; see
 /// the SPEC DEVIATION note in this chunk's report.
@@ -63,7 +63,7 @@ impl std::fmt::Debug for ExecutorOutput {
 	}
 }
 
-/// Iterative walker per 02-flow.md § _Execution model_ + § _Flow log
+/// Iterative walker per spec/flow-model.md § _Execution model_ + § _Flow log
 /// verbosity_. A single async loop holds a `NodeId` cursor and four
 /// phase-scoped owned slots; the phase state machine (enforced in core's
 /// `validate`) guarantees that at most one slot is `Some` at any point and
@@ -79,7 +79,7 @@ impl std::fmt::Debug for ExecutorOutput {
 ///
 /// # Panics
 /// `.expect("phase invariant: ...")` calls are sound under a graph that
-/// passed core's `validate` pass (02-flow.md § _Phase state machine_ —
+/// passed core's `validate` pass (spec/flow-model.md § _Phase state machine_ —
 /// the phase DFS guarantees each consumer reaches its variant's slot
 /// only in the phase that fills it). An engine driving an un-validated
 /// or hand-forged graph may hit these; don't.
@@ -212,7 +212,7 @@ pub async fn execute(
 				match outcome {
 					Ok(Decision::Continue) => cur = *next,
 					Ok(Decision::Short(ShortCircuit::Response(r))) => {
-						// 02-flow.md § _Execution model_: an L7 request
+						// spec/flow-model.md § _Execution model_: an L7 request
 						// middleware that returns `Short(Response)` parks
 						// the response in `resp` and jumps to the
 						// listener-level synth `Terminate(WriteHttpResponse)`
@@ -249,7 +249,7 @@ pub async fn execute(
 						// (PolicyDenied / Graceful / Cancelled) are not errors
 						// — hand back to the caller as `Ok(Closed)`. The H1
 						// service-fn maps that to 404 + `Connection: close`
-						// (see `02-flow.md` § _`Terminator::Close` at L4 vs
+						// (see `spec/flow-model.md` § _`Terminator::Close` at L4 vs
 						// inside an HTTP server_); the L4 listener drops the
 						// socket. Only ProtocolError represents a genuine
 						// anomaly that should surface as 500.
@@ -310,7 +310,7 @@ pub async fn execute(
 				match &graph[*id] {
 					FetchInst::L7(f) => {
 						// TLS 1.3 0-RTT (early data) gate. Per
-						// `08-tls.md` § _TLS 1.3 0-RTT (early data)_
+						// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_
 						// § _Runtime flow_, a request that arrived as
 						// 0-RTT data and matched a rule with
 						// `allow_zero_rtt: false` must receive a
@@ -333,7 +333,7 @@ pub async fn execute(
 						// HTTP/1.1 connection (or H2 streams that
 						// follow the early-data drain) arrive purely
 						// as 1-RTT data, so the 425 gate must not fire
-						// for them. This matches `08-tls.md` § _TLS
+						// for them. This matches `spec/crates/engine-tls.md` § _TLS
 						// 1.3 0-RTT (early data)_ § _Runtime flow_,
 						// which scopes the gate per request.
 						let zero_rtt_used = {
@@ -383,7 +383,7 @@ pub async fn execute(
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Upgrade, None);
 				// Hand the L4 connection to the H1 or H2 server. Each decoded
 				// request constructs a fresh `FlowCtx` and re-enters `execute`
-				// from `*next`. See 02-flow.md § _Execution model_ (Upgrade arm).
+				// from `*next`. See spec/flow-model.md § _Execution model_ (Upgrade arm).
 				//
 				// Plain TCP, TLS-terminated H1, and TLS-terminated H2 all feed
 				// the generic stream drivers; the listener has already consumed
@@ -408,7 +408,7 @@ pub async fn execute(
 				// Two signals can pick H2: a negotiated `h2` ALPN (TLS path)
 				// or a pre-set `conn.http_version = Http2` (cleartext h2c —
 				// the listener sets this when the peek prelude detects the
-				// HTTP/2 connection preface). 06-l4.md § _Dispatch decision
+				// HTTP/2 connection preface). spec/crates/engine.md § _Dispatch decision
 				// table_.
 				let prefer_h2 = alpn.as_deref() == Some(b"h2")
 					|| matches!(conn.http_version.get(), Some(vane_core::HttpVersion::Http2));
@@ -455,7 +455,7 @@ pub async fn execute(
 					vane_core::Terminator::Close => {
 						drop((l4.take(), req.take(), resp.take(), tunnel.take()));
 						// Connection-level Terminate milestone (verbosity-
-						// independent per 02-flow.md § _Flow log verbosity_).
+						// independent per spec/flow-model.md § _Flow log verbosity_).
 						ctx.log.emit(FlowLogEvent {
 							t: now_ms(),
 							conn: conn.id,
@@ -526,7 +526,7 @@ fn record_step(
 	kind: FlowLogKind,
 	branch: Option<bool>,
 ) {
-	// 02-flow.md line 469: one `tracing::trace!` per iter, always on (gated
+	// spec/flow-model.md line 469: one `tracing::trace!` per iter, always on (gated
 	// only by RUST_LOG).
 	tracing::trace!(node_id = ?cur, kind = ?kind);
 	ctx.trajectory.push(TrajectoryStep { node: cur, kind, branch });
@@ -553,7 +553,7 @@ async fn drive_byte_tunnel(t: Tunnel, cancel: &tokio_util::sync::CancellationTok
 			// `tokio::select!` adds a third axis: when `cancel` fires (listener
 			// drain timeout, daemon shutdown), drop the copy future — the streams
 			// are dropped along with it, the OS-level sockets close, and the peer
-			// observes a reset. See 01-topology.md § _Listener lifecycle_ step 3.
+			// observes a reset. See spec/topology.md § _Listener lifecycle_ step 3.
 			let reason = tokio::select! {
 				biased;
 				() = cancel.cancelled() => CloseReason::Cancelled,
@@ -750,7 +750,7 @@ pub async fn dispatch_wasm(
 	match w.metadata.exports.iter().find(|e| e.name == w.export_name).map(|e| e.kind) {
 		Some(MiddlewareKind::L4Peek) => {
 			// Peek bytes live on `ConnContext.user` as `PeekResult.buffer`,
-			// written by the listener-side peek prelude (06-l4.md §
+			// written by the listener-side peek prelude (spec/crates/engine.md §
 			// _Protocol detection_). Reading from `L4Conn::Peeked` would
 			// consume the rewound bytes and starve the L7 layer. Cloning
 			// the `Bytes` is refcounted-cheap; releasing the lock before
@@ -777,12 +777,12 @@ pub async fn dispatch_wasm(
 			// UDP carries the cold-path datagram on `UdpAssoc.first_packets`.
 			// L4Bytes reads the first datagram of the buffered set; multi-
 			// packet sets only arise after the pending-peek state machine
-			// completes (06-l4.md § _Multi-packet peek_), and even then the
+			// completes (spec/crates/engine.md § _Multi-packet peek_), and even then the
 			// L4Bytes contract is "first data unit" semantics.
 			//
 			// On TCP / TLS the equivalent prefix lives on `ConnContext.user`
 			// as `PeekResult.buffer`, captured by the listener-side
-			// protocol-detection prelude (06-l4.md § _Protocol detection_) —
+			// protocol-detection prelude (spec/crates/engine.md § _Protocol detection_) —
 			// the same buffer L4Peek reads. Reading from `L4Conn::Peeked`
 			// directly would consume the rewound bytes the L7 layer still
 			// needs, so the peek snapshot is the only safe TCP source.

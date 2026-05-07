@@ -2,7 +2,7 @@
 //!
 //! Drives `execute` with a `PluginRegistry` backed by a `MockWasmRuntime` to
 //! cover the decision-translation table and error-routing rules specified in
-//! `spec/architecture/04-middleware.md`.
+//! `spec/crates/engine.md`.
 //!
 //! Test cases: (a) Continue, (b) Short synth response, (c) Close,
 //! (d) plugin error with no hint routes via `on_error`,

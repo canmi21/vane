@@ -149,13 +149,13 @@ pub struct RenewalPlan {
 }
 
 /// Periodic scheduler cadence per `spec/crates/engine-acme.md`
-/// § _Renewal triggers § Periodic timer_. Matches `08-tls.md`'s
+/// § _Renewal triggers § Periodic timer_. Matches `spec/crates/engine-tls.md`'s
 /// `refresh()` cadence so cert delivery and renewal share one
 /// heartbeat.
 pub const TICK_INTERVAL: Duration = Duration::from_mins(5);
 
 /// Refresh the cached OCSP staple when the responder's
-/// `nextUpdate` falls inside this window. Per `08-tls.md` § _OCSP
+/// `nextUpdate` falls inside this window. Per `spec/crates/engine-tls.md` § _OCSP
 /// stapling_, OCSP responses typically validate for 4–7 days and
 /// the spec recommends "refresh daily"; 24 h gives a comfortable
 /// margin (one tick at default cadence overshooting still leaves

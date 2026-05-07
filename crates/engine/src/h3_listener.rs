@@ -192,7 +192,7 @@ pub fn build_quic_server_config(
 /// against a [`VirtualUdpSocket`] wrapping the listener's physical
 /// socket, registers the virtual socket in the dispatch table under
 /// the well-known `QuicConnId(empty)` slot — the per-listener model
-/// spec'd in `06-l4.md` § _UDP socket multiplexing: physical and
+/// spec'd in `spec/crates/engine.md` § _UDP socket multiplexing: physical and
 /// virtual_ holds exactly one virtual socket per `Http` UDP listener,
 /// so the empty-CID key is the listener's single QUIC fan-in slot
 /// rather than a per-connection key — then spawns the accept loop

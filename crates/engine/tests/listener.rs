@@ -1,7 +1,7 @@
 //! Integration tests for `vane_engine::ListenerSet`.
 //!
 //! Covers the listener lifecycle described in
-//! `spec/architecture/01-topology.md` § _Listener lifecycle_:
+//! `spec/topology.md` § _Listener lifecycle_:
 //!
 //! * `Bind` — exponential-backoff bind with a `max_attempts` give-up branch
 //!   (exercised via the `bind_with_retry_for_test` test helper).
@@ -70,7 +70,7 @@ impl FlowLogSink for RecordingSink {
 // ---------------------------------------------------------------------------
 // Free-port discovery. Bind ephemeral, take `local_addr()`, then drop the
 // listener so the address is available to the listener-set under test.
-// 01-topology.md § _Bind_ — the `entries` map needs a concrete `SocketAddr`,
+// spec/topology.md § _Bind_ — the `entries` map needs a concrete `SocketAddr`,
 // the listener crate doesn't accept "0".
 // ---------------------------------------------------------------------------
 
@@ -185,7 +185,7 @@ impl L4BytesMiddleware for SleepBytes {
 
 #[tokio::test]
 async fn listener_accepts_tcp_and_routes_to_executor() {
-	// 01-topology.md § _Accept loop_: each accepted connection spawns a
+	// spec/topology.md § _Accept loop_: each accepted connection spawns a
 	// per-connection task that drives the executor against the captured
 	// `Arc<FlowGraph>`. The executor must emit at least one
 	// `FlowLogKind::Trajectory` event into the listener-supplied sink.
@@ -231,7 +231,7 @@ async fn listener_accepts_tcp_and_routes_to_executor() {
 
 #[tokio::test]
 async fn listener_bind_giving_up_after_max_attempts_logs_and_exits() {
-	// 01-topology.md § _Bind_: bind retries on failure with exponential
+	// spec/topology.md § _Bind_: bind retries on failure with exponential
 	// backoff up to `max_attempts`, then gives up. Hold a real listener on
 	// the address so every retry observes EADDRINUSE; the helper returns
 	// `None` once the cap is reached.
@@ -251,7 +251,7 @@ async fn listener_bind_giving_up_after_max_attempts_logs_and_exits() {
 
 #[tokio::test]
 async fn listener_drains_in_flight_within_timeout() {
-	// 01-topology.md § _Listener lifecycle_ step 3: `accept_cancel` stops
+	// spec/topology.md § _Listener lifecycle_ step 3: `accept_cancel` stops
 	// new connections; in-flight tasks get up to `drain_timeout` to finish
 	// naturally before `force_cancel` fires. With a middleware that sleeps
 	// 200ms and a 2s drain budget, shutdown must complete well under the
@@ -296,7 +296,7 @@ async fn listener_drains_in_flight_within_timeout() {
 
 #[tokio::test]
 async fn listener_set_starts_multiple_entries_independently() {
-	// 01-topology.md § _Listener lifecycle_: listeners are independent
+	// spec/topology.md § _Listener lifecycle_: listeners are independent
 	// tokio tasks per `(transport, address)` pair. A graph with two
 	// entries spawns two listeners; both report `is_running` and `len`
 	// reflects the count.
@@ -339,7 +339,7 @@ async fn listener_set_starts_multiple_entries_independently() {
 
 #[tokio::test]
 async fn listener_shutdown_idempotent_or_after_empty_start() {
-	// 01-topology.md § _Listener lifecycle_: a `ListenerSet` that was
+	// spec/topology.md § _Listener lifecycle_: a `ListenerSet` that was
 	// never started (or was started with an empty `entries` map) must
 	// shutdown cleanly without panic. `shutdown` consumes `self`, so
 	// "double shutdown" is a compile error — this test validates the
@@ -366,7 +366,7 @@ async fn listener_shutdown_idempotent_or_after_empty_start() {
 }
 
 // ---------------------------------------------------------------------------
-// reconcile: listener-set diff after hot reload (09-config.md § _NodeId
+// reconcile: listener-set diff after hot reload (spec/crates/core.md § _NodeId
 // stability across reloads_).
 // ---------------------------------------------------------------------------
 

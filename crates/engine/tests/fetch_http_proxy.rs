@@ -6,13 +6,13 @@
 //!
 //! * The Fetch rewrites the request's scheme + authority to point at the
 //!   configured `upstream` while preserving path and query verbatim
-//!   (`hyper_util::Client` routes by URI authority — see 07-l7.md
+//!   (`hyper_util::Client` routes by URI authority — see spec/crates/engine.md
 //!   "TCP pooling is delegated entirely to `hyper_util`'s `Client`, which
 //!   keys its internal pool by authority").
 //! * Request headers and request body flow through to the upstream
 //!   unchanged at the L7-Fetch boundary.
 //! * Upstream response bodies are always exposed as `Body::Stream(...)`
-//!   per 07-l7.md § _`HttpProxyFetch` commits to streaming response
+//!   per spec/crates/engine.md § _`HttpProxyFetch` commits to streaming response
 //!   bodies_, so multi-frame upstream responses round-trip without any
 //!   defensive collection.
 //! * Unreachable upstreams surface as `Err(Error::upstream(Unreachable))`
@@ -104,7 +104,7 @@ fn sample_meta() -> FlowGraphMeta {
 //     -> Fetch { id: 0, kind = HttpProxy{upstream}, next_response: 2 }
 //       -> Terminate(WriteHttpResponse)
 //
-// Per `02-flow.md` § _Phase state machine_, the Upgrade arm transitions
+// Per `spec/flow-model.md` § _Phase state machine_, the Upgrade arm transitions
 // the executor to L7Request, satisfying `Node::Fetch`'s phase precondition.
 // ---------------------------------------------------------------------------
 
@@ -232,7 +232,7 @@ where
 
 #[tokio::test]
 async fn http_proxy_forwards_get_to_upstream() {
-	// 05-terminator.md § _`HttpProxy`_: the Fetch produces a Response by
+	// spec/crates/engine.md § _`HttpProxy`_: the Fetch produces a Response by
 	// forwarding the client's Request to the configured upstream. Asserting
 	// the upstream's body bytes survive the round trip is the minimum
 	// "the bridge is wired" check.
@@ -275,7 +275,7 @@ async fn http_proxy_forwards_get_to_upstream() {
 
 #[tokio::test]
 async fn http_proxy_preserves_request_headers() {
-	// 07-l7.md § _H1 path_ + 05-terminator.md § _`HttpProxy`_: forwarding
+	// spec/crates/engine.md § _H1 path_ + spec/crates/engine.md § _`HttpProxy`_: forwarding
 	// preserves the request's headers up to the URI rewrite (scheme +
 	// authority). Custom headers must reach the upstream untouched, and
 	// the upstream's response headers must reach the client untouched.
@@ -370,7 +370,7 @@ impl HttpBody for OneKbFramesBody {
 
 #[tokio::test]
 async fn http_proxy_streams_response_body() {
-	// 07-l7.md § _`HttpProxyFetch` commits to streaming response bodies_:
+	// spec/crates/engine.md § _`HttpProxyFetch` commits to streaming response bodies_:
 	// upstream response bodies are returned as `Body::Stream(...)`. A
 	// multi-frame upstream body must therefore reach the client without
 	// being collected and re-emitted as a single static block. The client
@@ -415,7 +415,7 @@ async fn http_proxy_streams_response_body() {
 
 #[tokio::test]
 async fn http_proxy_post_body_flows_to_upstream() {
-	// 07-l7.md § _Body streaming across versions_: request-body frames
+	// spec/crates/engine.md § _Body streaming across versions_: request-body frames
 	// reach the upstream encoder via `http_body::Body::poll_frame` without
 	// vane-layer copy. The upstream-side service draining the request body
 	// in full and echoing it confirms the request body survives the
@@ -475,7 +475,7 @@ async fn http_proxy_post_body_flows_to_upstream() {
 
 #[tokio::test]
 async fn http_proxy_unreachable_upstream_surfaces_as_500_via_h1_driver() {
-	// 05-terminator.md § _Failure modes_: an unreachable upstream produces
+	// spec/crates/engine.md § _Failure modes_: an unreachable upstream produces
 	// `Err(Error::upstream(Unreachable))` from `L7Fetch::fetch`. The H1
 	// driver translates per-request executor errors into a synthesised
 	// 500 response so the H1 connection itself stays alive — see
@@ -539,7 +539,7 @@ fn http_proxy_factory_rejects_missing_upstream_arg() {
 
 #[tokio::test]
 async fn http_proxy_uri_path_and_query_preserved() {
-	// 07-l7.md § _H1 path_: the Fetch rewrites scheme + authority but
+	// spec/crates/engine.md § _H1 path_: the Fetch rewrites scheme + authority but
 	// preserves path and query verbatim — `hyper_util::Client` routes by
 	// URI authority, the rest is forwarded as-is. The upstream observes
 	// the request line's path-and-query exactly as the client wrote it.

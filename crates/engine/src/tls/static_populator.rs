@@ -11,7 +11,7 @@
 //! when the cached `nextUpdate` falls inside
 //! `OCSP_REFRESH_BEFORE` of expiry.
 //!
-//! Spec: `08-tls.md` § _Cert populators_ (Built-in implementations)
+//! Spec: `spec/crates/engine-tls.md` § _Cert populators_ (Built-in implementations)
 //! and § _OCSP stapling_ (transport policy + refresh cadence).
 
 use std::collections::HashMap;

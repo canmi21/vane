@@ -6,7 +6,7 @@
 //! (`spec/crates/core.md`) inserts this middleware
 //! automatically with the default header set.
 //!
-//! Header semantics (per `spec/architecture/04-middleware.md` § _Stateless
+//! Header semantics (per `spec/crates/engine.md` § _Stateless
 //! internal_):
 //!
 //! - `X-Forwarded-For` — append. If the request already carries one, the

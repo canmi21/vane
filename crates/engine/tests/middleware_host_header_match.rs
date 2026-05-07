@@ -1,6 +1,6 @@
 //! Integration tests for `vane_engine::middleware::host_header_match`.
 //!
-//! Validates the public contract from `spec/architecture/04-middleware.md`
+//! Validates the public contract from `spec/crates/engine.md`
 //! § _Stateless internal_ and the doc-comment on
 //! `host_header_match::factory`:
 //!
@@ -294,7 +294,7 @@ async fn host_match_case_insensitive_match() {
 
 #[tokio::test]
 async fn host_match_short_close_when_host_missing() {
-	// Per 02-flow.md § _`Terminator::Close` at L4 vs inside an HTTP
+	// Per spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP
 	// server_, `Short(Close(PolicyDenied))` flows back as
 	// `Ok(ExecutorOutput::Closed)`; the H1 service-fn maps that to 404
 	// + `Connection: close` on the wire.

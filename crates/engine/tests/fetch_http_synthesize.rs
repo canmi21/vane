@@ -86,7 +86,7 @@ fn sample_meta() -> FlowGraphMeta {
 //     -> Fetch { id: 0, kind = HttpSynthesize, args, next_response: 2 }
 //       -> Terminate(WriteHttpResponse)
 //
-// Per `02-flow.md` § _Phase state machine_, Upgrade transitions
+// Per `spec/flow-model.md` § _Phase state machine_, Upgrade transitions
 // L4Raw → L7Request, satisfying the Fetch node's phase precondition.
 // ---------------------------------------------------------------------------
 
@@ -147,7 +147,7 @@ async fn h1_client_empty(
 }
 
 /// Standard base64 encode for the args shape — `HttpSynthesizeFetch` reads
-/// the body field as base64 per 14-presets.md / the public factory
+/// the body field as base64 per spec/crates/core.md / the public factory
 /// docstring (the preset expansion stage is responsible for translating
 /// user-friendly text into base64 before this factory).
 fn b64(bytes: &[u8]) -> String {
@@ -161,7 +161,7 @@ fn b64(bytes: &[u8]) -> String {
 
 #[tokio::test]
 async fn http_synthesize_returns_static_response() {
-	// 05-terminator.md § _`HttpSynthesize`_ + 14-presets.md § _`static_site`_:
+	// spec/crates/engine.md § _`HttpSynthesize`_ + spec/crates/core.md § _`static_site`_:
 	// the factory's `status` and `body` parameterise the synthesised
 	// response. The body is base64-encoded raw bytes — the preset
 	// expansion stage converts user-friendly text upstream of this
@@ -194,7 +194,7 @@ async fn http_synthesize_returns_static_response() {
 
 #[tokio::test]
 async fn http_synthesize_with_headers() {
-	// 05-terminator.md § _`HttpSynthesize`_: synthesised responses carry
+	// spec/crates/engine.md § _`HttpSynthesize`_: synthesised responses carry
 	// configured headers verbatim. Both an arbitrary custom header and
 	// `content-type` must reach the client.
 	let proxy_addr = pick_port().await;
@@ -236,7 +236,7 @@ async fn http_synthesize_with_headers() {
 
 #[tokio::test]
 async fn http_synthesize_empty_body_writes_empty() {
-	// 07-l7.md § _`HttpProxyFetch` commits to streaming response bodies_:
+	// spec/crates/engine.md § _`HttpProxyFetch` commits to streaming response bodies_:
 	// "`HttpSynthesizeFetch` always produces `Body::Static` by
 	// construction"; an empty body is the equivalent zero-frame case.
 	// 204 (No Content) is a valid HTTP status and the natural status code
