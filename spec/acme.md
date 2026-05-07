@@ -270,9 +270,9 @@ The CA validator queries DNS from its own resolvers; passing both checks above i
 
 Each provider is gated behind a Cargo feature; only the feature-on impl(s) ship in any given binary.
 
-| Feature               | Default | Provider           |
-| --------------------- | ------- | ------------------ |
-| `acme-dns-cloudflare` | off     | Cloudflare DNS API |
+| Feature      | Default | Provider           |
+| ------------ | ------- | ------------------ |
+| `cloudflare` | off     | Cloudflare DNS API |
 
 The Cloudflare config schema:
 

@@ -78,26 +78,26 @@ Feature IDs are stable across the project's life — refer to them in commits, i
 
 ## Stage 3 — H3 + WASM + CGI + ACME + mTLS + 0-RTT + TUI
 
-| ID    | Feature                                                                                                                          | Crate provision                                                           | Depends on   |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------ |
-| S3-01 | Engine `H3Body` + `H3StreamSource` impls + H3 server path (engine wraps `H3Body` in `Body::Stream`)                              | `quinn` 0.11, `h3` 0.0.6+, `h3-quinn` 0.0.7+                              | S2-04        |
-| S3-02 | H3 upstream in `HttpProxyFetch` + `QuicPool`                                                                                     | `h3`, `h3-quinn`, `quinn`                                                 | S3-01, S2-06 |
-| S3-03 | `udp_dispatch` QUIC session demultiplexer                                                                                        | `quinn` (shared `UdpSocket`)                                              | S3-01, S2-11 |
-| S3-04 | `WasmtimeRuntime : WasmRuntime` + Component Model load (sync host, async bindings)                                               | `wasmtime` 26+, `wit-bindgen` 0.35+                                       | S1-05        |
-| S3-05 | WASM instance pools (`PoolingAllocator` for stateless, fixed-size for stateful)                                                  | `wasmtime::PoolingAllocatorConfig`                                        | S3-04        |
-| S3-06 | WASM host functions (`log`, `now-unix-ms`, `random`, `metric-*`, `http-fetch` via `HttpFetchBackend` trait)                      | `rand`, `wasmtime-wasi`                                                   | S3-05, S2-16 |
-| S3-07 | WASM module hot-reload (metadata-same = swap Component only; metadata-changed = recompile graph)                                 | —                                                                         | S3-05, S1-28 |
-| S3-08 | CGI path in `HttpProxyFetch` via `HttpUpstream::Cgi` (`tokio::process::Command` + `CommandExt::pre_exec` for setuid/gid/rlimits) | `tokio::process`, `libc`                                                  | S2-17        |
-| S3-09 | `ManagedCertPopulator` (ACME) via `instant-acme` — HTTP-01 + DNS-01                                                              | `instant-acme` 0.7+, Cloudflare DNS-01 gated behind `acme-dns-cloudflare` | S2-03        |
-| S3-10 | OCSP fetch via cert's AIA URL (both populators)                                                                                  | `x509-parser`, hyper-based fetch                                          | S2-03        |
-| S3-11 | CRL fetch + `rustls::WebPkiCrlProvider`                                                                                          | `rustls::WebPkiCrlProvider`                                               | S2-06        |
-| S3-12 | Listener mTLS (`ClientAuth::Request` / `Require`, `ClientTrustStore`)                                                            | `rustls` server client-cert verifier                                      | S2-04        |
-| S3-13 | TLS 1.3 0-RTT on TLS-over-TCP listeners (H3 listener path deferred post-MVP, target 2027+; see `08-tls.md` § _Scope_)            | `rustls` 0.23                                                             | S2-04        |
-| S3-14 | WASM plugin integration with FlowGraph (`MiddlewareInst::Wasm`)                                                                  | —                                                                         | S3-04, S1-12 |
-| S3-15 | `get_pools` + `get_upstreams` mgmt verbs                                                                                         | —                                                                         | S2-15, S3-05 |
-| S3-16 | TUI (`ratatui` + `crossterm`, pure view-state machine underneath)                                                                | `ratatui` 0.29+, `crossterm` 0.28+                                        | S2-20        |
-| S3-17 | `http.body` predicate full integration into `PredicateView::L7Req`                                                               | —                                                                         | S1-06, S1-09 |
-| S3-18 | `pool.drain <fingerprint>` mgmt verb (cert-rotation aid)                                                                         | —                                                                         | S2-07, S2-15 |
+| ID    | Feature                                                                                                                          | Crate provision                                                  | Depends on   |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------ |
+| S3-01 | Engine `H3Body` + `H3StreamSource` impls + H3 server path (engine wraps `H3Body` in `Body::Stream`)                              | `quinn` 0.11, `h3` 0.0.6+, `h3-quinn` 0.0.7+                     | S2-04        |
+| S3-02 | H3 upstream in `HttpProxyFetch` + `QuicPool`                                                                                     | `h3`, `h3-quinn`, `quinn`                                        | S3-01, S2-06 |
+| S3-03 | `udp_dispatch` QUIC session demultiplexer                                                                                        | `quinn` (shared `UdpSocket`)                                     | S3-01, S2-11 |
+| S3-04 | `WasmtimeRuntime : WasmRuntime` + Component Model load (sync host, async bindings)                                               | `wasmtime` 26+, `wit-bindgen` 0.35+                              | S1-05        |
+| S3-05 | WASM instance pools (`PoolingAllocator` for stateless, fixed-size for stateful)                                                  | `wasmtime::PoolingAllocatorConfig`                               | S3-04        |
+| S3-06 | WASM host functions (`log`, `now-unix-ms`, `random`, `metric-*`, `http-fetch` via `HttpFetchBackend` trait)                      | `rand`, `wasmtime-wasi`                                          | S3-05, S2-16 |
+| S3-07 | WASM module hot-reload (metadata-same = swap Component only; metadata-changed = recompile graph)                                 | —                                                                | S3-05, S1-28 |
+| S3-08 | CGI path in `HttpProxyFetch` via `HttpUpstream::Cgi` (`tokio::process::Command` + `CommandExt::pre_exec` for setuid/gid/rlimits) | `tokio::process`, `libc`                                         | S2-17        |
+| S3-09 | `ManagedCertPopulator` (ACME) via `instant-acme` — HTTP-01 + DNS-01                                                              | `instant-acme` 0.7+, Cloudflare DNS-01 gated behind `cloudflare` | S2-03        |
+| S3-10 | OCSP fetch via cert's AIA URL (both populators)                                                                                  | `x509-parser`, hyper-based fetch                                 | S2-03        |
+| S3-11 | CRL fetch + `rustls::WebPkiCrlProvider`                                                                                          | `rustls::WebPkiCrlProvider`                                      | S2-06        |
+| S3-12 | Listener mTLS (`ClientAuth::Request` / `Require`, `ClientTrustStore`)                                                            | `rustls` server client-cert verifier                             | S2-04        |
+| S3-13 | TLS 1.3 0-RTT on TLS-over-TCP listeners (H3 listener path deferred post-MVP, target 2027+; see `08-tls.md` § _Scope_)            | `rustls` 0.23                                                    | S2-04        |
+| S3-14 | WASM plugin integration with FlowGraph (`MiddlewareInst::Wasm`)                                                                  | —                                                                | S3-04, S1-12 |
+| S3-15 | `get_pools` + `get_upstreams` mgmt verbs                                                                                         | —                                                                | S2-15, S3-05 |
+| S3-16 | TUI (`ratatui` + `crossterm`, pure view-state machine underneath)                                                                | `ratatui` 0.29+, `crossterm` 0.28+                               | S2-20        |
+| S3-17 | `http.body` predicate full integration into `PredicateView::L7Req`                                                               | —                                                                | S1-06, S1-09 |
+| S3-18 | `pool.drain <fingerprint>` mgmt verb (cert-rotation aid)                                                                         | —                                                                | S2-07, S2-15 |
 
 ## Bootstrapping problems + solutions
 

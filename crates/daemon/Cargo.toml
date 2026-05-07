@@ -22,7 +22,7 @@ ring = ["vane-engine/ring"]
 h3 = ["vane-engine/h3"]
 cgi = ["vane-engine/cgi"]
 acme = ["vane-engine/acme"]
-acme-dns-cloudflare = ["vane-engine/acme-dns-cloudflare"]
+cloudflare = ["vane-engine/cloudflare"]
 wasm = ["dep:vane-wasm"]
 
 [dependencies]

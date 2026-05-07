@@ -10,7 +10,7 @@
 compile_error!(
 	"`aws-lc-rs` and `ring` are mutually exclusive crypto backends — pick exactly one. \
 	 If you ran `--all-features`, drop one explicitly: \
-	 `--no-default-features --features \"aws-lc-rs,h3,cgi,acme,acme-dns-cloudflare\"` \
+	 `--no-default-features --features \"aws-lc-rs,h3,cgi,acme,cloudflare\"` \
 	 (or replace `aws-lc-rs` with `ring`). \
 	 See spec/architecture/16-crate-layout.md § Crypto backend.",
 );
@@ -113,6 +113,6 @@ pub const ENGINE_FEATURE_SET: &[&str] = &[
 	"cgi",
 	#[cfg(feature = "acme")]
 	"acme",
-	#[cfg(feature = "acme-dns-cloudflare")]
-	"acme-dns-cloudflare",
+	#[cfg(feature = "cloudflare")]
+	"cloudflare",
 ];

@@ -64,7 +64,7 @@ Owns:
 - DNS: `hickory-resolver` integration.
 - `ArcSwap<FlowGraph>` holds the **linked** graph — that is the one accept loops and the executor read.
 
-Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `hyper-rustls`, `h3`, `h3-quinn`, `quinn`, `quinn-proto` (low-level QUIC primitives — `Header` / `PartialDecode` / `initial_keys` — used by the multi-packet peek path in `udp_dispatch` for ClientHello extraction; gated behind the same `h3` feature as `quinn`), `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` + `notify-debouncer-full` (file watcher with debounce), `metrics` + `metrics-exporter-prometheus`, `instant-acme` (gated behind the `acme` feature; `acme-dns-cloudflare` feature pulls the Cloudflare DNS-01 module), `rand` (for session-ticket keys and similar), `libc` (for the CGI `pre_exec` closure's `setuid` / `setgid` / `setrlimit` syscalls, gated behind the `cgi` feature).
+Dependencies: `vane-core` + `tokio`, `hyper`, `hyper-util`, `hyper-rustls`, `h3`, `h3-quinn`, `quinn`, `quinn-proto` (low-level QUIC primitives — `Header` / `PartialDecode` / `initial_keys` — used by the multi-packet peek path in `udp_dispatch` for ClientHello extraction; gated behind the same `h3` feature as `quinn`), `rustls`, `rustls-native-certs`, `tokio-rustls`, `hickory-resolver`, `dashmap`, `webpki`, `webpki-roots` (or system roots), `notify` + `notify-debouncer-full` (file watcher with debounce), `metrics` + `metrics-exporter-prometheus`, `instant-acme` (gated behind the `acme` feature; `cloudflare` feature pulls the Cloudflare DNS-01 module), `rand` (for session-ticket keys and similar), `libc` (for the CGI `pre_exec` closure's `setuid` / `setgid` / `setrlimit` syscalls, gated behind the `cgi` feature).
 
 ### `vane-wasm`
 
@@ -390,22 +390,22 @@ Naming follows ecosystem conventions — short, lowercase, single-word where pos
 
 ### Per-crate feature flags
 
-| Crate         | Feature               | Default | Purpose                                                                                           |
-| ------------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------- |
-| `vane-engine` | `aws-lc-rs`           | on      | rustls crypto provider = aws-lc-rs; default on Tier 1; see § _Target tier matrix_                 |
-| `vane-engine` | `ring`                | off     | rustls crypto provider = ring (mutually exclusive); the portable default on 32-bit Tier 2 targets |
-| `vane-engine` | `h3`                  | on      | compile h3 + quinn for HTTP/3 support                                                             |
-| `vane-engine` | `cgi`                 | on      | compile CGI fork-exec path (pulls `libc`)                                                         |
-| `vane-engine` | `acme`                | off     | compile `ManagedCertPopulator` + `instant-acme` for ACME HTTP-01 and DNS-01                       |
-| `vane-engine` | `acme-dns-cloudflare` | off     | pulls the Cloudflare DNS-01 provider module (requires `acme`)                                     |
-| `vaned`       | `aws-lc-rs`           | on      | forwards to `vane-engine/aws-lc-rs`                                                               |
-| `vaned`       | `ring`                | off     | forwards to `vane-engine/ring`                                                                    |
-| `vaned`       | `h3`                  | on      | forwards to `vane-engine/h3`                                                                      |
-| `vaned`       | `cgi`                 | on      | forwards to `vane-engine/cgi`                                                                     |
-| `vaned`       | `acme`                | off     | forwards to `vane-engine/acme`                                                                    |
-| `vaned`       | `acme-dns-cloudflare` | off     | forwards to `vane-engine/acme-dns-cloudflare`                                                     |
-| `vaned`       | `wasm`                | on      | links `vane-wasm` (pulls wasmtime)                                                                |
-| `vane` (bin)  | `tui`                 | on      | compiles ratatui + crossterm TUI code                                                             |
+| Crate         | Feature      | Default | Purpose                                                                                           |
+| ------------- | ------------ | ------- | ------------------------------------------------------------------------------------------------- |
+| `vane-engine` | `aws-lc-rs`  | on      | rustls crypto provider = aws-lc-rs; default on Tier 1; see § _Target tier matrix_                 |
+| `vane-engine` | `ring`       | off     | rustls crypto provider = ring (mutually exclusive); the portable default on 32-bit Tier 2 targets |
+| `vane-engine` | `h3`         | on      | compile h3 + quinn for HTTP/3 support                                                             |
+| `vane-engine` | `cgi`        | on      | compile CGI fork-exec path (pulls `libc`)                                                         |
+| `vane-engine` | `acme`       | off     | compile `ManagedCertPopulator` + `instant-acme` for ACME HTTP-01 and DNS-01                       |
+| `vane-engine` | `cloudflare` | off     | pulls the Cloudflare DNS-01 provider module (requires `acme`)                                     |
+| `vaned`       | `aws-lc-rs`  | on      | forwards to `vane-engine/aws-lc-rs`                                                               |
+| `vaned`       | `ring`       | off     | forwards to `vane-engine/ring`                                                                    |
+| `vaned`       | `h3`         | on      | forwards to `vane-engine/h3`                                                                      |
+| `vaned`       | `cgi`        | on      | forwards to `vane-engine/cgi`                                                                     |
+| `vaned`       | `acme`       | off     | forwards to `vane-engine/acme`                                                                    |
+| `vaned`       | `cloudflare` | off     | forwards to `vane-engine/cloudflare`                                                              |
+| `vaned`       | `wasm`       | on      | links `vane-wasm` (pulls wasmtime)                                                                |
+| `vane` (bin)  | `tui`        | on      | compiles ratatui + crossterm TUI code                                                             |
 
 No feature flags on `vane-core`, `vane-wasm`, `vane-mgmt`, `vane-testutil` — they are always-on code.
 

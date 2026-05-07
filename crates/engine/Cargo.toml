@@ -25,7 +25,7 @@ ring = ["rustls/ring", "tokio-rustls/ring", "hyper-rustls/ring"]
 h3 = ["dep:quinn", "dep:quinn-proto", "dep:h3", "dep:h3-quinn"]
 cgi = []
 acme = []
-acme-dns-cloudflare = ["acme"]
+cloudflare = ["acme"]
 
 [dependencies]
 arc-swap = "1.9.1"
