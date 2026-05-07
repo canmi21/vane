@@ -84,8 +84,9 @@ fn rcgen_default_cert() -> TlsFiles {
 	key_file.write_all(key_pem.as_bytes()).expect("write key pem");
 	let tls_cfg = rule::TlsConfig {
 		sni: None,
-		cert_file: cert_file.path().to_path_buf(),
-		key_file: key_file.path().to_path_buf(),
+		cert_file: Some(cert_file.path().to_path_buf()),
+		key_file: Some(key_file.path().to_path_buf()),
+		managed: None,
 		client_auth: None,
 		enable_zero_rtt: false,
 	};
@@ -147,6 +148,7 @@ fn sni_peek_branching_graph(addr: SocketAddr, tls_cfg: rule::TlsConfig) -> Arc<F
 		rule::ListenerTlsSpec {
 			default: Some(tls_cfg),
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth: rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		},

@@ -112,12 +112,14 @@ fn h3_proxy_graph(listen: SocketAddr, upstream: &str, cert: &CertFixture) -> Arc
 		vane_core::rule::ListenerTlsSpec {
 			default: Some(vane_core::rule::TlsConfig {
 				sni: None,
-				cert_file: cert.cert_file.path().to_path_buf(),
-				key_file: cert.key_file.path().to_path_buf(),
+				cert_file: Some(cert.cert_file.path().to_path_buf()),
+				key_file: Some(cert.key_file.path().to_path_buf()),
+				managed: None,
 				client_auth: None,
 				enable_zero_rtt: false,
 			}),
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		},

@@ -106,8 +106,9 @@ fn rcgen_pki(client_cn: &str, client_san: &[&str]) -> PkiFixture {
 	server_key_file.write_all(server_key.serialize_pem().as_bytes()).expect("write server key");
 	let server_tls_cfg = vane_core::rule::TlsConfig {
 		sni: None,
-		cert_file: server_cert_file.path().to_path_buf(),
-		key_file: server_key_file.path().to_path_buf(),
+		cert_file: Some(server_cert_file.path().to_path_buf()),
+		key_file: Some(server_key_file.path().to_path_buf()),
+		managed: None,
 		client_auth: None, // populated per-test
 		enable_zero_rtt: false,
 	};
@@ -190,6 +191,7 @@ fn meta_with_client_auth(
 		vane_core::rule::ListenerTlsSpec {
 			default: Some(server),
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth,
 			enable_zero_rtt: false,
 		},

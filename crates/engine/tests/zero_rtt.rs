@@ -89,8 +89,9 @@ fn rcgen_self_signed_for_localhost() -> TlsFixture {
 	key_file.write_all(key_pem.as_bytes()).expect("write key pem");
 	let tls_cfg = vane_core::rule::TlsConfig {
 		sni: None,
-		cert_file: cert_file.path().to_path_buf(),
-		key_file: key_file.path().to_path_buf(),
+		cert_file: Some(cert_file.path().to_path_buf()),
+		key_file: Some(key_file.path().to_path_buf()),
+		managed: None,
 		client_auth: None,
 		// Listener-side opt-in flips `max_early_data_size = 16 KiB`
 		// and (per Step 1 of this PR) skips the daemon-wide ticketer
@@ -148,6 +149,7 @@ fn tls_zero_rtt_graph(
 		vane_core::rule::ListenerTlsSpec {
 			default: Some(tls_cfg),
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: true,
 		},

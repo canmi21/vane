@@ -729,12 +729,14 @@ mod tests {
 		let spec = ListenerTlsSpec {
 			default: Some(TlsConfig {
 				sni: None,
-				cert_file: cert_file.path().to_path_buf(),
-				key_file: key_file.path().to_path_buf(),
+				cert_file: Some(cert_file.path().to_path_buf()),
+				key_file: Some(key_file.path().to_path_buf()),
+				managed: None,
 				enable_zero_rtt: false,
 				client_auth: None,
 			}),
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		};

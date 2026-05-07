@@ -76,6 +76,15 @@ pub fn lower(
 		}
 	}
 
+	// Per `spec/acme.md` § _HTTP-01 § Compile-time checks_: when any
+	// rule declares a `tls.managed.challenge == "http-01"` SNI but
+	// the operator has no plaintext `:80` listener anywhere in the
+	// config, the daemon will auto-bind one at runtime. Emit a
+	// compile-time WARN so this is visible without waiting for
+	// runtime telemetry. The check runs after the listener loop so
+	// `builder.listener_kinds` / `listener_tls` are fully populated.
+	warn_missing_plaintext_port_80_for_http01(&builder.listener_tls, &builder.listener_kinds);
+
 	Ok(SymbolicFlowGraph {
 		nodes: builder.nodes,
 		predicates: builder.predicates,
@@ -1142,6 +1151,86 @@ type ListenerGroup<'a> = (Transport, Vec<SocketAddr>, Vec<&'a AnalyzedRule>);
 /// Hash-cons: completely identical `(sni, cert_file, key_file)`
 /// triples across rules are deduped (e.g. two rules on the same
 /// listener that point at the same cert paths share one pool entry).
+/// Route a single `TlsConfig` into the right per-listener bucket
+/// (`default` / `sni_certs` / `managed_snis`) on `spec`. Conflict
+/// detection — same SNI declared twice with different specs, or
+/// declared as both static and managed — is centralised here so
+/// `resolve_listener_tls` stays under the clippy line cap.
+///
+/// Pre-condition: `tls.validate()` has already passed (enforced by
+/// `analyze::analyze_rule`).
+fn route_tls_config_into_spec(
+	addrs: &[SocketAddr],
+	tls: &crate::rule::TlsConfig,
+	spec: &mut crate::rule::ListenerTlsSpec,
+) -> Result<(), Error> {
+	if let Some(managed) = tls.managed.as_ref() {
+		let sni_key =
+			tls.sni.as_deref().expect("managed validated requires tls.sni").to_ascii_lowercase();
+		if spec.sni_certs.contains_key(&sni_key) {
+			return Err(Error::compile(format!(
+				"listener {addrs:?}: SNI {sni_key:?} declared as both static and managed — pick one source"
+			)));
+		}
+		match spec.managed_snis.get(&sni_key) {
+			None => {
+				spec.managed_snis.insert(sni_key, managed.clone());
+			}
+			Some(existing) if existing == managed => {}
+			Some(_) => {
+				return Err(Error::compile(format!(
+					"listener {addrs:?}: SNI {sni_key:?} mapped to two different `tls.managed` blocks"
+				)));
+			}
+		}
+		return Ok(());
+	}
+
+	let normalised_sni = tls.sni.as_deref().map(str::to_ascii_lowercase);
+	let normalised = crate::rule::TlsConfig {
+		sni: normalised_sni.clone(),
+		cert_file: tls.cert_file.clone(),
+		key_file: tls.key_file.clone(),
+		managed: None,
+		enable_zero_rtt: tls.enable_zero_rtt,
+		client_auth: tls.client_auth.clone(),
+	};
+	match normalised_sni {
+		None => match &spec.default {
+			None => spec.default = Some(normalised),
+			Some(existing) if existing == &normalised => {}
+			Some(existing) => {
+				return Err(Error::compile(format!(
+					"listener {addrs:?}: more than one default (sni-less) cert — {} vs {} — at most one cert may omit `sni`",
+					display_cert_file(existing),
+					display_cert_file(&normalised),
+				)));
+			}
+		},
+		Some(sni_key) => {
+			if spec.managed_snis.contains_key(&sni_key) {
+				return Err(Error::compile(format!(
+					"listener {addrs:?}: SNI {sni_key:?} declared as both static and managed — pick one source"
+				)));
+			}
+			match spec.sni_certs.get(&sni_key) {
+				None => {
+					spec.sni_certs.insert(sni_key, normalised);
+				}
+				Some(existing) if existing == &normalised => {}
+				Some(existing) => {
+					return Err(Error::compile(format!(
+						"listener {addrs:?}: SNI {sni_key:?} mapped to two different certs — {} vs {}",
+						display_cert_file(existing),
+						display_cert_file(&normalised),
+					)));
+				}
+			}
+		}
+	}
+	Ok(())
+}
+
 fn resolve_listener_tls(
 	addrs: &[SocketAddr],
 	rules: &[&AnalyzedRule],
@@ -1157,56 +1246,19 @@ fn resolve_listener_tls(
 	let mut spec = crate::rule::ListenerTlsSpec {
 		default: None,
 		sni_certs: BTreeMap::new(),
+		managed_snis: BTreeMap::new(),
 		client_auth: crate::rule::ClientAuthSpec::None,
 		enable_zero_rtt: false,
 	};
 	for rule in rules {
 		let Some(tls) = rule.raw.tls.as_ref() else { continue };
-		match tls.sni.as_deref() {
-			None => {
-				let normalised = crate::rule::TlsConfig {
-					sni: None,
-					cert_file: tls.cert_file.clone(),
-					key_file: tls.key_file.clone(),
-					enable_zero_rtt: tls.enable_zero_rtt,
-					client_auth: tls.client_auth.clone(),
-				};
-				match &spec.default {
-					None => spec.default = Some(normalised),
-					Some(existing) if existing == &normalised => {}
-					Some(existing) => {
-						return Err(Error::compile(format!(
-							"listener {addrs:?}: more than one default (sni-less) cert — {} vs {} — at most one cert may omit `sni`",
-							existing.cert_file.display(),
-							normalised.cert_file.display(),
-						)));
-					}
-				}
-			}
-			Some(sni_raw) => {
-				let sni_key = sni_raw.to_ascii_lowercase();
-				let normalised = crate::rule::TlsConfig {
-					sni: Some(sni_key.clone()),
-					cert_file: tls.cert_file.clone(),
-					key_file: tls.key_file.clone(),
-					enable_zero_rtt: tls.enable_zero_rtt,
-					client_auth: tls.client_auth.clone(),
-				};
-				match spec.sni_certs.get(&sni_key) {
-					None => {
-						spec.sni_certs.insert(sni_key, normalised);
-					}
-					Some(existing) if existing == &normalised => {}
-					Some(existing) => {
-						return Err(Error::compile(format!(
-							"listener {addrs:?}: SNI {sni_key:?} mapped to two different certs — {} vs {}",
-							existing.cert_file.display(),
-							normalised.cert_file.display(),
-						)));
-					}
-				}
-			}
-		}
+		// `analyze::analyze_rule` has already enforced
+		// `TlsConfig::validate` per spec/acme.md § _Compile-time checks_,
+		// so by the time lower iterates each `tls` block here the
+		// invariants (exactly one cert source, managed-required SNI,
+		// etc.) hold. Branch on cert source to route the rule into
+		// the right per-listener bucket.
+		route_tls_config_into_spec(addrs, tls, &mut spec)?;
 	}
 
 	// Aggregate per-rule `tls.client_auth` into one listener-level
@@ -1257,6 +1309,54 @@ fn resolve_listener_tls(
 	}
 
 	if spec.is_empty() { Ok(None) } else { Ok(Some(spec)) }
+}
+
+/// Render a `TlsConfig`'s `cert_file` for use in a compile diagnostic.
+/// Static configs always have a path post-validation; the `<managed>`
+/// fallback arm is for diagnostic robustness if the validation
+/// invariant is ever violated upstream.
+fn display_cert_file(tls: &crate::rule::TlsConfig) -> String {
+	match &tls.cert_file {
+		Some(p) => p.display().to_string(),
+		None => "<managed>".to_owned(),
+	}
+}
+
+/// Cross-listener compile-time warning per `spec/acme.md`
+/// § _HTTP-01 § Compile-time checks_: when any rule asks for an
+/// HTTP-01 ACME cert but no plaintext `:80` listener exists in the
+/// compiled config, the operator should know `vaned` will try to
+/// auto-bind `:80` at runtime — and that the bind may fail
+/// (`EACCES` without `CAP_NET_BIND_SERVICE`, `EADDRINUSE` if
+/// something else owns the port).
+///
+/// Emitted via `tracing::warn!` rather than `Result::Err` because
+/// the auto-bind path makes this a soft signal, not a compile
+/// failure. Stage 3 may surface it through the dry-run annotation
+/// channel for richer UX.
+fn warn_missing_plaintext_port_80_for_http01(
+	listener_tls: &std::collections::BTreeMap<SocketAddr, crate::rule::ListenerTlsSpec>,
+	listener_kinds: &std::collections::BTreeMap<SocketAddr, ListenerKind>,
+) {
+	let any_http01 = listener_tls.values().any(|spec| {
+		spec.managed_snis.values().any(|m| matches!(m.challenge, crate::rule::ChallengeKind::Http01))
+	});
+	if !any_http01 {
+		return;
+	}
+	let has_plaintext_80 = listener_kinds.iter().any(|(addr, kind)| {
+		addr.port() == 80
+			&& matches!(kind, ListenerKind::Http | ListenerKind::Auto)
+			&& !listener_tls.contains_key(addr)
+	});
+	if !has_plaintext_80 {
+		tracing::warn!(
+			target: "vane::compile::acme",
+			"http-01 challenge declared but no plaintext :80 listener exists; \
+			 vaned will auto-bind :80 at runtime — the bind may fail without \
+			 CAP_NET_BIND_SERVICE or if the port is already in use",
+		);
+	}
 }
 
 /// Per-listener structural validation of the rule-level

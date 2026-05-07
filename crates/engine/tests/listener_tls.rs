@@ -78,8 +78,9 @@ fn rcgen_self_signed_for_localhost() -> TlsFixture {
 
 	let tls_cfg = vane_core::rule::TlsConfig {
 		sni: None,
-		cert_file: cert_file.path().to_path_buf(),
-		key_file: key_file.path().to_path_buf(),
+		cert_file: Some(cert_file.path().to_path_buf()),
+		key_file: Some(key_file.path().to_path_buf()),
+		managed: None,
 		client_auth: None,
 		enable_zero_rtt: false,
 	};
@@ -99,6 +100,7 @@ fn tls_static_ok_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) ->
 		vane_core::rule::ListenerTlsSpec {
 			default: Some(tls_cfg),
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		},
@@ -348,8 +350,9 @@ fn tls_multi_sni_graph(
 			(*sni).to_owned(),
 			vane_core::rule::TlsConfig {
 				sni: Some((*sni).to_owned()),
-				cert_file: c.cert_file.path().to_path_buf(),
-				key_file: c.key_file.path().to_path_buf(),
+				cert_file: Some(c.cert_file.path().to_path_buf()),
+				key_file: Some(c.key_file.path().to_path_buf()),
+				managed: None,
 				client_auth: None,
 				enable_zero_rtt: false,
 			},
@@ -358,12 +361,14 @@ fn tls_multi_sni_graph(
 	let spec = vane_core::rule::ListenerTlsSpec {
 		default: default.map(|c| vane_core::rule::TlsConfig {
 			sni: None,
-			cert_file: c.cert_file.path().to_path_buf(),
-			key_file: c.key_file.path().to_path_buf(),
+			cert_file: Some(c.cert_file.path().to_path_buf()),
+			key_file: Some(c.key_file.path().to_path_buf()),
+			managed: None,
 			client_auth: None,
 			enable_zero_rtt: false,
 		}),
 		sni_certs: spec_sni,
+		managed_snis: BTreeMap::new(),
 		client_auth: vane_core::rule::ClientAuthSpec::None,
 		enable_zero_rtt: false,
 	};

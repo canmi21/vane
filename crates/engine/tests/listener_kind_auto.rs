@@ -91,8 +91,9 @@ fn rcgen_cert(host: &str) -> CertFiles {
 	key.write_all(key_pem.as_bytes()).expect("write key");
 	let tls_cfg = vane_core::rule::TlsConfig {
 		sni: None,
-		cert_file: cert.path().to_path_buf(),
-		key_file: key.path().to_path_buf(),
+		cert_file: Some(cert.path().to_path_buf()),
+		key_file: Some(key.path().to_path_buf()),
+		managed: None,
 		client_auth: None,
 		enable_zero_rtt: false,
 	};
@@ -166,6 +167,7 @@ fn auto_graph(
 			vane_core::rule::ListenerTlsSpec {
 				default: Some(cfg),
 				sni_certs: BTreeMap::new(),
+				managed_snis: BTreeMap::new(),
 				client_auth: vane_core::rule::ClientAuthSpec::None,
 				enable_zero_rtt: false,
 			},
@@ -267,6 +269,7 @@ fn http_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<Flow
 		vane_core::rule::ListenerTlsSpec {
 			default: Some(tls_cfg),
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		},

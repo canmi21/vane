@@ -59,6 +59,15 @@ fn analyze_rule(
 	mw_meta: &dyn MiddlewareMetadataProvider,
 	fetch_meta: &dyn FetchMetadataProvider,
 ) -> Result<AnalyzedRule, Error> {
+	// Per-rule TLS validation runs at the analyze stage so the lower
+	// pass — which aggregates resolved specs into per-listener pools —
+	// can assume each `TlsConfig` is internally consistent. Surfacing
+	// the violation through the rule name keeps multi-file configs
+	// debuggable.
+	if let Some(tls) = raw.tls.as_ref() {
+		tls.validate().map_err(|e| Error::compile(format!("rule {:?}: {}", raw.name, e)))?;
+	}
+
 	let fetch_kind = Some(raw.terminate.kind);
 	let fetch_phase = fetch_phase_of(fetch_kind);
 

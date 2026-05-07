@@ -382,8 +382,9 @@ fn reverse_proxy_preset_propagates_tls_default_into_pool() {
 	// resolver hash-cons-dedups the identical entries into one pool slot.
 	let tls = vane_core::rule::TlsConfig {
 		sni: None,
-		cert_file: "/tmp/cert.pem".into(),
-		key_file: "/tmp/key.pem".into(),
+		cert_file: Some("/tmp/cert.pem".into()),
+		key_file: Some("/tmp/key.pem".into()),
+		managed: None,
 		enable_zero_rtt: false,
 		client_auth: None,
 	};
@@ -422,8 +423,9 @@ fn raw_rule_with_tls_aggregates_into_listener_pool() {
 		.expect("raw rule with tls compiles");
 	let expected = vane_core::rule::TlsConfig {
 		sni: None,
-		cert_file: "/tmp/cert.pem".into(),
-		key_file: "/tmp/key.pem".into(),
+		cert_file: Some("/tmp/cert.pem".into()),
+		key_file: Some("/tmp/key.pem".into()),
+		managed: None,
 		enable_zero_rtt: false,
 		client_auth: None,
 	};
@@ -571,8 +573,9 @@ fn l4_listener_with_tls_block_is_rejected() {
 	// then re-emit plaintext to the upstream).
 	let tls = vane_core::rule::TlsConfig {
 		sni: None,
-		cert_file: "/tmp/cert.pem".into(),
-		key_file: "/tmp/key.pem".into(),
+		cert_file: Some("/tmp/cert.pem".into()),
+		key_file: Some("/tmp/key.pem".into()),
+		managed: None,
 		enable_zero_rtt: false,
 		client_auth: None,
 	};

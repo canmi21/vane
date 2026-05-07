@@ -77,42 +77,44 @@ impl CertPopulator for StaticCertPopulator {
 }
 
 fn load_entry(tls: &TlsConfig) -> Result<CertEntry, PopulatorError> {
-	let cert_bytes = fs::read(&tls.cert_file).map_err(|e| {
-		PopulatorError::source(format!("read cert_file {}: {e}", tls.cert_file.display()))
+	// `StaticCertPopulator` only ever sees configs the lower pass routed
+	// into `default` / `sni_certs`, both of which carry static disk
+	// paths by invariant. Surface a typed error rather than panicking
+	// if some upstream caller hands us a managed config by mistake.
+	let (cert_path, key_path) = tls.static_paths().ok_or_else(|| {
+		PopulatorError::source("StaticCertPopulator received a managed TlsConfig — engine routing bug")
 	})?;
-	let key_bytes = fs::read(&tls.key_file).map_err(|e| {
-		PopulatorError::source(format!("read key_file {}: {e}", tls.key_file.display()))
-	})?;
+	let cert_bytes = fs::read(cert_path)
+		.map_err(|e| PopulatorError::source(format!("read cert_file {}: {e}", cert_path.display())))?;
+	let key_bytes = fs::read(key_path)
+		.map_err(|e| PopulatorError::source(format!("read key_file {}: {e}", key_path.display())))?;
 
 	let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> =
 		rustls_pemfile::certs(&mut cert_bytes.as_slice()).collect::<Result<_, _>>().map_err(|e| {
-			PopulatorError::source(format!("parse cert_file {}: {e}", tls.cert_file.display()))
+			PopulatorError::source(format!("parse cert_file {}: {e}", cert_path.display()))
 		})?;
 	if cert_chain.is_empty() {
 		return Err(PopulatorError::source(format!(
 			"cert_file {} contained no certificates",
-			tls.cert_file.display(),
+			cert_path.display(),
 		)));
 	}
 
 	let private_key = rustls_pemfile::private_key(&mut key_bytes.as_slice())
-		.map_err(|e| PopulatorError::source(format!("parse key_file {}: {e}", tls.key_file.display())))?
+		.map_err(|e| PopulatorError::source(format!("parse key_file {}: {e}", key_path.display())))?
 		.ok_or_else(|| {
-			PopulatorError::source(format!(
-				"key_file {} contained no private key",
-				tls.key_file.display(),
-			))
+			PopulatorError::source(format!("key_file {} contained no private key", key_path.display()))
 		})?;
 
 	let provider = rustls::crypto::CryptoProvider::get_default()
 		.ok_or_else(|| PopulatorError::source("rustls crypto provider not installed"))?;
-	let signing_key = provider.key_provider.load_private_key(private_key).map_err(|e| {
-		PopulatorError::source(format!("load_private_key {}: {e}", tls.key_file.display()))
-	})?;
+	let signing_key = provider
+		.key_provider
+		.load_private_key(private_key)
+		.map_err(|e| PopulatorError::source(format!("load_private_key {}: {e}", key_path.display())))?;
 
-	let not_after = parse_not_after(cert_chain[0].as_ref()).map_err(|e| {
-		PopulatorError::source(format!("parse notAfter {}: {e}", tls.cert_file.display()))
-	})?;
+	let not_after = parse_not_after(cert_chain[0].as_ref())
+		.map_err(|e| PopulatorError::source(format!("parse notAfter {}: {e}", cert_path.display())))?;
 
 	Ok(CertEntry {
 		key: Arc::new(rustls::sign::CertifiedKey::new(cert_chain, signing_key)),
@@ -167,12 +169,14 @@ mod tests {
 		ListenerTlsSpec {
 			default: Some(TlsConfig {
 				sni: None,
-				cert_file: cert_path,
-				key_file: key_path,
+				cert_file: Some(cert_path),
+				key_file: Some(key_path),
+				managed: None,
 				enable_zero_rtt: false,
 				client_auth: None,
 			}),
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		}
@@ -211,8 +215,9 @@ mod tests {
 			"api.example.com".to_owned(),
 			TlsConfig {
 				sni: Some("api.example.com".to_owned()),
-				cert_file: cert.path().to_path_buf(),
-				key_file: key.path().to_path_buf(),
+				cert_file: Some(cert.path().to_path_buf()),
+				key_file: Some(key.path().to_path_buf()),
+				managed: None,
 				client_auth: None,
 				enable_zero_rtt: false,
 			},
@@ -220,6 +225,7 @@ mod tests {
 		let spec = ListenerTlsSpec {
 			default: None,
 			sni_certs,
+			managed_snis: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		};
@@ -234,6 +240,7 @@ mod tests {
 		let spec = ListenerTlsSpec {
 			default: None,
 			sni_certs: BTreeMap::new(),
+			managed_snis: BTreeMap::new(),
 			client_auth: vane_core::rule::ClientAuthSpec::None,
 			enable_zero_rtt: false,
 		};
