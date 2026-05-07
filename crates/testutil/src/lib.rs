@@ -1,7 +1,6 @@
 //! Test helpers shared across integration tests. Dev-only, never linked into release.
 //!
-//! See `spec/testing.md` and `spec/architecture/16-crate-layout.md` §
-//! _`vane-testutil`_. Feature: S1-33 (baseline).
+//! See [`spec/conventions.md` § _Testing_](../../../spec/conventions.md#testing).
 
 #[cfg(feature = "acme")]
 pub mod acme;

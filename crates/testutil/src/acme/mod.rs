@@ -5,19 +5,20 @@
 //!
 //! ## Validation modes
 //!
-//! Stage 1 ships the fixture in `PEBBLE_VA_ALWAYS_VALID=1` mode:
-//! Pebble walks the full RFC 8555 order workflow but skips the
-//! HTTP-01 challenge fetch. That covers the
-//! `instant-acme` round-trip (account create → order → finalize →
-//! cert download) end to end without needing
-//! Docker-container-to-host network passthrough — which is
-//! platform-specific (`host.docker.internal` on macOS, an
-//! `--add-host=host-gateway` on Linux). The challenge-fetch path
-//! is unit-tested in `crates/engine/src/fetch/acme_challenge.rs`.
+//! Runs Pebble in `PEBBLE_VA_ALWAYS_VALID=1` mode: the server walks
+//! the full RFC 8555 order workflow but skips the HTTP-01 challenge
+//! fetch. That covers the `instant-acme` round-trip (account create →
+//! order → finalize → cert download) end-to-end without needing
+//! Docker-container-to-host network passthrough — which is platform-
+//! specific (`host.docker.internal` on macOS, an `--add-host=host-
+//! gateway` on Linux). The challenge-fetch path is unit-tested in
+//! `crates/engine/src/fetch/acme_challenge.rs`.
 //!
-//! A future fixture mode that flips `PEBBLE_VA_ALWAYS_VALID=0`
-//! and routes Pebble's validator to a host port lands when the
-//! Stage 3 renewal scheduler arrives.
+// TODO(pebble-validator-host-port): a fixture mode that flips
+// `PEBBLE_VA_ALWAYS_VALID=0` and routes Pebble's validator at a
+// host port would let us cover the full HTTP-01 challenge loop in
+// integration tests. Blocked on container-to-host passthrough being
+// uniform across the platforms we support.
 //!
 //! ## Skip-if-no-docker
 //!
