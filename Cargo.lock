@@ -3757,6 +3757,7 @@ dependencies = [
  "arc-swap",
  "assert_cmd",
  "async-trait",
+ "bytes",
  "clap",
  "escargot",
  "http-body-util",

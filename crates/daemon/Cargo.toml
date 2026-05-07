@@ -21,7 +21,13 @@ aws-lc-rs = ["vane-engine/aws-lc-rs"]
 ring = ["vane-engine/ring"]
 h3 = ["vane-engine/h3"]
 cgi = ["vane-engine/cgi"]
-acme = ["vane-engine/acme"]
+acme = [
+	"vane-engine/acme",
+	"dep:bytes",
+	"dep:http-body-util",
+	"dep:hyper",
+	"dep:hyper-util",
+]
 cloudflare = ["vane-engine/cloudflare"]
 wasm = ["dep:vane-wasm"]
 
@@ -29,7 +35,15 @@ wasm = ["dep:vane-wasm"]
 anyhow = "1.0.102"
 arc-swap = "1.9.1"
 async-trait = { workspace = true }
+# ACME-only deps: pulled in by the `acme` feature for the auto-bind
+# `:80` synthetic listener (a tiny hyper service serving the
+# challenge route). Dev-deps below already pull these for the
+# integration tests.
+bytes = { version = "1", optional = true }
 clap = { version = "4.6.1", features = ["derive"] }
+http-body-util = { version = "0.1", optional = true }
+hyper = { version = "1.9.0", features = ["server", "http1"], optional = true }
+hyper-util = { version = "0.1.20", features = ["tokio"], optional = true }
 notify = "8.2.0"
 notify-debouncer-full = "0.7.0"
 serde = { version = "1.0.228", features = ["derive"] }

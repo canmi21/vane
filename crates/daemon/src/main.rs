@@ -20,6 +20,8 @@
 //! a warn — the daemon serves whatever bound, and operators can read
 //! per-listener status via `vane stats`.
 
+#[cfg(feature = "acme")]
+mod acme_boot;
 mod mgmt_handlers;
 mod providers;
 mod reload;
@@ -266,7 +268,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	);
 
 	let mw_factories = Arc::new(build_middleware_factories());
-	let fetch_factories = Arc::new(build_fetch_factories(security_cfg.crl_cache.clone()));
+
+	// Open the ACME registry before linking so the AcmeChallenge
+	// fetch factory can capture it. `None` when the compiled config
+	// has no `tls.managed` rules — in that case the inject pass
+	// won't fire either, so the AcmeChallenge factory is never asked
+	// to construct a fetch and the registration is a no-op.
+	#[cfg(feature = "acme")]
+	let acme_registry = acme_boot::open_registry_if_needed(&symbolic).await?;
+
+	let fetch_factories = Arc::new(build_fetch_factories(
+		security_cfg.crl_cache.clone(),
+		#[cfg(feature = "acme")]
+		acme_registry.clone(),
+	));
 	let initial_graph = match registry_boot_snap.as_ref() {
 		Some(reg) => FlowGraph::link_with_plugins(
 			symbolic,
@@ -342,6 +357,22 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// `wait_for_shutdown_signal` select loop. Constructed once here and
 	// cloned into each consumer.
 	let shutdown_trigger = CancellationToken::new();
+
+	// ACME boot tasks: kick off first-time issuance for every
+	// `tls.managed` SNI without a cached cert, and auto-bind a
+	// synthetic `:80` listener if the operator's config has none
+	// per `spec/acme.md` § _HTTP-01 § Case 2_. Both are
+	// fire-and-forget; ACME failures surface via `tracing::error!`
+	// and don't abort boot. Stage 3's renewal scheduler will replace
+	// the one-shot issuance with a periodic timer.
+	#[cfg(feature = "acme")]
+	if let Some(registry) = acme_registry.clone() {
+		let graph = graph_swap.load_full();
+		let _issuance_handles =
+			acme_boot::kick_off_managed_issuance(&registry, &graph, &shutdown_trigger);
+		let _auto_bind_handles =
+			acme_boot::maybe_auto_bind_port_80(registry, &graph, &shutdown_trigger).await;
+	}
 
 	// CRL background refresher: one tokio task per URL source, scheduled
 	// off `nextUpdate − 1h`. File sources are not refreshed here — they
@@ -510,12 +541,19 @@ fn init_crl_cache(
 	Ok(Some(cache))
 }
 
-fn build_fetch_factories(crl_cache: Option<Arc<vane_engine::tls::CrlCache>>) -> FetchFactories {
+fn build_fetch_factories(
+	crl_cache: Option<Arc<vane_engine::tls::CrlCache>>,
+	#[cfg(feature = "acme")] acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
+) -> FetchFactories {
 	let mut fetch = FetchFactories::new();
 	vane_engine::fetch::l4_forward::register(&mut fetch);
 	vane_engine::fetch::http_proxy::register(&mut fetch, crl_cache.clone());
 	vane_engine::fetch::http_synthesize::register(&mut fetch);
 	vane_engine::fetch::websocket_upgrade::register(&mut fetch, crl_cache);
+	#[cfg(feature = "acme")]
+	if let Some(registry) = acme_registry {
+		vane_engine::fetch::acme_challenge::register(&mut fetch, registry);
+	}
 	fetch
 }
 
