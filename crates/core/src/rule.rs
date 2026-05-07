@@ -82,7 +82,7 @@ pub struct TlsConfig {
 	/// ACME-managed cert source. When set, `cert_file` / `key_file`
 	/// must be absent. The compiler routes this rule into the
 	/// listener's `managed_snis` table; the engine's
-	/// `ManagedCertPopulator` (Stage 3) supplies the actual cert.
+	/// `ManagedCertPopulator` supplies the actual cert.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub managed: Option<ManagedSpec>,
 	/// Listener-side TLS 1.3 0-RTT opt-in. Required on every rule that
@@ -429,11 +429,11 @@ pub struct ListenerTlsSpec {
 	/// (lowercased). The lower pass populates this from rules whose
 	/// `tls.managed` is set; the daemon's [`ManagedCertRegistry`]
 	/// picks them up and delivers actual certs through the listener's
-	/// `ManagedCertPopulator` (Stage 3 wires the populator).
+	/// `ManagedCertPopulator`.
 	///
-	/// Stage 1 ships this map as the source of truth for boot-time
-	/// issuance: every entry triggers a one-shot `issue_http01`
-	/// attempt. Stage 3 extends with renewal scheduling.
+	/// This map is the source of truth for boot-time issuance — every
+	/// entry triggers a one-shot `issue_http01` attempt — and feeds
+	/// the renewal scheduler.
 	#[serde(default)]
 	pub managed_snis: BTreeMap<String, ManagedSpec>,
 	/// Resolved per-listener mTLS policy. Per `08-tls.md` § _Client

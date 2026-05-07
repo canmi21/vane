@@ -1028,8 +1028,9 @@ mod tests {
 	use crate::body::{Body, Request};
 	use crate::conn_context::{ConnId, Transport};
 
-	// PredicateInst::test is todo!() until S1-09; behavior assertions live there.
-	// Tests below cover Hash/Eq semantics and IR construction only.
+	// Tests below cover `Hash` / `Eq` semantics and IR construction.
+	// Behavior assertions for `PredicateInst::test` itself live alongside
+	// the executor, where the `PredicateView` is exercised end-to-end.
 
 	fn hash_of<T: Hash>(v: &T) -> u64 {
 		let mut h = DefaultHasher::new();

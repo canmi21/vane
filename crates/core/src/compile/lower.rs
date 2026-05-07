@@ -685,8 +685,7 @@ impl Builder {
 		let posture = rules.first().map_or(Posture::L7, |r| r.posture);
 		if rules.iter().any(|r| r.posture != posture) {
 			return Err(Error::compile(
-				"mixed L4 and L7 rules on one listener require protocol_detect (S1-16); not in this chunk"
-					.to_string(),
+				"mixed L4 and L7 rules on one listener require protocol_detect".to_string(),
 			));
 		}
 
@@ -1478,8 +1477,11 @@ fn rewire_post_upgrade(nodes: &mut [Node], entry: NodeId, target: NodeId) {
 ///
 /// Emitted via `tracing::warn!` rather than `Result::Err` because
 /// the auto-bind path makes this a soft signal, not a compile
-/// failure. Stage 3 may surface it through the dry-run annotation
-/// channel for richer UX.
+/// failure.
+//
+// TODO(dry-run-annotation-channel): surface this through the dry-run
+// annotation channel for richer UX, alongside the `[acme-injected]`
+// and `[shadowed-by-acme]` annotations.
 fn warn_missing_plaintext_port_80_for_http01(
 	listener_tls: &std::collections::BTreeMap<SocketAddr, crate::rule::ListenerTlsSpec>,
 	listener_kinds: &std::collections::BTreeMap<SocketAddr, ListenerKind>,

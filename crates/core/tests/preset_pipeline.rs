@@ -1,4 +1,4 @@
-//! Integration tests for C13/S1-22: preset expansion through `compile()`.
+//! Integration tests for preset expansion through `compile()`.
 //!
 //! Black-box validation that each MVP preset (`port_forward`,
 //! `static_site`, `redirect_https`, `reverse_proxy`), when fed through

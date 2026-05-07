@@ -198,14 +198,15 @@ fn node_kind_for_phase(graph: &SymbolicFlowGraph, node: &Node) -> PhaseNodeKind 
 
 /// Walk each listener entry through the phase transition table.
 ///
-/// Not invoked from [`validate`] today because MVP graphs lack the
-/// `protocol_detect` middleware that advances `L4Raw → L4Peeked` — that
-/// middleware lands at S1-16. Callable directly for tests and for future
-/// validators that want phase coverage.
+/// Callable directly for tests and for validators that want phase
+/// coverage; the regular [`validate`] entry point does not call this
+/// today because production graphs reach `L4Peeked` through the
+/// `protocol_detect` middleware that ships in `vane-engine`, not
+/// through any IR-only construction.
 ///
 /// # Errors
-/// Returns [`Error::compile`] on phase mismatches per 02-flow.md § _Phase
-/// state machine_.
+/// Returns [`Error::compile`] on phase mismatches per
+/// [`spec/flow-model.md` § _Phase state machine_](../../../spec/flow-model.md#phase-state-machine).
 pub fn check_phases(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 	let mut seen: HashSet<(NodeId, Phase)> = HashSet::new();
 	for &entry in graph.entries.values() {

@@ -1,6 +1,7 @@
 //! Config loading entry point.
 //!
-//! See `spec/crates/core.md`. The MVP scope of this module:
+//! See [`spec/crates/core.md` § _Config layers_](../../../spec/crates/core.md#config-layers).
+//! Module responsibilities:
 //!
 //! 1. Best-effort `dotenvy` load of `<config_dir>/.env`. **OS env wins**
 //!    — `dotenvy::from_path` does not override pre-existing keys, which
@@ -10,13 +11,10 @@
 //! 3. Read every `VANE_*` deployment constant into a typed [`Env`]
 //!    snapshot.
 //!
-//! Out of MVP scope (not parsed yet): `<config_dir>/config.json`. The
-//! global daemon settings file (listeners, management, wasm pool config
-//! per `09-config.md` § _Top-level file schema_) is the daemon's own
-//! startup concern — its schema is still in flux through S2. Today it
-//! is silently ignored.
-//!
-//! Feature: S1-26 + S1-26a.
+// TODO(config-json): parse `<config_dir>/config.json` (global daemon
+// settings — listeners, management, wasm pool config). Today this file
+// is silently ignored; the daemon's startup wires those values directly
+// from the env layer instead.
 
 mod env;
 mod loader;

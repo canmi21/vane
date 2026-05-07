@@ -1,4 +1,4 @@
-//! Integration tests for the config loader (S1-26 + S1-26a).
+//! Integration tests for the config loader.
 //!
 //! Two surfaces under test:
 //!

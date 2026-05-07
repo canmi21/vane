@@ -1,10 +1,10 @@
 //! Preset expansion: `{"preset": ..., ...}` → `Vec<RawRule>`.
 //!
 //! Presets are opinionated compile-stage expansions that turn high-level
-//! intent into raw-rule bundles. The four MVP presets are
+//! intent into raw-rule bundles. The four built-in presets are
 //! `reverse_proxy`, `port_forward`, `static_site`, and `redirect_https`.
 //!
-//! See `spec/crates/core.md`. Feature: S1-22.
+//! See [`spec/crates/core.md` § _Compile pipeline_](../../../spec/crates/core.md#compile-pipeline).
 
 mod port_forward;
 mod redirect_https;

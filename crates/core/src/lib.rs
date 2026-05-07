@@ -54,8 +54,9 @@ pub mod version {
 	/// Compile-time and runtime information about a vane binary.
 	///
 	/// Constructed by each binary from its own `build.rs`-emitted env vars
-	/// and `cfg!(feature = ...)` introspection. See
-	/// `spec/architecture/16-crate-layout.md`.
+	/// and `cfg!(feature = ...)` introspection. See [`spec/crates/daemon.md`
+	/// § _Crypto provider_](../../../spec/crates/daemon.md) and the
+	/// per-binary `build.rs` files for the full contract.
 	pub struct BuildInfo {
 		pub version: &'static str,
 		pub commit: &'static str,

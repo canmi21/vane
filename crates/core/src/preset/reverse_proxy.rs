@@ -21,17 +21,19 @@
 //!
 //! ## Spec deviations (carried as known debts)
 //!
-//! 1. **`rate_limit` not on by default.** Spec line 152 names defaults
-//!    `rate=100/burst=200`, but the `rate_limit` middleware is S1-30 —
-//!    not yet registered. This preset only emits the middleware ref
-//!    when the user explicitly provides `args.rate_limit`. Once S1-30
-//!    lands, the default re-enables.
-//! 2. **Predicate shorthand.** Spec uses `[upgrade == websocket]` /
-//!    `[path.prefix in [...]]` shorthand; we emit the field-path form
-//!    (`http.header.upgrade equals "websocket"` and `http.uri.path
-//!    prefix p_i` inside an `any_of`). The shorthand is documentation,
-//!    not a literal grammar requirement — the field-path form is the
-//!    canonical wire shape.
+// TODO(preset-default-rate-limit): the spec calls for built-in
+// defaults (`rate=100/burst=200`) on the `reverse_proxy` preset. The
+// rate-limit middleware is registered, but the preset still only
+// emits a `rate_limit` ref when `args.rate_limit` is explicitly
+// provided. Re-enable the defaults — and update the test that asserts
+// "no implicit rate_limit" — when the contract solidifies.
+//!
+//! **Predicate shorthand.** Spec uses `[upgrade == websocket]` /
+//! `[path.prefix in [...]]` shorthand; we emit the field-path form
+//! (`http.header.upgrade equals "websocket"` and `http.uri.path prefix
+//! p_i` inside an `any_of`). The shorthand is documentation, not a
+//! literal grammar requirement — the field-path form is the canonical
+//! wire shape.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -390,7 +392,7 @@ mod tests {
 		let main = find_main(&rules);
 		assert!(
 			main.middleware_chain.iter().all(|m| m.name != "rate_limit"),
-			"rate_limit not on by default — middleware not yet registered (S1-30)",
+			"rate_limit not on by default — preset omits the default until the contract solidifies",
 		);
 	}
 

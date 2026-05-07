@@ -675,9 +675,9 @@ mod tests {
 		}
 	}
 
-	// `FlowGraphMeta` derives `Serialize` but not `Deserialize` (the spec
-	// comment in this module notes `Deserialize` lands with S1-32). Assert the
-	// forward direction only.
+	// `FlowGraphMeta` derives `Serialize` but not `Deserialize` — the
+	// version-hash + feature-set fields are populated by compile, never
+	// reconstructed from JSON. Assert the forward direction only.
 	#[test]
 	fn flow_graph_meta_serializes_and_emits_version_hash_field() {
 		let meta = sample_meta();
