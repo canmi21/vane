@@ -362,6 +362,121 @@ impl ManagedCertRegistry {
 		self.issue_http01_inner(sni, directory_url, contact, Some(extra_root_ca_pem)).await
 	}
 
+	/// Issue a cert for `sni` via the DNS-01 challenge.
+	///
+	/// Mirrors the [`Self::issue_http01`] flow but routes the
+	/// challenge through the operator-provided
+	/// [`super::DnsProvider`]: walk the order's authorisations,
+	/// `set_txt(_acme-challenge.<sni>, dns_value)` per identifier,
+	/// `wait_propagated` against the provider's resolver pool,
+	/// signal challenge ready, finalize, download the cert,
+	/// `delete_txt` to clean up.
+	///
+	/// `sni` may be a wildcard (`*.example.com`); the ACME server
+	/// returns a non-wildcard identifier in the authz, so the TXT
+	/// record always lands at `_acme-challenge.<base>` with the
+	/// `*.` prefix stripped.
+	///
+	/// Cleanup: on every exit path (success, `?`, panic) the
+	/// [`DnsCleanupGuard`] drops and best-effort `delete_txt`s
+	/// every TXT record this issuance set. On success the guard's
+	/// inline cleanup runs synchronously so the operator's DNS
+	/// state is in a known-clean state when the function returns.
+	///
+	/// # Errors
+	/// Same shape as [`Self::issue_http01`] plus DNS provider
+	/// failures surfaced as [`RegistryError::Acme`].
+	#[instrument(skip(self, dns), fields(directory_url))]
+	pub async fn issue_dns01(
+		&self,
+		sni: &str,
+		directory_url: &str,
+		contact: &[String],
+		dns: Arc<dyn super::DnsProvider>,
+	) -> Result<Arc<StoredCert>, RegistryError> {
+		self.issue_dns01_inner(sni, directory_url, contact, None, dns).await
+	}
+
+	/// Test-harness variant of [`Self::issue_dns01`] that threads a
+	/// custom root CA into the `instant-acme` HTTP client.
+	///
+	/// # Errors
+	/// Identical to [`Self::issue_dns01`].
+	#[instrument(skip(self, extra_root_ca_pem, dns), fields(directory_url))]
+	pub async fn issue_dns01_with_root(
+		&self,
+		sni: &str,
+		directory_url: &str,
+		contact: &[String],
+		extra_root_ca_pem: &std::path::Path,
+		dns: Arc<dyn super::DnsProvider>,
+	) -> Result<Arc<StoredCert>, RegistryError> {
+		self.issue_dns01_inner(sni, directory_url, contact, Some(extra_root_ca_pem), dns).await
+	}
+
+	async fn issue_dns01_inner(
+		&self,
+		sni: &str,
+		directory_url: &str,
+		contact: &[String],
+		extra_root_ca_pem: Option<&std::path::Path>,
+		dns: Arc<dyn super::DnsProvider>,
+	) -> Result<Arc<StoredCert>, RegistryError> {
+		let cert_scope = format!("cert/{sni}");
+		let _cert_lock = self.store.lock(&cert_scope).await?;
+
+		if let Some(existing) = self.cert_for(sni) {
+			return Ok(existing);
+		}
+
+		let account = self.account_for(directory_url, contact, extra_root_ca_pem).await?;
+		let identifiers = vec![instant_acme::Identifier::Dns(sni.to_owned())];
+		let new_order = instant_acme::NewOrder::new(&identifiers);
+		let mut order = account.new_order(&new_order).await.map_err(map_acme_error)?;
+
+		let cleanup = DnsCleanupGuard::new(Arc::clone(&dns));
+		register_dns01_challenges(&*dns, &mut order, &cleanup).await?;
+
+		let retry = instant_acme::RetryPolicy::default()
+			.timeout(Duration::from_mins(1))
+			.initial_delay(Duration::from_millis(250))
+			.backoff(2.0);
+		match order.poll_ready(&retry).await.map_err(map_acme_error)? {
+			instant_acme::OrderStatus::Ready => {}
+			other => {
+				return Err(RegistryError::Http01Timeout(format!(
+					"order for {sni:?} stalled at {other:?} (expected Ready)"
+				)));
+			}
+		}
+
+		let csr_sni = sni.to_owned();
+		let (key_pem, csr_der) = generate_ecdsa_p256_csr(&csr_sni)?;
+		order.finalize_csr(&csr_der).await.map_err(map_acme_error)?;
+		let chain_pem = order.poll_certificate(&retry).await.map_err(map_acme_error)?;
+
+		let (leaf_pem, intermediates_pem) = split_leaf_chain(&chain_pem);
+		let not_after = parse_not_after_pem(&leaf_pem)?;
+		let now = std::time::SystemTime::now();
+		let stored = StoredCert {
+			leaf_pem,
+			chain_pem: intermediates_pem,
+			key_pem,
+			not_after,
+			ari_replacement_id: None,
+			last_renew_at: now,
+		};
+		self.store.save_cert(sni, &stored).await?;
+		let arc = Arc::new(stored);
+		self.cache_cert(sni, Arc::clone(&arc));
+
+		// Synchronous cleanup on success so the operator's DNS state
+		// is known-clean by the time the function returns. The guard
+		// is now disarmed and drops as a no-op.
+		cleanup.cleanup_now().await;
+		Ok(arc)
+	}
+
 	async fn issue_http01_inner(
 		&self,
 		sni: &str,
@@ -503,6 +618,126 @@ async fn register_http01_challenges(
 		handle.set_ready().await.map_err(map_acme_error)?;
 	}
 	Ok(())
+}
+
+/// DNS-01 counterpart of [`register_http01_challenges`]. Walks
+/// the order's authorisations, computes the
+/// `base64url(sha256(key_authorization))` value RFC 8555 §8.4
+/// expects in the TXT record, calls `set_txt` + `wait_propagated`
+/// per identifier, then signals each challenge ready.
+///
+/// Wildcard SANs: ACME servers strip the `*.` prefix before
+/// emitting the authz identifier, so the TXT name we set is
+/// always `_acme-challenge.<base-domain>` — no wildcard handling
+/// needed here.
+async fn register_dns01_challenges(
+	dns: &dyn super::DnsProvider,
+	order: &mut instant_acme::Order,
+	cleanup: &DnsCleanupGuard,
+) -> Result<(), RegistryError> {
+	// 120s aligns with `spec/acme.md` § _wait_propagated semantics_:
+	// public DNS typically converges sub-minute even for fresh
+	// records; doubling that gives headroom for stragglers without
+	// burning operator patience on a stuck propagation.
+	const PROPAGATION_TIMEOUT: Duration = Duration::from_mins(2);
+
+	let mut auth_stream = order.authorizations();
+	while let Some(item) = auth_stream.next().await {
+		let mut authz = item.map_err(map_acme_error)?;
+		let identifier = match &authz.identifier().identifier {
+			instant_acme::Identifier::Dns(s) => s.clone(),
+			other => {
+				return Err(RegistryError::Acme(format!(
+					"unexpected identifier kind for dns-01: {other:?}"
+				)));
+			}
+		};
+		let mut handle = authz
+			.challenge(instant_acme::ChallengeType::Dns01)
+			.ok_or_else(|| RegistryError::Acme("no dns-01 challenge offered".into()))?;
+		let txt_value = handle.key_authorization().dns_value();
+		let txt_name = dns_challenge_name(&identifier);
+		dns.set_txt(&txt_name, &txt_value).await.map_err(|e| map_dns_error(&e))?;
+		cleanup.track(txt_name.clone());
+		dns
+			.wait_propagated(&txt_name, &txt_value, PROPAGATION_TIMEOUT)
+			.await
+			.map_err(|e| map_dns_error(&e))?;
+		handle.set_ready().await.map_err(map_acme_error)?;
+	}
+	Ok(())
+}
+
+/// Build the TXT record name the ACME server queries for a DNS-01
+/// challenge. RFC 8555 §8.4: `_acme-challenge.<domain>`. Wildcard
+/// authzs come through with the `*.` prefix already stripped, so
+/// no special-case here — but we still defensively strip in case a
+/// future ACME server breaks the convention.
+fn dns_challenge_name(identifier: &str) -> String {
+	let base = identifier.strip_prefix("*.").unwrap_or(identifier);
+	format!("_acme-challenge.{base}")
+}
+
+/// RAII tracker for TXT records the DNS-01 issuance flow created.
+/// `track` adds a name; `cleanup_now` drains the list and runs
+/// `delete_txt` synchronously (success path); `Drop` falls back to
+/// best-effort detached cleanup on `?` short-circuits / panics.
+struct DnsCleanupGuard {
+	dns: Arc<dyn super::DnsProvider>,
+	names: parking_lot::Mutex<Vec<String>>,
+}
+
+impl DnsCleanupGuard {
+	fn new(dns: Arc<dyn super::DnsProvider>) -> Self {
+		Self { dns, names: parking_lot::Mutex::new(Vec::new()) }
+	}
+
+	fn track(&self, name: String) {
+		self.names.lock().push(name);
+	}
+
+	/// Synchronous cleanup invoked at the success path's tail. The
+	/// guard's `Drop` fires on a now-empty list and is a no-op.
+	async fn cleanup_now(&self) {
+		let names = std::mem::take(&mut *self.names.lock());
+		for name in names {
+			let _ = self.dns.delete_txt(&name).await;
+		}
+	}
+}
+
+impl Drop for DnsCleanupGuard {
+	fn drop(&mut self) {
+		let names = std::mem::take(&mut *self.names.lock());
+		if names.is_empty() {
+			return;
+		}
+		let dns = Arc::clone(&self.dns);
+		// Best-effort detached cleanup. If the runtime is shutting
+		// down (e.g. SIGTERM mid-issuance), the spawned task may
+		// not get scheduled — but the alternative is blocking the
+		// drop on async I/O, which Rust doesn't allow. Operators
+		// can run a manual `delete_txt` cleanup if a daemon crash
+		// leaves stale records.
+		if let Ok(handle) = tokio::runtime::Handle::try_current() {
+			handle.spawn(async move {
+				for name in names {
+					let _ = dns.delete_txt(&name).await;
+				}
+			});
+		}
+	}
+}
+
+/// Translate a [`super::DnsProviderError`] into a
+/// [`RegistryError`]. Auth and zone-not-found surface as
+/// `Acme(...)` because they're operator-config issues that block
+/// issuance; rate-limit-style errors don't have a DNS analogue
+/// (the public DNS API limits we care about — Cloudflare's
+/// per-zone create limit — manifest as 4xx with a body that's
+/// implementation-defined, so we surface them generically too).
+fn map_dns_error(err: &super::DnsProviderError) -> RegistryError {
+	RegistryError::Acme(err.to_string())
 }
 
 /// Generate an ECDSA P-256 keypair and a CSR for `sni`. Returns
@@ -780,6 +1015,74 @@ mod tests {
 		let s = directory_url_scope("https://acme-v02.api.letsencrypt.org/directory");
 		assert_eq!(s.len(), 16);
 		assert!(s.chars().all(|c| c.is_ascii_hexdigit()));
+	}
+
+	#[test]
+	fn dns_challenge_name_prepends_acme_challenge_label() {
+		assert_eq!(dns_challenge_name("api.example.com"), "_acme-challenge.api.example.com");
+	}
+
+	#[test]
+	fn dns_challenge_name_strips_wildcard_prefix() {
+		// ACME servers strip `*.` before emitting the authz
+		// identifier; the defensive strip here is for forward
+		// compatibility if a future server breaks the convention.
+		assert_eq!(dns_challenge_name("*.example.com"), "_acme-challenge.example.com");
+	}
+
+	#[test]
+	fn map_dns_error_renders_with_provider_context() {
+		let err = map_dns_error(&super::super::DnsProviderError::ZoneNotFound("example.com".into()));
+		match err {
+			RegistryError::Acme(s) => assert!(s.contains("example.com"), "{s}"),
+			other => panic!("expected Acme, got {other:?}"),
+		}
+	}
+
+	#[tokio::test]
+	async fn dns_cleanup_guard_drains_tracked_names_on_cleanup_now() {
+		// Verify the success-path cleanup actually calls delete_txt
+		// for every tracked name. Uses an Arc<RecordingDns> the
+		// guard can drain through the trait object, plus a check
+		// that the guard's internal list is empty after drain so
+		// the Drop impl is a no-op.
+		use std::sync::atomic::{AtomicUsize, Ordering};
+
+		#[derive(Debug)]
+		struct RecordingDns {
+			delete_count: AtomicUsize,
+		}
+
+		#[async_trait::async_trait]
+		impl super::super::DnsProvider for RecordingDns {
+			async fn set_txt(&self, _: &str, _: &str) -> Result<(), super::super::DnsProviderError> {
+				Ok(())
+			}
+			async fn delete_txt(&self, _: &str) -> Result<(), super::super::DnsProviderError> {
+				self.delete_count.fetch_add(1, Ordering::SeqCst);
+				Ok(())
+			}
+			async fn wait_propagated(
+				&self,
+				_: &str,
+				_: &str,
+				_: Duration,
+			) -> Result<(), super::super::DnsProviderError> {
+				Ok(())
+			}
+		}
+
+		let dns = Arc::new(RecordingDns { delete_count: AtomicUsize::new(0) });
+		let guard = DnsCleanupGuard::new(Arc::clone(&dns) as Arc<dyn super::super::DnsProvider>);
+		guard.track("_acme-challenge.a.example".into());
+		guard.track("_acme-challenge.b.example".into());
+		guard.cleanup_now().await;
+		assert_eq!(dns.delete_count.load(Ordering::SeqCst), 2);
+		// After cleanup_now the internal list is empty; subsequent
+		// drop must not call delete_txt again. Drop the guard and
+		// check the count stays at 2.
+		drop(guard);
+		assert_eq!(dns.delete_count.load(Ordering::SeqCst), 2);
 	}
 
 	#[test]

@@ -118,6 +118,11 @@ struct IssuancePlan {
 	directory_url: String,
 	contact: Vec<String>,
 	challenge: ChallengeKind,
+	/// `Some` when `challenge == Dns01` — the operator-supplied
+	/// `dns_provider` JSON object, kept opaque here and parsed
+	/// inside [`run_one_issuance`] so the boot path doesn't have
+	/// to know about every provider kind.
+	dns_provider: Option<serde_json::Value>,
 }
 
 fn collect_issuance_plans(graph: &FlowGraph) -> Vec<IssuancePlan> {
@@ -130,6 +135,7 @@ fn collect_issuance_plans(graph: &FlowGraph) -> Vec<IssuancePlan> {
 				directory_url: managed.directory_url.clone(),
 				contact: managed.contact.clone(),
 				challenge: managed.challenge,
+				dns_provider: managed.dns_provider.clone(),
 			});
 		}
 	}
@@ -141,25 +147,39 @@ async fn run_one_issuance(
 	plan: IssuancePlan,
 	cancel: CancellationToken,
 ) {
-	if !matches!(plan.challenge, ChallengeKind::Http01) {
-		// DNS-01 path lands in Stage 2 alongside the DnsProvider
-		// trait; for now skip with an INFO so operators see why
-		// no issuance happened.
-		info!(
-			target: "vane::acme",
-			sni = %plan.sni,
-			challenge = ?plan.challenge,
-			"managed cert declared with non-http-01 challenge — issuance deferred to a later stage",
-		);
-		return;
-	}
-	let result = tokio::select! {
-		biased;
-		() = cancel.cancelled() => {
-			info!(target: "vane::acme", sni = %plan.sni, "issuance cancelled by shutdown");
-			return;
+	let result = match plan.challenge {
+		ChallengeKind::Http01 => {
+			tokio::select! {
+				biased;
+				() = cancel.cancelled() => {
+					info!(target: "vane::acme", sni = %plan.sni, "issuance cancelled by shutdown");
+					return;
+				}
+				r = registry.issue_http01(&plan.sni, &plan.directory_url, &plan.contact) => r,
+			}
 		}
-		r = registry.issue_http01(&plan.sni, &plan.directory_url, &plan.contact) => r,
+		ChallengeKind::Dns01 => {
+			let dns = match build_dns_provider(plan.dns_provider.as_ref()) {
+				Ok(d) => d,
+				Err(e) => {
+					error!(
+						target: "vane::acme",
+						sni = %plan.sni,
+						error = %e,
+						"dns provider config invalid; dns-01 issuance skipped",
+					);
+					return;
+				}
+			};
+			tokio::select! {
+				biased;
+				() = cancel.cancelled() => {
+					info!(target: "vane::acme", sni = %plan.sni, "issuance cancelled by shutdown");
+					return;
+				}
+				r = registry.issue_dns01(&plan.sni, &plan.directory_url, &plan.contact, dns) => r,
+			}
+		}
 	};
 	match result {
 		Ok(_) => {
@@ -181,6 +201,33 @@ async fn run_one_issuance(
 				"managed cert issuance failed",
 			);
 		}
+	}
+}
+
+/// Translate the operator's `dns_provider` JSON object into a
+/// concrete `Arc<dyn DnsProvider>`. Each provider kind has its
+/// own `kind` discriminator per `spec/acme.md` § _Available
+/// providers_. Unknown kinds and missing config are
+/// boot-time-fatal for the affected SNI (we surface them via
+/// the calling `run_one_issuance` log).
+fn build_dns_provider(
+	raw: Option<&serde_json::Value>,
+) -> Result<Arc<dyn vane_engine::acme::DnsProvider>, String> {
+	let value = raw.ok_or_else(|| "dns_provider missing for dns-01 challenge".to_owned())?;
+	let kind = value
+		.get("kind")
+		.and_then(serde_json::Value::as_str)
+		.ok_or_else(|| "dns_provider.kind missing or non-string".to_owned())?;
+	match kind {
+		#[cfg(feature = "cloudflare")]
+		"cloudflare" => {
+			let cfg: vane_engine::acme::dns::CloudflareConfig =
+				serde_json::from_value(value.clone()).map_err(|e| format!("dns_provider parse: {e}"))?;
+			let provider = vane_engine::acme::dns::CloudflareDnsProvider::from_config(&cfg)
+				.map_err(|e| format!("cloudflare provider: {e}"))?;
+			Ok(Arc::new(provider))
+		}
+		other => Err(format!("dns_provider kind {other:?} not supported in this build")),
 	}
 }
 
