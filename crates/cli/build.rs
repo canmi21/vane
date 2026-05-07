@@ -1,6 +1,6 @@
 //! Emits compile-time env vars consumed by `main.rs` via `env!()`.
 //!
-//! Contract: see `spec/architecture/16-crate-layout.md` ("build.rs contract").
+//! Contract: see [`spec/crates/cli.md`](../../../spec/crates/cli.md).
 
 use std::process::Command;
 

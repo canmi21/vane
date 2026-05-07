@@ -2,7 +2,7 @@
 //! protocol over the daemon's Unix socket. Two output modes: a
 //! pretty-printer for humans (default) and `--json` for scripts.
 //!
-//! See `spec/architecture/16-crate-layout.md` § _CLI_.
+//! See [`spec/crates/cli.md` § _Subcommand layout_](../../../spec/crates/cli.md#subcommand-layout).
 
 #[cfg(feature = "tui")]
 mod tui;
