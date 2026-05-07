@@ -10,7 +10,11 @@
 //! never pulls `instant-acme` / `rcgen` / `fs4` / `futures`.
 
 pub mod fs_store;
+pub mod registry;
 pub mod store;
 
 pub use fs_store::FsAcmeStore;
-pub use store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
+pub use registry::{
+	ChallengeKey, ManagedCertRegistry, PendingChallenge, RegistryError, RenewalScheduler,
+};
+pub use store::{AcmeAccount, AcmeStore, LockGuard, StoreError, StoredCert};
