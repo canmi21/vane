@@ -5,5 +5,5 @@
 //! the watcher; existing files fire no `notify` event on boot (see
 //! `spec/roadmap.md` § _Bootstrapping problems_).
 //!
-//! See `spec/architecture/02-flow.md` § _Hot reload_ and
-//! `spec/architecture/09-config.md` § _Reload_. Features: S1-27, S1-28.
+//! See `spec/flow-model.md` § _Hot reload_ and
+//! `spec/crates/core.md` § _Reload_.

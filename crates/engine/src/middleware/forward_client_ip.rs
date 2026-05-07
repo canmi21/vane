@@ -3,7 +3,7 @@
 //! (overwrite).
 //!
 //! Off by default at the raw-rule layer. The `reverse_proxy` preset
-//! (`spec/architecture/14-presets.md`) inserts this middleware
+//! (`spec/crates/core.md`) inserts this middleware
 //! automatically with the default header set.
 //!
 //! Header semantics (per `spec/architecture/04-middleware.md` § _Stateless
@@ -20,7 +20,6 @@
 //! Always returns `Decision::Continue` — this middleware never short-
 //! circuits.
 //!
-//! Feature: S1-21.
 
 use std::sync::Arc;
 

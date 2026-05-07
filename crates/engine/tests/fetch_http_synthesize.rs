@@ -1,11 +1,11 @@
 //! Integration tests for `vane_engine::fetch::http_synthesize`.
 //!
 //! Covers the in-memory response Fetch contract described in
-//! `spec/architecture/05-terminator.md` § _`HttpSynthesize`_,
-//! `spec/architecture/07-l7.md` § _`HttpProxyFetch` commits to streaming
+//! `spec/crates/engine.md` § _`HttpSynthesize`_,
+//! `spec/crates/engine.md` § _`HttpProxyFetch` commits to streaming
 //! response bodies_ ("`HttpSynthesizeFetch` always produces `Body::Static`
 //! by construction — that is the point of synthesis"), and
-//! `spec/architecture/14-presets.md` § _`static_site`_ for the args shape:
+//! `spec/crates/core.md` § _`static_site`_ for the args shape:
 //!
 //! ```json
 //! {

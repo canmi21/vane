@@ -1,8 +1,8 @@
 //! Integration tests for `vane_engine::fetch::http_proxy`.
 //!
 //! Covers the H1 → H1 cleartext reverse-proxy contract described in
-//! `spec/architecture/07-l7.md` § _H1 path_ and
-//! `spec/architecture/05-terminator.md` § _`HttpProxy`_:
+//! `spec/crates/engine.md` § _H1 path_ and
+//! `spec/crates/engine.md` § _`HttpProxy`_:
 //!
 //! * The Fetch rewrites the request's scheme + authority to point at the
 //!   configured `upstream` while preserving path and query verbatim

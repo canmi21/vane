@@ -23,8 +23,8 @@
 //!   client-side scheme is independent — vane terminates either
 //!   cleartext WS or WSS at the L4→L7 handshake.
 //!
-//! See `spec/architecture/05-terminator.md` § _`WebSocketUpgrade`_,
-//! `spec/architecture/14-presets.md` § _WebSocket handling_.
+//! See `spec/crates/engine.md` § _`WebSocketUpgrade`_,
+//! `spec/crates/core.md` § _WebSocket handling_.
 
 use std::sync::Arc;
 

@@ -1,6 +1,6 @@
 //! `H3Body` — engine-side adapter that unifies `h3::server::RequestStream`
 //! and `h3::client::RequestStream` under a single `http_body::Body`
-//! surface. See `spec/architecture/07-l7.md` § `H3Body` (engine-owned).
+//! surface. See `spec/crates/engine.md` § `H3Body` (engine-owned).
 //!
 //! `h3` splits the stream surface across `recv_data() -> impl Buf` and a
 //! once-only `recv_trailers()` call at data EOF. `H3Body` runs a small

@@ -20,7 +20,7 @@
 //!    error to decide whether to retry tomorrow vs. accept the
 //!    silent CA.
 //!
-//! `spec/acme.md` § _ARI (RFC 9773)_ requires the registry to
+//! `spec/crates/engine-acme.md` § _ARI (RFC 9773)_ requires the registry to
 //! cache the suggested window per cert and trigger renewal when
 //! `now ∈ window` — even before `renew_before` would otherwise fire.
 //! [`super::scheduler::should_attempt`] picks up the cached

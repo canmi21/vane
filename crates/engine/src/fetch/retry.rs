@@ -1,6 +1,6 @@
 //! Retry policy for [`crate::fetch::http_proxy::HttpProxyFetch`].
 //!
-//! Configuration shape (per `spec/architecture/05-terminator.md`
+//! Configuration shape (per `spec/crates/engine.md`
 //! § _Retry_):
 //!
 //! ```json

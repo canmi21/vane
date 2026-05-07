@@ -10,7 +10,7 @@
 //! `tls.sni` / `tls.alpn` predicates that follow are legal at this
 //! point in the graph.
 //!
-//! See `spec/architecture/06-l4.md` § _Protocol detection_ for the
+//! See `spec/crates/engine.md` § _Protocol detection_ for the
 //! full pipeline; this file is the rule-facing handle.
 
 use std::sync::Arc;

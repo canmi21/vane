@@ -1,6 +1,6 @@
 //! Integration tests for `vane_engine::flow_graph::FlowGraph::link`.
 //!
-//! Covers the link-pass contract described in `spec/architecture/02-flow.md`
+//! Covers the link-pass contract described in `spec/flow-model.md`
 //! § _Compile and link — two stages, two crates_ / _`FlowGraph` metadata_ and
 //! `spec/architecture/16-crate-layout.md` § _Feature-off → rule compile-time
 //! rejection_. Each test hand-builds a minimal `SymbolicFlowGraph` rather
@@ -267,7 +267,7 @@ fn link_fails_on_kind_mismatch() {
 
 #[test]
 fn link_fails_on_feature_disabled_with_spec_message() {
-	// spec/architecture/02-flow.md § _link_ pins the phrasing exactly,
+	// spec/flow-model.md § _link_ pins the phrasing exactly,
 	// with *single quotes* around the feature name.
 	let sym = graph_with_middleware(l7_req_ref("http_upstream_cgi"));
 	let mut mw = MiddlewareFactories::new();

@@ -1,7 +1,7 @@
 //! Integration tests for `vane_engine::fetch::websocket_upgrade`.
 //!
 //! Covers the H1→H1 WebSocket reverse-proxy contract described in
-//! `spec/architecture/05-terminator.md` § _`WebSocketUpgrade`_:
+//! `spec/crates/engine.md` § _`WebSocketUpgrade`_:
 //!
 //! * On the upgrade path, vane forwards the client's HTTP/1.1
 //!   `Upgrade: websocket` request to the upstream verbatim, awaits the

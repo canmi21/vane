@@ -12,7 +12,7 @@
 //! Trust roots come from the system store via `rustls-native-certs`.
 //! `insecure_skip_verify` short-circuits the verifier — testing only;
 //! production should leave it `false`. See
-//! `spec/architecture/08-tls.md` § _TLS library: rustls only_.
+//! `spec/crates/engine-tls.md` § _TLS library: rustls only_.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,7 +47,7 @@ pub struct UpstreamTls {
 	/// Cache key for the daemon-wide `Client` cache. `alpn_protocols`
 	/// is left empty here — `parse_tls_args` does not see the fetch's
 	/// `version` setting; the factory patches the field once the
-	/// version is resolved. See `spec/architecture/08-tls.md`
+	/// version is resolved. See `spec/crates/engine-tls.md`
 	/// § _Client cache: fingerprint and reuse_.
 	pub fingerprint: TlsConfigFingerprint,
 	/// Resolved `args.tls.crls` source list — kept on the value so the

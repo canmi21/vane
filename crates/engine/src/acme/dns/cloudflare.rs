@@ -8,7 +8,7 @@
 //!
 //! `wait_propagated` queries a small fixed pool of public recursive
 //! resolvers (`1.1.1.1`, `8.8.8.8`) via `hickory-resolver`. Per
-//! `spec/acme.md` § `wait_propagated` _semantics_, observing the
+//! `spec/crates/engine-acme.md` § `wait_propagated` _semantics_, observing the
 //! TXT through a public resolver is a high-confidence proxy for
 //! what the CA validator will see.
 
@@ -36,7 +36,7 @@ const PUBLIC_RESOLVERS: &[(IpAddr, u16)] =
 	&[(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53), (IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53)];
 
 /// Operator-supplied Cloudflare config. Parsed from
-/// `tls.managed.dns_provider` per `spec/acme.md`
+/// `tls.managed.dns_provider` per `spec/crates/engine-acme.md`
 /// § _Available providers_.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CloudflareConfig {

@@ -5,7 +5,7 @@
 //! `FlowGraph` reload does not touch it. Entries are keyed by
 //! [`QuicFingerprint`] and populated lazily on first dial.
 //!
-//! See `spec/architecture/07-l7.md` § _Architecture: TCP / QUIC
+//! See `spec/crates/engine.md` § _Architecture: TCP / QUIC
 //! separation_, § _Pool fingerprint_, § _`QuicPool` socket model_, and
 //! § _Lifetime: daemon-level_. The fingerprint shape differs from
 //! [`crate::fetch::client_cache::ClientFingerprint`] in two ways:
@@ -40,7 +40,7 @@ pub struct QuicFingerprint {
 	/// TLS posture (root CAs, verify mode, ALPN, mTLS slot, CRL slot).
 	/// Reuses the TCP-side fingerprint shape so operator-facing
 	/// `args.tls` parses once and feeds either the TCP or the QUIC
-	/// pool — see `spec/architecture/07-l7.md` § _Pool fingerprint_.
+	/// pool — see `spec/crates/engine.md` § _Pool fingerprint_.
 	/// ALPN is pinned to `[b"h3"]` for the H3 path; the factory sets
 	/// it before fingerprinting.
 	pub tls: TlsConfigFingerprint,
@@ -58,7 +58,7 @@ pub struct QuicFingerprint {
 /// `quinn`'s connection idle timeout retires it from the inside;
 /// the next dial finds the entry's `SendRequest` returning errors,
 /// removes the entry, and re-dials. No active sweep — see
-/// `spec/architecture/07-l7.md` § _Lifetime: daemon-level_.
+/// `spec/crates/engine.md` § _Lifetime: daemon-level_.
 pub struct QuicPoolEntry {
 	/// `h3::client::SendRequest::clone()` is cheap (an internal
 	/// `Arc` bump) and is the documented per-request handle source,
@@ -72,7 +72,7 @@ pub struct QuicPoolEntry {
 	/// here so the pool entry's `Drop` can cancel cleanly.
 	driver: tokio::task::JoinHandle<()>,
 	/// Per-entry quinn `Endpoint` — owns the ephemeral UDP socket
-	/// per `spec/architecture/07-l7.md` § _`QuicPool` socket model_.
+	/// per `spec/crates/engine.md` § _`QuicPool` socket model_.
 	/// Held on the entry so `Drop::drop` can close the endpoint
 	/// before aborting the driver.
 	endpoint: Endpoint,
@@ -98,7 +98,7 @@ impl Drop for QuicPoolEntry {
 // `quinn`'s connection idle timeout retires connections from the
 // inside; manual eviction is exposed via `pool.drain` (see
 // `drain_by_fingerprint_id`). Cache grows monotonically across reload
-// cycles otherwise (see `spec/architecture/07-l7.md`
+// cycles otherwise (see `spec/crates/engine.md`
 // § _Lifetime: daemon-level_).
 static QUIC_POOL: LazyLock<DashMap<QuicFingerprint, Arc<QuicPoolEntry>>> =
 	LazyLock::new(DashMap::new);
@@ -121,7 +121,7 @@ pub fn evict(fp: &QuicFingerprint) {
 
 /// Acquire the pooled entry for `fp`, dialing on miss. The dial
 /// builds a per-entry `quinn::Endpoint` bound to a fresh ephemeral
-/// UDP socket (per `spec/architecture/07-l7.md` § _`QuicPool` socket
+/// UDP socket (per `spec/crates/engine.md` § _`QuicPool` socket
 /// model_), runs the QUIC handshake against `fp.addr` with `sni` as
 /// the TLS server name, then negotiates h3 and spawns the connection
 /// driver as a background tokio task.

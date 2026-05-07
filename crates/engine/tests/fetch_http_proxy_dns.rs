@@ -7,8 +7,8 @@
 //! [`vane_engine::fetch::dns::DnsConfig`] must occupy distinct cache
 //! slots; bare-IPv6 nameservers must be rejected at factory time.
 //!
-//! Spec: `spec/architecture/07-l7.md` § _DNS resolver: hickory-resolver_,
-//! `spec/architecture/09-config.md` § _Rule schema_ (`dns` row).
+//! Spec: `spec/crates/engine.md` § _DNS resolver: hickory-resolver_,
+//! `spec/crates/core.md` § _Rule schema_ (`dns` row).
 
 #![allow(clippy::too_many_lines)]
 

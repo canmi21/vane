@@ -118,7 +118,7 @@ pub struct FlowGraph {
 	/// the listener accept loop looks up the bind address here on each
 	/// accepted connection and, if `Some`, runs a server-side handshake
 	/// before passing the wrapped stream to the executor as
-	/// [`vane_core::L4Conn::Tls`]. See `spec/architecture/08-tls.md`
+	/// [`vane_core::L4Conn::Tls`]. See `spec/crates/engine-tls.md`
 	/// § _TLS termination (L4 → L7 upgrade)_.
 	listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>>,
 	/// Per-listener cert populators. Held only for lifetime extension
@@ -164,7 +164,7 @@ impl FlowGraph {
 	/// Lower-derived dispatch posture for `addr`. Falls back to
 	/// `ListenerKind::Http` when the address is missing — defensive
 	/// only, the lower pass guarantees every entry address has an
-	/// explicit kind. See `spec/architecture/06-l4.md`
+	/// explicit kind. See `spec/crates/engine.md`
 	/// § _Dispatch decision table_.
 	#[must_use]
 	pub fn listener_kind(&self, addr: &SocketAddr) -> ListenerKind {
@@ -178,7 +178,7 @@ impl FlowGraph {
 	/// extract SNI, then enter the `FlowGraph` with `ConnContext.tls.sni`
 	/// populated so the matching `tls.sni` rule routes correctly.
 	///
-	/// Per `spec/architecture/06-l4.md` § _When pending-peek activates_,
+	/// Per `spec/crates/engine.md` § _When pending-peek activates_,
 	/// the spec definition is per-rule conjunction (`tls.sni` predicate
 	/// AND `L4Forward` terminator on the same rule). Implemented as a
 	/// DFS that carries a "saw `tls.sni` Check on this path" flag and
@@ -388,7 +388,7 @@ impl FlowGraph {
 	/// Like [`Self::link_with_security`] but threads a daemon-scoped
 	/// [`ManagedCertRegistry`] into the link pipeline so listeners
 	/// declaring `tls.managed` SNIs get a [`ManagedCertPopulator`]
-	/// alongside the static populator. Per `spec/acme.md`
+	/// alongside the static populator. Per `spec/crates/engine-acme.md`
 	/// § _Architecture_, the registry survives reloads — every link
 	/// generation builds a fresh populator pointed at the same
 	/// registry, so newly-issued certs surface on the next refresh

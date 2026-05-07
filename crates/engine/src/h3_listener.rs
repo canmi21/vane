@@ -3,8 +3,8 @@
 //! UDP socket, plus the per-listener [`quinn::Endpoint`] bring-up that
 //! installs the daemon's [`crate::tls::VaneCertResolver`] for ALPN `h3`.
 //!
-//! See `spec/architecture/06-l4.md` § _UDP socket multiplexing: physical
-//! and virtual_, and `spec/architecture/08-tls.md` § _Cert resolver and
+//! See `spec/crates/engine.md` § _UDP socket multiplexing: physical
+//! and virtual_, and `spec/crates/engine-tls.md` § _Cert resolver and
 //! rotation_. The whole module is gated behind the `h3` cargo feature.
 
 use std::fmt;

@@ -1,4 +1,4 @@
-//! Disk-backed default `AcmeStore` per `spec/acme.md`
+//! Disk-backed default `AcmeStore` per `spec/crates/engine-acme.md`
 //! § _Storage layout (default `FsAcmeStore`)_.
 //!
 //! Layout:
@@ -367,7 +367,7 @@ impl Drop for FsLockGuard {
 impl LockGuard for FsLockGuard {}
 
 /// `sha256(directory_url)[..16]` — first 16 hex chars per
-/// `spec/acme.md` § _Storage layout_. Keeps multi-CA support open
+/// `spec/crates/engine-acme.md` § _Storage layout_. Keeps multi-CA support open
 /// without committing to an explicit multi-CA schema today.
 fn directory_url_hash(directory_url: &str) -> String {
 	use std::fmt::Write as _;

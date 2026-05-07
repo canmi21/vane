@@ -8,22 +8,22 @@
 //!
 //! Anchors per spec:
 //!
-//! * `spec/architecture/02-flow.md` § _Execution model_ — the `Node::Upgrade`
+//! * `spec/flow-model.md` § _Execution model_ — the `Node::Upgrade`
 //!   arm hands the L4 connection to the H1 server driver; per-decoded
 //!   request the driver builds a fresh `FlowCtx` and re-enters the executor
 //!   at `Upgrade.next`. The L7 path's `ExecutorOutput::HttpResponse` flows
 //!   back to the driver, which serialises it onto the wire.
-//! * `spec/architecture/02-flow.md` § Phase state machine — Upgrade
+//! * `spec/flow-model.md` § Phase state machine — Upgrade
 //!   transitions `L4Raw -> L7Request`; the sub-graph entry must accept
 //!   phase `L7Request` (a `Node::Fetch` that produces a Response satisfies
 //!   that requirement and steps to `next_response` afterwards).
-//! * `spec/architecture/03-types.md` § _L7 body_ — `Body::Static`,
+//! * `spec/crates/core.md` § _L7 body_ — `Body::Static`,
 //!   `Body::Stream`, `Body::Empty` are the three body shapes the executor
 //!   round-trips through hyper.
-//! * `spec/architecture/06-l4.md` § _L4 -> L7 upgrade_ — the upgrade arm is
+//! * `spec/crates/engine.md` § _L4 -> L7 upgrade_ — the upgrade arm is
 //!   driven by listener config; for cleartext H1 it is purely the hyper H1
 //!   server.
-//! * `spec/architecture/07-l7.md` — the H1 path.
+//! * `spec/crates/engine.md` — the H1 path.
 //!
 //! The `drive_h1_server` helper itself is `pub(crate)`, so these tests
 //! drive it indirectly through `ListenerSet::start` plus a TCP client

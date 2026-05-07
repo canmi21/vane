@@ -1,5 +1,5 @@
 //! `ManagedCertPopulator` — `impl CertPopulator` view over a
-//! [`ManagedCertRegistry`]. Per `spec/acme.md` § _Architecture_ the
+//! [`ManagedCertRegistry`]. Per `spec/crates/engine-acme.md` § _Architecture_ the
 //! registry is daemon-scoped (one instance, lives across reloads);
 //! the populator is `FlowGraph`-scoped (one per listener with managed
 //! rules, rebuilt on every reload).
@@ -13,7 +13,7 @@
 //! hasn't changed, so 5-minute ticks stay no-ops on steady state.
 //!
 //! Defaults (sni-less certs) are not managed by this populator — by
-//! `spec/acme.md` § _Configuration schema_ a managed cert always
+//! `spec/crates/engine-acme.md` § _Configuration schema_ a managed cert always
 //! requires `tls.sni`, and the lower pass routes all sni-less specs
 //! into [`vane_core::rule::ListenerTlsSpec::default`] which is
 //! always static. Mixed listeners (static default + managed

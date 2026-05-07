@@ -2,7 +2,7 @@
 //! prelude. Spawns a real TCP listener whose `FlowGraph` references a
 //! capturing `L4Peek` middleware so the test observes what the peek
 //! phase decided about each connection. Covers the four detector
-//! outcomes called out in `spec/architecture/06-l4.md` § _Protocol
+//! outcomes called out in `spec/crates/engine.md` § _Protocol
 //! detection_: HTTP/1, HTTP/2 preface, TLS `ClientHello` (with SNI
 //! readable pre-handshake), and Unknown.
 //!

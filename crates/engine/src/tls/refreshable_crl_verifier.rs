@@ -3,7 +3,7 @@
 //! the latest CRL snapshot held in [`crate::tls::CrlCache`]. This is
 //! the mechanism that satisfies the `Arc<ClientConfig>` /
 //! `Arc<ServerConfig>` stability invariant from
-//! `spec/architecture/08-tls.md` § _CRL checking_ — refreshing CRL
+//! `spec/crates/engine-tls.md` § _CRL checking_ — refreshing CRL
 //! bytes does not invalidate cached configs (and therefore does not
 //! churn the upstream client cache); the wrapper just sees the new
 //! bytes the next time it consults the cache.

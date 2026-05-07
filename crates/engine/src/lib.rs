@@ -1,6 +1,6 @@
 //! vane runtime engine: executor, listeners, pools, TLS, built-in middleware.
 //!
-//! See `spec/architecture/02-flow.md`, `06-l4.md`, `07-l7.md`, `08-tls.md`, `13-rate-limit.md`.
+//! See `spec/flow-model.md`, `06-l4.md`, `07-l7.md`, `08-tls.md`, `13-rate-limit.md`.
 
 // Crypto backend is mutually exclusive by design — see
 // spec/architecture/16-crate-layout.md § _Crypto backend_.
@@ -88,7 +88,7 @@ pub mod crypto {
 	/// `rustls::ServerConfig`-using code path runs (the daemon does this
 	/// at the top of `main`; tests call it in their setup).
 	///
-	/// See `spec/architecture/08-tls.md` § _TLS termination_ and
+	/// See `spec/crates/engine-tls.md` § _TLS termination_ and
 	/// `spec/architecture/16-crate-layout.md` § _Crypto backend_.
 	pub fn install_default_provider() {
 		#[cfg(feature = "aws-lc-rs")]

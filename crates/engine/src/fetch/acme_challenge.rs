@@ -1,6 +1,6 @@
 //! `AcmeChallengeFetch` — the HTTP-01 ACME challenge responder.
 //!
-//! Per `spec/acme.md` § _HTTP-01 § Case 1_:
+//! Per `spec/crates/engine-acme.md` § _HTTP-01 § Case 1_:
 //!
 //! 1. Extract the token from the request path tail
 //!    (`/.well-known/acme-challenge/<token>`).

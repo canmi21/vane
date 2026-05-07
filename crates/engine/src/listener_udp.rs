@@ -5,7 +5,7 @@
 //! `06-l4.md` § _Multi-packet peek_), and the per-listener QUIC
 //! virtual socket on `Http` UDP listeners.
 //!
-//! See `spec/architecture/06-l4.md` § _`udp_dispatch`_ +
+//! See `spec/crates/engine.md` § _`udp_dispatch`_ +
 //! § _UDP socket multiplexing_.
 
 use std::net::SocketAddr;
@@ -43,7 +43,7 @@ const MAX_DATAGRAM: usize = 65535;
 /// stall every other session sharing the physical socket.
 pub const SESSION_INBOUND_CAPACITY: usize = 64;
 
-/// Per `spec/architecture/06-l4.md` § _Multi-packet peek_ § _Bounds_.
+/// Per `spec/crates/engine.md` § _Multi-packet peek_ § _Bounds_.
 /// Values are fixed (not configurable) — the spec table justifies each.
 pub const PENDING_PEEK_MAX_BYTES: usize = 16 * 1024;
 pub const PENDING_PEEK_MAX_DATAGRAMS: usize = 8;

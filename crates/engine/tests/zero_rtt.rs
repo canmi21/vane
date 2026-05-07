@@ -29,7 +29,7 @@
 //! * Ordinary 1-RTT requests on a 0-RTT-enabled listener are unaffected
 //!   (the dormant 0-RTT state must not regress the high-traffic path).
 //!
-//! Spec anchors: `spec/architecture/08-tls.md` § _TLS 1.3 0-RTT (early
+//! Spec anchors: `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early
 //! data)_, § _Session ticket rotation_ § _Exception: 0-RTT-enabled
 //! listeners_.
 

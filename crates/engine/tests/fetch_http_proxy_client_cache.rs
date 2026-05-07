@@ -6,8 +6,8 @@
 //! must NOT share. These tests verify both shapes by counting
 //! upstream `accept` events.
 //!
-//! Spec: `spec/architecture/08-tls.md` § _Client cache: fingerprint
-//! and reuse_, `spec/architecture/07-l7.md` § _Pool fingerprint_.
+//! Spec: `spec/crates/engine-tls.md` § _Client cache: fingerprint
+//! and reuse_, `spec/crates/engine.md` § _Pool fingerprint_.
 
 #![allow(clippy::too_many_lines)]
 

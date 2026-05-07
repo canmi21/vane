@@ -16,7 +16,7 @@
 //!   (`present`, `fingerprint_sha256`, `spki_sha256`, `issuer_cn`,
 //!   `serial`) have unit-test coverage in vane-core.
 //!
-//! Spec: `spec/architecture/08-tls.md` § _Client certificate
+//! Spec: `spec/crates/engine-tls.md` § _Client certificate
 //! verification (mTLS on listener)_ + § _CRL checking_.
 
 #![allow(clippy::too_many_lines)]

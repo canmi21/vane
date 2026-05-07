@@ -8,7 +8,6 @@
 //! the bare host and the `host:port` form, or normalise upstream.
 //!
 //! See `spec/architecture/04-middleware.md` § _Stateless internal_.
-//! Feature: S1-21.
 
 use std::borrow::Cow;
 use std::sync::Arc;

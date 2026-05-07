@@ -5,7 +5,7 @@
 //! returns a [`PeekResult`] for the listener to attach to
 //! `ConnContext.user`.
 //!
-//! See `spec/architecture/06-l4.md` § _Protocol detection_. UDP-only
+//! See `spec/crates/engine.md` § _Protocol detection_. UDP-only
 //! detectors (`QuicInitial`, `Dns`) are reserved enum variants here;
 //! their bodies are stubbed pending the UDP listener.
 

@@ -1,7 +1,7 @@
 //! Listener-side mTLS — `ClientTrustStore` loader and rustls
 //! [`WebPkiClientVerifier`] wiring.
 //!
-//! Per `spec/architecture/08-tls.md` § _Client certificate verification
+//! Per `spec/crates/engine-tls.md` § _Client certificate verification
 //! (mTLS on listener)_, the trust store is built from per-rule
 //! `client_auth.trust_store` config: explicit PEM bundle paths
 //! (`ca_paths`), an optional CA directory (`ca_dir`, all `*.pem` files

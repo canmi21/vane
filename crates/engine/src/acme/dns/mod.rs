@@ -1,6 +1,6 @@
 //! `DnsProvider` trait + impls for the ACME DNS-01 challenge.
 //!
-//! Per `spec/acme.md` § _Challenge: DNS-01_ + § _`DnsProvider`
+//! Per `spec/crates/engine-acme.md` § _Challenge: DNS-01_ + § _`DnsProvider`
 //! trait_. The trait is intentionally narrow: a provider performs
 //! TXT-record CRUD against an authoritative DNS API and confirms
 //! propagation. The registry's `issue_dns01` orchestrator owns the

@@ -19,7 +19,7 @@
 //!
 //! Spec anchors:
 //!
-//! * `spec/architecture/06-l4.md` § _Protocol detection_.
+//! * `spec/crates/engine.md` § _Protocol detection_.
 
 #![allow(clippy::too_many_lines)]
 

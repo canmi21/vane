@@ -1,8 +1,8 @@
 //! Integration tests for `vane_engine::fetch::l4_forward`.
 //!
 //! Covers the L4 forward Fetch contract described in
-//! `spec/architecture/06-l4.md` § _`l4_forward`_ and
-//! `spec/architecture/05-terminator.md` § _`L4Forward`_ /
+//! `spec/crates/engine.md` § _`l4_forward`_ and
+//! `spec/crates/engine.md` § _`L4Forward`_ /
 //! _`Tunnel` + `ByteTunnel` terminator_:
 //!
 //! * On `L4Conn::Tcp`, the Fetch dials the configured upstream and hands
@@ -20,7 +20,7 @@
 //! tokio echo server, which lets us exercise byte semantics end-to-end
 //! without poking at executor internals.
 //!
-//! Args shape mirrors `spec/architecture/14-presets.md` § _`port_forward`_
+//! Args shape mirrors `spec/crates/core.md` § _`port_forward`_
 //! (`{ "upstream": "host:port" }`).
 
 #![allow(clippy::too_many_lines)]

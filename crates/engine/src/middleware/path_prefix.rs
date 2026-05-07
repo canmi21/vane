@@ -6,7 +6,6 @@
 //! `"/"` prefix to match every path.
 //!
 //! See `spec/architecture/04-middleware.md` § _Stateless internal_.
-//! Feature: S1-21.
 
 use std::borrow::Cow;
 use std::sync::Arc;

@@ -8,8 +8,8 @@
 //! [`crate::fetch::client_cache::ClientFingerprint`] so two fetches
 //! with different nameserver lists land in distinct cache slots.
 //!
-//! See `spec/architecture/07-l7.md` § _DNS resolver: hickory-resolver_
-//! and `spec/architecture/09-config.md` § _Rule schema_ (`dns` row).
+//! See `spec/crates/engine.md` § _DNS resolver: hickory-resolver_
+//! and `spec/crates/core.md` § _Rule schema_ (`dns` row).
 
 use std::future::Future;
 use std::io;
@@ -36,7 +36,7 @@ pub enum DnsConfig {
 	/// load-bearing — `["1.1.1.1", "8.8.8.8"]` and the reverse get
 	/// distinct cache slots so the operator's primary / secondary
 	/// intent is honored. No fall-through to the system resolver on
-	/// failure (see `spec/architecture/09-config.md`).
+	/// failure (see `spec/crates/core.md`).
 	Custom(Vec<SocketAddr>),
 }
 
@@ -142,7 +142,7 @@ impl Service<Name> for HickoryDnsResolver {
 
 /// Parse `args.dns` into a [`DnsConfig`].
 ///
-/// Accepts (per `spec/architecture/09-config.md` § _Rule schema_):
+/// Accepts (per `spec/crates/core.md` § _Rule schema_):
 /// - missing / `null` / `"system"` / `{}` → [`DnsConfig::System`]
 /// - `{ "nameservers": [] }` → [`DnsConfig::System`] (semantic equiv of `{}`)
 /// - `{ "nameservers": [...] }` non-empty → [`DnsConfig::Custom`]

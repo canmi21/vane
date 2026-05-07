@@ -1,11 +1,11 @@
 //! Integration tests for `vane_engine::executor::execute`.
 //!
 //! Covers the execution-model contract described in
-//! `spec/architecture/02-flow.md` § _Execution model_ (lines 330-469), the
+//! `spec/flow-model.md` § _Execution model_ (lines 330-469), the
 //! middleware two-channel routing described in
 //! `spec/architecture/04-middleware.md` § _Decision_ / _Two error channels,
 //! not one_, and the three Terminator variants in
-//! `spec/architecture/05-terminator.md`.
+//! `spec/crates/engine.md`.
 //!
 //! Each test hand-builds a minimal `SymbolicFlowGraph`, routes it through
 //! `FlowGraph::link`, and drives `execute` against it — no configuration

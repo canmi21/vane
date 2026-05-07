@@ -8,8 +8,7 @@
 //! "`HttpSynthesizeFetch` always produces `Body::Static` by construction
 //! — that is the point of synthesis."
 //!
-//! See `spec/architecture/05-terminator.md` § _`HttpSynthesize`_.
-//! Feature: S1-20.
+//! See `spec/crates/engine.md` § _`HttpSynthesize`_.
 
 use std::sync::Arc;
 

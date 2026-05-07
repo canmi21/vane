@@ -1,6 +1,6 @@
 //! `AcmeStore` trait + the value types it persists.
 //!
-//! Per `spec/acme.md` § _`AcmeStore` trait_. The trait is abstract
+//! Per `spec/crates/engine-acme.md` § _`AcmeStore` trait_. The trait is abstract
 //! over the storage backend so an alternative (object store, secrets
 //! manager) can drop in without touching the registry; the default
 //! [`super::FsAcmeStore`] is the one shipped in Stage 1.
@@ -30,11 +30,11 @@ use serde::{Deserialize, Serialize};
 ///   each other; the same scope serialises across tasks **and**
 ///   processes (the default impl uses `flock(2)`).
 ///
-/// Note vs `spec/acme.md`: the spec sketched a closure-taking
+/// Note vs `spec/crates/engine-acme.md`: the spec sketched a closure-taking
 /// `with_lock<F, T>` shape; that signature has generic type
 /// parameters which makes the trait `dyn`-incompatible. The
 /// registry holds an `Arc<dyn AcmeStore>` per
-/// `spec/acme.md` § _Architecture_, so this implementation uses the
+/// `spec/crates/engine-acme.md` § _Architecture_, so this implementation uses the
 /// equivalent guard-based `lock` method instead. Spec text updated
 /// in this commit.
 #[async_trait]
@@ -53,7 +53,7 @@ pub trait AcmeStore: Send + Sync {
 	/// Persist the account material. Atomic from the caller's view:
 	/// either the new state lands or the prior state remains; no
 	/// torn-write window. Set permission bits per
-	/// `spec/acme.md` § _Storage layout_ (private).
+	/// `spec/crates/engine-acme.md` § _Storage layout_ (private).
 	///
 	/// # Errors
 	/// `StoreError::Io` for filesystem failures; `StoreError::Encode`

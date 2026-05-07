@@ -12,14 +12,14 @@
 //!
 //! Spec anchors:
 //!
-//! * `spec/architecture/07-l7.md` § _Architecture: TCP / QUIC
+//! * `spec/crates/engine.md` § _Architecture: TCP / QUIC
 //!   separation_ — `QuicPool` ownership.
-//! * `spec/architecture/07-l7.md` § _Pool fingerprint_ — two fetches
+//! * `spec/crates/engine.md` § _Pool fingerprint_ — two fetches
 //!   sharing the same `(addr, tls_hash)` fingerprint share one entry.
-//! * `spec/architecture/07-l7.md` § _Upstream-H3 send path_ — request
+//! * `spec/crates/engine.md` § _Upstream-H3 send path_ — request
 //!   body marshalling via `send_data` / `finish`, response body
 //!   surfaced as `Body::Stream(...)`.
-//! * `spec/architecture/08-tls.md` § _Upstream-side TLS_ —
+//! * `spec/crates/engine-tls.md` § _Upstream-side TLS_ —
 //!   `insecure_skip_verify` covers the test's self-signed cert path.
 
 #![cfg(feature = "h3")]

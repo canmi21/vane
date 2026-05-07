@@ -1,6 +1,6 @@
 //! `CgiFetch` — RFC 3875 CGI driver.
 //!
-//! Per `spec/architecture/15-cgi.md`, every request fork-execs a fresh
+//! Per `spec/crates/engine.md`, every request fork-execs a fresh
 //! process, pipes the request body to its stdin, parses the child's
 //! stdout as an RFC 3875 response, and emits stderr lines as `tracing`
 //! events. The driver lives in its own module rather than the

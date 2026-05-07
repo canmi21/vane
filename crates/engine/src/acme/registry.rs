@@ -1,5 +1,5 @@
 //! `ManagedCertRegistry` — daemon-scoped owner of every piece of
-//! ACME state per `spec/acme.md` § _Architecture_.
+//! ACME state per `spec/crates/engine-acme.md` § _Architecture_.
 //!
 //! Lifetime: constructed once at daemon boot from the operator's
 //! [`AcmeStore`], lives until shutdown. Reload churn rebuilds
@@ -43,7 +43,7 @@ use super::store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
 use crate::tls::ocsp::{self, FETCH_TIMEOUT, OcspError};
 
 /// Lookup key for the pending-challenge table. Per
-/// `spec/acme.md` § _HTTP-01 § Case 1_ the responder verifies
+/// `spec/crates/engine-acme.md` § _HTTP-01 § Case 1_ the responder verifies
 /// **both** the URL token tail and the `Host` header before
 /// returning the key authorisation — otherwise a misrouted CA
 /// validator query could leak our key authorisation to a different
@@ -93,7 +93,7 @@ pub struct ManagedCertRegistry {
 	/// is present.
 	jobs: DashMap<String, RenewalJob>,
 	/// Active challenge tokens. Keyed by `(Host, token)` per
-	/// `spec/acme.md` § _HTTP-01_; entries are added at issuance
+	/// `spec/crates/engine-acme.md` § _HTTP-01_; entries are added at issuance
 	/// start and removed on success/failure.
 	pending: DashMap<ChallengeKey, PendingChallenge>,
 	/// Live `instant-acme` account clients keyed by `directory_url`.
@@ -108,7 +108,7 @@ pub struct ManagedCertRegistry {
 	declared: DashMap<String, ()>,
 	/// Renewal scheduler handle. Stage 1 leaves this an inert
 	/// placeholder; Stage 3 fills in the periodic timer + ARI
-	/// poller per `spec/acme.md` § _Renewal triggers_.
+	/// poller per `spec/crates/engine-acme.md` § _Renewal triggers_.
 	#[allow(dead_code)]
 	schedule: Arc<RenewalScheduler>,
 }
@@ -126,7 +126,7 @@ pub struct RenewalScheduler {
 impl RenewalScheduler {
 	#[must_use]
 	pub fn new() -> Self {
-		// 5-minute tick per `spec/acme.md` § _Renewal triggers_;
+		// 5-minute tick per `spec/crates/engine-acme.md` § _Renewal triggers_;
 		// matches `08-tls.md`'s `refresh()` cadence.
 		Self { tick_interval: Duration::from_mins(5) }
 	}
@@ -566,7 +566,7 @@ impl ManagedCertRegistry {
 		}
 	}
 
-	/// Operator-driven immediate renewal per `spec/acme.md`
+	/// Operator-driven immediate renewal per `spec/crates/engine-acme.md`
 	/// § _`force_renew` mgmt verb_. Looks up the registered job for
 	/// `sni` and spawns a one-shot [`Self::run_renewal_attempt`]
 	/// task; returns `Some(())` when the SNI was known and a job
@@ -868,7 +868,7 @@ impl ManagedCertRegistry {
 		let arc = Arc::new(stored);
 		self.cache_cert(sni, Arc::clone(&arc));
 
-		// Best-effort ARI window fetch per `spec/acme.md`
+		// Best-effort ARI window fetch per `spec/crates/engine-acme.md`
 		// § _ARI (RFC 9773)_. Failure to query (CA doesn't expose
 		// `renewalInfo`, network blip, parse error) is non-fatal:
 		// log + carry on. The renewal scheduler will retry next
@@ -968,7 +968,7 @@ impl ManagedCertRegistry {
 		let arc = Arc::new(stored);
 		self.cache_cert(sni, Arc::clone(&arc));
 
-		// Best-effort ARI window fetch per `spec/acme.md`
+		// Best-effort ARI window fetch per `spec/crates/engine-acme.md`
 		// § _ARI (RFC 9773)_; same posture as the dns-01 path.
 		if let Err(e) = self.refresh_ari_window(sni, &account, arc.as_ref()).await {
 			warn!(target: "vane::acme", sni, error = %e, "ARI window refresh after issuance failed");
@@ -1070,7 +1070,7 @@ async fn register_dns01_challenges(
 	order: &mut instant_acme::Order,
 	cleanup: &DnsCleanupGuard,
 ) -> Result<(), RegistryError> {
-	// 120s aligns with `spec/acme.md` § _wait_propagated semantics_:
+	// 120s aligns with `spec/crates/engine-acme.md` § _wait_propagated semantics_:
 	// public DNS typically converges sub-minute even for fresh
 	// records; doubling that gives headroom for stragglers without
 	// burning operator patience on a stuck propagation.
@@ -1261,7 +1261,7 @@ fn build_account_builder(
 
 /// Periodic renewal scheduler loop, spawned by
 /// [`ManagedCertRegistry::spawn_scheduler`]. Ticks every 5 minutes
-/// per `spec/acme.md` § _Renewal triggers_. Each tick walks
+/// per `spec/crates/engine-acme.md` § _Renewal triggers_. Each tick walks
 /// [`ManagedCertRegistry::collect_renewal_plans`] and dispatches
 /// one [`tokio::spawn`] per plan; the spawn is fire-and-forget — a
 /// slow attempt doesn't block subsequent ticks because every plan

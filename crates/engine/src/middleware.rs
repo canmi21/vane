@@ -6,7 +6,6 @@
 //! in Stage 2.
 //!
 //! See `spec/architecture/04-middleware.md` § _Internal middleware_.
-//! Feature: S1-21.
 
 pub mod forward_client_ip;
 pub mod host_header_match;

@@ -15,11 +15,11 @@
 //! which is reached after 6 reloads in a worst case.
 //! [`crate::tls::StaticCertPopulator`] is stateless and exempt.
 //!
-//! See `spec/architecture/08-tls.md` § _Cert populators / Populator
+//! See `spec/crates/engine-tls.md` § _Cert populators / Populator
 //! lifecycle_.
 
 // TODO(s3-09): require disk-backed Storage trait on stateful populators —
-// see spec/architecture/08-tls.md § _Cert populators / Populator lifecycle_.
+// see spec/crates/engine-tls.md § _Cert populators / Populator lifecycle_.
 
 use async_trait::async_trait;
 

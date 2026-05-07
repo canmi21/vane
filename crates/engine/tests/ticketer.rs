@@ -10,7 +10,7 @@
 //! `vane_engine::tls::install_default_ticketer` actually wired
 //! `ServerConfig.ticketer` into the listener.
 //!
-//! Spec anchor: `spec/architecture/08-tls.md` § _Session ticket
+//! Spec anchor: `spec/crates/engine-tls.md` § _Session ticket
 //! rotation_.
 
 #![allow(clippy::too_many_lines)]

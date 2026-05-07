@@ -14,7 +14,7 @@
 //! coordination. Mirrors the [`crate::crypto::install_default_provider`]
 //! shape.
 //!
-//! See `spec/architecture/08-tls.md` § _Session ticket rotation_.
+//! See `spec/crates/engine-tls.md` § _Session ticket rotation_.
 
 use std::sync::{Arc, OnceLock};
 

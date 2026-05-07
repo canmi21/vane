@@ -17,7 +17,7 @@
 //!   factory time.
 //!
 //! The `version` field selects the upstream's HTTP version posture.
-//! Permitted values mirror `spec/architecture/09-config.md` § _Rule
+//! Permitted values mirror `spec/crates/core.md` § _Rule
 //! schema_ (`version` row):
 //!
 //! | `version` | TLS upstream                | Cleartext upstream     |
@@ -27,9 +27,9 @@
 //! | `h2`      | ALPN: only `h2`             | h2c (prior knowledge)  |
 //! | `h3`      | ALPN: only `h3` (TLS req'd) | rejected (h3 mandates QUIC TLS) |
 //!
-//! See `spec/architecture/05-terminator.md` § _`HttpProxy`_,
-//! `spec/architecture/07-l7.md` § _H1 / H2 paths_, § _Architecture: TCP / QUIC separation_,
-//! and `spec/architecture/08-tls.md` § _TLS library: rustls only_.
+//! See `spec/crates/engine.md` § _`HttpProxy`_,
+//! `spec/crates/engine.md` § _H1 / H2 paths_, § _Architecture: TCP / QUIC separation_,
+//! and `spec/crates/engine-tls.md` § _TLS library: rustls only_.
 
 use std::sync::Arc;
 
@@ -116,7 +116,7 @@ struct QuicDispatchState {
 
 /// Spec default for the H3 dial half's `connect_timeout` when
 /// `args.connect_timeout` is absent.
-/// `spec/architecture/07-l7.md` § _Timeouts (proposal)_.
+/// `spec/crates/engine.md` § _Timeouts (proposal)_.
 #[cfg(feature = "h3")]
 const H3_CONNECT_TIMEOUT_DEFAULT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -143,14 +143,14 @@ impl L7Fetch for HttpProxyFetch {
 		// one-shot — it collapses retry to a single attempt
 		// regardless of `max_attempts`. `Body::Static` clones via
 		// `Bytes` refcount; `Body::Empty` replays as zero-length
-		// `Bytes`. Per `spec/architecture/05-terminator.md`
+		// `Bytes`. Per `spec/crates/engine.md`
 		// § _Retry buffering_, this is the `opportunistic` rule:
 		// streaming bodies skip retry quietly. `force` buffering is
 		// implemented earlier in the lower pass — by the time the
 		// fetch sees the request, a `force` policy has already
 		// converted the body to `Body::Static`. The TCP and H3 arms
 		// below share this snapshot — their retry semantics are
-		// symmetric per `spec/architecture/07-l7.md` § _Retry policy_.
+		// symmetric per `spec/crates/engine.md` § _Retry policy_.
 		let method_allowed = self.retry.methods.contains(req.method());
 		let replay: Option<Bytes> = match req.body() {
 			Body::Static(b) => Some(b.clone()),
@@ -193,7 +193,7 @@ impl L7Fetch for HttpProxyFetch {
 		for attempt in 1..=max_attempts {
 			let req_attempt =
 				http::Request::from_parts(clone_parts_for_retry(&parts), Body::Static(replay.clone()));
-			// Per `spec/architecture/07-l7.md` § _Error classification_,
+			// Per `spec/crates/engine.md` § _Error classification_,
 			// upstream 4xx/5xx (incl. 503/429) are not retry-eligible —
 			// they are complete responses, and a retry would duplicate
 			// the request. The `Retry-After` header is forwarded to the
@@ -312,7 +312,7 @@ impl HttpProxyFetch {
 	/// acquires the pooled `h3::client::SendRequest` (dialing on miss),
 	/// and runs one request / response round-trip with the response
 	/// body wrapped in `Body::Stream(Box::pin(H3Body::new(...)))` per
-	/// `spec/architecture/07-l7.md` § _Upstream-H3 send path_ +
+	/// `spec/crates/engine.md` § _Upstream-H3 send path_ +
 	/// § _`HttpProxyFetch` commits to streaming response bodies_.
 	#[cfg(feature = "h3")]
 	#[allow(clippy::too_many_lines)]

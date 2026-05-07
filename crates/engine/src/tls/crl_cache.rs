@@ -5,7 +5,7 @@
 //! stable. Wrapper verifiers in [`crate::tls::refreshable_crl_verifier`]
 //! pull the latest snapshot per handshake.
 //!
-//! See `spec/architecture/08-tls.md` § _CRL checking_ — fetch cadence
+//! See `spec/crates/engine-tls.md` § _CRL checking_ — fetch cadence
 //! (adaptive on `nextUpdate`), failure handling (`tolerate` / `reject`),
 //! daemon-wide cache, identity-not-content fingerprint (line 437).
 

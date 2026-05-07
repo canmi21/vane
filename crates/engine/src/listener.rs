@@ -1,8 +1,7 @@
 //! TCP accept loop + bind-retry + cancellation tier + soft drain.
 //!
 //! See `spec/architecture/01-topology.md` § _Listener lifecycle_ /
-//! _Bind_ / _Accept loop_ / _Shutdown_, and `spec/architecture/06-l4.md`.
-//! Features: S1-13, S1-14.
+//! _Bind_ / _Accept loop_ / _Shutdown_, and `spec/crates/engine.md`.
 //!
 //! Shape of the cancellation tier (01-topology.md § _Listener lifecycle_
 //! step 3 — listeners removed):
@@ -49,7 +48,7 @@ const TCP_LISTEN_BACKLOG: u32 = 1024;
 /// Operational knobs for the listener subsystem. All values have
 /// spec-defined defaults (01-topology.md § _Bind_ / _Listener lifecycle_);
 /// operators override via the `VANE_*` env vars documented in
-/// `spec/architecture/09-config.md`.
+/// `spec/crates/core.md`.
 #[derive(Clone, Debug)]
 pub struct BindConfig {
 	/// Bind-retry count per address (`VANE_BIND_MAX_ATTEMPTS`, default 10).

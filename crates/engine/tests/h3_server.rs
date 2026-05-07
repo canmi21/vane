@@ -9,11 +9,11 @@
 //!
 //! Spec anchors:
 //!
-//! * `spec/architecture/06-l4.md` § _UDP socket multiplexing: physical
+//! * `spec/crates/engine.md` § _UDP socket multiplexing: physical
 //!   and virtual_ — the per-listener `quinn::Endpoint` model.
-//! * `spec/architecture/06-l4.md` § _UDP listener semantics_ —
+//! * `spec/crates/engine.md` § _UDP listener semantics_ —
 //!   `Http`-on-UDP listeners terminate H3 over QUIC.
-//! * `spec/architecture/07-l7.md` § _`H3Body` (engine-owned)_ — the
+//! * `spec/crates/engine.md` § _`H3Body` (engine-owned)_ — the
 //!   request-body streaming path that Step 3 wires up.
 
 #![cfg(feature = "h3")]

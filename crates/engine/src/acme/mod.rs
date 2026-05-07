@@ -1,4 +1,4 @@
-//! ACME issuance plumbing per `spec/acme.md`.
+//! ACME issuance plumbing per `spec/crates/engine-acme.md`.
 //!
 //! Daemon-scoped state (accounts, pending challenges, issued certs)
 //! lives in [`registry::ManagedCertRegistry`]; persistence is

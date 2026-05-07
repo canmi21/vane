@@ -8,7 +8,7 @@
 //! entry fires exactly once per session — repeat datagrams from the
 //! same peer take the hot path through the dispatch table.
 //!
-//! Spec: `spec/architecture/06-l4.md` § _`udp_dispatch`_,
+//! Spec: `spec/crates/engine.md` § _`udp_dispatch`_,
 //! § _UDP socket multiplexing_, § _UDP idle timeout is single-authority_.
 
 #![allow(clippy::too_many_lines)]

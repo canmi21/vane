@@ -5,7 +5,7 @@
 //! returns a [`Tunnel::Bidi`] for the executor's
 //! `Terminator::ByteTunnel` arm to drive via
 //! `tokio::io::copy_bidirectional`. The UDP arm follows the cold/hot
-//! path discipline of `spec/architecture/06-l4.md` § _`udp_dispatch`_:
+//! path discipline of `spec/crates/engine.md` § _`udp_dispatch`_:
 //! the listener delivers the first datagram via the cold path; the
 //! fetch binds an ephemeral upstream socket, sends the first packet,
 //! registers a session in the listener-owned dispatch table, and
@@ -13,7 +13,7 @@
 //! the same peer hit the dispatch table and stream through the
 //! forwarder without re-entering the `FlowGraph`.
 //!
-//! See `spec/architecture/06-l4.md` § _`l4_forward`_ +
+//! See `spec/crates/engine.md` § _`l4_forward`_ +
 //! § _UDP idle timeout is single-authority_.
 
 use std::net::SocketAddr;
@@ -193,7 +193,7 @@ impl L4ForwardFetch {
 /// signal wins races against in-flight datagrams.
 ///
 /// `idle_timeout` is the single authority for session lifetime per
-/// `spec/architecture/06-l4.md` § _UDP idle timeout is
+/// `spec/crates/engine.md` § _UDP idle timeout is
 /// single-authority_. The timer is reset on every datagram in either
 /// direction; it fires only when the session has been quiet for the
 /// configured duration.

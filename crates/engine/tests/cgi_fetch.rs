@@ -13,7 +13,7 @@
 //! decoder) keeps the tests focused on the CGI path: env construction,
 //! header parsing, exit-code mapping, stderr-to-tracing, etc.
 //!
-//! Spec anchor: `spec/architecture/15-cgi.md`.
+//! Spec anchor: `spec/crates/engine.md`.
 
 #![allow(clippy::too_many_lines)]
 

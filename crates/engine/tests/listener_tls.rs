@@ -9,13 +9,13 @@
 //!
 //! Spec anchors:
 //!
-//! * `spec/architecture/08-tls.md` § _TLS termination (L4 → L7 upgrade)_ —
+//! * `spec/crates/engine-tls.md` § _TLS termination (L4 → L7 upgrade)_ —
 //!   the listener wraps the accepted `TcpStream` in a server-side rustls
 //!   handshake before dispatching `L4Conn::Tls(Box<dyn AsyncReadWrite>)`.
-//! * `spec/architecture/08-tls.md` § _Certificate resolver_ — multi-cert
+//! * `spec/crates/engine-tls.md` § _Certificate resolver_ — multi-cert
 //!   listeners pick by SNI (lowercased) with the sni-less default cert
 //!   as the fallback.
-//! * `spec/architecture/08-tls.md` § _ALPN_ — server advertises
+//! * `spec/crates/engine-tls.md` § _ALPN_ — server advertises
 //!   `["h2", "http/1.1"]`; the executor's Upgrade arm dispatches to the
 //!   matching driver.
 

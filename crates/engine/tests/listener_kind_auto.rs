@@ -13,7 +13,7 @@
 //! * Http + cleartext → reject (connection closed without app bytes).
 //! * Raw + any prefix → L4 subgraph (byte passthrough).
 //!
-//! Spec anchor: `spec/architecture/06-l4.md` § _Listener kind
+//! Spec anchor: `spec/crates/engine.md` § _Listener kind
 //! derivation_ + § _Dispatch decision table_.
 
 #![allow(clippy::too_many_lines)]

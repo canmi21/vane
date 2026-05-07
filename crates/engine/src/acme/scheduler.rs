@@ -1,4 +1,4 @@
-//! Renewal scheduler types + decision logic per `spec/acme.md`
+//! Renewal scheduler types + decision logic per `spec/crates/engine-acme.md`
 //! § _Renewal triggers_ and § _Rate-limit and failure handling_.
 //!
 //! Three pieces:
@@ -148,7 +148,7 @@ pub struct RenewalPlan {
 	pub job: RenewalJob,
 }
 
-/// Periodic scheduler cadence per `spec/acme.md`
+/// Periodic scheduler cadence per `spec/crates/engine-acme.md`
 /// § _Renewal triggers § Periodic timer_. Matches `08-tls.md`'s
 /// `refresh()` cadence so cert delivery and renewal share one
 /// heartbeat.
@@ -163,7 +163,7 @@ pub const TICK_INTERVAL: Duration = Duration::from_mins(5);
 pub const OCSP_REFRESH_BEFORE: Duration = Duration::from_hours(24);
 
 /// Backoff base — first failure waits this long before retry. Per
-/// `spec/acme.md` § _Rate-limit and failure handling_.
+/// `spec/crates/engine-acme.md` § _Rate-limit and failure handling_.
 pub const BACKOFF_BASE: Duration = Duration::from_mins(30);
 
 /// Backoff cap — never wait longer than this between attempts. Per
@@ -238,7 +238,7 @@ pub fn mark_renewing(state: &mut CertState, now: SystemTime) {
 
 /// Pure-decision: should the scheduler dispatch an OCSP refresh for
 /// `state` at `now`? Two trigger conditions per
-/// `spec/acme.md` § _OCSP stapling_:
+/// `spec/crates/engine-acme.md` § _OCSP stapling_:
 ///
 /// - `state.stored.is_some()` AND no staple has been cached yet
 ///   (`ocsp_response.is_none()`) AND a responder URL is known
