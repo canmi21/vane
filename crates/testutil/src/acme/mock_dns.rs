@@ -29,7 +29,7 @@ use hickory_server::server::{Request, RequestHandler, ResponseHandler, ResponseI
 use hickory_server::zone_handler::MessageResponseBuilder;
 use parking_lot::Mutex;
 use thiserror::Error;
-use tokio::net::UdpSocket;
+use tokio::net::{TcpListener, UdpSocket};
 use vane_engine::acme::{DnsProvider, DnsProviderError};
 
 /// In-process mock DNS authority. Drop the value to stop the
@@ -52,25 +52,48 @@ pub enum MockDnsError {
 }
 
 impl MockDns {
-	/// Bind a UDP socket on `127.0.0.1:0`, register a hickory
+	/// Bind a UDP socket on `0.0.0.0:0`, register a hickory
 	/// `Server` against an empty zone store, and return the
 	/// fixture handle.
+	///
+	/// Binds on the unspecified address so that integration
+	/// fixtures running outside the test process (e.g. Pebble in
+	/// a Docker container reaching the host via
+	/// `host.docker.internal`) can route to the server. Local
+	/// in-process queries still hit `127.0.0.1` via [`Self::addr`].
 	///
 	/// # Errors
 	///
 	/// `MockDnsError::Bind` when the kernel refuses the ephemeral
 	/// bind (effectively never on a healthy system).
 	pub async fn start() -> Result<Self, MockDnsError> {
-		let socket = UdpSocket::bind("127.0.0.1:0").await?;
-		let addr = socket.local_addr()?;
+		// Bind UDP first so we can pin the chosen ephemeral port,
+		// then bind a matching TCP listener on the same port. Some
+		// resolvers (Pebble's miekg/dns when configured with
+		// `-dnsserver host:port`) try TCP first / fall back to TCP
+		// on UDP truncation; serving both keeps the fixture
+		// resolver-agnostic.
+		let udp = UdpSocket::bind("0.0.0.0:0").await?;
+		let port = udp.local_addr()?.port();
+		let tcp = TcpListener::bind(("0.0.0.0", port)).await?;
+		// Surface a connect-friendly address — `0.0.0.0:<port>`
+		// from `local_addr` is a wildcard bind and not a valid
+		// destination.
+		let addr = SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
 		let zone_store = Arc::new(Mutex::new(ZoneStore::default()));
 		let handler = MockDnsHandler { zone_store: Arc::clone(&zone_store) };
 		let mut server = Server::new(handler);
-		server.register_socket(socket);
+		server.register_socket(udp);
+		// 5 s TCP read timeout / 64 KiB response buffer — generous
+		// enough for any TXT response we might emit.
+		server.register_listener(tcp, Duration::from_secs(5), 64 * 1024);
 		Ok(Self { addr, zone_store, _server: server })
 	}
 
-	/// Address the server is listening on.
+	/// Connect-friendly address (`127.0.0.1:<port>`). Pass this
+	/// to local resolvers; remote consumers (Pebble) need
+	/// `host.docker.internal:<port>` — see
+	/// [`super::Pebble::start_with_dns_resolver`].
 	#[must_use]
 	pub fn addr(&self) -> SocketAddr {
 		self.addr

@@ -61,9 +61,9 @@ test-group = "wasm-e2e-serial"
 # The Pebble-backed ACME e2e tests pull a Docker image on first
 # run (~10s on a fresh box) and exercise the full RFC 8555 round
 # trip; their wall-clock comfortably exceeds the workspace
-# slow-timeout. Bump the per-test budget and serialise so the two
+# slow-timeout. Bump the per-test budget and serialise so the
 # tests don't race for the same Docker daemon's container slots.
 [[profile.default.overrides]]
-filter = "binary(acme_http01_e2e)"
+filter = "binary(acme_http01_e2e) | binary(acme_dns01_e2e)"
 test-group = "acme-e2e-serial"
 slow-timeout = { period = "30s", terminate-after = 4 }

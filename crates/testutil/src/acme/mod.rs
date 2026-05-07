@@ -33,9 +33,10 @@ pub mod mock_dns;
 
 pub use mock_dns::{MockDns, MockDnsError};
 
+use std::net::SocketAddr;
 use std::time::Duration;
 
-use testcontainers::core::{IntoContainerPort, WaitFor};
+use testcontainers::core::{Host, IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use thiserror::Error;
@@ -99,6 +100,26 @@ impl Pebble {
 	/// As above. Returns owned strings rather than borrowed
 	/// references so tests can hold the URLs across `await`s.
 	pub async fn start() -> Result<Self, PebbleStartError> {
+		Self::start_inner(None).await
+	}
+
+	/// Variant of [`Self::start`] that points Pebble's validation
+	/// authority at a custom DNS resolver (typically
+	/// [`super::MockDns::addr`]). The container reaches host's
+	/// `host.docker.internal:<port>` for both macOS Docker
+	/// Desktop (built-in) and Linux (via `host-gateway`).
+	///
+	/// Pebble runs without `PEBBLE_VA_ALWAYS_VALID` so the
+	/// validator actually queries the configured DNS server —
+	/// that's the whole point of pointing it at [`super::MockDns`].
+	///
+	/// # Errors
+	/// As [`Self::start`].
+	pub async fn start_with_dns_resolver(dns_addr: SocketAddr) -> Result<Self, PebbleStartError> {
+		Self::start_inner(Some(dns_addr)).await
+	}
+
+	async fn start_inner(dns_resolver: Option<SocketAddr>) -> Result<Self, PebbleStartError> {
 		// Pebble logs the "ACME directory available at" line to stdout
 		// after binding both the directory and management endpoints,
 		// so it's the right ready signal for the testcontainers
@@ -108,13 +129,29 @@ impl Pebble {
 			.with_exposed_port(MGMT_PORT.tcp())
 			.with_wait_for(WaitFor::message_on_stdout("ACME directory available at"));
 
-		let container = image
-			.with_env_var("PEBBLE_VA_ALWAYS_VALID", "1")
-			.with_env_var("PEBBLE_VA_NOSLEEP", "1")
-			.with_env_var("PEBBLE_AUTHZREUSE", "100")
-			.start()
-			.await
-			.map_err(|e| classify_container_error(&e))?;
+		let mut req =
+			image.with_env_var("PEBBLE_VA_NOSLEEP", "1").with_env_var("PEBBLE_AUTHZREUSE", "100");
+		match dns_resolver {
+			None => {
+				// `VA_ALWAYS_VALID` mode skips the actual challenge
+				// fetch — the http-01 e2e doesn't need to route
+				// validator traffic anywhere, so this is fine.
+				req = req.with_env_var("PEBBLE_VA_ALWAYS_VALID", "1");
+			}
+			Some(addr) => {
+				// DNS-01 mode: tell Pebble's `pebble` binary to
+				// resolve via host-side `host.docker.internal:<port>`.
+				// Add the gateway alias so Linux containers can
+				// route to host (macOS Docker Desktop already
+				// provides the alias automatically; the explicit
+				// gateway entry is harmless there).
+				req = req
+					.with_host("host.docker.internal", Host::HostGateway)
+					.with_cmd(vec!["-dnsserver".to_owned(), format!("host.docker.internal:{}", addr.port())]);
+			}
+		}
+
+		let container = req.start().await.map_err(|e| classify_container_error(&e))?;
 
 		// Force IPv4 in the URLs — testcontainers' `get_host` may
 		// return "localhost", which resolves to `::1` first on
