@@ -1,19 +1,19 @@
-# WASM ABI
+# WASM plugin ABI
 
-Authoritative wire contract between `vaned` and external WASM plugins. This file is the single source of truth for the WIT shape, host-function surface, error model, and lifecycle obligations that plugin authors depend on. Adding a field, renaming a record, or changing a function signature is an ABI change and follows the versioning rules below.
+Authoritative wire contract between `vaned` and external WASM plugins. This document is the single source of truth for the WIT shape, host-function surface, error model, and lifecycle obligations that plugin authors depend on.
 
-Runtime behavior, instance pool model, observability, dedup, and policy concerns live in [`architecture/11-wasm.md`](architecture/11-wasm.md). This file specifies _only_ the contract.
+Runtime behavior, instance pool model, observability, dedup, and policy concerns live in [`crates/engine-wasm.md`](crates/engine-wasm.md). This file specifies the contract.
 
 ## Versioning
 
-- Package: `vane:plugin@<major>.<minor>.<patch>`. Stage 3 ships `vane:plugin@0.1.0`.
+- Package: `vane:plugin@<major>.<minor>.<patch>`. Current: `vane:plugin@0.1.0`.
 - Plugins declare the package version they target via `metadata.abi-version`. The host rejects loading any component whose `abi-version` major differs from the host's.
 - **Additive minor bump** (host accepts plugins built against the previous minor): adding optional record fields, adding `context-value` variants, adding host functions, widening accepted `on-error-hint` values.
 - **Major bump** (recompilation required): renaming or removing fields, narrowing variants, changing function signatures, tightening trap conditions.
 
 ## World
 
-A plugin's world imports the host interface and exports `registry` plus zero-or-more kind-specific handler interfaces — exactly the kinds the plugin implements.
+A plugin's world imports the host interface and exports `registry` plus zero or more kind-specific handler interfaces — exactly the kinds the plugin implements.
 
 ```wit
 // jwt-validator.wit (plugin author writes this)
@@ -68,8 +68,8 @@ interface types {
         // Path grammar: see § Context exposure.
         inspects: list<string>,
 
-        // Reserved for future streaming-body extension. Must be false in
-        // 0.1.0; the host rejects components whose any export sets this true.
+        // Reserved for forward compatibility. Must be false in 0.1.0;
+        // the host rejects components whose any export sets this true.
         needs-streaming-body: bool,
     }
 
@@ -95,7 +95,7 @@ The host rejects load if:
 
 ## Per-kind handlers
 
-One interface per `middleware-kind`. A plugin exports only the interfaces matching the kinds it implements. Within an interface, `handle` takes a `name` parameter selecting which export within that kind handles the call — this lets a single component export multiple middlewares of the same kind (e.g. two distinct l7-request validators).
+One interface per `middleware-kind`. A plugin exports only the interfaces matching the kinds it implements. Within an interface, `handle` takes a `name` parameter selecting which export within that kind handles the call — this lets a single component export multiple middlewares of the same kind.
 
 ### `handler-l4-peek`
 
@@ -181,7 +181,7 @@ interface handler-l7-request {
 }
 ```
 
-`l7-request-decision` deliberately lacks any "route to node X" variant. Plugins decide; the FlowGraph routes. This keeps plugin reasoning local to its own input.
+`l7-request-decision` deliberately lacks any "route to node X" variant. Plugins decide; the FlowGraph routes. Plugin reasoning stays local to its own input.
 
 ### `handler-l7-response`
 
@@ -219,17 +219,17 @@ interface handler-l7-response {
 
 ## Args delivery
 
-Per-rule plugin args (the `args` JSON in rule config) are delivered **once per instance lifetime**, not on every call. The plugin retrieves them via the host import:
+Per-rule plugin args (the `args` JSON in rule config) are delivered once per instance lifetime, not on every call. The plugin retrieves them via the host import:
 
 ```wit
 get-args: func() -> string;
 ```
 
 - The returned string is always JSON; minimum value is `"{}"`.
-- Values are stable for the instance's entire lifetime: stateless pool instances see the args of whichever rule rented them (since stateless dedup is `(module_id, export_name, args_canonical_json)`, all rentals through one `MiddlewareId` share one args value); stateful pool instances see the args of the call site they belong to.
+- Values are stable for the instance's lifetime: stateless pool instances see the args of whichever rule rented them (since stateless dedup is keyed on `(module_id, export_name, args_canonical_json)`, all rentals through one `MiddlewareId` share one args value); stateful pool instances see the args of the call site they belong to.
 - Re-reading `get-args` returns the same value. Plugins typically cache + parse it once during construction.
 
-Rationale: args are configuration, not request data. Per-call repetition wastes serialization on every invocation.
+Args are configuration, not request data. Per-call repetition would waste serialization on every invocation.
 
 ## Body model
 
@@ -243,9 +243,9 @@ record bytes-view {
 - `data` carries up to the kind's body limit. Defaults: 1 MiB request, 1 MiB response, 64 KiB l4-bytes. Per-plugin override via plugin config.
 - `truncated: true` means the actual body exceeded the limit; `data` holds the prefix.
 - The plugin chooses fail-closed (return `plugin-error`) or proceed-with-prefix based on `truncated`.
-- `body: option<bytes-view>` is `none` whenever `metadata.exports[].needs-body = false` — plugins that did not declare body need do not see body data.
+- `body: option<bytes-view>` is `none` whenever the export's `needs-body = false` — plugins that did not declare body need do not see body data.
 
-Streaming bodies are not supported in 0.1.0. The `needs-streaming-body` reserved field on `middleware-export` is the forward-compatibility hook; setting it true today causes load rejection.
+Streaming bodies are not supported in 0.1.0. The `needs-streaming-body` reserved field is the forward-compatibility hook; setting it true today causes load rejection.
 
 ## Headers
 
@@ -261,7 +261,7 @@ record header {
 - Inbound headers (in `*-input`) have names lowercased by the host.
 - Multiple headers with the same name preserve their wire order in the list.
 - Outbound headers (in `synth-response`, `modified-response`) need not be lowercased; the host normalizes before emission.
-- Header values containing CR, LF, or null bytes in plugin output trap (see § Trap conditions).
+- Header values containing CR, LF, or null bytes in plugin output trap (see § _Trap conditions_).
 
 ## Context exposure
 
@@ -283,11 +283,9 @@ variant context-value {
 }
 ```
 
-**Capability semantics**: the host packs **only** paths declared in `inspects`. Reading any other field is impossible — the data is not delivered. Path declarations are validated at plugin load: unknown paths cause load rejection. This makes `inspects` a real capability declaration and lets FlowGraph compile-time analysis (LazyBuffer activation, predicate sharing, mTLS gating) be sound.
+The host packs only paths declared in `inspects`. Reading any other field is impossible — the data is not delivered. Path declarations are validated at plugin load: unknown paths cause load rejection. This makes `inspects` a real capability declaration and lets FlowGraph compile-time analysis (LazyBuffer activation, predicate sharing, mTLS gating) be sound.
 
-### Path grammar
-
-Connection-level paths:
+### Path grammar — connection-level
 
 | Path                                    | `context-value` | Notes                                                              |
 | --------------------------------------- | --------------- | ------------------------------------------------------------------ |
@@ -310,11 +308,9 @@ Connection-level paths:
 | `conn.tls.peer_cert.issuer_cn`          | `text`          |                                                                    |
 | `conn.tls.peer_cert.serial`             | `text`          | Hex (lowercase). Big-endian, no leading-zero stripping.            |
 
-Request / response paths are also declarable; declare them only when the middleware needs the value via the `context` channel (e.g. for predicate-style sharing) rather than reading the corresponding field on `*-input`. The path table mirrors `architecture/18-predicate-schema.md`.
+Request / response paths are also declarable; declare them only when the middleware needs the value via the `context` channel (e.g. for predicate-style sharing) rather than reading the corresponding field on `*-input`. The path table mirrors the predicate field-path grammar in [`crates/core.md` § _Predicate_](crates/core.md#predicate).
 
-The `inspects` mechanism replaces ad-hoc per-call ConnContext arguments and is the only way a plugin learns connection metadata.
-
-## plugin-error
+## `plugin-error`
 
 ```wit
 record plugin-error {
@@ -329,15 +325,15 @@ record plugin-error {
 
 `on-error-hint` interpretation:
 
-| Value           | Meaning                                                                                                               |
-| --------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `none`          | Default. Use the rule's `on_error` config (see `architecture/04-middleware.md` § _Two error channels_).               |
-| `"force-close"` | Ignore `on_error`; close connection (L4) or send 500 + close (L7). Reserved for unrecoverable plugin-internal errors. |
-| `"internal"`    | Treat as internal anomaly: log + emit metric + apply `on_error` tombstone. Routine errors should not use this.        |
+| Value           | Meaning                                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `none`          | Default. Use the rule's `on_error` config (see [`flow-model.md` § _Two error channels_](flow-model.md#two-error-channels)). |
+| `"force-close"` | Ignore `on_error`; close connection (L4) or send 500 + close (L7). Reserved for unrecoverable plugin-internal errors.       |
+| `"internal"`    | Treat as internal anomaly: log + emit metric + apply `on_error` tombstone. Routine errors should not use this.              |
 
 Other hint values trap (treated as malformed plugin output).
 
-`plugin-error` is distinct from a trap. Returning `plugin-error` is an in-band, plugin-designed outcome and does not surface as a wasmtime trap. See `architecture/11-wasm.md` § _Trap and error handling_ for the dual-channel semantics.
+`plugin-error` is distinct from a trap. Returning `plugin-error` is an in-band, plugin-designed outcome and does not surface as a wasmtime trap. See [`crates/engine-wasm.md` § _Trap and error handling_](crates/engine-wasm.md#trap-and-error-handling) for the dual-channel semantics.
 
 ## Host functions
 
@@ -349,11 +345,7 @@ package vane:plugin@0.1.0;
 interface host {
     use types.{plugin-error};
 
-    // -- args -----------------------------------------------------------
-
     get-args: func() -> string;
-
-    // -- logging --------------------------------------------------------
 
     enum log-level { trace, debug, info, warn, error }
 
@@ -366,12 +358,8 @@ interface host {
 
     log: func(level: log-level, message: string, fields: list<log-field>);
 
-    // -- time / random --------------------------------------------------
-
     now-unix-ms: func() -> u64;
     random:      func(buf-len: u32) -> list<u8>;
-
-    // -- metrics --------------------------------------------------------
 
     record metric-label {
         key: string,
@@ -384,13 +372,9 @@ interface host {
     metric-counter: func(name: string, delta: u64, labels: list<metric-label>);
     metric-gauge:   func(name: string, value: s64, labels: list<metric-label>);
 
-    // -- http-fetch -----------------------------------------------------
-
     record http-fetch-request {
-        // Upper-case ASCII.
-        method: string,
-        // Absolute URI per RFC 3986.
-        url: string,
+        method: string,                              // upper-case ASCII
+        url: string,                                 // absolute URI per RFC 3986
         headers: list<tuple<string, string>>,
         body: list<u8>,
         // Per-call timeout. Falls back to plugin config default,
@@ -427,20 +411,20 @@ interface host {
 }
 ```
 
-`http-fetch` shares the daemon's `TcpPool` (same fingerprint, same observability) via the `HttpFetchBackend` trait declared in `vane-core`. Policy detail (allowed_hosts default, default ClientConfig, mTLS overrides) lives in `architecture/11-wasm.md`.
+`http-fetch` shares the daemon's `TcpPool` (same fingerprint, same observability) via the `HttpFetchBackend` trait declared in `vane-core`. Policy detail (allowed_hosts default, default ClientConfig, mTLS overrides) lives in [`crates/engine-wasm.md` § _http-fetch policy_](crates/engine-wasm.md#http-fetch-policy).
 
 ## Module identity and reload
 
-`module_id` is the **canonical absolute filesystem path** of the `.wasm` file (e.g. `/etc/vaned/wasm/jwt-validator.wasm`).
+`module_id` is the canonical absolute filesystem path of the `.wasm` file (e.g. `/etc/vaned/wasm/jwt-validator.wasm`).
 
 On hot reload of a path:
 
-1. Compute content hash; deserialize or compile per `architecture/11-wasm.md` § _Boot_.
+1. Compute content hash; deserialize or compile per [`crates/engine-wasm.md` § _Boot_](crates/engine-wasm.md#boot).
 2. Invoke `registry.get-metadata()` on the new component.
 3. Compare new metadata to cached for that `module_id`:
-   - If `(kind, stateless, needs-body, inspects)` matches per export _and_ the export-name set is identical — **module-only swap**. The FlowGraph is not recompiled; the `MiddlewareInst::Wasm` continues to refer to `module_id`, and instances rented after the swap construct against the new component.
-   - Otherwise — **metadata-changed reload**. Triggers a full FlowGraph recompile.
-4. `metadata.name` and `metadata.version` changes alone do not affect routing; they only annotate metric and log labels.
+   - If `(kind, stateless, needs-body, inspects)` matches per export _and_ the export-name set is identical — module-only swap. The FlowGraph is not recompiled; the `MiddlewareInst::Wasm` continues to refer to `module_id`, and instances rented after the swap construct against the new component.
+   - Otherwise — metadata-changed reload. Triggers full FlowGraph recompile.
+4. `metadata.name` and `metadata.version` changes alone do not affect routing — they only annotate metric and log labels.
 
 Renaming or moving a `.wasm` file is treated as deletion + addition: the old `module_id` drops with its FlowGraph generation; the new one compiles into the next graph generation.
 
@@ -448,11 +432,16 @@ Renaming or moving a `.wasm` file is treated as deletion + addition: the old `mo
 
 The ABI does not propagate cancellation signals. Plugin invocations run to completion or hit the per-call epoch deadline (default 10 ms; configurable per plugin). Client disconnect mid-invocation is not signaled to the plugin; the plugin's eventual return is discarded by the host.
 
-Rationale: the 10 ms ceiling makes proactive cancellation a marginal optimization. A future minor ABI version may add `host.is-cancelled() -> bool` if profiling justifies it.
+The 10 ms ceiling makes proactive cancellation a marginal optimization.
+
+```wit
+// TODO(host-is-cancelled): a future minor ABI version may add
+// `host.is-cancelled() -> bool` if profiling justifies it.
+```
 
 ## Epoch tick frequency
 
-The host increments the wasmtime engine's epoch counter every **1 ms**. Combined with the default 10 ms per-call deadline, plugin invocations are preempted within `10 ms ± 1 ms`. Tick frequency is fixed (not configurable per plugin) so host-side overhead stays constant regardless of plugin count.
+The host increments the wasmtime engine's epoch counter every 1 ms. Combined with the default 10 ms per-call deadline, plugin invocations are preempted within `10 ms ± 1 ms`. Tick frequency is fixed (not configurable per plugin) so host-side overhead stays constant regardless of plugin count.
 
 ## Forward-compatibility hooks
 
@@ -464,7 +453,7 @@ Reserved fields and values, intentionally unused in 0.1.0, that future minor ver
 
 ## Trap conditions
 
-Conditions that trap (the host's `bindgen!` shim returns `Err` to the engine, treated as internal anomaly per `architecture/11-wasm.md` § _Trap and error handling_):
+Conditions that trap (the host's `bindgen!` shim returns `Err` to the engine, treated as internal anomaly per [`crates/engine-wasm.md` § _Trap and error handling_](crates/engine-wasm.md#trap-and-error-handling)):
 
 - Returning a `plugin-error.on-error-hint` value not in `{none, "force-close", "internal"}`.
 - Returning a `synth-response`, `modified-response`, or `header` whose `name` or `value` contains CR, LF, or null bytes.
