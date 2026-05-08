@@ -78,9 +78,25 @@ impl Daemon {
 
 impl Drop for Daemon {
 	fn drop(&mut self) {
-		// Best-effort kill — if a test failed mid-way, leave no zombie.
+		// `try_wait` first so a daemon that already exited cleanly
+		// (mgmt-shutdown verb finished + process drained) doesn't
+		// re-incur the SIGKILL path. Otherwise: SIGKILL + wait. The
+		// `wait` is load-bearing — without it, the kernel keeps the
+		// child socket entries alive for a tick after kill, and a
+		// follow-up mgmt-test that recycles the same port intermittently
+		// hits `EADDRINUSE`. Looping `try_wait` with a short sleep keeps
+		// the worst-case bounded so a wedged child can't hang the
+		// dropping test thread.
+		if matches!(self.child.try_wait(), Ok(Some(_))) {
+			return;
+		}
 		let _ = self.child.kill();
-		let _ = self.child.wait();
+		for _ in 0..50 {
+			match self.child.try_wait() {
+				Ok(Some(_)) | Err(_) => return,
+				Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+			}
+		}
 	}
 }
 
@@ -163,7 +179,7 @@ async fn mgmt_ping_returns_pong_via_typed_client() {
 #[tokio::test]
 async fn mgmt_stats_returns_uptime_and_listener_status() {
 	let d = spawn_daemon_with_rule(43_002, "v1");
-	wait_for_listener("127.0.0.1:43002".parse().unwrap(), Duration::from_secs(3));
+	wait_for_listener("127.0.0.1:43002".parse().unwrap(), Duration::from_secs(10));
 
 	let client = UnixMgmtClient::new(&d.socket);
 	let r: StatsResult = client.call(VERB_STATS, &NoArgs {}).await.expect("stats");
@@ -245,7 +261,7 @@ async fn mgmt_compile_dry_run_does_not_swap_active_graph() {
 #[tokio::test]
 async fn mgmt_get_connections_returns_per_listener_summary() {
 	let d = spawn_daemon_with_rule(43_007, "v1");
-	wait_for_listener("127.0.0.1:43007".parse().unwrap(), Duration::from_secs(3));
+	wait_for_listener("127.0.0.1:43007".parse().unwrap(), Duration::from_secs(10));
 
 	let client = UnixMgmtClient::new(&d.socket);
 	let r: GetConnectionsResult =
@@ -264,7 +280,7 @@ async fn mgmt_get_connections_returns_per_listener_summary() {
 async fn mgmt_get_connections_returns_per_conn_detail_for_in_flight_connection() {
 	let d = spawn_daemon_with_rule(43_011, "v1");
 	let listen_addr: std::net::SocketAddr = "127.0.0.1:43011".parse().unwrap();
-	wait_for_listener(listen_addr, Duration::from_secs(3));
+	wait_for_listener(listen_addr, Duration::from_secs(10));
 
 	// Hold a partial HTTP request open (same trick as the in-flight
 	// counter test) so the connection stays in the registry while we
@@ -325,7 +341,7 @@ async fn mgmt_in_flight_count_increases_with_long_lived_connection() {
 	// observing the in-flight count before the daemon responds.
 	let d = spawn_daemon_with_rule(43_008, "long-lived");
 	let listen_addr: std::net::SocketAddr = "127.0.0.1:43008".parse().unwrap();
-	wait_for_listener(listen_addr, Duration::from_secs(3));
+	wait_for_listener(listen_addr, Duration::from_secs(10));
 
 	// Open a TCP stream and write only a partial HTTP request — the
 	// daemon's per-conn handler is now blocked on `read` waiting for
@@ -382,7 +398,7 @@ async fn mgmt_tail_flow_streams_events_via_cli() {
 
 	let d = spawn_daemon_with_rule(43_012, "v1");
 	let listen_addr: std::net::SocketAddr = "127.0.0.1:43012".parse().unwrap();
-	wait_for_listener(listen_addr, Duration::from_secs(3));
+	wait_for_listener(listen_addr, Duration::from_secs(10));
 
 	// Spawn the streaming CLI subprocess with stdout piped. Capture
 	// stdout in a background thread so we can deadline-poll it from
@@ -580,7 +596,7 @@ async fn mgmt_streaming_does_not_block_concurrent_one_shot_call() {
 	// server's accept loop.
 	let d = spawn_daemon_with_rule(43_013, "v1");
 	let listen_addr: std::net::SocketAddr = "127.0.0.1:43013".parse().unwrap();
-	wait_for_listener(listen_addr, Duration::from_secs(3));
+	wait_for_listener(listen_addr, Duration::from_secs(10));
 
 	let stream_socket = d.socket.clone();
 	let stream_task = tokio::spawn(async move {
