@@ -9,7 +9,7 @@ on:
       - "crates/engine/src/tls/populator.rs"
       - "crates/engine/tests/acme_*.rs"
       - "crates/testutil/src/acme/**"
-      - ".github/workflows/acme.yml"
+      - ".github/workflows/pebble.yml"
   pull_request:
     branches: [main]
     paths:
@@ -17,7 +17,7 @@ on:
       - "crates/engine/src/tls/populator.rs"
       - "crates/engine/tests/acme_*.rs"
       - "crates/testutil/src/acme/**"
-      - ".github/workflows/acme.yml"
+      - ".github/workflows/pebble.yml"
 
 permissions:
   contents: read
