@@ -8,7 +8,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "Build OCSP requests, parse OCSP responses, and extract OCSP responder URLs from a certificate's AIA extension. Optional async HTTP fetch via hyper."
+description = "Build OCSP requests, parse responses, and extract responder URLs from a certificate's AIA extension."
 
 [lints]
 workspace = true

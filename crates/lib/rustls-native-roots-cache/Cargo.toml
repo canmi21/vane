@@ -8,7 +8,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "Process-wide cache for rustls's native trust store, with bounded retry on macOS Security framework transient errors and sticky failure semantics."
+description = "Process-wide cache for rustls's native trust store, with platform-aware retry and sticky-failure semantics."
 
 [lints]
 workspace = true

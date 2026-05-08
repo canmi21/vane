@@ -8,7 +8,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "Wire-protocol classifier for TCP / TLS streams: feed connection-prefix bytes, get back TLS ClientHello / HTTP/2 preface / HTTP/1 / Unknown — with NeedMore for not-yet-decisive prefixes."
+description = "Classify a TCP stream's first bytes as TLS / HTTP/2 / HTTP/1 / unknown."
 
 [lints]
 workspace = true

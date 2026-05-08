@@ -8,7 +8,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "An AsyncRead+AsyncWrite adapter that prepends a previously-peeked byte buffer to the read side of a stream while passing writes through unchanged."
+description = "Replay a peeked byte buffer back onto the read side of an AsyncRead+AsyncWrite stream."
 
 [lints]
 workspace = true

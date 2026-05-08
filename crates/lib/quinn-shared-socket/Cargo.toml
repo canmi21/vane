@@ -8,7 +8,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "Run a quinn::Endpoint on a UDP socket that is shared with other consumers, by adapting virtual-socket's VirtualUdpSocket to quinn::AsyncUdpSocket."
+description = "Run a quinn::Endpoint on a UDP socket shared with other consumers."
 
 [lints]
 workspace = true

@@ -8,7 +8,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "In-process mock OCSP responder for integration tests. Spawns a hyper HTTP/1.1 server that answers OCSP requests with configurable Good / Revoked / TryLater statuses."
+description = "In-process mock OCSP responder for integration tests, with configurable Good / Revoked / TryLater statuses."
 
 [lints]
 workspace = true
