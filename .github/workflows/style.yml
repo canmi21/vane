@@ -12,17 +12,17 @@ concurrency:
 
 jobs:
   style:
-    name: rustfmt + dprint + spec anchors
+    name: style
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install rust toolchain
+      - name: Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false
 
-      - name: cargo fmt --all -- --check
+      - name: Format
         run: cargo fmt --all -- --check
 
       - name: Install dprint
@@ -30,8 +30,8 @@ jobs:
         with:
           tool: dprint
 
-      - name: dprint check
+      - name: Prose
         run: dprint check
 
-      - name: spec anchor check
+      - name: Anchors
         run: perl scripts/check_spec_anchors.pl

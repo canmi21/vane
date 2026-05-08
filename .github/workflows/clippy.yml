@@ -12,20 +12,20 @@ concurrency:
 
 jobs:
   clippy:
-    name: clippy --all-targets -D warnings
+    name: clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install rust toolchain
+      - name: Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false
 
-      - name: Cache cargo registry and target
+      - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: clippy
 
-      - name: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
