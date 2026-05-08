@@ -178,8 +178,7 @@ async fn hyper_backend_arc_constructor_succeeds() {
 	let _: Arc<dyn HttpFetchBackend> = backend;
 }
 
-// ─── redirect-follow ────────────────────────────────────────────────────
-
+// redirect-follow
 fn redirect_request(from: &str, to: &str, status: u16) -> HttpFetchRequest {
 	HttpFetchRequest {
 		method: "POST".to_string(),
@@ -264,8 +263,7 @@ async fn hyper_backend_resolves_relative_location_against_base_url() {
 	assert_eq!(resp.status, 200);
 }
 
-// ─── insecure-TLS upstream ──────────────────────────────────────────────
-
+// insecure-TLS upstream
 struct TlsUpstream {
 	addr: SocketAddr,
 	_cert_keep: NamedTempFile,

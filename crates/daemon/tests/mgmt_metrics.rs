@@ -14,8 +14,7 @@ use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{GetMetricsArgs, GetMetricsResult, VERB_GET_METRICS};
 use vane_mgmt::{MgmtClientError, WireErrorKind};
 
-// ── helpers ──────────────────────────────────────────────────────────────
-
+// helpers
 struct Daemon {
 	child: std::process::Child,
 	socket: PathBuf,
@@ -92,8 +91,7 @@ fn wait_for_listener(addr: std::net::SocketAddr, timeout: Duration) {
 	panic!("listener {addr} did not bind within {timeout:?}");
 }
 
-// ── tests ─────────────────────────────────────────────────────────────────
-
+// tests
 #[tokio::test]
 async fn get_metrics_default_format_returns_prometheus_text() {
 	let tmp = tempfile::tempdir().expect("tempdir");

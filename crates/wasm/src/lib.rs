@@ -3124,8 +3124,7 @@ mod tests {
 		);
 	}
 
-	// ─── metric host fn validation ──────────────────────────────────────────────
-
+	// metric host fn validation
 	fn test_state_with_cap(cap: usize) -> HostState {
 		HostState::new(
 			String::new(),
@@ -3195,8 +3194,7 @@ mod tests {
 		assert_eq!(state.cardinality.series_count_for_test(&state.module_id), 1);
 	}
 
-	// ─── http-fetch host fn validation ──────────────────────────────────────────
-
+	// http-fetch host fn validation
 	#[test]
 	fn host_matches_universal_wildcard_admits_anything() {
 		assert!(host_matches("*", "example.com"));
@@ -3300,8 +3298,7 @@ mod tests {
 		}
 	}
 
-	// ─── validate_status ────────────────────────────────────────────────────────
-
+	// validate_status
 	#[test]
 	fn validate_status_accepts_boundary_values() {
 		assert!(validate_status(100).is_ok());
@@ -3317,8 +3314,7 @@ mod tests {
 		assert!(validate_status(0).is_err());
 	}
 
-	// ─── validate_header_name ───────────────────────────────────────────────────
-
+	// validate_header_name
 	#[test]
 	fn validate_header_name_accepts_clean_ascii() {
 		assert!(validate_header_name("content-type").is_ok());
@@ -3340,8 +3336,7 @@ mod tests {
 		assert!(validate_header_name("bad\0header").is_err());
 	}
 
-	// ─── validate_header_value ──────────────────────────────────────────────────
-
+	// validate_header_value
 	#[test]
 	fn validate_header_value_accepts_clean_ascii() {
 		assert!(validate_header_value("application/json").is_ok());
@@ -3363,8 +3358,7 @@ mod tests {
 		assert!(validate_header_value("bad\0value").is_err());
 	}
 
-	// ─── validate_on_error_hint ─────────────────────────────────────────────────
-
+	// validate_on_error_hint
 	#[test]
 	fn validate_on_error_hint_accepts_none() {
 		assert!(validate_on_error_hint(None).is_ok());
@@ -3391,8 +3385,7 @@ mod tests {
 		assert!(validate_on_error_hint(Some(&"pass-through".to_owned())).is_err());
 	}
 
-	// ─── metadata_compatible coverage ──────────────────────────────
-
+	// metadata_compatible coverage
 	fn export(
 		name: &str,
 		kind: vane_core::MiddlewareKind,
@@ -3525,8 +3518,7 @@ mod tests {
 		assert!(!metadata_compatible(&a, &b));
 	}
 
-	// ─── reload_component coverage ─────────────────────────────────
-
+	// reload_component coverage
 	#[tokio::test]
 	async fn reload_component_unchanged_when_bytes_identical() {
 		let rt = loaded_runtime().await;

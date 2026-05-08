@@ -31,8 +31,7 @@ use vane_engine::flow_graph::WasmMiddleware;
 // asserts the documented limit without exposing the constant.
 const WASM_BODY_LIMIT_L4: usize = 64 * 1024;
 
-// ─── minimal mock that records L4Bytes inputs ────────────────────────────────
-
+// minimal mock that records L4Bytes inputs
 struct RecordingRuntime {
 	recorded: Mutex<Vec<BytesView>>,
 	results: Mutex<Vec<Result<L4BytesDecision, PluginError>>>,
@@ -98,8 +97,7 @@ impl WasmRuntime for RecordingRuntime {
 	}
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
+// helpers
 fn make_conn() -> Arc<ConnContext> {
 	let remote: SocketAddr = "127.0.0.1:55555".parse().expect("remote parse");
 	let local: SocketAddr = "127.0.0.1:443".parse().expect("local parse");
@@ -152,8 +150,7 @@ fn make_peeked_conn() -> L4Conn {
 	L4Conn::Peeked(Box::new(a))
 }
 
-// ─── tests ───────────────────────────────────────────────────────────────────
-
+// tests
 #[tokio::test]
 async fn l4_bytes_on_tcp_delivers_peek_buffer_bytes() {
 	let runtime = RecordingRuntime::with_results(vec![Ok(L4BytesDecision::Continue)]);

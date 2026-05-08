@@ -19,8 +19,7 @@ use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
 use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
 use vane_mgmt::{HttpMgmtClient, HttpServerConfig, spawn_http_server};
 
-// ─── Stub handler ──────────────────────────────────────────────────────
-
+// Stub handler
 struct StubHandler;
 
 #[async_trait]
@@ -86,8 +85,7 @@ impl EventStream for InfiniteEvents {
 	}
 }
 
-// ─── Server fixture ────────────────────────────────────────────────────
-
+// Server fixture
 struct ServerFixture {
 	addr: SocketAddr,
 	cancel: CancellationToken,
@@ -118,8 +116,7 @@ async fn spawn_server(token: Option<&str>) -> ServerFixture {
 	ServerFixture { addr, cancel }
 }
 
-// ─── Typed-client tests ────────────────────────────────────────────────
-
+// Typed-client tests
 #[tokio::test]
 async fn http_oneshot_round_trip_with_token() {
 	let srv = spawn_server(Some("topsecret")).await;
@@ -246,8 +243,7 @@ async fn http_streaming_terminates_when_client_drops_mid_stream() {
 	assert!(n >= 1, "expected at least one event before drop, got {n}");
 }
 
-// ─── Raw-HTTP tests for malformed-request paths ────────────────────────
-
+// Raw-HTTP tests for malformed-request paths
 /// Send a raw HTTP request and read the full response. Blocking I/O
 /// in a sync helper — easier to construct deliberately malformed
 /// frames than via `hyper::Request::builder()`.

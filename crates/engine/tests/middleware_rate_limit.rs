@@ -33,8 +33,7 @@ use vane_engine::factories::MiddlewareFactories;
 use vane_engine::flow_graph::MiddlewareInst;
 use vane_engine::middleware::rate_limit;
 
-// ----- fixtures -------------------------------------------------------------
-
+// fixtures
 struct DropSink;
 impl FlowLogSink for DropSink {
 	fn emit(&self, _event: FlowLogEvent) {}
@@ -110,8 +109,7 @@ fn factory_err(args: &serde_json::Value) -> String {
 	}
 }
 
-// ----- bucket math ----------------------------------------------------------
-
+// bucket math
 #[tokio::test]
 async fn rate_limit_allows_under_burst() {
 	// burst=10, generous rate; 10 calls in a row all Continue.
@@ -201,8 +199,7 @@ async fn rate_limit_custom_on_limit_status_and_body() {
 	}
 }
 
-// ----- factory validation ---------------------------------------------------
-
+// factory validation
 #[test]
 fn rate_limit_factory_validates_window_range() {
 	// Below 1s: rejected.

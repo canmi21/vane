@@ -37,11 +37,9 @@ use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FlowGraph, MiddlewareInst};
 use vane_engine::verbosity::VerbosityState;
 
-// ---------------------------------------------------------------------------
 // Recording sink: captures every emitted `FlowLogEvent` behind a `Mutex`. The
 // listener's `start` takes `Arc<dyn FlowLogSink>` so the sink itself is
 // shared between the test thread and the per-connection executor task.
-// ---------------------------------------------------------------------------
 
 struct RecordingSink {
 	events: Mutex<Vec<FlowLogEvent>>,
@@ -67,12 +65,10 @@ impl FlowLogSink for RecordingSink {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Free-port discovery. Bind ephemeral, take `local_addr()`, then drop the
 // listener so the address is available to the listener-set under test.
 // spec/topology.md § _Bind_ — the `entries` map needs a concrete `SocketAddr`,
 // the listener crate doesn't accept "0".
-// ---------------------------------------------------------------------------
 
 async fn pick_port() -> SocketAddr {
 	let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral for port pick");
@@ -81,11 +77,9 @@ async fn pick_port() -> SocketAddr {
 	addr
 }
 
-// ---------------------------------------------------------------------------
 // Graph builders. Each helper returns a linked `Arc<FlowGraph>` whose
 // `symbolic().entries` already contains the listener address(es). The
 // listener `start` reads that map and spawns one accept task per entry.
-// ---------------------------------------------------------------------------
 
 fn sample_meta() -> FlowGraphMeta {
 	FlowGraphMeta {
@@ -179,9 +173,7 @@ impl L4BytesMiddleware for SleepBytes {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 1. listener_accepts_tcp_and_routes_to_executor
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn listener_accepts_tcp_and_routes_to_executor() {
@@ -225,9 +217,7 @@ async fn listener_accepts_tcp_and_routes_to_executor() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 3. listener_bind_giving_up_after_max_attempts_logs_and_exits
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn listener_bind_giving_up_after_max_attempts_logs_and_exits() {
@@ -245,9 +235,7 @@ async fn listener_bind_giving_up_after_max_attempts_logs_and_exits() {
 	drop(occupier);
 }
 
-// ---------------------------------------------------------------------------
 // 4. listener_drains_in_flight_within_timeout
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn listener_drains_in_flight_within_timeout() {
@@ -290,9 +278,7 @@ async fn listener_drains_in_flight_within_timeout() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 5. listener_set_starts_multiple_entries_independently
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn listener_set_starts_multiple_entries_independently() {
@@ -333,9 +319,7 @@ async fn listener_set_starts_multiple_entries_independently() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 6. listener_shutdown_idempotent_or_after_empty_start
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn listener_shutdown_idempotent_or_after_empty_start() {
@@ -365,10 +349,8 @@ async fn listener_shutdown_idempotent_or_after_empty_start() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // reconcile: listener-set diff after hot reload (spec/crates/core.md § _NodeId
 // stability across reloads_).
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn reconcile_adds_listener_for_new_address() {
@@ -609,9 +591,7 @@ async fn bound_count_stays_zero_when_address_is_already_in_use() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // shutdown_drains_idle_keep_alive_connections_within_drain_timeout
-// ---------------------------------------------------------------------------
 //
 // Regression: a hyper H1 keep-alive connection that finished its last
 // request and is now idle has no server-side IO driving the H1 driver

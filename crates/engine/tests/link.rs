@@ -21,9 +21,7 @@ use vane_core::{
 use vane_engine::factories::{FactoryError, FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph, LinkError, MiddlewareInst};
 
-// ---------------------------------------------------------------------------
 // Dummy middleware impls. Link tests never drive these; `run` is unreachable.
-// ---------------------------------------------------------------------------
 
 struct NoopL4Peek;
 #[async_trait]
@@ -77,11 +75,9 @@ impl L7ResponseMiddleware for NoopL7Resp {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Graph construction helpers — zero-node graphs with exactly the slabs each
 // test needs. `feature_set: &[]` mimics core's pre-link state; link must
 // overwrite it with the engine's `ENGINE_FEATURE_SET`.
-// ---------------------------------------------------------------------------
 
 fn sample_meta() -> FlowGraphMeta {
 	FlowGraphMeta {
@@ -145,9 +141,7 @@ fn l7_req_ref(name: &str) -> SymbolicMiddlewareRef {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 1. link_empty_graph_succeeds
-// ---------------------------------------------------------------------------
 
 #[test]
 fn link_empty_graph_succeeds() {
@@ -165,9 +159,7 @@ fn link_empty_graph_succeeds() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 2. link_fails_on_unknown_middleware_name
-// ---------------------------------------------------------------------------
 
 #[test]
 fn link_fails_on_unknown_middleware_name() {
@@ -188,9 +180,7 @@ fn link_fails_on_unknown_middleware_name() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 3. link_fails_on_unknown_fetch_kind
-// ---------------------------------------------------------------------------
 
 #[test]
 fn link_fails_on_unknown_fetch_kind() {
@@ -211,9 +201,7 @@ fn link_fails_on_unknown_fetch_kind() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 4. link_fails_on_factory_args_rejection
-// ---------------------------------------------------------------------------
 
 #[test]
 fn link_fails_on_factory_args_rejection() {
@@ -233,9 +221,7 @@ fn link_fails_on_factory_args_rejection() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 5. link_fails_on_kind_mismatch
-// ---------------------------------------------------------------------------
 
 #[test]
 fn link_fails_on_kind_mismatch() {
@@ -261,9 +247,7 @@ fn link_fails_on_kind_mismatch() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 6. link_fails_on_feature_disabled_with_spec_message
-// ---------------------------------------------------------------------------
 
 #[test]
 fn link_fails_on_feature_disabled_with_spec_message() {
@@ -286,9 +270,7 @@ fn link_fails_on_feature_disabled_with_spec_message() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 7. link_preserves_version_hash_but_overrides_feature_set
-// ---------------------------------------------------------------------------
 
 #[test]
 fn link_preserves_version_hash_but_overrides_feature_set() {
@@ -329,9 +311,7 @@ fn link_preserves_version_hash_but_overrides_feature_set() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 8a. index_middleware_id_returns_inst
-// ---------------------------------------------------------------------------
 
 #[test]
 fn index_middleware_id_returns_inst() {
@@ -348,9 +328,7 @@ fn index_middleware_id_returns_inst() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 8b. index_fetch_id_returns_inst
-// ---------------------------------------------------------------------------
 
 #[test]
 fn index_fetch_id_returns_inst() {

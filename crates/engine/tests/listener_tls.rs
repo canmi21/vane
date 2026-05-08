@@ -311,9 +311,7 @@ async fn tls_listener_negotiates_h1_when_only_h1_offered() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // SNI multi-cert + h2 e2e
-// ---------------------------------------------------------------------------
 
 struct NamedCert {
 	cert_file: NamedTempFile,

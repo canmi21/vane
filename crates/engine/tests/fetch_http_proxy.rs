@@ -58,11 +58,9 @@ use vane_engine::fetch::http_proxy::{
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::verbosity::VerbosityState;
 
-// ---------------------------------------------------------------------------
 // FlowLogSink fixture: drops events. These tests assert wire-level outcomes
 // (status code, body bytes, observed upstream-side state); trajectory shape
 // is covered by `tests/executor.rs` and `tests/listener.rs`.
-// ---------------------------------------------------------------------------
 
 struct DropSink;
 
@@ -70,10 +68,8 @@ impl FlowLogSink for DropSink {
 	fn emit(&self, _event: FlowLogEvent) {}
 }
 
-// ---------------------------------------------------------------------------
 // Free-port discovery — bind ephemeral, take `local_addr()`, drop. Same
 // pattern as `tests/hyper_upgrade.rs` / `tests/listener.rs`.
-// ---------------------------------------------------------------------------
 
 async fn pick_port() -> SocketAddr {
 	let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral for port pick");
@@ -97,7 +93,6 @@ fn sample_meta() -> FlowGraphMeta {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Symbolic graph factory: every test in this file drives:
 //
 //   entry(Upgrade { next: 1 })
@@ -106,7 +101,6 @@ fn sample_meta() -> FlowGraphMeta {
 //
 // Per `spec/flow-model.md` § _Phase state machine_, the Upgrade arm transitions
 // the executor to L7Request, satisfying `Node::Fetch`'s phase precondition.
-// ---------------------------------------------------------------------------
 
 fn proxy_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
@@ -141,10 +135,8 @@ fn proxy_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	FlowGraph::link(sym, &mw, &fetch).expect("link http_proxy graph")
 }
 
-// ---------------------------------------------------------------------------
 // Spawn the listener and wait briefly for the accept loop to bind. Mirrors
 // the helper in `tests/hyper_upgrade.rs`.
-// ---------------------------------------------------------------------------
 
 async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	let addr = *graph.symbolic().entries.iter().next().expect("graph has at least one entry").0;
@@ -158,11 +150,9 @@ async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	(set, addr)
 }
 
-// ---------------------------------------------------------------------------
 // Hyper H1 client handshake. Spawns the connection task so the caller can
 // fire a `send_request`. Two flavours (Empty / Full) match the two body
 // shapes the tests need.
-// ---------------------------------------------------------------------------
 
 async fn h1_client_empty(
 	addr: SocketAddr,
@@ -188,12 +178,10 @@ async fn h1_client_full(addr: SocketAddr) -> hyper::client::conn::http1::SendReq
 	sender
 }
 
-// ---------------------------------------------------------------------------
 // Upstream fixture: a hyper H1 server bound to an ephemeral port, driven by
 // a per-connection service-fn. Returns the bound `SocketAddr` so the test
 // can wire `proxy_graph(.., upstream_addr.to_string())`. The accept loop
 // runs until the test's tokio runtime tears down at scope exit.
-// ---------------------------------------------------------------------------
 
 async fn spawn_upstream<S, B, E>(svc: S) -> SocketAddr
 where
@@ -226,9 +214,7 @@ where
 	addr
 }
 
-// ---------------------------------------------------------------------------
 // 1. http_proxy_forwards_get_to_upstream
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_proxy_forwards_get_to_upstream() {
@@ -269,9 +255,7 @@ async fn http_proxy_forwards_get_to_upstream() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 2. http_proxy_preserves_request_headers
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_proxy_preserves_request_headers() {
@@ -332,9 +316,7 @@ async fn http_proxy_preserves_request_headers() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 3. http_proxy_streams_response_body
-// ---------------------------------------------------------------------------
 
 /// Hand-rolled `http_body::Body` emitting `chunks` separate 1KB frames.
 /// Avoids pulling in a streams crate not in the engine's dev-dependencies.
@@ -409,9 +391,7 @@ async fn http_proxy_streams_response_body() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 4. http_proxy_post_body_flows_to_upstream
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_proxy_post_body_flows_to_upstream() {
@@ -469,9 +449,7 @@ async fn http_proxy_post_body_flows_to_upstream() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 5. http_proxy_unreachable_upstream_surfaces_as_500_via_h1_driver
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_proxy_unreachable_upstream_surfaces_as_500_via_h1_driver() {
@@ -513,9 +491,7 @@ async fn http_proxy_unreachable_upstream_surfaces_as_500_via_h1_driver() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 6. http_proxy_factory_rejects_missing_upstream_arg
-// ---------------------------------------------------------------------------
 
 #[test]
 fn http_proxy_factory_rejects_missing_upstream_arg() {
@@ -533,9 +509,7 @@ fn http_proxy_factory_rejects_missing_upstream_arg() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 7. http_proxy_uri_path_and_query_preserved
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_proxy_uri_path_and_query_preserved() {

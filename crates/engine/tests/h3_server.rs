@@ -42,11 +42,9 @@ use vane_engine::fetch::http_proxy::register as register_http_proxy;
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::verbosity::VerbosityState;
 
-// ---------------------------------------------------------------------------
 // FlowLogSink fixture: drops events. These tests assert wire-level
 // outcomes (response status, response body bytes); trajectory shape is
 // covered elsewhere.
-// ---------------------------------------------------------------------------
 
 struct DropSink;
 
@@ -54,12 +52,10 @@ impl FlowLogSink for DropSink {
 	fn emit(&self, _event: FlowLogEvent) {}
 }
 
-// ---------------------------------------------------------------------------
 // UDP free-port discovery — bind ephemeral on loopback v4, take
 // `local_addr()`, drop. The `quinn::Endpoint` will rebind in the
 // listener path. Race window between drop and listener bind is
 // the same as the TCP free-port pattern used elsewhere.
-// ---------------------------------------------------------------------------
 
 async fn pick_udp_port() -> SocketAddr {
 	let s = tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind ephemeral udp");
@@ -68,11 +64,9 @@ async fn pick_udp_port() -> SocketAddr {
 	addr
 }
 
-// ---------------------------------------------------------------------------
 // Self-signed cert fixture — same shape as `tests/listener_tls.rs`. The
 // tempfiles are held by the fixture so the cert / key paths in
 // `ListenerTlsSpec` stay valid for the listener's lifetime.
-// ---------------------------------------------------------------------------
 
 struct CertFixture {
 	cert_file: NamedTempFile,
@@ -92,7 +86,6 @@ fn make_cert(sni: &str) -> CertFixture {
 	CertFixture { cert_file, key_file, cert_pem, sni: sni.to_owned() }
 }
 
-// ---------------------------------------------------------------------------
 // Symbolic-graph factory for the H3 path. Mirrors
 // `tests/fetch_http_proxy.rs::proxy_graph` but populates the meta fields
 // that the H3 listener path reads:
@@ -100,7 +93,6 @@ fn make_cert(sni: &str) -> CertFixture {
 //   - listener_transports[addr] = Udp  → engine spawns run_udp_listener
 //   - listener_kinds[addr]      = Http → run_udp_listener spawns h3 endpoint
 //   - listener_tls[addr]        = ...  → cert resolver attached for TLS
-// ---------------------------------------------------------------------------
 
 fn h3_proxy_graph(listen: SocketAddr, upstream: &str, cert: &CertFixture) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
@@ -187,11 +179,9 @@ async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	(set, addr)
 }
 
-// ---------------------------------------------------------------------------
 // Echo upstream — H1.1 server that returns the request body verbatim
 // with status 200. Used as the proxy's upstream so we can assert end-to-
 // end body round-trip.
-// ---------------------------------------------------------------------------
 
 async fn spawn_echo_upstream() -> SocketAddr {
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind echo upstream");
@@ -221,12 +211,10 @@ async fn spawn_echo_upstream() -> SocketAddr {
 	addr
 }
 
-// ---------------------------------------------------------------------------
 // Drain helper: walks `recv_data` until EOF, concatenating into one
 // `Vec<u8>`. h3 yields `impl Buf` slices over quinn's internal buffer;
 // the test consolidates them into a single contiguous vector for byte
 // comparison.
-// ---------------------------------------------------------------------------
 
 async fn collect_h3_response_body(
 	stream: &mut h3::client::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
@@ -240,9 +228,7 @@ async fn collect_h3_response_body(
 	out
 }
 
-// ---------------------------------------------------------------------------
 // 1. GET round-trip
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_get_round_trips_through_http_proxy() {
@@ -276,9 +262,7 @@ async fn h3_get_round_trips_through_http_proxy() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 2. Small POST (1 KiB) round-trip
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_small_post_body_round_trips() {
@@ -319,9 +303,7 @@ async fn h3_small_post_body_round_trips() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 3. Larger POST (16 KiB) round-trip — regression net for body streaming
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_large_post_body_round_trips() {

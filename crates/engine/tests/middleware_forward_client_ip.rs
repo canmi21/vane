@@ -37,9 +37,7 @@ use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph};
 use vane_engine::middleware::forward_client_ip;
 
-// ---------------------------------------------------------------------------
 // Sink + conn / graph fixtures (copied from tests/executor.rs).
-// ---------------------------------------------------------------------------
 
 struct NullSink {
 	events: Mutex<Vec<FlowLogEvent>>,
@@ -254,9 +252,7 @@ fn req_with_headers(headers: &[(&str, &str)]) -> Request {
 	b.body(Body::Empty).expect("build req")
 }
 
-// ---------------------------------------------------------------------------
 // Tests.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn forward_client_ip_default_adds_both_headers() {

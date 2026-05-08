@@ -354,9 +354,7 @@ fn validate_binary(binary: &std::path::Path, security: &CgiSecurity) -> Result<(
 	Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Runtime
-// ---------------------------------------------------------------------------
 
 /// Daemon-wide cap on simultaneously running CGI children. Spec §
 /// _Concurrency cap_: when reached, new requests fast-reject with 503;

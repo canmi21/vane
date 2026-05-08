@@ -33,9 +33,7 @@ use vane_engine::executor::{ExecutorInput, ExecutorOutput, execute};
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FlowGraph, PluginRegistry};
 
-// ---------------------------------------------------------------------------
 // Helpers: sink, conn, graph builder
-// ---------------------------------------------------------------------------
 
 struct NullSink {
 	events: Mutex<Vec<FlowLogEvent>>,
@@ -149,13 +147,11 @@ async fn run_execute(
 	execute(graph, entry, input, conn, &mut ctx).await
 }
 
-// ---------------------------------------------------------------------------
 // Mock WasmRuntime
 //
 // Each handler slot holds a Vec<Result<Decision, PluginError>> acting as a
 // FIFO queue: pop_front on each call, return the front item. If the queue
 // is empty the call panics (test bug — add enough items).
-// ---------------------------------------------------------------------------
 
 type L7ReqResults = Vec<Result<L7RequestDecision, PluginError>>;
 
@@ -285,9 +281,7 @@ fn link_with_plugins(sym: Arc<SymbolicFlowGraph>, registry: &PluginRegistry) -> 
 	.expect("link_with_plugins")
 }
 
-// ---------------------------------------------------------------------------
 // (a) Continue — cursor advances to terminator
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn wasm_l7request_continue_advances_cursor() {
@@ -318,9 +312,7 @@ async fn wasm_l7request_continue_advances_cursor() {
 	assert!(result.is_ok(), "Continue must reach terminator: {result:?}");
 }
 
-// ---------------------------------------------------------------------------
 // (b) Short — synth response returned as HttpResponse
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn wasm_l7request_short_synth_response_returned() {
@@ -372,9 +364,7 @@ async fn wasm_l7request_short_synth_response_returned() {
 	assert_eq!(resp.status().as_u16(), 403, "synth status must be 403");
 }
 
-// ---------------------------------------------------------------------------
 // (c) Close — plugin returns Close → Ok(Closed)
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn wasm_l7request_close_returns_closed() {
@@ -409,9 +399,7 @@ async fn wasm_l7request_close_returns_closed() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // (d) PluginError with on_error_hint:None + configured on_error → fires node
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn wasm_plugin_error_no_hint_routes_via_on_error() {
@@ -458,9 +446,7 @@ async fn wasm_plugin_error_no_hint_routes_via_on_error() {
 	assert!(kinds.contains(&FlowLogKind::Error), "error event must be emitted: {kinds:?}");
 }
 
-// ---------------------------------------------------------------------------
 // (e) PluginError with on_error_hint:"force-close" bypasses on_error
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn wasm_plugin_error_force_close_bypasses_on_error() {
@@ -503,9 +489,7 @@ async fn wasm_plugin_error_force_close_bypasses_on_error() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // (f) PluginError::Trap propagates as Err
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn wasm_plugin_trap_propagates_as_err() {
@@ -540,9 +524,7 @@ async fn wasm_plugin_trap_propagates_as_err() {
 	assert!(err.to_string().contains("guest panicked"), "Err must carry trap message: {err}");
 }
 
-// ---------------------------------------------------------------------------
 // (g) Stateless dedup — sharing the same Arc<dyn WasmRuntime> instance
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn wasm_stateless_registry_entry_shares_runtime_arc() {
@@ -620,10 +602,8 @@ async fn wasm_stateless_registry_entry_shares_runtime_arc() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // (h) L4Peek dispatch hands the listener-stashed PeekResult.buffer to the
 //     plugin via L4PeekInput.peek
-// ---------------------------------------------------------------------------
 
 async fn throwaway_tcp_stream() -> tokio::net::TcpStream {
 	let listener =
@@ -685,9 +665,7 @@ async fn wasm_l4peek_dispatch_forwards_peek_buffer_from_conn_user() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // (i) dispatch_wasm returns Err when export_name is not in metadata exports
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn wasm_dispatch_returns_err_when_export_missing_from_metadata() {

@@ -37,9 +37,7 @@ use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph};
 use vane_engine::middleware::path_prefix;
 
-// ---------------------------------------------------------------------------
 // Sink + conn / graph fixtures (copied from tests/executor.rs).
-// ---------------------------------------------------------------------------
 
 struct NullSink {
 	events: Mutex<Vec<FlowLogEvent>>,
@@ -243,9 +241,7 @@ fn req_with_uri(uri: &str) -> Request {
 	http::Request::builder().method("GET").uri(uri).body(Body::Empty).expect("build req")
 }
 
-// ---------------------------------------------------------------------------
 // Tests.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn path_prefix_continues_when_path_starts_with_prefix() {

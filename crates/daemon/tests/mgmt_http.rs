@@ -99,8 +99,7 @@ fn wait_for_listener(addr: SocketAddr, timeout: Duration) {
 	panic!("mgmt http listener {addr} did not bind within {timeout:?}");
 }
 
-// ─── round-trip tests ──────────────────────────────────────────────────
-
+// round-trip tests
 #[tokio::test]
 async fn daemon_mgmt_http_ping_round_trips_with_token() {
 	let mgmt_port = ephemeral_port();
@@ -166,8 +165,7 @@ async fn daemon_mgmt_http_anonymous_loopback_works_when_no_token_set() {
 	assert!(r.pong);
 }
 
-// ─── boot-validation test ──────────────────────────────────────────────
-
+// boot-validation test
 #[test]
 fn daemon_refuses_to_start_when_public_without_token() {
 	// VANE_MGMT_HTTP_PUBLIC=1 + no TOKEN must abort the boot before
@@ -275,8 +273,7 @@ fn daemon_refuses_to_start_when_no_ip_family_for_http() {
 		.stderr(contains("no IP family available for management HTTP transport"));
 }
 
-// ─── raw curl-equivalent round trip ────────────────────────────────────
-
+// raw curl-equivalent round trip
 #[tokio::test]
 async fn daemon_mgmt_http_raw_post_round_trip_with_token() {
 	// Equivalent to the spec's acceptance check:

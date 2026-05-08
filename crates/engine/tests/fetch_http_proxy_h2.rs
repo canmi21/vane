@@ -132,8 +132,7 @@ async fn h1_send_get(proxy_addr: SocketAddr) -> u16 {
 	status
 }
 
-// ---- TLS upstream fixtures ------------------------------------------------
-
+// TLS upstream fixtures
 struct TlsServerFixture {
 	addr: SocketAddr,
 	accepted: Arc<AtomicUsize>,

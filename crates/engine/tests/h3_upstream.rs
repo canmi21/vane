@@ -47,9 +47,7 @@ use vane_engine::fetch::quic_pool;
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::verbosity::VerbosityState;
 
-// ---------------------------------------------------------------------------
 // FlowLogSink fixture: drops events. Tests assert wire-level outcomes.
-// ---------------------------------------------------------------------------
 
 struct DropSink;
 
@@ -64,11 +62,9 @@ async fn pick_port() -> SocketAddr {
 	addr
 }
 
-// ---------------------------------------------------------------------------
 // Self-signed cert for the H3 upstream. Mirrors the listener-tls test
 // fixture pattern. Returns owned tempfiles so paths stay valid for the
 // upstream's lifetime.
-// ---------------------------------------------------------------------------
 
 struct CertFixture {
 	_cert_file: NamedTempFile,
@@ -89,13 +85,11 @@ fn make_cert(sni: &str) -> CertFixture {
 	CertFixture { _cert_file: cert_file, _key_file: key_file, cert_pem, key_pem, sni: sni.to_owned() }
 }
 
-// ---------------------------------------------------------------------------
 // Symbolic-graph factory for the H1 → H3 bridge: vane listens H1
 // cleartext, proxies through H3 to the test's h3-quinn upstream.
 // `args.tls` is the upstream TLS posture (insecure_skip_verify +
 // verify_hostname = cert SNI), not the listener-side TLS — the H1
 // listener is plaintext.
-// ---------------------------------------------------------------------------
 
 fn h3_proxy_graph(listen: SocketAddr, upstream: &str, sni: &str, insecure: bool) -> Arc<FlowGraph> {
 	h3_proxy_graph_with_connect_timeout(listen, upstream, sni, insecure, None)
@@ -174,10 +168,8 @@ async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	(set, addr)
 }
 
-// ---------------------------------------------------------------------------
 // H1 client helpers — the vane listener is plaintext H1 in these tests,
 // so the client side mirrors `fetch_http_proxy.rs`'s H1 setup.
-// ---------------------------------------------------------------------------
 
 async fn h1_client_empty(
 	addr: SocketAddr,
@@ -203,10 +195,8 @@ async fn h1_client_full(addr: SocketAddr) -> hyper::client::conn::http1::SendReq
 	sender
 }
 
-// ---------------------------------------------------------------------------
 // Echo handler: returns the request body verbatim with status 200.
 // Used as the H3 upstream's request handler in most tests.
-// ---------------------------------------------------------------------------
 
 fn echo_handler(
 	_req: http::Request<()>,
@@ -215,9 +205,7 @@ fn echo_handler(
 	Box::pin(async move { (http::StatusCode::OK, body) })
 }
 
-// ---------------------------------------------------------------------------
 // 1. GET round-trip H1 → H3
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_upstream_get_round_trips_h1_to_h3() {
@@ -253,9 +241,7 @@ async fn h3_upstream_get_round_trips_h1_to_h3() {
 	drop(cert);
 }
 
-// ---------------------------------------------------------------------------
 // 2. POST round-trip H1 → H3 with a small body
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_upstream_post_round_trips_h1_to_h3() {
@@ -290,11 +276,9 @@ async fn h3_upstream_post_round_trips_h1_to_h3() {
 	drop(cert);
 }
 
-// ---------------------------------------------------------------------------
 // 3. Pool sharing — two requests against the same fingerprint reuse
 //    one quic_pool entry. Asserted via the upstream's accept counter
 //    (a fresh dial bumps it; reuse leaves it alone).
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_upstream_pool_reuses_connection_across_requests() {
@@ -352,9 +336,7 @@ async fn h3_upstream_pool_reuses_connection_across_requests() {
 	drop(cert);
 }
 
-// ---------------------------------------------------------------------------
 // 4. TLS verify=skip accepts an unknown self-signed cert.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_upstream_verify_skip_accepts_unknown_cert() {
@@ -390,10 +372,8 @@ async fn h3_upstream_verify_skip_accepts_unknown_cert() {
 	drop(cert);
 }
 
-// ---------------------------------------------------------------------------
 // 5. TLS verify=full rejects the unknown self-signed cert with a
 //    handshake failure surfaced as 502 from the L7 driver's synth.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_upstream_verify_full_rejects_unknown_cert() {
@@ -434,11 +414,9 @@ async fn h3_upstream_verify_full_rejects_unknown_cert() {
 	drop(cert);
 }
 
-// ---------------------------------------------------------------------------
 // 6. Dial failure: vane points at a UDP address with nothing
 //    listening. The fetch surfaces upstream-unreachable; the H1
 //    driver synthesises a 5xx.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn h3_upstream_dial_failure_surfaces_5xx() {

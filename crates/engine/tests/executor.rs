@@ -42,9 +42,7 @@ use vane_engine::executor::{ExecutorInput, ExecutorOutput, execute};
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph, MiddlewareInst};
 
-// ---------------------------------------------------------------------------
 // Fixtures: log sink + ConnContext / FlowCtx builders.
-// ---------------------------------------------------------------------------
 
 /// Records every emitted `FlowLogEvent`, preserving insertion order. Used by
 /// tests to confirm the executor emits the expected `FlowLogKind` values at
@@ -141,10 +139,8 @@ fn empty_l7_request() -> Request {
 	http::Request::builder().method("GET").uri("/").body(Body::Empty).expect("build req")
 }
 
-// ---------------------------------------------------------------------------
 // Middleware fixtures. Each counts invocations via an `AtomicUsize` so tests
 // can assert exact call counts without inspecting executor internals.
-// ---------------------------------------------------------------------------
 
 struct CountAndContinue(Arc<AtomicUsize>);
 
@@ -221,10 +217,8 @@ impl L7Fetch for SynthOkFetch {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Helper: drive `execute` against a linked graph. Tests call this with a
 // fresh sink + context per invocation.
-// ---------------------------------------------------------------------------
 
 async fn run_execute(
 	graph: &Arc<FlowGraph>,
@@ -243,9 +237,7 @@ async fn run_execute(
 	execute(graph, entry, input, conn, &mut ctx).await
 }
 
-// ---------------------------------------------------------------------------
 // 1. execute_middleware_continue_advances_cursor
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_middleware_continue_advances_cursor() {
@@ -295,9 +287,7 @@ async fn execute_middleware_continue_advances_cursor() {
 	assert_eq!(counter.load(Ordering::SeqCst), 1, "middleware must be invoked exactly once");
 }
 
-// ---------------------------------------------------------------------------
 // 3. execute_middleware_short_close_policy_denied_returns_closed
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_middleware_short_close_policy_denied_returns_closed() {
@@ -410,9 +400,7 @@ async fn execute_middleware_short_close_protocol_error_returns_err() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 4. execute_middleware_err_routes_via_on_error
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_middleware_err_routes_via_on_error() {
@@ -462,9 +450,7 @@ async fn execute_middleware_err_routes_via_on_error() {
 	assert_eq!(counter.load(Ordering::SeqCst), 1, "failing middleware must still be invoked once");
 }
 
-// ---------------------------------------------------------------------------
 // 5. execute_middleware_err_without_on_error_propagates
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_middleware_err_without_on_error_propagates() {
@@ -517,9 +503,7 @@ async fn execute_middleware_err_without_on_error_propagates() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 6. execute_check_routes_by_predicate_remote_ip_equals
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_check_routes_by_predicate_remote_ip_equals() {
@@ -617,9 +601,7 @@ async fn execute_check_routes_by_predicate_remote_ip_equals() {
 	assert_eq!(hit_miss.load(Ordering::SeqCst), 1, "miss branch middleware fired once");
 }
 
-// ---------------------------------------------------------------------------
 // 7. execute_check_routes_by_predicate_http_method_equals
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_check_routes_by_predicate_http_method_equals() {
@@ -702,9 +684,7 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 	assert_eq!(hit_miss.load(Ordering::SeqCst), 1, "POST runs the miss branch once");
 }
 
-// ---------------------------------------------------------------------------
 // 8. execute_l7_fetch_response_jumps_to_next_response
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_l7_fetch_response_jumps_to_next_response() {
@@ -761,15 +741,11 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 	assert_eq!(fetch_counter.load(Ordering::SeqCst), 1, "fetch factory impl must be invoked once");
 }
 
-// ---------------------------------------------------------------------------
 // (Test 9 — `execute_upgrade_node_errors_as_unsupported` — was removed when
 // `Node::Upgrade` stopped being a stub. Real H1 upgrade behavior is covered
 // end-to-end in `tests/hyper_upgrade.rs`.)
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
 // 10. execute_collect_body_static_is_noop
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_collect_body_static_is_noop() {
@@ -816,12 +792,10 @@ async fn execute_collect_body_static_is_noop() {
 	assert_eq!(counter.load(Ordering::SeqCst), 1, "middleware must run once");
 }
 
-// ---------------------------------------------------------------------------
 // Verbosity-mode tests (12-15). The existing `run_execute` always builds
 // `FlowCtx` with `FlowLogVerbosity::Trajectory`; the helper below is its
 // twin that takes the verbosity as an argument so we can drive the
 // debug-mode path without disturbing the original ten tests.
-// ---------------------------------------------------------------------------
 
 async fn run_execute_with_verbosity(
 	graph: &Arc<FlowGraph>,
@@ -900,9 +874,7 @@ fn two_middleware_close_graph(
 	FlowGraph::link(sym, &mw, &fetch).expect("link")
 }
 
-// ---------------------------------------------------------------------------
 // 12. execute_emits_one_trajectory_event_in_default_mode
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_emits_one_trajectory_event_in_default_mode() {
@@ -944,9 +916,7 @@ async fn execute_emits_one_trajectory_event_in_default_mode() {
 	assert_eq!(traj.steps.len(), 2, "two middleware visits → two trajectory steps");
 }
 
-// ---------------------------------------------------------------------------
 // 13. execute_emits_per_step_events_in_debug_mode
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_emits_per_step_events_in_debug_mode() {
@@ -981,9 +951,7 @@ async fn execute_emits_per_step_events_in_debug_mode() {
 	assert_eq!(kinds.len(), 4, "Debug-mode total = 1T + 2M + 1Term; got {kinds:?}");
 }
 
-// ---------------------------------------------------------------------------
 // 14. execute_trajectory_outcome_records_terminator_kind
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_trajectory_outcome_records_terminator_kind() {
@@ -1029,9 +997,7 @@ async fn execute_trajectory_outcome_records_terminator_kind() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 15. execute_trajectory_outcome_records_error_when_propagating
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_trajectory_outcome_records_error_when_propagating() {
@@ -1097,13 +1063,11 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // C8a contract tests (15-20). These pin the ExecutorOutput shape introduced
 // in commit 85cfd470: WriteHttpResponse hands back the Response verbatim,
 // ByteTunnel drives `tokio::io::copy_bidirectional` to completion and reports
 // the close reason out-of-band. Per spec/crates/engine.md § _Variants_ and
 // spec/flow-model.md § _Execution model_.
-// ---------------------------------------------------------------------------
 
 /// `L7Fetch` fixture that returns a caller-supplied `Response`. The response
 /// is moved out on first invocation; subsequent calls panic. Used to assert
@@ -1192,9 +1156,7 @@ async fn throwaway_tcp_stream() -> tokio::net::TcpStream {
 	client.expect("connect to ephemeral listener")
 }
 
-// ---------------------------------------------------------------------------
 // 15. execute_write_http_response_returns_response_output
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_write_http_response_returns_response_output() {
@@ -1254,9 +1216,7 @@ async fn execute_write_http_response_returns_response_output() {
 	assert_eq!(fetch_counter.load(Ordering::SeqCst), 1, "fetch must run exactly once");
 }
 
-// ---------------------------------------------------------------------------
 // 16. execute_write_http_response_preserves_body_payload
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_write_http_response_preserves_body_payload() {
@@ -1321,9 +1281,7 @@ async fn execute_write_http_response_preserves_body_payload() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 17. execute_byte_tunnel_drives_copy_bidirectional
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_byte_tunnel_drives_copy_bidirectional() {
@@ -1387,9 +1345,7 @@ async fn execute_byte_tunnel_drives_copy_bidirectional() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 18. execute_byte_tunnel_sends_graceful_close_reason
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_byte_tunnel_sends_graceful_close_reason() {
@@ -1449,9 +1405,7 @@ async fn execute_byte_tunnel_sends_graceful_close_reason() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 19. execute_byte_tunnel_propagates_io_error_via_close_reason
-// ---------------------------------------------------------------------------
 
 /// `AsyncRead` impl that errors on every read. Paired with a no-op `AsyncWrite`
 /// so it satisfies `AsyncReadWrite + Send + Unpin`. Used to force
@@ -1520,9 +1474,7 @@ async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 20. execute_close_terminator_returns_closed_output
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_close_terminator_returns_closed_output() {
@@ -1563,9 +1515,7 @@ async fn execute_close_terminator_returns_closed_output() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 21. execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cancel
-// ---------------------------------------------------------------------------
 
 /// L4 fetch fixture that pulses `notify_one` immediately before handing
 /// the canned `Tunnel` to the executor. The test's main task awaits
@@ -1705,9 +1655,7 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Short(Response) routing through `meta.short_circuit_response_entry`
-// ---------------------------------------------------------------------------
 
 /// Fixture middleware that returns `Decision::Short(ShortCircuit::Response)`
 /// with a fixed status. The executor must set the response slot, jump to
@@ -1831,9 +1779,7 @@ async fn execute_short_circuit_response_with_no_synth_target_errors() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // Helpers for LazyBuffer / body-collect tests
-// ---------------------------------------------------------------------------
 
 /// Single-frame `HttpBody` that yields one data frame then EOF.
 /// Used to build `Body::Stream` without any external stream crate.
@@ -1927,9 +1873,7 @@ impl L7Fetch for StreamResponseFetch {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // LazyBuffer collect tests
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn execute_collect_request_stream_body_becomes_static() {
@@ -2168,9 +2112,7 @@ async fn execute_collect_response_body_over_limit_returns_err() {
 	assert!(result.is_err(), "over-limit response body must return Err: {result:?}");
 }
 
-// ---------------------------------------------------------------------------
 // http.body predicate routing tests
-// ---------------------------------------------------------------------------
 
 // Graph layout for http.body routing tests:
 //   0: Check { predicate:0, on_match:1, on_miss:3, collect_body_before:Request }

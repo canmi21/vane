@@ -43,9 +43,7 @@ use vane_engine::fetch::http_synthesize::{
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::verbosity::VerbosityState;
 
-// ---------------------------------------------------------------------------
 // FlowLogSink fixture: drops events.
-// ---------------------------------------------------------------------------
 
 struct DropSink;
 
@@ -53,9 +51,7 @@ impl FlowLogSink for DropSink {
 	fn emit(&self, _event: FlowLogEvent) {}
 }
 
-// ---------------------------------------------------------------------------
 // Free-port discovery — bind ephemeral, take `local_addr()`, drop.
-// ---------------------------------------------------------------------------
 
 async fn pick_port() -> SocketAddr {
 	let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral for port pick");
@@ -79,7 +75,6 @@ fn sample_meta() -> FlowGraphMeta {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Build the standard graph for synthesis tests:
 //
 //   entry(Upgrade { next: 1 })
@@ -88,7 +83,6 @@ fn sample_meta() -> FlowGraphMeta {
 //
 // Per `spec/flow-model.md` § _Phase state machine_, Upgrade transitions
 // L4Raw → L7Request, satisfying the Fetch node's phase precondition.
-// ---------------------------------------------------------------------------
 
 fn synth_graph(listen: SocketAddr, args: serde_json::Value) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
@@ -155,9 +149,7 @@ fn b64(bytes: &[u8]) -> String {
 	base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-// ---------------------------------------------------------------------------
 // 8. http_synthesize_returns_static_response
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_synthesize_returns_static_response() {
@@ -188,9 +180,7 @@ async fn http_synthesize_returns_static_response() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 9. http_synthesize_with_headers
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_synthesize_with_headers() {
@@ -230,9 +220,7 @@ async fn http_synthesize_with_headers() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 10. http_synthesize_empty_body_writes_empty
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn http_synthesize_empty_body_writes_empty() {
@@ -263,9 +251,7 @@ async fn http_synthesize_empty_body_writes_empty() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 11. http_synthesize_factory_rejects_invalid_status
-// ---------------------------------------------------------------------------
 
 #[test]
 fn http_synthesize_factory_rejects_invalid_status() {
@@ -285,9 +271,7 @@ fn http_synthesize_factory_rejects_invalid_status() {
 	};
 }
 
-// ---------------------------------------------------------------------------
 // 12. http_synthesize_factory_rejects_invalid_header_name
-// ---------------------------------------------------------------------------
 
 #[test]
 fn http_synthesize_factory_rejects_invalid_header_name() {
@@ -308,9 +292,7 @@ fn http_synthesize_factory_rejects_invalid_header_name() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 13. http_synthesize_factory_rejects_non_string_header_value
-// ---------------------------------------------------------------------------
 
 #[test]
 fn http_synthesize_factory_rejects_non_string_header_value() {
@@ -326,9 +308,7 @@ fn http_synthesize_factory_rejects_non_string_header_value() {
 	};
 }
 
-// ---------------------------------------------------------------------------
 // 14. http_synthesize_factory_rejects_invalid_base64_body
-// ---------------------------------------------------------------------------
 
 #[test]
 fn http_synthesize_factory_rejects_invalid_base64_body() {

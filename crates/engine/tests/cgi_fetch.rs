@@ -142,9 +142,7 @@ async fn collect_body(resp: http::Response<Body>) -> (http::StatusCode, http::He
 	(parts.status, parts.headers, bytes)
 }
 
-// ---------------------------------------------------------------------------
 // 1. happy path
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn happy_path_writes_status_header_and_body() {
@@ -169,9 +167,7 @@ async fn happy_path_writes_status_header_and_body() {
 	assert_eq!(body.as_ref(), b"happy-body");
 }
 
-// ---------------------------------------------------------------------------
 // 2. stdin passthrough
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn stdin_body_passes_through_to_child_and_back() {
@@ -196,9 +192,7 @@ async fn stdin_body_passes_through_to_child_and_back() {
 	assert_eq!(body.as_ref(), payload, "stdin body must reach the child + come back via stdout");
 }
 
-// ---------------------------------------------------------------------------
 // 3. Status: 404 Not Found surfaces as 404
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn status_404_passes_through_to_client() {
@@ -216,9 +210,7 @@ async fn status_404_passes_through_to_client() {
 	assert_eq!(body.as_ref(), b"gone");
 }
 
-// ---------------------------------------------------------------------------
 // 4. Location: without Status: → 302
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn location_header_without_status_yields_302() {
@@ -235,9 +227,7 @@ async fn location_header_without_status_yields_302() {
 	assert_eq!(headers.get("Location").and_then(|v| v.to_str().ok()), Some("/elsewhere"));
 }
 
-// ---------------------------------------------------------------------------
 // 5. non-zero exit with no usable headers → 502
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn child_exits_non_zero_without_headers_yields_502() {
@@ -257,9 +247,7 @@ async fn child_exits_non_zero_without_headers_yields_502() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 6. stderr → tracing
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn stderr_lines_emit_as_tracing_warn_under_vane_cgi_target() {
@@ -318,9 +306,7 @@ async fn stderr_lines_emit_as_tracing_warn_under_vane_cgi_target() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 7. block_headers actually filters HTTP_*
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn block_headers_filters_authorization_from_http_env() {
@@ -357,11 +343,9 @@ async fn block_headers_filters_authorization_from_http_env() {
 	assert!(body.contains("HTTP_HOST=example.test"), "Host header must pass through: {body}");
 }
 
-// ---------------------------------------------------------------------------
 // 8. env with reserved key is a factory error (also covered in unit tests;
 //    locked here at the integration layer to catch regressions in the
 //    wiring between alias resolution and the factory dispatch.)
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn env_with_reserved_request_method_is_factory_error() {
@@ -376,9 +360,7 @@ async fn env_with_reserved_request_method_is_factory_error() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 9. binary that doesn't exist → factory error
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn missing_binary_is_factory_error() {
@@ -393,9 +375,7 @@ async fn missing_binary_is_factory_error() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 10. chroot reserved → factory error with spec wording
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn chroot_reserved_factory_error_matches_spec_wording() {
@@ -413,9 +393,7 @@ async fn chroot_reserved_factory_error_matches_spec_wording() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 12. total_timeout fires → 504
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn total_timeout_yields_504_and_kills_child() {
@@ -445,11 +423,9 @@ async fn total_timeout_yields_504_and_kills_child() {
 	assert!(elapsed < Duration::from_secs(3), "504 must surface promptly, took {elapsed:?}");
 }
 
-// ---------------------------------------------------------------------------
 // Suppress unused-import warning on the `Mutex` in this file when
 // every test path happens to reach the bare `parking_lot::Mutex` use
 // inline; keep the helper import for readers who ext end the suite.
-// ---------------------------------------------------------------------------
 #[allow(dead_code)]
 fn _force_mutex_use() -> Mutex<u8> {
 	Mutex::new(0)

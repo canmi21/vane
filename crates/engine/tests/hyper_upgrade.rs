@@ -57,11 +57,9 @@ use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph};
 use vane_engine::verbosity::VerbosityState;
 
-// ---------------------------------------------------------------------------
 // FlowLogSink fixture: drops events; the H1 path emits trajectories per
 // request but assertions in this file are about the wire-level outcome, not
 // the trajectory shape (already covered by `tests/executor.rs`).
-// ---------------------------------------------------------------------------
 
 struct DropSink;
 
@@ -69,12 +67,10 @@ impl FlowLogSink for DropSink {
 	fn emit(&self, _event: FlowLogEvent) {}
 }
 
-// ---------------------------------------------------------------------------
 // Free port discovery — same pattern used by `tests/listener.rs`. Bind an
 // ephemeral listener, take its `local_addr`, drop it. Brief race windows
 // between drop and the listener-under-test rebinding are tolerated by the
 // 50 ms post-`start` sleep before clients connect.
-// ---------------------------------------------------------------------------
 
 async fn pick_port() -> SocketAddr {
 	let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral for port pick");
@@ -98,7 +94,6 @@ fn sample_meta() -> FlowGraphMeta {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Symbolic-graph builder: every test in this file drives the executor through
 // the same shape:
 //
@@ -109,7 +104,6 @@ fn sample_meta() -> FlowGraphMeta {
 // The Fetch is registered against `FetchKind::HttpSynthesize` so the linker
 // resolves it through `FetchFactories::register`. Tests parameterise the
 // concrete `L7Fetch` impl via the factory closure.
-// ---------------------------------------------------------------------------
 
 fn upgrade_fetch_terminate_graph(
 	addr: SocketAddr,
@@ -268,9 +262,7 @@ fn upgrade_close_graph(addr: SocketAddr) -> Arc<FlowGraph> {
 	FlowGraph::link(sym, &mw, &fetch).expect("link upgrade-close graph")
 }
 
-// ---------------------------------------------------------------------------
 // Spawn the listener and wait briefly for the accept loop to bind.
-// ---------------------------------------------------------------------------
 
 async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	let addr = *graph.symbolic().entries.iter().next().expect("graph has at least one entry").0;
@@ -284,11 +276,9 @@ async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	(set, addr)
 }
 
-// ---------------------------------------------------------------------------
 // Hyper H1 client handshake. Returns the `SendRequest` handle so the test can
 // fire one or more requests on the same TCP connection (test 3 reuses it for
 // keep-alive).
-// ---------------------------------------------------------------------------
 
 async fn h1_client_handshake_empty(
 	addr: SocketAddr,
@@ -316,9 +306,7 @@ async fn h1_client_handshake_full(
 	sender
 }
 
-// ---------------------------------------------------------------------------
 // L7Fetch fixtures.
-// ---------------------------------------------------------------------------
 
 /// Synthesises a `200 OK` whose body is `payload`. `Body::Static` per
 /// `spec/crates/core.md` § _L7 body_.
@@ -442,9 +430,7 @@ impl L7Fetch for ErrFetch {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 // 1. h1_get_request_returns_synthesized_response
 //

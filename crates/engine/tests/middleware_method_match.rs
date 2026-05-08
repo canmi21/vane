@@ -34,9 +34,7 @@ use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph};
 use vane_engine::middleware::method_match;
 
-// ---------------------------------------------------------------------------
 // Sink + conn / graph fixtures (copied from tests/executor.rs).
-// ---------------------------------------------------------------------------
 
 struct NullSink {
 	events: Mutex<Vec<FlowLogEvent>>,
@@ -240,9 +238,7 @@ fn req_with_method(method: &str) -> Request {
 	http::Request::builder().method(method).uri("/").body(Body::Empty).expect("build req")
 }
 
-// ---------------------------------------------------------------------------
 // Tests.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn method_match_continues_when_method_in_list() {

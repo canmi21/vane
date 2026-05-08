@@ -124,8 +124,7 @@ fn wait_for_listener(addr: SocketAddr, timeout: Duration) {
 	panic!("mgmt http listener {addr} did not bind within {timeout:?}");
 }
 
-// ─── boot path tests ──────────────────────────────────────────────────
-
+// boot path tests
 #[tokio::test]
 async fn daemon_starts_when_wasm_dir_is_absent() {
 	// VANE_WASM_DIR points at a non-existent path → loader returns
@@ -182,8 +181,7 @@ async fn daemon_starts_with_rule_referencing_loaded_plugin() {
 	assert!(r.pong);
 }
 
-// ─── operator policy file integration ─────────────────────────────────
-
+// operator policy file integration
 /// Drop a `policy.json` into `wasm_dir` with the supplied raw JSON
 /// body. Tests that load this then assert the daemon's behaviour
 /// reflects what was on disk.
@@ -240,8 +238,7 @@ async fn daemon_starts_with_malformed_policy_file_falling_back_to_defaults() {
 	assert!(r.pong, "malformed policy.json must not block daemon boot");
 }
 
-// ─── boot refusal test ────────────────────────────────────────────────
-
+// boot refusal test
 #[test]
 fn daemon_refuses_to_start_when_rule_references_unloaded_plugin() {
 	// Rule uses `missing:probe`, but the wasm dir is empty. Boot

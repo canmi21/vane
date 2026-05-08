@@ -116,9 +116,7 @@ pub async fn connect_h3(
 	Ok(H3ClientHandle { send_request, driver, endpoint })
 }
 
-// ---------------------------------------------------------------------------
 // Server side
-// ---------------------------------------------------------------------------
 
 /// Outcome of [`serve_h3`]. Holds the bound `SocketAddr`, the
 /// connection counter (used by tests asserting pool sharing), and

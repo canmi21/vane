@@ -45,8 +45,7 @@ use vane_engine::fetch::websocket_upgrade::register as register_ws;
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::verbosity::VerbosityState;
 
-// ----- shared fixtures -----------------------------------------------------
-
+// shared fixtures
 struct DropSink;
 impl FlowLogSink for DropSink {
 	fn emit(&self, _event: FlowLogEvent) {}
@@ -319,8 +318,7 @@ async fn spawn_fake_ws_upstream_reject() -> SocketAddr {
 	addr
 }
 
-// ----- tests ---------------------------------------------------------------
-
+// tests
 #[tokio::test]
 async fn ws_handshake_success_then_byte_tunnel_echoes() {
 	let upstream = spawn_fake_ws_upstream_echo().await;

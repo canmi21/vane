@@ -254,8 +254,7 @@ mod tests {
 	use super::*;
 	use crate::providers::MetadataProviders;
 
-	// ----- pure helper: is_reloadable_batch -------------------------------
-
+	// pure helper: is_reloadable_batch
 	fn ev_under(root: &Path, kind: EventKind) -> DEvent {
 		let event = NotifyEvent::new(kind).add_path(root.join("rules").join("foo.json"));
 		DEvent::new(event, Instant::now())
@@ -320,8 +319,7 @@ mod tests {
 		assert!(is_reloadable_batch(&batch, &root));
 	}
 
-	// ----- end-to-end watcher integration ---------------------------------
-
+	// end-to-end watcher integration
 	fn build_factories() -> (Arc<MiddlewareFactories>, Arc<FetchFactories>) {
 		let mut mw = MiddlewareFactories::new();
 		host_header_match::register(&mut mw);

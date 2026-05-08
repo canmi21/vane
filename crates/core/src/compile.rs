@@ -418,8 +418,7 @@ mod tests {
 		}
 	}
 
-	// --- AnyOf / Not lowering tests -----------------------------------------
-
+	// AnyOf / Not lowering tests
 	fn check_rule(name: &str, port: u16, match_predicate: &serde_json::Value) -> RawRule {
 		parse_rule(serde_json::json!({
 			"name": name,
@@ -958,8 +957,7 @@ mod tests {
 		assert!(terms.contains(&Terminator::ByteTunnel), "tunnel branch terminator");
 	}
 
-	// --- Short(Response) synth target -------------------------------------
-
+	// Short(Response) synth target
 	#[test]
 	fn lower_l7_listener_synthesizes_short_circuit_response_target() {
 		// Every L7 listener gets a synth `Terminate(WriteHttpResponse)` that

@@ -2345,8 +2345,7 @@ mod compat_tests {
 		}
 	}
 
-	// ── spec 18 § _Value JSON encoding_: bytes-typed literal = STANDARD base64 ──
-
+	// spec 18 § _Value JSON encoding_: bytes-typed literal = STANDARD base64
 	/// `{ "http.body": { "contains": "aGVsbG8=" } }` is the spec example
 	/// for a Bytes-valued contains operator. Compile must decode the
 	/// base64 into the literal bytes b"hello" so the runtime byte-

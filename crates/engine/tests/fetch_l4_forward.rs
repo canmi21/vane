@@ -46,12 +46,10 @@ use vane_engine::verbosity::VerbosityState;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-// ---------------------------------------------------------------------------
 // Recording sink: captures every emitted `FlowLogEvent` behind a `Mutex`.
 // Mirrors the helper in `tests/listener.rs`. Tests inspect the captured
 // events to assert the per-request `Trajectory` event lands with the
 // expected `TrajectoryOutcome`.
-// ---------------------------------------------------------------------------
 
 struct RecordingSink {
 	events: Mutex<Vec<FlowLogEvent>>,
@@ -77,11 +75,9 @@ impl FlowLogSink for RecordingSink {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Free-port discovery. Bind ephemeral, take `local_addr()`, then drop the
 // listener so the address is available again. spec/topology.md § _Bind_:
 // the `entries` map must carry a concrete `SocketAddr`.
-// ---------------------------------------------------------------------------
 
 async fn pick_port() -> SocketAddr {
 	let l = TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral for port pick");
@@ -149,12 +145,10 @@ fn make_proxy_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	FlowGraph::link(sym, &mw, &fetch).expect("link l4_forward graph")
 }
 
-// ---------------------------------------------------------------------------
 // Echo upstream: accept loop that reads everything a client sends and writes
 // it straight back. Caller controls the lifecycle by holding the returned
 // addr and dropping the spawned task at end-of-test. The accept loop runs
 // until `tokio::test`'s runtime tears it down at scope exit.
-// ---------------------------------------------------------------------------
 
 async fn spawn_echo_upstream() -> SocketAddr {
 	let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind echo upstream");
@@ -196,9 +190,7 @@ fn first_trajectory(sink: &RecordingSink) -> FlowTrajectory {
 		.expect("Trajectory data deserialises to FlowTrajectory")
 }
 
-// ---------------------------------------------------------------------------
 // 1. l4_forward_echoes_bytes_through_upstream
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn l4_forward_echoes_bytes_through_upstream() {
@@ -237,9 +229,7 @@ async fn l4_forward_echoes_bytes_through_upstream() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 2. l4_forward_propagates_upstream_eof_to_client
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn l4_forward_propagates_upstream_eof_to_client() {
@@ -284,9 +274,7 @@ async fn l4_forward_propagates_upstream_eof_to_client() {
 	set.shutdown(Duration::from_millis(500)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 3. l4_forward_unreachable_upstream_surfaces_as_walker_err
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn l4_forward_unreachable_upstream_surfaces_as_walker_err() {
@@ -334,9 +322,7 @@ async fn l4_forward_unreachable_upstream_surfaces_as_walker_err() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 4. l4_forward_factory_rejects_missing_upstream_arg
-// ---------------------------------------------------------------------------
 
 #[test]
 fn l4_forward_factory_rejects_missing_upstream_arg() {
@@ -355,9 +341,7 @@ fn l4_forward_factory_rejects_missing_upstream_arg() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 5. l4_forward_factory_rejects_empty_upstream_arg
-// ---------------------------------------------------------------------------
 
 #[test]
 fn l4_forward_factory_rejects_empty_upstream_arg() {
@@ -375,9 +359,7 @@ fn l4_forward_factory_rejects_empty_upstream_arg() {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // 6. l4_forward_handles_concurrent_connections
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn l4_forward_handles_concurrent_connections() {
@@ -420,9 +402,7 @@ async fn l4_forward_handles_concurrent_connections() {
 	set.shutdown(Duration::from_secs(5)).await;
 }
 
-// ---------------------------------------------------------------------------
 // 7. l4_forward_close_reason_graceful_emits_byte_tunnel_terminate_outcome
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn l4_forward_close_reason_graceful_emits_byte_tunnel_terminate_outcome() {

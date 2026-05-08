@@ -57,8 +57,7 @@ async fn pick_port() -> SocketAddr {
 	addr
 }
 
-// ── rcgen helpers — issue a CA + server cert + client cert chain ─────
-
+// rcgen helpers — issue a CA + server cert + client cert chain
 struct PkiFixture {
 	ca_pem: String,
 	_ca_file: NamedTempFile,
@@ -143,8 +142,7 @@ fn rcgen_pki(client_cn: &str, client_san: &[&str]) -> PkiFixture {
 	}
 }
 
-// ── L7 fetch that tags responses with a fixed body ────────────────────
-
+// L7 fetch that tags responses with a fixed body
 struct TaggedFetch {
 	tag: &'static str,
 }
@@ -180,8 +178,7 @@ fn tagged_fetch_factory(args: &Value) -> Result<FetchInst, FactoryError> {
 	Ok(FetchInst::L7(Arc::new(TaggedFetch { tag: static_tag })))
 }
 
-// ── Graph builders ────────────────────────────────────────────────────
-
+// Graph builders
 fn meta_with_client_auth(
 	addr: SocketAddr,
 	server: vane_core::rule::TlsConfig,
@@ -378,8 +375,7 @@ async fn http_get_through_tls(
 	Ok((status, body))
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────
-
+// Tests
 #[tokio::test]
 async fn mtls_require_accepts_valid_client_cert() {
 	vane_engine::crypto::install_default_provider();

@@ -36,9 +36,7 @@ use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::{FetchInst, FlowGraph};
 use vane_engine::middleware::host_header_match;
 
-// ---------------------------------------------------------------------------
 // Sink + conn / graph fixtures (copied from tests/executor.rs).
-// ---------------------------------------------------------------------------
 
 struct NullSink {
 	events: Mutex<Vec<FlowLogEvent>>,
@@ -251,9 +249,7 @@ fn req_with_host(host: Option<&str>) -> Request {
 	b.body(Body::Empty).expect("build req")
 }
 
-// ---------------------------------------------------------------------------
 // Tests.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn host_match_continues_when_host_in_list() {

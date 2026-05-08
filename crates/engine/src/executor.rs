@@ -515,8 +515,7 @@ pub async fn execute(
 	}
 }
 
-// --- Step recording -----------------------------------------------------
-
+// Step recording
 fn record_step(
 	ctx: &mut FlowCtx,
 	conn: &Arc<ConnContext>,
@@ -543,8 +542,7 @@ fn record_step(
 	}
 }
 
-// --- ByteTunnel drive ---------------------------------------------------
-
+// ByteTunnel drive
 async fn drive_byte_tunnel(t: Tunnel, cancel: &tokio_util::sync::CancellationToken) {
 	match t {
 		Tunnel::Bidi { mut client, mut upstream, mut close_reason_tx } => {
@@ -589,8 +587,7 @@ async fn drive_byte_tunnel(t: Tunnel, cancel: &tokio_util::sync::CancellationTok
 	}
 }
 
-// --- Trajectory + error finalisation -----------------------------------
-
+// Trajectory + error finalisation
 fn finish_error(
 	ctx: &mut FlowCtx,
 	conn: &Arc<ConnContext>,
@@ -668,8 +665,7 @@ fn now_ms() -> u64 {
 		.unwrap_or_default()
 }
 
-// --- WASM middleware dispatch -----------------------------------------------
-
+// WASM middleware dispatch
 const WASM_BODY_LIMIT_L7: usize = 1024 * 1024; // 1 MiB
 const WASM_BODY_LIMIT_L4: usize = 64 * 1024; // 64 KiB
 
@@ -901,8 +897,7 @@ fn synth_response_to_http(sr: SynthResponse) -> Result<Response, Error> {
 		.map_err(|e| Error::internal(format!("failed to build synth response: {e}")))
 }
 
-// --- Body collection for LazyBuffer middleware ----------------------------
-
+// Body collection for LazyBuffer middleware
 enum CollectError {
 	TooLarge,
 	Io(Error),

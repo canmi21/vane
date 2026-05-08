@@ -338,9 +338,7 @@ fn parse_content_length(headers: &[u8]) -> Option<usize> {
 	None
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 /// 0-RTT GET on a rule with `allow_zero_rtt: Some(true)` must succeed.
 /// The client's second handshake is `Resumed` and the server-side

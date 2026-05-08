@@ -109,8 +109,7 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> std::process::Exit
 	}
 }
 
-// ----- assert_cmd-driven exit-code tests -------------------------------
-
+// assert_cmd-driven exit-code tests
 #[test]
 fn version_flag_prints_banner_without_config() {
 	// --version short-circuits before any config loading.
@@ -149,8 +148,7 @@ fn boot_with_invalid_json_exits_with_failure() {
 		.stderr(contains("parse").or(contains("broken.json")));
 }
 
-// ----- spawn-and-signal tests ------------------------------------------
-
+// spawn-and-signal tests
 #[test]
 fn boot_with_static_site_serves_response_and_drains_on_sigterm() {
 	let tmp = tempfile::tempdir().expect("tempdir");

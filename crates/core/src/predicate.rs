@@ -1626,13 +1626,11 @@ mod tests {
 		);
 	}
 
-	// ──────────────────────────────────────────────────────────────────────
 	// Dry-run JSON wire-format contract (spec/flow-model.md § _The compiled form_).
 	// The compiled IR round-trips through the shadow-enum convention
 	// documented in spec: externally-tagged snake_case for both `FieldPath`
 	// and `CompiledValue` / `CompiledOperator`, bytes as STANDARD base64,
 	// regex as the source string, CIDR as canonical form.
-	// ──────────────────────────────────────────────────────────────────────
 
 	fn value_round_trip(v: &CompiledValue) -> CompiledValue {
 		let encoded = serde_json::to_string(v).expect("serialize value");
@@ -1793,8 +1791,7 @@ mod tests {
 		assert_eq!(decoded, inst);
 	}
 
-	// --- PredicateInst::test matrix coverage ----------------------------------
-	//
+	// PredicateInst::test matrix coverage	//
 	// Pin the runtime evaluation of the three arms wired in C19's WS chunk:
 	// HttpHeader/Equals, HttpUriPath/Equals, HttpUriPath/Prefix. These were
 	// only indirectly covered by the WS e2e — explicit unit tests guard
@@ -1972,14 +1969,12 @@ mod tests {
 		assert!(tls_sni_equals("api.example.com").test(&view));
 	}
 
-	// ──────────────────────────────────────────────────────────────────────
 	// Full operator × value-type matrix coverage. Each cell marked `yes` in
 	// spec/crates/core.md § _Operator × value type
 	// compatibility_ has a happy + miss test below. Field paths are picked
 	// representatively per value type — string-family ops on tls.sni cover
 	// every Str-typed path because the runtime reads them all via the same
 	// `test_str` helper.
-	// ──────────────────────────────────────────────────────────────────────
 
 	fn pred(path: FieldPath, op: CompiledOperator) -> PredicateInst {
 		PredicateInst { path, op }
@@ -2047,8 +2042,7 @@ mod tests {
 		conn
 	}
 
-	// ── Equality family × every value type ────────────────────────────────
-
+	// Equality family × every value type
 	#[test]
 	fn matrix_equality_str_happy_and_miss() {
 		// FieldPath::TlsSni; ops Equals/NotEquals/In/NotIn covered by Str helpers.
@@ -2153,8 +2147,7 @@ mod tests {
 		assert!(pred(FieldPath::HttpMethod, CompiledOperator::NotEquals(str_val("GET"))).test(&v));
 	}
 
-	// ── InList family × every value type ───────────────────────────────────
-
+	// InList family × every value type
 	#[test]
 	fn matrix_in_list_str_happy_and_miss() {
 		let conn = conn_with_sni("api.example.com");
@@ -2213,8 +2206,7 @@ mod tests {
 		assert!(pred(FieldPath::Transport, CompiledOperator::NotIn(miss)).test(&v));
 	}
 
-	// ── StringSubstr family × Str/Bytes ────────────────────────────────────
-
+	// StringSubstr family × Str/Bytes
 	#[test]
 	fn matrix_substring_on_str_happy_and_miss() {
 		let conn = make_conn();
@@ -2236,8 +2228,7 @@ mod tests {
 		assert!(pred(FieldPath::TlsAlpn, CompiledOperator::NotContains(b(b"/2."))).test(&v));
 	}
 
-	// ── StringPrefSuf family × Str/Bytes ───────────────────────────────────
-
+	// StringPrefSuf family × Str/Bytes
 	#[test]
 	fn matrix_prefix_suffix_on_str_happy_and_miss() {
 		let conn = make_conn();
@@ -2260,8 +2251,7 @@ mod tests {
 		assert!(!pred(FieldPath::TlsAlpn, CompiledOperator::Suffix(b(b"2.0"))).test(&v));
 	}
 
-	// ── RegexMatches × Str ─────────────────────────────────────────────────
-
+	// RegexMatches × Str
 	#[test]
 	fn matrix_regex_matches_on_str_happy_and_miss() {
 		let conn = make_conn();
@@ -2295,8 +2285,7 @@ mod tests {
 		);
 	}
 
-	// ── NumericCmp × Int ───────────────────────────────────────────────────
-
+	// NumericCmp × Int
 	#[test]
 	fn matrix_numeric_cmp_gt_gte_lt_lte_happy_and_miss() {
 		let conn = make_conn_with("127.0.0.1:1024", "127.0.0.1:443");
@@ -2324,8 +2313,7 @@ mod tests {
 		assert!(!pred(FieldPath::LocalPort, CompiledOperator::Gt(9000)).test(&v));
 	}
 
-	// ── CidrMatch × IpAddr ─────────────────────────────────────────────────
-
+	// CidrMatch × IpAddr
 	#[test]
 	fn matrix_cidr_v4_happy_and_miss() {
 		let conn = make_conn_with("10.0.5.7:0", "127.0.0.1:0");
@@ -2355,8 +2343,8 @@ mod tests {
 		assert!(!pred(FieldPath::RemoteIp, CompiledOperator::Cidr(v4)).test(&v));
 	}
 
-	// ── Field-coverage spotchecks (paths the helpers exercise but whose own
-	//    reader path needs explicit coverage) ──────────────────────────────
+	// Field-coverage spotchecks (paths the helpers exercise but whose own
+	// reader path needs explicit coverage).
 
 	#[test]
 	fn http_uri_query_reader_returns_empty_when_query_absent() {
@@ -2408,8 +2396,7 @@ mod tests {
 		);
 	}
 
-	// ── tls.peer_cert.subject_cn (Str-typed) ──────────────────────────────
-
+	// tls.peer_cert.subject_cn (Str-typed)
 	fn rcgen_cert_with_cn(cn: &str) -> rustls_pki_types::CertificateDer<'static> {
 		let mut params = rcgen::CertificateParams::default();
 		params.distinguished_name = rcgen::DistinguishedName::new();
@@ -2531,8 +2518,7 @@ mod tests {
 		);
 	}
 
-	// ── tls.peer_cert.* — new fields ──────────────────────────────────────
-
+	// tls.peer_cert.* — new fields
 	fn rcgen_cert_with_san_dns(cn: &str, dns: &[&str]) -> rustls_pki_types::CertificateDer<'static> {
 		let san: Vec<String> = dns.iter().map(|s| (*s).to_owned()).collect();
 		let mut params = rcgen::CertificateParams::new(san).expect("rcgen params");
@@ -2687,8 +2673,7 @@ mod tests {
 		assert!(OperatorFamily::StringSubstr.accepts(FieldValueType::VecStr));
 	}
 
-	// ── http.body (Bytes-typed) ──────────────────────────────────────────
-	//
+	// http.body (Bytes-typed)	//
 	// Spec 18 § _Runtime_: the executor collects request body via
 	// LazyBuffer before walking a Check on `http.body`, so by the time
 	// the dispatch fires the body is `Body::Static(bytes)`. The tests
@@ -2772,8 +2757,7 @@ mod tests {
 		let _ = pred(FieldPath::HttpBody, CompiledOperator::Contains(b(b"x"))).test(&v);
 	}
 
-	// ── peek (Bytes-typed) ───────────────────────────────────────────────
-	//
+	// peek (Bytes-typed)	//
 	// `peek` reads the buffered ClientHello bytes captured by
 	// `protocol_detect` before the L4→L7 upgrade. The reader returns
 	// `false` when the buffer slot on the L4 view is `None` (already

@@ -21,11 +21,9 @@ use vane_core::{ConnId, FlowLogEvent, FlowLogKind, FlowLogSink, FlowLogVerbosity
 use vane_engine::flow_log_sink::{FanoutSink, FileSink, RingBufferSink};
 use vane_engine::verbosity::VerbosityState;
 
-// ---------------------------------------------------------------------------
 // Shared helper: build a minimal `FlowLogEvent` whose `t` and `seq` are the
 // only varying inputs. The `kind` is fixed at `Trajectory` because none of
 // these tests exercise kind-dependent sink behaviour.
-// ---------------------------------------------------------------------------
 
 fn make_event(t: u64, seq: u32) -> FlowLogEvent {
 	FlowLogEvent {
@@ -39,9 +37,7 @@ fn make_event(t: u64, seq: u32) -> FlowLogEvent {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 6. ring_buffer_evicts_on_cap_overflow
-// ---------------------------------------------------------------------------
 
 #[test]
 fn ring_buffer_evicts_on_cap_overflow() {
@@ -58,9 +54,7 @@ fn ring_buffer_evicts_on_cap_overflow() {
 	assert_eq!(surviving, vec![2, 3, 4], "the three most-recent pushes survive");
 }
 
-// ---------------------------------------------------------------------------
 // 7. ring_buffer_evicts_on_ttl_expiry
-// ---------------------------------------------------------------------------
 
 #[test]
 fn ring_buffer_evicts_on_ttl_expiry() {
@@ -76,9 +70,7 @@ fn ring_buffer_evicts_on_ttl_expiry() {
 	assert_eq!(surviving, vec![1, 2], "t=0 must be ttl-evicted; the two t=20 events survive");
 }
 
-// ---------------------------------------------------------------------------
 // 8. ring_buffer_snapshot_returns_clone_in_order
-// ---------------------------------------------------------------------------
 
 #[test]
 fn ring_buffer_snapshot_returns_clone_in_order() {
@@ -109,9 +101,7 @@ fn ring_buffer_snapshot_returns_clone_in_order() {
 	assert_eq!(thirds_seqs, vec![0, 1, 2, 3], "ring is unaffected by snapshot mutation");
 }
 
-// ---------------------------------------------------------------------------
 // 9. fanout_emits_to_all_wrapped
-// ---------------------------------------------------------------------------
 
 #[test]
 fn fanout_emits_to_all_wrapped() {
@@ -136,9 +126,7 @@ fn fanout_emits_to_all_wrapped() {
 	assert_eq!(snap_b[0].seq, 7);
 }
 
-// ---------------------------------------------------------------------------
 // 10. file_sink_writes_ndjson_to_path
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn file_sink_writes_ndjson_to_path() {
@@ -190,9 +178,7 @@ async fn file_sink_writes_ndjson_to_path() {
 	let _ = std::fs::remove_file(&path);
 }
 
-// ---------------------------------------------------------------------------
 // 11. verbosity_state_starts_trajectory_and_set_debug_then_back
-// ---------------------------------------------------------------------------
 
 #[test]
 fn verbosity_state_starts_trajectory_and_set_debug_then_back() {

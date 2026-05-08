@@ -140,9 +140,7 @@ fn wait_until(mut predicate: impl FnMut() -> bool, msg: &str) {
 	panic!("{msg}");
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn reload_routes_through_new_rule_after_edit() {
