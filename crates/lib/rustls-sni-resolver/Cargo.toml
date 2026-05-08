@@ -1,0 +1,22 @@
+[package]
+name = "rustls-sni-resolver"
+version = "0.0.1"
+categories = ["cryptography", "network-programming"]
+edition.workspace = true
+keywords = ["rustls", "tls", "sni", "certificates", "resolver"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "SNI-keyed certificate map implementing rustls::ResolvesServerCert, designed for hot-reload via ArcSwap."
+
+[lints]
+workspace = true
+
+[dependencies]
+arc-swap = "1"
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }

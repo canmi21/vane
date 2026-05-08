@@ -3959,6 +3959,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
+name = "rustls-sni-resolver"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "rcgen",
+ "rustls",
+]
+
+[[package]]
 name = "rustls-ticketer"
 version = "0.0.1"
 dependencies = [
@@ -5220,6 +5229,7 @@ dependencies = [
  "rustls-pem-roots",
  "rustls-pemfile",
  "rustls-pki-types",
+ "rustls-sni-resolver",
  "rustls-ticketer",
  "serde",
  "serde_json",

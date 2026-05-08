@@ -1,12 +1,17 @@
 //! `CertStore` and `CertEntry`: the in-memory cert pool a
 //! [`crate::tls::VaneCertResolver`] hands to rustls during handshake.
 //!
-//! Keys in [`CertStore::by_sni`] are stored ASCII-lowercase per the SNI
+//! The store + resolver shells live in [`rustls_sni_resolver`]; this
+//! module defines vane's per-cert metadata payload (`CertEntry`) and
+//! exports the type alias `CertStore = rustls_sni_resolver::CertStore<CertEntry>`
+//! plus the `EntryKey` impl that lets the lib's `lookup` extract the
+//! handshake material.
+//!
+//! Keys in `CertStore::by_sni` are stored ASCII-lowercase per the SNI
 //! normalization invariant (spec/crates/engine-tls.md § _SNI peek (L4, no decrypt)_),
 //! so resolver-side lookups are byte-for-byte without an
 //! `eq_ignore_ascii_case` shim.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
@@ -26,35 +31,21 @@ pub struct CertEntry {
 	pub ocsp_next_update: Option<Instant>,
 }
 
-/// Per-listener cert pool: zero-or-more SNI-keyed entries plus an
-/// optional sni-less default. The default fires when a `ClientHello`
-/// has no SNI extension or when the SNI doesn't match any
-/// [`Self::by_sni`] key. A listener has at most one default.
-#[derive(Debug)]
-pub struct CertStore {
-	pub by_sni: HashMap<String, Arc<CertEntry>>,
-	pub default: Option<Arc<CertEntry>>,
-}
-
-impl CertStore {
-	/// Resolve a `ClientHello`'s SNI against the store. The hot-path
-	/// resolver delegates to this so unit tests can exercise the
-	/// lookup without constructing a `rustls::ClientHello` (which is
-	/// not user-constructible). `sni` is expected to already be
-	/// ASCII-lowercased by rustls per RFC 6066 § 3.
-	#[must_use]
-	pub fn lookup(&self, sni: Option<&str>) -> Option<Arc<rustls::sign::CertifiedKey>> {
-		if let Some(name) = sni
-			&& let Some(entry) = self.by_sni.get(name)
-		{
-			return Some(Arc::clone(&entry.key));
-		}
-		self.default.as_ref().map(|d| Arc::clone(&d.key))
+impl rustls_sni_resolver::EntryKey for CertEntry {
+	fn key(&self) -> Arc<rustls::sign::CertifiedKey> {
+		Arc::clone(&self.key)
 	}
 }
 
+/// Per-listener cert pool: zero-or-more SNI-keyed entries plus an
+/// optional sni-less default. The default fires when a `ClientHello`
+/// has no SNI extension or when the SNI doesn't match any
+/// `by_sni` key. A listener has at most one default.
+pub type CertStore = rustls_sni_resolver::CertStore<CertEntry>;
+
 #[cfg(test)]
 mod tests {
+	use std::collections::HashMap;
 	use std::time::Duration;
 
 	use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};

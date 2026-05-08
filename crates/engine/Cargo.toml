@@ -99,6 +99,7 @@ rustls-native-roots-cache = { workspace = true }
 rustls-pem-roots = { workspace = true }
 rustls-pemfile = "2"
 rustls-pki-types = "1"
+rustls-sni-resolver = { workspace = true }
 rustls-ticketer = { workspace = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

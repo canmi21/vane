@@ -4,51 +4,31 @@
 //! the next `ClientHello`, never mid-connection (TLS does not permit
 //! that).
 //!
+//! The resolver shell lives in [`rustls_sni_resolver`]; this module
+//! exports the vane-specific type alias `VaneCertResolver = rustls_sni_resolver::Resolver<CertEntry>`.
+//!
 //! We do **not** delegate to rustls's built-in
 //! `rustls::server::ResolvesServerCertUsingSni` because it returns
 //! `None` (handshake failure) on unmatched SNI with no built-in
 //! fallback hook; spec spec/crates/engine-tls.md § _Cert resolver_
 //! requires `CertStore::default` as the explicit no-SNI fallback.
 
-use std::sync::Arc;
+use crate::tls::CertEntry;
 
-use arc_swap::ArcSwap;
-
-use crate::tls::CertStore;
-
-#[derive(Debug)]
-pub struct VaneCertResolver {
-	store: Arc<ArcSwap<CertStore>>,
-}
-
-impl VaneCertResolver {
-	#[must_use]
-	pub fn new(store: Arc<ArcSwap<CertStore>>) -> Self {
-		Self { store }
-	}
-}
-
-impl rustls::server::ResolvesServerCert for VaneCertResolver {
-	fn resolve(
-		&self,
-		hello: rustls::server::ClientHello<'_>,
-	) -> Option<Arc<rustls::sign::CertifiedKey>> {
-		// `server_name()` is already ASCII-lowercased by rustls per
-		// RFC 6066 § 3, so a direct map lookup suffices.
-		self.store.load().lookup(hello.server_name())
-	}
-}
+pub type VaneCertResolver = rustls_sni_resolver::Resolver<CertEntry>;
 
 #[cfg(test)]
 mod tests {
 	use std::collections::HashMap;
+	use std::sync::Arc;
 	use std::time::{Duration, SystemTime};
 
+	use arc_swap::ArcSwap;
 	use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 	use rustls::sign::CertifiedKey;
 
 	use super::*;
-	use crate::tls::CertEntry;
+	use crate::tls::CertStore;
 
 	fn install_crypto() {
 		crate::crypto::install_default_provider();
@@ -81,7 +61,7 @@ mod tests {
 		let initial = CertStore { by_sni, default: None };
 		let arcswap = Arc::new(ArcSwap::from_pointee(initial));
 		// Hot lookup hits the api entry.
-		assert!(Arc::ptr_eq(&arcswap.load().lookup(Some("api.example.com")).expect("hit"), &api.key,));
+		assert!(Arc::ptr_eq(&arcswap.load().lookup(Some("api.example.com")).expect("hit"), &api.key));
 		// Replace with a store whose SNI map only contains a fresh entry.
 		let admin = entry_for("admin.example.com");
 		let mut by_sni = HashMap::new();
