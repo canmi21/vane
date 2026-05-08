@@ -814,7 +814,7 @@ impl ManagedCertRegistry {
 		force: bool,
 	) -> Result<Arc<StoredCert>, RegistryError> {
 		let cert_scope = format!("cert/{sni}");
-		let _cert_lock = self.store.lock(&cert_scope).await?;
+		let cert_lock = self.store.lock(&cert_scope).await?;
 
 		// Renewal callers (`force == true`) skip the cached-cert
 		// short-circuit so the scheduler can replace a near-expiry
@@ -873,6 +873,14 @@ impl ManagedCertRegistry {
 		let arc = Arc::new(stored);
 		self.cache_cert(sni, Arc::clone(&arc));
 
+		// Drop the per-cert lock before invoking the post-issuance
+		// hooks: `refresh_ocsp_for_sni` re-enters the same cert-scope
+		// lock through `persist_ocsp_state`, and without an explicit
+		// drop the task self-deadlocks. Any concurrent issuer that
+		// arrives after this point reads the freshly-cached cert and
+		// short-circuits before the hooks fire.
+		drop(cert_lock);
+
 		// Best-effort ARI window fetch per `spec/crates/engine-acme.md`
 		// § _ARI (RFC 9773)_. Failure to query (CA doesn't expose
 		// `renewalInfo`, network blip, parse error) is non-fatal:
@@ -904,7 +912,7 @@ impl ManagedCertRegistry {
 		force: bool,
 	) -> Result<Arc<StoredCert>, RegistryError> {
 		let cert_scope = format!("cert/{sni}");
-		let _cert_lock = self.store.lock(&cert_scope).await?;
+		let cert_lock = self.store.lock(&cert_scope).await?;
 
 		// If the cache already has a cert (race vs another task on
 		// the same SNI), short-circuit unless this is a forced
@@ -973,6 +981,16 @@ impl ManagedCertRegistry {
 		self.store.save_cert(sni, &stored).await?;
 		let arc = Arc::new(stored);
 		self.cache_cert(sni, Arc::clone(&arc));
+
+		// Drop the per-cert lock now that the cert is on disk + in
+		// the cache. The post-issuance hooks below (ARI window fetch,
+		// OCSP staple fetch) re-enter the same cert-scope lock via
+		// `persist_ocsp_state`; without this explicit drop the
+		// task self-deadlocks on the very lock it already holds.
+		// Concurrent issuers that arrive after this point read the
+		// freshly-cached cert and short-circuit before reaching
+		// either hook.
+		drop(cert_lock);
 
 		// Best-effort ARI window fetch per `spec/crates/engine-acme.md`
 		// § _ARI (RFC 9773)_; same posture as the dns-01 path.

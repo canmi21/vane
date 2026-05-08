@@ -130,8 +130,20 @@ impl Pebble {
 			.with_exposed_port(MGMT_PORT.tcp())
 			.with_wait_for(WaitFor::message_on_stdout("ACME directory available at"));
 
-		let mut req =
-			image.with_env_var("PEBBLE_VA_NOSLEEP", "1").with_env_var("PEBBLE_AUTHZREUSE", "100");
+		// `PEBBLE_WFE_NONCEREJECT=0` disables Pebble's default 5%
+		// random good-nonce rejection. Pebble injects bad-nonce
+		// responses to surface client retry bugs, but `instant-acme`'s
+		// poll_ready loop fetches a single nonce and retries the same
+		// signed body on each backoff tick — under default rejection
+		// the loop can repeatedly re-fire with a stale nonce until the
+		// outer test timeout fires. Disabling rejection keeps the
+		// fixture-side ACME flow deterministic; production CAs do
+		// implement nonce rejection but a non-test client refreshes
+		// the nonce per request.
+		let mut req = image
+			.with_env_var("PEBBLE_VA_NOSLEEP", "1")
+			.with_env_var("PEBBLE_AUTHZREUSE", "100")
+			.with_env_var("PEBBLE_WFE_NONCEREJECT", "0");
 		match dns_resolver {
 			None => {
 				// `VA_ALWAYS_VALID` mode skips the actual challenge
