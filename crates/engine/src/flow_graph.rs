@@ -193,9 +193,10 @@ impl FlowGraph {
 	/// return `false`: their L7 paths cross `Upgrade` to H3 and never
 	/// hit `L4Forward`, so the spec already classifies them as
 	/// pending-peek = no.
-	// FIXME(pending-peek-h3): drop the Raw-only gate when the
-	// H3-from-pending channel exists; spec line 199-201 row 4
-	// (Mixed: yes) will then activate as written.
+	// TODO(pending-peek-h3): drop the Raw-only gate when the
+	// H3-from-pending channel exists; the mixed-listener row of
+	// `spec/crates/engine.md` § _Multi-packet peek_ will then activate
+	// as written.
 	#[must_use]
 	pub fn needs_pending_peek(&self, addr: SocketAddr, entry: NodeId) -> bool {
 		use vane_core::predicate::FieldPath;
@@ -757,11 +758,11 @@ fn build_listener_server_config(
 	// misuse. `0` is rustls's default and keeps the listener
 	// 0-RTT-disabled.
 	//
-	// TODO(s3-13-followup): wire H3 early-data path. QUIC's early-data
+	// TODO(0rtt-h3): wire the H3 early-data path. QUIC's early-data
 	// semantics differ from TLS-over-TCP and live behind quinn / h3,
 	// not the rustls `ServerConfig` slot edited here.
 	//
-	// TODO(s3-13-followup): mTLS + 0-RTT interaction. Per RFC 8446
+	// TODO(0rtt-mtls): mTLS + 0-RTT interaction. Per RFC 8446
 	// §4.2.10 client certs are not exchanged in 0-RTT; a request that
 	// arrives as 0-RTT on a `client_auth.mode = "require"` listener
 	// will reach the application without `tls.peer_cert.*` populated
@@ -832,12 +833,10 @@ pub enum LinkError {
 	#[error("fetch {kind:?}: {cause}")]
 	FetchFactoryRejected { kind: FetchKind, cause: String },
 
-	// Spec spec/flow-model.md § _link_ (line 111) pins the wording:
+	// Spec wording (single quotes around the feature name):
 	//   "this binary was built without the 'h3' feature — rebuild with
 	//    --features h3 or remove the rule"
-	// single quotes around the feature name. (The C6 task prompt used
-	// double quotes in its example; flagged as SPEC DEVIATION in the
-	// chunk report. Spec wins.)
+	// see `spec/flow-model.md` § _Compile and link — two stages, two crates_.
 	#[error(
 		"this binary was built without the '{feature}' feature — rebuild with --features {feature} or remove the rule"
 	)]

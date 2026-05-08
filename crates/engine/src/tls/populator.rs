@@ -18,8 +18,8 @@
 //! See `spec/crates/engine-tls.md` § _Cert populators / Populator
 //! lifecycle_.
 
-// TODO(s3-09): require disk-backed Storage trait on stateful populators —
-// see spec/crates/engine-tls.md § _Cert populators / Populator lifecycle_.
+// TODO(populator-disk-storage): require a disk-backed Storage trait on
+// stateful populators — see `spec/crates/engine-tls.md` § _Cert populators_.
 
 use async_trait::async_trait;
 

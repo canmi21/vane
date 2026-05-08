@@ -27,11 +27,10 @@ pub enum ExecutorInput {
 /// The split exists because each terminator has a different "what's left
 /// to do" answer: `Close` is fully done, `ByteTunnel` already drove the
 /// copy in-executor, but `WriteHttpResponse` needs the caller to serialise
-/// the `Response` onto a socket (hyper service-fn returns it from the H1/H2
-/// handler; H3 is the same shape). spec/flow-model.md § _Execution model_'s
-/// pseudocode currently shows `write_http_response(resp, conn, ctx).await`
-/// as an internal helper — this design moves that write to the caller; see
-/// the SPEC DEVIATION note in this chunk's report.
+/// the `Response` onto a socket (the hyper service-fn returns it from the
+/// H1 / H2 handler; H3 is the same shape). The executor is socket-free in
+/// the L7 path so it stays composable with hyper's request-response model
+/// and the future `h3::server` analogue.
 pub enum ExecutorOutput {
 	/// `Terminator::Close` walked, or any path the executor finalised
 	/// without producing a response or tunnel. Caller does nothing

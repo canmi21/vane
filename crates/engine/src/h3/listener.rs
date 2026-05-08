@@ -178,8 +178,9 @@ pub fn build_quic_server_config(
 	let inner: rustls::ServerConfig = (**rustls_cfg).clone();
 	let mut h3_rustls = inner;
 	h3_rustls.alpn_protocols = vec![b"h3".to_vec()];
-	// TODO(s3-13): TLS 1.3 0-RTT for H3 is deferred — leave
-	// `enable_zero_rtt` / `max_early_data_size` at rustls defaults.
+	// TODO(0rtt-h3): TLS 1.3 0-RTT for H3 is deferred — leave
+	// `enable_zero_rtt` / `max_early_data_size` at rustls defaults
+	// until h3-quinn surfaces a stable per-stream 0-RTT signal.
 	let h3_rustls = Arc::new(h3_rustls);
 
 	let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(h3_rustls)

@@ -52,10 +52,10 @@ pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 		PhaseNodeKind::Middleware(MiddlewareKind::L4Bytes) => L4_ANY,
 		PhaseNodeKind::Middleware(MiddlewareKind::L7Request) => L7_REQ,
 		PhaseNodeKind::Middleware(MiddlewareKind::L7Response) => L7_RESP,
-		// Spec C5.5 patch (commit 86025228): Upgrade accepts L4Raw as well as
-		// L4Peeked. Pure-HTTP listeners enter via `L4Raw → Upgrade → L7Request`
-		// without an intermediate peek; mixed-posture listeners run an L4Peek
-		// middleware first to advance into `L4Peeked` before Upgrade.
+		// Upgrade accepts both `L4Raw` and `L4Peeked`. Pure-HTTP listeners
+		// enter via `L4Raw → Upgrade → L7Request` without an intermediate
+		// peek; mixed-posture listeners run an `L4Peek` middleware first
+		// to advance into `L4Peeked` before Upgrade.
 		PhaseNodeKind::Upgrade => L4_ANY,
 		PhaseNodeKind::Fetch(FetchKind::L4Forward) => L4_ANY,
 		PhaseNodeKind::Fetch(FetchKind::HttpProxy) => L7_REQ,
@@ -154,8 +154,8 @@ mod tests {
 
 	#[test]
 	fn upgrade_accepts_both_l4_phases() {
-		// Spec C5.5 patch: pure-HTTP listeners take L4Raw → Upgrade directly;
-		// mixed-posture listeners advance via L4Peek into L4Peeked first.
+		// Pure-HTTP listeners take `L4Raw → Upgrade` directly; mixed-posture
+		// listeners advance via L4Peek into `L4Peeked` first.
 		assert_eq!(
 			accepted_in_phases(PhaseNodeKind::Upgrade),
 			&[Phase::L4Raw, Phase::L4Peeked] as &[Phase],

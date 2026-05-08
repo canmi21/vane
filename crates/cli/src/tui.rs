@@ -1,9 +1,14 @@
 //! Interactive terminal UI bound to bare `vane` (and the explicit
-//! `vane tui` form). This module currently owns only the lifecycle
-//! scaffold — enter alt screen + raw mode, render a placeholder
-//! frame, poll events, restore the terminal on every exit path
-//! including panic. View state machine, management-client wiring,
-//! and the per-view widgets land in later passes.
+//! `vane tui` form). The module currently owns only the lifecycle
+//! scaffold: enter alt screen + raw mode, render a placeholder frame,
+//! poll events, restore the terminal on every exit path including
+//! panic.
+//!
+//! See [`spec/tui.md`](../../../spec/tui.md) for the design.
+//
+// TODO(tui-views): land the view state machine, management-client
+// wiring, and the per-view widgets (Connections / Flow log /
+// Structured log / Certs / Metrics / Config / Pools).
 
 use std::io::{self, Stdout};
 use std::panic;
@@ -110,7 +115,7 @@ fn draw(f: &mut ratatui::Frame, info: &BuildInfo) {
 
 	let body = Paragraph::new(vec![
 		Line::from(""),
-		Line::from("  TUI scaffold — views land in later passes."),
+		Line::from("  TUI scaffold — views not yet implemented."),
 		Line::from(""),
 		Line::from(vec![
 			Span::raw("  No daemon connection yet; "),

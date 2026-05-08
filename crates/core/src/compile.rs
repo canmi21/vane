@@ -609,16 +609,12 @@ mod tests {
 		assert_eq!(graph.predicates.len(), 1);
 	}
 
-	// --- Phase-split Check placement (C13.5: single shared Upgrade) --------
-
 	#[test]
 	fn l4_predicate_on_l7_rule_sits_post_upgrade() {
-		// spec/flow-model.md § _Listener-level Upgrade placement_ (C13.5): the
-		// C5.5-era "L4-level Check fails fast before HTTP decode" optimisation
-		// is gone. Every L7 listener carries one shared Upgrade above the
-		// rule chains, so L4-level Check leaves on L7 rules now sit AFTER
-		// the Upgrade. PredicateView's `L7Req` variant still carries `conn`,
-		// so reads of `tls.sni` / `remote.ip` remain functionally correct.
+		// Every L7 listener carries one shared Upgrade above the rule
+		// chains, so L4-level Check leaves on L7 rules sit AFTER the
+		// Upgrade. `PredicateView::L7Req` carries `conn`, so reads of
+		// `tls.sni` / `remote.ip` remain functionally correct.
 		let r = check_rule("r", 7300, &serde_json::json!({ "tls.sni": { "equals": "a" } }));
 		let graph =
 			compile(vec![rule_file("a.json", vec![r])], &Providers, &Providers).expect("compile");
@@ -633,9 +629,8 @@ mod tests {
 
 	#[test]
 	fn l7_predicate_on_l7_rule_sits_after_upgrade() {
-		// L7-level checks have always sat after Upgrade. The C13.5 refactor
-		// preserves that — Upgrade is now listener-level rather than
-		// per-rule, but Checks still descend from it.
+		// Upgrade is listener-level rather than per-rule; L7-level Checks
+		// still descend from it.
 		let r = check_rule(
 			"r",
 			7301,
@@ -829,8 +824,6 @@ mod tests {
 		}
 	}
 
-	// --- C13.5: AllOf lowering + listener-level shared Upgrade -----------
-
 	#[test]
 	fn all_of_two_checks_chains_left_match_to_right_entry() {
 		// all_of [A, B] match=>X miss=>Y  ≡
@@ -949,9 +942,9 @@ mod tests {
 
 	#[test]
 	fn websocket_upgrade_emits_two_distinct_terminators() {
-		// C13.5 fix: WebSocketUpgrade is dual-output — response branch goes
-		// through WriteHttpResponse (rejection), tunnel branch through
-		// ByteTunnel (101-Switching handoff).
+		// `WebSocketUpgrade` is dual-output — the response branch lands at
+		// `WriteHttpResponse` (rejection); the tunnel branch lands at
+		// `ByteTunnel` (101 Switching handoff).
 		let r = parse_rule(serde_json::json!({
 			"name": "ws",
 			"listen": [":7602"],

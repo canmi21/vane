@@ -29,7 +29,7 @@ use crate::rule::SourceInfo;
 ///
 /// # Errors
 /// Returns [`Error::compile`] for unknown middleware / fetch names, invalid
-/// predicate shapes (`AnyOf` / `Not` deferred past this chunk), unresolvable
+/// predicate shapes (cross-level combinator leaves), unresolvable
 /// `ListenSpec` strings, predicate-value type mismatches against their field
 /// path, and rule sets that mix L4 and L7 posture on one listener without a
 /// catch-all fallback.
@@ -702,9 +702,9 @@ impl Builder {
 		// predicate that could miss and thus needs a fallback target. A set
 		// of catch-all (predicate-less) rules produces a chain whose entry
 		// is the first rule's first node — the default-miss is dead code.
-		// Both L4 and L7 postures terminate the miss path in `Terminator::Close`
-		// per spec/crates/engine.md § _Variants_ C5.5 update: unmatched traffic
-		// is silently dropped (port scans, protocol probes, misroutes).
+		// Both L4 and L7 postures terminate the miss path in
+		// `Terminator::Close` — unmatched traffic is silently dropped
+		// (port scans, protocol probes, misroutes).
 		let needs_fallback = ordered.iter().any(|r| r.raw.match_predicate.is_some());
 		let fallback_miss =
 			if needs_fallback { self.synthesize_default_miss() } else { NodeId::new(0) };
@@ -878,18 +878,17 @@ impl Builder {
 			)?;
 		}
 
-		// Validate the predicate's leaves are uniform-level (cross-level
-		// combinators still rejected per C5.5 § _Predicate uniform level_).
-		// Placement no longer depends on level — the listener-level Upgrade
-		// (added by `lower_port`) sits above the entire inner chain, so every
-		// Check sits in the post-Upgrade phase regardless of leaf level.
-		// PredicateView's `L7Req` variant carries `conn`, so L4-only fields
-		// (`remote.ip`, `tls.sni`) remain readable here.
+		// Validate the predicate's leaves are uniform-level — cross-level
+		// combinators are rejected.
+		// Placement no longer depends on level: the listener-level
+		// Upgrade (added by `lower_port`) sits above the entire inner
+		// chain, so every Check sits in the post-Upgrade phase regardless
+		// of leaf level. `PredicateView::L7Req` carries `conn`, so L4-only
+		// fields (`remote.ip`, `tls.sni`) remain readable here.
 		//
-		// SPEC DEVIATION (intentional, documented in spec/flow-model.md § _Listener-
-		// level Upgrade placement_): the C5.5-era "L4-level Check fails fast
-		// before HTTP decode" optimisation is lost — L7 listeners now decode
-		// the request before evaluating L4-level predicates. See spec for
+		// Trade-off (intentional): L7 listeners decode the request before
+		// evaluating L4-level predicates — the "fast L4 reject before HTTP
+		// decode" optimisation is gone. See spec for
 		// the trade-off.
 		let _ = rule.raw.match_predicate.as_ref().map(predicate_uniform_level).transpose()?;
 

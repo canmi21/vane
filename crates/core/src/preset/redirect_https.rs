@@ -2,15 +2,14 @@
 //!
 //! Expands to a single `RawRule` whose terminate is `HttpSynthesize`
 //! emitting a 308 with `Location: https://${host}${uri}`. See
-//! `spec/crates/core.md` § _`redirect_https`_.
-//!
-//! SPEC DEVIATION (carried as a known debt): the spec implies runtime
-//! template substitution (`${host}` / `${uri}` resolve to the request's
-//! Host header and URI). `HttpSynthesizeFetch` currently has no template
-//! engine — the literal string `https://${host}${uri}` is what reaches
-//! the client. A follow-up wires substitution; until then this preset
-//! is functional for diagnostics but not for production redirects. Flag
-//! preserved in commit body, not as a runtime-time error.
+//! [`spec/crates/core.md` § _Compile pipeline_](../../../../spec/crates/core.md#compile-pipeline).
+//
+// TODO(redirect-template-substitution): the spec implies runtime
+// template substitution (`${host}` / `${uri}` resolve to the request's
+// Host header and URI), but `HttpSynthesizeFetch` has no template
+// engine yet — the literal `https://${host}${uri}` reaches the client
+// today. Wire substitution before this preset is appropriate for
+// production redirects.
 
 use crate::error::Error;
 use crate::fetch::FetchKind;

@@ -433,10 +433,9 @@ mod tests {
 
 	#[test]
 	fn phase_check_rejects_write_http_response_reached_in_wrong_phase() {
-		// Upgrade out-phase is L7Request (spec C5.5 patch accepts L4Raw in);
-		// Terminate(WriteHttpResponse) requires L7Response — so walking
-		// Upgrade directly into it is a phase mismatch the validator must
-		// catch.
+		// Upgrade out-phase is `L7Request`; `Terminate(WriteHttpResponse)`
+		// requires `L7Response`. Walking Upgrade directly into it is a
+		// phase mismatch the validator must catch.
 		let tid = TerminatorId::new(0);
 		let graph = SymbolicFlowGraph {
 			nodes: vec![Node::Terminate(tid), Node::Upgrade { next: NodeId::new(0) }],

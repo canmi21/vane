@@ -692,10 +692,9 @@ impl MgmtState {
 	}
 
 	/// Walk the active graph's `entries` and report each listener's
-	/// runtime status. Used by both `stats` and `get_connections` —
-	/// they currently return the same per-listener shape; per-connection
-	/// detail lands in a later chunk once the listener set registers
-	/// `ConnContext`s.
+	/// runtime status. Used by both `stats` and `get_connections` to
+	/// drive the per-listener summary; the latter additionally returns
+	/// the in-flight connection list.
 	fn listener_status(&self) -> Vec<ListenerStatus> {
 		let graph = self.graph_swap.load();
 		graph

@@ -255,7 +255,7 @@ fn ws_passthrough_rule(
 		Some(prefixes) => {
 			// all_of [ upgrade == "websocket", any_of [ path.prefix = p_i ... ] ].
 			// Both leaves sit at the L7Header level so the cross-level
-			// validator accepts the combinator (C13.5 added `all_of`).
+			// validator accepts the combinator.
 			let prefix_branches: Vec<serde_json::Value> = prefixes
 				.into_iter()
 				.map(|p| serde_json::json!({ "http.uri.path": { "prefix": p } }))
