@@ -24,8 +24,6 @@
 //! the physical socket. quinn never owns the physical socket, so
 //! other consumers can keep writing through it concurrently.
 
-#![forbid(unsafe_code)]
-
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;

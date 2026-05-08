@@ -12,8 +12,6 @@
 //! drains `buffer` first, then delegates to `inner`. Writes / flushes
 //! / shutdowns pass through to the inner stream untouched.
 
-#![forbid(unsafe_code)]
-
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};

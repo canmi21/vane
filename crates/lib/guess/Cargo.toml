@@ -2,12 +2,12 @@
 name = "guess"
 version = "0.2.1"
 categories = ["network-programming", "parser-implementations"]
-edition = "2024"
+edition.workspace = true
 keywords = ["protocol", "detection", "tls", "http", "sniff"]
-license = "MIT"
+license.workspace = true
 readme = "README.md"
-repository = "https://github.com/canmi21/vane"
-rust-version = "1.95"
+repository.workspace = true
+rust-version.workspace = true
 description = "Wire-protocol classifier for TCP / TLS streams: feed connection-prefix bytes, get back TLS ClientHello / HTTP/2 preface / HTTP/1 / Unknown — with NeedMore for not-yet-decisive prefixes."
 
 [lints]

@@ -30,8 +30,6 @@
 //! retry storm against an OS API that is already telling us it is
 //! unhappy.
 
-#![forbid(unsafe_code)]
-
 use std::sync::{Arc, OnceLock};
 
 /// Shared error type. Carries an operator-readable message; the

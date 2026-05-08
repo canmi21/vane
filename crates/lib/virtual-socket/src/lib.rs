@@ -25,8 +25,6 @@
 //! [`quinn::AsyncUdpSocket`](https://docs.rs/quinn), see the
 //! `quinn-shared-socket` crate.
 
-#![forbid(unsafe_code)]
-
 use std::collections::VecDeque;
 use std::io;
 use std::net::SocketAddr;

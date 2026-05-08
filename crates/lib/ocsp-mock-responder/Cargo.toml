@@ -2,12 +2,12 @@
 name = "ocsp-mock-responder"
 version = "0.0.1"
 categories = ["development-tools::testing", "cryptography"]
-edition = "2024"
+edition.workspace = true
 keywords = ["ocsp", "mock", "test", "fixture", "tls"]
-license = "MIT"
+license.workspace = true
 readme = "README.md"
-repository = "https://github.com/canmi21/vane"
-rust-version = "1.95"
+repository.workspace = true
+rust-version.workspace = true
 description = "In-process mock OCSP responder for integration tests. Spawns a hyper HTTP/1.1 server that answers OCSP requests with configurable Good / Revoked / TryLater statuses."
 
 [lints]
