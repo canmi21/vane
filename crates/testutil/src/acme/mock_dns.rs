@@ -67,15 +67,43 @@ impl MockDns {
 	/// `MockDnsError::Bind` when the kernel refuses the ephemeral
 	/// bind (effectively never on a healthy system).
 	pub async fn start() -> Result<Self, MockDnsError> {
-		// Bind UDP first so we can pin the chosen ephemeral port,
-		// then bind a matching TCP listener on the same port. Some
-		// resolvers (Pebble's miekg/dns when configured with
-		// `-dnsserver host:port`) try TCP first / fall back to TCP
-		// on UDP truncation; serving both keeps the fixture
+		// Bind UDP first to pin an ephemeral port, then bind a matching
+		// TCP listener on the same port — Pebble's miekg/dns (when
+		// configured with `-dnsserver host:port`) may fall back to TCP
+		// on UDP truncation, so serving both keeps the fixture
 		// resolver-agnostic.
-		let udp = UdpSocket::bind("0.0.0.0:0").await?;
+		//
+		// UDP and TCP have independent port spaces, so the kernel can
+		// hand the same ephemeral port to a parallel test's TCP socket
+		// between our UDP `bind` and TCP `bind`. When that race trips,
+		// retry with a fresh ephemeral pick. `MAX_BIND_ATTEMPTS` keeps
+		// the loop bounded under unusual port pressure.
+		const MAX_BIND_ATTEMPTS: u32 = 16;
+		let (udp, tcp) = {
+			let mut last_err: Option<std::io::Error> = None;
+			let mut bound = None;
+			for _ in 0..MAX_BIND_ATTEMPTS {
+				let udp = UdpSocket::bind("0.0.0.0:0").await?;
+				let port = udp.local_addr()?.port();
+				match TcpListener::bind(("0.0.0.0", port)).await {
+					Ok(tcp) => {
+						bound = Some((udp, tcp));
+						break;
+					}
+					Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+						last_err = Some(e);
+						drop(udp);
+					}
+					Err(e) => return Err(MockDnsError::Bind(e)),
+				}
+			}
+			bound.ok_or_else(|| {
+				MockDnsError::Bind(last_err.unwrap_or_else(|| {
+					std::io::Error::new(std::io::ErrorKind::AddrInUse, "exhausted bind attempts")
+				}))
+			})?
+		};
 		let port = udp.local_addr()?.port();
-		let tcp = TcpListener::bind(("0.0.0.0", port)).await?;
 		// Surface a connect-friendly address — `0.0.0.0:<port>`
 		// from `local_addr` is a wildcard bind and not a valid
 		// destination.
