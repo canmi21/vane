@@ -1,16 +1,13 @@
-//! Cloudflare DNS API [`super::DnsProvider`] implementation.
+//! Cloudflare v4 REST API [`crate::DnsProvider`] implementation.
 //!
-//! Uses the Cloudflare v4 REST API for TXT-record CRUD. Token-based
-//! auth via a Cloudflare API Token scoped to "Zone DNS Edit"; the
-//! rule-side config carries only the env-var name that holds the
-//! token, never the token itself, matching the
-//! `spec/crates/core.md` `.env`-vs-config split.
+//! Token-based auth via a Cloudflare API Token scoped to "Zone DNS
+//! Edit"; the rule-side config carries only the env-var name that
+//! holds the token, never the token itself.
 //!
 //! `wait_propagated` queries a small fixed pool of public recursive
-//! resolvers (`1.1.1.1`, `8.8.8.8`) via `hickory-resolver`. Per
-//! `spec/crates/engine-acme.md` § _Challenge: DNS-01_, observing the
-//! TXT through a public resolver is a high-confidence proxy for
-//! what the CA validator will see.
+//! resolvers (`1.1.1.1`, `8.8.8.8`) via `hickory-resolver` —
+//! observing the TXT through a public resolver is a high-confidence
+//! proxy for what the CA validator will see.
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, Instant};
@@ -21,11 +18,10 @@ use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValu
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
-use super::{DnsProvider, DnsProviderError};
+use crate::{DnsProvider, DnsProviderError};
 
-/// Default Cloudflare API base. Overridden by tests via
-/// [`CloudflareDnsProvider::with_api_base`] to point at a local
-/// mock HTTP server.
+/// Default Cloudflare API base. Overridden in tests via the
+/// non-public `api_base` field.
 const DEFAULT_API_BASE: &str = "https://api.cloudflare.com/client/v4";
 
 /// Public recursive resolvers `wait_propagated` queries. Pebble's
@@ -35,13 +31,13 @@ const DEFAULT_API_BASE: &str = "https://api.cloudflare.com/client/v4";
 const PUBLIC_RESOLVERS: &[(IpAddr, u16)] =
 	&[(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53), (IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53)];
 
-/// Operator-supplied Cloudflare config. Parsed from
-/// `tls.managed.dns_provider` per `spec/crates/engine-acme.md`
-/// § _Cloudflare provider_.
+/// Operator-supplied Cloudflare config. Designed for direct
+/// `serde_json::from_value` deserialisation from a TOML / JSON
+/// configuration block.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CloudflareConfig {
 	/// Name of the environment variable holding the API token. The
-	/// token itself never appears in the JSON config.
+	/// token itself never appears in the config.
 	pub api_token_env: String,
 	/// Optional pre-configured zone id. When absent, the provider
 	/// auto-detects the zone by walking the FQDN labels and
@@ -83,14 +79,15 @@ impl CloudflareDnsProvider {
 	/// - [`DnsProviderError::Auth`] when the env var is missing /
 	///   empty.
 	/// - [`DnsProviderError::Internal`] when reqwest fails to build
-	///   its client (typically a TLS-init issue).
+	///   its client (typically a TLS-init issue — see the crate
+	///   README for the rustls crypto-provider requirement).
 	pub fn from_config(config: &CloudflareConfig) -> Result<Self, DnsProviderError> {
 		let token = std::env::var(&config.api_token_env)
 			.ok()
 			.filter(|s| !s.is_empty())
 			.ok_or(DnsProviderError::Auth)?;
 		let http = Client::builder()
-			.user_agent("vaned/acme")
+			.user_agent("acme-provider/cloudflare")
 			.build()
 			.map_err(|e| DnsProviderError::Internal(format!("reqwest client: {e}")))?;
 		Ok(Self {
@@ -352,7 +349,7 @@ mod tests {
 
 	fn unique_env_name() -> String {
 		let n = TOKEN_COUNTER.fetch_add(1, Ordering::SeqCst);
-		format!("VANE_TEST_CF_TOKEN_{n}")
+		format!("ACME_TEST_CF_TOKEN_{n}")
 	}
 
 	fn build_provider_for_mock(
@@ -364,10 +361,9 @@ mod tests {
 		// `Client::build` constructs its (lazy) TLS config — even
 		// for tests that only ever talk to a wiremock server over
 		// plain HTTP, because reqwest builds the rustls config
-		// eagerly. The engine installs aws-lc-rs at daemon boot;
-		// tests must do the same.
-		crate::crypto::install_default_provider();
-		let http = Client::builder().user_agent("vaned/acme").build().expect("client");
+		// eagerly.
+		let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+		let http = Client::builder().user_agent("acme-provider/cloudflare").build().expect("client");
 		CloudflareDnsProvider {
 			api_base: server.uri(),
 			api_token: "test-token-123".to_owned(),
@@ -439,8 +435,6 @@ mod tests {
 	#[tokio::test]
 	async fn set_txt_posts_record_with_correct_shape() {
 		let server = MockServer::start().await;
-		// The provider is pre-configured with zone_id so it skips
-		// the /zones lookup and goes straight to POST.
 		Mock::given(method("POST"))
 			.and(path("/zones/zone-id-abc/dns_records"))
 			.and(header("authorization", "Bearer test-token-123"))
@@ -508,10 +502,6 @@ mod tests {
 
 	#[tokio::test]
 	async fn resolve_zone_id_walks_labels_until_match() {
-		// Provider has no pre-configured zone_id; the auto-detect
-		// path walks `_acme-challenge.api.example.com` → `api.example.com`
-		// → `example.com`. Mock responds 200/empty for the longer
-		// names, 200/match for `example.com`.
 		let server = MockServer::start().await;
 		Mock::given(method("GET"))
 			.and(path("/zones"))

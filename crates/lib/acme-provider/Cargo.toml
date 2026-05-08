@@ -1,0 +1,52 @@
+[package]
+name = "acme-provider"
+version = "0.0.1"
+categories = ["cryptography", "network-programming", "api-bindings"]
+edition.workspace = true
+keywords = ["acme", "dns01", "letsencrypt", "tls", "cloudflare"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "DnsProvider trait for ACME DNS-01 challenges, with optional provider implementations behind feature flags."
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Cloudflare v4 REST API DNS provider.
+cloudflare = [
+	"dep:hickory-resolver",
+	"dep:parking_lot",
+	"dep:reqwest",
+	"dep:serde",
+	"dep:serde_json",
+	"dep:tokio",
+]
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "2"
+
+# Cloudflare-only deps. Each is `optional = true` and pulled in by
+# `features.cloudflare`; default builds get just the trait + error.
+hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"], optional = true }
+parking_lot = { version = "0.12", optional = true }
+# The `rustls-tls-native-roots-no-provider` feature lets the host
+# pick the rustls crypto backend (aws-lc-rs / ring); we don't bake
+# one in here because vane and other downstream callers may want
+# different choices.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots-no-provider", "json"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+tokio = { version = "1", features = ["sync", "time"], optional = true }
+
+[dev-dependencies]
+# Cloudflare tests need a rustls crypto provider installed before
+# reqwest builds its (lazy) TLS config — even for tests that only
+# talk to a wiremock server over plain HTTP.
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+wiremock = "0.6"

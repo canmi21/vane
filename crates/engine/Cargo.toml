@@ -41,11 +41,12 @@ h3 = [
 	"dep:virtual-socket",
 ]
 cgi = []
-acme = ["dep:fs4", "dep:futures", "dep:instant-acme", "dep:rcgen"]
-# Cloudflare DNS-01 provider. Pulls reqwest only in this feature
-# combination so the default `acme`-only build doesn't carry the
-# HTTP client unnecessarily.
-cloudflare = ["acme", "dep:reqwest"]
+acme = ["dep:acme-provider", "dep:fs4", "dep:futures", "dep:instant-acme", "dep:rcgen"]
+# Cloudflare DNS-01 provider. The provider implementation lives in
+# the `acme-provider` crate; flipping this engine feature flips
+# `acme-provider/cloudflare`, which pulls the reqwest / hickory
+# stack only in this combination.
+cloudflare = ["acme", "acme-provider/cloudflare"]
 
 [dependencies]
 arc-swap = "1.9.1"
@@ -133,6 +134,10 @@ quinn-proto = { version = "0.11", default-features = false, optional = true }
 # `futures` is needed for `BoxFuture` in the `with_lock` closure signature.
 # `instant-acme` is the RFC 8555 client (HTTP-01 + DNS-01).
 # `rcgen` generates ECDSA / RSA keypairs and CSRs at issuance time.
+# Generic ACME `DnsProvider` trait + Cloudflare implementation
+# (gated by this crate's `cloudflare` feature, which flips the
+# lib's `cloudflare` feature in turn).
+acme-provider = { workspace = true, optional = true }
 fs4 = { version = "1.1", default-features = false, features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
 # `default-features = false` to keep instant-acme from pulling
@@ -149,11 +154,6 @@ instant-acme = { version = "0.8", default-features = false, features = ["hyper-r
 	# without re-implementing the extraction.
 	"time","x509-parser",], optional = true }
 rcgen = { version = "0.14", optional = true }
-# Cloudflare provider HTTP client. `rustls-tls-native-roots-no-provider`
-# matches the workspace policy: stay backend-agnostic so the
-# `aws-lc-rs?` / `ring?` features in this crate can pick the rustls
-# crypto provider without conflicting with reqwest's default `ring`.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots-no-provider", "json"], optional = true }
 
 # `libc` is already in the workspace dep graph (transitively via tokio,
 # rustls, hyper, ...). The CGI driver promotes it to a direct dep so
@@ -174,7 +174,3 @@ tempfile = "3"
 tokio-rustls = { version = "0.26", default-features = false, features = ["early-data"] }
 tracing-broadcast = { workspace = true }
 vane-testutil = { workspace = true, features = ["h3", "acme", "ocsp"] }
-# Cloudflare provider unit tests use wiremock to stub the v4 API
-# without hitting the real Cloudflare endpoint. Dev-only — never
-# enters the runtime dep graph.
-wiremock = "0.6"
