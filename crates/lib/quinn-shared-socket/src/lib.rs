@@ -4,7 +4,7 @@
 //!
 //! Typical setup:
 //!
-//! 1. A "router" task owns the physical [`tokio::net::UdpSocket`] and
+//! 1. A "router" task owns the physical `tokio::net::UdpSocket` and
 //!    `recv_from`s it.
 //! 2. Each consumer (a `quinn::Endpoint`, an L4 forwarder, a DNS
 //!    parser, ...) gets its own [`virtual_socket::VirtualUdpSocket`]

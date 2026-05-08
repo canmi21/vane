@@ -35,15 +35,17 @@
 //! ```no_run
 //! use clienthello::{Extractor, PushOutcome};
 //!
-//! let mut e = Extractor::new();
-//! for datagram in incoming_initials() {
-//!     match e.push(&datagram)? {
-//!         PushOutcome::Sni(name) => return Ok(name),
-//!         PushOutcome::NeedMore => continue,
-//!     }
-//! }
 //! # fn incoming_initials() -> Vec<Vec<u8>> { vec![] }
-//! # Ok::<(), clienthello::Error>(())
+//! fn extract_sni() -> Result<Option<String>, clienthello::Error> {
+//!     let mut e = Extractor::new();
+//!     for datagram in incoming_initials() {
+//!         match e.push(&datagram)? {
+//!             PushOutcome::Sni(name) => return Ok(Some(name)),
+//!             PushOutcome::NeedMore => continue,
+//!         }
+//!     }
+//!     Ok(None)
+//! }
 //! ```
 
 mod aead;

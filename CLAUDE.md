@@ -18,7 +18,7 @@ Gates run on commit via lefthook:
 - `cargo clippy --workspace --all-targets -- -D warnings` — lint
 - `commitlint` — conventional commit format, 72-char header, lower-case subject
 
-Test baseline is `cargo nextest run --workspace` (or `just test`); `cargo test --workspace` (or `just test-cargo`) is the bypass for doctests and runner-suspect debugging. Tests are not gated on commit. `just gate` runs lint + test as the pre-push bundle.
+Test baseline is `cargo nextest run --workspace` (or `just test`); `cargo test --workspace` (or `just test-cargo`) is the bypass for doctests and runner-suspect debugging. Tests are not gated on commit. `just gate` runs lint + test as the pre-push bundle. `just doc` builds rustdoc with `-D warnings` and runs every `//!` / `///` doctest — useful when touching public-facing documentation in the `crates/lib/*` crates.
 
 When the gate flags formatting or lint issues, **let the toolchain fix what it can mechanically before touching anything by hand**:
 

@@ -54,6 +54,14 @@ lint-fmt:
 lint-prose:
 	dprint check
 
+# rustdoc + doctests across the workspace. `RUSTDOCFLAGS=-D warnings`
+# turns broken intra-doc links and other rustdoc warnings into errors;
+# `cargo test --doc` compiles every `//!` / `///` example and runs the
+# ones that are not `no_run`.
+doc:
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+	cargo test --doc --workspace
+
 # Pre-push gate: full lint pass + workspace test run
 gate: lint test
 
