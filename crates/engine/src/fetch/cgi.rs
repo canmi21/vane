@@ -356,8 +356,7 @@ fn validate_binary(binary: &std::path::Path, security: &CgiSecurity) -> Result<(
 
 // Runtime
 
-/// Daemon-wide cap on simultaneously running CGI children. Spec §
-/// _Concurrency cap_: when reached, new requests fast-reject with 503;
+/// Daemon-wide cap on simultaneously running CGI children. `spec/crates/engine.md` § _Concurrency cap_: when reached, new requests fast-reject with 503;
 /// no queueing.
 ///
 /// The semaphore is built once per process from
@@ -384,8 +383,7 @@ static CGI_PERMITS: OnceLock<CgiPermitState> = OnceLock::new();
 
 const DEFAULT_MAX_CONCURRENT: usize = 100;
 
-/// Per-rule body-size limit for stdin writes. The spec § _Streaming
-/// posture: half-buffered_ refers to "`max_body_size` on the request
+/// Per-rule body-size limit for stdin writes. The spec § _CGI_ refers to "`max_body_size` on the request
 /// side" without nailing down where the value comes from; the
 /// rule-level `max_body_bytes_request` field already carries an
 /// 8 MiB default for every rule. Until that field is plumbed through
@@ -661,8 +659,7 @@ fn static_response(status: StatusCode) -> Response {
 	b.body(Body::Empty).expect("static response")
 }
 
-/// Build the RFC 3875 + common-extension env for one request. Spec §
-/// _Required by RFC 3875_; see `spec/crates/engine.md` § _CGI_.
+/// Build the RFC 3875 + common-extension env for one request. `spec/crates/engine.md` § _CGI_.
 #[cfg(unix)]
 #[allow(clippy::too_many_lines)]
 fn build_env(args: &CgiArgs, req: &Request, conn: &Arc<ConnContext>) -> Vec<(String, String)> {
@@ -941,7 +938,7 @@ fn build_response_from_headers(block: &[u8]) -> Result<http::response::Builder, 
 }
 
 /// Send `SIGTERM`, wait up to one second, then `SIGKILL`. Used for
-/// timeout-driven termination per `spec/crates/engine.md` § _Concrete fetches_.
+/// timeout-driven termination per `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_.
 #[cfg(unix)]
 async fn terminate_child(child: &mut tokio::process::Child) {
 	if let Some(pid) = child.id() {

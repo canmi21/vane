@@ -163,7 +163,7 @@ fn reverse_proxy_default_compiles_to_graph_with_http_proxy() {
 
 #[test]
 fn reverse_proxy_websocket_true_compiles_with_websocket_upgrade_fetch() {
-	// `spec/crates/engine.md` § _Concrete fetches_: `websocket: true` swaps the WS reject
+	// `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_: `websocket: true` swaps the WS reject
 	// for a `WebSocketUpgrade` fetch routed at upgrade-bearing requests.
 	let entry = preset_entry(
 		"api",
@@ -185,7 +185,7 @@ fn reverse_proxy_websocket_true_compiles_with_websocket_upgrade_fetch() {
 
 #[test]
 fn reverse_proxy_websocket_paths_compiles_with_three_rules_present() {
-	// `spec/crates/engine.md` § _Concrete fetches_ (path-prefix array): three rules —
+	// `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_ (path-prefix array): three rules —
 	// `<name>.ws-allow` (`WebSocketUpgrade`), `<name>.ws-deny`
 	// (`HttpSynthesize` 400), `<name>.main` (`HttpProxy`). All three
 	// fetch kinds must appear in the slab.

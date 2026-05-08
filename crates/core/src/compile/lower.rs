@@ -86,8 +86,7 @@ pub fn lower(
 	warn_missing_plaintext_port_80_for_http01(&builder.listener_tls, &builder.listener_kinds);
 
 	// Inject the high-priority `/.well-known/acme-challenge/` route
-	// into every plaintext `:80` listener — per spec § _HTTP-01
-	// § Case 1_. The pass mutates `builder.entries` in place, swapping
+	// into every plaintext `:80` listener — per spec § _Challenge: HTTP-01_. The pass mutates `builder.entries` in place, swapping
 	// each affected listener's entry node for a Check that branches
 	// to the AcmeChallenge fetch on match.
 	let annotations = inject_acme_http01_routes(&mut builder);
@@ -1138,8 +1137,7 @@ type ListenerGroup<'a> = (Transport, Vec<SocketAddr>, Vec<&'a AnalyzedRule>);
 /// into a `ListenerTlsSpec` cert pool.
 ///
 /// Each rule with `tls = Some(_)` contributes one cert into the pool,
-/// keyed by `tls.sni` (lowercased ASCII per spec/crates/engine-tls.md § _SNI
-/// normalization_). `sni: None` is the listener's _default_ — at most
+/// keyed by `tls.sni` (lowercased ASCII per spec/crates/engine-tls.md § _SNI peek (L4, no decrypt)_). `sni: None` is the listener's _default_ — at most
 /// one is allowed.
 ///
 /// Returns `Ok(None)` when no rule on this listener carries TLS
@@ -1270,8 +1268,7 @@ fn resolve_listener_tls(
 	}
 
 	// Aggregate per-rule `tls.client_auth` into one listener-level
-	// `ClientAuthSpec`. Per `spec/crates/engine-tls.md` § _Client certificate
-	// verification_, mTLS is per-listener: rules on the same listener
+	// `ClientAuthSpec`. Per `spec/crates/engine-tls.md` § _Client certificate verification (mTLS on listener)_, mTLS is per-listener: rules on the same listener
 	// must agree on `mode` AND `trust_store`. The first rule's spec
 	// (after structural validation) becomes the listener's policy;
 	// subsequent rules must produce the same value.
@@ -1331,8 +1328,7 @@ fn display_cert_file(tls: &crate::rule::TlsConfig) -> String {
 }
 
 /// Inject the high-priority ACME HTTP-01 challenge route into
-/// every plaintext `:80` listener per `spec/crates/engine-acme.md` § _HTTP-01
-/// § Case 1_. No-op when no rule in the config requested an
+/// every plaintext `:80` listener per `spec/crates/engine-acme.md` § _Challenge: HTTP-01_. No-op when no rule in the config requested an
 /// HTTP-01-managed cert.
 ///
 /// The pass:
@@ -1617,8 +1613,7 @@ fn is_idempotent_method(method: &str) -> bool {
 
 /// Validate one rule's `client_auth` block and produce the
 /// listener-level `ClientAuthSpec` it implies. Compile errors surface
-/// every structural omission listed in `spec/crates/engine-tls.md` § _Client
-/// certificate verification_'s schema table.
+/// every structural omission listed in `spec/crates/engine-tls.md` § _Client certificate verification (mTLS on listener)_'s schema table.
 fn compile_client_auth(
 	addrs: &[SocketAddr],
 	ca: &crate::rule::ClientAuthConfig,
@@ -1878,8 +1873,7 @@ fn coerce_value(
 			Ok(CompiledValue::Int(*n))
 		}
 		FieldValueType::Bytes => {
-			// spec/crates/core.md § _Value JSON
-			// encoding_: bytes-typed fields take a STANDARD base64
+			// spec/crates/core.md § _Predicate_: bytes-typed fields take a STANDARD base64
 			// string. Decoding here keeps the lower-time IR aligned
 			// with the dry-run JSON form (which the shadow-enum's
 			// de_bytes already round-trips through base64).
@@ -2049,8 +2043,7 @@ fn hash_rules(rules: &[AnalyzedRule]) -> [u8; 32] {
 
 #[cfg(test)]
 mod compat_tests {
-	//! Per-cell coverage of `spec/crates/core.md` § _Operator × value type
-	//! compatibility_. Each illegal cell (marked `—` in the matrix) gets
+	//! Per-cell coverage of `spec/crates/core.md` § _Predicate_. Each illegal cell (marked `—` in the matrix) gets
 	//! at least one rejected sample, and the diagnostic carries the rule
 	//! file + line. Legal cells are exercised indirectly by the runtime
 	//! dispatch tests in `crate::predicate`.

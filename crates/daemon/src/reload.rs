@@ -98,8 +98,7 @@ pub(crate) async fn reload_once(
 	// Pre-link CRL refresh: register any newly-named source with the
 	// daemon-wide cache so the upcoming `link` and subsequent handshakes
 	// see fresh bytes. URL sources already registered are left to the
-	// background refresher; file sources always re-read (spec § _CRL
-	// checking_, file source reload semantics).
+	// background refresher; file sources always re-read (`spec/crates/engine-tls.md` § _CRL_, file source reload semantics).
 	if let Some(cache) = &security_cfg.crl_cache {
 		let listener_sources =
 			vane_engine::tls::collect_listener_crl_sources(&symbolic.meta.listener_tls);

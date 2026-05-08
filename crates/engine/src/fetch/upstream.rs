@@ -55,8 +55,7 @@ pub struct UpstreamTls {
 	/// The bytes themselves live in the cache, not here. Empty when no
 	/// CRL sources are configured (the common case).
 	pub crls: Vec<(CrlSourceId, CrlFetchFailure)>,
-	/// Optional client certificate for upstream mTLS. Spec § _mTLS on
-	/// upstream_ — `Arc<CertifiedKey>` is the daemon-wide sharing
+	/// Optional client certificate for upstream mTLS. Spec § _Upstream-side TLS_ — `Arc<CertifiedKey>` is the daemon-wide sharing
 	/// primitive (rustls' `CertifiedKey` is intentionally not `Clone`).
 	/// `None` is the common one-way TLS path.
 	pub client_cert: Option<Arc<CertifiedKey>>,

@@ -90,8 +90,7 @@ pub struct TlsConfig {
 	/// this value (lower aggregates them). See
 	/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_.
 	pub enable_zero_rtt: bool,
-	/// Listener-side mTLS — per `spec/crates/engine-tls.md` § _Client certificate
-	/// verification_. Per-rule input; the lower pass aggregates each
+	/// Listener-side mTLS — per `spec/crates/engine-tls.md` § _Client certificate verification (mTLS on listener)_. Per-rule input; the lower pass aggregates each
 	/// rule's `client_auth` into one `ClientAuthSpec` per listener
 	/// address (rules on the same listener must agree, else compile
 	/// error). `None` keeps the listener at `ClientAuth::None`.
@@ -157,8 +156,7 @@ impl TlsConfig {
 		}
 	}
 
-	/// Per-rule pre-lower validation per `spec/crates/engine-acme.md` § _Compile-time
-	/// checks_ and `spec/crates/engine-tls.md` § _Upstream-side TLS_:
+	/// Per-rule pre-lower validation per `spec/crates/engine-acme.md` § _Configuration schema_ and `spec/crates/engine-tls.md` § _Upstream-side TLS_:
 	///
 	/// 1. Exactly one of (`cert_file` ∧ `key_file`) or `managed` is
 	///    present.
@@ -251,8 +249,7 @@ impl ManagedSpec {
 
 	/// Per-rule invariants, called from [`TlsConfig::validate`].
 	///
-	/// `tls_sni` is the parent rule's `tls.sni`; spec § _Compile-time
-	/// checks_ requires `san ⊇ {tls.sni}`.
+	/// `tls_sni` is the parent rule's `tls.sni`; `spec/crates/engine-acme.md` § _Configuration schema_ requires `san ⊇ {tls.sni}`.
 	///
 	/// # Errors
 	/// One [`Error::compile`] per violation, in declaration order.
@@ -402,8 +399,7 @@ pub enum CrlSourceConfig {
 	Url { url: String, fetch_failure: CrlFetchFailure },
 }
 
-/// CRL availability policy (per `spec/crates/engine-tls.md` § _CRL_ § _Failure
-/// handling_).
+/// CRL availability policy (per `spec/crates/engine-tls.md` § _CRL_).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CrlFetchFailure {
@@ -436,8 +432,7 @@ pub struct ListenerTlsSpec {
 	/// the renewal scheduler.
 	#[serde(default)]
 	pub managed_snis: BTreeMap<String, ManagedSpec>,
-	/// Resolved per-listener mTLS policy. Per `spec/crates/engine-tls.md` § _Client
-	/// certificate verification_ this is per-listener, derived from the
+	/// Resolved per-listener mTLS policy. Per `spec/crates/engine-tls.md` § _Client certificate verification (mTLS on listener)_ this is per-listener, derived from the
 	/// union of every rule's `tls.client_auth` on the same address;
 	/// rules that disagree on `mode` or `trust_store` produce a compile
 	/// error. Defaults to `None` for cleartext clients.
@@ -540,7 +535,7 @@ impl<'de> serde::Deserialize<'de> for TerminateSpec {
 		};
 		let kind = fetch_kind_from_alias(&alias)
 			.ok_or_else(|| serde::de::Error::custom(format!("unknown terminate type: {alias:?}")))?;
-		// spec/crates/engine.md § _Variant ergonomics in config_:
+		// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_:
 		// `httpN_proxy` is sugar for `http_proxy` + `version: "hN"`.
 		// Inject the version when the alias names a specific HTTP
 		// version and the user has not already set one explicitly —
@@ -807,7 +802,7 @@ mod tests {
 
 	#[test]
 	fn terminate_spec_alias_table_maps_to_fetch_kind() {
-		// Every row of spec/crates/engine.md § _Variant ergonomics in config_.
+		// Every row of spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_.
 		let cases: &[(&str, FetchKind)] = &[
 			("tcp_forward", FetchKind::L4Forward),
 			("udp_forward", FetchKind::L4Forward),

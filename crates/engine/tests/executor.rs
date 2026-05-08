@@ -3,8 +3,7 @@
 //! Covers the execution-model contract described in
 //! `spec/flow-model.md` § _Executor_ (lines 330-469), the
 //! middleware two-channel routing described in
-//! `spec/crates/engine.md` § _Middleware_ / _Two error channels,
-//! not one_, and the three Terminator variants in
+//! `spec/crates/engine.md` § _Middleware_; `spec/flow-model.md` § _Two error channels_, and the three Terminator variants in
 //! `spec/crates/engine.md`.
 //!
 //! Each test hand-builds a minimal `SymbolicFlowGraph`, routes it through
@@ -1066,7 +1065,7 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 // C8a contract tests (15-20). These pin the ExecutorOutput shape introduced
 // in commit 85cfd470: WriteHttpResponse hands back the Response verbatim,
 // ByteTunnel drives `tokio::io::copy_bidirectional` to completion and reports
-// the close reason out-of-band. Per spec/crates/engine.md § _Concrete fetches_ and
+// the close reason out-of-band. Per spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_ and
 // spec/flow-model.md § _Executor_.
 
 /// `L7Fetch` fixture that returns a caller-supplied `Response`. The response
@@ -1160,7 +1159,7 @@ async fn throwaway_tcp_stream() -> tokio::net::TcpStream {
 
 #[tokio::test]
 async fn execute_write_http_response_returns_response_output() {
-	// spec/crates/engine.md § _Concrete fetches_: WriteHttpResponse consumes the Response
+	// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_: WriteHttpResponse consumes the Response
 	// produced by the preceding L7Fetch and hands it to the caller verbatim.
 	// The executor must surface `Ok(ExecutorOutput::HttpResponse(r))` whose
 	// `r.status()` matches what the fetch produced.
@@ -1220,7 +1219,7 @@ async fn execute_write_http_response_returns_response_output() {
 
 #[tokio::test]
 async fn execute_write_http_response_preserves_body_payload() {
-	// spec/crates/engine.md § _Concrete fetches_: the executor does not mutate the
+	// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_: the executor does not mutate the
 	// Response. A `Body::Static(Bytes)` body produced by the fetch must
 	// arrive at the caller byte-for-byte.
 	let canned: Response = http::Response::builder()
@@ -1285,7 +1284,7 @@ async fn execute_write_http_response_preserves_body_payload() {
 
 #[tokio::test]
 async fn execute_byte_tunnel_drives_copy_bidirectional() {
-	// spec/crates/engine.md § _Concrete fetches_ + spec/flow-model.md § _Executor_:
+	// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_ + spec/flow-model.md § _Executor_:
 	// `Terminator::ByteTunnel` hands the Tunnel's two halves to
 	// `tokio::io::copy_bidirectional`. Bytes written into either outer
 	// half must surface on the opposite outer half. The executor returns
@@ -1349,7 +1348,7 @@ async fn execute_byte_tunnel_drives_copy_bidirectional() {
 
 #[tokio::test]
 async fn execute_byte_tunnel_sends_graceful_close_reason() {
-	// `spec/flow-model.md` § _Executor_; `spec/crates/engine.md` § _Concrete fetches_:
+	// `spec/flow-model.md` § _Executor_; `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_:
 	// when both sides EOF cleanly, the executor sends
 	// `CloseReason::Graceful` through `Tunnel.close_reason_tx`.
 	let (mut client_outer, client_inner) = tokio::io::duplex(1024);
@@ -1442,7 +1441,7 @@ impl AsyncWrite for ErrorOnRead {
 
 #[tokio::test]
 async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
-	// Per `spec/crates/engine.md` § _Concrete fetches_ (and `spec/flow-model.md` § _Executor_): this
+	// Per `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_ (and `spec/flow-model.md` § _Executor_): this
 	// chunk's behavior contract: when the inner copy_bidirectional returns
 	// Err, the executor sends `CloseReason::ProtocolError(_)` through
 	// `Tunnel.close_reason_tx` and STILL returns
@@ -1478,7 +1477,7 @@ async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
 
 #[tokio::test]
 async fn execute_close_terminator_returns_closed_output() {
-	// Entry = Terminate(Close). spec/crates/engine.md § _Concrete fetches_: Close drops
+	// Entry = Terminate(Close). spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_: Close drops
 	// the transport silently and emits a FlowLogKind::Terminate event.
 	// Per the C8a contract the precise success value is
 	// `ExecutorOutput::Closed`.
@@ -1586,7 +1585,7 @@ fn byte_tunnel_graph_with_notify(
 #[tokio::test]
 async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cancel() {
 	// spec/topology.md § _Listener lifecycle_ step 3 + spec/crates/engine.md §
-	// _Variants_: when `ctx.cancel.cancelled()` fires while a `ByteTunnel`
+	// _Concrete fetches_: when `ctx.cancel.cancelled()` fires while a `ByteTunnel`
 	// is mid-copy, the executor's biased `tokio::select!` exits the copy,
 	// sends `CloseReason::Cancelled` through `Tunnel.close_reason_tx`, and
 	// returns `Ok(ExecutorOutput::Tunneled)`. The duplex halves are kept

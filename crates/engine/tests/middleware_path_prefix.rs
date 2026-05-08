@@ -279,8 +279,7 @@ async fn path_prefix_continues_when_any_of_multiple_prefixes_matches() {
 
 #[tokio::test]
 async fn path_prefix_short_close_when_no_prefix_matches() {
-	// Per spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP
-	// server_, a `Short(Close(PolicyDenied))` routing-level refusal flows
+	// Per spec/flow-model.md § _`Terminator::Close` — wire-level manifestation_, a `Short(Close(PolicyDenied))` routing-level refusal flows
 	// back as `Ok(ExecutorOutput::Closed)`. The H1 service-fn maps that
 	// to 404 + `Connection: close` for the wire client.
 	let (graph, counter) = link_graph(json!({ "prefixes": ["/api"] }));

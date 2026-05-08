@@ -331,8 +331,7 @@ impl L7Fetch for StaticOkFetch {
 }
 
 /// Drains the request body to the last frame and echoes the aggregated
-/// payload back as a `Body::Static` response. Per `spec/flow-model.md` § _Execution
-/// model_, the request body that reached `L7Fetch::fetch` is the `Body`
+/// payload back as a `Body::Static` response. Per `spec/flow-model.md` § _Executor_, the request body that reached `L7Fetch::fetch` is the `Body`
 /// adapted from `hyper::body::Incoming` by `drive_h1_server`'s
 /// `IncomingAdapter`.
 struct EchoFetch;
@@ -691,8 +690,7 @@ async fn h1_no_route_returns_404_with_connection_close() {
 
 // 8. h1_middleware_policy_denied_short_close_returns_404
 //
-// Spec anchor: spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP
-// server_. A `Decision::Short(Close(PolicyDenied))` from a middleware
+// Spec anchor: spec/flow-model.md § _`Terminator::Close` — wire-level manifestation_. A `Decision::Short(Close(PolicyDenied))` from a middleware
 // flows through the executor's CloseReason router as
 // `Ok(ExecutorOutput::Closed)`, indistinguishable on the wire from a
 // `Terminate(Close)` synth-default-miss: 404 + `Connection: close`.

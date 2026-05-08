@@ -17,8 +17,7 @@
 //!   factory time.
 //!
 //! The `version` field selects the upstream's HTTP version posture.
-//! Permitted values mirror `spec/crates/core.md` § _Rule
-//! schema_ (`version` row):
+//! Permitted values mirror `spec/crates/core.md` § _Compile pipeline_ (`version` row):
 //!
 //! | `version` | TLS upstream                | Cleartext upstream     |
 //! | --------- | --------------------------- | ---------------------- |
@@ -27,7 +26,7 @@
 //! | `h2`      | ALPN: only `h2`             | h2c (prior knowledge)  |
 //! | `h3`      | ALPN: only `h3` (TLS req'd) | rejected (h3 mandates QUIC TLS) |
 //!
-//! See `spec/crates/engine.md` § _Concrete fetches_,
+//! See `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_,
 //! `spec/crates/engine.md` § _Body streaming_, § _Upstream pools_,
 //! and `spec/crates/engine-tls.md` § _Library policy_.
 
@@ -258,8 +257,7 @@ impl HttpProxyFetch {
 		metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "http_proxy")
 			.record(start.elapsed().as_secs_f64() * 1000.0);
 		let (parts, incoming) = resp.into_parts();
-		// spec/crates/engine.md § _`HttpProxyFetch` commits to streaming response
-		// bodies_: never collect into `Body::Static`.
+		// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_: never collect into `Body::Static`.
 		let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(parts, body)))
 	}
@@ -313,7 +311,7 @@ impl HttpProxyFetch {
 	/// and runs one request / response round-trip with the response
 	/// body wrapped in `Body::Stream(Box::pin(H3Body::new(...)))` per
 	/// `spec/crates/engine.md` § _Body streaming_ +
-	/// § _Concrete fetches_.
+	/// `spec/crates/engine.md` § _Concrete fetches_.
 	#[cfg(feature = "h3")]
 	#[allow(clippy::too_many_lines)]
 	async fn send_one_attempt_h3(&self, req: Request) -> Result<L7FetchOutput, Error> {
@@ -564,8 +562,8 @@ fn build_client(
 }
 
 /// Fork point for `args.upstream_kind` (injected by the alias-
-/// resolution layer in `vane_core::rule::TerminateSpec`, see §
-/// _Variant ergonomics in config_): socket-based aliases produce
+/// resolution layer in `vane_core::rule::TerminateSpec`, see
+/// `spec/crates/engine.md` § _Concrete fetches_): socket-based aliases produce
 /// `"tcp"`; the `cgi` alias produces `"cgi"`. Hand-rolled rules
 /// without an alias fall through to the socket path for backwards
 /// compatibility, but anything else is a hard error so

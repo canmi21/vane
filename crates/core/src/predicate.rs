@@ -27,8 +27,7 @@ pub enum FieldPath {
 	/// DNS-type Subject Alternative Names from the verified peer
 	/// cert. `Vec<Str>`-typed: `contains`/`not_contains` against a
 	/// single-element operand are the only legal operators (per
-	/// `spec/crates/core.md` § _Operator × value
-	/// type compatibility_).
+	/// `spec/crates/core.md` § _Predicate_).
 	TlsPeerCertSanDns,
 	/// SHA-256 of the full DER-encoded leaf cert, lowercase hex.
 	TlsPeerCertFingerprintSha256,
@@ -1970,8 +1969,7 @@ mod tests {
 	}
 
 	// Full operator × value-type matrix coverage. Each cell marked `yes` in
-	// spec/crates/core.md § _Operator × value type
-	// compatibility_ has a happy + miss test below. Field paths are picked
+	// spec/crates/core.md § _Predicate_ has a happy + miss test below. Field paths are picked
 	// representatively per value type — string-family ops on tls.sni cover
 	// every Str-typed path because the runtime reads them all via the same
 	// `test_str` helper.

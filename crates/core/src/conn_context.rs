@@ -68,7 +68,7 @@ pub struct TlsInfo {
 /// All `String`-typed fields are byte-for-byte canonical: hex digests
 /// are ASCII-lowercase; `serial` is hex (lowercase, no leading-zero
 /// stripping). See `spec/crates/core.md` §
-/// _Authoritative field paths_ for the canonical formats.
+/// _Predicate_ for the canonical formats.
 #[derive(Clone, Debug, Default)]
 pub struct PeerCertificate {
 	/// Raw leaf cert DER. Retained for future predicates that need

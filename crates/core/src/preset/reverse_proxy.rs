@@ -17,7 +17,7 @@
 //!   WS upgrade and routes to `WebSocketUpgrade(upstream)`.
 //!
 //! See `spec/crates/core.md` § _Compile pipeline_ and
-//! `spec/crates/engine.md` § _Concrete fetches_.
+//! `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_.
 //!
 //! ## Spec deviations (carried as known debts)
 //!
@@ -127,7 +127,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 
 	let mut rules: Vec<RawRule> = Vec::new();
 
-	// WebSocket gate rules. `spec/crates/engine.md` § _Concrete fetches_ — sort order
+	// WebSocket gate rules. `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_ — sort order
 	// (ws-allow < ws-deny < main) is enforced by the analyze pass's
 	// specificity ranking, not by emission order; ordering here is for
 	// dry-run readability only.

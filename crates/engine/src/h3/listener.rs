@@ -3,9 +3,7 @@
 //! UDP socket, plus the per-listener [`quinn::Endpoint`] bring-up that
 //! installs the daemon's [`crate::tls::VaneCertResolver`] for ALPN `h3`.
 //!
-//! See `spec/crates/engine.md` § _UDP socket multiplexing: physical
-//! and virtual_, and `spec/crates/engine-tls.md` § _Cert resolver and
-//! rotation_. The whole module is gated behind the `h3` cargo feature.
+//! See `spec/crates/engine.md` § _`udp_dispatch`_, and `spec/crates/engine-tls.md` § _Cert resolver_. The whole module is gated behind the `h3` cargo feature.
 
 use std::fmt;
 use std::io;
@@ -193,8 +191,7 @@ pub fn build_quic_server_config(
 /// against a [`VirtualUdpSocket`] wrapping the listener's physical
 /// socket, registers the virtual socket in the dispatch table under
 /// the well-known `QuicConnId(empty)` slot — the per-listener model
-/// spec'd in `spec/crates/engine.md` § _UDP socket multiplexing: physical and
-/// virtual_ holds exactly one virtual socket per `Http` UDP listener,
+/// spec'd in `spec/crates/engine.md` § _`udp_dispatch`_ holds exactly one virtual socket per `Http` UDP listener,
 /// so the empty-CID key is the listener's single QUIC fan-in slot
 /// rather than a per-connection key — then spawns the accept loop
 /// that hands each new connection to `drive_h3_server`.

@@ -48,7 +48,7 @@ pub enum L7FetchOutput {
 /// `join` so `ConnContext` cleanup runs at the right moment.
 ///
 /// See `spec/crates/engine.md` § _`udp_dispatch`_ for the UDP
-/// session lifecycle and § _Concrete fetches_ for the TCP arm.
+/// session lifecycle and `spec/crates/engine.md` § _Concrete fetches_ for the TCP arm.
 pub enum Tunnel {
 	Bidi {
 		client: Box<dyn AsyncReadWrite + Send>,

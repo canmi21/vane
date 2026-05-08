@@ -3,7 +3,7 @@
 //! Covers the three concrete sinks (`RingBufferSink`, `FanoutSink`,
 //! `FileSink`) plus the daemon-global `VerbosityState` toggle defined in
 //! `spec/flow-model.md` § _Flow log verbosity_ /
-//! _Default sink composition_:
+//! _Flow log verbosity_:
 //!
 //! * `RingBufferSink` is a sliding window keyed on event timestamp with
 //!   both cap-based and ttl-based eviction.

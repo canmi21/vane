@@ -3,8 +3,7 @@
 //! startup.
 //!
 //! State is daemon-scoped (lives outside `FlowGraph`), so config reload
-//! does not reset counters. See `spec/crates/core.md` §
-//! _L1 — Daemon self-preservation_.
+//! does not reset counters. See `spec/crates/engine.md` § _Security floor (L1)_.
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -55,8 +54,7 @@ pub struct SecurityConfig {
 	/// Daemon-wide CRL cache shared by listener mTLS and upstream
 	/// verification. `None` for tests / default builds without CRL
 	/// support; populated by daemon main when at least one rule
-	/// references a CRL source. See `spec/crates/engine-tls.md`
-	/// § _CRL_ § _CRL_.
+	/// references a CRL source. See `spec/crates/engine-tls.md` § _CRL_.
 	pub crl_cache: Option<Arc<CrlCache>>,
 }
 

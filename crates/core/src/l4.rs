@@ -20,8 +20,7 @@ pub enum L4Conn {
 	/// (the parsing + termination live in `vane-engine`). `AsyncReadWrite`
 	/// is the same trait `L4ForwardFetch` uses for byte-tunnel I/O,
 	/// auto-impl'd on any `AsyncRead + AsyncWrite + Unpin`. See
-	/// `spec/crates/engine-tls.md` § _TLS termination (L4 → L7
-	/// upgrade)_.
+	/// `spec/crates/engine-tls.md` § _Termination flow (L4 → L7 upgrade)_.
 	Tls(Box<dyn AsyncReadWrite + Send>),
 	Udp(UdpAssoc),
 }
@@ -38,8 +37,7 @@ pub struct UdpAssoc {
 	/// arrival order. Length is `1` for the immediate cold-path; `> 1`
 	/// only when the listener went through the pending-peek state
 	/// machine and the buffered datagrams replay together (per
-	/// `spec/crates/engine.md` § _Multi-packet peek_ § _Replay to
-	/// handler_). The `L4Forward` fetch sends every entry verbatim, in
+	/// `spec/crates/engine.md` § _Multi-packet peek_ § _Multi-packet peek_). The `L4Forward` fetch sends every entry verbatim, in
 	/// this order, before subscribing to the inbound hot-path channel.
 	pub first_packets: Vec<Bytes>,
 }

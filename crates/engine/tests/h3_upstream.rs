@@ -12,8 +12,8 @@
 //!
 //! Spec anchors:
 //!
-//! * `spec/crates/engine.md` § _Architecture: TCP / QUIC
-//!   separation_ — `QuicPool` ownership.
+//! * `spec/crates/engine.md` § _Upstream pools_ — `QuicPool`
+//!   ownership.
 //! * `spec/crates/engine.md` § _Pool fingerprint_ — two fetches
 //!   sharing the same `(addr, tls_hash)` fingerprint share one entry.
 //! * `spec/crates/engine.md` § _Body streaming_ — request

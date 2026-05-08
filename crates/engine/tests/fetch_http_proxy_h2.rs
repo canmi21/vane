@@ -10,7 +10,7 @@
 //! * Pool reuse: two requests against the same `Client` reuse the same
 //!   TCP connection.
 //!
-//! Spec anchors: `spec/crates/engine.md` § _Concrete fetches_,
+//! Spec anchors: `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_,
 //! `spec/crates/engine.md` § _Body streaming_,
 //! `spec/crates/engine-tls.md` § _Library policy_.
 

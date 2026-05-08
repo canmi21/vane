@@ -44,8 +44,7 @@ use vane_core::rule::{ChallengeKind, ManagedSpec};
 use vane_engine::acme::{FsAcmeStore, ManagedCertRegistry, RegistryError, RenewalJob};
 use vane_engine::flow_graph::FlowGraph;
 
-/// Default storage root per `spec/crates/engine-acme.md` § _Storage layout
-/// (default `FsAcmeStore`)_. Overridden by `VANE_ACME_DIR`.
+/// Default storage root per `spec/crates/engine-acme.md` § _Storage layout_. Overridden by `VANE_ACME_DIR`.
 const DEFAULT_ACME_DIR: &str = "/var/lib/vaned/acme";
 
 /// `Some(registry)` when the compiled config declares at least one
@@ -272,8 +271,7 @@ async fn run_one_issuance(
 
 /// Translate the operator's `dns_provider` JSON object into a
 /// concrete `Arc<dyn DnsProvider>`. Each provider kind has its
-/// own `kind` discriminator per `spec/crates/engine-acme.md` § _Available
-/// providers_. Unknown kinds and missing config are
+/// own `kind` discriminator per `spec/crates/engine-acme.md` § _Cloudflare provider_. Unknown kinds and missing config are
 /// boot-time-fatal for the affected SNI (we surface them via
 /// the calling `run_one_issuance` log).
 fn build_dns_provider(

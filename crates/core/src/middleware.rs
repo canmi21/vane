@@ -271,9 +271,9 @@ mod tests {
 	}
 
 	// `async_trait` makes these traits dyn-compatible. `MiddlewareInst` stores
-	// each variant as `Arc<dyn Trait>` per spec/crates/engine.md § _Middleware_
-	// and § _Middleware_; constructing that exact shape from a
-	// concrete impl is the contract we guard.
+	// each variant as `Arc<dyn Trait>` per `spec/crates/engine.md` § _Middleware_;
+	// constructing that exact shape from a concrete impl is the contract we
+	// guard.
 
 	#[test]
 	fn l4_peek_is_constructible_as_arc_dyn_send_sync() {

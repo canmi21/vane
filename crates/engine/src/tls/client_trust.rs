@@ -28,8 +28,7 @@ use crate::tls::refreshable_crl_verifier::RefreshableClientCertVerifier;
 /// here so the wrapper verifier can ask the daemon-wide cache for the
 /// latest bytes per handshake (`spec/crates/engine-tls.md` § _CRL_).
 ///
-/// Held inside `Arc<ArcSwap<_>>` per `spec/crates/engine-tls.md` § _Cert resolver and
-/// rotation_ — symmetric to `CertStore`. Reload swaps in a fresh
+/// Held inside `Arc<ArcSwap<_>>` per `spec/crates/engine-tls.md` § _Cert resolver_ — symmetric to `CertStore`. Reload swaps in a fresh
 /// instance; live handshakes keep the trust store they captured at
 /// handshake time.
 pub struct ClientTrustStore {

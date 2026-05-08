@@ -15,8 +15,7 @@
 //! which is reached after 6 reloads in a worst case.
 //! [`crate::tls::StaticCertPopulator`] is stateless and exempt.
 //!
-//! See `spec/crates/engine-tls.md` § _Cert populators / Populator
-//! lifecycle_.
+//! See `spec/crates/engine-tls.md` § _Cert populators_.
 
 // TODO(populator-disk-storage): require a disk-backed Storage trait on
 // stateful populators — see `spec/crates/engine-tls.md` § _Cert populators_.

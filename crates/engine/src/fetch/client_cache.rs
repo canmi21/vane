@@ -6,8 +6,8 @@
 //! — and therefore a single per-authority connection pool. Cleartext
 //! upstreams use `tls = None` and still share by `version`.
 //!
-//! See `spec/crates/engine-tls.md` § _Client cache: fingerprint and
-//! reuse_ for the authoritative semantics; `spec/crates/engine.md`
+//! See `spec/crates/engine-tls.md` § _Client cache_ for the
+//! authoritative semantics; `spec/crates/engine.md`
 //! § _Pool fingerprint_ for the design rationale.
 
 use std::path::PathBuf;

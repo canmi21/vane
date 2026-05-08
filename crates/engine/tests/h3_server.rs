@@ -9,8 +9,7 @@
 //!
 //! Spec anchors:
 //!
-//! * `spec/crates/engine.md` § _UDP socket multiplexing: physical
-//!   and virtual_ — the per-listener `quinn::Endpoint` model.
+//! * `spec/crates/engine.md` § _`udp_dispatch`_ — the per-listener `quinn::Endpoint` model.
 //! * `spec/crates/engine.md` § _Listeners_ —
 //!   `Http`-on-UDP listeners terminate H3 over QUIC.
 //! * `spec/crates/engine.md` § _Listeners_ — the

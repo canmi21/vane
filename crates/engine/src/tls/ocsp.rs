@@ -10,8 +10,7 @@
 //!
 //! ## Transport policy: HTTP-only
 //!
-//! Per `spec/crates/engine-tls.md` § _OCSP stapling § Transport
-//! policy_, vane fetches OCSP only over plaintext HTTP. Production
+//! Per `spec/crates/engine-tls.md` § _OCSP stapling_, vane fetches OCSP only over plaintext HTTP. Production
 //! CAs (Let's Encrypt, `DigiCert`, Sectigo, Entrust, `GlobalSign`) all
 //! ship HTTP-only responders, and OCSP responses are independently
 //! signed (the transport adds nothing the response signature doesn't

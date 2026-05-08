@@ -5,9 +5,8 @@
 //! `FlowGraph` reload does not touch it. Entries are keyed by
 //! [`QuicFingerprint`] and populated lazily on first dial.
 //!
-//! See `spec/crates/engine.md` § _Architecture: TCP / QUIC
-//! separation_, § _Pool fingerprint_, § _Upstream pools_, and
-//! § _Upstream pools_. The fingerprint shape differs from
+//! See `spec/crates/engine.md` § _Upstream pools_ and
+//! § _Pool fingerprint_. The fingerprint shape differs from
 //! [`crate::fetch::client_cache::ClientFingerprint`] in two ways:
 //!
 //! * `version` does not appear — QUIC is always H3 at the application
@@ -121,8 +120,7 @@ pub fn evict(fp: &QuicFingerprint) {
 
 /// Acquire the pooled entry for `fp`, dialing on miss. The dial
 /// builds a per-entry `quinn::Endpoint` bound to a fresh ephemeral
-/// UDP socket (per `spec/crates/engine.md` § _`QuicPool` socket
-/// model_), runs the QUIC handshake against `fp.addr` with `sni` as
+/// UDP socket (per `spec/crates/engine.md` § _Upstream pools_), runs the QUIC handshake against `fp.addr` with `sni` as
 /// the TLS server name, then negotiates h3 and spawns the connection
 /// driver as a background tokio task.
 ///

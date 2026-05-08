@@ -449,8 +449,7 @@ impl FlowGraph {
 		// Parse every symbolic-meta `listener_tls` entry into a
 		// `rustls::ServerConfig`. PEM I/O happens here (link stage) so a
 		// missing or malformed cert/key is caught at config-load time
-		// rather than per-accept. See spec/crates/engine-tls.md § _TLS termination
-		// (L4 → L7 upgrade)_ and § _Cert resolver_.
+		// rather than per-accept. See spec/crates/engine-tls.md § _Termination flow (L4 → L7 upgrade)_ and § _Cert resolver_.
 		let mut listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>> = BTreeMap::new();
 		let mut listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>> =
 			BTreeMap::new();

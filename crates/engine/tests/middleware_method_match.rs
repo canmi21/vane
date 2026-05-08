@@ -259,8 +259,7 @@ async fn method_match_continues_when_method_in_list() {
 
 #[tokio::test]
 async fn method_match_short_close_when_method_not_in_list() {
-	// Per spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP
-	// server_, a `Short(Close(PolicyDenied))` refusal flows back as
+	// Per spec/flow-model.md § _`Terminator::Close` — wire-level manifestation_, a `Short(Close(PolicyDenied))` refusal flows back as
 	// `Ok(ExecutorOutput::Closed)`; the H1 service-fn maps that to 404
 	// + `Connection: close`. (Method-not-allowed is conventionally 405,
 	// but the executor's no-route signal is uniform across host / path

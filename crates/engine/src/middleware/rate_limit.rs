@@ -7,8 +7,7 @@
 //! `meta.short_circuit_response_entry` routing is in place; until that
 //! lands the middleware itself is correct but the daemon emits 500.
 //!
-//! See `spec/crates/core.md` § _L2 — User
-//! application-layer rate limiting_, and
+//! See `spec/crates/core.md` § _Rate limit (L2)_, and
 //! `spec/crates/engine.md` § _Middleware_ —
 //! `rate_limit` is the canonical example of a per-call-site stateful
 //! middleware. The metadata provider must mark `stateless: false` so

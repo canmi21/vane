@@ -1,9 +1,8 @@
 //! Integration tests for `vane_engine::flow_graph::FlowGraph::link`.
 //!
 //! Covers the link-pass contract described in `spec/flow-model.md`
-//! § _Compile and link — two stages, two crates_ / _`FlowGraph` metadata_ and
-//! `spec/crates/daemon.md` § _Feature-off → rule compile-time
-//! rejection_. Each test hand-builds a minimal `SymbolicFlowGraph` rather
+//! § _Compile and link — two stages, two crates_ / _The compiled form_ and
+//! `spec/crates/core.md` § _Listener kind derivation_. Each test hand-builds a minimal `SymbolicFlowGraph` rather
 //! than routing through `vane_core::compile`, so that the link pass is
 //! exercised in isolation.
 

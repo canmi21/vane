@@ -4,11 +4,11 @@
 //! trivial health checks — anywhere a rule wants to answer without
 //! contacting an upstream. Always returns `Body::Static` (or
 //! `Body::Empty` for an empty payload), per spec/crates/engine.md
-//! § _Concrete fetches_:
+//! `spec/crates/engine.md` § _Concrete fetches_:
 //! "`HttpSynthesizeFetch` always produces `Body::Static` by construction
 //! — that is the point of synthesis."
 //!
-//! See `spec/crates/engine.md` § _Concrete fetches_.
+//! See `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_.
 
 use std::sync::Arc;
 

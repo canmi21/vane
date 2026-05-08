@@ -15,8 +15,7 @@
 //! What the tests prove:
 //!
 //! * `enable_zero_rtt: true` actually wires the rustls server-side
-//!   acceptance (the ticketer is skipped per `spec/crates/engine-tls.md` § _Exception:
-//!   0-RTT-enabled listeners_, `max_early_data_size = 16 KiB`, and
+//!   acceptance (the ticketer is skipped per `spec/crates/engine-tls.md` § _Session tickets_, `max_early_data_size = 16 KiB`, and
 //!   per-`ServerConfig` `ServerSessionMemoryCache` is the stateful
 //!   resumption store rustls 0.23 requires for 0-RTT).
 //! * `run_tls`'s early-data drain (per the wiring committed earlier)
@@ -30,8 +29,7 @@
 //!   (the dormant 0-RTT state must not regress the high-traffic path).
 //!
 //! Spec anchors: `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early
-//! data)_, § _Session tickets_ § _Exception: 0-RTT-enabled
-//! listeners_.
+//! data)_, § _Session tickets_ § _Session tickets_.
 
 #![allow(clippy::too_many_lines)]
 

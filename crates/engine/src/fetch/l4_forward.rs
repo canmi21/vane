@@ -13,7 +13,7 @@
 //! the same peer hit the dispatch table and stream through the
 //! forwarder without re-entering the `FlowGraph`.
 //!
-//! See `spec/crates/engine.md` § _Concrete fetches_ +
+//! See `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_ +
 //! § _`udp_dispatch`_.
 
 use std::net::SocketAddr;
@@ -129,8 +129,7 @@ impl L4ForwardFetch {
 		// Forward every cold-path datagram in arrival order so no inbound
 		// bytes are lost between dispatch-table miss and forwarder
 		// registration. Single-datagram is the common case; multi-datagram
-		// arises from the pending-peek state machine (spec/crates/engine.md § _Replay
-		// to handler_).
+		// arises from the pending-peek state machine (spec/crates/engine.md § _Multi-packet peek_).
 		for pkt in &assoc.first_packets {
 			upstream_socket
 				.send(pkt)
@@ -193,8 +192,7 @@ impl L4ForwardFetch {
 /// signal wins races against in-flight datagrams.
 ///
 /// `idle_timeout` is the single authority for session lifetime per
-/// `spec/crates/engine.md` § _UDP idle timeout is
-/// single-authority_. The timer is reset on every datagram in either
+/// `spec/crates/engine.md` § _`udp_dispatch`_. The timer is reset on every datagram in either
 /// direction; it fires only when the session has been quiet for the
 /// configured duration.
 async fn udp_forwarder_loop(

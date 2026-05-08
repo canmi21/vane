@@ -1,7 +1,7 @@
 //! TCP accept loop + bind-retry + cancellation tier + soft drain.
 //!
 //! See `spec/topology.md` § _Listener lifecycle_ /
-//! _Bind_ / _Accept loop_ / _Shutdown_, and `spec/crates/engine.md`.
+//! _Bind_ / _Bind_ / _Shutdown_, and `spec/crates/engine.md`.
 //!
 //! Shape of the cancellation tier (spec/topology.md § _Listener lifecycle_
 //! step 3 — listeners removed):
@@ -510,8 +510,7 @@ impl ListenerSet {
 	///   `force_cancel` and abort if needed.
 	/// - **Unchanged** addresses: untouched. The accept loop's per-accept
 	///   `entries.get(&addr)` lookup picks up the new graph's `NodeId`
-	///   on the next accepted connection (spec/crates/core.md § _`NodeId`
-	///   stability across reloads_).
+	///   on the next accepted connection (spec/crates/engine.md § _Hot reload_).
 	///
 	/// Returns immediately — the per-listener drain runs in the
 	/// background so file-watcher reloads never stall on long-lived
@@ -684,8 +683,7 @@ async fn run_accept_loop(
 				// entry lookup by `addr`. `NodeId` is a slab index that
 				// `lower_port` reassigns on every recompile, so a baked-in
 				// boot-time `NodeId` would route post-reload connections to
-				// the wrong logical entry (spec/crates/core.md § _NodeId stability
-				// across reloads_). The captured `Arc<FlowGraph>` then
+				// the wrong logical entry (spec/crates/engine.md § _Hot reload_). The captured `Arc<FlowGraph>` then
 				// travels with this connection to natural completion;
 				// `ArcSwap::store` from the reload pipeline never disturbs
 				// in-flight work.

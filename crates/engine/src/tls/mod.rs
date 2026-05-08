@@ -5,8 +5,7 @@
 //! future rotation step can swap in a refreshed [`CertStore`] without
 //! reconstructing `rustls::ServerConfig`. Live TLS connections keep
 //! their handshake-time cert; only **new handshakes** see the new
-//! store. See `spec/crates/engine-tls.md` § _Cert resolver and
-//! rotation_.
+//! store. See `spec/crates/engine-tls.md` § _Cert resolver_.
 
 pub mod cert_store;
 pub mod client_trust;

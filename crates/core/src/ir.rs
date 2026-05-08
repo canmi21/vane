@@ -151,8 +151,7 @@ pub struct FlowGraphMeta {
 	/// reads PEM files referenced here and builds a `rustls::ServerConfig`
 	/// with an SNI resolver that falls back to `default` for unmatched
 	/// SNI. Listeners absent from this map are cleartext. See
-	/// `spec/crates/engine-tls.md` § _TLS termination (L4 → L7
-	/// upgrade)_ and § _SNI peek (L4, no decrypt)_.
+	/// `spec/crates/engine-tls.md` § _Termination flow (L4 → L7 upgrade)_ and § _SNI peek (L4, no decrypt)_.
 	///
 	/// `#[serde(default)]` for the same wire-compat reason as the map
 	/// above.

@@ -55,8 +55,7 @@ pub const PENDING_PEEK_MAX_PER_LISTENER: usize = 1024;
 /// `Peer` keys 4-tuple-identified `L4Forward` sessions. `PendingPeek`
 /// keys cold-path sessions in formation (the QUIC SNI passthrough
 /// state machine). `QuicConnId` keys the per-listener QUIC virtual
-/// socket — `spec/crates/engine.md` § _UDP socket multiplexing: physical and
-/// virtual_ locks one `quinn::Endpoint` per `Http` UDP listener, so
+/// socket — `spec/crates/engine.md` § _`udp_dispatch`_ locks one `quinn::Endpoint` per `Http` UDP listener, so
 /// that variant only ever holds one entry per listener at the
 /// empty-CID slot. `vane` does not index by per-connection CID;
 /// `quinn::Endpoint` performs CID-keyed demultiplexing internally for
@@ -333,8 +332,7 @@ pub async fn run_udp_listener(
 
 				// On Http UDP listeners, route any unmatched datagram to
 				// the listener-level QUIC virtual socket — one per
-				// listener per `spec/crates/engine.md` § _UDP socket multiplexing:
-				// physical and virtual_; `quinn::Endpoint` then performs
+				// listener per `spec/crates/engine.md` § _`udp_dispatch`_; `quinn::Endpoint` then performs
 				// CID-keyed demultiplexing internally for the connections
 				// it terminates.
 				#[cfg(feature = "h3")]
@@ -550,8 +548,7 @@ enum RouteH3 {
 /// per-listener QUIC virtual socket if and only if the listener's
 /// derived [`vane_core::ListenerKind`] is `Http`. The virtual socket
 /// is registered at listener boot under the well-known
-/// `QuicConnId(empty)` slot — `spec/crates/engine.md` § _UDP socket multiplexing:
-/// physical and virtual_ holds one virtual socket per listener, so
+/// `QuicConnId(empty)` slot — `spec/crates/engine.md` § _`udp_dispatch`_ holds one virtual socket per listener, so
 /// the empty-CID slot is the listener's single QUIC fan-in entry
 /// rather than a per-connection key.
 #[cfg(feature = "h3")]

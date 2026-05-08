@@ -349,8 +349,8 @@ async fn listener_shutdown_idempotent_or_after_empty_start() {
 	);
 }
 
-// reconcile: listener-set diff after hot reload (spec/crates/core.md § _NodeId
-// stability across reloads_).
+// reconcile: listener-set diff after hot reload (`spec/crates/engine.md`
+// § _Hot reload_).
 
 #[tokio::test]
 async fn reconcile_adds_listener_for_new_address() {

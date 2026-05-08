@@ -23,8 +23,8 @@
 //!   client-side scheme is independent — vane terminates either
 //!   cleartext WS or WSS at the L4→L7 handshake.
 //!
-//! See `spec/crates/engine.md` § _Concrete fetches_,
-//! `spec/crates/engine.md` § _Concrete fetches_.
+//! See `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_,
+//! `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_.
 
 use std::sync::Arc;
 

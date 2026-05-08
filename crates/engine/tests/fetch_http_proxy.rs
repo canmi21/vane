@@ -2,7 +2,7 @@
 //!
 //! Covers the H1 → H1 cleartext reverse-proxy contract described in
 //! `spec/crates/engine.md` § _Body streaming_ and
-//! `spec/crates/engine.md` § _Concrete fetches_:
+//! `spec/crates/engine.md` `spec/crates/engine.md` § _Concrete fetches_:
 //!
 //! * The Fetch rewrites the request's scheme + authority to point at the
 //!   configured `upstream` while preserving path and query verbatim
@@ -12,8 +12,7 @@
 //! * Request headers and request body flow through to the upstream
 //!   unchanged at the L7-Fetch boundary.
 //! * Upstream response bodies are always exposed as `Body::Stream(...)`
-//!   per spec/crates/engine.md § _`HttpProxyFetch` commits to streaming response
-//!   bodies_, so multi-frame upstream responses round-trip without any
+//!   per spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_, so multi-frame upstream responses round-trip without any
 //!   defensive collection.
 //! * Unreachable upstreams surface as `Err(Error::upstream(Unreachable))`
 //!   inside the `L7Fetch`; the H1 driver translates per-request executor
@@ -218,7 +217,7 @@ where
 
 #[tokio::test]
 async fn http_proxy_forwards_get_to_upstream() {
-	// spec/crates/engine.md § _Concrete fetches_: the Fetch produces a Response by
+	// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_: the Fetch produces a Response by
 	// forwarding the client's Request to the configured upstream. Asserting
 	// the upstream's body bytes survive the round trip is the minimum
 	// "the bridge is wired" check.
@@ -259,7 +258,7 @@ async fn http_proxy_forwards_get_to_upstream() {
 
 #[tokio::test]
 async fn http_proxy_preserves_request_headers() {
-	// spec/crates/engine.md § _Body streaming_ + spec/crates/engine.md § _Concrete fetches_: forwarding
+	// spec/crates/engine.md § _Body streaming_ + spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_: forwarding
 	// preserves the request's headers up to the URI rewrite (scheme +
 	// authority). Custom headers must reach the upstream untouched, and
 	// the upstream's response headers must reach the client untouched.
@@ -352,7 +351,7 @@ impl HttpBody for OneKbFramesBody {
 
 #[tokio::test]
 async fn http_proxy_streams_response_body() {
-	// spec/crates/engine.md § _Concrete fetches_:
+	// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_:
 	// upstream response bodies are returned as `Body::Stream(...)`. A
 	// multi-frame upstream body must therefore reach the client without
 	// being collected and re-emitted as a single static block. The client
@@ -453,7 +452,7 @@ async fn http_proxy_post_body_flows_to_upstream() {
 
 #[tokio::test]
 async fn http_proxy_unreachable_upstream_surfaces_as_500_via_h1_driver() {
-	// spec/crates/engine.md § _Concrete fetches_: an unreachable upstream produces
+	// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_: an unreachable upstream produces
 	// `Err(Error::upstream(Unreachable))` from `L7Fetch::fetch`. The H1
 	// driver translates per-request executor errors into a synthesised
 	// 500 response so the H1 connection itself stays alive — see

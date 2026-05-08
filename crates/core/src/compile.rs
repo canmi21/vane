@@ -1003,7 +1003,7 @@ mod tests {
 	#[test]
 	fn lower_derives_raw_when_only_l4_forward_terminator() {
 		// `port_forward`-shaped rule: single `tcp_forward` upstream on a
-		// listener with no L7 path. Per `spec/crates/engine.md` § _Listener kind
+		// listener with no L7 path. Per `spec/crates/core.md` § _Listener kind
 		// derivation_, every reachable terminator is L4 → `Raw`.
 		let r = parse_rule(serde_json::json!({
 			"name": "r",

@@ -215,8 +215,7 @@ pub async fn execute(
 						// middleware that returns `Short(Response)` parks
 						// the response in `resp` and jumps to the
 						// listener-level synth `Terminate(WriteHttpResponse)`
-						// installed by the lower pass (see § _`FlowGraph`
-						// metadata_). The `request` slot is dropped because
+						// installed by the lower pass (see § _The compiled form_). The `request` slot is dropped because
 						// the L7 chain is bypassed; the synth terminator's
 						// caller-writes path emits the pre-built response
 						// verbatim.
@@ -248,8 +247,7 @@ pub async fn execute(
 						// (PolicyDenied / Graceful / Cancelled) are not errors
 						// — hand back to the caller as `Ok(Closed)`. The H1
 						// service-fn maps that to 404 + `Connection: close`
-						// (see `spec/flow-model.md` § _`Terminator::Close` at L4 vs
-						// inside an HTTP server_); the L4 listener drops the
+						// (see `spec/flow-model.md` § _`Terminator::Close` — wire-level manifestation_); the L4 listener drops the
 						// socket. Only ProtocolError represents a genuine
 						// anomaly that should surface as 500.
 						match reason {
@@ -407,8 +405,7 @@ pub async fn execute(
 				// Two signals can pick H2: a negotiated `h2` ALPN (TLS path)
 				// or a pre-set `conn.http_version = Http2` (cleartext h2c —
 				// the listener sets this when the peek prelude detects the
-				// HTTP/2 connection preface). spec/crates/engine.md § _Dispatch decision
-				// table_.
+				// HTTP/2 connection preface). spec/crates/engine.md § _Dispatch table_.
 				let prefer_h2 = alpn.as_deref() == Some(b"h2")
 					|| matches!(conn.http_version.get(), Some(vane_core::HttpVersion::Http2));
 				let result = if prefer_h2 {

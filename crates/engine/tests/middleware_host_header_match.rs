@@ -290,8 +290,7 @@ async fn host_match_case_insensitive_match() {
 
 #[tokio::test]
 async fn host_match_short_close_when_host_missing() {
-	// Per spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP
-	// server_, `Short(Close(PolicyDenied))` flows back as
+	// Per spec/flow-model.md § _`Terminator::Close` — wire-level manifestation_, `Short(Close(PolicyDenied))` flows back as
 	// `Ok(ExecutorOutput::Closed)`; the H1 service-fn maps that to 404
 	// + `Connection: close` on the wire.
 	let (graph, counter) = link_graph(json!({ "hosts": ["api.example.com"] }));
