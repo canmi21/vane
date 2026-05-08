@@ -4802,6 +4802,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-broadcast"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tracing-core"
 version = "0.1.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5090,6 +5101,7 @@ dependencies = [
  "tokio-util",
  "tower-service",
  "tracing",
+ "tracing-broadcast",
  "tracing-subscriber",
  "url",
  "vane-core",
@@ -5207,6 +5219,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tracing",
+ "tracing-broadcast",
  "tracing-subscriber",
  "vane-core",
  "vane-engine",

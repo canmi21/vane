@@ -1,18 +1,19 @@
-//! `BroadcastTracingLayer` — `tracing_subscriber::Layer` impl that
-//! fans every emitted [`Event`] to a tokio broadcast channel for the
-//! mgmt `tail_log` verb.
+//! [`BroadcastTracingLayer`] — a `tracing_subscriber::Layer` that fans
+//! every emitted [`tracing::Event`] into a `tokio::sync::broadcast`
+//! channel as a [`TracingFrame`] (timestamp / level / target / message
+//! / structured fields).
 //!
-//! The layer composes alongside the daemon's normal subscriber stack
+//! The layer composes alongside the host's normal subscriber stack
 //! (`tracing_subscriber::fmt::Layer` writing to stderr is unaffected);
 //! it adds one more sink without changing user-visible logging. Each
-//! event is materialised into a [`TracingFrame`] with structured
-//! fields preserved as JSON — operators piping `vane tail log --json`
-//! into `jq` can filter on `target`, `level`, or arbitrary
-//! `fields.foo` keys.
+//! subscriber gets its own `broadcast::Receiver` with independent
+//! backlog tracking; slow subscribers see `RecvError::Lagged(n)` and
+//! resume from the next available frame, which the operator-facing
+//! transport can surface as a sentinel.
 //!
-//! Slow subscribers see `Lagged(n)` from the broadcast channel; the
-//! mgmt-side stream maps that to a synthetic sentinel so operators
-//! notice they're getting a sampled view rather than a smooth one.
+//! `TracingFrame` derives `serde::Serialize` / `Deserialize`, so the
+//! transport (NDJSON, websocket text frames, JSON-RPC, …) is just
+//! `serde_json::to_string(&frame)`.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -23,18 +24,16 @@ use tracing::{Event, Subscriber};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 
-/// Broadcast channel capacity. Same rationale as `BroadcastSink`:
-/// a subscriber that falls more than this many events behind sees
-/// [`broadcast::error::RecvError::Lagged`] and resumes from the next
-/// available event. The mgmt-side stream surfaces that as an
-/// observable `kind:"lagged"` sentinel.
+/// Broadcast channel capacity. A subscriber that falls more than this
+/// many events behind sees [`broadcast::error::RecvError::Lagged`] and
+/// resumes from the next available event.
 const BROADCAST_CAP: usize = 1024;
 
-/// Wire shape for a single tracing event delivered over `tail_log`.
+/// Wire shape for a single tracing event.
 ///
-/// Field layout is intentionally similar to JSON-formatter conventions
-/// (timestamp / level / target / message / fields) so operators
-/// already familiar with `jq` queries on JSON logs can re-use them.
+/// Field layout follows JSON-formatter conventions (`t` / `level` /
+/// `target` / `message` / `fields`) so `jq` queries written for
+/// JSON-rendered logs apply to the broadcast stream unchanged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TracingFrame {
 	/// Wall-clock timestamp in milliseconds since the Unix epoch.
@@ -54,9 +53,9 @@ pub struct TracingFrame {
 /// Tracing layer that broadcasts each event as a [`TracingFrame`].
 ///
 /// Cheap to clone — the inner [`broadcast::Sender`] is itself `Clone`
-/// and shares the channel through an internal `Arc`. The daemon
-/// composes one instance into its subscriber and keeps a second
-/// (cloned) reference on `MgmtState` so handlers can `subscribe()`.
+/// and shares the channel through an internal `Arc`. Compose one
+/// instance into the subscriber registry and keep cloned references
+/// wherever handlers need to call [`Self::subscribe`].
 #[derive(Clone)]
 pub struct BroadcastTracingLayer {
 	tx: broadcast::Sender<TracingFrame>,
@@ -66,7 +65,7 @@ impl BroadcastTracingLayer {
 	#[must_use]
 	pub fn new() -> Self {
 		// Initial receiver dropped immediately; subscribers come and go
-		// over the lifetime of the daemon as mgmt clients connect.
+		// over the lifetime of the process as clients connect.
 		let (tx, _initial_rx) = broadcast::channel(BROADCAST_CAP);
 		Self { tx }
 	}
@@ -78,8 +77,7 @@ impl BroadcastTracingLayer {
 		self.tx.subscribe()
 	}
 
-	/// Active subscriber count — exposed for tests and future mgmt
-	/// instrumentation.
+	/// Active subscriber count — exposed for tests and instrumentation.
 	#[must_use]
 	pub fn subscriber_count(&self) -> usize {
 		self.tx.receiver_count()
@@ -111,7 +109,7 @@ where
 			fields: serde_json::Value::Object(visitor.fields),
 		};
 		// `send` returns `Err` only when there are no receivers — that's
-		// the steady state when no mgmt client is tailing. Drop quietly.
+		// the steady state when no client is tailing. Drop quietly.
 		let _ = self.tx.send(frame);
 	}
 }

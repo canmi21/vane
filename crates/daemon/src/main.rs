@@ -39,6 +39,7 @@ use arc_swap::ArcSwap;
 use clap::Parser;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::sync::CancellationToken;
+use tracing_broadcast::BroadcastTracingLayer;
 use tracing_subscriber::EnvFilter;
 use vane_core::FlowLogSink;
 use vane_core::compile::compile;
@@ -47,7 +48,6 @@ use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::{BroadcastSink, FanoutSink, default_sink_from_env};
-use vane_engine::tracing_broadcast::BroadcastTracingLayer;
 use vane_engine::{BindConfig, ListenerSet, SecurityConfig, SecurityState};
 
 use crate::mgmt_handlers::MgmtState;

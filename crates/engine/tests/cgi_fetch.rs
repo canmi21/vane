@@ -280,7 +280,7 @@ async fn stderr_lines_emit_as_tracing_warn_under_vane_cgi_target() {
 	use tracing_subscriber::layer::SubscriberExt as _;
 	use tracing_subscriber::util::SubscriberInitExt as _;
 
-	let layer = vane_engine::tracing_broadcast::BroadcastTracingLayer::new();
+	let layer = tracing_broadcast::BroadcastTracingLayer::new();
 	let mut rx = layer.subscribe();
 	let _guard = tracing_subscriber::registry().with(layer.clone()).set_default();
 

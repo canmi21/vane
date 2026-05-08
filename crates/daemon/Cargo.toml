@@ -56,6 +56,7 @@ time = { version = "0.3", default-features = false, features = ["formatting"], o
 tokio = { version = "1.52.2", features = ["full"] }
 tokio-util = "0.7.18"
 tracing = "0.1.44"
+tracing-broadcast = { workspace = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 vane-core = { workspace = true }
 vane-engine = { path = "../engine", version = "0.10.4", default-features = false }

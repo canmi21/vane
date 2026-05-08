@@ -445,7 +445,7 @@ async fn run_tail_flow(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()
 async fn run_tail_log(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
 	// Race the streaming call against Ctrl-C — same pattern as
 	// `tail flow`. Each frame matches the wire shape of
-	// `vane_engine::tracing_broadcast::TracingFrame`:
+	// `tracing_broadcast::TracingFrame`:
 	// `{ t, level, target, message, fields }`.
 	let stream_fut = client.call_stream(VERB_TAIL_LOG, &NoArgs {}, |frame| {
 		if json {

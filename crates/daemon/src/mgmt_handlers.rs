@@ -17,6 +17,7 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
+use tracing_broadcast::{BroadcastTracingLayer, TracingFrame};
 use vane_core::compile::compile;
 use vane_core::{FlowLogEvent, FlowLogSink, WasmPoolStats};
 use vane_engine::ListenerSet;
@@ -25,7 +26,6 @@ use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::BroadcastSink;
-use vane_engine::tracing_broadcast::{BroadcastTracingLayer, TracingFrame};
 use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
 use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
 use vane_mgmt::verb::{

@@ -1,0 +1,24 @@
+[package]
+name = "tracing-broadcast"
+version = "0.0.1"
+categories = ["development-tools::debugging", "asynchronous"]
+edition.workspace = true
+keywords = ["tracing", "broadcast", "subscriber", "tokio", "log"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "tracing_subscriber::Layer that fans every event into a tokio broadcast channel as JSON frames."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1", features = ["sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["sync", "macros", "rt"] }
