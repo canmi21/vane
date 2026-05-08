@@ -1,0 +1,55 @@
+name: acme
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "crates/engine/src/acme/**"
+      - "crates/engine/src/tls/populator.rs"
+      - "crates/engine/tests/acme_*.rs"
+      - "crates/testutil/src/acme/**"
+      - ".github/workflows/acme.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/engine/src/acme/**"
+      - "crates/engine/src/tls/populator.rs"
+      - "crates/engine/tests/acme_*.rs"
+      - "crates/testutil/src/acme/**"
+      - ".github/workflows/acme.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acme:
+    name: acme
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: acme
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Pebble e2e
+        run: |
+          cargo nextest run \
+            -p vane-engine \
+            --features acme,cloudflare \
+            --run-ignored only \
+            -E 'binary(acme_http01_e2e) | binary(acme_dns01_e2e) | binary(acme_handshake_e2e)' \
+            --no-fail-fast
