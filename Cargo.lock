@@ -3904,6 +3904,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
+name = "rustls-ticketer"
+version = "0.0.1"
+dependencies = [
+ "rustls",
+]
+
+[[package]]
 name = "rustls-webpki"
 version = "0.103.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5146,6 +5153,7 @@ dependencies = [
  "rustls-native-roots-cache",
  "rustls-pemfile",
  "rustls-pki-types",
+ "rustls-ticketer",
  "serde",
  "serde_json",
  "serial_test",

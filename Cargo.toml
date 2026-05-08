@@ -16,6 +16,7 @@ members = [
 	"crates/lib/quinn-shared-socket",
 	"crates/lib/rustls-crl-refresh",
 	"crates/lib/rustls-native-roots-cache",
+	"crates/lib/rustls-ticketer",
 	"crates/lib/tracing-broadcast",
 	"crates/lib/virtual-socket",
 	"crates/mgmt",
@@ -54,6 +55,7 @@ peeked-stream = { path = "crates/lib/peeked-stream", version = "0.0.1" }
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }
 rustls-crl-refresh = { path = "crates/lib/rustls-crl-refresh", version = "0.0.1" }
 rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.1" }
+rustls-ticketer = { path = "crates/lib/rustls-ticketer", version = "0.0.1", default-features = false }
 tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.1" }
 vane-core = { path = "crates/core", version = "0.10.4" }
 vane-engine = { path = "crates/engine", version = "0.10.4" }

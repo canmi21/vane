@@ -13,7 +13,6 @@ pub mod crl_cache;
 pub mod populator;
 pub mod resolver;
 pub mod static_populator;
-pub mod ticketer;
 
 pub use cert_store::{CertEntry, CertStore};
 pub use client_trust::{
@@ -28,5 +27,5 @@ pub use populator::{CertPopulator, PopulatorError};
 pub use resolver::VaneCertResolver;
 pub use rustls_crl_refresh::{RefreshableClientCertVerifier, RefreshableServerCertVerifier};
 pub use rustls_native_roots_cache::{NativeRootsError, native_roots, warm_native_roots};
+pub use rustls_ticketer::{default_ticketer, install_default_ticketer};
 pub use static_populator::StaticCertPopulator;
-pub use ticketer::{default_ticketer, install_default_ticketer};

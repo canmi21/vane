@@ -1,0 +1,25 @@
+[package]
+name = "rustls-ticketer"
+version = "0.0.1"
+categories = ["cryptography", "network-programming"]
+edition.workspace = true
+keywords = ["rustls", "tls", "ticketer", "session", "rfc5077"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Install a process-wide rustls session ticketer once; idempotent across multiple call sites."
+
+[lints]
+workspace = true
+
+[features]
+default = []
+aws-lc-rs = ["rustls/aws-lc-rs"]
+ring = ["rustls/ring"]
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }

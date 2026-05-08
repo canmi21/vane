@@ -1,4 +1,4 @@
-//! Daemon-wide TLS session ticketer.
+//! Process-wide TLS session ticketer for rustls servers.
 //!
 //! Wraps the active crypto backend's `Ticketer::new()` constructor,
 //! which returns an `Arc<rustls::TicketRotator>` (RFC 5077 /
@@ -7,14 +7,16 @@
 //! path — no background task, no cancellation handling, no `ArcSwap`
 //! plumbing.
 //!
-//! Installed once at boot via [`install_default_ticketer`]; every
-//! listener's `ServerConfig.ticketer` reads the same `Arc` via
+//! Installed once via [`install_default_ticketer`]; every listener's
+//! `ServerConfig.ticketer` reads the same `Arc` via
 //! [`default_ticketer`]. Idempotent: a second install is a no-op so
-//! daemon main and test harnesses can both invoke without
-//! coordination. Mirrors the [`crate::crypto::install_default_provider`]
-//! shape.
-//!
-//! See `spec/crates/engine-tls.md` § _Session tickets_.
+//! a daemon's `main` and test harnesses can both invoke without
+//! coordination.
+
+#[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
+compile_error!(
+	"`aws-lc-rs` and `ring` are mutually exclusive — pick exactly one rustls-ticketer backend feature.",
+);
 
 use std::sync::{Arc, OnceLock};
 
@@ -37,23 +39,24 @@ fn make_default_ticketer() -> Result<Arc<dyn ProducesTickets>, rustls::Error> {
 	}
 	#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
 	{
-		// Unreachable in any legal build — `lib.rs` issues a
-		// `compile_error!` when neither backend feature is active —
-		// but the function still has to type-check on every cfg
-		// branch.
-		Err(rustls::Error::General("no crypto backend selected".to_owned()))
+		// Reached only when the caller forgot to enable a backend
+		// feature. Surfaced as a clear runtime error so the failure
+		// is debuggable from `install_default_ticketer`'s call site.
+		Err(rustls::Error::General(
+			"rustls-ticketer: enable either the `aws-lc-rs` or `ring` feature".to_owned(),
+		))
 	}
 }
 
-/// Install the daemon-wide ticketer. Idempotent: a second call after
+/// Install the process-wide ticketer. Idempotent: a second call after
 /// a successful install is a no-op and returns `Ok(())`. Must be
-/// called after [`crate::crypto::install_default_provider`] — the
-/// backend constructors hit the active provider's RNG.
+/// called after `rustls::crypto::CryptoProvider::install_default` —
+/// the backend constructors hit the active provider's RNG.
 ///
 /// # Errors
-/// Returns [`rustls::Error`] only when the backend fails to construct
-/// the initial ticketer (extremely rare — typically a CSPRNG
-/// failure). Daemon main treats this as fatal.
+/// Returns [`rustls::Error`] when the backend fails to construct the
+/// initial ticketer (extremely rare — typically a CSPRNG failure),
+/// or when no backend feature is enabled.
 pub fn install_default_ticketer() -> Result<(), rustls::Error> {
 	if DEFAULT_TICKETER.get().is_some() {
 		return Ok(());
@@ -63,10 +66,10 @@ pub fn install_default_ticketer() -> Result<(), rustls::Error> {
 	Ok(())
 }
 
-/// Return the installed daemon-wide ticketer, or `None` if no install
-/// has happened yet. Test fixtures that don't need session ticketing
-/// simply skip [`install_default_ticketer`] and listeners fall back
-/// to rustls's default `NeverProducesTickets`.
+/// Return the installed process-wide ticketer, or `None` if no
+/// install has happened yet. Test fixtures that don't need session
+/// ticketing simply skip [`install_default_ticketer`] and listeners
+/// fall back to rustls's default `NeverProducesTickets`.
 #[must_use]
 pub fn default_ticketer() -> Option<Arc<dyn ProducesTickets>> {
 	DEFAULT_TICKETER.get().cloned()
@@ -77,7 +80,8 @@ mod tests {
 	use super::*;
 
 	fn install_crypto() {
-		crate::crypto::install_default_provider();
+		// Idempotent. Multiple tests in the same binary all call this.
+		let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 	}
 
 	// `DEFAULT_TICKETER` is a process-global `OnceLock`. A test that
