@@ -2,15 +2,17 @@
 //! prepends a previously-buffered byte sequence to the read side of
 //! `S` while passing writes through unchanged.
 //!
-//! The listener-side peek prelude (see `protocol_detect`) reads up to
-//! [`vane_core::MAX_PEEK_BYTES`] from a freshly accepted connection
-//! before deciding which arm of the `FlowGraph` to enter. Whichever
-//! consumer wakes up next — `rustls::server::Acceptor`, `hyper`, or a
-//! byte-tunnel — must observe the peeked bytes from offset zero, as
-//! though no read had happened. Wrapping the original stream in
-//! `PeekedStream { buffer: peeked, inner: stream }` rewinds the buffer
-//! into the read path: `poll_read` drains `buffer` first, then
-//! delegates to `inner`.
+//! A common pattern in protocol-detecting servers is to peek the first
+//! bytes of a freshly accepted connection, decide which decoder to
+//! engage (TLS / HTTP/1 / HTTP/2 preface / opaque L4), then hand the
+//! stream to that decoder. Whichever consumer wakes up next must
+//! observe the peeked bytes from offset zero — as though no read had
+//! happened. Wrapping the stream in `PeekedStream { buffer: peeked,
+//! inner: stream }` rewinds the buffer into the read path: `poll_read`
+//! drains `buffer` first, then delegates to `inner`. Writes / flushes
+//! / shutdowns pass through to the inner stream untouched.
+
+#![forbid(unsafe_code)]
 
 use std::io;
 use std::pin::Pin;
@@ -31,9 +33,9 @@ impl<S> PeekedStream<S> {
 	}
 
 	/// Drop the peek buffer (regardless of whether it was drained) and
-	/// return the inner stream. Used by the L4 forward path which
-	/// needs the concrete `TcpStream` for `set_nodelay` / `peer_addr`
-	/// access.
+	/// return both pieces. Useful when the caller needs the concrete
+	/// inner type (e.g. a `TcpStream` for `set_nodelay` / `peer_addr`)
+	/// after the peek phase has resolved.
 	pub fn into_inner(self) -> (Bytes, S) {
 		(self.buffer, self.inner)
 	}
@@ -104,8 +106,6 @@ mod tests {
 		drop(peer);
 		let mut s = PeekedStream::new(Bytes::from_static(b"PEEKED"), inner);
 
-		// Two partial reads must drain the buffer half-and-half before
-		// dipping into the inner stream.
 		let mut head = [0u8; 3];
 		s.read_exact(&mut head).await.expect("read head");
 		assert_eq!(&head, b"PEE");
@@ -146,7 +146,6 @@ mod tests {
 		let (peer, inner) = duplex(64);
 		let mut s = PeekedStream::new(Bytes::from_static(b"PEEK"), inner);
 		s.shutdown().await.expect("shutdown");
-		// Peer reads EOF on the half-closed channel.
 		let mut peer = peer;
 		let mut got = Vec::new();
 		peer.read_to_end(&mut got).await.expect("peer read post-shutdown");
@@ -158,7 +157,6 @@ mod tests {
 		let (_peer, inner) = duplex(64);
 		let buffer = Bytes::from_static(b"PEEK");
 		let mut s = PeekedStream::new(buffer.clone(), inner);
-		// Drain part of the buffer so we observe a non-empty residual.
 		let mut head = [0u8; 2];
 		s.read_exact(&mut head).await.expect("read head");
 		let (residual, _inner) = s.into_inner();

@@ -38,7 +38,6 @@ pub mod listener;
 pub mod listener_udp;
 pub mod metrics;
 pub mod middleware;
-pub mod peeked_stream;
 pub mod preset;
 pub mod protocol_detect;
 pub mod security;

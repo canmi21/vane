@@ -2984,6 +2984,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "peeked-stream"
+version = "0.0.1"
+dependencies = [
+ "bytes",
+ "tokio",
+]
+
+[[package]]
 name = "pem"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4985,6 +4993,7 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "parking_lot",
+ "peeked-stream",
  "pin-project-lite",
  "prometheus-parse",
  "quinn",

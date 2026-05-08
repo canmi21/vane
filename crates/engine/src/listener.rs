@@ -37,10 +37,10 @@ use vane_core::{
 use crate::executor::{ExecutorInput, execute};
 use crate::flow_graph::FlowGraph;
 use crate::listener_udp::{DispatchTable, run_udp_listener};
-use crate::peeked_stream::PeekedStream;
 use crate::protocol_detect::classify;
 use crate::security::{SecurityConfig, SecurityState};
 use crate::verbosity::VerbosityState;
+use peeked_stream::PeekedStream;
 use vane_core::{MAX_PEEK_BYTES, PeekResult};
 
 const TCP_LISTEN_BACKLOG: u32 = 1024;
@@ -1128,9 +1128,7 @@ async fn run_tls<S>(
 	// sees a continuous byte stream. Empty `Bytes` makes
 	// `PeekedStream` a no-op pass-through.
 	let stream: Box<dyn vane_core::AsyncReadWrite + Send> = match early_data_buf {
-		Some(bytes) if !bytes.is_empty() => {
-			Box::new(crate::peeked_stream::PeekedStream::new(bytes, tls_stream))
-		}
+		Some(bytes) if !bytes.is_empty() => Box::new(PeekedStream::new(bytes, tls_stream)),
 		_ => Box::new(tls_stream),
 	};
 
