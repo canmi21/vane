@@ -1,7 +1,9 @@
 # Guess
 
 Wire-protocol classifier for TCP / TLS streams. Feed the first bytes
-of a freshly accepted connection and get back one of:
+of a freshly accepted connection and get back one.
+
+## Features
 
 - **TLS ClientHello** (parsed via `rustls::server::Acceptor`; SNI and
   ALPN extracted)

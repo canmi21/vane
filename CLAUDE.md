@@ -6,7 +6,7 @@ Rust workspace targeting stable. Async runtime: `tokio`. HTTP stack: `hyper` / `
 
 A Nix flake (`flake.nix`) provides a reproducible dev shell — `nix develop` lands you in an environment with the rust toolchain (read from `rust-toolchain.toml`), `cargo-nextest`, `just`, `bun`, `nixfmt`, and the musl cross-toolchain, all pinned via `flake.lock`. `nix fmt` formats `.nix` files. Optional — system rustup / brew works equivalently.
 
-Generic, project-agnostic crates live under [`crates/lib/`](crates/lib/) and are independently publishable — see [`crates/lib/CLAUDE.md`](crates/lib/CLAUDE.md).
+Generic, project-agnostic crates live under [`crates/lib/`](crates/lib/) and are independently publishable — see [`crates/lib/README.md`](crates/lib/README.md).
 
 ## Quality gates
 

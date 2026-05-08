@@ -1,6 +1,6 @@
 # H3 Body
 
-An `http_body::Body` adapter over the [h3] crate's split
+An `http_body::Body` adapter over the [h3](https://crates.io/crates/h3) crate's split
 `recv_data` / `recv_trailers` stream surface, for both the server-side
 `h3::server::RequestStream` and the client-side
 `h3::client::RequestStream`.
@@ -11,8 +11,6 @@ half closes. `H3Body` runs a small pump task that walks both calls in
 order and feeds a bounded channel; the resulting `http_body::Body`
 slots into hyper / tower / any HTTP stack that expects the standard
 trait.
-
-[h3]: https://crates.io/crates/h3
 
 ## Example
 

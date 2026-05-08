@@ -47,6 +47,6 @@ Errors during decryption or parsing (malformed packet, version mismatch, conflic
 
 `crates/lib/clienthello/tests/end_to_end.rs` plus `helpers/`. Self-contained — tests synthesize representative QUIC Initial packets (single-datagram and multi-datagram) and verify SNI extraction.
 
-## CLAUDE.md
+## crates/lib/
 
-`crates/lib/CLAUDE.md` documents the conventions for the entire `crates/lib/` family: independently publishable, no `vane-*` dependency, must compile and test on its own.
+`crates/lib/README.md` documents the conventions for the entire `crates/lib/` family: independently publishable, no `vane-*` dependency, must compile and test on its own.

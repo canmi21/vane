@@ -5,6 +5,8 @@ URLs from a certificate's Authority Information Access (AIA)
 extension. With the `fetch` feature, also performs an async HTTP/1.1
 POST against the responder via hyper.
 
+## Features
+
 The crate is structured in three layers:
 
 - **Pure functions on cert DER** (always compiled) — `extract_ocsp_url`,
@@ -14,7 +16,7 @@ The crate is structured in three layers:
 - **One convenience wrapper** (`fetch` feature) — `fetch_ocsp_for_cert`
   runs the whole pipeline (extract → build → fetch → parse).
 
-## Transport policy: HTTP-only
+## Transport
 
 Production CAs ship HTTP-only OCSP responders, and OCSP responses
 are independently signed. This crate enforces HTTP-only: HTTPS URLs
