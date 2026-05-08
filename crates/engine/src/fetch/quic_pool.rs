@@ -6,8 +6,8 @@
 //! [`QuicFingerprint`] and populated lazily on first dial.
 //!
 //! See `spec/crates/engine.md` § _Architecture: TCP / QUIC
-//! separation_, § _Pool fingerprint_, § _`QuicPool` socket model_, and
-//! § _Lifetime: daemon-level_. The fingerprint shape differs from
+//! separation_, § _Pool fingerprint_, § _Upstream pools_, and
+//! § _Upstream pools_. The fingerprint shape differs from
 //! [`crate::fetch::client_cache::ClientFingerprint`] in two ways:
 //!
 //! * `version` does not appear — QUIC is always H3 at the application
@@ -58,7 +58,7 @@ pub struct QuicFingerprint {
 /// `quinn`'s connection idle timeout retires it from the inside;
 /// the next dial finds the entry's `SendRequest` returning errors,
 /// removes the entry, and re-dials. No active sweep — see
-/// `spec/crates/engine.md` § _Lifetime: daemon-level_.
+/// `spec/crates/engine.md` § _Upstream pools_.
 pub struct QuicPoolEntry {
 	/// `h3::client::SendRequest::clone()` is cheap (an internal
 	/// `Arc` bump) and is the documented per-request handle source,
@@ -72,7 +72,7 @@ pub struct QuicPoolEntry {
 	/// here so the pool entry's `Drop` can cancel cleanly.
 	driver: tokio::task::JoinHandle<()>,
 	/// Per-entry quinn `Endpoint` — owns the ephemeral UDP socket
-	/// per `spec/crates/engine.md` § _`QuicPool` socket model_.
+	/// per `spec/crates/engine.md` § _Upstream pools_.
 	/// Held on the entry so `Drop::drop` can close the endpoint
 	/// before aborting the driver.
 	endpoint: Endpoint,
@@ -99,7 +99,7 @@ impl Drop for QuicPoolEntry {
 // inside; manual eviction is exposed via `pool.drain` (see
 // `drain_by_fingerprint_id`). Cache grows monotonically across reload
 // cycles otherwise (see `spec/crates/engine.md`
-// § _Lifetime: daemon-level_).
+// § _Upstream pools_).
 static QUIC_POOL: LazyLock<DashMap<QuicFingerprint, Arc<QuicPoolEntry>>> =
 	LazyLock::new(DashMap::new);
 

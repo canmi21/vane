@@ -260,7 +260,7 @@ pub struct PoolDrainResult {
 }
 
 /// Verb name for the operator-driven "renew this cert NOW" RPC per
-/// `spec/crates/engine-acme.md` § _`force_renew` mgmt verb_. Bypasses the
+/// `spec/crates/engine-acme.md` § _mgmt verbs_. Bypasses the
 /// `renew_before` timer and any active backoff; useful for
 /// key-compromise rotation. The actual issuance runs asynchronously
 /// — `queued: true` means the registry accepted the request, not
@@ -281,13 +281,13 @@ pub struct ForceRenewResult {
 	pub queued: bool,
 	/// Cert lifecycle status at the moment the request was received:
 	/// `"valid"`, `"renewing"`, `"failed"`, or `"limited"` per spec
-	/// § _Rate-limit and failure handling_. `"unknown"` for SNIs
+	/// § _Rate limits and failure handling_. `"unknown"` for SNIs
 	/// that have never been declared.
 	pub current_status: String,
 }
 
 /// Verb name for the cert inventory RPC per `spec/crates/engine-acme.md`
-/// § _mgmt verbs § `get_certs`_. Lists every cert the daemon tracks —
+/// § _mgmt verbs_. Lists every cert the daemon tracks —
 /// managed (full lifecycle detail) and static (SNI + source label).
 pub const VERB_GET_CERTS: &str = "get_certs";
 
@@ -297,7 +297,7 @@ pub struct GetCertsResult {
 }
 
 /// One cert's wire-shape summary. Field set matches
-/// `spec/crates/engine-acme.md` § _`get_certs` response shape_; static-source
+/// `spec/crates/engine-acme.md` § _mgmt verbs_; static-source
 /// entries leave the lifecycle fields (`status`, `last_*`,
 /// `next_*`, `ari_window`) at their defaults — they're meaningful
 /// only for managed certs.

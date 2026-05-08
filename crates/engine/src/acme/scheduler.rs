@@ -1,5 +1,5 @@
 //! Renewal scheduler types + decision logic per `spec/crates/engine-acme.md`
-//! § _Renewal triggers_ and § _Rate-limit and failure handling_.
+//! § _Renewal triggers_ and § _Rate limits and failure handling_.
 //!
 //! Three pieces:
 //!
@@ -17,7 +17,7 @@
 //!   logic. Tested directly with synthesised state inputs so the
 //!   scheduler tick is a thin shell around these functions.
 //!
-//! Backoff per spec § _Rate-limit and failure handling_: base 30
+//! Backoff per spec § _Rate limits and failure handling_: base 30
 //! minutes, factor 2, cap 24 hours; resets to base on first success.
 //! Both rate-limited and other-failure classes use the same
 //! schedule; rate-limited responses additionally honour the CA's
@@ -149,7 +149,7 @@ pub struct RenewalPlan {
 }
 
 /// Periodic scheduler cadence per `spec/crates/engine-acme.md`
-/// § _Renewal triggers § Periodic timer_. Matches `spec/crates/engine-tls.md`'s
+/// § _Renewal triggers_. Matches `spec/crates/engine-tls.md`'s
 /// `refresh()` cadence so cert delivery and renewal share one
 /// heartbeat.
 pub const TICK_INTERVAL: Duration = Duration::from_mins(5);
@@ -163,7 +163,7 @@ pub const TICK_INTERVAL: Duration = Duration::from_mins(5);
 pub const OCSP_REFRESH_BEFORE: Duration = Duration::from_hours(24);
 
 /// Backoff base — first failure waits this long before retry. Per
-/// `spec/crates/engine-acme.md` § _Rate-limit and failure handling_.
+/// `spec/crates/engine-acme.md` § _Rate limits and failure handling_.
 pub const BACKOFF_BASE: Duration = Duration::from_mins(30);
 
 /// Backoff cap — never wait longer than this between attempts. Per

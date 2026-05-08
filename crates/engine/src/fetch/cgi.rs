@@ -102,7 +102,7 @@ const DEFAULT_TOTAL_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// RFC 3875 §4.1 required variables. Operators cannot override these
 /// via `args.env` — vane computes them per request from connection /
-/// request state. See spec § _User-defined, per rule_.
+/// request state. See spec § _CGI_.
 const RFC_3875_REQUIRED: &[&str] = &[
 	"CONTENT_LENGTH",
 	"CONTENT_TYPE",
@@ -121,7 +121,7 @@ const RFC_3875_REQUIRED: &[&str] = &[
 ];
 
 /// Common-extension variables (not in RFC 3875 but ubiquitous).
-/// See spec § _Common extensions, always set_.
+/// See spec § _CGI_.
 const COMMON_EXTENSIONS: &[&str] =
 	&["REMOTE_PORT", "REQUEST_URI", "REQUEST_SCHEME", "HTTPS", "DOCUMENT_URI"];
 
@@ -199,7 +199,7 @@ fn parse_env(obj: &serde_json::Map<String, Value>) -> Result<Vec<(String, String
 		if is_reserved_env_key(k) {
 			return Err(format!(
 				"args.env key {k:?} is reserved (RFC 3875 / common extension / HTTP_*); operators \
-				 cannot override values vane computes per request — see spec § _User-defined, per rule_"
+				 cannot override values vane computes per request — see spec § _CGI_"
 			));
 		}
 		let val = v.as_str().ok_or_else(|| format!("args.env[{k:?}] must be a string, got {v:?}"))?;
@@ -662,7 +662,7 @@ fn static_response(status: StatusCode) -> Response {
 }
 
 /// Build the RFC 3875 + common-extension env for one request. Spec §
-/// _Required by RFC 3875_ + § _Common extensions, always set_.
+/// _Required by RFC 3875_ + § _CGI_.
 #[cfg(unix)]
 #[allow(clippy::too_many_lines)]
 fn build_env(args: &CgiArgs, req: &Request, conn: &Arc<ConnContext>) -> Vec<(String, String)> {
@@ -755,7 +755,7 @@ fn install_pre_exec(cmd: &mut Command, security: CgiSecurity) {
 	// (it mirrors `std::os::unix::process::CommandExt::pre_exec` but
 	// is not the trait method itself), so no `use` import is needed.
 	//
-	// SAFETY: see module-level doc § _unsafe boundary_. The closure
+	// SAFETY: see module-level doc § _CGI_. The closure
 	// body is async-signal-safe — only the listed syscalls fire, no
 	// heap allocation, no mutex acquisition, no non-listed file I/O.
 	// Errors are propagated to the parent via the `io::Error` return
@@ -896,7 +896,7 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
 }
 
 /// Build a `http::response::Builder` from an RFC 3875 header block.
-/// Spec § _stdin / stdout protocol_:
+/// Spec § _CGI_:
 ///
 /// * `Status: 200 OK` sets the status code (CGI-specific header,
 ///   not an HTTP/1.1 status line).
@@ -941,7 +941,7 @@ fn build_response_from_headers(block: &[u8]) -> Result<http::response::Builder, 
 }
 
 /// Send `SIGTERM`, wait up to one second, then `SIGKILL`. Used for
-/// timeout-driven termination per spec § _Timeouts_.
+/// timeout-driven termination per spec § _Concrete fetches_.
 #[cfg(unix)]
 async fn terminate_child(child: &mut tokio::process::Child) {
 	if let Some(pid) = child.id() {

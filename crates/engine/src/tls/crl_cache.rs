@@ -5,7 +5,7 @@
 //! stable. Wrapper verifiers in [`crate::tls::refreshable_crl_verifier`]
 //! pull the latest snapshot per handshake.
 //!
-//! See `spec/crates/engine-tls.md` § _CRL checking_ — fetch cadence
+//! See `spec/crates/engine-tls.md` § _CRL_ — fetch cadence
 //! (adaptive on `nextUpdate`), failure handling (`tolerate` / `reject`),
 //! daemon-wide cache, identity-not-content fingerprint (line 437).
 
@@ -50,7 +50,7 @@ impl CrlSourceId {
 }
 
 /// Per-source policy on what to do when a CRL becomes unavailable.
-/// Spec § _Failure handling_.
+/// Spec § _CRL_.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CrlFetchFailure {
 	Tolerate,
@@ -169,7 +169,7 @@ impl CrlCache {
 				}
 				(HealthState::Unavailable, CrlFetchFailure::Tolerate) => {
 					// `tolerate` + cached but stale: keep using the
-					// last-known bytes per spec § _Failure handling_.
+					// last-known bytes per spec § _CRL_.
 					// `tolerate` + never-loaded: silently drop.
 					if let Some(bytes) = &entry.bytes {
 						out.push(Arc::clone(bytes));
@@ -189,7 +189,7 @@ impl CrlCache {
 	/// cold fetch every time the watcher fires.
 	///
 	/// File sources are always re-fetched (their bytes are local; spec
-	/// § _CRL checking_ line 498 says file sources re-read on reload).
+	/// § _CRL_ line 498 says file sources re-read on reload).
 	///
 	/// # Panics
 	///

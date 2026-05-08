@@ -45,7 +45,7 @@ pub enum BodySide {
 /// Per-listener dispatch posture. **Derived by the lower pass from
 /// the listener's entry subgraph — not user-configured.** See
 /// `spec/crates/engine.md` § _Listener kind derivation_ for the
-/// derivation rule and § _Dispatch decision table_ for the runtime
+/// derivation rule and § _Dispatch table_ for the runtime
 /// behavior the listener picks based on this value.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ListenerKind {
@@ -137,7 +137,7 @@ pub struct FlowGraphMeta {
 	/// graphs and for any L7 entry whose listener is not bound to a
 	/// post-`Upgrade` chain (which the lower pass guarantees never
 	/// happens for legal L7 listeners). See spec/flow-model.md
-	/// § _`FlowGraph` metadata_.
+	/// § _The compiled form_.
 	///
 	/// `#[serde(default)]` keeps older dry-run JSON snapshots
 	/// deserializable: missing field decodes as an empty map, which
@@ -152,7 +152,7 @@ pub struct FlowGraphMeta {
 	/// with an SNI resolver that falls back to `default` for unmatched
 	/// SNI. Listeners absent from this map are cleartext. See
 	/// `spec/crates/engine-tls.md` § _TLS termination (L4 → L7
-	/// upgrade)_ and § _SNI normalization_.
+	/// upgrade)_ and § _SNI peek (L4, no decrypt)_.
 	///
 	/// `#[serde(default)]` for the same wire-compat reason as the map
 	/// above.
@@ -162,7 +162,7 @@ pub struct FlowGraphMeta {
 	/// Per-listener dispatch posture, derived from each entry's
 	/// reachable-terminator set. Populated by the lower pass; the
 	/// engine reads it in [`crate::ir::ListenerKind`]-aware dispatch
-	/// (`spec/crates/engine.md` § _Dispatch decision table_).
+	/// (`spec/crates/engine.md` § _Dispatch table_).
 	/// Listeners absent from this map are treated as `Http` by the
 	/// engine's defensive accessor — but the lower pass guarantees
 	/// every entry address has an explicit kind.
@@ -687,7 +687,7 @@ mod tests {
 
 	#[test]
 	fn flow_graph_meta_round_trip_preserves_all_but_feature_set() {
-		// spec/flow-model.md § _FlowGraph metadata_: feature_set is a compile-time
+		// spec/flow-model.md § _The compiled form_: feature_set is a compile-time
 		// slice the daemon fills in at link and is NOT emitted to dry-run JSON.
 		// version_hash / compiled_at / source_files must round-trip.
 		use std::time::Duration;

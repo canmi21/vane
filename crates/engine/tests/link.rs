@@ -149,7 +149,7 @@ fn link_empty_graph_succeeds() {
 	let mw = MiddlewareFactories::new();
 	let fetch = FetchFactories::new();
 	let linked = FlowGraph::link(sym, &mw, &fetch).expect("link empty graph");
-	// Spec spec/flow-model.md § _FlowGraph metadata_: link installs the engine's
+	// Spec spec/flow-model.md § _The compiled form_: link installs the engine's
 	// feature-set snapshot. Core's crypto backend leads per lib.rs:43.
 	assert!(
 		linked.meta().feature_set.contains(&vane_engine::crypto::BACKEND_NAME),
@@ -228,7 +228,7 @@ fn link_fails_on_kind_mismatch() {
 	// Symbolic ref declares L7Request; registry declares L7Request too
 	// (so the registry-vs-declared check passes); but the closure produces
 	// an L4Peek variant. The link pass must catch the variant-vs-declared
-	// mismatch per spec/crates/engine.md § _Symbolic forms_ (the variant *is*
+	// mismatch per spec/crates/engine.md § _Middleware_ (the variant *is*
 	// the kind).
 	let sym = graph_with_middleware(l7_req_ref("m"));
 	let mut mw = MiddlewareFactories::new();

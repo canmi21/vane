@@ -81,7 +81,7 @@ mod tests {
 
 	#[test]
 	fn sorts_by_order_then_path_stable() {
-		// spec/crates/core.md § _Merge_: stable-sort by (order asc, filename lex).
+		// spec/crates/core.md § _Compile pipeline_: stable-sort by (order asc, filename lex).
 		let files = vec![
 			file("b.json", 10, vec![entry("b")]),
 			file("a.json", 10, vec![entry("a")]),

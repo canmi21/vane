@@ -1,5 +1,5 @@
 //! Typed accessors for `VANE_*` deployment-constant env vars
-//! (`spec/crates/core.md` § _Three-layer configuration_).
+//! (`spec/crates/core.md` § _Config layers_).
 //!
 //! The [`EnvReader`] trait abstracts the source so unit tests pass a
 //! `HashMap`-backed fake instead of mutating process-global state — Rust
@@ -27,7 +27,7 @@ impl EnvReader for ProcessEnv {
 
 /// Typed snapshot of every `VANE_*` deployment constant the daemon
 /// reads at startup. Defaults match `spec/crates/core.md`
-/// § _Three-layer configuration_.
+/// § _Config layers_.
 ///
 /// `config_dir` is **not** modeled as a field — the daemon's `--config`
 /// CLI arg is the single source of truth, and [`Env::from_reader`]
@@ -80,7 +80,7 @@ pub struct Env {
 	/// `VANE_MGMT_HTTP_PORT` — TCP port for the HTTP management transport.
 	/// `Some(3333)` by default; an explicit empty string disables the
 	/// transport (`None`). Matches `spec/crates/core.md`
-	/// § _Deployment constants_.
+	/// § _Config layers_.
 	pub mgmt_http_port: Option<u16>,
 	/// `VANE_MGMT_HTTP_PUBLIC` — when truthy, bind the HTTP management
 	/// port on the wildcard address (`0.0.0.0` / `[::]`). When falsy

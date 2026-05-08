@@ -1,11 +1,11 @@
 //! Integration tests for `vane_engine::fetch::http_synthesize`.
 //!
 //! Covers the in-memory response Fetch contract described in
-//! `spec/crates/engine.md` § _`HttpSynthesize`_,
+//! `spec/crates/engine.md` § _Concrete fetches_,
 //! `spec/crates/engine.md` § _`HttpProxyFetch` commits to streaming
 //! response bodies_ ("`HttpSynthesizeFetch` always produces `Body::Static`
 //! by construction — that is the point of synthesis"), and
-//! `spec/crates/core.md` § _`static_site`_ for the args shape:
+//! `spec/crates/core.md` § _Compile pipeline_ for the args shape:
 //!
 //! ```json
 //! {
@@ -153,7 +153,7 @@ fn b64(bytes: &[u8]) -> String {
 
 #[tokio::test]
 async fn http_synthesize_returns_static_response() {
-	// spec/crates/engine.md § _`HttpSynthesize`_ + spec/crates/core.md § _`static_site`_:
+	// spec/crates/engine.md § _Concrete fetches_ + spec/crates/core.md § _Compile pipeline_:
 	// the factory's `status` and `body` parameterise the synthesised
 	// response. The body is base64-encoded raw bytes — the preset
 	// expansion stage converts user-friendly text upstream of this
@@ -184,7 +184,7 @@ async fn http_synthesize_returns_static_response() {
 
 #[tokio::test]
 async fn http_synthesize_with_headers() {
-	// spec/crates/engine.md § _`HttpSynthesize`_: synthesised responses carry
+	// spec/crates/engine.md § _Concrete fetches_: synthesised responses carry
 	// configured headers verbatim. Both an arbitrary custom header and
 	// `content-type` must reach the client.
 	let proxy_addr = pick_port().await;
@@ -224,7 +224,7 @@ async fn http_synthesize_with_headers() {
 
 #[tokio::test]
 async fn http_synthesize_empty_body_writes_empty() {
-	// spec/crates/engine.md § _`HttpProxyFetch` commits to streaming response bodies_:
+	// spec/crates/engine.md § _Concrete fetches_:
 	// "`HttpSynthesizeFetch` always produces `Body::Static` by
 	// construction"; an empty body is the equivalent zero-frame case.
 	// 204 (No Content) is a valid HTTP status and the natural status code

@@ -4,7 +4,7 @@
 //! pipeline through `compile()` so each error path here matches what
 //! an operator would see from `vane compile --dry-run`. See
 //! `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_
-//! § _Compile-time constraints_ for the rule list.
+//! § _Configuration schema_ for the rule list.
 
 use std::path::PathBuf;
 

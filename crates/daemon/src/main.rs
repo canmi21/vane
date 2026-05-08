@@ -168,7 +168,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// key) and precede any `FlowGraph::link` (which reads the ticketer
 	// into each listener's `ServerConfig`). Failure here is fatal —
 	// it implies the kernel CSPRNG is unavailable. See spec/crates/engine-tls.md
-	// § _Session ticket rotation_.
+	// § _Session tickets_.
 	vane_engine::tls::install_default_ticketer().expect("install rustls session ticketer");
 	vane_engine::metrics::install_recorder().expect("install metrics recorder");
 	// Note: the system trust store is loaded lazily on first
@@ -260,7 +260,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// CRL cache: collected once across all listener client_auth + upstream
 	// args.tls.crls sources, fetched synchronously at link time (30s per
 	// source), and shared daemon-wide. Per
-	// `spec/crates/engine-tls.md` § _CRL checking_, the cache key is
+	// `spec/crates/engine-tls.md` § _CRL_, the cache key is
 	// source identity (path / URL string) so refreshing CRL bytes does
 	// not invalidate cached `Arc<ClientConfig>` / `Arc<ServerConfig>`.
 	let crl_cache = init_crl_cache(&symbolic)?;
@@ -388,7 +388,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// ACME boot tasks: kick off first-time issuance for every
 	// `tls.managed` SNI without a cached cert, and auto-bind a
 	// synthetic `:80` listener if the operator's config has none
-	// per `spec/crates/engine-acme.md` § _HTTP-01 § Case 2_. Both are
+	// per `spec/crates/engine-acme.md` § _Challenge: HTTP-01_. Both are
 	// fire-and-forget; ACME failures surface via `tracing::error!`
 	// and don't abort boot. After both, the renewal scheduler ticks
 	// every 5 minutes per spec § _Renewal triggers_ and dispatches
@@ -560,7 +560,7 @@ fn build_middleware_factories() -> MiddlewareFactories {
 /// least one CRL source. The fetch is synchronous (block-in-place via
 /// `ensure_loaded`) — `reject` policy sources whose first fetch fails
 /// surface as a daemon-startup error, matching
-/// `spec/crates/engine-tls.md` § _Failure handling_.
+/// `spec/crates/engine-tls.md` § _CRL_.
 fn init_crl_cache(
 	sym: &vane_core::SymbolicFlowGraph,
 ) -> Result<Option<Arc<vane_engine::tls::CrlCache>>, Box<dyn std::error::Error + Send + Sync>> {

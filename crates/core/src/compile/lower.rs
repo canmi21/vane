@@ -46,13 +46,13 @@ pub fn lower(
 		// TLS termination is per-listener, not per-rule: every rule
 		// sharing an address contributes to the listener's cert pool.
 		// `resolve_listener_tls` aggregates and rejects conflicts —
-		// see spec/crates/engine-tls.md § _TLS termination_ + § _Certificate resolver_.
+		// see spec/crates/engine-tls.md § _Termination flow (L4 → L7 upgrade)_ + § _Cert resolver_.
 		let resolved_tls = resolve_listener_tls(&addrs, &rules)?;
 		// Per-rule `allow_zero_rtt` checks (presence + idempotent-method
 		// gate) live alongside the TLS aggregation since they reference
 		// the listener-level posture (TLS-L7 vs plaintext / L4) that
 		// `resolve_listener_tls` already established. See `spec/crates/engine-tls.md`
-		// § _TLS 1.3 0-RTT (early data)_ § _Compile-time constraints_.
+		// § _TLS 1.3 0-RTT (early data)_ § _Configuration schema_.
 		validate_zero_rtt_for_listener(&addrs, &rules, resolved_tls.as_ref())?;
 		let entry = builder.lower_port(&rules, mw_meta, fetch_meta)?;
 		for addr in &addrs {
@@ -65,7 +65,7 @@ pub fn lower(
 		}
 		let kind = derive_listener_kind(&builder.nodes, &builder.fetches, entry);
 		// Listener transport comes from the parsed `tcp:` / `udp:`
-		// prefix on `listen` (spec/crates/core.md § _ListenSpec grammar_).
+		// prefix on `listen` (spec/crates/core.md § _Config layers_).
 		// `validate_listener_fetches` walks the entry subgraph and
 		// rejects any L4Forward whose `args.transport` disagrees with
 		// the declared listener transport.
@@ -76,7 +76,7 @@ pub fn lower(
 		}
 	}
 
-	// Per `spec/crates/engine-acme.md` § _HTTP-01 § Compile-time checks_: when any
+	// Per `spec/crates/engine-acme.md` § _Configuration schema_: when any
 	// rule declares a `tls.managed.challenge == "http-01"` SNI but
 	// the operator has no plaintext `:80` listener anywhere in the
 	// config, the daemon will auto-bind one at runtime. Emit a
@@ -184,7 +184,7 @@ fn derive_listener_kind(
 /// any whose `args.transport` disagrees with the listener's declared
 /// transport.
 ///
-/// Per `spec/crates/core.md` § _`ListenSpec` grammar_ the listener prefix is
+/// Per `spec/crates/core.md` § _Config layers_ the listener prefix is
 /// authoritative: a `tcp:` listener with a UDP `L4Forward`, or a
 /// `udp:` listener with a TCP `L4Forward`, is a hard compile error.
 /// `L7` fetches and `L4Forward` whose `args.transport` is unset
@@ -587,12 +587,12 @@ struct Builder {
 	/// `Terminate(WriteHttpResponse)` `NodeId`. Populated by `lower_port`
 	/// for each listener that emits an `Upgrade`; consumed by the
 	/// executor when a request middleware returns `Short(Response(_))`.
-	/// See spec/flow-model.md § _`FlowGraph` metadata_.
+	/// See spec/flow-model.md § _The compiled form_.
 	short_circuit_response_entry: std::collections::BTreeMap<NodeId, NodeId>,
 	/// Per-listener cert pool (symbolic). Populated by `resolve_listener_tls`
 	/// after aggregating every rule's `tls` block on this address; the
 	/// engine's `link` parses each entry into a `rustls::ServerConfig`.
-	/// See spec/crates/engine-tls.md § _TLS termination_.
+	/// See spec/crates/engine-tls.md § _Termination flow (L4 → L7 upgrade)_.
 	listener_tls: std::collections::BTreeMap<SocketAddr, crate::rule::ListenerTlsSpec>,
 	/// Per-listener dispatch posture (symbolic). Populated as
 	/// `lower_port` finishes each address group; see
@@ -711,7 +711,7 @@ impl Builder {
 
 		// Build the inner chain (no per-rule Upgrade). For an L7 listener
 		// we wrap the resulting entry in ONE shared `Node::Upgrade` below.
-		// spec/flow-model.md § _Listener-level Upgrade placement_: emitting one
+		// spec/flow-model.md § _The compiled form_: emitting one
 		// Upgrade per rule and stitching them via on_miss puts the second
 		// Upgrade in `Phase::L7Request`, which the validator rejects. A
 		// single listener-level Upgrade keeps every cross-rule on_miss edge
@@ -730,7 +730,7 @@ impl Builder {
 				// has somewhere to land. The executor sets the response slot
 				// on the `Decision::Short` arm and jumps to this synth target;
 				// the standard `WriteHttpResponse` write path emits the bytes.
-				// See spec/flow-model.md § _`FlowGraph` metadata_.
+				// See spec/flow-model.md § _The compiled form_.
 				//
 				// The map key is `inner_entry` — the node Upgrade's `next`
 				// points at — *not* the listener-level Upgrade NodeId.
@@ -815,7 +815,7 @@ impl Builder {
 		// entry, so by the time the fetch runs the body has been
 		// drained from the upstream `Body::Stream` into a
 		// `Body::Static` snapshot the retry loop can replay. See
-		// `spec/crates/engine.md` § _Retry buffering_.
+		// `spec/crates/engine.md` § _Retry_.
 		let (fetch_collect, fetch_body_limit) = if retry_buffer_required {
 			(Some(BodySide::Request), rule.raw.max_body_bytes_request)
 		} else {
@@ -1261,7 +1261,7 @@ fn resolve_listener_tls(
 	for rule in rules {
 		let Some(tls) = rule.raw.tls.as_ref() else { continue };
 		// `analyze::analyze_rule` has already enforced
-		// `TlsConfig::validate` per spec/crates/engine-acme.md § _Compile-time checks_,
+		// `TlsConfig::validate` per spec/crates/engine-acme.md § _Configuration schema_,
 		// so by the time lower iterates each `tls` block here the
 		// invariants (exactly one cert source, managed-required SNI,
 		// etc.) hold. Branch on cert source to route the rule into
@@ -1467,7 +1467,7 @@ fn rewire_post_upgrade(nodes: &mut [Node], entry: NodeId, target: NodeId) {
 }
 
 /// Cross-listener compile-time warning per `spec/crates/engine-acme.md`
-/// § _HTTP-01 § Compile-time checks_: when any rule asks for an
+/// § _Configuration schema_: when any rule asks for an
 /// HTTP-01 ACME cert but no plaintext `:80` listener exists in the
 /// compiled config, the operator should know `vaned` will try to
 /// auto-bind `:80` at runtime — and that the bind may fail
@@ -1509,7 +1509,7 @@ fn warn_missing_plaintext_port_80_for_http01(
 /// Per-listener structural validation of the rule-level
 /// `allow_zero_rtt` field and its interaction with the listener's
 /// `tls.enable_zero_rtt`. Mirrors the constraint table in
-/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Compile-time constraints_:
+/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Configuration schema_:
 ///
 /// - On a TLS-L7 listener (`resolved_tls.is_some()`) every rule must
 ///   set `allow_zero_rtt` to `Some(_)`.
@@ -1563,7 +1563,7 @@ fn validate_zero_rtt_for_listener(
 /// Walk a rule's match predicate and return `true` iff it structurally
 /// restricts `http.method` to a subset of the idempotent set
 /// {GET, HEAD, OPTIONS}. Implements the compile-time gate described in
-/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Compile-time constraints_.
+/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Configuration schema_.
 ///
 /// Recursive rules:
 /// - `Check{ HttpMethod, equals "GET"|"HEAD"|"OPTIONS" }` → idempotent
@@ -1701,7 +1701,7 @@ fn group_by_listener<'a>(rules: &'a [AnalyzedRule]) -> Result<Vec<ListenerGroup<
 }
 
 /// Parse one `ListenSpec` entry into its declared `(transport, addrs)`
-/// pair per `spec/crates/core.md` § _`ListenSpec` grammar_. The optional
+/// pair per `spec/crates/core.md` § _Config layers_. The optional
 /// `tcp:` / `udp:` prefix declares the listener's wire transport;
 /// bare entries default to TCP for backwards compatibility (the spec
 /// table's `_(none)_` row).
@@ -1728,7 +1728,7 @@ fn parse_listen(spec: &str) -> Result<(Transport, Vec<SocketAddr>), Error> {
 		(Transport::Tcp, s, false)
 	};
 
-	// Per `spec/crates/core.md` § _ListenSpec grammar_'s composition table,
+	// Per `spec/crates/core.md` § _Config layers_'s composition table,
 	// `tcp:443` / `udp:443` are valid (the spec example concatenates
 	// the prefix with a bare port form). After stripping the prefix
 	// the remainder is a naked digit string; treat that as the
@@ -1775,7 +1775,7 @@ fn compile_operator(
 	path: &FieldPath,
 	source: &SourceInfo,
 ) -> Result<CompiledOperator, Error> {
-	// Spec 18 § _Operator × value type compatibility_: reject any
+	// Spec 18 § _Predicate_: reject any
 	// (path, op) pair that the matrix marks `—`. The (path, op) pair
 	// uniquely picks an OperatorFamily row and the field's value-type
 	// column, so a single matrix lookup covers every illegal case
@@ -1961,7 +1961,7 @@ fn value_to_bytes(
 	op_name: &'static str,
 	source: &SourceInfo,
 ) -> Result<bytes::Bytes, Error> {
-	// spec 18 § _Value JSON encoding_ keys the literal form off the
+	// spec 18 § _Predicate_ keys the literal form off the
 	// FIELD's value type, not the operator: String-valued fields take
 	// a verbatim JSON string; Bytes-valued fields take a STANDARD
 	// base64 string. contains / not_contains / prefix / suffix all
@@ -2345,7 +2345,7 @@ mod compat_tests {
 		}
 	}
 
-	// spec 18 § _Value JSON encoding_: bytes-typed literal = STANDARD base64
+	// spec 18 § _Predicate_: bytes-typed literal = STANDARD base64
 	/// `{ "http.body": { "contains": "aGVsbG8=" } }` is the spec example
 	/// for a Bytes-valued contains operator. Compile must decode the
 	/// base64 into the literal bytes b"hello" so the runtime byte-
@@ -2413,7 +2413,7 @@ mod compat_tests {
 	}
 
 	/// String-valued fields keep the raw literal bytes per spec
-	/// 18 § _Value JSON encoding_ — base64 only applies when the
+	/// 18 § _Predicate_ — base64 only applies when the
 	/// FIELD is Bytes-valued, not when the operator produces bytes.
 	#[test]
 	fn str_field_prefix_suffix_keeps_raw_bytes() {
@@ -2478,7 +2478,7 @@ mod compat_tests {
 	fn parse_and_lower_spec_example_decodes_base64_contains() {
 		// Round-trip through Predicate::Check just like a real rule
 		// would. The spec example is verbatim from
-		// spec/crates/core.md § _Value JSON encoding_.
+		// spec/crates/core.md § _Predicate_.
 		let raw = serde_json::json!({ "http.body": { "contains": "aGVsbG8=" } });
 		let pred: crate::predicate::Predicate = serde_json::from_value(raw).expect("parse predicate");
 		let check = match pred {

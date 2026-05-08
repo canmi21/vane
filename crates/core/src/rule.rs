@@ -63,7 +63,7 @@ fn default_max_body_bytes() -> usize {
 /// most one default cert.
 ///
 /// SNI hostnames are normalised to ASCII-lowercase at every ingest
-/// boundary per spec/crates/engine-tls.md § _SNI normalization_; comparison against
+/// boundary per spec/crates/engine-tls.md § _SNI peek (L4, no decrypt)_; comparison against
 /// rustls's already-lowercased `ClientHello::server_name()` is then
 /// byte-for-byte.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -101,7 +101,7 @@ pub struct TlsConfig {
 	/// populator reads this file at every refresh and stages the
 	/// bytes into the resolver. Useful for HTTPS-only OCSP
 	/// responders (which `vane` does not fetch from — see
-	/// `spec/crates/engine-tls.md` § _OCSP stapling § Transport policy_) and for
+	/// `spec/crates/engine-tls.md` § _OCSP stapling_) and for
 	/// air-gapped deployments where the operator cron-runs
 	/// `openssl ocsp` themselves. Mutually exclusive with
 	/// [`Self::ocsp_fetch`].
@@ -110,7 +110,7 @@ pub struct TlsConfig {
 	/// When `true`, the populator extracts the OCSP responder URL
 	/// from the cert's AIA extension and fetches the response over
 	/// HTTP at refresh time. HTTP-only by policy (per
-	/// `spec/crates/engine-tls.md` § _OCSP stapling § Transport policy_).
+	/// `spec/crates/engine-tls.md` § _OCSP stapling_).
 	/// Mutually exclusive with [`Self::ocsp_path`].
 	#[serde(default, skip_serializing_if = "is_default_false")]
 	pub ocsp_fetch: bool,
@@ -158,7 +158,7 @@ impl TlsConfig {
 	}
 
 	/// Per-rule pre-lower validation per `spec/crates/engine-acme.md` § _Compile-time
-	/// checks_ and `spec/crates/engine-tls.md` § _Cert source mutex_:
+	/// checks_ and `spec/crates/engine-tls.md` § _Upstream-side TLS_:
 	///
 	/// 1. Exactly one of (`cert_file` ∧ `key_file`) or `managed` is
 	///    present.
@@ -402,7 +402,7 @@ pub enum CrlSourceConfig {
 	Url { url: String, fetch_failure: CrlFetchFailure },
 }
 
-/// CRL availability policy (per `spec/crates/engine-tls.md` § _CRL checking_ § _Failure
+/// CRL availability policy (per `spec/crates/engine-tls.md` § _CRL_ § _Failure
 /// handling_).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -831,7 +831,7 @@ mod tests {
 
 	#[test]
 	fn terminate_spec_args_preserves_all_non_type_keys_verbatim() {
-		// spec/crates/core.md § _RawRule shape_: "every other key goes into `args`
+		// spec/crates/core.md § _Compile pipeline_: "every other key goes into `args`
 		// verbatim". Covers top-level scalars AND nested objects.
 		let raw = serde_json::json!({
 			"type": "http_proxy",
@@ -919,7 +919,7 @@ mod tests {
 
 	#[test]
 	fn terminate_spec_alias_only_yields_object_with_injected_markers() {
-		// spec/crates/core.md § _RawRule shape_: the custom Deserialize removes `type`
+		// spec/crates/core.md § _Compile pipeline_: the custom Deserialize removes `type`
 		// from a JSON object and keeps the rest. An alias-only terminate keeps
 		// the object shape; it now also carries the alias-resolution markers
 		// (`upstream_kind` for `HttpProxy` aliases). The point of this test is

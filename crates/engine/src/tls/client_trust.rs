@@ -26,7 +26,7 @@ use crate::tls::refreshable_crl_verifier::RefreshableClientCertVerifier;
 /// CA roots are merged from every PEM source named in the config; CRL
 /// source identities and per-source `fetch_failure` policies are kept
 /// here so the wrapper verifier can ask the daemon-wide cache for the
-/// latest bytes per handshake (spec § _CRL checking_).
+/// latest bytes per handshake (spec § _CRL_).
 ///
 /// Held inside `Arc<ArcSwap<_>>` per `spec/crates/engine-tls.md` § _Cert resolver and
 /// rotation_ — symmetric to `CertStore`. Reload swaps in a fresh

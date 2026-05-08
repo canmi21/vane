@@ -285,7 +285,7 @@ fn json<R: serde::Serialize>(r: &R) -> Result<serde_json::Value, WireError> {
 
 /// Render a [`std::time::SystemTime`] as RFC 3339 / ISO 8601 UTC.
 /// Used by `get_certs` to format the wire-shape timestamp fields
-/// per `spec/crates/engine-acme.md` § _get_certs response shape_. Falls back to
+/// per `spec/crates/engine-acme.md` § _mgmt verbs_. Falls back to
 /// `"<invalid>"` if the timestamp is pre-1970 (defensive — should
 /// never happen for ACME-issued certs, but the API accepts arbitrary
 /// `SystemTime` so we don't panic).
@@ -303,7 +303,7 @@ fn rfc3339(t: std::time::SystemTime) -> String {
 }
 
 /// Translate [`vane_engine::acme::CertStatus`] into the wire-shape
-/// lowercase string per `spec/crates/engine-acme.md` § _get_certs response shape_.
+/// lowercase string per `spec/crates/engine-acme.md` § _mgmt verbs_.
 #[cfg(feature = "acme")]
 fn status_label(state: &vane_engine::acme::CertState) -> String {
 	use vane_engine::acme::CertStatus;
@@ -533,7 +533,7 @@ impl MgmtState {
 	/// Manual pool eviction. Operators read `fingerprint_id` from
 	/// `get_upstreams` and pass it back to drain matching cache
 	/// entries. Live `Arc<Client>` references survive — only future
-	/// cache lookups are affected (per spec § _Lifetime: daemon-level_
+	/// cache lookups are affected (per spec § _Upstream pools_
 	/// drain semantics).
 	fn handle_pool_drain(args: serde_json::Value) -> Result<serde_json::Value, WireError> {
 		let parsed: vane_mgmt::verb::PoolDrainArgs = serde_json::from_value(args).map_err(|e| {

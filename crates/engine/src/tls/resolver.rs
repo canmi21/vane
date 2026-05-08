@@ -7,7 +7,7 @@
 //! We do **not** delegate to rustls's built-in
 //! `rustls::server::ResolvesServerCertUsingSni` because it returns
 //! `None` (handshake failure) on unmatched SNI with no built-in
-//! fallback hook; spec spec/crates/engine-tls.md § _Cert resolver and rotation_
+//! fallback hook; spec spec/crates/engine-tls.md § _Cert resolver_
 //! requires `CertStore::default` as the explicit no-SNI fallback.
 
 use std::sync::Arc;

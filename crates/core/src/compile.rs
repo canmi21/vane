@@ -431,7 +431,7 @@ mod tests {
 	fn find_entry_check(graph: &SymbolicFlowGraph, port: u16) -> NodeId {
 		let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
 		let entry = *graph.entries.get(&v4).expect("entry present");
-		// Per spec/flow-model.md § _Listener-level Upgrade placement_, every L7
+		// Per spec/flow-model.md § _The compiled form_, every L7
 		// listener carries one shared Upgrade above the rule chains. Tests
 		// that probe Check structure below the Upgrade skip past it here.
 		match &graph[entry] {
@@ -904,7 +904,7 @@ mod tests {
 
 	#[test]
 	fn l7_listener_emits_single_upgrade_at_top_for_two_rules() {
-		// spec/flow-model.md § _Listener-level Upgrade placement_: two L7 rules on
+		// spec/flow-model.md § _The compiled form_: two L7 rules on
 		// the same listener share one Upgrade — the entire graph must
 		// contain exactly one Upgrade node, not two.
 		let a = parse_rule(serde_json::json!({
@@ -1139,7 +1139,7 @@ mod tests {
 		// fetch node itself with `collect_body_before:
 		// Some(BodySide::Request)` so the executor buffers the body
 		// before the fetch runs. See `spec/crates/engine.md`
-		// § _Retry buffering_.
+		// § _Retry_.
 		let r = parse_rule(serde_json::json!({
 			"name": "r",
 			"listen": [":7900"],

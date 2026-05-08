@@ -56,7 +56,7 @@ pub struct SecurityConfig {
 	/// verification. `None` for tests / default builds without CRL
 	/// support; populated by daemon main when at least one rule
 	/// references a CRL source. See `spec/crates/engine-tls.md`
-	/// § _CRL checking_ § _Daemon-wide CRL cache_.
+	/// § _CRL_ § _CRL_.
 	pub crl_cache: Option<Arc<CrlCache>>,
 }
 

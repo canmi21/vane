@@ -12,7 +12,7 @@
 //! Trust roots come from the system store via `rustls-native-certs`.
 //! `insecure_skip_verify` short-circuits the verifier — testing only;
 //! production should leave it `false`. See
-//! `spec/crates/engine-tls.md` § _TLS library: rustls only_.
+//! `spec/crates/engine-tls.md` § _Library policy_.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,7 +48,7 @@ pub struct UpstreamTls {
 	/// is left empty here — `parse_tls_args` does not see the fetch's
 	/// `version` setting; the factory patches the field once the
 	/// version is resolved. See `spec/crates/engine-tls.md`
-	/// § _Client cache: fingerprint and reuse_.
+	/// § _Client cache_.
 	pub fingerprint: TlsConfigFingerprint,
 	/// Resolved `args.tls.crls` source list — kept on the value so the
 	/// daemon can register them with the shared `CrlCache` at link time.
@@ -309,7 +309,7 @@ fn client_cert_fingerprint(ck: &CertifiedKey) -> [u8; 32] {
 /// Parse `args.tls.client_cert` into an [`Arc<CertifiedKey>`]. Both
 /// `cert_path` and `key_path` are required when the object is
 /// present; either being absent is a rule-level compile error
-/// (spec § _mTLS on upstream_).
+/// (spec § _Upstream-side TLS_).
 fn parse_client_cert(
 	value: Option<&serde_json::Value>,
 ) -> Result<Option<Arc<CertifiedKey>>, String> {

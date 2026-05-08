@@ -2,7 +2,7 @@
 //! [`crate::tls::VaneCertResolver`] hands to rustls during handshake.
 //!
 //! Keys in [`CertStore::by_sni`] are stored ASCII-lowercase per the SNI
-//! normalization invariant (spec/crates/engine-tls.md § _SNI normalization invariant_),
+//! normalization invariant (spec/crates/engine-tls.md § _SNI peek (L4, no decrypt)_),
 //! so resolver-side lookups are byte-for-byte without an
 //! `eq_ignore_ascii_case` shim.
 

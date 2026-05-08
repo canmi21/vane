@@ -230,7 +230,7 @@ async fn protocol_detect_classifies_tls_clienthello_and_populates_sni() {
 	assert_eq!(
 		event.sni_in_conn_tls.as_deref(),
 		Some("api.example.com"),
-		"ConnContext.tls.sni must be populated *before* any handshake (spec/crates/engine-tls.md § _SNI peek (L4)_)",
+		"ConnContext.tls.sni must be populated *before* any handshake (spec/crates/engine-tls.md § _SNI peek (L4, no decrypt)_)",
 	);
 }
 

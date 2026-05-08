@@ -92,7 +92,7 @@ fn rule_file(path: &str, entries: Vec<RuleEntry>) -> RawRuleFile {
 
 #[test]
 fn port_forward_preset_compiles_to_graph_with_byte_tunnel_terminator() {
-	// Spec § _`port_forward`_: expansion is one rule terminating in
+	// Spec § _Compile pipeline_: expansion is one rule terminating in
 	// `L4Forward`. Lowering an `L4Forward` fetch yields a
 	// `Terminator::ByteTunnel` (see `compile.rs` test
 	// `terminator_variant_derives_from_fetch_kind`).
@@ -108,7 +108,7 @@ fn port_forward_preset_compiles_to_graph_with_byte_tunnel_terminator() {
 
 #[test]
 fn static_site_preset_compiles_to_graph_with_http_synthesize_fetch() {
-	// Spec § _`static_site`_: expansion is one rule whose terminate is
+	// Spec § _Compile pipeline_: expansion is one rule whose terminate is
 	// `HttpSynthesize`.
 	let entry = preset_entry(
 		"hello",
@@ -130,7 +130,7 @@ fn static_site_preset_compiles_to_graph_with_http_synthesize_fetch() {
 
 #[test]
 fn redirect_https_preset_compiles_to_graph_with_308_synth() {
-	// Spec § _`redirect_https`_: expansion is a single rule emitting an
+	// Spec § _Compile pipeline_: expansion is a single rule emitting an
 	// `HttpSynthesize` 308 with `Location: https://${host}${uri}`. The
 	// integration assertion only checks the fetch kind — body-shape
 	// assertions belong inside the expander's own unit tests.
@@ -145,7 +145,7 @@ fn redirect_https_preset_compiles_to_graph_with_308_synth() {
 
 #[test]
 fn reverse_proxy_default_compiles_to_graph_with_http_proxy() {
-	// Spec § _`reverse_proxy`_: minimal args produce a `<name>.main`
+	// Spec § _Compile pipeline_: minimal args produce a `<name>.main`
 	// (`HttpProxy`) and a `<name>.ws` reject (`HttpSynthesize` 400) when
 	// `websocket` defaults to `false`.
 	let entry = preset_entry("api", "reverse_proxy", ":443", json!({ "upstream": "127.0.0.1:8080" }));
@@ -163,7 +163,7 @@ fn reverse_proxy_default_compiles_to_graph_with_http_proxy() {
 
 #[test]
 fn reverse_proxy_websocket_true_compiles_with_websocket_upgrade_fetch() {
-	// Spec § _WebSocket handling_: `websocket: true` swaps the WS reject
+	// Spec § _Concrete fetches_: `websocket: true` swaps the WS reject
 	// for a `WebSocketUpgrade` fetch routed at upgrade-bearing requests.
 	let entry = preset_entry(
 		"api",
@@ -185,7 +185,7 @@ fn reverse_proxy_websocket_true_compiles_with_websocket_upgrade_fetch() {
 
 #[test]
 fn reverse_proxy_websocket_paths_compiles_with_three_rules_present() {
-	// Spec § _WebSocket handling_ (path-prefix array): three rules —
+	// Spec § _Concrete fetches_ (path-prefix array): three rules —
 	// `<name>.ws-allow` (`WebSocketUpgrade`), `<name>.ws-deny`
 	// (`HttpSynthesize` 400), `<name>.main` (`HttpProxy`). All three
 	// fetch kinds must appear in the slab.
@@ -213,7 +213,7 @@ fn reverse_proxy_websocket_paths_compiles_with_three_rules_present() {
 
 #[test]
 fn reverse_proxy_with_rate_limit_emits_middleware_in_graph() {
-	// Spec § _`reverse_proxy`_: a `rate_limit` arg emits a `rate_limit`
+	// Spec § _Compile pipeline_: a `rate_limit` arg emits a `rate_limit`
 	// middleware in the main rule's chain. The `Providers` fixture
 	// declares it stateful, so each call site gets its own slab entry.
 	let entry = preset_entry(
@@ -236,7 +236,7 @@ fn reverse_proxy_with_rate_limit_emits_middleware_in_graph() {
 
 #[test]
 fn reverse_proxy_forward_client_ip_default_emits_middleware() {
-	// Spec § _`reverse_proxy`_: `forward_client_ip` defaults to true. The
+	// Spec § _Compile pipeline_: `forward_client_ip` defaults to true. The
 	// preset must emit it without an explicit arg.
 	let entry = preset_entry("api", "reverse_proxy", ":443", json!({ "upstream": "127.0.0.1:8080" }));
 	let graph = compile(vec![rule_file("a.json", vec![entry])], &Providers, &Providers)
@@ -269,7 +269,7 @@ fn reverse_proxy_forward_client_ip_false_no_middleware() {
 
 #[test]
 fn mixed_raw_and_preset_in_same_file_compiles() {
-	// Spec § _Two-tier rule system_: a single file may interleave
+	// Spec § _Rate limit (L2)_: a single file may interleave
 	// `RuleEntry::Raw` and `RuleEntry::Preset`. Both must reach the
 	// graph, identified by terminator shape.
 	let raw_entry: RuleEntry = serde_json::from_value(json!({
@@ -431,7 +431,7 @@ fn lower_aggregates_two_rules_same_port_distinct_sni_into_pool() {
 #[test]
 fn lower_lowercases_sni_keys_in_pool() {
 	// SNI hostnames are normalised to ASCII-lowercase per
-	// spec/crates/engine-tls.md § _SNI normalization_.
+	// spec/crates/engine-tls.md § _SNI peek (L4, no decrypt)_.
 	let entry: RuleEntry = serde_json::from_value(json!({
 		"name": "api",
 		"listen": [":443"],

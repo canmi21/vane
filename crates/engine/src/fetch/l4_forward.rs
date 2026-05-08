@@ -13,8 +13,8 @@
 //! the same peer hit the dispatch table and stream through the
 //! forwarder without re-entering the `FlowGraph`.
 //!
-//! See `spec/crates/engine.md` § _`l4_forward`_ +
-//! § _UDP idle timeout is single-authority_.
+//! See `spec/crates/engine.md` § _Concrete fetches_ +
+//! § _`udp_dispatch`_.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

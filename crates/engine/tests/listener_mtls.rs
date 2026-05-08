@@ -17,7 +17,7 @@
 //!   `serial`) have unit-test coverage in vane-core.
 //!
 //! Spec: `spec/crates/engine-tls.md` § _Client certificate
-//! verification (mTLS on listener)_ + § _CRL checking_.
+//! verification (mTLS on listener)_ + § _CRL_.
 
 #![allow(clippy::too_many_lines)]
 

@@ -48,7 +48,7 @@ pub enum L7FetchOutput {
 /// `join` so `ConnContext` cleanup runs at the right moment.
 ///
 /// See `spec/crates/engine.md` § _`udp_dispatch`_ for the UDP
-/// session lifecycle and § _`l4_forward`_ for the TCP arm.
+/// session lifecycle and § _Concrete fetches_ for the TCP arm.
 pub enum Tunnel {
 	Bidi {
 		client: Box<dyn AsyncReadWrite + Send>,
@@ -87,7 +87,7 @@ pub enum FetchKind {
 	L4Forward,
 	/// HTTP-01 ACME challenge responder. Injected by the lower
 	/// pass on every plaintext `:80` listener whose listener kind
-	/// is `Http` / `Auto` per `spec/crates/engine-acme.md` § _HTTP-01 § Case 1_;
+	/// is `Http` / `Auto` per `spec/crates/engine-acme.md` § _Challenge: HTTP-01_;
 	/// returns 200 + the key authorisation when `(Host, token)`
 	/// resolves in the registry's pending table, 404 otherwise.
 	/// Operator-defined rules cannot reference this fetch kind
@@ -132,7 +132,7 @@ pub struct SymbolicFetchRef {
 	/// with `max_attempts > 1`. Drives `collect_body_before`
 	/// placement on the fetch node in the lower pass; the full
 	/// `RetryPolicy` lives in the engine's factory layer. See
-	/// `spec/crates/engine.md` § _Retry buffering_.
+	/// `spec/crates/engine.md` § _Retry_.
 	#[serde(default)]
 	pub retry_buffer_required: bool,
 	/// Per-rule TLS 1.3 0-RTT acceptance, lifted off the parent rule's
@@ -232,7 +232,7 @@ pub enum HttpFetchError {
 ///
 /// Declared in `vane-core` so `vane-wasm` can call it without depending on
 /// `vane-engine`. `vane-engine` provides the concrete impl wrapping `TcpPool`.
-/// Tests substitute a mock. See `spec/crates/engine-wasm.md` § _http-fetch policy_.
+/// Tests substitute a mock. See `spec/crates/engine-wasm.md` § _Host functions_.
 #[async_trait]
 pub trait HttpFetchBackend: Send + Sync {
 	async fn fetch(
@@ -384,7 +384,7 @@ mod tests {
 	}
 
 	// `async_trait` makes `L7Fetch` and `L4Fetch` dyn-compatible. `FetchInst`
-	// stores them as `Arc<dyn _>` per spec/crates/engine.md § _Trait surface_;
+	// stores them as `Arc<dyn _>` per spec/crates/engine.md § _Fetch_;
 	// constructing that exact shape from a concrete impl is the contract we
 	// guard here.
 

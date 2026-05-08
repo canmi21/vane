@@ -1,7 +1,7 @@
 //! Integration tests for `vane_engine::middleware::method_match`.
 //!
 //! Validates the public contract from `spec/crates/engine.md`
-//! § _Stateless internal_ and the doc-comment on `method_match::factory`:
+//! § _Middleware_ and the doc-comment on `method_match::factory`:
 //!
 //! - Continue when the request method is on the allow-list.
 //! - Short-circuit-close otherwise.

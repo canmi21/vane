@@ -4,7 +4,7 @@
 //! `Upgrade.next` node.
 //!
 //! See `spec/crates/engine.md` § _L4 → L7 upgrade_,
-//! `spec/flow-model.md` § _Execution model_ (Upgrade arm),
+//! `spec/flow-model.md` § _Executor_ (Upgrade arm),
 //! `spec/crates/engine.md` (H1 / H2 paths).
 //!
 //! Out of MVP scope (separately tracked): H3, WS-over-h2 (RFC 8441).

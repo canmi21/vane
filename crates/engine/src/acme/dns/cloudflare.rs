@@ -8,7 +8,7 @@
 //!
 //! `wait_propagated` queries a small fixed pool of public recursive
 //! resolvers (`1.1.1.1`, `8.8.8.8`) via `hickory-resolver`. Per
-//! `spec/crates/engine-acme.md` § `wait_propagated` _semantics_, observing the
+//! `spec/crates/engine-acme.md` § _Challenge: DNS-01_, observing the
 //! TXT through a public resolver is a high-confidence proxy for
 //! what the CA validator will see.
 
@@ -37,7 +37,7 @@ const PUBLIC_RESOLVERS: &[(IpAddr, u16)] =
 
 /// Operator-supplied Cloudflare config. Parsed from
 /// `tls.managed.dns_provider` per `spec/crates/engine-acme.md`
-/// § _Available providers_.
+/// § _Cloudflare provider_.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CloudflareConfig {
 	/// Name of the environment variable holding the API token. The

@@ -30,7 +30,7 @@
 //!   (the dormant 0-RTT state must not regress the high-traffic path).
 //!
 //! Spec anchors: `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early
-//! data)_, § _Session ticket rotation_ § _Exception: 0-RTT-enabled
+//! data)_, § _Session tickets_ § _Exception: 0-RTT-enabled
 //! listeners_.
 
 #![allow(clippy::too_many_lines)]
@@ -426,7 +426,7 @@ async fn zero_rtt_rejected_with_425_when_rule_disallows() {
 	let header_block = lowercase_header_block(&result.response);
 	assert!(
 		header_block.contains("cache-control: no-store"),
-		"425 must carry Cache-Control: no-store per spec § _Runtime flow_: {header_block}",
+		"425 must carry Cache-Control: no-store per spec § _Configuration_: {header_block}",
 	);
 
 	// The connection must stay up — write a follow-up 1-RTT request
@@ -463,7 +463,7 @@ fn lowercase_header_block(response: &[u8]) -> String {
 
 /// 0-RTT GET with a small body on a rule that allows 0-RTT must still
 /// complete (200) and the body bytes must reach the L7 fetch. Per
-/// `spec/crates/engine-tls.md` § _Hardcoded limits_, the body is architecturally
+/// `spec/crates/engine-tls.md` § _Configuration_, the body is architecturally
 /// "downgraded" to 1-RTT (`tokio_rustls::into_stream` returns only after
 /// the handshake completes, so the bytes are processed alongside any
 /// post-handshake 1-RTT data).

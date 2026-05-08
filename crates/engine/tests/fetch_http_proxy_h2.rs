@@ -1,7 +1,7 @@
 //! Integration tests for the pooled, ALPN-aware `HttpProxyFetch`.
 //!
 //! Covers the spec dispatch matrix from
-//! `spec/crates/core.md` § _Rule schema_ (`version` row):
+//! `spec/crates/core.md` § _Compile pipeline_ (`version` row):
 //!
 //! * `version: "auto"` + TLS upstream → ALPN negotiates `h2`.
 //! * `version: "h1"` + TLS upstream → ALPN limits to `http/1.1`.
@@ -10,9 +10,9 @@
 //! * Pool reuse: two requests against the same `Client` reuse the same
 //!   TCP connection.
 //!
-//! Spec anchors: `spec/crates/engine.md` § _`HttpProxy`_,
-//! `spec/crates/engine.md` § _H1 / H2 paths_,
-//! `spec/crates/engine-tls.md` § _TLS library: rustls only_.
+//! Spec anchors: `spec/crates/engine.md` § _Concrete fetches_,
+//! `spec/crates/engine.md` § _Body streaming_,
+//! `spec/crates/engine-tls.md` § _Library policy_.
 
 #![allow(clippy::too_many_lines)]
 

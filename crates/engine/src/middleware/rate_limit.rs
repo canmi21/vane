@@ -9,7 +9,7 @@
 //!
 //! See `spec/crates/core.md` § _L2 — User
 //! application-layer rate limiting_, and
-//! `spec/crates/engine.md` § _Stateful internal_ —
+//! `spec/crates/engine.md` § _Middleware_ —
 //! `rate_limit` is the canonical example of a per-call-site stateful
 //! middleware. The metadata provider must mark `stateless: false` so
 //! `lower::intern_middleware` skips dedup; two rules each declaring
@@ -38,7 +38,7 @@ use crate::flow_graph::MiddlewareInst;
 const MIN_WINDOW_SECS: u64 = 1;
 const MAX_WINDOW_SECS: u64 = 60;
 
-/// Subset of spec § _Key derivation_ that this round implements.
+/// Subset of spec § _Rate limit (L2)_ that this round implements.
 /// Header / Cookie / Query / Composite are post-MVP — they need a
 /// request-field reader helper that doesn't exist yet.
 #[derive(Debug, Clone, Copy)]
@@ -192,7 +192,7 @@ pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError>
 			return Err(FactoryError(format!(
 				"unsupported args.key {other:?}; supported: remote_ip / global \
 				 (header / cookie / query / composite are post-MVP per \
-				 spec/crates/core.md § _Key derivation_)"
+				 spec/crates/core.md § _Rate limit (L2)_)"
 			)));
 		}
 	};

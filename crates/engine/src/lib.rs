@@ -86,7 +86,7 @@ pub mod crypto {
 	/// `rustls::ServerConfig`-using code path runs (the daemon does this
 	/// at the top of `main`; tests call it in their setup).
 	///
-	/// See `spec/crates/engine-tls.md` § _TLS termination_ and
+	/// See `spec/crates/engine-tls.md` § _Termination flow (L4 → L7 upgrade)_ and
 	/// `spec/crates/daemon.md` § _Crypto backend_.
 	pub fn install_default_provider() {
 		#[cfg(feature = "aws-lc-rs")]

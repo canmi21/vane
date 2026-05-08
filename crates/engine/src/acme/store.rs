@@ -1,6 +1,6 @@
 //! `AcmeStore` trait + the value types it persists.
 //!
-//! Per `spec/crates/engine-acme.md` § _`AcmeStore` trait_. The trait is abstract
+//! Per `spec/crates/engine-acme.md` § _`AcmeStore`_. The trait is abstract
 //! over the storage backend so an alternative (object store, secrets
 //! manager) can drop in without touching the registry; the default impl
 //! is [`super::FsAcmeStore`].

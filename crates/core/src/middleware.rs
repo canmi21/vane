@@ -248,7 +248,7 @@ mod tests {
 	// Compile-time assertion helper: the type `F` must be `Send`. `async_trait`
 	// rewrites `async fn run(...)` to return `Pin<Box<dyn Future + Send>>`, so
 	// every `run` invocation's future must satisfy this bound — that is the
-	// load-bearing contract per spec/crates/engine.md § _Async Send via async_trait_.
+	// load-bearing contract per spec/crates/engine.md § _Middleware_.
 	fn assert_send<F: Send>(_: &F) {}
 
 	struct NullSink;
@@ -271,8 +271,8 @@ mod tests {
 	}
 
 	// `async_trait` makes these traits dyn-compatible. `MiddlewareInst` stores
-	// each variant as `Arc<dyn Trait>` per spec/crates/engine.md § _Symbolic forms_
-	// and § _Async Send via async_trait_; constructing that exact shape from a
+	// each variant as `Arc<dyn Trait>` per spec/crates/engine.md § _Middleware_
+	// and § _Middleware_; constructing that exact shape from a
 	// concrete impl is the contract we guard.
 
 	#[test]

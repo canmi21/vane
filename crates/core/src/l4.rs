@@ -31,7 +31,7 @@ pub struct UdpAssoc {
 	/// listener's recv loop. The fetch sends responses back to the peer
 	/// through this socket; the listener demuxes inbound datagrams to
 	/// the per-session forwarder via the dispatch table. See
-	/// `spec/crates/engine.md` § _UDP socket multiplexing_.
+	/// `spec/crates/engine.md` § _`udp_dispatch`_.
 	pub socket: Arc<UdpSocket>,
 	pub peer: SocketAddr,
 	/// Datagrams that triggered the cold-path `FlowGraph` entry, in

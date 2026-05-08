@@ -6,7 +6,7 @@
 //! virtual socket on `Http` UDP listeners.
 //!
 //! See `spec/crates/engine.md` § _`udp_dispatch`_ +
-//! § _UDP socket multiplexing_.
+//! § _`udp_dispatch`_.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -43,7 +43,7 @@ const MAX_DATAGRAM: usize = 65535;
 /// stall every other session sharing the physical socket.
 pub const SESSION_INBOUND_CAPACITY: usize = 64;
 
-/// Per `spec/crates/engine.md` § _Multi-packet peek_ § _Bounds_.
+/// Per `spec/crates/engine.md` § _Multi-packet peek_ § _Multi-packet peek_.
 /// Values are fixed (not configurable) — the spec table justifies each.
 pub const PENDING_PEEK_MAX_BYTES: usize = 16 * 1024;
 pub const PENDING_PEEK_MAX_DATAGRAMS: usize = 8;
@@ -67,7 +67,7 @@ pub const PENDING_PEEK_MAX_PER_LISTENER: usize = 1024;
 pub enum DispatchKey {
 	Peer(SocketAddr),
 	/// Cold-path session in formation, keyed by peer 4-tuple. Per
-	/// `spec/crates/engine.md` § _Indexing key_ the SCID is intentionally not used
+	/// `spec/crates/engine.md` § _Multi-packet peek_ the SCID is intentionally not used
 	/// (the first datagram has not been parsed at lookup time, so the
 	/// SCID is unavailable).
 	PendingPeek(SocketAddr),
@@ -149,7 +149,7 @@ pub struct UdpListenerHandle {
 /// `force_cancel` through `FlowCtx::cancel` for shutdown drain.
 ///
 /// Spec: `spec/crates/engine.md` § _`udp_dispatch`_ for the dispatch table flow,
-/// § _UDP idle timeout is single-authority_ for the per-session
+/// § _`udp_dispatch`_ for the per-session
 /// timeout (owned by the `L4Forward` forwarder).
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub async fn run_udp_listener(
@@ -189,7 +189,7 @@ pub async fn run_udp_listener(
 	// On UDP+Http listeners, bring up the H3 stack: per-listener
 	// quinn::Endpoint wrapping a VirtualUdpSocket, registered in the
 	// dispatch table under the well-known `QuicConnId(empty)` slot —
-	// see `spec/crates/engine.md` § _UDP socket multiplexing: physical and virtual_.
+	// see `spec/crates/engine.md` § _`udp_dispatch`_.
 	#[cfg(feature = "h3")]
 	{
 		let captured = graph.load_full();
@@ -289,7 +289,7 @@ pub async fn run_udp_listener(
 				}
 
 				// Pending-peek state machine, per `spec/crates/engine.md` §
-				// _Multi-packet peek_ § _State machine_. Existing
+				// _Multi-packet peek_ § _Multi-packet peek_. Existing
 				// PendingPeek entries always get the datagram first,
 				// regardless of listener kind.
 				let pending_key = DispatchKey::PendingPeek(peer);
@@ -361,7 +361,7 @@ pub async fn run_udp_listener(
 					&& is_quic_long_header_initial(&datagram)
 				{
 					if pending_count.load(Ordering::Relaxed) >= PENDING_PEEK_MAX_PER_LISTENER {
-						// Spec § _Bounds_: silent drop past the
+						// Spec § _Multi-packet peek_: silent drop past the
 						// per-listener cap. Operators see the drop
 						// only via metrics / counts — no per-drop log
 						// to avoid amplifying a flood.

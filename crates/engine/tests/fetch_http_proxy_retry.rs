@@ -1,7 +1,7 @@
 //! End-to-end coverage for `HttpProxyFetch`'s retry policy.
 //!
 //! Spec: `spec/crates/engine.md` § _Retry_ +
-//! § _Retry buffering_. The retry decision goes through
+//! § _Retry_. The retry decision goes through
 //! `vane_core::Error::is_retryable()` for every attempt; this file
 //! drives the higher-level scenarios (recovery from refused
 //! upstreams, opportunistic vs force buffering, POST opt-in,

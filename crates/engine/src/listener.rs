@@ -242,7 +242,7 @@ impl ListenerSet {
 	/// `compile/lower.rs::lower_port` reassigns from scratch on every
 	/// recompile — the index in the post-reload graph need not name the
 	/// same logical node as the pre-reload graph (spec/crates/core.md
-	/// § _`NodeId` stability across reloads_). `SocketAddr` is the
+	/// § _Hot reload_). `SocketAddr` is the
 	/// stable identifier; the lookup costs an `entries.get(&addr)` per
 	/// connection.
 	///
@@ -868,7 +868,7 @@ async fn handle_connection(
 /// `needs_peek = false` dispatch: the graph has no `L4Peek` middleware
 /// reachable from `entry`, so we never read a prefix and `detected`
 /// is always `None`. The decision table reduces to `(kind,
-/// listener_tls)`. Spec: spec/crates/engine.md § _Dispatch decision table_.
+/// listener_tls)`. Spec: spec/crates/engine.md § _Dispatch table_.
 #[allow(clippy::too_many_arguments)]
 async fn dispatch_no_peek(
 	stream: TcpStream,
@@ -891,7 +891,7 @@ async fn dispatch_no_peek(
 		(ListenerKind::Http | ListenerKind::Auto, Some(tls_cfg)) => {
 			run_tls(stream, tls_cfg, graph, entry, conn, ctx, remote).await;
 		}
-		// Spec § _Dispatch decision table_ literally rejects
+		// Spec § _Dispatch table_ literally rejects
 		// `Http+None` and warns that `Auto+needs_peek=false` is a
 		// derivation bug. Both branches collapse onto a permissive L4
 		// fallthrough here because the no-peek path can't tell L7
@@ -916,7 +916,7 @@ async fn dispatch_no_peek(
 	}
 }
 
-/// Post-peek dispatch implementing spec/crates/engine.md § _Dispatch decision table_
+/// Post-peek dispatch implementing spec/crates/engine.md § _Dispatch table_
 /// in full. `detected` may be `None` if the peek prelude exited
 /// without a detector committing — treated as `Unknown` per spec.
 #[allow(clippy::too_many_arguments)]
@@ -939,7 +939,7 @@ async fn dispatch_peeked(
 			run_tls(peeked, tls_cfg, graph, entry, conn, ctx, remote).await;
 		}
 		// Http: cleartext / TLS-without-cert / unknown all reject.
-		// spec/crates/engine.md § _Dispatch decision table_.
+		// spec/crates/engine.md § _Dispatch table_.
 		(ListenerKind::Http, _, _) => {
 			tracing::debug!(
 				conn_id = %conn.id,
@@ -1087,7 +1087,7 @@ async fn run_tls<S>(
 		// "the server accepted early data this connection" — the only
 		// public read path; `was_accepted()` itself is private.
 		//
-		// Body-downgrade (spec § _Hardcoded limits_: "requests with a
+		// Body-downgrade (spec § _Configuration_: "requests with a
 		// body are always served via 1-RTT") is automatic in this
 		// architecture: `into_stream().await` returns only after the
 		// handshake completes (server sent its Finished and received

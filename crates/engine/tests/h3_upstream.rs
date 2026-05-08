@@ -16,7 +16,7 @@
 //!   separation_ — `QuicPool` ownership.
 //! * `spec/crates/engine.md` § _Pool fingerprint_ — two fetches
 //!   sharing the same `(addr, tls_hash)` fingerprint share one entry.
-//! * `spec/crates/engine.md` § _Upstream-H3 send path_ — request
+//! * `spec/crates/engine.md` § _Body streaming_ — request
 //!   body marshalling via `send_data` / `finish`, response body
 //!   surfaced as `Body::Stream(...)`.
 //! * `spec/crates/engine-tls.md` § _Upstream-side TLS_ —

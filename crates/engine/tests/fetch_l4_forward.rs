@@ -1,8 +1,8 @@
 //! Integration tests for `vane_engine::fetch::l4_forward`.
 //!
 //! Covers the L4 forward Fetch contract described in
-//! `spec/crates/engine.md` § _`l4_forward`_ and
-//! `spec/crates/engine.md` § _`L4Forward`_ /
+//! `spec/crates/engine.md` § _Concrete fetches_ and
+//! `spec/crates/engine.md` § _Concrete fetches_ /
 //! _`Tunnel` + `ByteTunnel` terminator_:
 //!
 //! * On `L4Conn::Tcp`, the Fetch dials the configured upstream and hands
@@ -20,7 +20,7 @@
 //! tokio echo server, which lets us exercise byte semantics end-to-end
 //! without poking at executor internals.
 //!
-//! Args shape mirrors `spec/crates/core.md` § _`port_forward`_
+//! Args shape mirrors `spec/crates/core.md` § _Compile pipeline_
 //! (`{ "upstream": "host:port" }`).
 
 #![allow(clippy::too_many_lines)]
@@ -108,8 +108,8 @@ fn sample_meta() -> FlowGraphMeta {
 ///   1: Terminate(ByteTunnel)
 /// ```
 ///
-/// Per `spec/flow-model.md` § _Execution model_ and `spec/crates/engine.md`
-/// § _`L4Forward`_, an L4 path through `L4ForwardFetch` must end in
+/// Per `spec/flow-model.md` § _Executor_ and `spec/crates/engine.md`
+/// § _Concrete fetches_, an L4 path through `L4ForwardFetch` must end in
 /// `Terminator::ByteTunnel`. The fetch is registered through
 /// `vane_engine::fetch::l4_forward::register` so the factory lookup at
 /// link time succeeds.
@@ -194,7 +194,7 @@ fn first_trajectory(sink: &RecordingSink) -> FlowTrajectory {
 
 #[tokio::test]
 async fn l4_forward_echoes_bytes_through_upstream() {
-	// spec/crates/engine.md § _`l4_forward`_: TCP path uses `copy_bidirectional` to
+	// spec/crates/engine.md § _Concrete fetches_: TCP path uses `copy_bidirectional` to
 	// shovel bytes between the inbound client socket and the freshly
 	// dialed upstream. Round-tripping `b"ping"` through the proxy and
 	// back via an echo server confirms both directions copy cleanly.
@@ -233,7 +233,7 @@ async fn l4_forward_echoes_bytes_through_upstream() {
 
 #[tokio::test]
 async fn l4_forward_propagates_upstream_eof_to_client() {
-	// spec/crates/engine.md § _`l4_forward`_ + spec/crates/engine.md § _`Tunnel`_: when the
+	// spec/crates/engine.md § _Concrete fetches_ + spec/crates/engine.md § _Fetch_: when the
 	// upstream FINs, `copy_bidirectional` propagates the EOF to the
 	// client side, the tunnel terminates Ok, and the client sees a clean
 	// `Ok(0)` from `read_to_end`.
@@ -278,7 +278,7 @@ async fn l4_forward_propagates_upstream_eof_to_client() {
 
 #[tokio::test]
 async fn l4_forward_unreachable_upstream_surfaces_as_walker_err() {
-	// spec/crates/engine.md § _Failure modes_: dial failure is typed as
+	// spec/crates/engine.md § _Concrete fetches_: dial failure is typed as
 	// `Error::upstream(Unreachable)` and propagates through the
 	// executor, which finalises a `TrajectoryOutcome::Error { .. }` and
 	// emits a Trajectory event. The client connection terminates without
@@ -326,7 +326,7 @@ async fn l4_forward_unreachable_upstream_surfaces_as_walker_err() {
 
 #[test]
 fn l4_forward_factory_rejects_missing_upstream_arg() {
-	// spec/crates/core.md § _`port_forward`_: `args.upstream` is mandatory.
+	// spec/crates/core.md § _Compile pipeline_: `args.upstream` is mandatory.
 	// The factory's contract (per the public docstring on
 	// `vane_engine::fetch::l4_forward::factory`) is that a missing or
 	// non-string `upstream` yields a `FactoryError` whose message
@@ -406,7 +406,7 @@ async fn l4_forward_handles_concurrent_connections() {
 
 #[tokio::test]
 async fn l4_forward_close_reason_graceful_emits_byte_tunnel_terminate_outcome() {
-	// spec/crates/engine.md § _`Tunnel`_: `L4ForwardFetch` constructs a
+	// spec/crates/engine.md § _Fetch_: `L4ForwardFetch` constructs a
 	// `Tunnel` with `close_reason_tx: None` (the L4 forward path does
 	// not observe `CloseReason::Graceful` directly). The observable
 	// surface for "tunnel completed cleanly" is therefore the per-

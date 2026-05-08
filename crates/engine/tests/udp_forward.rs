@@ -9,7 +9,7 @@
 //! same peer take the hot path through the dispatch table.
 //!
 //! Spec: `spec/crates/engine.md` § _`udp_dispatch`_,
-//! § _UDP socket multiplexing_, § _UDP idle timeout is single-authority_.
+//! § _`udp_dispatch`_, § _`udp_dispatch`_.
 
 #![allow(clippy::too_many_lines)]
 

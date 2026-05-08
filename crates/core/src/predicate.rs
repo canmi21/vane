@@ -50,7 +50,7 @@ pub enum FieldPath {
 
 /// Value type a [`FieldPath`] reads from. Drives the operator
 /// compatibility matrix in `spec/crates/core.md`
-/// § _Operator × value type compatibility_ and the `coerce_value`
+/// § _Predicate_ and the `coerce_value`
 /// validator in the lower pass.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum FieldValueType {
@@ -184,7 +184,7 @@ impl Operator {
 
 impl OperatorFamily {
 	/// Compatibility check from `spec/crates/core.md`
-	/// § _Operator × value type compatibility_. The matrix is small and
+	/// § _Predicate_. The matrix is small and
 	/// closed; enumerated here rather than data-driven so a future spec
 	/// change forces a recompile-sized review.
 	#[must_use]
@@ -508,7 +508,7 @@ impl PredicateInst {
 			// byte-exact (RFC 9110 § 5.5). Multi-value headers expose
 			// the first value only — predicates wanting "any of the
 			// values" compose with `any_of` per
-			// spec/crates/core.md § _http.header.<name>_.
+			// spec/crates/core.md § _Predicate_.
 			FieldPath::HttpHeader(name) => {
 				let Some(req) = view.request() else { return false };
 				let Some(value) = req.headers().get(name.as_ref()) else { return false };
@@ -552,7 +552,7 @@ fn tls_version_str(v: crate::conn_context::TlsVersion) -> &'static str {
 // look up the cached scalar.
 
 /// Bool-typed reader. Per `spec/crates/core.md`
-/// § _Operator × value type compatibility_, only `equals` /
+/// § _Predicate_, only `equals` /
 /// `not_equals` against a Bool literal are legal; everything else
 /// matrix-rejects at compile and falls through to `false` here as a
 /// sound default.
@@ -645,7 +645,7 @@ fn test_int(op: &CompiledOperator, value: i64) -> bool {
 
 /// IpAddr-typed reader. `equals`/`not_equals`, `in`/`not_in`, `cidr`.
 /// Cross-family `in` lists (e.g. v4+v6) match iff any element matches —
-/// a single `cidr` is single-family per spec 18 § _CIDR specifics_.
+/// a single `cidr` is single-family per spec 18 § _Predicate_.
 fn test_addr(op: &CompiledOperator, value: std::net::IpAddr) -> bool {
 	match op {
 		CompiledOperator::Equals(CompiledValue::Addr(expected)) => value == *expected,
@@ -2336,7 +2336,7 @@ mod tests {
 
 	#[test]
 	fn matrix_cidr_v4_against_v6_addr_misses() {
-		// Spec 18 § _CIDR specifics_: a single cidr matches only its family.
+		// Spec 18 § _Predicate_: a single cidr matches only its family.
 		let conn = make_conn_with("[2001:db8::5]:0", "127.0.0.1:0");
 		let v = PredicateView::L4 { conn: &conn, peek: None };
 		let v4 = IpNet::from_str("0.0.0.0/0").unwrap();

@@ -16,8 +16,8 @@
 //! - `<name>.ws` (allow-all) — emitted when `websocket: true`. Matches
 //!   WS upgrade and routes to `WebSocketUpgrade(upstream)`.
 //!
-//! See `spec/crates/core.md` § _`reverse_proxy`_ and
-//! § _WebSocket handling_.
+//! See `spec/crates/core.md` § _Compile pipeline_ and
+//! § _Concrete fetches_.
 //!
 //! ## Spec deviations (carried as known debts)
 //!
@@ -127,7 +127,7 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 
 	let mut rules: Vec<RawRule> = Vec::new();
 
-	// WebSocket gate rules. Spec § _WebSocket handling_ — sort order
+	// WebSocket gate rules. Spec § _Concrete fetches_ — sort order
 	// (ws-allow < ws-deny < main) is enforced by the analyze pass's
 	// specificity ranking, not by emission order; ordering here is for
 	// dry-run readability only.

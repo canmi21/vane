@@ -119,12 +119,12 @@ pub struct FlowGraph {
 	/// accepted connection and, if `Some`, runs a server-side handshake
 	/// before passing the wrapped stream to the executor as
 	/// [`vane_core::L4Conn::Tls`]. See `spec/crates/engine-tls.md`
-	/// § _TLS termination (L4 → L7 upgrade)_.
+	/// § _Termination flow (L4 → L7 upgrade)_.
 	listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>>,
 	/// Per-listener cert populators. Held only for lifetime extension
 	/// — the resolver reads from the populator-owned `ArcSwap` directly.
 	/// Each `FlowGraph::link` builds a fresh populator (rebuild on
-	/// reload, see `spec/crates/engine-tls.md` § _Populator lifecycle_); reserved for
+	/// reload, see `spec/crates/engine-tls.md` § _Cert populators_); reserved for
 	/// cross-reload reuse, post-MVP.
 	#[allow(dead_code, reason = "lifetime-extension only; reused post-MVP per spec")]
 	listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>>,
@@ -165,7 +165,7 @@ impl FlowGraph {
 	/// `ListenerKind::Http` when the address is missing — defensive
 	/// only, the lower pass guarantees every entry address has an
 	/// explicit kind. See `spec/crates/engine.md`
-	/// § _Dispatch decision table_.
+	/// § _Dispatch table_.
 	#[must_use]
 	pub fn listener_kind(&self, addr: &SocketAddr) -> ListenerKind {
 		self.meta.listener_kinds.get(addr).copied().unwrap_or(ListenerKind::Http)
@@ -178,7 +178,7 @@ impl FlowGraph {
 	/// extract SNI, then enter the `FlowGraph` with `ConnContext.tls.sni`
 	/// populated so the matching `tls.sni` rule routes correctly.
 	///
-	/// Per `spec/crates/engine.md` § _When pending-peek activates_,
+	/// Per `spec/crates/engine.md` § _Multi-packet peek_,
 	/// the spec definition is per-rule conjunction (`tls.sni` predicate
 	/// AND `L4Forward` terminator on the same rule). Implemented as a
 	/// DFS that carries a "saw `tls.sni` Check on this path" flag and
@@ -450,7 +450,7 @@ impl FlowGraph {
 		// `rustls::ServerConfig`. PEM I/O happens here (link stage) so a
 		// missing or malformed cert/key is caught at config-load time
 		// rather than per-accept. See spec/crates/engine-tls.md § _TLS termination
-		// (L4 → L7 upgrade)_ and § _Cert resolver and rotation_.
+		// (L4 → L7 upgrade)_ and § _Cert resolver_.
 		let mut listener_tls: BTreeMap<SocketAddr, Arc<rustls::ServerConfig>> = BTreeMap::new();
 		let mut listener_populators: BTreeMap<SocketAddr, Vec<Box<dyn CertPopulator + Send + Sync>>> =
 			BTreeMap::new();
@@ -482,7 +482,7 @@ impl FlowGraph {
 
 		// Inherit version_hash / compiled_at / source_files from the symbolic
 		// meta; overwrite feature_set with this binary's snapshot per spec/flow-model.md
-		// § _FlowGraph metadata_ — `feature_set` is "what the daemon linked",
+		// § _The compiled form_ — `feature_set` is "what the daemon linked",
 		// not "what the rule-set intended".
 		//
 		// `listener_kinds` is normally produced by the lower pass; for
@@ -734,9 +734,9 @@ fn build_listener_server_config(
 	// `ServerConfig` shares one `Arc<dyn ProducesTickets>` so clients
 	// can resume sessions across reload boundaries. Skipping the
 	// install (test fixtures) keeps rustls's default
-	// `NeverProducesTickets`. See spec/crates/engine-tls.md § _Session ticket rotation_.
+	// `NeverProducesTickets`. See spec/crates/engine-tls.md § _Session tickets_.
 	//
-	// Per spec/crates/engine-tls.md § _Exception: 0-RTT-enabled listeners_, listeners
+	// Per spec/crates/engine-tls.md § _Session tickets_, listeners
 	// that opt into 0-RTT skip the daemon-wide install: rustls 0.23's
 	// `decide_if_early_data_allowed` refuses early data when
 	// `ServerConfig.ticketer.enabled() == true` (RFC 8446 §8.1's replay
@@ -752,7 +752,7 @@ fn build_listener_server_config(
 	}
 
 	// TLS 1.3 0-RTT (early data) opt-in. Per `spec/crates/engine-tls.md` § _TLS 1.3
-	// 0-RTT (early data)_ § _Hardcoded limits_, the early-data size is
+	// 0-RTT (early data)_ § _Configuration_, the early-data size is
 	// fixed at 16 KiB — not exposed as a knob, since 0-RTT exists to
 	// save one RTT (not to carry payload) and raising the cap invites
 	// misuse. `0` is rustls's default and keeps the listener

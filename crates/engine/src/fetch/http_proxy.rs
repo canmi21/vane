@@ -27,9 +27,9 @@
 //! | `h2`      | ALPN: only `h2`             | h2c (prior knowledge)  |
 //! | `h3`      | ALPN: only `h3` (TLS req'd) | rejected (h3 mandates QUIC TLS) |
 //!
-//! See `spec/crates/engine.md` § _`HttpProxy`_,
-//! `spec/crates/engine.md` § _H1 / H2 paths_, § _Architecture: TCP / QUIC separation_,
-//! and `spec/crates/engine-tls.md` § _TLS library: rustls only_.
+//! See `spec/crates/engine.md` § _Concrete fetches_,
+//! `spec/crates/engine.md` § _Body streaming_, § _Upstream pools_,
+//! and `spec/crates/engine-tls.md` § _Library policy_.
 
 use std::sync::Arc;
 
@@ -116,7 +116,7 @@ struct QuicDispatchState {
 
 /// Spec default for the H3 dial half's `connect_timeout` when
 /// `args.connect_timeout` is absent.
-/// `spec/crates/engine.md` § _Timeouts (proposal)_.
+/// `spec/crates/engine.md` § _CGI_.
 #[cfg(feature = "h3")]
 const H3_CONNECT_TIMEOUT_DEFAULT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -144,13 +144,13 @@ impl L7Fetch for HttpProxyFetch {
 		// regardless of `max_attempts`. `Body::Static` clones via
 		// `Bytes` refcount; `Body::Empty` replays as zero-length
 		// `Bytes`. Per `spec/crates/engine.md`
-		// § _Retry buffering_, this is the `opportunistic` rule:
+		// § _Retry_, this is the `opportunistic` rule:
 		// streaming bodies skip retry quietly. `force` buffering is
 		// implemented earlier in the lower pass — by the time the
 		// fetch sees the request, a `force` policy has already
 		// converted the body to `Body::Static`. The TCP and H3 arms
 		// below share this snapshot — their retry semantics are
-		// symmetric per `spec/crates/engine.md` § _Retry policy_.
+		// symmetric per `spec/crates/engine.md` § _Retry_.
 		let method_allowed = self.retry.methods.contains(req.method());
 		let replay: Option<Bytes> = match req.body() {
 			Body::Static(b) => Some(b.clone()),
@@ -312,8 +312,8 @@ impl HttpProxyFetch {
 	/// acquires the pooled `h3::client::SendRequest` (dialing on miss),
 	/// and runs one request / response round-trip with the response
 	/// body wrapped in `Body::Stream(Box::pin(H3Body::new(...)))` per
-	/// `spec/crates/engine.md` § _Upstream-H3 send path_ +
-	/// § _`HttpProxyFetch` commits to streaming response bodies_.
+	/// `spec/crates/engine.md` § _Body streaming_ +
+	/// § _Concrete fetches_.
 	#[cfg(feature = "h3")]
 	#[allow(clippy::too_many_lines)]
 	async fn send_one_attempt_h3(&self, req: Request) -> Result<L7FetchOutput, Error> {

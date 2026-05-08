@@ -7,7 +7,7 @@
 //! verbatim; rules that want to ignore the port should configure both
 //! the bare host and the `host:port` form, or normalise upstream.
 //!
-//! See `spec/crates/engine.md` § _Stateless internal_.
+//! See `spec/crates/engine.md` § _Middleware_.
 
 use std::borrow::Cow;
 use std::sync::Arc;

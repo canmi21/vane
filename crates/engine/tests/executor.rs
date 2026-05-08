@@ -1,9 +1,9 @@
 //! Integration tests for `vane_engine::executor::execute`.
 //!
 //! Covers the execution-model contract described in
-//! `spec/flow-model.md` § _Execution model_ (lines 330-469), the
+//! `spec/flow-model.md` § _Executor_ (lines 330-469), the
 //! middleware two-channel routing described in
-//! `spec/crates/engine.md` § _Decision_ / _Two error channels,
+//! `spec/crates/engine.md` § _Middleware_ / _Two error channels,
 //! not one_, and the three Terminator variants in
 //! `spec/crates/engine.md`.
 //!
@@ -243,7 +243,7 @@ async fn run_execute(
 async fn execute_middleware_continue_advances_cursor() {
 	// 3-node graph: Middleware(L7Request) -> Terminate(Close). The middleware
 	// returns Decision::Continue; the cursor must advance to `next`.
-	// Per spec/flow-model.md § _Execution model_ (lines 391-392):
+	// Per spec/flow-model.md § _Executor_ (lines 391-392):
 	//   Ok(Decision::Continue) → cur = *next
 	let counter = Arc::new(AtomicUsize::new(0));
 	let sym = build_graph(
@@ -291,7 +291,7 @@ async fn execute_middleware_continue_advances_cursor() {
 
 #[tokio::test]
 async fn execute_middleware_short_close_policy_denied_returns_closed() {
-	// spec/flow-model.md § _`Terminator::Close` at L4 vs inside an HTTP server_:
+	// spec/flow-model.md § _Executor_:
 	// `Short(Close(PolicyDenied(_)))` is a routing-level refusal, not an
 	// error. The executor returns `Ok(ExecutorOutput::Closed)`; downstream
 	// the H1 service-fn maps that to 404 + `Connection: close`, and the L4
@@ -507,7 +507,7 @@ async fn execute_middleware_err_without_on_error_propagates() {
 
 #[tokio::test]
 async fn execute_check_routes_by_predicate_remote_ip_equals() {
-	// spec/flow-model.md § _Execution model_: Check builds a PredicateView, tests
+	// spec/flow-model.md § _Executor_: Check builds a PredicateView, tests
 	// the predicate, and routes to on_match / on_miss.
 	// Predicate: remote.ip == 127.0.0.1.
 	// Graph:
@@ -688,7 +688,7 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 
 #[tokio::test]
 async fn execute_l7_fetch_response_jumps_to_next_response() {
-	// spec/flow-model.md § _Execution model_ (lines 411-424): an L7 Fetch that
+	// spec/flow-model.md § _Executor_ (lines 411-424): an L7 Fetch that
 	// returns L7FetchOutput::Response advances the cursor to
 	// `next_response`. The terminating node here is
 	// Terminate(WriteHttpResponse); per the behavior contract
@@ -1066,8 +1066,8 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 // C8a contract tests (15-20). These pin the ExecutorOutput shape introduced
 // in commit 85cfd470: WriteHttpResponse hands back the Response verbatim,
 // ByteTunnel drives `tokio::io::copy_bidirectional` to completion and reports
-// the close reason out-of-band. Per spec/crates/engine.md § _Variants_ and
-// spec/flow-model.md § _Execution model_.
+// the close reason out-of-band. Per spec/crates/engine.md § _Concrete fetches_ and
+// spec/flow-model.md § _Executor_.
 
 /// `L7Fetch` fixture that returns a caller-supplied `Response`. The response
 /// is moved out on first invocation; subsequent calls panic. Used to assert
@@ -1160,7 +1160,7 @@ async fn throwaway_tcp_stream() -> tokio::net::TcpStream {
 
 #[tokio::test]
 async fn execute_write_http_response_returns_response_output() {
-	// spec/crates/engine.md § _Variants_: WriteHttpResponse consumes the Response
+	// spec/crates/engine.md § _Concrete fetches_: WriteHttpResponse consumes the Response
 	// produced by the preceding L7Fetch and hands it to the caller verbatim.
 	// The executor must surface `Ok(ExecutorOutput::HttpResponse(r))` whose
 	// `r.status()` matches what the fetch produced.
@@ -1220,7 +1220,7 @@ async fn execute_write_http_response_returns_response_output() {
 
 #[tokio::test]
 async fn execute_write_http_response_preserves_body_payload() {
-	// spec/crates/engine.md § _Variants_: the executor does not mutate the
+	// spec/crates/engine.md § _Concrete fetches_: the executor does not mutate the
 	// Response. A `Body::Static(Bytes)` body produced by the fetch must
 	// arrive at the caller byte-for-byte.
 	let canned: Response = http::Response::builder()
@@ -1285,7 +1285,7 @@ async fn execute_write_http_response_preserves_body_payload() {
 
 #[tokio::test]
 async fn execute_byte_tunnel_drives_copy_bidirectional() {
-	// spec/crates/engine.md § _Variants_ + spec/flow-model.md § _Execution model_:
+	// spec/crates/engine.md § _Concrete fetches_ + spec/flow-model.md § _Executor_:
 	// `Terminator::ByteTunnel` hands the Tunnel's two halves to
 	// `tokio::io::copy_bidirectional`. Bytes written into either outer
 	// half must surface on the opposite outer half. The executor returns
@@ -1349,7 +1349,7 @@ async fn execute_byte_tunnel_drives_copy_bidirectional() {
 
 #[tokio::test]
 async fn execute_byte_tunnel_sends_graceful_close_reason() {
-	// spec/flow-model.md § _Execution model_ + spec/crates/engine.md § _Variants_:
+	// spec/flow-model.md § _Executor_ + spec/crates/engine.md § _Concrete fetches_:
 	// when both sides EOF cleanly, the executor sends
 	// `CloseReason::Graceful` through `Tunnel.close_reason_tx`.
 	let (mut client_outer, client_inner) = tokio::io::duplex(1024);
@@ -1442,7 +1442,7 @@ impl AsyncWrite for ErrorOnRead {
 
 #[tokio::test]
 async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
-	// spec/flow-model.md § _Execution model_ + spec/crates/engine.md § _Variants_ + this
+	// spec/flow-model.md § _Executor_ + spec/crates/engine.md § _Concrete fetches_ + this
 	// chunk's behavior contract: when the inner copy_bidirectional returns
 	// Err, the executor sends `CloseReason::ProtocolError(_)` through
 	// `Tunnel.close_reason_tx` and STILL returns
@@ -1478,7 +1478,7 @@ async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
 
 #[tokio::test]
 async fn execute_close_terminator_returns_closed_output() {
-	// Entry = Terminate(Close). spec/crates/engine.md § _Variants_: Close drops
+	// Entry = Terminate(Close). spec/crates/engine.md § _Concrete fetches_: Close drops
 	// the transport silently and emits a FlowLogKind::Terminate event.
 	// Per the C8a contract the precise success value is
 	// `ExecutorOutput::Closed`.
@@ -1678,7 +1678,7 @@ impl L7RequestMiddleware for ShortResponseFixed {
 
 #[tokio::test]
 async fn execute_middleware_short_response_routes_through_synth_target() {
-	// spec/flow-model.md § _Execution model_ + § _FlowGraph metadata_: an L7
+	// spec/flow-model.md § _Executor_ + § _The compiled form_: an L7
 	// request middleware returning Short(Response) sets the response
 	// slot and jumps to the synth Terminate(WriteHttpResponse) keyed
 	// off `meta.short_circuit_response_entry[entry]`. Result: the

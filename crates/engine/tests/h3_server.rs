@@ -11,9 +11,9 @@
 //!
 //! * `spec/crates/engine.md` § _UDP socket multiplexing: physical
 //!   and virtual_ — the per-listener `quinn::Endpoint` model.
-//! * `spec/crates/engine.md` § _UDP listener semantics_ —
+//! * `spec/crates/engine.md` § _Listeners_ —
 //!   `Http`-on-UDP listeners terminate H3 over QUIC.
-//! * `spec/crates/engine.md` § _`H3Body` (engine-owned)_ — the
+//! * `spec/crates/engine.md` § _Listeners_ — the
 //!   request-body streaming path that Step 3 wires up.
 
 #![cfg(feature = "h3")]

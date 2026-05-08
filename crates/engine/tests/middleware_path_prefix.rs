@@ -1,7 +1,7 @@
 //! Integration tests for `vane_engine::middleware::path_prefix`.
 //!
 //! Validates the public contract from `spec/crates/engine.md`
-//! § _Stateless internal_ and the doc-comment on `path_prefix::factory`:
+//! § _Middleware_ and the doc-comment on `path_prefix::factory`:
 //!
 //! - Continue when the request's URI path starts with one of the
 //!   configured prefixes (case-sensitive byte prefix match).

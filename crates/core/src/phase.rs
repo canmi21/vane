@@ -40,7 +40,7 @@ const TUNNEL: &[Phase] = &[Phase::Tunnel];
 const ANY_PHASE: &[Phase] =
 	&[Phase::L4Raw, Phase::L4Peeked, Phase::L7Request, Phase::L7Response, Phase::Tunnel];
 
-// Each arm mirrors one row of the spec/flow-model.md § _Transition table_. Merging
+// Each arm mirrors one row of the spec/flow-model.md § _Phase state machine_. Merging
 // arms with equal bodies would hide the table structure, which the spec
 // calls out as the whole point of the single-source design.
 #[must_use]

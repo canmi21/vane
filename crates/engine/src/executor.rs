@@ -62,7 +62,7 @@ impl std::fmt::Debug for ExecutorOutput {
 	}
 }
 
-/// Iterative walker per spec/flow-model.md § _Execution model_ + § _Flow log
+/// Iterative walker per spec/flow-model.md § _Executor_ + § _Flow log
 /// verbosity_. A single async loop holds a `NodeId` cursor and four
 /// phase-scoped owned slots; the phase state machine (enforced in core's
 /// `validate`) guarantees that at most one slot is `Some` at any point and
@@ -211,7 +211,7 @@ pub async fn execute(
 				match outcome {
 					Ok(Decision::Continue) => cur = *next,
 					Ok(Decision::Short(ShortCircuit::Response(r))) => {
-						// spec/flow-model.md § _Execution model_: an L7 request
+						// spec/flow-model.md § _Executor_: an L7 request
 						// middleware that returns `Short(Response)` parks
 						// the response in `resp` and jumps to the
 						// listener-level synth `Terminate(WriteHttpResponse)`
@@ -310,7 +310,7 @@ pub async fn execute(
 					FetchInst::L7(f) => {
 						// TLS 1.3 0-RTT (early data) gate. Per
 						// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_
-						// § _Runtime flow_, a request that arrived as
+						// § _Configuration_, a request that arrived as
 						// 0-RTT data and matched a rule with
 						// `allow_zero_rtt: false` must receive a
 						// synthetic 425 Too Early instead of being
@@ -333,7 +333,7 @@ pub async fn execute(
 						// follow the early-data drain) arrive purely
 						// as 1-RTT data, so the 425 gate must not fire
 						// for them. This matches `spec/crates/engine-tls.md` § _TLS
-						// 1.3 0-RTT (early data)_ § _Runtime flow_,
+						// 1.3 0-RTT (early data)_ § _Configuration_,
 						// which scopes the gate per request.
 						let zero_rtt_used = {
 							let mut guard = conn.tls.lock();
@@ -382,7 +382,7 @@ pub async fn execute(
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Upgrade, None);
 				// Hand the L4 connection to the H1 or H2 server. Each decoded
 				// request constructs a fresh `FlowCtx` and re-enters `execute`
-				// from `*next`. See spec/flow-model.md § _Execution model_ (Upgrade arm).
+				// from `*next`. See spec/flow-model.md § _Executor_ (Upgrade arm).
 				//
 				// Plain TCP, TLS-terminated H1, and TLS-terminated H2 all feed
 				// the generic stream drivers; the listener has already consumed

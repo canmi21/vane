@@ -8,7 +8,7 @@
 //! injection (the URL fetch surface is exercised in
 //! `cache_url_source_loads_via_default_fetcher`).
 //!
-//! See `spec/crates/engine-tls.md` § _CRL checking_ for the
+//! See `spec/crates/engine-tls.md` § _CRL_ for the
 //! authoritative semantics.
 
 #![allow(clippy::too_many_lines)]

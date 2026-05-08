@@ -1,5 +1,5 @@
 //! Disk-backed default `AcmeStore` per `spec/crates/engine-acme.md`
-//! § _Storage layout (default `FsAcmeStore`)_.
+//! § _Storage layout_.
 //!
 //! Layout:
 //!
@@ -380,7 +380,7 @@ fn directory_url_hash(directory_url: &str) -> String {
 }
 
 /// SNI → filesystem-safe directory name. Lowercased per
-/// spec/crates/engine-tls.md § _SNI normalization_; `*` → `_wild_` so wildcard
+/// spec/crates/engine-tls.md § _SNI peek (L4, no decrypt)_; `*` → `_wild_` so wildcard
 /// SANs don't end up creating shell-glob hazards.
 fn sanitise_sni(sni: &str) -> String {
 	let lower = sni.to_ascii_lowercase();

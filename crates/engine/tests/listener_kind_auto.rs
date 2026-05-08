@@ -14,7 +14,7 @@
 //! * Raw + any prefix → L4 subgraph (byte passthrough).
 //!
 //! Spec anchor: `spec/crates/engine.md` § _Listener kind
-//! derivation_ + § _Dispatch decision table_.
+//! derivation_ + § _Dispatch table_.
 
 #![allow(clippy::too_many_lines)]
 

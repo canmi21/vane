@@ -1,7 +1,7 @@
 //! Integration tests for `vane_engine::middleware::host_header_match`.
 //!
 //! Validates the public contract from `spec/crates/engine.md`
-//! § _Stateless internal_ and the doc-comment on
+//! § _Middleware_ and the doc-comment on
 //! `host_header_match::factory`:
 //!
 //! - Continue when the request `Host` header (case-insensitive) matches one

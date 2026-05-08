@@ -42,7 +42,7 @@ use super::store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
 use crate::tls::ocsp::{self, FETCH_TIMEOUT, OcspError};
 
 /// Lookup key for the pending-challenge table. Per
-/// `spec/crates/engine-acme.md` § _HTTP-01 § Case 1_ the responder verifies
+/// `spec/crates/engine-acme.md` § _Challenge: HTTP-01_ the responder verifies
 /// **both** the URL token tail and the `Host` header before
 /// returning the key authorisation — otherwise a misrouted CA
 /// validator query could leak our key authorisation to a different
@@ -572,7 +572,7 @@ impl ManagedCertRegistry {
 	}
 
 	/// Operator-driven immediate renewal per `spec/crates/engine-acme.md`
-	/// § _`force_renew` mgmt verb_. Looks up the registered job for
+	/// § _mgmt verbs_. Looks up the registered job for
 	/// `sni` and spawns a one-shot [`Self::run_renewal_attempt`]
 	/// task; returns `Some(())` when the SNI was known and a job
 	/// existed, `None` when the SNI is undeclared or has no job.
@@ -1076,7 +1076,7 @@ async fn register_dns01_challenges(
 	order: &mut instant_acme::Order,
 	cleanup: &DnsCleanupGuard,
 ) -> Result<(), RegistryError> {
-	// 120s aligns with `spec/crates/engine-acme.md` § _wait_propagated semantics_:
+	// 120s aligns with `spec/crates/engine-acme.md` § _Challenge: DNS-01_:
 	// public DNS typically converges sub-minute even for fresh
 	// records; doubling that gives headroom for stragglers without
 	// burning operator patience on a stuck propagation.

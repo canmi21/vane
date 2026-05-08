@@ -8,8 +8,8 @@
 //! [`crate::fetch::client_cache::ClientFingerprint`] so two fetches
 //! with different nameserver lists land in distinct cache slots.
 //!
-//! See `spec/crates/engine.md` § _DNS resolver: hickory-resolver_
-//! and `spec/crates/core.md` § _Rule schema_ (`dns` row).
+//! See `spec/crates/engine.md` § _DNS_
+//! and `spec/crates/core.md` § _Compile pipeline_ (`dns` row).
 
 use std::future::Future;
 use std::io;
@@ -142,7 +142,7 @@ impl Service<Name> for HickoryDnsResolver {
 
 /// Parse `args.dns` into a [`DnsConfig`].
 ///
-/// Accepts (per `spec/crates/core.md` § _Rule schema_):
+/// Accepts (per `spec/crates/core.md` § _Compile pipeline_):
 /// - missing / `null` / `"system"` / `{}` → [`DnsConfig::System`]
 /// - `{ "nameservers": [] }` → [`DnsConfig::System`] (semantic equiv of `{}`)
 /// - `{ "nameservers": [...] }` non-empty → [`DnsConfig::Custom`]

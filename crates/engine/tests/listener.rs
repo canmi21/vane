@@ -177,7 +177,7 @@ impl L4BytesMiddleware for SleepBytes {
 
 #[tokio::test]
 async fn listener_accepts_tcp_and_routes_to_executor() {
-	// spec/topology.md § _Accept loop_: each accepted connection spawns a
+	// spec/topology.md § _Bind_: each accepted connection spawns a
 	// per-connection task that drives the executor against the captured
 	// `Arc<FlowGraph>`. The executor must emit at least one
 	// `FlowLogKind::Trajectory` event into the listener-supplied sink.
