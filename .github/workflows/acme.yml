@@ -1,4 +1,4 @@
-name: acme
+name: pebble
 
 on:
   workflow_dispatch:
@@ -27,8 +27,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  acme:
-    name: acme
+  pebble:
+    name: pebble
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,14 +41,14 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: acme
+          shared-key: pebble
 
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
 
-      - name: Pebble e2e
+      - name: Test
         run: |
           cargo nextest run \
             -p vane-engine \
