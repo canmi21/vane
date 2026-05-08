@@ -68,6 +68,7 @@ bytes = "1.11.1"
 # Direct dep to avoid leaning on `pub use` re-exports through
 # x509-ocsp (some types we need aren't re-exported).
 cgi-request = { workspace = true }
+cgi-response = { workspace = true }
 clienthello = { workspace = true }
 dashmap = "6.1.0"
 der = "0.7"
@@ -77,7 +78,6 @@ http = "1.4.0"
 http-body = "1.0.1"
 http-body-util = "0.1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2", "client"] }
-hyper-cgi = { workspace = true }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "rustls-native-certs", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["tokio", "client", "client-legacy", "server-auto", "http1", "http2"] }
 memchr = "2.8.0"

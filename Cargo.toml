@@ -7,10 +7,10 @@ members = [
 	"crates/engine",
 	"crates/lib/acme-provider",
 	"crates/lib/cgi-request",
+	"crates/lib/cgi-response",
 	"crates/lib/clienthello",
 	"crates/lib/guess",
 	"crates/lib/h3-body",
-	"crates/lib/hyper-cgi",
 	"crates/lib/notify-twophase",
 	"crates/lib/ocsp-mock-responder",
 	"crates/lib/ocsp-staple",
@@ -49,10 +49,10 @@ pedantic = { level = "warn", priority = -1 }
 acme-provider = { path = "crates/lib/acme-provider", version = "0.0.1", default-features = false }
 async-trait = "0.1"
 cgi-request = { path = "crates/lib/cgi-request", version = "0.0.1" }
+cgi-response = { path = "crates/lib/cgi-response", version = "0.0.1" }
 clienthello = { path = "crates/lib/clienthello", version = "0.2" }
 guess = { path = "crates/lib/guess", version = "0.2", default-features = false }
 h3-body = { path = "crates/lib/h3-body", version = "0.0.1" }
-hyper-cgi = { path = "crates/lib/hyper-cgi", version = "0.0.1" }
 notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.1" }
 ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.1" }
 ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.1" }

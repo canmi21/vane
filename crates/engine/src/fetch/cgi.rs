@@ -49,9 +49,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use cgi_request::{CgiRequestMeta, is_reserved_env_key};
+use cgi_response::HeaderReadError;
 use http::StatusCode;
 use http_body::Body as _;
-use hyper_cgi::HeaderReadError;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::process::Command;
@@ -515,7 +515,7 @@ impl CgiFetch {
 		let body = req.into_body();
 		let stdin_task = tokio::spawn(stdin_drain(stdin, body, CGI_MAX_REQUEST_BODY));
 
-		// `hyper_cgi::read_until_header_end` is the single arbiter of
+		// `cgi_response::read_until_header_end` is the single arbiter of
 		// the connect-phase outcome. It produces three possible signals:
 		//
 		// * `Ok((headers, leftover, stdout))` — header block parsed.
@@ -535,7 +535,7 @@ impl CgiFetch {
 		// on `_exit(2)`, the parent's read returns 0, and the lib
 		// reports `Eof`.
 		let connect_deadline = Instant::now() + self.args.timeouts.connect;
-		let parsed = hyper_cgi::read_until_header_end(stdout, connect_deadline).await;
+		let parsed = cgi_response::read_until_header_end(stdout, connect_deadline).await;
 
 		let (header_block, leftover, stdout) = match parsed {
 			Ok(triple) => triple,
@@ -562,7 +562,7 @@ impl CgiFetch {
 			}
 		};
 
-		let resp_builder = match hyper_cgi::parse_response_headers(&header_block) {
+		let resp_builder = match cgi_response::parse_response_headers(&header_block) {
 			Ok(b) => b,
 			Err(e) => {
 				tracing::warn!(
@@ -612,7 +612,7 @@ impl CgiFetch {
 		// The lib's `CgiResponseBody` carries the permit as a generic
 		// drop guard so the daemon-wide concurrency cap continues to
 		// reflect in-flight CGI children, not just spawn throughput.
-		let body_stream = hyper_cgi::CgiResponseBody::new(leftover, stdout, total_deadline, permit);
+		let body_stream = cgi_response::CgiResponseBody::new(leftover, stdout, total_deadline, permit);
 		let response = resp_builder
 			.body(Body::from_producer(body_stream))
 			.map_err(|e| Error::internal(format!("cgi response build: {e}")))?;
@@ -792,7 +792,7 @@ async fn terminate_child(child: &mut tokio::process::Child) {
 }
 
 // `CgiResponseBody` (with daemon permit as drop guard) lives in the
-// `hyper-cgi` crate; this module only constructs it via the lib.
+// `cgi-response` crate; this module only constructs it via the lib.
 
 #[cfg(test)]
 #[cfg(unix)]

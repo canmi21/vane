@@ -1,14 +1,14 @@
 [package]
-name = "hyper-cgi"
+name = "cgi-response"
 version = "0.0.1"
 categories = ["web-programming::http-server", "network-programming"]
 edition.workspace = true
-keywords = ["cgi", "rfc3875", "hyper", "http-body", "stream"]
+keywords = ["cgi", "rfc3875", "http-body", "response", "stream"]
 license.workspace = true
 readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "Async CGI helpers: parse RFC 3875 stdout, stream the body, and recognise reserved env keys."
+description = "Parse a CGI child's stdout into an http::Response with a streaming body."
 
 [lints]
 workspace = true

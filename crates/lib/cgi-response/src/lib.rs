@@ -1,7 +1,8 @@
-//! Async helpers for the slice of an RFC 3875 CGI driver that
-//! doesn't need `unsafe`: parse the child's stdout into an
-//! `http::Response`, stream the body through `http_body::Body`, and
-//! recognise the env keys an operator must not override.
+//! Parse a CGI child's stdout into an `http::Response`, then stream
+//! the body through `http_body::Body`. The other half of a CGI
+//! gateway — building the RFC 3875 environment for the child —
+//! lives in the `cgi-request` crate; pair them when you need both
+//! directions.
 //!
 //! See the crate-level README for what is and isn't covered here.
 
@@ -14,49 +15,6 @@ use http::{HeaderName, HeaderValue, StatusCode};
 use http_body::{Body, Frame, SizeHint};
 use tokio::io::{AsyncRead, AsyncReadExt as _, ReadBuf};
 use tokio::time::Instant;
-
-/// RFC 3875 §4.1 required variables. An operator-supplied env entry
-/// using one of these keys collides with what the host will compute
-/// per request.
-pub const RFC_3875_REQUIRED: &[&str] = &[
-	"CONTENT_LENGTH",
-	"CONTENT_TYPE",
-	"GATEWAY_INTERFACE",
-	"PATH_INFO",
-	"PATH_TRANSLATED",
-	"QUERY_STRING",
-	"REMOTE_ADDR",
-	"REMOTE_HOST",
-	"REQUEST_METHOD",
-	"SCRIPT_NAME",
-	"SERVER_NAME",
-	"SERVER_PORT",
-	"SERVER_PROTOCOL",
-	"SERVER_SOFTWARE",
-];
-
-/// Common-extension variables (not in RFC 3875 but ubiquitous, set
-/// by Apache / nginx / lighttpd by default).
-pub const COMMON_EXTENSIONS: &[&str] =
-	&["REMOTE_PORT", "REQUEST_URI", "REQUEST_SCHEME", "HTTPS", "DOCUMENT_URI"];
-
-/// Returns `true` when `key` collides with a value the host is
-/// expected to compute per request:
-///
-/// * Anything starting with `HTTP_` — the request-header
-///   passthrough namespace.
-/// * One of [`RFC_3875_REQUIRED`].
-/// * One of [`COMMON_EXTENSIONS`].
-///
-/// Use this in your operator-config validator to reject env entries
-/// that would silently get clobbered by per-request computation.
-#[must_use]
-pub fn is_reserved_env_key(key: &str) -> bool {
-	if key.starts_with("HTTP_") {
-		return true;
-	}
-	RFC_3875_REQUIRED.contains(&key) || COMMON_EXTENSIONS.contains(&key)
-}
 
 /// Errors from [`read_until_header_end`].
 #[derive(Debug, thiserror::Error)]
@@ -264,24 +222,6 @@ mod tests {
 	use tokio::io::AsyncWriteExt as _;
 
 	use super::*;
-
-	#[test]
-	fn reserved_env_keys_cover_rfc_required() {
-		assert!(is_reserved_env_key("CONTENT_LENGTH"));
-		assert!(is_reserved_env_key("REMOTE_ADDR"));
-		assert!(is_reserved_env_key("SERVER_PROTOCOL"));
-		assert!(is_reserved_env_key("HTTPS"));
-		assert!(is_reserved_env_key("HTTP_USER_AGENT"));
-		assert!(is_reserved_env_key("HTTP_X_CUSTOM"));
-	}
-
-	#[test]
-	fn reserved_env_keys_pass_through_unrelated_names() {
-		assert!(!is_reserved_env_key("APP_DEBUG"));
-		assert!(!is_reserved_env_key("DATABASE_URL"));
-		assert!(!is_reserved_env_key("LANG"));
-		assert!(!is_reserved_env_key("Http_lower"));
-	}
 
 	#[test]
 	fn parse_status_header_picks_up_code() {
