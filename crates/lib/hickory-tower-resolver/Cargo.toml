@@ -1,0 +1,22 @@
+[package]
+name = "hickory-tower-resolver"
+version = "0.0.1"
+categories = ["network-programming", "asynchronous"]
+edition.workspace = true
+keywords = ["dns", "hickory", "hyper", "tower", "resolver"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Wrap hickory-resolver as a tower::Service for hyper-util's HttpConnector."
+
+[lints]
+workspace = true
+
+[dependencies]
+hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"] }
+hyper-util = { version = "0.1", features = ["client-legacy"] }
+tower-service = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

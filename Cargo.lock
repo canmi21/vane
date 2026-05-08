@@ -1900,6 +1900,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hickory-tower-resolver"
+version = "0.0.1"
+dependencies = [
+ "hickory-resolver",
+ "hyper-util",
+ "tokio",
+ "tower-service",
+]
+
+[[package]]
 name = "hkdf"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5153,7 +5163,7 @@ dependencies = [
  "h3",
  "h3-body",
  "h3-quinn",
- "hickory-resolver",
+ "hickory-tower-resolver",
  "http",
  "http-body",
  "http-body-util",
@@ -5196,7 +5206,6 @@ dependencies = [
  "tokio-bind-retry",
  "tokio-rustls",
  "tokio-util",
- "tower-service",
  "tracing",
  "tracing-broadcast",
  "tracing-subscriber",

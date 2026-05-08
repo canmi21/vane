@@ -21,6 +21,7 @@ crates.io as-is.
 | `clienthello`               | Extract the TLS SNI from QUIC Initial datagrams without performing a handshake.              |
 | `guess`                     | Classify a TCP stream's first bytes as TLS / HTTP/2 / HTTP/1 / unknown.                      |
 | `h3-body`                   | Adapt h3 server / client `RequestStream` to a single `http_body::Body` surface.              |
+| `hickory-tower-resolver`    | Wrap `hickory-resolver` as a `tower::Service` for hyper-util's `HttpConnector`.              |
 | `hyper-cgi`                 | Async CGI helpers: parse RFC 3875 stdout, stream the body, recognise reserved env keys.      |
 | `notify-twophase`           | Two-phase notify-debouncer-full setup so events landing during server bind are not lost.     |
 | `ocsp-mock-responder`       | In-process mock OCSP responder for integration tests.                                        |
