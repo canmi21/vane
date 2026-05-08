@@ -283,7 +283,7 @@ pub struct PluginHttpPolicy {
 	pub allowed_hosts: Vec<String>,
 	/// Per-request body cap (bytes) for the response body and the
 	/// outbound request body. Default 1 MiB matches
-	/// [`HttpFetchLimits::default`]'s `max_body_bytes`.
+	/// [`crate::fetch::HttpFetchLimits`]'s default `max_body_bytes`.
 	#[serde(default = "default_max_body_size")]
 	pub max_body_size: u32,
 	/// Default timeout when the per-call `timeout_ms` is `None`.

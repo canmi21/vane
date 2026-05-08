@@ -1,5 +1,5 @@
 //! Listener-side mTLS — `ClientTrustStore` loader and rustls
-//! [`WebPkiClientVerifier`] wiring.
+//! `WebPkiClientVerifier` wiring.
 //!
 //! Per `spec/crates/engine-tls.md` § _Client certificate verification
 //! (mTLS on listener)_, the trust store is built from per-rule

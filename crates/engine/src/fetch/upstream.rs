@@ -109,11 +109,11 @@ pub async fn dial_upstream(
 ///
 /// `insecure == false` (the default): trust anchors are pulled from
 /// the process-wide cached system store
-/// ([`crate::tls::native_roots`]). The keychain / NSS store is read
+/// (`crate::tls::native_roots`). The keychain / NSS store is read
 /// once per process; subsequent calls reuse the same `Arc` and never
 /// re-touch the OS API.
 ///
-/// `insecure == true`: install [`NoVerify`], a verifier that accepts
+/// `insecure == true`: install a `NoVerify` verifier that accepts
 /// every certificate. Documented as testing-only in the rule schema;
 /// the engine doesn't gate it but operators are responsible for not
 /// shipping `insecure_skip_verify: true` to production.

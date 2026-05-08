@@ -5,8 +5,9 @@
 //!
 //! Always compiled (no feature gate). Both populators —
 //! [`crate::tls::StaticCertPopulator`] (operator-supplied PEM) and
-//! [`crate::acme::ManagedCertPopulator`] (ACME-issued) — call into
-//! this module when their config opts into OCSP fetching.
+//! `crate::acme::ManagedCertPopulator` (ACME-issued, gated behind
+//! the `acme` feature) — call into this module when their config
+//! opts into OCSP fetching.
 //!
 //! ## Transport policy: HTTP-only
 //!

@@ -83,7 +83,8 @@ struct CrlEntry {
 pub trait CrlFetcher: Send + Sync {
 	/// Fetch the raw bytes for one source. File source: read from
 	/// disk. URL source: HTTP GET. Returns DER bytes on success;
-	/// caller times out the await at [`FETCH_TIMEOUT`].
+	/// caller times out the await at the daemon-wide CRL fetch
+	/// timeout (30 s, see this module's `FETCH_TIMEOUT`).
 	async fn fetch(&self, src: &CrlSourceId) -> Result<Vec<u8>, String>;
 }
 

@@ -1,5 +1,5 @@
 //! Listener-side protocol detection. The peek prelude in
-//! [`crate::listener`] reads up to [`MAX_PEEK_BYTES`] from a freshly
+//! [`crate::listener`] reads up to [`vane_core::MAX_PEEK_BYTES`] from a freshly
 //! accepted connection and feeds the prefix here; [`classify`] runs the
 //! built-in detectors in priority order (TLS → HTTP/2 → HTTP/1) and
 //! returns a [`PeekResult`] for the listener to attach to
@@ -36,7 +36,7 @@ const HTTP1_VERSION_PREFIX: &[u8] = b" HTTP/1.";
 ///
 /// Returns `Some(DetectedProtocol::*)` for a definitive match,
 /// `None` when *some* detector is willing to wait for more bytes
-/// (the listener should keep reading until it hits [`MAX_PEEK_BYTES`]
+/// (the listener should keep reading until it hits [`vane_core::MAX_PEEK_BYTES`]
 /// or the read times out), and `Some(Unknown)` when every detector
 /// has ruled itself out — at that point further reads cannot change
 /// the outcome.

@@ -423,7 +423,7 @@ pub struct ListenerTlsSpec {
 	pub sni_certs: BTreeMap<String, TlsConfig>,
 	/// ACME-managed certs declared on this listener, keyed by SNI
 	/// (lowercased). The lower pass populates this from rules whose
-	/// `tls.managed` is set; the daemon's [`ManagedCertRegistry`]
+	/// `tls.managed` is set; the daemon's `ManagedCertRegistry`
 	/// picks them up and delivers actual certs through the listener's
 	/// `ManagedCertPopulator`.
 	///

@@ -8,7 +8,7 @@
 //! the upstream's 101 (with body replaced by `Body::Empty` — RFC 6455
 //! forbids any body on a 101). The client-side upgrade dance + the
 //! bidirectional `copy_bidirectional` happens in
-//! [`crate::upgrade::drive_h1_server`]'s service-fn after the 101
+//! `crate::upgrade::drive_h1_server`'s service-fn after the 101
 //! reaches the wire.
 //!
 //! Consequences of the passthrough design:

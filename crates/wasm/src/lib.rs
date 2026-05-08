@@ -1217,7 +1217,8 @@ pub struct StatefulPoolHandle {
 	pub failures: Arc<std::sync::atomic::AtomicU64>,
 	/// Reload epoch. Pre-built and lazily-constructed instances are
 	/// tagged with the value of this counter at creation time; on
-	/// reload, [`Self::bump_generation`] increments it and clears
+	/// reload, `WasmtimeRuntime::bump_pool_generation_for_module`
+	/// increments it and clears
 	/// pre-built instances so subsequent checkouts go through the
 	/// lazy-build path against the freshly-swapped `Component`.
 	/// In-flight instances finish naturally; their return path drops

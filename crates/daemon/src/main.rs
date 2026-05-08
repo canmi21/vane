@@ -15,8 +15,8 @@
 //! The boot health watchdog (`spawn_boot_health_watchdog`) covers the
 //! "all listeners failed to bind" case: on a configurable timeout
 //! (`VANE_BOOT_HEALTH_TIMEOUT_SECS`, default 60s) with zero successful
-//! binds it fires the shutdown trigger and sets [`BOOT_HEALTH_EXIT`]
-//! so `main` returns a non-zero exit code. Partial bind failure stays
+//! binds it fires the shutdown trigger and sets a `BOOT_HEALTH_EXIT`
+//! flag so `main` returns a non-zero exit code. Partial bind failure stays
 //! a warn — the daemon serves whatever bound, and operators can read
 //! per-listener status via `vane stats`.
 
@@ -694,8 +694,9 @@ async fn bind_mgmt_http_server(
 /// listener has bound or the configured budget expires.
 ///
 /// Outcomes after timeout:
-/// - **Zero bound** (every listener gave up): set [`BOOT_HEALTH_EXIT`]
-///   and fire `shutdown_trigger`. The shutdown drains through the
+/// - **Zero bound** (every listener gave up): set the
+///   `BOOT_HEALTH_EXIT` flag and fire `shutdown_trigger`. The
+///   shutdown drains through the
 ///   normal mgmt-shutdown path and `main` returns
 ///   [`std::process::ExitCode::FAILURE`] so supervisors restart.
 /// - **Partial bind** (some succeeded, some failed): warn-log and

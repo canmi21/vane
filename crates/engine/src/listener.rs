@@ -124,8 +124,8 @@ pub struct ListenerSet {
 }
 
 /// One in-flight connection's projection for the management plane.
-/// Lives in [`ListenerSet::connections`] for the duration of the
-/// per-connection task; the [`ConnRegistration`] guard removes it on
+/// Lives in `ListenerSet::connections` for the duration of the
+/// per-connection task; the `ConnRegistration` guard removes it on
 /// any exit path (success, panic, cancellation).
 #[derive(Clone, Debug)]
 pub struct ConnEntry {
@@ -360,7 +360,7 @@ impl ListenerSet {
 	/// Whether a listener is currently running for `addr`. Useful for tests
 	/// that observe lifecycle transitions.
 	///
-	/// "Running" here means the registry holds a [`ListenerHandle`] for
+	/// "Running" here means the registry holds a `ListenerHandle` for
 	/// `addr` — including listeners that are still in `bind_with_retry`
 	/// or that gave up after exhausting retries. To check whether the
 	/// underlying socket is actually bound and accepting, use
@@ -505,7 +505,7 @@ impl ListenerSet {
 	///   [`Self::start`], including bind-retry.
 	/// - **Removed** addresses (currently bound, not in new graph): pop
 	///   the handle and `tokio::spawn` a background drain that fires
-	///   `accept_cancel`, waits up to [`RECONCILE_DRAIN_TIMEOUT`] for
+	///   `accept_cancel`, waits up to `reconcile_drain_timeout` for
 	///   in-flight connections to finish, then escalates to
 	///   `force_cancel` and abort if needed.
 	/// - **Unchanged** addresses: untouched. The accept loop's per-accept
