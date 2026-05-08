@@ -1,0 +1,37 @@
+[package]
+name = "guess"
+version = "0.2.1"
+categories = ["network-programming", "parser-implementations"]
+edition = "2024"
+keywords = ["protocol", "detection", "tls", "http", "sniff"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/canmi21/vane"
+rust-version = "1.95"
+description = "Wire-protocol classifier for TCP / TLS streams: feed connection-prefix bytes, get back TLS ClientHello / HTTP/2 preface / HTTP/1 / Unknown — with NeedMore for not-yet-decisive prefixes."
+
+[lints]
+workspace = true
+
+[features]
+default = ["classify"]
+# Includes the `classify` cascade, which uses rustls's Acceptor to
+# parse a real TLS ClientHello plus a memchr-backed HTTP/1
+# request-line scanner. Disable when only the result types are
+# needed (e.g. a downstream crate wants to *describe* a peek
+# without performing one).
+classify = ["dep:rustls", "dep:memchr"]
+
+[dependencies]
+bytes = "1"
+
+# Classify path — gated behind the `classify` feature.
+memchr = { version = "2", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
+
+[dev-dependencies]
+# Tests that build real ClientHello bytes need a rustls crypto
+# provider installed. We pick `aws-lc-rs` for dev because it's
+# pure-Rust-ish (no system dependency) and matches the most common
+# downstream choice. The runtime dep above stays backend-agnostic.
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }

@@ -61,6 +61,7 @@ dashmap = "6.1.0"
 # Direct dep to avoid leaning on `pub use` re-exports through
 # x509-ocsp (some types we need aren't re-exported).
 der = "0.7"
+guess = { workspace = true, features = ["classify"] }
 hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"] }
 http = "1.4.0"
 http-body = "1.0.1"

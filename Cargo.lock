@@ -1636,6 +1636,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "guess"
+version = "0.2.1"
+dependencies = [
+ "bytes",
+ "memchr",
+ "rustls",
+]
+
+[[package]]
 name = "h2"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5002,6 +5011,7 @@ dependencies = [
  "bytes",
  "dotenvy",
  "fancy-regex",
+ "guess",
  "http",
  "http-body",
  "ipnet",
@@ -5034,6 +5044,7 @@ dependencies = [
  "der",
  "fs4",
  "futures",
+ "guess",
  "h3",
  "h3-quinn",
  "hickory-resolver",

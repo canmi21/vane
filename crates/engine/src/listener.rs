@@ -37,9 +37,9 @@ use vane_core::{
 use crate::executor::{ExecutorInput, execute};
 use crate::flow_graph::FlowGraph;
 use crate::listener_udp::{DispatchTable, run_udp_listener};
-use crate::protocol_detect::classify;
 use crate::security::{SecurityConfig, SecurityState};
 use crate::verbosity::VerbosityState;
+use guess::classify;
 use peeked_stream::PeekedStream;
 use vane_core::{MAX_PEEK_BYTES, PeekResult};
 

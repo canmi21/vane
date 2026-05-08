@@ -39,7 +39,6 @@ pub mod listener_udp;
 pub mod metrics;
 pub mod middleware;
 pub mod preset;
-pub mod protocol_detect;
 pub mod security;
 pub mod terminator;
 pub mod tls;
