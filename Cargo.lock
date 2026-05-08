@@ -3303,6 +3303,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "quinn-shared-socket"
+version = "0.0.1"
+dependencies = [
+ "bytes",
+ "quinn",
+ "tokio",
+ "virtual-socket",
+]
+
+[[package]]
 name = "quinn-udp"
 version = "0.5.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4998,6 +5008,7 @@ dependencies = [
  "prometheus-parse",
  "quinn",
  "quinn-proto",
+ "quinn-shared-socket",
  "rand 0.10.1",
  "rcgen",
  "reqwest",
@@ -5022,6 +5033,7 @@ dependencies = [
  "url",
  "vane-core",
  "vane-testutil",
+ "virtual-socket",
  "wiremock",
  "x509-cert",
  "x509-ocsp",

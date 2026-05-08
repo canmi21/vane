@@ -1,162 +1,25 @@
-//! HTTP/3 listener-side glue: per-listener [`VirtualUdpSocket`]
-//! implementing [`quinn::AsyncUdpSocket`] against vane's owned physical
-//! UDP socket, plus the per-listener [`quinn::Endpoint`] bring-up that
-//! installs the daemon's [`crate::tls::VaneCertResolver`] for ALPN `h3`.
+//! HTTP/3 listener-side glue: per-listener QUIC endpoint built on top
+//! of a [`virtual_socket::VirtualUdpSocket`] (so vane can keep
+//! demultiplexing the physical UDP socket between QUIC and other
+//! traffic kinds), wrapped in [`quinn_shared_socket::SharedSocket`]
+//! to satisfy [`quinn::AsyncUdpSocket`]. The endpoint is configured
+//! with the daemon's [`crate::tls::VaneCertResolver`] for ALPN `h3`.
 //!
 //! See `spec/crates/engine.md` § _`udp_dispatch`_, and `spec/crates/engine-tls.md` § _Cert resolver_. The whole module is gated behind the `h3` cargo feature.
 
-use std::fmt;
-use std::io;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::task::{Context, Poll, Waker};
 
 use arc_swap::ArcSwap;
-use bytes::Bytes;
-use parking_lot::Mutex;
-use quinn::udp::{RecvMeta, Transmit};
-use quinn::{AsyncUdpSocket, UdpPoller};
+use quinn_shared_socket::SharedSocket;
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 use vane_core::FlowLogSink;
+use virtual_socket::VirtualUdpSocket;
 
 use crate::flow_graph::FlowGraph;
 use crate::listener_udp::{DispatchHandle, DispatchKey, DispatchTable};
 use crate::verbosity::VerbosityState;
-
-/// Bounded inbound queue per virtual socket. Full = drop, mirroring
-/// `listener_udp.rs::SESSION_INBOUND_CAPACITY` — the listener loop must
-/// never stall on a single misbehaving connection.
-pub const VIRTUAL_INBOUND_CAPACITY: usize = 256;
-
-/// Per-listener wrapper that satisfies [`quinn::AsyncUdpSocket`] without
-/// giving quinn exclusive ownership of vane's physical UDP socket.
-///
-/// Inbound: the listener's recv loop pushes datagrams onto `inbound`
-/// (drop-on-full); `poll_recv` drains them. Outbound: `try_send`
-/// forwards quinn's transmits to the physical socket via
-/// `tokio::net::UdpSocket::try_send_to` (non-blocking; surfaces
-/// `WouldBlock` for quinn's poller to retry).
-///
-/// One instance per UDP+`Http` listener. `quinn::Endpoint` demuxes
-/// connections by `ConnectionId` internally over that single socket;
-/// the dispatch-table layer above only needs to fan datagrams in and
-/// out.
-pub struct VirtualUdpSocket {
-	physical: Arc<UdpSocket>,
-	inbound: Mutex<Inbound>,
-	closed: AtomicBool,
-}
-
-struct Inbound {
-	queue: std::collections::VecDeque<(SocketAddr, Bytes)>,
-	waker: Option<Waker>,
-	capacity: usize,
-}
-
-impl fmt::Debug for VirtualUdpSocket {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("VirtualUdpSocket")
-			.field("closed", &self.closed.load(Ordering::Relaxed))
-			.finish_non_exhaustive()
-	}
-}
-
-impl VirtualUdpSocket {
-	#[must_use]
-	pub fn new(physical: Arc<UdpSocket>) -> Arc<Self> {
-		Arc::new(Self {
-			physical,
-			inbound: Mutex::new(Inbound {
-				queue: std::collections::VecDeque::new(),
-				waker: None,
-				capacity: VIRTUAL_INBOUND_CAPACITY,
-			}),
-			closed: AtomicBool::new(false),
-		})
-	}
-
-	/// Push `datagram` onto the inbound queue. Called from the
-	/// listener recv loop's hot-path hit. Drops the datagram if the
-	/// queue is full — UDP is lossy by design and back-pressure to the
-	/// listener loop would block every other session sharing the
-	/// physical socket.
-	pub fn enqueue_inbound(&self, peer: SocketAddr, datagram: Bytes) {
-		let mut inbound = self.inbound.lock();
-		if inbound.queue.len() >= inbound.capacity {
-			tracing::warn!(
-				target: "h3_listener",
-				?peer,
-				"virtual udp socket inbound queue full; dropping datagram",
-			);
-			return;
-		}
-		inbound.queue.push_back((peer, datagram));
-		if let Some(w) = inbound.waker.take() {
-			w.wake();
-		}
-	}
-}
-
-impl AsyncUdpSocket for VirtualUdpSocket {
-	fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
-		Box::pin(VirtualUdpPoller { socket: self })
-	}
-
-	fn try_send(&self, transmit: &Transmit<'_>) -> io::Result<()> {
-		self.physical.try_send_to(transmit.contents, transmit.destination).map(|_n| ())
-	}
-
-	fn poll_recv(
-		&self,
-		cx: &mut Context<'_>,
-		bufs: &mut [std::io::IoSliceMut<'_>],
-		meta: &mut [RecvMeta],
-	) -> Poll<io::Result<usize>> {
-		let mut inbound = self.inbound.lock();
-		if inbound.queue.is_empty() {
-			inbound.waker = Some(cx.waker().clone());
-			return Poll::Pending;
-		}
-		let cap = bufs.len().min(meta.len()).min(inbound.queue.len());
-		let local = self.physical.local_addr().unwrap_or_else(|_| {
-			SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0)
-		});
-		for i in 0..cap {
-			let (peer, dg) = inbound.queue.pop_front().expect("len checked");
-			let n = dg.len().min(bufs[i].len());
-			bufs[i][..n].copy_from_slice(&dg[..n]);
-			meta[i] = RecvMeta { addr: peer, len: n, stride: n, ecn: None, dst_ip: Some(local.ip()) };
-		}
-		Poll::Ready(Ok(cap))
-	}
-
-	fn local_addr(&self) -> io::Result<SocketAddr> {
-		self.physical.local_addr()
-	}
-}
-
-/// Poller for [`VirtualUdpSocket`]. quinn calls this to register a
-/// waker for "socket writable"; we proxy it to tokio's
-/// `UdpSocket::poll_send_ready` since the physical socket is what we
-/// actually try-send through.
-struct VirtualUdpPoller {
-	socket: Arc<VirtualUdpSocket>,
-}
-
-impl fmt::Debug for VirtualUdpPoller {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("VirtualUdpPoller").finish()
-	}
-}
-
-impl UdpPoller for VirtualUdpPoller {
-	fn poll_writable(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-		self.socket.physical.poll_send_ready(cx)
-	}
-}
 
 /// Build the per-listener `quinn::ServerConfig` for ALPN `h3`. Reuses
 /// the daemon's `Arc<rustls::ServerConfig>` (whose cert resolver is the
@@ -227,7 +90,7 @@ pub fn spawn_h3_endpoint(
 	let endpoint = quinn::Endpoint::new_with_abstract_socket(
 		quinn::EndpointConfig::default(),
 		Some(server_config),
-		virtual_socket,
+		SharedSocket::new(virtual_socket),
 		runtime,
 	)
 	.map_err(|e| format!("quic endpoint: {e}"))?;

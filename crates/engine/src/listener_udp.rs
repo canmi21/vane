@@ -84,7 +84,7 @@ pub enum DispatchHandle {
 	L4Forward(Arc<L4ForwardSession>),
 	PendingPeek(Arc<PendingPeekState>),
 	#[cfg(feature = "h3")]
-	Quic(Arc<crate::h3::listener::VirtualUdpSocket>),
+	Quic(Arc<virtual_socket::VirtualUdpSocket>),
 }
 
 /// Per-session forwarder handle. The listener pushes inbound datagrams

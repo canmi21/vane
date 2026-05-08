@@ -1,0 +1,22 @@
+[package]
+name = "quinn-shared-socket"
+version = "0.0.1"
+categories = ["network-programming", "asynchronous"]
+edition = "2024"
+keywords = ["quic", "quinn", "udp", "socket", "async"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/canmi21/vane"
+rust-version = "1.95"
+description = "Run a quinn::Endpoint on a UDP socket that is shared with other consumers, by adapting virtual-socket's VirtualUdpSocket to quinn::AsyncUdpSocket."
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes = "1"
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
+virtual-socket = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["net", "macros", "rt", "rt-multi-thread", "time"] }
