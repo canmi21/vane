@@ -19,5 +19,5 @@ pre-commit:
       run: cargo clippy --workspace --all-targets -- -D warnings
     sync-workspace-deps:
       glob: "**/Cargo.toml"
-      run: perl scripts/sync-workspace-deps.pl --write
+      run: cargo xtask sync-deps write
       stage_fixed: true

@@ -21,11 +21,11 @@ slow-timeout = { period = "10s", terminate-after = 2 }
 # build lock then serialises the parallel mgmt-test fan-out, and
 # on slower CI runners that serialisation routinely pushed the
 # four CLI-driven tests past the 20 s `slow-timeout`. Driving the
-# build through `scripts/build-vane-bin.pl` and reading the path
+# build through `cargo xtask build-vane-cli` and reading the path
 # from `$NEXTEST_ENV` keeps the cargo lock out of the test
 # critical path entirely.
 [scripts.setup.build-vane-cli]
-command = "perl scripts/build-vane-bin.pl"
+command = "cargo xtask build-vane-cli"
 slow-timeout = { period = "60s", terminate-after = 4 }
 
 [[profile.default.scripts]]
