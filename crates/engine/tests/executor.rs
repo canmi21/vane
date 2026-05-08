@@ -404,9 +404,9 @@ async fn execute_middleware_short_close_protocol_error_returns_err() {
 
 #[tokio::test]
 async fn execute_middleware_err_routes_via_on_error() {
-	// spec/crates/engine.md § _Two error channels_: Err(_) with on_error=Some(t)
-	// jumps to t; the Err does not propagate. Here the target is a Close
-	// terminator, so execute returns Ok.
+	// `spec/flow-model.md` § _Two error channels_: `Err(_)` with
+	// `on_error = Some(t)` jumps to `t`; the `Err` does not propagate.
+	// Here the target is a Close terminator, so execute returns Ok.
 	let counter = Arc::new(AtomicUsize::new(0));
 	let sym = build_graph(
 		vec![

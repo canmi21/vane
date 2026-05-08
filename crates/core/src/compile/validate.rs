@@ -206,7 +206,7 @@ fn node_kind_for_phase(graph: &SymbolicFlowGraph, node: &Node) -> PhaseNodeKind 
 ///
 /// # Errors
 /// Returns [`Error::compile`] on phase mismatches per
-/// [`spec/flow-model.md` § _Phase state machine_](../../../spec/flow-model.md#phase-state-machine).
+/// [`spec/flow-model.md` § _Phase state machine_](../../../../spec/flow-model.md#phase-state-machine).
 pub fn check_phases(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 	let mut seen: HashSet<(NodeId, Phase)> = HashSet::new();
 	for &entry in graph.entries.values() {

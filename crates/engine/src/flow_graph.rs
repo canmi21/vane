@@ -589,7 +589,7 @@ fn resolve_middlewares(
 /// link path runs this for any address absent from
 /// `sym.meta.listener_kinds` so hand-built test fixtures that skip
 /// lowering still produce sensible dispatch behaviour. Keep the rule
-/// in sync with `spec/crates/engine.md` § _Listener kind derivation_.
+/// in sync with `spec/crates/core.md` § _Listener kind derivation_.
 fn derive_kind(sym: &SymbolicFlowGraph, entry: NodeId) -> ListenerKind {
 	use vane_core::FetchPhase;
 	let mut seen_l4 = false;

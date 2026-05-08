@@ -44,7 +44,7 @@ pub enum BodySide {
 
 /// Per-listener dispatch posture. **Derived by the lower pass from
 /// the listener's entry subgraph — not user-configured.** See
-/// `spec/crates/engine.md` § _Listener kind derivation_ for the
+/// `spec/crates/core.md` § _Listener kind derivation_ for the
 /// derivation rule and § _Dispatch table_ for the runtime
 /// behavior the listener picks based on this value.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]

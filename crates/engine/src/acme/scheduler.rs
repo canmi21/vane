@@ -149,9 +149,9 @@ pub struct RenewalPlan {
 }
 
 /// Periodic scheduler cadence per `spec/crates/engine-acme.md`
-/// § _Renewal triggers_. Matches `spec/crates/engine-tls.md`'s
-/// `refresh()` cadence so cert delivery and renewal share one
-/// heartbeat.
+/// § _Renewal triggers_. Matches the `Cert populators` `refresh()`
+/// cadence in `spec/crates/engine-tls.md` so cert delivery and renewal
+/// share one heartbeat.
 pub const TICK_INTERVAL: Duration = Duration::from_mins(5);
 
 /// Refresh the cached OCSP staple when the responder's
@@ -238,7 +238,7 @@ pub fn mark_renewing(state: &mut CertState, now: SystemTime) {
 
 /// Pure-decision: should the scheduler dispatch an OCSP refresh for
 /// `state` at `now`? Two trigger conditions per
-/// `spec/crates/engine-acme.md` § _OCSP stapling_:
+/// `spec/crates/engine-tls.md` § _OCSP stapling_:
 ///
 /// - `state.stored.is_some()` AND no staple has been cached yet
 ///   (`ocsp_response.is_none()`) AND a responder URL is known

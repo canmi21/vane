@@ -160,7 +160,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// Install rustls's process-wide default crypto provider before any
 	// `ServerConfig::builder()` runs in `FlowGraph::link`. The selection
 	// (aws-lc-rs vs ring) is fixed at compile time by the engine's
-	// crypto-backend feature; see spec/crates/daemon.md § _Crypto backend_.
+	// crypto-backend feature; see `spec/crates/daemon.md` § _Crypto provider_.
 	vane_engine::crypto::install_default_provider();
 
 	// Daemon-wide TLS session ticketer — must follow

@@ -77,7 +77,7 @@ fn event_loop(terminal: &mut Tty, info: &BuildInfo) -> anyhow::Result<()> {
 	// instantaneous, slow enough that the loop spends most of its time
 	// parked instead of redrawing. Once the management client is
 	// wired in, the cadence will be driven by per-view refresh
-	// intervals (see spec/crates/mgmt.md § _Update
+	// intervals (see spec/tui.md § _Update
 	// model_) rather than a fixed timer.
 	let tick = Duration::from_millis(250);
 	loop {

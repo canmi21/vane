@@ -24,7 +24,7 @@
 //!   cleartext WS or WSS at the L4→L7 handshake.
 //!
 //! See `spec/crates/engine.md` § _Concrete fetches_,
-//! `spec/crates/core.md` § _Concrete fetches_.
+//! `spec/crates/engine.md` § _Concrete fetches_.
 
 use std::sync::Arc;
 

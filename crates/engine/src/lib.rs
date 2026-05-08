@@ -1,9 +1,9 @@
 //! vane runtime engine: executor, listeners, pools, TLS, built-in middleware.
 //!
-//! See `spec/flow-model.md`, `spec/crates/engine.md`, `spec/crates/engine.md`, `spec/crates/engine-tls.md`, `spec/crates/core.md`.
+//! See `spec/flow-model.md`, `spec/crates/engine.md`, `spec/crates/engine-tls.md`, `spec/crates/core.md`.
 
 // Crypto backend is mutually exclusive by design — see
-// spec/crates/daemon.md § _Crypto backend_.
+// `spec/crates/daemon.md` § _Crypto provider_.
 // `cargo … --all-features` deliberately does not work on this workspace;
 // pick one backend explicitly (e.g. `--features "aws-lc-rs,h3,cgi"`).
 #[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
@@ -12,7 +12,7 @@ compile_error!(
 	 If you ran `--all-features`, drop one explicitly: \
 	 `--no-default-features --features \"aws-lc-rs,h3,cgi,acme,cloudflare\"` \
 	 (or replace `aws-lc-rs` with `ring`). \
-	 See spec/crates/daemon.md § Crypto backend.",
+	 See spec/crates/daemon.md § _Crypto provider_.",
 );
 
 #[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
@@ -87,7 +87,7 @@ pub mod crypto {
 	/// at the top of `main`; tests call it in their setup).
 	///
 	/// See `spec/crates/engine-tls.md` § _Termination flow (L4 → L7 upgrade)_ and
-	/// `spec/crates/daemon.md` § _Crypto backend_.
+	/// `spec/crates/daemon.md` § _Crypto provider_.
 	pub fn install_default_provider() {
 		#[cfg(feature = "aws-lc-rs")]
 		{

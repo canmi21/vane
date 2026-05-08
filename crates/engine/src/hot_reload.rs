@@ -3,7 +3,7 @@
 //!
 //! Boot-time compile is driven explicitly by the boot sequence — not by
 //! the watcher; existing files fire no `notify` event on boot (see
-//! `spec/roadmap.md` § _Compile pipeline_).
+//! `spec/crates/core.md` § _Compile pipeline_).
 //!
-//! See `spec/flow-model.md` § _Hot reload_ and
-//! `spec/crates/core.md` § _Reload_.
+//! See `spec/crates/engine.md` § _Hot reload_ and
+//! `spec/crates/engine.md` § _Hot reload_.

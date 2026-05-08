@@ -4,7 +4,7 @@
 //! intent into raw-rule bundles. The four built-in presets are
 //! `reverse_proxy`, `port_forward`, `static_site`, and `redirect_https`.
 //!
-//! See [`spec/crates/core.md` § _Compile pipeline_](../../../spec/crates/core.md#compile-pipeline).
+//! See [`spec/crates/core.md` § _Compile pipeline_](../../../../spec/crates/core.md#compile-pipeline).
 
 mod port_forward;
 mod redirect_https;

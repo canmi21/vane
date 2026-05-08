@@ -7,7 +7,7 @@
 //! it into tokio via an unbounded mpsc channel. Each debounced batch
 //! that contains at least one reload-worthy event (file create / modify
 //! data / rename / remove under the watched tree, per
-//! `spec/crates/core.md` § _Hot reload_) coalesces to a
+//! `spec/crates/engine.md` § _Hot reload_) coalesces to a
 //! single `()` send. Metadata-only / access / unknown events are
 //! filtered out so reload CPU is spent only on real config changes.
 //!
@@ -61,7 +61,7 @@ pub(crate) struct WatcherSubscription {
 }
 
 /// Window over which fs events are coalesced before triggering a
-/// reload. 250ms matches `spec/crates/core.md` § _Reload_.
+/// reload. 250ms matches `spec/crates/engine.md` § _Hot reload_.
 const DEBOUNCE_MS: u64 = 250;
 
 /// Phase 1 — build the debouncer and subscribe to `FSEvents`
@@ -196,7 +196,7 @@ fn hex32(bytes: &[u8; 32]) -> String {
 
 /// Whether a debounced batch contains at least one event that warrants
 /// recompiling the rule set. Per
-/// `spec/crates/core.md` § _Hot reload_, only file-level
+/// `spec/crates/engine.md` § _Hot reload_, only file-level
 /// mutations under the watched tree are reload-worthy:
 ///
 /// - `Create(_)` — a new rule file appeared.

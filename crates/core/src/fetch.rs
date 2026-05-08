@@ -100,7 +100,7 @@ impl FetchKind {
 	/// this to derive each listener's [`crate::ir::ListenerKind`] from
 	/// the set of reachable terminators per entry; new fetch kinds
 	/// pick their phase here so the derivation table in
-	/// `spec/crates/engine.md` § _Listener kind derivation_ stays single-source.
+	/// `spec/crates/core.md` § _Listener kind derivation_ stays single-source.
 	#[must_use]
 	pub const fn phase(self) -> FetchPhase {
 		match self {

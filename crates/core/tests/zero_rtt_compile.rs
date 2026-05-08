@@ -70,8 +70,8 @@ fn compile_one(raw: serde_json::Value) -> Result<(), Error> {
 #[test]
 fn missing_allow_zero_rtt_on_tls_l7_rule_errors() {
 	// `tls.enable_zero_rtt` is present but the per-rule `allow_zero_rtt`
-	// is absent — required by `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Compile-
-	// time constraints_.
+	// is absent — required by `spec/crates/engine-tls.md`
+	// § _TLS 1.3 0-RTT (early data)_ § _Compile-time constraints_.
 	let err = compile_one(json!({
 		"name": "api",
 		"listen": [":443"],

@@ -522,7 +522,7 @@ impl PredicateInst {
 				test_str(&self.op, s)
 			}
 			// `http.body` reads the request body bytes. Per
-			// spec/crates/core.md § _Runtime_, the analyze pass marks
+			// `spec/flow-model.md` § _LazyBuffer_, the analyze pass marks
 			// the incoming edge of any `http.body` Check with
 			// `collect_body_before = Some(BodySide::Request)`, so by the
 			// time `test()` runs the executor has already collected
@@ -645,7 +645,7 @@ fn test_int(op: &CompiledOperator, value: i64) -> bool {
 
 /// IpAddr-typed reader. `equals`/`not_equals`, `in`/`not_in`, `cidr`.
 /// Cross-family `in` lists (e.g. v4+v6) match iff any element matches —
-/// a single `cidr` is single-family per spec 18 § _Predicate_.
+/// a single `cidr` is single-family per `spec/crates/core.md` § _Predicate_.
 fn test_addr(op: &CompiledOperator, value: std::net::IpAddr) -> bool {
 	match op {
 		CompiledOperator::Equals(CompiledValue::Addr(expected)) => value == *expected,

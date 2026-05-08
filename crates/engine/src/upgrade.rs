@@ -3,7 +3,7 @@
 //! each decoded `Request` walks the L7 sub-graph from the
 //! `Upgrade.next` node.
 //!
-//! See `spec/crates/engine.md` § _L4 → L7 upgrade_,
+//! See `spec/crates/engine-tls.md` § _Termination flow (L4 → L7 upgrade)_,
 //! `spec/flow-model.md` § _Executor_ (Upgrade arm),
 //! `spec/crates/engine.md` (H1 / H2 paths).
 //!

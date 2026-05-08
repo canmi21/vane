@@ -1031,7 +1031,7 @@ mod tests {
 
 	#[test]
 	fn lower_derives_http_for_udp_prefix_listener() {
-		// `spec/crates/engine.md` § _Listener kind derivation_ is graph-shape-only —
+		// `spec/crates/core.md` § _Listener kind derivation_ is graph-shape-only —
 		// transport doesn't enter the rule. The `udp:` prefix flows
 		// through `parse_listen` to `listener_transports`, while the
 		// L7 terminator independently picks `Http`. The combination is

@@ -116,7 +116,7 @@ pub fn lower(
 /// Walk the entry subgraph collecting every reachable
 /// [`SymbolicFetchRef`]. Map each to a [`FetchPhase`] via
 /// [`FetchKind::phase`] and pick the [`ListenerKind`] from the
-/// resulting set per `spec/crates/engine.md` § _Listener kind derivation_:
+/// resulting set per `spec/crates/core.md` § _Listener kind derivation_:
 ///
 /// | reachable phases     | derived kind |
 /// | -------------------- | ------------ |
@@ -1961,7 +1961,7 @@ fn value_to_bytes(
 	op_name: &'static str,
 	source: &SourceInfo,
 ) -> Result<bytes::Bytes, Error> {
-	// spec 18 § _Predicate_ keys the literal form off the
+	// `spec/crates/core.md` § _Predicate_ keys the literal form off the
 	// FIELD's value type, not the operator: String-valued fields take
 	// a verbatim JSON string; Bytes-valued fields take a STANDARD
 	// base64 string. contains / not_contains / prefix / suffix all
@@ -2049,7 +2049,7 @@ fn hash_rules(rules: &[AnalyzedRule]) -> [u8; 32] {
 
 #[cfg(test)]
 mod compat_tests {
-	//! Per-cell coverage of spec 18 § _Operator × value type
+	//! Per-cell coverage of `spec/crates/core.md` § _Operator × value type
 	//! compatibility_. Each illegal cell (marked `—` in the matrix) gets
 	//! at least one rejected sample, and the diagnostic carries the rule
 	//! file + line. Legal cells are exercised indirectly by the runtime
@@ -2345,7 +2345,7 @@ mod compat_tests {
 		}
 	}
 
-	// spec 18 § _Predicate_: bytes-typed literal = STANDARD base64
+	// `spec/crates/core.md` § _Predicate_: bytes-typed literal = STANDARD base64
 	/// `{ "http.body": { "contains": "aGVsbG8=" } }` is the spec example
 	/// for a Bytes-valued contains operator. Compile must decode the
 	/// base64 into the literal bytes b"hello" so the runtime byte-

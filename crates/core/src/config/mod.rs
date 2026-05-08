@@ -1,6 +1,6 @@
 //! Config loading entry point.
 //!
-//! See [`spec/crates/core.md` § _Config layers_](../../../spec/crates/core.md#config-layers).
+//! See [`spec/crates/core.md` § _Config layers_](../../../../spec/crates/core.md#config-layers).
 //! Module responsibilities:
 //!
 //! 1. Best-effort `dotenvy` load of `<config_dir>/.env`. **OS env wins**

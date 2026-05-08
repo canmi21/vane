@@ -846,7 +846,7 @@ async fn handle_connection(
 	// Pre-fill ConnContext.tls.sni from the parsed ClientHello so L4
 	// middleware running before an `Upgrade` node can read it. `tls.alpn`
 	// and `tls.version` are post-handshake values; they are populated in
-	// the TLS termination path below (spec/crates/engine.md § _L4 → L7 upgrade_).
+	// the TLS termination path below (`spec/crates/engine-tls.md` § _Termination flow (L4 → L7 upgrade)_).
 	if let Some(tls_hello) = peek_result.tls.as_ref()
 		&& tls_hello.sni.is_some()
 	{

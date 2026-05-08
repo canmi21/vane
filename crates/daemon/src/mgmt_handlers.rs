@@ -553,7 +553,7 @@ impl MgmtState {
 
 	/// `force_renew` verb: kick off an immediate renewal attempt for
 	/// `sni`, bypassing both the periodic timer and any active
-	/// backoff. Per `spec/crates/engine-acme.md` § _force_renew mgmt verb_ the
+	/// backoff. Per `spec/crates/engine-acme.md` § _mgmt verbs_ the
 	/// response shape is `{queued, current_status}`; the actual
 	/// issuance runs asynchronously, so `queued: true` is "request
 	/// accepted" — operators chain a `get_certs` poll if they need
