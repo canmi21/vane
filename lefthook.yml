@@ -17,3 +17,7 @@ pre-commit:
     clippy:
       glob: "*.rs"
       run: cargo clippy --workspace --all-targets -- -D warnings
+    sync-workspace-deps:
+      glob: "**/Cargo.toml"
+      run: perl scripts/sync-workspace-deps.pl --write
+      stage_fixed: true
