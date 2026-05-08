@@ -35,6 +35,7 @@
             pkgs.just
             pkgs.bun
             pkgs.nixfmt
+            pkgs.perl
             muslCC
           ];
 
