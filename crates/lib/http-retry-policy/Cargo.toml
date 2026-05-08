@@ -1,0 +1,18 @@
+[package]
+name = "http-retry-policy"
+version = "0.0.1"
+categories = ["network-programming", "asynchronous"]
+edition.workspace = true
+keywords = ["retry", "backoff", "http", "hyper", "policy"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "HTTP retry policy with exponential backoff, idempotent-method gating, and explicit body-buffering semantics."
+
+[lints]
+workspace = true
+
+[dependencies]
+http = "1"
+rand = "0.10"

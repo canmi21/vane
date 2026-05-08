@@ -1970,6 +1970,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-retry-policy"
+version = "0.0.1"
+dependencies = [
+ "http",
+ "rand 0.10.1",
+]
+
+[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5174,6 +5182,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "http-retry-policy",
  "hyper",
  "hyper-rustls",
  "hyper-util",
@@ -5192,7 +5201,6 @@ dependencies = [
  "quinn",
  "quinn-proto",
  "quinn-shared-socket",
- "rand 0.10.1",
  "rcgen",
  "rustls",
  "rustls-crl-refresh",
