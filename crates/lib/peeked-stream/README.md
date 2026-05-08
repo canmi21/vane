@@ -1,4 +1,4 @@
-# peeked-stream
+# Peeked Stream
 
 An `AsyncRead` + `AsyncWrite` adapter that prepends a previously-peeked
 byte buffer to the read side of a stream, while passing writes through
@@ -33,4 +33,4 @@ when you need the concrete inner type back (e.g. a `TcpStream` for
 
 ## License
 
-MIT.
+Released under the MIT License © 2026 [Canmi](https://canmi.net)

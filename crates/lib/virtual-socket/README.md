@@ -1,4 +1,4 @@
-# virtual-socket
+# Virtual Socket
 
 Virtual UDP sockets that share a single physical
 [`tokio::net::UdpSocket`].
@@ -48,4 +48,4 @@ let virt = VirtualUdpSocket::new(Arc::clone(&physical));
 
 ## License
 
-MIT.
+Released under the MIT License © 2026 [Canmi](https://canmi.net)
