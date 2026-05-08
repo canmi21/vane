@@ -3793,6 +3793,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-crl-refresh"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "parking_lot",
+ "rcgen",
+ "rustls",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "x509-parser",
+]
+
+[[package]]
 name = "rustls-native-certs"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5097,6 +5114,7 @@ dependencies = [
  "rcgen",
  "reqwest",
  "rustls",
+ "rustls-crl-refresh",
  "rustls-native-certs",
  "rustls-native-roots-cache",
  "rustls-pemfile",

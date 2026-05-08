@@ -1,0 +1,31 @@
+[package]
+name = "rustls-crl-refresh"
+version = "0.0.1"
+categories = ["cryptography", "network-programming"]
+edition.workspace = true
+keywords = ["rustls", "tls", "crl", "revocation", "verifier"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Process-wide CRL cache and refreshable rustls verifiers without ServerConfig churn."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = "0.1"
+parking_lot = "0.12"
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls-pemfile = "2"
+rustls-pki-types = "1"
+time = "0.3"
+tokio = { version = "1", features = ["fs", "rt", "sync", "time", "macros"] }
+tokio-util = "0.7"
+tracing = "0.1"
+x509-parser = "0.18"
+
+[dev-dependencies]
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

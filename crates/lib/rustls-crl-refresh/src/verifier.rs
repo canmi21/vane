@@ -1,11 +1,9 @@
 //! Wrapper certificate verifiers that build a fresh
 //! `WebPkiClientVerifier` / `WebPkiServerVerifier` per handshake from
-//! the latest CRL snapshot held in [`crate::tls::CrlCache`]. This is
-//! the mechanism that satisfies the `Arc<ClientConfig>` /
-//! `Arc<ServerConfig>` stability invariant from
-//! `spec/crates/engine-tls.md` § _CRL_ — refreshing CRL
-//! bytes does not invalidate cached configs (and therefore does not
-//! churn the upstream client cache); the wrapper just sees the new
+//! the latest CRL snapshot held in [`crate::CrlCache`]. This is the
+//! mechanism that satisfies the `Arc<ClientConfig>` /
+//! `Arc<ServerConfig>` stability invariant: refreshing CRL bytes does
+//! not invalidate cached configs, and the wrapper just sees the new
 //! bytes the next time it consults the cache.
 
 use std::sync::Arc;
@@ -16,11 +14,11 @@ use rustls::server::WebPkiClientVerifier;
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{DigitallySignedStruct, DistinguishedName, RootCertStore, SignatureScheme};
 
-use super::crl_cache::{CrlCache, CrlSourceId};
+use crate::cache::{CrlCache, CrlSourceId};
 
 /// Listener-side wrapper that defers to a freshly-built
 /// `WebPkiClientVerifier` per handshake against the latest CRL bytes
-/// pulled from `cache`.
+/// pulled from the cache.
 #[derive(Debug)]
 pub struct RefreshableClientCertVerifier {
 	cache: Arc<CrlCache>,
@@ -88,9 +86,8 @@ impl ClientCertVerifier for RefreshableClientCertVerifier {
 		cert: &CertificateDer<'_>,
 		dss: &DigitallySignedStruct,
 	) -> Result<HandshakeSignatureValid, rustls::Error> {
-		// The crypto provider is installed at daemon boot; reach for it
-		// rather than holding an Arc here, mirroring the pattern used
-		// by `NoVerify` in `fetch::upstream`.
+		// Defer to the process-wide rustls crypto provider — must be
+		// installed by the host before any handshake runs.
 		rustls::crypto::verify_tls12_signature(
 			message,
 			cert,
@@ -228,7 +225,7 @@ mod tests {
 	use rustls::RootCertStore;
 
 	use super::*;
-	use crate::tls::crl_cache::{CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId};
+	use crate::cache::{CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId};
 
 	struct StaticFetcher {
 		bytes: Vec<u8>,
@@ -308,9 +305,6 @@ mod tests {
 		let fetcher = Arc::new(StaticFetcher { bytes: vec![], count: AtomicUsize::new(0) });
 		let cache = CrlCache::new(fetcher);
 		let v = RefreshableClientCertVerifier::new(cache, Vec::new(), cas, false);
-		// No crls — building the inner verifier must succeed; we don't
-		// run a full handshake here. The presence of any roots is the
-		// only precondition rustls enforces.
 		assert!(v.build_inner().is_ok());
 		assert!(v.client_auth_mandatory());
 	}
@@ -319,8 +313,6 @@ mod tests {
 	async fn client_verifier_propagates_reject_unavailable() {
 		install_crypto_once();
 		let (cas, _issuer) = ca_only_root_store();
-		// reject + never-loaded source must surface as `rustls::Error`
-		// at build_inner time; this is what fails a handshake.
 		let cache = CrlCache::new(Arc::new(FailingFetcher));
 		let src = CrlSourceId::Url("https://crl.example/down".into());
 		let _ = cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Reject)]);
@@ -342,7 +334,6 @@ mod tests {
 		let src = CrlSourceId::Url("https://crl.example/with-revoke".into());
 		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("load");
 		let v = RefreshableServerCertVerifier::new(cache, vec![src], cas);
-		// Building the inner verifier with valid CRL DER must succeed.
 		assert!(v.build_inner().is_ok());
 	}
 

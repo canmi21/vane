@@ -4,6 +4,8 @@ Process-wide cache for rustls's native trust store, with bounded
 retry on macOS Security framework transient errors and sticky
 failure semantics.
 
+## Features
+
 `rustls_native_certs::load_native_certs` reaches into the OS keychain
 (Security framework on macOS, NSS / OpenSSL stores on Linux). On
 macOS the underlying `Sec*` APIs are not concurrency-safe under load

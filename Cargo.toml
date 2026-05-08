@@ -12,6 +12,7 @@ members = [
 	"crates/lib/ocsp-staple",
 	"crates/lib/peeked-stream",
 	"crates/lib/quinn-shared-socket",
+	"crates/lib/rustls-crl-refresh",
 	"crates/lib/rustls-native-roots-cache",
 	"crates/lib/tracing-broadcast",
 	"crates/lib/virtual-socket",
@@ -47,6 +48,7 @@ ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.
 ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.1" }
 peeked-stream = { path = "crates/lib/peeked-stream", version = "0.0.1" }
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }
+rustls-crl-refresh = { path = "crates/lib/rustls-crl-refresh", version = "0.0.1" }
 rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.1" }
 tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.1" }
 vane-core = { path = "crates/core", version = "0.10.4" }

@@ -20,7 +20,7 @@ use rustls::RootCertStore;
 use vane_core::rule::{ClientAuthSpec, ClientTrustStoreConfig, CrlSourceConfig};
 
 use crate::tls::crl_cache::{CrlCache, CrlFetchFailure, CrlSourceId};
-use crate::tls::refreshable_crl_verifier::RefreshableClientCertVerifier;
+use rustls_crl_refresh::RefreshableClientCertVerifier;
 
 /// Loaded trust store ready for `WebPkiClientVerifier::builder(...)`.
 /// CA roots are merged from every PEM source named in the config; CRL
