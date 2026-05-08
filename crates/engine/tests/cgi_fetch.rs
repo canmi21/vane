@@ -27,7 +27,9 @@ use bytes::Bytes;
 use http_body_util::BodyExt as _;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
-use tempfile::NamedTempFile;
+use std::path::{Path, PathBuf};
+
+use tempfile::{NamedTempFile, TempDir};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
 	Body, ConnContext, ConnId, FlowCtx, FlowLogEvent, FlowLogSink, FlowLogVerbosity, L7Fetch,
@@ -40,14 +42,38 @@ impl FlowLogSink for DropSink {
 	fn emit(&self, _event: FlowLogEvent) {}
 }
 
-/// Write `script` to a chmod 0o755 tempfile and return it. The first
-/// line is expected to be a `#!` shebang so `execve(2)` can load the
-/// interpreter; for plain `/bin/sh` scripts that's `#!/bin/sh\n`.
-fn tempbin(script: &str) -> NamedTempFile {
-	let mut f = NamedTempFile::new().expect("tmp");
-	f.write_all(script.as_bytes()).expect("write");
-	std::fs::set_permissions(f.path(), std::fs::Permissions::from_mode(0o755)).expect("chmod");
-	f
+/// A test fixture binary plus its enclosing tempdir. Linux refuses
+/// `execve(2)` on a path that still has an open write fd
+/// (`ETXTBSY`), so we write the script via a short-lived `File` that
+/// gets dropped before the path leaves this helper. The wrapper
+/// keeps the directory alive so the path stays valid for the
+/// duration of the test.
+struct TempBin {
+	_dir: TempDir,
+	path: PathBuf,
+}
+
+impl TempBin {
+	fn path(&self) -> &Path {
+		&self.path
+	}
+}
+
+/// Write `script` to a chmod 0o755 file inside a fresh tempdir and
+/// return it. The first line is expected to be a `#!` shebang so
+/// `execve(2)` can load the interpreter; for plain `/bin/sh`
+/// scripts that's `#!/bin/sh\n`.
+fn tempbin(script: &str) -> TempBin {
+	let dir = tempfile::tempdir().expect("tempdir");
+	let path = dir.path().join("cgi_bin");
+	{
+		let mut f = std::fs::File::create(&path).expect("create");
+		f.write_all(script.as_bytes()).expect("write");
+		// `f` is dropped at the end of this block, releasing the
+		// write fd before the script gets handed to `execve`.
+	}
+	std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+	TempBin { _dir: dir, path }
 }
 
 fn current_uid() -> u32 {

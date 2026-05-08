@@ -25,7 +25,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
-use tempfile::NamedTempFile;
+use std::path::{Path, PathBuf};
+
+use tempfile::{NamedTempFile, TempDir};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
 	Body, ConnContext, ConnId, FlowCtx, FlowLogEvent, FlowLogSink, FlowLogVerbosity, L7Fetch,
@@ -38,11 +40,29 @@ impl FlowLogSink for DropSink {
 	fn emit(&self, _event: FlowLogEvent) {}
 }
 
-fn tempbin(script: &str) -> NamedTempFile {
-	let mut f = NamedTempFile::new().expect("tmp");
-	f.write_all(script.as_bytes()).expect("write");
-	std::fs::set_permissions(f.path(), std::fs::Permissions::from_mode(0o755)).expect("chmod");
-	f
+/// A test fixture binary plus its enclosing tempdir. See the
+/// matching helper in `cgi_fetch.rs` for why the write fd has to be
+/// dropped before the path is handed to `execve`.
+struct TempBin {
+	_dir: TempDir,
+	path: PathBuf,
+}
+
+impl TempBin {
+	fn path(&self) -> &Path {
+		&self.path
+	}
+}
+
+fn tempbin(script: &str) -> TempBin {
+	let dir = tempfile::tempdir().expect("tempdir");
+	let path = dir.path().join("cgi_bin");
+	{
+		let mut f = std::fs::File::create(&path).expect("create");
+		f.write_all(script.as_bytes()).expect("write");
+	}
+	std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+	TempBin { _dir: dir, path }
 }
 
 fn current_uid() -> u32 {

@@ -1,7 +1,11 @@
 /target
+/target-linux
 *.wasm
 
 node_modules/
+
+/.docker-cache
+/.docker-cargo-cache
 
 .env
 *.local
