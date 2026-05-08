@@ -16,6 +16,22 @@ output leaks through `--quiet` to stderr in some scenarios, and the
 TUI's drawing buffer doesn't survive that. Doing the build first
 pushes those bytes ahead of the terminal takeover.
 
+## `check_spec_anchors.pl`
+
+Verifies every `spec/<path>.md § _Section_` reference in workspace
+source resolves to a real heading in that spec file. Run from the
+repo root: `perl scripts/check_spec_anchors.pl`. Exits 0 when
+every reference resolves; exits 1 with a grouped report otherwise.
+
+Position-aware: each `§ _Section_` is paired with the closest
+preceding `spec/<path>.md` token on the same line, falling back to
+the most recent mention in the previous 30 lines so doc-block
+headers carry forward to continuation lines. Heading match is exact
+(no substring or near-match fallback).
+
+Stdlib-only — `perl` is in the base install on every Unix the
+project supports.
+
 ## Setup
 
 direnv must be installed and hooked into the shell. On macOS + fish:
