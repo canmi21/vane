@@ -36,7 +36,7 @@ pub struct CardinalityRegistry {
 
 impl CardinalityRegistry {
 	/// Construct a registry with an explicit cap. The cap applies
-	/// independently to each namespace passed to [`try_admit`].
+	/// independently to each namespace passed to [`Self::try_admit`].
 	#[must_use]
 	pub fn with_cap(cap: usize) -> Self {
 		Self { cap, state: Mutex::new(HashMap::new()) }
