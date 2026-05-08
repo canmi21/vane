@@ -10,7 +10,6 @@
 pub mod cert_store;
 pub mod client_trust;
 pub mod crl_cache;
-pub mod ocsp;
 pub mod populator;
 pub mod refreshable_crl_verifier;
 pub mod resolver;
@@ -25,7 +24,7 @@ pub use crl_cache::{
 	CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId, DefaultCrlFetcher,
 	collect_listener_crl_sources, collect_upstream_crl_sources, dedupe_crl_sources,
 };
-pub use ocsp::{OcspError, OcspStaple};
+pub use ocsp_staple::{OcspError, OcspStaple};
 pub use populator::{CertPopulator, PopulatorError};
 pub use refreshable_crl_verifier::{RefreshableClientCertVerifier, RefreshableServerCertVerifier};
 pub use resolver::VaneCertResolver;

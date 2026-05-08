@@ -39,7 +39,7 @@ use super::scheduler::{
 	record_success, should_attempt, should_refresh_ocsp,
 };
 use super::store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
-use crate::tls::ocsp::{self, FETCH_TIMEOUT, OcspError};
+use ocsp_staple::{FETCH_TIMEOUT, OcspError, extract_ocsp_url, fetch_ocsp_for_cert};
 
 /// Lookup key for the pending-challenge table. Per
 /// `spec/crates/engine-acme.md` § _Challenge: HTTP-01_ the responder verifies
@@ -1357,7 +1357,7 @@ async fn fetch_ocsp_for_stored(stored: &StoredCert) -> OcspFetchOutcome {
 			return OcspFetchOutcome::NotApplicable;
 		}
 	};
-	let aia_url = match ocsp::extract_ocsp_url(leaf_der.as_ref()) {
+	let aia_url = match extract_ocsp_url(leaf_der.as_ref()) {
 		Ok(url) => url,
 		Err(OcspError::NoAia | OcspError::NoOcspUrl) => return OcspFetchOutcome::NotApplicable,
 		Err(OcspError::HttpsNotSupported(_)) => {
@@ -1372,7 +1372,7 @@ async fn fetch_ocsp_for_stored(stored: &StoredCert) -> OcspFetchOutcome {
 			return OcspFetchOutcome::NotApplicable;
 		}
 	};
-	match ocsp::fetch_ocsp_for_cert(leaf_der.as_ref(), issuer_der.as_ref(), FETCH_TIMEOUT).await {
+	match fetch_ocsp_for_cert(leaf_der.as_ref(), issuer_der.as_ref(), FETCH_TIMEOUT).await {
 		Ok(staple) => {
 			OcspFetchOutcome::Stapled { staple: staple.staple, next_update: staple.next_update, aia_url }
 		}

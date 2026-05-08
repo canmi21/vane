@@ -6,6 +6,7 @@ members = [
 	"crates/daemon",
 	"crates/engine",
 	"crates/lib/clienthello",
+	"crates/lib/ocsp-staple",
 	"crates/lib/peeked-stream",
 	"crates/lib/quinn-shared-socket",
 	"crates/lib/rustls-native-roots-cache",
@@ -36,6 +37,7 @@ pedantic = { level = "warn", priority = -1 }
 [workspace.dependencies]
 async-trait = "0.1"
 clienthello = { path = "crates/lib/clienthello", version = "0.2" }
+ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.1" }
 peeked-stream = { path = "crates/lib/peeked-stream", version = "0.0.1" }
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }
 rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.1" }

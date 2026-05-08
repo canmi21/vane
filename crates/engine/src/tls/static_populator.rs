@@ -24,9 +24,9 @@ use parking_lot::Mutex;
 use vane_core::rule::{ListenerTlsSpec, TlsConfig};
 use x509_parser::prelude::FromDer;
 
-use crate::tls::ocsp::{self, FETCH_TIMEOUT, OcspError};
 use crate::tls::populator::{CertPopulator, PopulatorError};
 use crate::tls::{CertEntry, CertStore};
+use ocsp_staple::{FETCH_TIMEOUT, OcspError, fetch_ocsp_for_cert, parse_ocsp_response};
 
 /// `nextUpdate` proximity that triggers a fresh fetch on
 /// `ocsp_fetch: true` configs. Mirrors
@@ -218,7 +218,7 @@ async fn fetch_one(tls: &TlsConfig, cached: &CachedOcsp) -> Option<CachedOcsp> {
 		let Some(Ok(issuer)) = iter.next() else { return None };
 		(leaf, issuer)
 	};
-	match ocsp::fetch_ocsp_for_cert(leaf.as_ref(), issuer.as_ref(), FETCH_TIMEOUT).await {
+	match fetch_ocsp_for_cert(leaf.as_ref(), issuer.as_ref(), FETCH_TIMEOUT).await {
 		Ok(staple) => {
 			Some(CachedOcsp { staple: Some(staple.staple), next_update: Some(staple.next_update) })
 		}
@@ -298,7 +298,7 @@ fn load_entry(tls: &TlsConfig, fetched: CachedOcsp) -> Result<CertEntry, Populat
 	// (c) Neither: no staple.
 	let (ocsp_response, ocsp_next_update) = match (&tls.ocsp_path, tls.ocsp_fetch) {
 		(Some(path), false) => match fs::read(path) {
-			Ok(bytes) => match ocsp::parse_ocsp_response(&bytes) {
+			Ok(bytes) => match parse_ocsp_response(&bytes) {
 				Ok(staple) => (Some(staple.staple), Some(staple.next_update)),
 				Err(e) => {
 					tracing::warn!(

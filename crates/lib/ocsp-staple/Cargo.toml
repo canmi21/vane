@@ -1,0 +1,42 @@
+[package]
+name = "ocsp-staple"
+version = "0.0.1"
+categories = ["cryptography", "network-programming"]
+edition = "2024"
+keywords = ["ocsp", "tls", "stapling", "certificates", "x509"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/canmi21/vane"
+rust-version = "1.95"
+description = "Build OCSP requests, parse OCSP responses, and extract OCSP responder URLs from a certificate's AIA extension. Optional async HTTP fetch via hyper."
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Pulls in a hyper-based async fetch path for the OCSP responder.
+# Without this feature the crate is pure-function: it only knows
+# how to parse and build the protocol bytes, leaving transport to
+# the caller.
+fetch = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:tokio", "dep:url"]
+
+[dependencies]
+bytes = "1"
+der = "0.7"
+sha1 = { version = "0.10", features = ["oid"] }
+thiserror = "2"
+x509-cert = "0.2"
+x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
+x509-parser = "0.18"
+
+# Async HTTP fetch — gated behind the `fetch` feature.
+http-body-util = { version = "0.1", optional = true }
+hyper = { version = "1.9", features = ["client", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+tokio = { version = "1", features = ["net", "time", "rt"], optional = true }
+url = { version = "2", optional = true }
+
+[dev-dependencies]
+rcgen = "0.14"
+tokio = { version = "1", features = ["macros", "rt"] }

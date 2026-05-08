@@ -73,6 +73,7 @@ metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 notify = "8.2.0"
 notify-debouncer-full = "0.7.0"
+ocsp-staple = { workspace = true, features = ["fetch"] }
 parking_lot = "0.12.5"
 peeked-stream = { workspace = true }
 pin-project-lite = "0.2.17"

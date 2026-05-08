@@ -2895,6 +2895,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocsp-staple"
+version = "0.0.1"
+dependencies = [
+ "bytes",
+ "der",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
+ "sha1",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
+ "x509-cert",
+ "x509-ocsp",
+ "x509-parser",
+]
+
+[[package]]
 name = "oid-registry"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5011,6 +5030,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "notify",
  "notify-debouncer-full",
+ "ocsp-staple",
  "parking_lot",
  "peeked-stream",
  "pin-project-lite",

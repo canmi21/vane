@@ -1,45 +1,36 @@
-//! OCSP stapling helpers — extract the responder URL from a cert's
-//! AIA extension, build an OCSP request against the issuing cert,
-//! fetch the response over HTTP, parse the response into a stapleable
-//! byte blob plus its `nextUpdate` deadline.
-//!
-//! Always compiled (no feature gate). Both populators —
-//! [`crate::tls::StaticCertPopulator`] (operator-supplied PEM) and
-//! `crate::acme::ManagedCertPopulator` (ACME-issued, gated behind
-//! the `acme` feature) — call into this module when their config
-//! opts into OCSP fetching.
+//! Build OCSP requests, parse OCSP responses, and extract the OCSP
+//! responder URL from a certificate's Authority Information Access
+//! (AIA) extension. With the `fetch` feature, also performs an async
+//! HTTP/1.1 POST against the responder via hyper.
 //!
 //! ## Transport policy: HTTP-only
 //!
-//! Per `spec/crates/engine-tls.md` § _OCSP stapling_, vane fetches OCSP only over plaintext HTTP. Production
-//! CAs (Let's Encrypt, `DigiCert`, Sectigo, Entrust, `GlobalSign`) all
-//! ship HTTP-only responders, and OCSP responses are independently
-//! signed (the transport adds nothing the response signature doesn't
-//! already provide), so a second transport would double the test
-//! matrix for negligible coverage. An HTTPS responder URL surfaces
-//! as [`OcspError::HttpsNotSupported`]; operators in that situation
-//! deliver the response via the static populator's `ocsp_path`
-//! (pre-fetched DER on disk).
+//! Production CAs (Let's Encrypt, `DigiCert`, Sectigo, Entrust,
+//! `GlobalSign`) all ship HTTP-only OCSP responders, and OCSP responses
+//! are independently signed (the transport adds nothing the response
+//! signature doesn't already provide). This crate enforces HTTP-only:
+//! HTTPS responder URLs surface as [`OcspError::HttpsNotSupported`]
+//! at extract / fetch time; the caller can deliver such responses
+//! through other channels (e.g. a pre-fetched DER blob on disk).
 //!
 //! ## API shape
 //!
 //! Three layers:
 //!
-//! - Pure functions on cert DER: [`extract_ocsp_url`],
+//! - Pure functions on cert DER (always compiled): [`extract_ocsp_url`],
 //!   [`build_ocsp_request`], [`parse_ocsp_response`]. No IO; unit-
 //!   testable in isolation.
-//! - One async transport function: [`fetch_ocsp`] (the only
-//!   network-touching call). Wraps a hyper HTTP/1.1 conn behind a
-//!   single timeout.
-//! - Convenience: [`fetch_ocsp_for_cert`] runs the whole pipeline
-//!   (extract → build → fetch → parse) given the leaf + issuer DER.
+//! - One async transport function (`fetch` feature): [`fetch_ocsp`].
+//!   Wraps a hyper HTTP/1.1 conn behind a single timeout.
+//! - Convenience (`fetch` feature): [`fetch_ocsp_for_cert`] runs the
+//!   whole pipeline (extract → build → fetch → parse) given the leaf
+//!   + issuer DER.
 
-use std::time::{Duration, SystemTime};
+#[cfg(feature = "fetch")]
+use std::time::Duration;
+use std::time::SystemTime;
 
-use bytes::Bytes;
 use der::{Decode, Encode};
-use http_body_util::{BodyExt, Full};
-use hyper::Request;
 use sha1::Sha1;
 use x509_ocsp::builder::OcspRequestBuilder;
 use x509_ocsp::{BasicOcspResponse, OcspResponse, OcspResponseStatus, Request as OcspReq};
@@ -60,9 +51,8 @@ pub enum OcspError {
 	#[error("AIA extension has no OCSP responder URL")]
 	NoOcspUrl,
 	#[error(
-		"OCSP responder URL uses HTTPS, which is not supported by policy \
-		 (use the static populator's `ocsp_path` to deliver a pre-fetched \
-		 response): {0}"
+		"OCSP responder URL uses HTTPS, which is not supported by this crate \
+		 (deliver pre-fetched OCSP responses through another channel): {0}"
 	)]
 	HttpsNotSupported(String),
 	#[error("invalid OCSP responder URL: {0}")]
@@ -86,7 +76,7 @@ pub enum OcspError {
 /// `next_update` is the responder's `nextUpdate` (or `producedAt + 7d`
 /// when omitted — RFC 6960 §4.2.2.1 allows `nextUpdate` to be absent
 /// for "indefinite" responses; we still need a wall-clock deadline so
-/// the renewal scheduler can plan a refresh).
+/// a renewal scheduler can plan a refresh).
 #[derive(Debug, Clone)]
 pub struct OcspStaple {
 	pub staple: Vec<u8>,
@@ -96,12 +86,13 @@ pub struct OcspStaple {
 /// `producedAt + 7d` fallback when the responder omits `nextUpdate`.
 /// Picked to match the typical Let's Encrypt / industry validity
 /// window so omitted-`nextUpdate` responders blend with the rest.
-const DEFAULT_NEXT_UPDATE_AHEAD: Duration = Duration::from_hours(168);
+const DEFAULT_NEXT_UPDATE_AHEAD: std::time::Duration = std::time::Duration::from_hours(168);
 
 /// Total budget for a single OCSP fetch (DNS + connect + send + recv).
 /// 10 seconds covers any reasonable CA OCSP responder; if it doesn't
-/// answer in 10 seconds, the cert ships without a staple and the
-/// scheduler retries on the next tick.
+/// answer in 10 seconds, callers typically ship the cert without a
+/// staple and the scheduler retries on the next tick.
+#[cfg(feature = "fetch")]
 pub const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Extract the OCSP responder URL from a cert's AIA extension.
@@ -224,114 +215,128 @@ fn generalized_time_to_system(t: &x509_ocsp::OcspGeneralizedTime) -> SystemTime 
 	SystemTime::UNIX_EPOCH + t.0.to_unix_duration()
 }
 
-/// HTTP POST `request_der` to `responder_url` and return the raw
-/// `OCSPResponse` bytes. Caps the entire fetch at `timeout` (DNS +
-/// connect + send + recv). Rejects HTTPS URLs with
-/// [`OcspError::HttpsNotSupported`].
-///
-/// # Errors
-///
-/// - [`OcspError::HttpsNotSupported`] / [`OcspError::InvalidUrl`] on
-///   scheme problems.
-/// - [`OcspError::Transport`] on DNS / connect / hyper failures.
-/// - [`OcspError::HttpStatus`] on non-200 responses.
-pub async fn fetch_ocsp(
-	responder_url: &str,
-	request_der: Vec<u8>,
-	timeout: Duration,
-) -> Result<Vec<u8>, OcspError> {
-	classify_url(responder_url)?;
-	let parsed = url::Url::parse(responder_url)
-		.map_err(|e| OcspError::InvalidUrl(format!("parse {responder_url}: {e}")))?;
-	let host = parsed
-		.host_str()
-		.ok_or_else(|| OcspError::InvalidUrl(format!("no host in {responder_url}")))?
-		.to_owned();
-	let port = parsed.port().unwrap_or(80);
-	let path_and_query = if parsed.path().is_empty() {
-		"/".to_owned()
-	} else {
-		match parsed.query() {
-			Some(q) => format!("{}?{q}", parsed.path()),
-			None => parsed.path().to_owned(),
-		}
+#[cfg(feature = "fetch")]
+mod fetch {
+	use std::time::Duration;
+
+	use bytes::Bytes;
+	use http_body_util::{BodyExt, Full};
+	use hyper::Request;
+
+	use super::{
+		OcspError, OcspStaple, build_ocsp_request, classify_url, extract_ocsp_url, parse_ocsp_response,
 	};
 
-	let fut = perform_fetch(host.clone(), port, path_and_query, request_der);
-	tokio::time::timeout(timeout, fut)
-		.await
-		.map_err(|_| OcspError::Transport(format!("timed out after {timeout:?}")))?
-}
+	/// HTTP POST `request_der` to `responder_url` and return the raw
+	/// `OCSPResponse` bytes. Caps the entire fetch at `timeout` (DNS +
+	/// connect + send + recv). Rejects HTTPS URLs with
+	/// [`OcspError::HttpsNotSupported`].
+	///
+	/// # Errors
+	///
+	/// - [`OcspError::HttpsNotSupported`] / [`OcspError::InvalidUrl`] on
+	///   scheme problems.
+	/// - [`OcspError::Transport`] on DNS / connect / hyper failures.
+	/// - [`OcspError::HttpStatus`] on non-200 responses.
+	pub async fn fetch_ocsp(
+		responder_url: &str,
+		request_der: Vec<u8>,
+		timeout: Duration,
+	) -> Result<Vec<u8>, OcspError> {
+		classify_url(responder_url)?;
+		let parsed = url::Url::parse(responder_url)
+			.map_err(|e| OcspError::InvalidUrl(format!("parse {responder_url}: {e}")))?;
+		let host = parsed
+			.host_str()
+			.ok_or_else(|| OcspError::InvalidUrl(format!("no host in {responder_url}")))?
+			.to_owned();
+		let port = parsed.port().unwrap_or(80);
+		let path_and_query = if parsed.path().is_empty() {
+			"/".to_owned()
+		} else {
+			match parsed.query() {
+				Some(q) => format!("{}?{q}", parsed.path()),
+				None => parsed.path().to_owned(),
+			}
+		};
 
-async fn perform_fetch(
-	host: String,
-	port: u16,
-	path_and_query: String,
-	body: Vec<u8>,
-) -> Result<Vec<u8>, OcspError> {
-	use hyper_util::rt::TokioIo;
-
-	let stream = tokio::net::TcpStream::connect((host.as_str(), port))
-		.await
-		.map_err(|e| OcspError::Transport(format!("connect {host}:{port}: {e}")))?;
-	let io = TokioIo::new(stream);
-	let (mut sender, conn) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(io)
-		.await
-		.map_err(|e| OcspError::Transport(format!("handshake: {e}")))?;
-	let conn_handle = tokio::spawn(async move {
-		// We don't care about the conn's exit status — `Connection: close`
-		// makes hyper return Ok once the server-issued FIN arrives.
-		let _ = conn.await;
-	});
-
-	let body_len = body.len();
-	let req = Request::builder()
-		.method("POST")
-		.uri(path_and_query)
-		.header(hyper::header::HOST, &host)
-		.header(hyper::header::CONTENT_TYPE, "application/ocsp-request")
-		.header(hyper::header::CONTENT_LENGTH, body_len.to_string())
-		.header(hyper::header::CONNECTION, "close")
-		.body(Full::new(Bytes::from(body)))
-		.map_err(|e| OcspError::Transport(format!("build request: {e}")))?;
-
-	let resp =
-		sender.send_request(req).await.map_err(|e| OcspError::Transport(format!("send: {e}")))?;
-	let status = resp.status();
-	if !status.is_success() {
-		conn_handle.abort();
-		return Err(OcspError::HttpStatus { status: status.as_u16() });
+		let fut = perform_fetch(host.clone(), port, path_and_query, request_der);
+		tokio::time::timeout(timeout, fut)
+			.await
+			.map_err(|_| OcspError::Transport(format!("timed out after {timeout:?}")))?
 	}
-	let bytes = resp
-		.into_body()
-		.collect()
-		.await
-		.map_err(|e| OcspError::Transport(format!("read body: {e}")))?
-		.to_bytes();
-	// Drop sender → conn future drains → spawned task exits.
-	drop(sender);
-	let _ = conn_handle.await;
-	Ok(bytes.to_vec())
+
+	async fn perform_fetch(
+		host: String,
+		port: u16,
+		path_and_query: String,
+		body: Vec<u8>,
+	) -> Result<Vec<u8>, OcspError> {
+		use hyper_util::rt::TokioIo;
+
+		let stream = tokio::net::TcpStream::connect((host.as_str(), port))
+			.await
+			.map_err(|e| OcspError::Transport(format!("connect {host}:{port}: {e}")))?;
+		let io = TokioIo::new(stream);
+		let (mut sender, conn) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(io)
+			.await
+			.map_err(|e| OcspError::Transport(format!("handshake: {e}")))?;
+		let conn_handle = tokio::spawn(async move {
+			// We don't care about the conn's exit status — `Connection: close`
+			// makes hyper return Ok once the server-issued FIN arrives.
+			let _ = conn.await;
+		});
+
+		let body_len = body.len();
+		let req = Request::builder()
+			.method("POST")
+			.uri(path_and_query)
+			.header(hyper::header::HOST, &host)
+			.header(hyper::header::CONTENT_TYPE, "application/ocsp-request")
+			.header(hyper::header::CONTENT_LENGTH, body_len.to_string())
+			.header(hyper::header::CONNECTION, "close")
+			.body(Full::new(Bytes::from(body)))
+			.map_err(|e| OcspError::Transport(format!("build request: {e}")))?;
+
+		let resp =
+			sender.send_request(req).await.map_err(|e| OcspError::Transport(format!("send: {e}")))?;
+		let status = resp.status();
+		if !status.is_success() {
+			conn_handle.abort();
+			return Err(OcspError::HttpStatus { status: status.as_u16() });
+		}
+		let bytes = resp
+			.into_body()
+			.collect()
+			.await
+			.map_err(|e| OcspError::Transport(format!("read body: {e}")))?
+			.to_bytes();
+		drop(sender);
+		let _ = conn_handle.await;
+		Ok(bytes.to_vec())
+	}
+
+	/// Convenience wrapper: extract AIA URL → build request → fetch →
+	/// parse, all in one call.
+	///
+	/// # Errors
+	///
+	/// Any error from the underlying [`extract_ocsp_url`] /
+	/// [`build_ocsp_request`] / [`fetch_ocsp`] / [`parse_ocsp_response`].
+	pub async fn fetch_ocsp_for_cert(
+		cert_der: &[u8],
+		issuer_der: &[u8],
+		timeout: Duration,
+	) -> Result<OcspStaple, OcspError> {
+		let url = extract_ocsp_url(cert_der)?;
+		let req = build_ocsp_request(cert_der, issuer_der)?;
+		let resp_bytes = fetch_ocsp(&url, req, timeout).await?;
+		parse_ocsp_response(&resp_bytes)
+	}
 }
 
-/// Convenience wrapper: extract AIA URL → build request → fetch →
-/// parse, all in one call. Used by both populators after issuance /
-/// at refresh time.
-///
-/// # Errors
-///
-/// Any error from the underlying [`extract_ocsp_url`] /
-/// [`build_ocsp_request`] / [`fetch_ocsp`] / [`parse_ocsp_response`].
-pub async fn fetch_ocsp_for_cert(
-	cert_der: &[u8],
-	issuer_der: &[u8],
-	timeout: Duration,
-) -> Result<OcspStaple, OcspError> {
-	let url = extract_ocsp_url(cert_der)?;
-	let req = build_ocsp_request(cert_der, issuer_der)?;
-	let resp_bytes = fetch_ocsp(&url, req, timeout).await?;
-	parse_ocsp_response(&resp_bytes)
-}
+#[cfg(feature = "fetch")]
+pub use fetch::{fetch_ocsp, fetch_ocsp_for_cert};
 
 #[cfg(test)]
 mod tests {
@@ -343,18 +348,12 @@ mod tests {
 
 	use super::*;
 
-	fn install_crypto() {
-		crate::crypto::install_default_provider();
-	}
-
-	/// Build a self-signed CA + a leaf cert whose AIA extension
-	/// points at `aia_url`. Returns DER blobs for both. End-to-end
-	/// signing of an `OCSPResponse` is exercised by the mock responder
-	/// fixture in `vane-testutil` (commit 5); this commit's tests
-	/// cover only the structural primitives that don't need a
-	/// running responder.
+	/// Build a self-signed CA + a leaf cert whose AIA extension points
+	/// at `aia_url`. Returns DER blobs for both. End-to-end signing of
+	/// an `OCSPResponse` is exercised by an external mock responder
+	/// (see `ocsp-mock-responder`); this crate's own tests cover only
+	/// the structural primitives that don't need a running responder.
 	fn build_test_ca_and_leaf(aia_url: &str) -> (Vec<u8>, Vec<u8>) {
-		install_crypto();
 		// CA.
 		let ca_key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).expect("ca key");
 		let mut ca_params = CertificateParams::new(vec!["Test CA".to_owned()]).expect("ca params");
@@ -390,10 +389,8 @@ mod tests {
 		//       [6] IMPLICIT IA5String       (URI form of GeneralName)
 		//     }
 		//   }
-		// Manual DER per the BER grammar in RFC 5280 §4.2.2.1.
 		let ocsp_oid_der: Vec<u8> = vec![0x06, 0x08, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x30, 0x01];
 		let url_bytes = aia_url.as_bytes();
-		// [6] IMPLICIT IA5String → tag 0x86, length, bytes.
 		let mut uri_tlv = vec![0x86];
 		uri_tlv.extend_from_slice(&der_length(url_bytes.len()));
 		uri_tlv.extend_from_slice(url_bytes);
@@ -410,9 +407,7 @@ mod tests {
 
 	fn der_length(n: usize) -> Vec<u8> {
 		// Test-only DER length encoder; inputs come from `aia_url` byte
-		// counts and stay well under `u16::MAX`. Use try_from + unwrap
-		// to satisfy clippy without paying a runtime check on the hot
-		// path (there is no hot path — this is fixture code).
+		// counts and stay well under `u16::MAX`.
 		if n < 0x80 {
 			vec![u8::try_from(n).unwrap()]
 		} else if n < 0x100 {
@@ -431,7 +426,6 @@ mod tests {
 
 	#[test]
 	fn extract_ocsp_url_returns_no_aia_for_cert_without_extension() {
-		install_crypto();
 		let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).expect("key");
 		let params = CertificateParams::new(vec!["plain.example".to_owned()]).expect("params");
 		let cert = params.self_signed(&key).expect("self_signed");
@@ -462,9 +456,6 @@ mod tests {
 	fn build_ocsp_request_round_trips_through_x509_ocsp() {
 		let (issuer_der, leaf_der) = build_test_ca_and_leaf("http://ocsp.example.test/");
 		let bytes = build_ocsp_request(&leaf_der, &issuer_der).expect("build ok");
-		// Decode the bytes back to confirm the request is well-formed
-		// and at least one Request element references the leaf's
-		// serial number.
 		let req = x509_ocsp::OcspRequest::from_der(&bytes).expect("decode");
 		assert!(!req.tbs_request.request_list.is_empty());
 		let leaf = Certificate::from_der(&leaf_der).expect("leaf decode");
@@ -475,8 +466,6 @@ mod tests {
 
 	#[test]
 	fn parse_ocsp_response_returns_responder_error_on_try_later() {
-		// `OcspResponse::try_later()` builds a non-successful
-		// response with no signing required.
 		let bytes = OcspResponse::try_later().to_der().expect("encode");
 		let err = parse_ocsp_response(&bytes).expect_err("try_later → err");
 		assert!(matches!(err, OcspError::ResponderError(_)), "got {err:?}");
@@ -488,13 +477,14 @@ mod tests {
 		assert!(matches!(err, OcspError::ResponseParse(_)), "got {err:?}");
 	}
 
+	#[cfg(feature = "fetch")]
 	#[test]
 	fn fetch_ocsp_rejects_https_url_pre_connect() {
 		// No connection is attempted — the url scheme check fires
 		// first. Single-poll task; runs under a fresh runtime.
 		let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 		let err = rt.block_on(async {
-			fetch_ocsp("https://ocsp.example.test/", vec![1, 2, 3], Duration::from_secs(1))
+			fetch_ocsp("https://ocsp.example.test/", vec![1, 2, 3], std::time::Duration::from_secs(1))
 				.await
 				.expect_err("https rejected")
 		});
