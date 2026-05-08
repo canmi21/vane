@@ -54,8 +54,8 @@ Pure-derive round-trip tests on `#[derive(Serialize, Deserialize)]` structs with
 
 ### Test surface by binary kind
 
-- **`vaned`** — full sub-agent automation. Spawn via `vane-testutil::VanedFixture`, drive `curl` / `nc` / `websocat` via `std::process::Command`. Readiness: poll the listener port with `TcpStream::connect_timeout`; never parse stderr (`tracing-subscriber` `fmt` is block-buffered when stderr is not a TTY).
+- **`vaned`** — full sub-agent automation. Daemon E2E tests spawn `vaned` directly via `assert_cmd` / `std::process::Command` (the shared `vane-testutil::VanedFixture` helper is documentation-only today). Readiness: poll the listener port with `TcpStream::connect_timeout`; never parse stderr (`tracing-subscriber` `fmt` is block-buffered when stderr is not a TTY).
 - **`vane` CLI** — full automation. `--json` emits the verb's `result` verbatim; default pretty output auto-disables under `!isatty(stdout)`. Test via `assert_cmd` + `predicates`.
-- **`vane` TUI** — partial. Only the pure layer beneath the UI is automated: data adapters (`FlowLogEvent → FlowLogRow`), view state machine (`(state, input) → state`), input mapping. Rendering and crossterm side-effects are verified interactively.
+- **`vane` TUI** — partial, when the views land. The current `vane tui` is a lifecycle scaffold only — see [`tui.md`](tui.md) and the `TODO(tui-views)` in `crates/cli/src/tui.rs`. Once the view set is implemented, automation covers the pure layer beneath the UI (data adapters, view state machine, input mapping); rendering and crossterm side-effects stay interactively verified.
 
 Fixtures live in `vane-testutil`. Add helpers there, never in individual test files.
