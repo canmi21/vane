@@ -91,7 +91,12 @@ fn args_for(bin: &std::path::Path) -> Value {
 			"limits": { "memory_mb": null, "cpu_seconds": null, "max_processes": null },
 			"chroot": null,
 		},
-		"timeouts": { "connect": "5s", "total": "10s" },
+		// Generous wall-clock budgets — the slow-script branch sleeps
+		// 1 s and CI runners under load can easily push fork+exec +
+		// pre_exec drop + interpreter startup past a tighter
+		// connect_timeout, even though the test itself doesn't care
+		// about timing accuracy.
+		"timeouts": { "connect": "30s", "total": "60s" },
 	})
 }
 
@@ -171,14 +176,37 @@ async fn second_request_rejects_with_503_when_cap_is_one() {
 	);
 	let fetch = build_fetch(&args_for(bin.path()));
 
+	// `pool_stats()` is `None` until the first CGI fetch runs (the
+	// daemon-wide semaphore initialises lazily). Treat the
+	// pre-fetch state as zero counters so the wait-for-permit loop
+	// below has a stable baseline regardless of whether earlier
+	// tests in this binary ever drove a fetch.
+	let (allocations_baseline, failures_baseline) =
+		vane_engine::fetch::cgi::pool_stats().map_or((0, 0), |s| (s.total_allocations, s.failures));
+
 	let f1 = Arc::clone(&fetch);
 	let c1 = make_conn();
 	let first = tokio::spawn(async move { invoke_status(f1, c1).await });
 
-	// Brief delay so the first request acquires the permit before the
-	// second probes it. 100ms is generous against the typical
-	// fork+exec budget of a few ms on Linux/macOS.
-	tokio::time::sleep(Duration::from_millis(100)).await;
+	// Wait until the first request has actually acquired the only
+	// permit before launching the second. Polling
+	// `cgi::pool_stats().total_allocations` instead of sleeping a
+	// fixed budget removes the timing race that surfaces under CI
+	// load: a fixed 100 ms sleep used to intermittently let the
+	// second request fire before the first had taken the permit,
+	// flipping which request got the 503.
+	let permit_deadline = std::time::Instant::now() + Duration::from_secs(5);
+	loop {
+		let cur = vane_engine::fetch::cgi::pool_stats().map_or(0, |s| s.total_allocations);
+		if cur > allocations_baseline {
+			break;
+		}
+		assert!(
+			std::time::Instant::now() < permit_deadline,
+			"first request never acquired the cgi permit within 5s",
+		);
+		tokio::time::sleep(Duration::from_millis(20)).await;
+	}
 
 	let f2 = Arc::clone(&fetch);
 	let c2 = make_conn();
@@ -198,12 +226,20 @@ async fn second_request_rejects_with_503_when_cap_is_one() {
 		"first request must complete normally once the slow script returns"
 	);
 
-	// Counters: one successful spawn, one cap-rejected fast-reject.
+	// Counters: one successful spawn (first), one cap-rejected
+	// fast-reject (second). Compared against the baseline so the
+	// test stays accurate when the binary's tests share process state.
 	let stats = vane_engine::fetch::cgi::pool_stats().expect("pool initialised");
 	assert!(
-		stats.total_allocations >= 1,
-		"first request bumped total_allocations: {}",
+		stats.total_allocations > allocations_baseline,
+		"first request bumped total_allocations: {} (baseline {})",
 		stats.total_allocations,
+		allocations_baseline,
 	);
-	assert!(stats.failures >= 1, "second request bumped failures: {}", stats.failures);
+	assert!(
+		stats.failures > failures_baseline,
+		"second request bumped failures: {} (baseline {})",
+		stats.failures,
+		failures_baseline,
+	);
 }

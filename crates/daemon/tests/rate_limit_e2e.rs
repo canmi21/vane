@@ -138,7 +138,19 @@ impl FakeUpstream {
 					Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
 						std::thread::sleep(Duration::from_millis(20));
 					}
-					Err(_) => break,
+					// Transient accept errors (`ECONNABORTED` from a
+					// client that RST'd between SYN and accept,
+					// `EINTR` from a signal that slipped past
+					// `set_nonblocking`, etc.) used to break the loop
+					// outright — that dropped `listener`, closed the
+					// upstream port, and turned every subsequent
+					// vaned dial into ECONNREFUSED → 500. Logging and
+					// continuing keeps the upstream alive long
+					// enough for the test to finish.
+					Err(e) => {
+						eprintln!("FakeUpstream: accept transient error, continuing: {e}");
+						std::thread::sleep(Duration::from_millis(20));
+					}
 				}
 			}
 		});
