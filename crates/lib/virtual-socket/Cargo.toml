@@ -1,0 +1,23 @@
+[package]
+name = "virtual-socket"
+version = "0.0.1"
+categories = ["network-programming", "asynchronous"]
+edition = "2024"
+keywords = ["udp", "socket", "demux", "multiplex", "tokio"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/canmi21/vane"
+rust-version = "1.95"
+description = "Virtual UDP sockets that share a single physical tokio UdpSocket: external code routes inbound datagrams to the right virtual socket, outbound datagrams are passed through to the underlying socket."
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes = "1"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["net"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["net", "macros", "rt", "rt-multi-thread", "time"] }

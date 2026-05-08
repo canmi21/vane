@@ -7,6 +7,7 @@ members = [
 	"crates/engine",
 	"crates/lib/clienthello",
 	"crates/lib/peeked-stream",
+	"crates/lib/virtual-socket",
 	"crates/mgmt",
 	"crates/testutil",
 	"crates/wasm",
@@ -44,6 +45,7 @@ vane-mgmt = { path = "crates/mgmt", version = "0.10.4" }
 # dev-dependencies that don't carry a `version =` pin).
 vane-testutil = { path = "crates/testutil" }
 vane-wasm = { path = "crates/wasm", version = "0.10.4" }
+virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }
 wasmtime = { version = "44.0.1", features = ["component-model", "async", "cranelift"] }
 
 [profile.release]
