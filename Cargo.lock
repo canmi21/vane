@@ -2895,6 +2895,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocsp-mock-responder"
+version = "0.0.1"
+dependencies = [
+ "bytes",
+ "const-oid 0.9.6",
+ "der",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "parking_lot",
+ "sha1",
+ "spki",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "x509-cert",
+ "x509-ocsp",
+]
+
+[[package]]
 name = "ocsp-staple"
 version = "0.0.1"
 dependencies = [
@@ -5104,24 +5124,19 @@ version = "0.10.4"
 dependencies = [
  "async-trait",
  "bytes",
- "const-oid 0.9.6",
- "der",
  "h3",
  "h3-quinn",
  "hickory-proto",
  "hickory-resolver",
  "hickory-server",
  "http",
- "http-body-util",
  "hyper",
- "hyper-util",
+ "ocsp-mock-responder",
  "parking_lot",
  "quinn",
  "reqwest",
  "rustls",
  "rustls-pemfile",
- "sha1",
- "spki",
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
@@ -5131,8 +5146,6 @@ dependencies = [
  "wat",
  "wit-component 0.248.0",
  "wit-parser 0.248.0",
- "x509-cert",
- "x509-ocsp",
 ]
 
 [[package]]

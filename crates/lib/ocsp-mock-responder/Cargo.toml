@@ -1,0 +1,30 @@
+[package]
+name = "ocsp-mock-responder"
+version = "0.0.1"
+categories = ["development-tools::testing", "cryptography"]
+edition = "2024"
+keywords = ["ocsp", "mock", "test", "fixture", "tls"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/canmi21/vane"
+rust-version = "1.95"
+description = "In-process mock OCSP responder for integration tests. Spawns a hyper HTTP/1.1 server that answers OCSP requests with configurable Good / Revoked / TryLater statuses."
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes = "1"
+const-oid = { version = "0.9", default-features = false, features = ["db"] }
+der = "0.7"
+http-body-util = "0.1"
+hyper = { version = "1.9", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+parking_lot = "0.12"
+sha1 = { version = "0.10", features = ["oid"] }
+spki = "0.7"
+thiserror = "2"
+tokio = { version = "1", features = ["net", "rt", "macros", "sync"] }
+tracing = "0.1"
+x509-cert = "0.2"
+x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }

@@ -1,20 +1,23 @@
 //! In-process mock OCSP responder for integration tests.
 //!
-//! [`MockOcspResponder::start`] spins a hyper HTTP/1.1 server on an
-//! ephemeral port. Incoming `application/ocsp-request` POSTs are
+//! [`MockOcspResponder::start`] spins up a hyper HTTP/1.1 server on
+//! an ephemeral port. Incoming `application/ocsp-request` POSTs are
 //! parsed for the cert's serial; the responder then assembles a
 //! [`x509_ocsp::OcspResponse`] (carrying a [`x509_ocsp::BasicOcspResponse`])
 //! whose `SingleResponse` mirrors what a real CA responder would
 //! send for that cert ID. The configured "status" lets per-test
 //! cases pin the response to `Good`, `Revoked`, or `TryLater`.
 //!
-//! Signing posture: the response carries a placeholder signature.
-//! Both `crates/engine/src/tls/ocsp.rs::parse_ocsp_response` and
-//! rustls's `CertifiedKey.ocsp` path treat the staple as opaque
-//! bytes — neither validates the signature. The mock therefore
-//! avoids pulling an asymmetric crypto crate (rsa / p256) into
-//! testutil's dep graph; tests that need real signatures (e.g. an
-//! OCSP-validating client) would have to extend this fixture.
+//! ## Signing posture
+//!
+//! The response carries a placeholder signature. Most OCSP-stapling
+//! consumers (rustls's `CertifiedKey.ocsp` path; OCSP-aware client
+//! verifiers that don't independently re-sign-check the staple)
+//! treat the staple as opaque bytes — they don't validate the
+//! signature. The mock therefore avoids pulling an asymmetric
+//! crypto crate (rsa / p256) into its dep graph; tests that need
+//! real signatures (e.g. an OCSP-validating client that re-checks
+//! the responder's signature) need to extend this fixture.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -55,14 +58,15 @@ pub enum MockOcspError {
 pub enum OcspMockStatus {
 	/// Successful response, cert is `Good`. `next_update_in`
 	/// configures the response's `nextUpdate` relative to "now",
-	/// driving the populator's refresh-window decision.
+	/// driving any consumer's refresh-window decision.
 	Good { next_update_in: Duration },
-	/// Successful response, cert is `Revoked`. The populator parses
-	/// this happily; rustls then surfaces it on the wire and clients
-	/// reject the handshake (out of test scope here).
+	/// Successful response, cert is `Revoked`. Parsers happily
+	/// return a `Revoked` `CertStatus`; it is up to the consumer to
+	/// reject the handshake (out of scope for this fixture).
 	Revoked,
-	/// Non-successful response. The populator's parser surfaces
-	/// `OcspError::ResponderError`; the cert ships without a staple.
+	/// Non-successful response. Consumers' parsers typically surface
+	/// this as a "responder error" or "try later" status; the cert
+	/// usually ships without a staple.
 	TryLater,
 }
 
@@ -137,7 +141,7 @@ impl MockOcspResponder {
 	}
 
 	/// Number of OCSP requests successfully processed since
-	/// startup. Tests use this to verify a populator/scheduler
+	/// startup. Tests use this to verify a populator / scheduler
 	/// actually reached out to the responder.
 	#[must_use]
 	pub fn hits(&self) -> usize {
@@ -194,7 +198,7 @@ async fn serve_one(
 		async move { Ok::<_, std::convert::Infallible>(handle(req, &issuer, &status, &hits).await) }
 	});
 	if let Err(e) = http1::Builder::new().serve_connection(io, svc).await {
-		warn!(target: "vane_testutil::ocsp", error = %e, "mock OCSP conn ended with error");
+		warn!(target: "ocsp_mock_responder", error = %e, "mock OCSP conn ended with error");
 	}
 }
 
@@ -214,7 +218,7 @@ async fn handle(
 	let body = match collect_body(req).await {
 		Ok(b) => b,
 		Err(e) => {
-			warn!(target: "vane_testutil::ocsp", error = %e, "body read failed");
+			warn!(target: "ocsp_mock_responder", error = %e, "body read failed");
 			return Response::builder()
 				.status(StatusCode::BAD_REQUEST)
 				.body(Full::new(Bytes::new()))
@@ -265,9 +269,8 @@ async fn handle(
 }
 
 /// Build an `OCSPResponse` DER for `cert_id` against `issuer`. The
-/// signature is a placeholder (parsers consuming the response in
-/// vane don't verify it; downstream tests asserting on staple
-/// bytes treat the response as opaque).
+/// signature is a placeholder — see the module-level "Signing
+/// posture" paragraph.
 fn build_signed_response(
 	issuer: &Certificate,
 	cert_id: CertId,
