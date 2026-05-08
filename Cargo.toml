@@ -8,6 +8,7 @@ members = [
 	"crates/lib/clienthello",
 	"crates/lib/peeked-stream",
 	"crates/lib/quinn-shared-socket",
+	"crates/lib/rustls-native-roots-cache",
 	"crates/lib/virtual-socket",
 	"crates/mgmt",
 	"crates/testutil",
@@ -37,6 +38,7 @@ async-trait = "0.1"
 clienthello = { path = "crates/lib/clienthello", version = "0.2" }
 peeked-stream = { path = "crates/lib/peeked-stream", version = "0.0.1" }
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }
+rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.1" }
 vane-core = { path = "crates/core", version = "0.10.4" }
 vane-engine = { path = "crates/engine", version = "0.10.4" }
 vane-mgmt = { path = "crates/mgmt", version = "0.10.4" }

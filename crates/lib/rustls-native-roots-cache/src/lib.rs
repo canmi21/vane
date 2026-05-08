@@ -4,30 +4,33 @@
 //! keychain (Security framework on macOS, NSS / OpenSSL stores on
 //! Linux). On macOS the underlying `Sec*` APIs are not concurrency-safe
 //! under load — multiple threads calling them in parallel can return
-//! `errSecIO` (-36) on what would otherwise succeed. Production daemons
-//! that build many distinct rustls `ClientConfig`s (one per
-//! upstream-TLS fingerprint) hit this whenever a reload introduces a
-//! handful of new fingerprints concurrently.
+//! `errSecIO` (-36) on what would otherwise succeed. Production
+//! daemons that build many distinct rustls `ClientConfig`s (one per
+//! upstream-TLS fingerprint, e.g.) hit this whenever a reload
+//! introduces a handful of new fingerprints concurrently.
 //!
-//! The fix is an architectural staple: read the trust store **once per
+//! The fix is a process-wide cache: read the trust store **once per
 //! process**, share the resulting [`rustls::RootCertStore`] behind
-//! `Arc`. The `OnceLock` initializer barrier serialises the (single)
-//! load attempt; every subsequent caller gets a cheap `Arc::clone`.
+//! `Arc`. The [`std::sync::OnceLock`] initializer barrier serialises
+//! the (single) load attempt; every subsequent caller gets a cheap
+//! `Arc::clone`.
 //!
 //! In-process the `OnceLock` is sufficient. Across processes (e.g. a
-//! nextest workspace boots multiple test binaries in parallel) each
-//! binary still makes its own first call, and those simultaneous
-//! calls can lose to keychain contention. The init path therefore
-//! retries on transient failure with a small backoff before giving
-//! up — `errSecIO` is documented by Apple as recoverable, and the
-//! happy path skips the backoff entirely.
+//! test runner that boots multiple binaries in parallel) each binary
+//! still makes its own first call, and those simultaneous calls can
+//! lose to keychain contention. The init path therefore retries on
+//! transient failure with a small backoff before giving up —
+//! `errSecIO` is documented by Apple as recoverable, and the happy
+//! path skips the backoff entirely.
 //!
 //! Failure semantics: after the bounded retries are exhausted the
 //! outcome is sticky. The cached error re-yields on every subsequent
 //! call so the operator sees consistent behaviour and can restart
-//! the daemon to attempt a fresh load. This matches the spec's
-//! "explicit failure modes" posture and avoids per-request retry
-//! storms against an OS API that's already telling us it's unhappy.
+//! the process to attempt a fresh load — there is no per-request
+//! retry storm against an OS API that is already telling us it is
+//! unhappy.
+
+#![forbid(unsafe_code)]
 
 use std::sync::{Arc, OnceLock};
 
@@ -53,22 +56,22 @@ static NATIVE_ROOTS: OnceLock<Result<Arc<rustls::RootCertStore>, NativeRootsErro
 
 /// Return the cached system trust store, loading it on first call.
 ///
-/// Concurrent first calls are serialised by the `OnceLock` barrier,
+/// Concurrent first calls are serialised by the [`OnceLock`] barrier,
 /// so the OS keychain sees exactly one load attempt per process even
 /// under reload pressure that builds many fingerprints in parallel.
 ///
 /// # Errors
 ///
 /// Surfaces the load attempt's error (sticky for the lifetime of the
-/// process). Restart the daemon to retry.
+/// process). Restart the process to retry.
 pub fn native_roots() -> Result<Arc<rustls::RootCertStore>, NativeRootsError> {
 	NATIVE_ROOTS.get_or_init(load_native_roots).as_ref().map(Arc::clone).map_err(Clone::clone)
 }
 
-/// Eagerly trigger the first load. Daemon boot calls this so the
-/// trust store's status is known before the first reload races to
-/// build factories. Idempotent — subsequent calls return the cached
-/// result without re-touching the OS keychain.
+/// Eagerly trigger the first load. Useful when a daemon's boot path
+/// wants to know the trust-store status before any TLS code runs —
+/// idempotent; subsequent calls return the cached result without
+/// re-touching the OS keychain.
 ///
 /// # Errors
 ///
@@ -82,12 +85,12 @@ pub fn warm_native_roots() -> Result<Arc<rustls::RootCertStore>, NativeRootsErro
 ///
 /// macOS Security framework returns `errSecIO` (-36) on transient
 /// I/O failure when the keychain APIs see concurrent callers (e.g. a
-/// nextest workspace run spawns dozens of test binaries that each
-/// boot their own daemon and hit `load_native_certs` simultaneously).
-/// Apple's own framework documents the error as recoverable. The
-/// happy path completes in attempt 1 with zero sleeps; only an
-/// observed failure pays the backoff. The `OnceLock` cache means we
-/// pay this cost at most once per process lifetime.
+/// test runner spawns dozens of test binaries that each boot their
+/// own process and hit `load_native_certs` simultaneously). Apple's
+/// own framework documents the error as recoverable. The happy path
+/// completes in attempt 1 with zero sleeps; only an observed failure
+/// pays the backoff. The [`OnceLock`] cache means we pay this cost
+/// at most once per process lifetime.
 const LOAD_RETRIES: usize = 3;
 const LOAD_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -118,7 +121,7 @@ fn load_native_roots() -> Result<Arc<rustls::RootCertStore>, NativeRootsError> {
 		error = %err,
 		elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
 		attempts = LOAD_RETRIES,
-		"native trust store load failed; HTTPS upstream rules without insecure_skip_verify will fail at use",
+		"native trust store load failed",
 	);
 	Err(err)
 }

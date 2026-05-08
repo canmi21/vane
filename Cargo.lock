@@ -3745,6 +3745,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-native-roots-cache"
+version = "0.0.1"
+dependencies = [
+ "rustls",
+ "rustls-native-certs",
+ "tracing",
+]
+
+[[package]]
 name = "rustls-pemfile"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5014,6 +5023,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "rustls-native-certs",
+ "rustls-native-roots-cache",
  "rustls-pemfile",
  "rustls-pki-types",
  "serde",

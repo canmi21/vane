@@ -1,0 +1,19 @@
+[package]
+name = "rustls-native-roots-cache"
+version = "0.0.1"
+categories = ["cryptography", "network-programming"]
+edition = "2024"
+keywords = ["rustls", "tls", "trust-store", "certificates", "native-certs"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/canmi21/vane"
+rust-version = "1.95"
+description = "Process-wide cache for rustls's native trust store, with bounded retry on macOS Security framework transient errors and sticky failure semantics."
+
+[lints]
+workspace = true
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls-native-certs = "0.8"
+tracing = "0.1"
