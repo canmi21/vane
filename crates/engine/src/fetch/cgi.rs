@@ -779,30 +779,33 @@ fn pre_exec_drop_privs_and_limits(security: &CgiSecurity) -> io::Result<()> {
 	if unsafe { libc::setuid(security.uid as libc::uid_t) } != 0 {
 		return Err(io::Error::last_os_error());
 	}
-	// `libc::RLIMIT_*` is `c_int` (i32) on macOS and `__rlimit_resource_t`
-	// (u32) on Linux glibc. Cast at the callsite so `apply_rlimit`'s
-	// signature stays portable; the values themselves are small enum
-	// constants that fit in either type.
 	apply_rlimit(
-		libc::RLIMIT_AS as libc::c_int,
+		libc::RLIMIT_AS,
 		security.limits.memory_mb.map(|mb| mb.saturating_mul(1024 * 1024)),
 	)?;
-	apply_rlimit(libc::RLIMIT_CPU as libc::c_int, security.limits.cpu_seconds)?;
-	apply_rlimit(libc::RLIMIT_NPROC as libc::c_int, security.limits.max_processes)?;
+	apply_rlimit(libc::RLIMIT_CPU, security.limits.cpu_seconds)?;
+	apply_rlimit(libc::RLIMIT_NPROC, security.limits.max_processes)?;
 	Ok(())
 }
 
+// `libc::RLIMIT_*` and `setrlimit`'s first argument are typed as
+// `__rlimit_resource_t` (u32) on linux glibc and `c_int` (i32)
+// everywhere else; `apply_rlimit` takes the platform's native type
+// so callsites and the `setrlimit` invocation stay cast-free.
+#[cfg(all(unix, target_os = "linux", target_env = "gnu"))]
+type RlimitResource = libc::__rlimit_resource_t;
+#[cfg(all(unix, not(all(target_os = "linux", target_env = "gnu"))))]
+type RlimitResource = libc::c_int;
+
 #[cfg(unix)]
-fn apply_rlimit(resource: libc::c_int, limit: Option<u64>) -> io::Result<()> {
+fn apply_rlimit(resource: RlimitResource, limit: Option<u64>) -> io::Result<()> {
 	let Some(value) = limit else { return Ok(()) };
 	let v = value as libc::rlim_t;
 	let rl = libc::rlimit { rlim_cur: v, rlim_max: v };
 	// SAFETY: setrlimit is async-signal-safe. The struct is owned in
 	// this stack frame, no heap pointers escape; the kernel reads its
-	// fields by value. The `as _` cast normalises `c_int` to the
-	// platform-specific `setrlimit` first-arg type — Linux gnu uses
-	// `__rlimit_resource_t` (a u32), every other unix uses `c_int`.
-	if unsafe { libc::setrlimit(resource as _, &raw const rl) } != 0 {
+	// fields by value.
+	if unsafe { libc::setrlimit(resource, &raw const rl) } != 0 {
 		return Err(io::Error::last_os_error());
 	}
 	Ok(())
