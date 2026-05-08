@@ -583,9 +583,8 @@ async fn handle_h3_request(
 	// send half is held for `send_response` / `send_data` /
 	// `send_trailers` / `finish` after the executor returns.
 	let (mut send_stream, recv_stream) = stream.split();
-	let body = Body::Stream(Box::pin(crate::h3::body::H3Body::new(
-		crate::h3::body::ServerStreamSource::new(recv_stream),
-	)));
+	let body =
+		Body::from_producer(h3_body::H3Body::new(h3_body::ServerStreamSource::new(recv_stream)));
 	let vane_req: Request = http::Request::from_parts(parts, body);
 
 	let span = tracing::info_span!(

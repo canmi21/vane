@@ -1,0 +1,22 @@
+[package]
+name = "h3-body"
+version = "0.0.1"
+categories = ["network-programming", "asynchronous", "web-programming::http-server"]
+edition.workspace = true
+keywords = ["h3", "http3", "quic", "http-body", "stream"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Adapt h3 server / client RequestStream to a single http_body::Body surface."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = "0.1"
+bytes = "1"
+h3 = "0.0.8"
+http = "1"
+http-body = "1"
+tokio = { version = "1", features = ["sync", "rt"] }

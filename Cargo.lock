@@ -1678,6 +1678,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "h3-body"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "h3",
+ "http",
+ "http-body",
+ "tokio",
+]
+
+[[package]]
 name = "h3-quinn"
 version = "0.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5057,6 +5069,7 @@ dependencies = [
  "futures",
  "guess",
  "h3",
+ "h3-body",
  "h3-quinn",
  "hickory-resolver",
  "http",
