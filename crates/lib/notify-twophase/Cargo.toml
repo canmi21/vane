@@ -1,0 +1,24 @@
+[package]
+name = "notify-twophase"
+version = "0.0.1"
+categories = ["filesystem", "asynchronous"]
+edition.workspace = true
+keywords = ["notify", "fsevents", "watcher", "fs", "tokio"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Two-phase notify-debouncer-full setup: subscribe before bind, drain after, no startup-gap event loss."
+
+[lints]
+workspace = true
+
+[dependencies]
+notify = "8"
+notify-debouncer-full = "0.7"
+tokio = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "fs"] }
+tokio-util = "0.7"

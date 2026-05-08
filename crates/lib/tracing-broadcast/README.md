@@ -4,6 +4,8 @@ A `tracing_subscriber::Layer` that fans every emitted event into a
 `tokio::sync::broadcast` channel as a serializable [`TracingFrame`]
 (timestamp / level / target / message / structured fields).
 
+## Features
+
 Useful for any service that wants to expose a "tail my logs" stream
 over a management API, RPC, or websocket — `BroadcastTracingLayer`
 plugs alongside the normal `tracing_subscriber::fmt::Layer`, so user-

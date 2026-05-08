@@ -2788,6 +2788,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "notify-twophase"
+version = "0.0.1"
+dependencies = [
+ "notify",
+ "notify-debouncer-full",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "notify-types"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5235,8 +5246,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "nix",
- "notify",
- "notify-debouncer-full",
+ "notify-twophase",
  "parking_lot",
  "predicates",
  "rcgen",

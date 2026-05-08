@@ -3,6 +3,8 @@
 Virtual UDP sockets that share a single physical
 [`tokio::net::UdpSocket`].
 
+## Features
+
 A top-level "router" task owns the physical socket and reads from it.
 For each inbound datagram, the router applies whatever demultiplex
 rule the calling system needs (peer address, QUIC Connection ID, DNS

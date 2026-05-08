@@ -441,9 +441,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// up immediately on first poll.
 	let watcher_cancel = CancellationToken::new();
 	let watcher_handle = match watcher_sub {
-		Some(sub) => {
+		Some((sub, dir)) => {
 			let h = spawn_watcher_handler(
 				sub,
+				dir,
 				Arc::clone(&graph_swap),
 				Arc::clone(&listeners),
 				Arc::clone(&verbosity),

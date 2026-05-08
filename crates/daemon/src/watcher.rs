@@ -1,42 +1,31 @@
-//! File watcher: `notify-debouncer-full` observes the config directory
-//! for ~250ms-debounced batches; each reload-worthy batch triggers one
-//! [`reload_once`] call. Watcher lifetime is bound to a
-//! [`CancellationToken`].
-//!
-//! `notify-debouncer-full`'s callback runs in a sync context; we bridge
-//! it into tokio via an unbounded mpsc channel. Each debounced batch
-//! that contains at least one reload-worthy event (file create / modify
-//! data / rename / remove under the watched tree, per
-//! `spec/crates/engine.md` § _Hot reload_) coalesces to a
-//! single `()` send. Metadata-only / access / unknown events are
-//! filtered out so reload CPU is spent only on real config changes.
+//! Daemon-side wrapper around [`notify_twophase`]. The lib owns the
+//! `notify-debouncer-full` plumbing and the reload-worthy event
+//! filter; this module wires the daemon's reload pipeline into a
+//! `Subscription::recv` loop.
 //!
 //! ## Two-phase startup
 //!
 //! Initial subscription to `FSEvents` must complete **before** the
 //! daemon's listeners become reachable on their bound ports — once
-//! the public surface is up, the operator can drop a new rule file in
-//! `<config_dir>/rules/` and rightly expects it to take effect. If
-//! we subscribed late (after listeners.start), that drop's fs event
-//! could fire in the gap and be lost (`FSEvents` on macOS does not
-//! replay events for files that already exist at subscription time).
+//! the public surface is up, the operator can drop a new rule file
+//! in `<config_dir>/rules/` and rightly expects it to take effect.
+//! If we subscribed late (after `listeners.start`), that drop's fs
+//! event could fire in the gap and be lost (`FSEvents` on macOS does
+//! not replay events for files that already exist at subscription
+//! time).
 //!
-//! [`arm_watcher_subscription`] runs the `new_debouncer` +
-//! `debouncer.watch()` synchronous half early, BEFORE listener bind.
-//! Returned events queue into an unbounded mpsc that
-//! [`spawn_watcher_handler`] drains later, after the daemon is fully
-//! initialised — including when a watched event lands during the gap.
+//! [`arm_watcher_subscription`] runs the synchronous half early,
+//! BEFORE listener bind. Returned events queue into the lib's
+//! unbounded mpsc; [`spawn_watcher_handler`] drains them later, after
+//! the daemon is fully initialised.
+//!
+//! See `spec/crates/engine.md` § _Hot reload_.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use notify::RecursiveMode;
-use notify::event::{EventKind, ModifyKind};
-use notify_debouncer_full::{
-	DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache, new_debouncer,
-};
+use notify_twophase::Subscription;
 use tokio_util::sync::CancellationToken;
 use vane_core::FlowLogSink;
 use vane_engine::ListenerSet;
@@ -47,55 +36,21 @@ use vane_engine::flow_graph::FlowGraph;
 
 use crate::reload::{ReloadOutcome, reload_once};
 
-/// Concrete debouncer type; the platform-recommended watcher backend
-/// (`FSEvents` on macOS, inotify on Linux) plus the recommended cache.
-type WatchHandle = Debouncer<notify::RecommendedWatcher, RecommendedCache>;
-
-/// Active `FSEvents` subscription with its companion mpsc receiver.
-/// Held by the caller across the listener-bind window so events
-/// landing in the gap are queued, not lost.
-pub(crate) struct WatcherSubscription {
-	debouncer: WatchHandle,
-	rx: tokio::sync::mpsc::UnboundedReceiver<()>,
-	config_dir: PathBuf,
-}
-
-/// Window over which fs events are coalesced before triggering a
-/// reload. 250ms matches `spec/crates/engine.md` § _Hot reload_.
-const DEBOUNCE_MS: u64 = 250;
-
-/// Phase 1 — build the debouncer and subscribe to `FSEvents`
-/// synchronously. Must be called **before** `ListenerSet::start` so
-/// the subscription is live by the time the daemon's bound ports are
-/// reachable; events landing in the gap before the handler task
-/// drains them queue into the unbounded mpsc.
+/// Phase 1 — subscribe to `FSEvents` synchronously. Must be called
+/// **before** `ListenerSet::start` so the subscription is live by
+/// the time the daemon's bound ports are reachable; events landing
+/// in the gap before the handler task drains them queue into the
+/// underlying unbounded mpsc.
 ///
 /// # Errors
+///
 /// Propagates `notify::Error` from the underlying watcher backend
 /// (typically permission-denied on the directory).
 pub(crate) fn arm_watcher_subscription(
 	config_dir: PathBuf,
-) -> Result<WatcherSubscription, notify::Error> {
-	let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-
-	// Canonicalize the watch root so `starts_with` in the event filter
-	// matches what notify reports. macOS's FSEvents returns paths under
-	// `/private/var/folders/...` while a `tempfile::tempdir()` may give
-	// the symlinked `/var/folders/...` form; without canonicalization
-	// the prefix check rejects every legitimate event.
-	let watch_root = config_dir.canonicalize().unwrap_or_else(|_| config_dir.clone());
-	let mut debouncer =
-		new_debouncer(Duration::from_millis(DEBOUNCE_MS), None, move |res: DebounceEventResult| {
-			let Ok(events) = res else { return };
-			if is_reloadable_batch(&events, &watch_root) {
-				// Coalesce: a single () per debounce window. Receiver is
-				// unbounded so send is sync-ok.
-				let _ = tx.send(());
-			}
-		})?;
-	debouncer.watch(&config_dir, RecursiveMode::Recursive)?;
-
-	Ok(WatcherSubscription { debouncer, rx, config_dir })
+) -> Result<(Subscription, PathBuf), notify_twophase::notify::Error> {
+	let sub = notify_twophase::arm(config_dir.clone())?;
+	Ok((sub, config_dir))
 }
 
 /// Phase 2 — spawn the tokio task that drains queued reload signals
@@ -103,7 +58,8 @@ pub(crate) fn arm_watcher_subscription(
 /// subscription returned by [`arm_watcher_subscription`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_watcher_handler(
-	sub: WatcherSubscription,
+	sub: Subscription,
+	config_dir: PathBuf,
 	graph: Arc<ArcSwap<FlowGraph>>,
 	listeners: Arc<ListenerSet>,
 	verbosity: Arc<VerbosityState>,
@@ -120,14 +76,9 @@ pub(crate) fn spawn_watcher_handler(
 	#[cfg(feature = "acme")] acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
 	cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
-	let WatcherSubscription { debouncer, mut rx, config_dir } = sub;
+	let mut sub = sub;
 
 	tokio::spawn(async move {
-		// `_debouncer` is held here so the underlying RecommendedWatcher
-		// and its internal thread stay alive for the task's lifetime.
-		// Dropping the binding stops watching.
-		let _debouncer = debouncer;
-
 		loop {
 			tokio::select! {
 				biased;
@@ -135,7 +86,7 @@ pub(crate) fn spawn_watcher_handler(
 					tracing::debug!("watcher: cancel received");
 					return;
 				}
-				evt = rx.recv() => {
+				evt = sub.recv() => {
 					if evt.is_none() {
 						return;
 					}
@@ -161,11 +112,11 @@ pub(crate) fn spawn_watcher_handler(
 							tracing::info!(
 								hash = %hex32(&hash), "reloaded — flow graph swapped",
 							);
-							// Bring the listener set up to date with the new
-							// graph's `entries`: bind any added addresses,
-							// background-drain any removed ones. Unchanged
-							// addresses are picked up by the existing
-							// per-accept entry lookup.
+							// Bring the listener set up to date with the
+							// new graph's `entries`: bind any added
+							// addresses, background-drain any removed
+							// ones. Unchanged addresses are picked up by
+							// the existing per-accept entry lookup.
 							listeners.reconcile(
 								Arc::clone(&graph),
 								Arc::clone(&verbosity),
@@ -194,59 +145,11 @@ fn hex32(bytes: &[u8; 32]) -> String {
 	s
 }
 
-/// Whether a debounced batch contains at least one event that warrants
-/// recompiling the rule set. Per
-/// `spec/crates/engine.md` § _Hot reload_, only file-level
-/// mutations under the watched tree are reload-worthy:
-///
-/// - `Create(_)` — a new rule file appeared.
-/// - `Modify(Data(_))` — content was rewritten in place.
-/// - `Modify(Name(_))` — atomic editor save (write to `.tmp` →
-///   rename), and analogous file moves.
-/// - `Remove(_)` — a rule file was deleted.
-///
-/// Events filtered out:
-///
-/// - `Access(_)` — atime / open / close, never affects rule semantics.
-/// - `Modify(Metadata(_))` — chmod / chown / utime, no content change.
-/// - `Modify(Other | Any)` and the top-level `Other` / `Any` — kept
-///   conservative: backends differ, and `version_hash` idempotency in
-///   `reload_once` is the safety net if a real edit ever surfaces with
-///   a fuzzy classification.
-///
-/// Path filter: at least one of the event's paths must live under
-/// `watch_root` so stray events from siblings on the same filesystem
-/// don't drive reloads. `notify`'s recursive watch mostly handles this
-/// at the kernel level, but the path check is cheap and defends
-/// against backends that occasionally bubble up adjacent traffic.
-pub(crate) fn is_reloadable_batch(events: &[DebouncedEvent], watch_root: &Path) -> bool {
-	events.iter().any(|debounced| {
-		is_reloadable_kind(debounced.event.kind)
-			&& debounced.event.paths.iter().any(|p| p.starts_with(watch_root))
-	})
-}
-
-fn is_reloadable_kind(kind: EventKind) -> bool {
-	match kind {
-		EventKind::Create(_)
-		| EventKind::Remove(_)
-		| EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Name(_)) => true,
-		EventKind::Access(_)
-		| EventKind::Modify(ModifyKind::Metadata(_) | ModifyKind::Other | ModifyKind::Any)
-		| EventKind::Any
-		| EventKind::Other => false,
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use std::fs;
-	use std::time::Instant;
+	use std::time::{Duration, Instant};
 
-	use notify::event::{
-		AccessKind, CreateKind, Event as NotifyEvent, ModifyKind, RemoveKind, RenameMode,
-	};
-	use notify_debouncer_full::DebouncedEvent as DEvent;
 	use vane_engine::fetch::{http_proxy, http_synthesize, l4_forward};
 	use vane_engine::flow_graph::FlowGraph;
 	use vane_engine::middleware::{forward_client_ip, host_header_match, method_match, path_prefix};
@@ -254,72 +157,6 @@ mod tests {
 	use super::*;
 	use crate::providers::MetadataProviders;
 
-	// pure helper: is_reloadable_batch
-	fn ev_under(root: &Path, kind: EventKind) -> DEvent {
-		let event = NotifyEvent::new(kind).add_path(root.join("rules").join("foo.json"));
-		DEvent::new(event, Instant::now())
-	}
-
-	fn ev_outside(kind: EventKind) -> DEvent {
-		let event = NotifyEvent::new(kind).add_path(std::path::PathBuf::from("/elsewhere/file.json"));
-		DEvent::new(event, Instant::now())
-	}
-
-	#[test]
-	fn event_filter_accepts_create_modify_data_rename_remove() {
-		let root = std::path::PathBuf::from("/tmp/vane-cfg-fixture");
-		for kind in [
-			EventKind::Create(CreateKind::File),
-			EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content)),
-			EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
-			EventKind::Remove(RemoveKind::File),
-		] {
-			let batch = vec![ev_under(&root, kind)];
-			assert!(is_reloadable_batch(&batch, &root), "reload-worthy kind rejected: {kind:?}");
-		}
-	}
-
-	#[test]
-	fn event_filter_rejects_metadata_access_and_unknown() {
-		let root = std::path::PathBuf::from("/tmp/vane-cfg-fixture");
-		for kind in [
-			EventKind::Access(AccessKind::Read),
-			EventKind::Modify(ModifyKind::Metadata(notify::event::MetadataKind::Permissions)),
-			EventKind::Modify(ModifyKind::Other),
-			EventKind::Modify(ModifyKind::Any),
-			EventKind::Other,
-			EventKind::Any,
-		] {
-			let batch = vec![ev_under(&root, kind)];
-			assert!(!is_reloadable_batch(&batch, &root), "non-reload kind accepted: {kind:?}");
-		}
-	}
-
-	#[test]
-	fn event_filter_rejects_event_outside_watch_root() {
-		// Even a clean file-create event should not trigger a reload if its
-		// path is not under the watched tree.
-		let root = std::path::PathBuf::from("/tmp/vane-cfg-fixture");
-		let batch = vec![ev_outside(EventKind::Create(CreateKind::File))];
-		assert!(!is_reloadable_batch(&batch, &root));
-	}
-
-	#[test]
-	fn event_filter_accepts_when_at_least_one_event_qualifies() {
-		// Mixed batch: a metadata event alone wouldn't trigger; pairing it
-		// with a create event under the watch root must.
-		let root = std::path::PathBuf::from("/tmp/vane-cfg-fixture");
-		let batch = vec![
-			ev_under(
-				&root,
-				EventKind::Modify(ModifyKind::Metadata(notify::event::MetadataKind::Permissions)),
-			),
-			ev_under(&root, EventKind::Create(CreateKind::File)),
-		];
-		assert!(is_reloadable_batch(&batch, &root));
-	}
-
-	// end-to-end watcher integration
 	fn build_factories() -> (Arc<MiddlewareFactories>, Arc<FetchFactories>) {
 		let mut mw = MiddlewareFactories::new();
 		host_header_match::register(&mut mw);
@@ -383,9 +220,10 @@ mod tests {
 		let cancel = CancellationToken::new();
 		let (listeners, verbosity, sink) = watcher_extras();
 
-		let sub = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
+		let (sub, dir) = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
 		let _handle = spawn_watcher_handler(
 			sub,
+			dir,
 			Arc::clone(&swap),
 			listeners,
 			verbosity,
@@ -411,8 +249,8 @@ mod tests {
 		// Edit the rule body — should produce a different version_hash.
 		fs::write(tmp.path().join("rules").join("site.json"), rule_body(40100, "v2")).unwrap();
 
-		// Poll up to 3s for the swap to land. Debounce is 250ms; reload is
-		// typically <50ms; CI scheduling jitter accounts for the rest.
+		// Poll up to 3s for the swap to land. Debounce is 250ms; reload
+		// is typically <50ms; CI scheduling jitter accounts for the rest.
 		let deadline = Instant::now() + Duration::from_secs(3);
 		while Instant::now() < deadline {
 			if swap.load().meta().version_hash != h0 {
@@ -436,9 +274,10 @@ mod tests {
 		let cancel = CancellationToken::new();
 		let (listeners, verbosity, sink) = watcher_extras();
 
-		let sub = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
+		let (sub, dir) = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
 		let handle = spawn_watcher_handler(
 			sub,
+			dir,
 			swap,
 			listeners,
 			verbosity,
