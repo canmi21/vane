@@ -10,9 +10,7 @@
 //! module only retains the source identities and policies so the
 //! refreshable verifier can pull a fresh snapshot per handshake.
 
-use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -62,6 +60,18 @@ pub enum ClientTrustStoreError {
 	BuildVerifier { source: rustls::server::VerifierBuilderError },
 }
 
+impl From<rustls_pem_roots::Error> for ClientTrustStoreError {
+	fn from(e: rustls_pem_roots::Error) -> Self {
+		match e {
+			rustls_pem_roots::Error::Empty { files, dir } => Self::Empty { ca_paths: files, ca_dir: dir },
+			rustls_pem_roots::Error::ReadFile { path, source } => Self::ReadCaPath { path, source },
+			rustls_pem_roots::Error::ParseFile { path, source } => Self::ParseCaPath { path, source },
+			rustls_pem_roots::Error::EmptyFile { path } => Self::EmptyCaPath { path },
+			rustls_pem_roots::Error::ReadDir { dir, source } => Self::ReadCaDir { dir, source },
+		}
+	}
+}
+
 impl ClientTrustStore {
 	/// Build a `ClientTrustStore` from the parsed config. Loads CAs
 	/// from every `ca_paths` entry and every `*.pem` file in `ca_dir`,
@@ -75,76 +85,9 @@ impl ClientTrustStore {
 	/// directory that failed to load / parse, or `Empty` when no CA
 	/// material is reachable.
 	pub fn from_config(cfg: &ClientTrustStoreConfig) -> Result<Self, ClientTrustStoreError> {
-		let mut roots = RootCertStore::empty();
-		let mut seen: HashSet<Vec<u8>> = HashSet::new();
-
-		for path in &cfg.ca_paths {
-			Self::add_pem_file(path, &mut roots, &mut seen)?;
-		}
-		if let Some(dir) = &cfg.ca_dir {
-			Self::add_pem_dir(dir, &mut roots, &mut seen)?;
-		}
-
-		if roots.is_empty() {
-			return Err(ClientTrustStoreError::Empty {
-				ca_paths: cfg.ca_paths.clone(),
-				ca_dir: cfg.ca_dir.clone(),
-			});
-		}
-
+		let roots = rustls_pem_roots::load(&cfg.ca_paths, cfg.ca_dir.as_deref())?;
 		let crls = cfg.crls.iter().map(crl_source_from_config).collect();
-
 		Ok(Self { cas: Arc::new(roots), crls })
-	}
-
-	fn add_pem_file(
-		path: &Path,
-		roots: &mut RootCertStore,
-		seen: &mut HashSet<Vec<u8>>,
-	) -> Result<(), ClientTrustStoreError> {
-		let bytes = fs::read(path)
-			.map_err(|source| ClientTrustStoreError::ReadCaPath { path: path.to_path_buf(), source })?;
-		let mut reader = std::io::BufReader::new(bytes.as_slice());
-		let mut count = 0_usize;
-		for cert in rustls_pemfile::certs(&mut reader) {
-			let cert = cert.map_err(|source| ClientTrustStoreError::ParseCaPath {
-				path: path.to_path_buf(),
-				source,
-			})?;
-			let der_bytes = cert.as_ref().to_vec();
-			if seen.insert(der_bytes) {
-				if let Err(e) = roots.add(cert) {
-					return Err(ClientTrustStoreError::ParseCaPath {
-						path: path.to_path_buf(),
-						source: std::io::Error::other(e.to_string()),
-					});
-				}
-				count += 1;
-			}
-		}
-		if count == 0 {
-			return Err(ClientTrustStoreError::EmptyCaPath { path: path.to_path_buf() });
-		}
-		Ok(())
-	}
-
-	fn add_pem_dir(
-		dir: &Path,
-		roots: &mut RootCertStore,
-		seen: &mut HashSet<Vec<u8>>,
-	) -> Result<(), ClientTrustStoreError> {
-		let entries = fs::read_dir(dir)
-			.map_err(|source| ClientTrustStoreError::ReadCaDir { dir: dir.to_path_buf(), source })?;
-		for entry in entries {
-			let entry = entry
-				.map_err(|source| ClientTrustStoreError::ReadCaDir { dir: dir.to_path_buf(), source })?;
-			let path = entry.path();
-			if path.extension().and_then(|s| s.to_str()) != Some("pem") {
-				continue;
-			}
-			Self::add_pem_file(&path, roots, seen)?;
-		}
-		Ok(())
 	}
 }
 

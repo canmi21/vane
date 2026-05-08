@@ -96,6 +96,7 @@ rustls = { version = "0.23", default-features = false, features = ["std"] }
 rustls-crl-refresh = { workspace = true }
 rustls-native-certs = "0.8"
 rustls-native-roots-cache = { workspace = true }
+rustls-pem-roots = { workspace = true }
 rustls-pemfile = "2"
 rustls-pki-types = "1"
 rustls-ticketer = { workspace = true }

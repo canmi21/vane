@@ -32,6 +32,7 @@ crates.io as-is.
 | `quinn-shared-socket`       | Run a `quinn::Endpoint` on a UDP socket shared with other consumers.                         |
 | `rustls-crl-refresh`        | Process-wide CRL cache and refreshable rustls verifiers without `ServerConfig` churn.        |
 | `rustls-native-roots-cache` | Process-wide cache for rustls's native trust store, with platform-aware retry.               |
+| `rustls-pem-roots`          | Load PEM-encoded CA certificates from files and directories into a rustls `RootCertStore`.   |
 | `rustls-ticketer`           | Install a process-wide rustls session ticketer once; idempotent across multiple call sites.  |
 | `tokio-bind-retry`          | Bind a tokio `TcpListener` / `UdpSocket` with exponential backoff and cancellation support.  |
 | `tracing-broadcast`         | `tracing_subscriber::Layer` that fans every event into a tokio broadcast channel as JSON.    |

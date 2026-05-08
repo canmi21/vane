@@ -21,6 +21,7 @@ members = [
 	"crates/lib/quinn-shared-socket",
 	"crates/lib/rustls-crl-refresh",
 	"crates/lib/rustls-native-roots-cache",
+	"crates/lib/rustls-pem-roots",
 	"crates/lib/rustls-ticketer",
 	"crates/lib/tokio-bind-retry",
 	"crates/lib/tracing-broadcast",
@@ -66,6 +67,7 @@ prom-cardinality-cap = { path = "crates/lib/prom-cardinality-cap", version = "0.
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }
 rustls-crl-refresh = { path = "crates/lib/rustls-crl-refresh", version = "0.0.1" }
 rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.1" }
+rustls-pem-roots = { path = "crates/lib/rustls-pem-roots", version = "0.0.1" }
 rustls-ticketer = { path = "crates/lib/rustls-ticketer", version = "0.0.1", default-features = false }
 tokio-bind-retry = { path = "crates/lib/tokio-bind-retry", version = "0.0.1" }
 tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.1" }
