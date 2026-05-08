@@ -9,6 +9,7 @@ members = [
 	"crates/lib/clienthello",
 	"crates/lib/guess",
 	"crates/lib/h3-body",
+	"crates/lib/hyper-cgi",
 	"crates/lib/notify-twophase",
 	"crates/lib/ocsp-mock-responder",
 	"crates/lib/ocsp-staple",
@@ -48,6 +49,7 @@ async-trait = "0.1"
 clienthello = { path = "crates/lib/clienthello", version = "0.2" }
 guess = { path = "crates/lib/guess", version = "0.2", default-features = false }
 h3-body = { path = "crates/lib/h3-body", version = "0.0.1" }
+hyper-cgi = { path = "crates/lib/hyper-cgi", version = "0.0.1" }
 notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.1" }
 ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.1" }
 ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.1" }

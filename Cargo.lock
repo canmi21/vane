@@ -1984,6 +1984,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-cgi"
+version = "0.0.1"
+dependencies = [
+ "bytes",
+ "http",
+ "http-body",
+ "http-body-util",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "hyper-named-pipe"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5128,6 +5140,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "hyper",
+ "hyper-cgi",
  "hyper-rustls",
  "hyper-util",
  "instant-acme",
