@@ -26,19 +26,30 @@ use vane_mgmt::verb::{
 /// Build the sibling-package `vane` CLI binary (once per test
 /// process) and return a [`std::process::Command`] pointed at it.
 ///
-/// `assert_cmd::cargo_bin("vane")` would be the natural form, but
-/// Cargo only sets `CARGO_BIN_EXE_<name>` for binaries declared in
-/// the test's own package — `vane` lives in `crates/cli`, so its
-/// path is invisible to `vaned`'s integration tests on a clean
-/// checkout. Without an existing `target/debug/vane` left over from
-/// some earlier `cargo build`, `cargo_bin` panics. escargot is the
-/// assert_cmd-recommended escape hatch: it drives `cargo build` for
-/// the named bin in the named package and caches the resulting
-/// path. The `OnceLock` avoids paying that cost more than once
-/// across the suite.
+/// Two paths, in order of preference:
+///
+/// 1. Under `cargo nextest run`, the `build-vane-cli` setup script
+///    in `.config/nextest.toml` pre-builds the CLI and exports its
+///    absolute path through `VANE_BIN`. Reading the env var costs
+///    one syscall and keeps the cargo build lock out of the test's
+///    critical path entirely.
+/// 2. Under `cargo test` (or any caller that bypasses nextest's
+///    setup scripts), fall back to escargot, which re-invokes
+///    `cargo build -p vane --bin vane` once per test process. This
+///    is slow on a cold cache but no slower than the historical
+///    behaviour.
+///
+/// `assert_cmd::cargo_bin("vane")` would otherwise be the natural
+/// form, but Cargo only sets `CARGO_BIN_EXE_<name>` for binaries
+/// declared in the test's own package — `vane` lives in
+/// `crates/cli`, so its path is invisible to `vaned`'s integration
+/// tests on a clean checkout.
 fn vane_cli() -> std::process::Command {
 	static VANE_BIN: OnceLock<PathBuf> = OnceLock::new();
 	let path = VANE_BIN.get_or_init(|| {
+		if let Some(p) = std::env::var_os("VANE_BIN") {
+			return PathBuf::from(p);
+		}
 		escargot::CargoBuild::new()
 			.package("vane")
 			.bin("vane")

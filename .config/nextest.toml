@@ -8,16 +8,24 @@ experimental = ["setup-scripts"]
 # means the kill lands at 2 × period = 20s.
 slow-timeout = { period = "10s", terminate-after = 2 }
 
-# Pre-build the `vane` CLI before daemon mgmt tests run. `mgmt.rs`
-# shells out to the CLI for pretty/JSON output coverage, but `vane`
-# lives in a sibling package and is not in nextest's `--workspace`
-# implicit build set. Without this script, each mgmt test process
-# races to drive `cargo build` through escargot at test runtime —
-# the cold build then collides with the per-test slow-timeout above
-# and wedges the suite. Doing it as a setup script keeps the build
-# cost outside any test's measured wall-clock.
+# Pre-build the `vane` CLI before daemon mgmt tests run and export
+# its path through `$NEXTEST_ENV` so `vane_cli()` can `Command::new`
+# the binary directly. `mgmt.rs` shells out to the CLI for pretty
+# / JSON output coverage, but `vane` lives in a sibling package and
+# is not in nextest's `--workspace` implicit build set.
+#
+# An earlier version of this setup ran `cargo build -p vane --bin
+# vane` here and let each mgmt test process call escargot at
+# runtime to discover the path. Even with a warm cache, escargot
+# still invokes `cargo build` once per test process — cargo's
+# build lock then serialises the parallel mgmt-test fan-out, and
+# on slower CI runners that serialisation routinely pushed the
+# four CLI-driven tests past the 20 s `slow-timeout`. Driving the
+# build through `scripts/build-vane-bin.sh` and reading the path
+# from `$NEXTEST_ENV` keeps the cargo lock out of the test
+# critical path entirely.
 [scripts.setup.build-vane-cli]
-command = "cargo build -p vane --bin vane"
+command = "scripts/build-vane-bin.sh"
 slow-timeout = { period = "60s", terminate-after = 4 }
 
 [[profile.default.scripts]]

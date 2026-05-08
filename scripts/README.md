@@ -16,6 +16,19 @@ output leaks through `--quiet` to stderr in some scenarios, and the
 TUI's drawing buffer doesn't survive that. Doing the build first
 pushes those bytes ahead of the terminal takeover.
 
+## `build-vane-bin.sh`
+
+Builds `crates/cli` (the `vane` binary) and writes
+`VANE_BIN=<absolute path>` to the file pointed at by `$NEXTEST_ENV`,
+so the daemon's mgmt integration tests can `Command::new` the CLI
+without paying a runtime `cargo build` (and the cargo build lock
+that would imply across parallel test processes). Run as a nextest
+setup script — see `.config/nextest.toml`'s `build-vane-cli`
+entry. Path extraction goes through `cargo build
+--message-format=json` rather than hard-coding `target/debug/vane`,
+so the script keeps working under `CARGO_TARGET_DIR` overrides,
+`--target <triple>`, and `--release`.
+
 ## `check_spec_anchors.pl`
 
 Verifies every `spec/<path>.md § _Section_` reference in workspace
