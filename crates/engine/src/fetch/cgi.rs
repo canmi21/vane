@@ -779,12 +779,16 @@ fn pre_exec_drop_privs_and_limits(security: &CgiSecurity) -> io::Result<()> {
 	if unsafe { libc::setuid(security.uid as libc::uid_t) } != 0 {
 		return Err(io::Error::last_os_error());
 	}
+	// `libc::RLIMIT_*` is `c_int` (i32) on macOS and `__rlimit_resource_t`
+	// (u32) on Linux glibc. Cast at the callsite so `apply_rlimit`'s
+	// signature stays portable; the values themselves are small enum
+	// constants that fit in either type.
 	apply_rlimit(
-		libc::RLIMIT_AS,
+		libc::RLIMIT_AS as libc::c_int,
 		security.limits.memory_mb.map(|mb| mb.saturating_mul(1024 * 1024)),
 	)?;
-	apply_rlimit(libc::RLIMIT_CPU, security.limits.cpu_seconds)?;
-	apply_rlimit(libc::RLIMIT_NPROC, security.limits.max_processes)?;
+	apply_rlimit(libc::RLIMIT_CPU as libc::c_int, security.limits.cpu_seconds)?;
+	apply_rlimit(libc::RLIMIT_NPROC as libc::c_int, security.limits.max_processes)?;
 	Ok(())
 }
 
