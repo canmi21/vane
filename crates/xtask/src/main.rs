@@ -1,0 +1,92 @@
+// xtask is the workspace's task-runner binary, invoked through the
+// cargo alias `cargo xtask <subcommand>` (see .cargo/config.toml).
+// Subcommands replace the perl scripts that used to live under
+// scripts/, putting workspace-invariant logic into Rust where it
+// gets type-checking, shared workspace deps, and `#[test]` coverage.
+
+// CLI help (`///` on clap-derived enums) renders `VANE_BIN`,
+// `CARGO_REGISTRY_TOKEN`, and similar identifiers as plain text;
+// wrapping them in backticks would muddy the rendered --help.
+#![allow(clippy::doc_markdown, clippy::module_name_repetitions)]
+
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+
+mod build_vane_cli;
+mod check_spec_anchors;
+mod publish;
+mod sync_deps;
+mod workspace;
+
+#[derive(Parser)]
+#[command(name = "xtask", about = "vane workspace task runner")]
+struct Cli {
+	#[command(subcommand)]
+	command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+	/// Build the vane CLI binary and write VANE_BIN to NEXTEST_ENV.
+	BuildVaneCli,
+	/// Verify spec-anchor references in source comments resolve to real headings.
+	CheckSpecAnchors,
+	/// Reconcile workspace.dependencies versions with each crate's own version.
+	#[command(subcommand)]
+	SyncDeps(SyncDepsCmd),
+	/// crates.io publish workflow: plan, dry-run, or real publish.
+	#[command(subcommand)]
+	Publish(PublishCmd),
+}
+
+#[derive(Subcommand)]
+enum SyncDepsCmd {
+	/// Exit non-zero on drift, listing stale workspace dep versions.
+	Check,
+	/// Rewrite the root Cargo.toml in place to bring versions in sync.
+	Write,
+}
+
+#[derive(Subcommand)]
+enum PublishCmd {
+	/// Print the publish plan in topological order (table or JSON).
+	Plan {
+		/// Restrict the plan to a single crate.
+		#[arg(long)]
+		only: Option<String>,
+		/// Emit newline-delimited JSON instead of a table.
+		#[arg(long)]
+		json: bool,
+	},
+	/// Dry-run cargo publish for every plan row.
+	Dry {
+		/// Restrict the dry-run to a single crate.
+		#[arg(long)]
+		only: Option<String>,
+	},
+	/// Real cargo publish for every plan row (requires CARGO_REGISTRY_TOKEN).
+	Run {
+		/// Restrict the publish to a single crate.
+		#[arg(long)]
+		only: Option<String>,
+		/// Skip the `just gate` pre-flight.
+		#[arg(long)]
+		skip_gate: bool,
+	},
+}
+
+fn main() -> Result<()> {
+	match Cli::parse().command {
+		Command::BuildVaneCli => build_vane_cli::run(),
+		Command::CheckSpecAnchors => check_spec_anchors::run(),
+		Command::SyncDeps(SyncDepsCmd::Check) => sync_deps::run(sync_deps::Mode::Check),
+		Command::SyncDeps(SyncDepsCmd::Write) => sync_deps::run(sync_deps::Mode::Write),
+		Command::Publish(PublishCmd::Plan { only, json }) => publish::plan(only.as_deref(), json),
+		Command::Publish(PublishCmd::Dry { only }) => {
+			publish::run(publish::Mode::Dry, only.as_deref(), false)
+		}
+		Command::Publish(PublishCmd::Run { only, skip_gate }) => {
+			publish::run(publish::Mode::Real, only.as_deref(), skip_gate)
+		}
+	}
+}

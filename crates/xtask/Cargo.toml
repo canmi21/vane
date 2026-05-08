@@ -1,0 +1,19 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1"
+cargo_metadata = "0.18"
+clap = { version = "4.5", features = ["derive"] }
+fancy-regex = "0.14"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+toml_edit = "0.22"
+ureq = { version = "2.10", default-features = false, features = ["tls"] }

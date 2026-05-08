@@ -31,6 +31,7 @@ members = [
 	"crates/mgmt",
 	"crates/testutil",
 	"crates/wasm",
+	"crates/xtask",
 	"tests",
 ]
 
