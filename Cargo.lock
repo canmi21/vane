@@ -5077,6 +5077,9 @@ dependencies = [
  "tracing",
  "vane-core",
  "vane-engine",
+ "wat",
+ "wit-component 0.248.0",
+ "wit-parser 0.248.0",
  "x509-cert",
  "x509-ocsp",
 ]
@@ -5095,10 +5098,8 @@ dependencies = [
  "tracing",
  "url",
  "vane-core",
+ "vane-testutil",
  "wasmtime",
- "wat",
- "wit-component 0.248.0",
- "wit-parser 0.248.0",
 ]
 
 [[package]]
@@ -5135,6 +5136,7 @@ dependencies = [
  "vane-core",
  "vane-engine",
  "vane-mgmt",
+ "vane-testutil",
  "vane-wasm",
 ]
 

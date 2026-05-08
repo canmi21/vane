@@ -86,6 +86,10 @@ tokio = { version = "1.52.2", features = ["full"] }
 tokio-rustls = { version = "0.26", default-features = false }
 vane-engine = { path = "../engine", version = "0.10.4", default-features = false }
 vane-mgmt = { workspace = true }
+# Wasm-loader and wasm-e2e tests pull the fixture out of testutil's
+# OUT_DIR (under the `wasm-fixtures` feature). The fixture
+# generation only kicks in here, never in production builds.
+vane-testutil = { workspace = true, features = ["wasm-fixtures"] }
 
 [[bin]]
 name = "vaned"

@@ -441,10 +441,10 @@ mod tests {
 
 	#[tokio::test]
 	async fn load_all_registers_exports_with_file_stem_prefix() {
-		// Reuse the metadata fixture built by `vane-wasm`'s build.rs.
-		let fixture_src =
-			concat!(env!("CARGO_MANIFEST_DIR"), "/../wasm/fixtures/metadata_fixture.wasm");
-		let fixture_src = std::path::Path::new(fixture_src);
+		// Fixture is generated into vane-testutil's OUT_DIR by its
+		// `wasm-fixtures` feature; the path is baked in at testutil
+		// compile time so we don't have to reach across crates.
+		let fixture_src = vane_testutil::wasm_fixture::metadata();
 		assert!(fixture_src.exists(), "wasm fixture not built yet");
 
 		let tmp = tempfile::tempdir().expect("tempdir");

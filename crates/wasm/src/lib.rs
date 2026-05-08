@@ -2567,7 +2567,7 @@ mod tests {
 	}
 
 	fn fixture_path() -> &'static Path {
-		Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/metadata_fixture.wasm"))
+		vane_testutil::wasm_fixture::metadata()
 	}
 
 	async fn loaded_runtime() -> Arc<WasmtimeRuntime> {
@@ -2721,7 +2721,7 @@ mod tests {
 	// component binary does not export the corresponding handler interface.
 	#[tokio::test]
 	async fn load_component_rejects_missing_handler_interface() {
-		let fixture = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mismatch_fixture.wasm"));
+		let fixture = vane_testutil::wasm_fixture::mismatch();
 		assert!(fixture.exists(), "mismatch fixture not found; re-run cargo build to regenerate");
 
 		let rt = WasmtimeRuntime::new(mock_backend()).expect("runtime");

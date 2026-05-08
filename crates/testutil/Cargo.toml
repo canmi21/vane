@@ -67,6 +67,19 @@ ocsp = [
 	"dep:spki",
 	"dep:const-oid",
 ]
+# Generates the wasm component fixtures used by `vane-wasm`'s own
+# unit tests and the daemon's wasm-loader / wasm-e2e tests. Pulls
+# the `wat` + `wit-component` + `wit-parser` toolchain into
+# build-dependencies; gated so testutil consumers that don't
+# touch wasm fixtures don't pay the build cost. Outputs land in
+# `OUT_DIR` and are exposed via `wasm_fixture::metadata()` /
+# `::mismatch()`.
+wasm-fixtures = ["dep:wat", "dep:wit-component", "dep:wit-parser"]
+
+[build-dependencies]
+wat = { version = "1.248.0", optional = true }
+wit-component = { version = "0.248.0", optional = true }
+wit-parser = { version = "0.248.0", optional = true }
 
 [dependencies]
 tokio = { version = "1.52.2", features = ["net", "io-util", "rt", "time", "macros"] }

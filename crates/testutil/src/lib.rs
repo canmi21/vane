@@ -13,3 +13,5 @@ pub mod ocsp;
 pub mod port;
 pub mod tracing;
 pub mod vaned_fixture;
+#[cfg(feature = "wasm-fixtures")]
+pub mod wasm_fixture;
