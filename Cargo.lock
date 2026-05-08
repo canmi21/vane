@@ -533,6 +533,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "cgi-request"
+version = "0.0.1"
+dependencies = [
+ "http",
+]
+
+[[package]]
 name = "chacha20"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4682,6 +4689,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-bind-retry"
+version = "0.0.1"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "tokio-macros"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5126,6 +5142,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cgi-request",
  "clienthello",
  "dashmap",
  "der",
@@ -5176,6 +5193,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
+ "tokio-bind-retry",
  "tokio-rustls",
  "tokio-util",
  "tower-service",

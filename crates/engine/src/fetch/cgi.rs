@@ -48,9 +48,10 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use cgi_request::{CgiRequestMeta, is_reserved_env_key};
 use http::StatusCode;
 use http_body::Body as _;
-use hyper_cgi::{HeaderReadError, is_reserved_env_key};
+use hyper_cgi::HeaderReadError;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::process::Command;
@@ -98,9 +99,9 @@ const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_TOTAL_TIMEOUT: Duration = Duration::from_mins(1);
 
 // RFC 3875 / common-extension reserved env keys come from the
-// `hyper-cgi` lib's `is_reserved_env_key`. The lib's lists match the
-// names this driver computes per request; operators cannot override
-// them via `args.env`. See `spec/crates/engine.md` § _CGI_.
+// `cgi-request` lib's `is_reserved_env_key`. The lib's lists match
+// the names this driver computes per request; operators cannot
+// override them via `args.env`. See `spec/crates/engine.md` § _CGI_.
 
 /// Build a `CgiFetch` from the resolved rule args.
 ///
@@ -628,88 +629,26 @@ fn static_response(status: StatusCode) -> Response {
 	b.body(Body::Empty).expect("static response")
 }
 
-/// Build the RFC 3875 + common-extension env for one request. `spec/crates/engine.md` § _CGI_.
+/// Build the RFC 3875 + common-extension env for one request.
+/// Thin adapter over [`cgi_request::build_env`]: maps vane's
+/// `Request` + `ConnContext` into the lib's [`CgiRequestMeta`]
+/// shape. `spec/crates/engine.md` § _CGI_.
 #[cfg(unix)]
-#[allow(clippy::too_many_lines)]
 fn build_env(args: &CgiArgs, req: &Request, conn: &Arc<ConnContext>) -> Vec<(String, String)> {
-	let mut env: Vec<(String, String)> = Vec::with_capacity(32);
-
-	let uri = req.uri();
-	let path = uri.path();
-	let path_info = path.strip_prefix(args.script_name.as_str()).unwrap_or(path);
-	let mut path_translated = args.working_dir.clone();
-	if !path_info.is_empty() {
-		path_translated.push(path_info.trim_start_matches('/'));
-	}
-	let path_translated = path_translated.to_string_lossy().into_owned();
-	let query = uri.query().unwrap_or("");
-	let request_uri = uri.path_and_query().map_or_else(|| path.to_owned(), ToString::to_string);
-
-	let method = req.method().as_str();
-	let content_length = req
-		.headers()
-		.get(http::header::CONTENT_LENGTH)
-		.and_then(|v| v.to_str().ok())
-		.unwrap_or("0")
-		.to_owned();
-	let content_type = req
-		.headers()
-		.get(http::header::CONTENT_TYPE)
-		.and_then(|v| v.to_str().ok())
-		.unwrap_or("")
-		.to_owned();
-	let server_name = req
-		.headers()
-		.get(http::header::HOST)
-		.and_then(|v| v.to_str().ok())
-		.map_or_else(|| conn.local.ip().to_string(), str::to_owned);
-
-	let is_tls = conn.tls.lock().is_some();
-
-	env.push(("CONTENT_LENGTH".to_owned(), content_length));
-	env.push(("CONTENT_TYPE".to_owned(), content_type));
-	env.push(("GATEWAY_INTERFACE".to_owned(), "CGI/1.1".to_owned()));
-	env.push(("PATH_INFO".to_owned(), path_info.to_owned()));
-	env.push(("PATH_TRANSLATED".to_owned(), path_translated));
-	env.push(("QUERY_STRING".to_owned(), query.to_owned()));
-	env.push(("REMOTE_ADDR".to_owned(), conn.remote.ip().to_string()));
-	env.push(("REMOTE_HOST".to_owned(), conn.remote.ip().to_string()));
-	env.push(("REQUEST_METHOD".to_owned(), method.to_owned()));
-	env.push(("SCRIPT_NAME".to_owned(), args.script_name.clone()));
-	env.push(("SERVER_NAME".to_owned(), server_name));
-	env.push(("SERVER_PORT".to_owned(), conn.local.port().to_string()));
-	env.push(("SERVER_PROTOCOL".to_owned(), "HTTP/1.1".to_owned()));
-	env.push(("SERVER_SOFTWARE".to_owned(), concat!("vane/", env!("CARGO_PKG_VERSION")).to_owned()));
-
-	env.push(("REMOTE_PORT".to_owned(), conn.remote.port().to_string()));
-	env.push(("REQUEST_URI".to_owned(), request_uri));
-	env.push((
-		"REQUEST_SCHEME".to_owned(),
-		if is_tls { "https".to_owned() } else { "http".to_owned() },
-	));
-	if is_tls {
-		env.push(("HTTPS".to_owned(), "on".to_owned()));
-	}
-	env.push(("DOCUMENT_URI".to_owned(), path.to_owned()));
-
-	for (name, value) in req.headers() {
-		let lower = name.as_str().to_ascii_lowercase();
-		if lower == "content-length" || lower == "content-type" {
-			continue;
-		}
-		if args.block_headers.iter().any(|b| b.eq_ignore_ascii_case(name.as_str())) {
-			continue;
-		}
-		let key = format!("HTTP_{}", name.as_str().to_ascii_uppercase().replace('-', "_"));
-		let val = value.to_str().unwrap_or("").to_owned();
-		env.push((key, val));
-	}
-
-	for (k, v) in &args.env {
-		env.push((k.clone(), v.clone()));
-	}
-
-	env
+	cgi_request::build_env(&CgiRequestMeta {
+		method: req.method().as_str(),
+		path: req.uri().path(),
+		query: req.uri().query(),
+		headers: req.headers(),
+		script_name: &args.script_name,
+		working_dir: &args.working_dir,
+		server_addr: conn.local,
+		remote_addr: conn.remote,
+		is_tls: conn.tls.lock().is_some(),
+		server_software: concat!("vane/", env!("CARGO_PKG_VERSION")),
+		block_headers: &args.block_headers,
+		extra_env: &args.env,
+	})
 }
 
 /// Install the `pre_exec` closure that drops privileges + applies

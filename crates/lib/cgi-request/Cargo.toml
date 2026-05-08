@@ -1,0 +1,20 @@
+[package]
+name = "cgi-request"
+version = "0.0.1"
+categories = ["web-programming::http-server", "encoding"]
+edition.workspace = true
+keywords = ["cgi", "rfc3875", "env", "http", "request"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Build the RFC 3875 environment-variable list for a CGI child from an HTTP request."
+
+[lints]
+workspace = true
+
+[dependencies]
+http = "1"
+
+[dev-dependencies]
+http = "1"
