@@ -22,6 +22,7 @@ all-features = true
 arc-swap = "1.9.1"
 async-trait = { workspace = true }
 metrics = "0.24"
+prom-cardinality-cap = { workspace = true }
 rand = "0.10"
 sha2 = "0.11.0"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }

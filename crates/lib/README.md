@@ -27,6 +27,7 @@ crates.io as-is.
 | `ocsp-mock-responder`       | In-process mock OCSP responder for integration tests.                                        |
 | `ocsp-staple`               | Build OCSP requests, parse responses, and extract responder URLs from the AIA extension.     |
 | `peeked-stream`             | Replay a peeked byte buffer back onto the read side of an `AsyncRead` + `AsyncWrite` stream. |
+| `prom-cardinality-cap`      | Per-namespace cap on Prometheus metric label cardinality with warn-once-on-first-drop.       |
 | `quinn-shared-socket`       | Run a `quinn::Endpoint` on a UDP socket shared with other consumers.                         |
 | `rustls-crl-refresh`        | Process-wide CRL cache and refreshable rustls verifiers without `ServerConfig` churn.        |
 | `rustls-native-roots-cache` | Process-wide cache for rustls's native trust store, with platform-aware retry.               |

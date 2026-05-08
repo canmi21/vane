@@ -3294,6 +3294,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "prom-cardinality-cap"
+version = "0.0.1"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "prometheus-parse"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5283,6 +5290,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "metrics",
+ "prom-cardinality-cap",
  "rand 0.10.1",
  "sha2 0.11.0",
  "tempfile",

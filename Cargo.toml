@@ -16,6 +16,7 @@ members = [
 	"crates/lib/ocsp-mock-responder",
 	"crates/lib/ocsp-staple",
 	"crates/lib/peeked-stream",
+	"crates/lib/prom-cardinality-cap",
 	"crates/lib/quinn-shared-socket",
 	"crates/lib/rustls-crl-refresh",
 	"crates/lib/rustls-native-roots-cache",
@@ -59,6 +60,7 @@ notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.1" }
 ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.1" }
 ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.1" }
 peeked-stream = { path = "crates/lib/peeked-stream", version = "0.0.1" }
+prom-cardinality-cap = { path = "crates/lib/prom-cardinality-cap", version = "0.0.1" }
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }
 rustls-crl-refresh = { path = "crates/lib/rustls-crl-refresh", version = "0.0.1" }
 rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.1" }

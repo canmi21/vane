@@ -1587,7 +1587,7 @@ impl WasmtimeRuntime {
 			stateless_pools: RwLock::new(HashMap::new()),
 			stateful_pools: RwLock::new(Vec::new()),
 			policies: RwLock::new(HashMap::new()),
-			cardinality: Arc::new(CardinalityRegistry::from_env()),
+			cardinality: Arc::new(cardinality::registry_from_env()),
 		}))
 	}
 
@@ -3184,7 +3184,7 @@ mod tests {
 		assert!(metric_counter_core(&state, "b", 1, &[]).is_ok());
 		// Third unique series silently dropped — Ok(()), not a trap.
 		assert!(metric_counter_core(&state, "c", 1, &[]).is_ok());
-		assert_eq!(state.cardinality.series_count_for_test(&state.module_id), 2);
+		assert_eq!(state.cardinality.series_count(&state.module_id), 2);
 	}
 
 	#[test]
@@ -3192,7 +3192,7 @@ mod tests {
 		let state = test_state_with_cap(1);
 		assert!(metric_gauge_core(&state, "a", 5, &[]).is_ok());
 		assert!(metric_gauge_core(&state, "b", 5, &[]).is_ok(), "over-cap is silent, not a trap");
-		assert_eq!(state.cardinality.series_count_for_test(&state.module_id), 1);
+		assert_eq!(state.cardinality.series_count(&state.module_id), 1);
 	}
 
 	// http-fetch host fn validation
