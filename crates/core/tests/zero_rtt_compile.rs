@@ -4,7 +4,7 @@
 //! pipeline through `compile()` so each error path here matches what
 //! an operator would see from `vane compile --dry-run`. See
 //! `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_
-//! § _Configuration schema_ for the rule list.
+//! `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_ § _Configuration_ for the rule list.
 
 use std::path::PathBuf;
 
@@ -71,7 +71,7 @@ fn compile_one(raw: serde_json::Value) -> Result<(), Error> {
 fn missing_allow_zero_rtt_on_tls_l7_rule_errors() {
 	// `tls.enable_zero_rtt` is present but the per-rule `allow_zero_rtt`
 	// is absent — required by `spec/crates/engine-tls.md`
-	// § _TLS 1.3 0-RTT (early data)_ § _Compile-time constraints_.
+	// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_ § _Compile-time constraints_.
 	let err = compile_one(json!({
 		"name": "api",
 		"listen": [":443"],

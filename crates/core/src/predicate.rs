@@ -2336,7 +2336,7 @@ mod tests {
 
 	#[test]
 	fn matrix_cidr_v4_against_v6_addr_misses() {
-		// Spec 18 § _Predicate_: a single cidr matches only its family.
+		// `spec/crates/core.md` § _Predicate_: a single cidr matches only its family.
 		let conn = make_conn_with("[2001:db8::5]:0", "127.0.0.1:0");
 		let v = PredicateView::L4 { conn: &conn, peek: None };
 		let v4 = IpNet::from_str("0.0.0.0/0").unwrap();
@@ -2674,7 +2674,7 @@ mod tests {
 	}
 
 	// http.body (Bytes-typed)	//
-	// Spec 18 § _Runtime_: the executor collects request body via
+	// `spec/crates/core.md` § _Predicate_: the executor collects request body via
 	// LazyBuffer before walking a Check on `http.body`, so by the time
 	// the dispatch fires the body is `Body::Static(bytes)`. The tests
 	// hand-build `Body::Static` directly to skip the LazyBuffer chain.

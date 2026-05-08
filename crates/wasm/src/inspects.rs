@@ -1,13 +1,13 @@
 //! Inspects path grammar — the canonical list of `inspects` field
 //! paths a plugin may declare.
 //!
-//! Mirrors `spec/wasm-abi.md` § _Path grammar_ (connection table) and
+//! Mirrors `spec/wasm-abi.md` § _Path grammar — connection-level_ (connection table) and
 //! `spec/crates/core.md` (request / response
 //! table). Any addition here must update the spec table and the host
 //! pack site in the same commit, or load-time validation diverges
 //! from the documented grammar.
 
-/// Connection-level paths from `spec/wasm-abi.md` § _Path grammar_.
+/// Connection-level paths from `spec/wasm-abi.md` § _Path grammar — connection-level_.
 /// Static-fixed: every path packs from a `ConnContext` field.
 const CONN_PATHS: &[&str] = &[
 	"conn.peer_ip",

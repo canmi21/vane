@@ -119,7 +119,7 @@ pub struct RenewalJob {
 	/// to dispatch on `kind` discriminators.
 	pub dns: Option<Arc<dyn DnsProvider>>,
 	/// `now + renew_before >= not_after` triggers renewal. Per-cert
-	/// per spec § _Configuration schema_; CLI/TUI default `30d`.
+	/// per `spec/crates/engine-acme.md` § _Configuration schema_; CLI/TUI default `30d`.
 	pub renew_before: Duration,
 	/// Optional CA root for the `instant-acme` HTTP client — only
 	/// populated by Pebble integration tests (production CAs use
@@ -271,7 +271,7 @@ pub fn should_refresh_ocsp(state: &CertState, now: SystemTime) -> bool {
 /// cert that was issued under `job` (specifically: `job.renew_before`
 /// + the cert's `not_after`, plus any cached ARI window).
 ///
-/// Triggers per spec § _Renewal triggers_:
+/// Triggers per `spec/crates/engine-acme.md` § _Renewal triggers_:
 ///
 /// - status `Valid` AND `now + renew_before >= not_after` (timer);
 ///   when no cert is cached yet (first-time issuance never ran), the

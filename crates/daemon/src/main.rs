@@ -391,7 +391,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// per `spec/crates/engine-acme.md` § _Challenge: HTTP-01_. Both are
 	// fire-and-forget; ACME failures surface via `tracing::error!`
 	// and don't abort boot. After both, the renewal scheduler ticks
-	// every 5 minutes per spec § _Renewal triggers_ and dispatches
+	// every 5 minutes per `spec/crates/engine-acme.md` § _Renewal triggers_ and dispatches
 	// renewal attempts based on each SNI's
 	// `now + renew_before >= not_after` threshold; its abort handle
 	// is dropped on daemon shutdown via `shutdown_trigger.cancel()`

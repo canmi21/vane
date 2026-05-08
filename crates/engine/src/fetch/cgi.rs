@@ -102,7 +102,7 @@ const DEFAULT_TOTAL_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// RFC 3875 §4.1 required variables. Operators cannot override these
 /// via `args.env` — vane computes them per request from connection /
-/// request state. See spec § _CGI_.
+/// request state. See `spec/crates/engine.md` § _CGI_.
 const RFC_3875_REQUIRED: &[&str] = &[
 	"CONTENT_LENGTH",
 	"CONTENT_TYPE",
@@ -121,7 +121,7 @@ const RFC_3875_REQUIRED: &[&str] = &[
 ];
 
 /// Common-extension variables (not in RFC 3875 but ubiquitous).
-/// See spec § _CGI_.
+/// See `spec/crates/engine.md` § _CGI_.
 const COMMON_EXTENSIONS: &[&str] =
 	&["REMOTE_PORT", "REQUEST_URI", "REQUEST_SCHEME", "HTTPS", "DOCUMENT_URI"];
 
@@ -199,7 +199,7 @@ fn parse_env(obj: &serde_json::Map<String, Value>) -> Result<Vec<(String, String
 		if is_reserved_env_key(k) {
 			return Err(format!(
 				"args.env key {k:?} is reserved (RFC 3875 / common extension / HTTP_*); operators \
-				 cannot override values vane computes per request — see spec § _CGI_"
+				 cannot override values vane computes per request — see `spec/crates/engine.md` § _CGI_"
 			));
 		}
 		let val = v.as_str().ok_or_else(|| format!("args.env[{k:?}] must be a string, got {v:?}"))?;
@@ -235,7 +235,7 @@ fn parse_security(obj: &serde_json::Map<String, Value>) -> Result<CgiSecurity, S
 	let gid = require_u32(raw, "security.gid")?;
 
 	// `chroot` is reserved at the schema level so the JSON shape stays
-	// stable for a future post-MVP implementation pass. Spec § _Security_:
+	// stable for a future post-MVP implementation pass. `spec/crates/engine.md` § _Security_:
 	// "a CGI rule with chroot: Some(...) fails compile with 'chroot is
 	// reserved but not yet implemented'."
 	let chroot = raw
@@ -309,7 +309,7 @@ fn parse_timeouts(obj: &serde_json::Map<String, Value>) -> Result<CgiTimeouts, S
 	Ok(CgiTimeouts { connect, total })
 }
 
-/// Bootstrap validation per spec § _Bootstrap validation_: rule-level
+/// Bootstrap validation per `spec/crates/engine.md` § _Bootstrap validation_: rule-level
 /// compile error (not daemon-wide) when the binary is missing /
 /// non-file / non-executable for the configured uid.
 //
@@ -376,7 +376,7 @@ struct CgiPermitState {
 	/// crossed the cap gate and proceeded to fork/exec.
 	total_spawns: Arc<std::sync::atomic::AtomicU64>,
 	/// Cumulative `try_acquire_owned` failures — fast-rejects under the
-	/// concurrency cap (spec § _Concurrency cap_).
+	/// concurrency cap (`spec/crates/engine.md` § _Concurrency cap_).
 	failures: Arc<std::sync::atomic::AtomicU64>,
 }
 
@@ -469,7 +469,7 @@ impl L7Fetch for CgiFetch {
 		conn: &Arc<ConnContext>,
 		_ctx: &mut FlowCtx,
 	) -> Result<L7FetchOutput, Error> {
-		// Spec § _Concurrency cap_: fast-reject with 503 when the
+		// `spec/crates/engine.md` § _Concurrency cap_: fast-reject with 503 when the
 		// daemon-wide CGI permit pool is empty. Queueing under
 		// sustained overload amplifies pressure (each pending
 		// request still holds its connection); surfacing the cap to
@@ -662,7 +662,7 @@ fn static_response(status: StatusCode) -> Response {
 }
 
 /// Build the RFC 3875 + common-extension env for one request. Spec §
-/// _Required by RFC 3875_ + § _CGI_.
+/// _Required by RFC 3875_; see `spec/crates/engine.md` § _CGI_.
 #[cfg(unix)]
 #[allow(clippy::too_many_lines)]
 fn build_env(args: &CgiArgs, req: &Request, conn: &Arc<ConnContext>) -> Vec<(String, String)> {
@@ -755,7 +755,7 @@ fn install_pre_exec(cmd: &mut Command, security: CgiSecurity) {
 	// (it mirrors `std::os::unix::process::CommandExt::pre_exec` but
 	// is not the trait method itself), so no `use` import is needed.
 	//
-	// SAFETY: see module-level doc § _CGI_. The closure
+	// SAFETY: see module-level doc; `spec/crates/engine.md` § _CGI_. The closure
 	// body is async-signal-safe — only the listed syscalls fire, no
 	// heap allocation, no mutex acquisition, no non-listed file I/O.
 	// Errors are propagated to the parent via the `io::Error` return
@@ -896,7 +896,7 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
 }
 
 /// Build a `http::response::Builder` from an RFC 3875 header block.
-/// Spec § _CGI_:
+/// `spec/crates/engine.md` § _CGI_:
 ///
 /// * `Status: 200 OK` sets the status code (CGI-specific header,
 ///   not an HTTP/1.1 status line).
@@ -941,7 +941,7 @@ fn build_response_from_headers(block: &[u8]) -> Result<http::response::Builder, 
 }
 
 /// Send `SIGTERM`, wait up to one second, then `SIGKILL`. Used for
-/// timeout-driven termination per spec § _Concrete fetches_.
+/// timeout-driven termination per `spec/crates/engine.md` § _Concrete fetches_.
 #[cfg(unix)]
 async fn terminate_child(child: &mut tokio::process::Child) {
 	if let Some(pid) = child.id() {

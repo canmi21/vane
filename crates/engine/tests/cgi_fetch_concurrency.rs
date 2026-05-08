@@ -2,7 +2,7 @@
 //! integration-test binary so the daemon-wide
 //! `OnceLock<Semaphore>` it pokes doesn't bleed into other tests.
 //!
-//! Spec § _Concurrency cap_: when the in-flight CGI count hits
+//! `spec/crates/engine.md` § _Concurrency cap_: when the in-flight CGI count hits
 //! `VANE_CGI_MAX_CONCURRENT`, new requests fast-reject with 503 — no
 //! queueing. We set the cap to 1 via env, fire two requests against a
 //! slow script, and assert the second one comes back as 503 promptly

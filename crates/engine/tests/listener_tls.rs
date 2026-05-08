@@ -15,7 +15,7 @@
 //! * `spec/crates/engine-tls.md` § _Cert resolver_ — multi-cert
 //!   listeners pick by SNI (lowercased) with the sni-less default cert
 //!   as the fallback.
-//! * `spec/crates/engine-tls.md` § _ALPN_ — server advertises
+//! * `spec/crates/engine-tls.md` § _Version, cipher, ALPN_ — server advertises
 //!   `["h2", "http/1.1"]`; the executor's Upgrade arm dispatches to the
 //!   matching driver.
 

@@ -307,7 +307,7 @@ impl FlowGraph {
 
 	/// Resolve every `SymbolicMiddlewareRef` / `SymbolicFetchRef` against
 	/// the factory registries, construct `Arc<dyn Trait>` values, and emit
-	/// the runtime `FlowGraph`. See spec/flow-model.md § _link_.
+	/// the runtime `FlowGraph`. See spec/flow-model.md § _Compile and link — two stages, two crates_.
 	///
 	/// Uses `SecurityConfig::default()` for the L1 floor config.
 	/// Production callers that have validated env-var values use
@@ -712,7 +712,7 @@ fn build_listener_server_config(
 	let arcswap = Arc::new(ArcSwap::from_pointee(store));
 	let resolver = Arc::new(VaneCertResolver::new(arcswap));
 
-	// Per `spec/crates/engine-tls.md` § _Client certificate verification_, the listener
+	// Per `spec/crates/engine-tls.md` § _Client certificate verification (mTLS on listener)_, the listener
 	// chooses one of three client-auth dispositions per the resolved
 	// per-listener `ClientAuthSpec` (None / Request / Require). The
 	// builder's verifier slot is set accordingly; `with_no_client_auth`

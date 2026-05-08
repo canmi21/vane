@@ -533,7 +533,7 @@ impl MgmtState {
 	/// Manual pool eviction. Operators read `fingerprint_id` from
 	/// `get_upstreams` and pass it back to drain matching cache
 	/// entries. Live `Arc<Client>` references survive — only future
-	/// cache lookups are affected (per spec § _Upstream pools_
+	/// cache lookups are affected (per `spec/crates/engine.md` § _Upstream pools_
 	/// drain semantics).
 	fn handle_pool_drain(args: serde_json::Value) -> Result<serde_json::Value, WireError> {
 		let parsed: vane_mgmt::verb::PoolDrainArgs = serde_json::from_value(args).map_err(|e| {

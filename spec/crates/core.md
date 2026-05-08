@@ -81,7 +81,7 @@ SymbolicFlowGraph
 Arc<SymbolicFlowGraph>
 ```
 
-See [`flow-model.md` § _Compile and link_](../flow-model.md#compile-and-link--two-stages-two-crates) for the full architectural picture, including the engine-side `link` step.
+See [`flow-model.md` § _Compile and link — two stages, two crates_](../flow-model.md#compile-and-link-two-stages-two-crates) for the full architectural picture, including the engine-side `link` step.
 
 `merge` is deterministic: lex-sort files, stable-sort by `(order asc, filename lex)`, accumulate. Duplicate `rule` names are errors at merge. Global settings follow last-write-wins with a merge log. Output: `MergedConfig`, dumpable via `vane compile <DIR>`.
 
@@ -149,7 +149,7 @@ The middleware's `DashMap<Key, TokenBucket>` lives on `Arc<FlowGraph>`. Reload r
 | Configuration   | Env vars via dotenvy              | Per-rule in `rules/*.json`              |
 | Window          | Fixed per limit                   | 1–60 s (compile-checked)                |
 
-L1 implementation lives in [`crates/engine.md` § _Security floor_](engine.md#security-floor).
+L1 implementation lives in [`crates/engine.md` § _Security floor (L1)_](engine.md#security-floor-l1).
 
 ## Listener kind derivation
 

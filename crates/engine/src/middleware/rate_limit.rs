@@ -34,7 +34,7 @@ use vane_core::{
 use crate::factories::{FactoryError, MiddlewareFactories};
 use crate::flow_graph::MiddlewareInst;
 
-/// Spec `spec/crates/core.md § _L2_` constrains the window range to `[1s, 60s]`.
+/// `spec/crates/core.md` § _Rate limit (L2)_ constrains the window range to `[1s, 60s]`.
 const MIN_WINDOW_SECS: u64 = 1;
 const MAX_WINDOW_SECS: u64 = 60;
 

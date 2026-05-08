@@ -92,7 +92,7 @@ pub struct ManagedCertRegistry {
 	/// is present.
 	jobs: DashMap<String, RenewalJob>,
 	/// Active challenge tokens. Keyed by `(Host, token)` per
-	/// `spec/crates/engine-acme.md` § _HTTP-01_; entries are added at issuance
+	/// `spec/crates/engine-acme.md` § _Challenge: HTTP-01_; entries are added at issuance
 	/// start and removed on success/failure.
 	pending: DashMap<ChallengeKey, PendingChallenge>,
 	/// Live `instant-acme` account clients keyed by `directory_url`.
@@ -595,7 +595,7 @@ impl ManagedCertRegistry {
 	/// task walks `collect_renewal_plans(now)` and dispatches one
 	/// `run_renewal_attempt` per plan. Returns the
 	/// [`tokio::task::AbortHandle`] so the daemon's shutdown path
-	/// can stop the scheduler cleanly. Per spec § _Renewal triggers_
+	/// can stop the scheduler cleanly. Per `spec/crates/engine-acme.md` § _Renewal triggers_
 	/// the cadence is fixed at 5 minutes — short enough to react to
 	/// just-declared SNIs quickly, long enough to keep tick pressure
 	/// off the registry under steady state.

@@ -1174,7 +1174,7 @@ struct StatelessKey {
 /// fresh store; the underlying [`Component`] is **not** cached on the
 /// pool — every invocation reads `self.components` for the current
 /// `Arc<Component>`, so a hot-reload swap takes effect on the next
-/// call without per-pool reconstruction (spec § _Hot reload_).
+/// call without per-pool reconstruction (`spec/crates/engine.md` § _Hot reload_).
 ///
 /// `total_allocations` ticks once per successful rental.
 /// `failures` ticks when `instantiate_async` returns `Err` — the
@@ -1419,7 +1419,7 @@ impl StatefulPoolHandle {
 	/// Replace this pool's `Component` with `new_component` and bump
 	/// the generation epoch. Pre-built old-generation instances are
 	/// drained eagerly; in-flight instances finish naturally and drop
-	/// at return time. Spec § _Hot reload_ — pool ownership stays
+	/// at return time. `spec/crates/engine-wasm.md` § _Hot reload_ — pool ownership stays
 	/// stable across reload, only the underlying `Component` changes.
 	///
 	/// # Panics
@@ -1908,7 +1908,7 @@ impl WasmtimeRuntime {
 /// `abi_version`, same export set (by name) with matching `kind` /
 /// `stateless` / `needs_body` and equivalent `inspects` (order-
 /// independent). Top-level `name` and `version` differences are
-/// **not** graph-relevant — spec § _Module identity and reload_
+/// **not** graph-relevant — `spec/wasm-abi.md` § _Module identity and reload_
 /// explicitly permits relabel-only releases without recompile.
 #[must_use]
 pub fn metadata_compatible(old: &PluginMetadata, new: &PluginMetadata) -> bool {
@@ -2464,7 +2464,7 @@ fn validate_handler_exports(
 			if !crate::inspects::validate_inspects_path(path) {
 				return Err(Error::internal(format!(
 					"export '{}' declares unknown inspects path '{path}' \
-					 — see `spec/wasm-abi.md` § _Path grammar_ for the allowed set",
+					 — see `spec/wasm-abi.md` § _Path grammar — connection-level_ for the allowed set",
 					export.name,
 				)));
 			}

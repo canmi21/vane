@@ -50,7 +50,7 @@ impl CrlSourceId {
 }
 
 /// Per-source policy on what to do when a CRL becomes unavailable.
-/// Spec § _CRL_.
+/// `spec/crates/engine-tls.md` § _CRL_.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CrlFetchFailure {
 	Tolerate,
@@ -169,7 +169,7 @@ impl CrlCache {
 				}
 				(HealthState::Unavailable, CrlFetchFailure::Tolerate) => {
 					// `tolerate` + cached but stale: keep using the
-					// last-known bytes per spec § _CRL_.
+					// last-known bytes per `spec/crates/engine-tls.md` § _CRL_.
 					// `tolerate` + never-loaded: silently drop.
 					if let Some(bytes) = &entry.bytes {
 						out.push(Arc::clone(bytes));

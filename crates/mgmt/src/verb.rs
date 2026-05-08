@@ -143,7 +143,7 @@ pub struct GetConnectionsResult {
 /// Snapshot of every daemon-bounded execution pool: WASM stateful /
 /// stateless instance pools and the CGI concurrency-cap semaphore.
 ///
-/// Spec § _State_ in `spec/crates/mgmt.md` lists the per-pool fields as
+/// `spec/crates/mgmt.md` § _State_ lists the per-pool fields as
 /// "pool size, in-use count, total allocations, failures". The first
 /// two map directly onto `capacity` / `in_use`; the latter two are
 /// reserved on the wire (always `0`) until the daemon plumbs the
@@ -189,7 +189,7 @@ pub struct CgiPoolEntry {
 	#[serde(default)]
 	pub total_allocations: u64,
 	/// Cumulative cap-rejected fetches (503 fast-rejects, spec
-	/// § _Concurrency cap_).
+	/// `spec/crates/engine.md` § _Concurrency cap_).
 	#[serde(default)]
 	pub failures: u64,
 }

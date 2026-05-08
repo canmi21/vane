@@ -471,7 +471,7 @@ async fn h1_get_request_returns_synthesized_response() {
 
 // 2. h1_request_body_flows_through_to_l7_fetch
 //
-// Spec anchor: `spec/flow-model.md` § _Executor_ + `spec/crates/core.md` § _Types_.
+// Spec anchor: `spec/flow-model.md` § _Executor_, with type definitions per `spec/crates/core.md` § _Types_.
 // The hyper-decoded request body lands in `Body::Stream` via
 // `IncomingAdapter` (an internal `drive_h1_server` adapter; that detail is
 // covered separately by the upgrade module). The L7 fixture drains it and

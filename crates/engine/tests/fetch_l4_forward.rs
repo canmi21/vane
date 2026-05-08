@@ -109,7 +109,7 @@ fn sample_meta() -> FlowGraphMeta {
 /// ```
 ///
 /// Per `spec/flow-model.md` § _Executor_ and `spec/crates/engine.md`
-/// § _Concrete fetches_, an L4 path through `L4ForwardFetch` must end in
+/// `spec/crates/engine.md` § _Concrete fetches_: an L4 path through `L4ForwardFetch` must end in
 /// `Terminator::ByteTunnel`. The fetch is registered through
 /// `vane_engine::fetch::l4_forward::register` so the factory lookup at
 /// link time succeeds.

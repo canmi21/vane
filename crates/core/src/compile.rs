@@ -182,7 +182,7 @@ mod tests {
 	#[test]
 	fn stateful_middleware_per_site_not_shared() {
 		// Two rules both use `rate_limit` (stateful). Each call site must get
-		// its own MiddlewareId per spec § _Hash-consing_ — sharing buckets
+		// its own MiddlewareId per `spec/flow-model.md` § _Hash-consing_ — sharing buckets
 		// would silently halve the effective rate.
 		let a = parse_rule(serde_json::json!({
 			"name": "a",

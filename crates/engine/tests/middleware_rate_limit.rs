@@ -1,7 +1,7 @@
 //! Integration tests for `vane_engine::middleware::rate_limit`.
 //!
 //! Validates the public contract from
-//! `spec/crates/core.md` § _L2_ and the doc-comment on
+//! `spec/crates/core.md` § _Rate limit (L2)_ and the doc-comment on
 //! `rate_limit::factory`:
 //!
 //! - Token bucket math: tokens consumed on Continue, exhausted bucket

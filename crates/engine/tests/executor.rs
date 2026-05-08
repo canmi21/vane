@@ -1349,7 +1349,7 @@ async fn execute_byte_tunnel_drives_copy_bidirectional() {
 
 #[tokio::test]
 async fn execute_byte_tunnel_sends_graceful_close_reason() {
-	// spec/flow-model.md § _Executor_ + spec/crates/engine.md § _Concrete fetches_:
+	// `spec/flow-model.md` § _Executor_; `spec/crates/engine.md` § _Concrete fetches_:
 	// when both sides EOF cleanly, the executor sends
 	// `CloseReason::Graceful` through `Tunnel.close_reason_tx`.
 	let (mut client_outer, client_inner) = tokio::io::duplex(1024);
@@ -1442,7 +1442,7 @@ impl AsyncWrite for ErrorOnRead {
 
 #[tokio::test]
 async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
-	// spec/flow-model.md § _Executor_ + spec/crates/engine.md § _Concrete fetches_ + this
+	// Per `spec/crates/engine.md` § _Concrete fetches_ (and `spec/flow-model.md` § _Executor_): this
 	// chunk's behavior contract: when the inner copy_bidirectional returns
 	// Err, the executor sends `CloseReason::ProtocolError(_)` through
 	// `Tunnel.close_reason_tx` and STILL returns

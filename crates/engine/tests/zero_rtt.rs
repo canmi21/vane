@@ -426,7 +426,7 @@ async fn zero_rtt_rejected_with_425_when_rule_disallows() {
 	let header_block = lowercase_header_block(&result.response);
 	assert!(
 		header_block.contains("cache-control: no-store"),
-		"425 must carry Cache-Control: no-store per spec § _Configuration_: {header_block}",
+		"425 must carry Cache-Control: no-store per `spec/crates/engine-tls.md` § _Configuration_: {header_block}",
 	);
 
 	// The connection must stay up — write a follow-up 1-RTT request

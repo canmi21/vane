@@ -52,7 +52,7 @@ pub fn lower(
 		// gate) live alongside the TLS aggregation since they reference
 		// the listener-level posture (TLS-L7 vs plaintext / L4) that
 		// `resolve_listener_tls` already established. See `spec/crates/engine-tls.md`
-		// § _TLS 1.3 0-RTT (early data)_ § _Configuration schema_.
+		// § _TLS 1.3 0-RTT (early data)_ § _Configuration_.
 		validate_zero_rtt_for_listener(&addrs, &rules, resolved_tls.as_ref())?;
 		let entry = builder.lower_port(&rules, mw_meta, fetch_meta)?;
 		for addr in &addrs {
@@ -1509,7 +1509,7 @@ fn warn_missing_plaintext_port_80_for_http01(
 /// Per-listener structural validation of the rule-level
 /// `allow_zero_rtt` field and its interaction with the listener's
 /// `tls.enable_zero_rtt`. Mirrors the constraint table in
-/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Configuration schema_:
+/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_ § _Configuration_:
 ///
 /// - On a TLS-L7 listener (`resolved_tls.is_some()`) every rule must
 ///   set `allow_zero_rtt` to `Some(_)`.
@@ -1563,7 +1563,7 @@ fn validate_zero_rtt_for_listener(
 /// Walk a rule's match predicate and return `true` iff it structurally
 /// restricts `http.method` to a subset of the idempotent set
 /// {GET, HEAD, OPTIONS}. Implements the compile-time gate described in
-/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_ § _Configuration schema_.
+/// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_ § _Configuration_.
 ///
 /// Recursive rules:
 /// - `Check{ HttpMethod, equals "GET"|"HEAD"|"OPTIONS" }` → idempotent
@@ -1775,7 +1775,7 @@ fn compile_operator(
 	path: &FieldPath,
 	source: &SourceInfo,
 ) -> Result<CompiledOperator, Error> {
-	// Spec 18 § _Predicate_: reject any
+	// `spec/crates/core.md` § _Predicate_: reject any
 	// (path, op) pair that the matrix marks `—`. The (path, op) pair
 	// uniquely picks an OperatorFamily row and the field's value-type
 	// column, so a single matrix lookup covers every illegal case
@@ -2413,7 +2413,7 @@ mod compat_tests {
 	}
 
 	/// String-valued fields keep the raw literal bytes per spec
-	/// 18 § _Predicate_ — base64 only applies when the
+	/// `spec/crates/core.md` § _Predicate_ — base64 only applies when the
 	/// FIELD is Bytes-valued, not when the operator produces bytes.
 	#[test]
 	fn str_field_prefix_suffix_keeps_raw_bytes() {

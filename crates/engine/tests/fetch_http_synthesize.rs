@@ -153,7 +153,7 @@ fn b64(bytes: &[u8]) -> String {
 
 #[tokio::test]
 async fn http_synthesize_returns_static_response() {
-	// spec/crates/engine.md § _Concrete fetches_ + spec/crates/core.md § _Compile pipeline_:
+	// `spec/crates/engine.md` § _Concrete fetches_; preset alias from `spec/crates/core.md` § _Compile pipeline_:
 	// the factory's `status` and `body` parameterise the synthesised
 	// response. The body is base64-encoded raw bytes — the preset
 	// expansion stage converts user-friendly text upstream of this

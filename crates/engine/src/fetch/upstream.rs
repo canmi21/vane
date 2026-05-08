@@ -309,7 +309,7 @@ fn client_cert_fingerprint(ck: &CertifiedKey) -> [u8; 32] {
 /// Parse `args.tls.client_cert` into an [`Arc<CertifiedKey>`]. Both
 /// `cert_path` and `key_path` are required when the object is
 /// present; either being absent is a rule-level compile error
-/// (spec § _Upstream-side TLS_).
+/// (`spec/crates/engine-tls.md` § _Upstream-side TLS_).
 fn parse_client_cert(
 	value: Option<&serde_json::Value>,
 ) -> Result<Option<Arc<CertifiedKey>>, String> {

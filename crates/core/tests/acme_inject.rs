@@ -131,7 +131,7 @@ fn inject_no_op_when_no_managed_certs() {
 #[test]
 fn inject_rewrites_post_upgrade_on_plaintext_port_80_when_managed_http01_present() {
 	// Two listeners: a managed :443 cert + a plaintext :80 redirect.
-	// Per spec § _HTTP-01_: the listener entry stays an Upgrade
+	// Per `spec/crates/engine-acme.md` § _Challenge: HTTP-01_: the listener entry stays an Upgrade
 	// (phase: L4Raw); the inject pass rewires `Upgrade.next` to a
 	// new Check whose predicate inspects `http.uri.path` (a
 	// post-upgrade L7 field).

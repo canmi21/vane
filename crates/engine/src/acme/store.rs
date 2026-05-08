@@ -121,7 +121,7 @@ pub trait LockGuard: Send + Sync + std::fmt::Debug {}
 /// `AccountBuilder::from_credentials`.
 ///
 /// `agreed_tos_at` is recorded at registration time and surfaces in
-/// `get_certs` for operator audit; spec § _Account key strategy_
+/// `get_certs` for operator audit; `spec/crates/engine-acme.md` § _Account key strategy_
 /// requires CA-side ToS-version bumps to be re-acknowledged
 /// explicitly through a config update + reload.
 #[derive(Debug, Clone)]

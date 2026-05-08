@@ -242,7 +242,7 @@ impl ListenerSet {
 	/// `compile/lower.rs::lower_port` reassigns from scratch on every
 	/// recompile — the index in the post-reload graph need not name the
 	/// same logical node as the pre-reload graph (spec/crates/core.md
-	/// § _Hot reload_). `SocketAddr` is the
+	/// `spec/crates/engine.md` § _Hot reload_). `SocketAddr` is the
 	/// stable identifier; the lookup costs an `entries.get(&addr)` per
 	/// connection.
 	///
@@ -891,7 +891,7 @@ async fn dispatch_no_peek(
 		(ListenerKind::Http | ListenerKind::Auto, Some(tls_cfg)) => {
 			run_tls(stream, tls_cfg, graph, entry, conn, ctx, remote).await;
 		}
-		// Spec § _Dispatch table_ literally rejects
+		// `spec/crates/engine.md` § _Dispatch table_ literally rejects
 		// `Http+None` and warns that `Auto+needs_peek=false` is a
 		// derivation bug. Both branches collapse onto a permissive L4
 		// fallthrough here because the no-peek path can't tell L7
@@ -1087,7 +1087,7 @@ async fn run_tls<S>(
 		// "the server accepted early data this connection" — the only
 		// public read path; `was_accepted()` itself is private.
 		//
-		// Body-downgrade (spec § _Configuration_: "requests with a
+		// Body-downgrade (`spec/crates/engine-tls.md` § _Configuration_: "requests with a
 		// body are always served via 1-RTT") is automatic in this
 		// architecture: `into_stream().await` returns only after the
 		// handshake completes (server sent its Finished and received

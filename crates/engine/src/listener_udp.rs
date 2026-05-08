@@ -361,7 +361,7 @@ pub async fn run_udp_listener(
 					&& is_quic_long_header_initial(&datagram)
 				{
 					if pending_count.load(Ordering::Relaxed) >= PENDING_PEEK_MAX_PER_LISTENER {
-						// Spec § _Multi-packet peek_: silent drop past the
+						// `spec/crates/engine.md` § _Multi-packet peek_: silent drop past the
 						// per-listener cap. Operators see the drop
 						// only via metrics / counts — no per-drop log
 						// to avoid amplifying a flood.

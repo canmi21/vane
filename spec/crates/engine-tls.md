@@ -174,13 +174,13 @@ pub struct ListenerTlsConfig { pub enable_zero_rtt: bool }
 pub struct Rule { pub allow_zero_rtt: bool }   // only on rules whose listener is TLS-terminating
 ```
 
-Compile-time constraints:
+#### Compile-time constraints
 
 - `allow_zero_rtt: true` is only legal on rules whose match predicates include a method constraint restricted to GET / HEAD / OPTIONS.
 - `allow_zero_rtt: true` on a rule whose listener has `enable_zero_rtt: false` is a compile error.
 - `allow_zero_rtt` on an L4-only rule (no TLS termination) is a compile error.
 
-Hardcoded limits:
+#### Hardcoded limits
 
 - Early data size: 16 KiB (rustls default `max_early_data_size`). Not exposed as a knob — 0-RTT exists to save one RTT, not to carry payload.
 - Body in 0-RTT: requests with a body always serve via 1-RTT (early data buffered until handshake completion). 0-RTT for HTTP request bodies is non-standard semantics.

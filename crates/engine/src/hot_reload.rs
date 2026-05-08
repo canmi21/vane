@@ -5,5 +5,4 @@
 //! the watcher; existing files fire no `notify` event on boot (see
 //! `spec/crates/core.md` § _Compile pipeline_).
 //!
-//! See `spec/crates/engine.md` § _Hot reload_ and
-//! `spec/crates/engine.md` § _Hot reload_.
+//! See `spec/crates/engine.md` § _Hot reload_.

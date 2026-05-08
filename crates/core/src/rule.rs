@@ -1090,7 +1090,7 @@ mod tests {
 	#[test]
 	fn tls_config_missing_enable_zero_rtt_field_rejected() {
 		// `enable_zero_rtt` is required (no implicit default) per
-		// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT_; absence on a `tls` block is a
+		// `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early data)_; absence on a `tls` block is a
 		// hard parse error before the lower pass even sees the rule.
 		let raw = serde_json::json!({
 			"cert_file": "/etc/vaned/certs/default.pem",

@@ -13,7 +13,7 @@
 //!    failure so other functionality continues.
 //! 3. Auto-bind a synthetic plaintext `:80` listener whose only
 //!    job is serving HTTP-01 challenges, when the operator's
-//!    config has no `:80` listener. Per spec § _Challenge: HTTP-01_,
+//!    config has no `:80` listener. Per `spec/crates/engine-acme.md` § _Challenge: HTTP-01_,
 //!    bind failures (`EACCES` on a privileged port without
 //!    `CAP_NET_BIND_SERVICE`, `EADDRINUSE`) log at ERROR but don't
 //!    abort boot.
@@ -135,7 +135,7 @@ pub(crate) fn kick_off_managed_issuance(
 
 /// Translate an [`IssuancePlan`] into a [`RenewalJob`] the registry
 /// can use at scheduler-tick time. Builds the DNS provider once
-/// here (per `spec/crates/engine-acme.md` § _DNS-01_) so the scheduler doesn't
+/// here (per `spec/crates/engine-acme.md` § _Challenge: DNS-01_) so the scheduler doesn't
 /// have to re-parse the JSON config at every tick.
 fn build_renewal_job(plan: &IssuancePlan) -> Result<RenewalJob, String> {
 	let renew_before = plan.renew_before;
@@ -302,7 +302,7 @@ fn build_dns_provider(
 /// has no `:80` listener AND at least one tls.managed declares
 /// http-01.
 ///
-/// Per spec § _Challenge: HTTP-01_:
+/// Per `spec/crates/engine-acme.md` § _Challenge: HTTP-01_:
 /// - Successful bind: `WARN`-level log; the listener serves the
 ///   challenge route and 404s everything else.
 /// - Bind failure: `ERROR`-level log; the daemon continues
@@ -323,7 +323,7 @@ pub(crate) async fn maybe_auto_bind_port_80(
 	if !needs_auto_bind(graph) {
 		return Vec::new();
 	}
-	// Spec § _Challenge: HTTP-01_: dual-stack `0.0.0.0:80` + `[::]:80`.
+	// `spec/crates/engine-acme.md` § _Challenge: HTTP-01_: dual-stack `0.0.0.0:80` + `[::]:80`.
 	// Each task binds independently; one failing doesn't block the other.
 	let addrs = [
 		SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 80),
@@ -352,7 +352,7 @@ fn needs_auto_bind(graph: &FlowGraph) -> bool {
 	}
 	// True when no listener address is on port 80. (A TLS-on-:80
 	// listener is treated as "no plaintext :80" per
-	// spec § _Challenge: HTTP-01_; auto-bind will
+	// `spec/crates/engine-acme.md` § _Challenge: HTTP-01_; auto-bind will
 	// attempt and fail with EADDRINUSE, which is the documented
 	// behaviour.)
 	!symbolic.meta.listener_kinds.keys().any(|addr| addr.port() == 80)

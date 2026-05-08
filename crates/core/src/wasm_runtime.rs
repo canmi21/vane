@@ -29,7 +29,7 @@ pub struct PluginMetadata {
 
 /// Stable identity for a loaded WASM component.
 ///
-/// Per `spec/wasm-abi.md` § _Module identity_: the canonical absolute
+/// Per `spec/wasm-abi.md` § _Module identity and reload_: the canonical absolute
 /// filesystem path of the `.wasm` file.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct ModuleId(pub Arc<str>);
