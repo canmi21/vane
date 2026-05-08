@@ -8,9 +8,6 @@
 //! crate is the small "drop a folder of CA files in here" loader that
 //! every operator-facing TLS service ends up writing by hand.
 
-#![deny(unsafe_code)]
-#![warn(unreachable_pub)]
-
 use std::collections::HashSet;
 use std::fs;
 use std::hash::BuildHasher;

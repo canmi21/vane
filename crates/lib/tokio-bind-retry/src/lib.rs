@@ -6,9 +6,6 @@
 //! See the README for the motivating use cases (graceful restart,
 //! port-handover dances, lingering `TIME_WAIT` sockets).
 
-#![deny(unsafe_code)]
-#![warn(unreachable_pub)]
-
 use std::net::SocketAddr;
 use std::time::Duration;
 

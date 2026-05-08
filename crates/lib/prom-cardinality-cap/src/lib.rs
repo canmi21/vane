@@ -5,9 +5,6 @@
 //!
 //! See the README for the kind of system that needs this guardrail.
 
-#![deny(unsafe_code)]
-#![warn(unreachable_pub)]
-
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;

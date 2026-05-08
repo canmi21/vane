@@ -34,27 +34,27 @@ wasm = ["dep:vane-wasm"]
 
 [dependencies]
 anyhow = "1.0.102"
-arc-swap = "1.9.1"
+arc-swap.workspace = true
 async-trait = { workspace = true }
 # ACME-only deps: pulled in by the `acme` feature for the auto-bind
 # `:80` synthetic listener (a tiny hyper service serving the
 # challenge route). Dev-deps below already pull these for the
 # integration tests.
-bytes = { version = "1", optional = true }
+bytes = { workspace = true, optional = true }
 clap = { version = "4.6.1", features = ["derive", "env"] }
-http-body-util = { version = "0.1", optional = true }
-hyper = { version = "1.9.0", features = ["server", "http1"], optional = true }
-hyper-util = { version = "0.1.20", features = ["tokio"], optional = true }
+http-body-util = { workspace = true, optional = true }
+hyper = { workspace = true, features = ["server", "http1"], optional = true }
+hyper-util = { workspace = true, features = ["tokio"], optional = true }
 notify-twophase = { workspace = true }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 # `time` powers RFC 3339 rendering of the `get_certs` lifecycle
 # timestamps; pulled only with `acme` since non-ACME builds don't
 # expose those verbs.
 time = { version = "0.3", default-features = false, features = ["formatting"], optional = true }
-tokio = { version = "1.52.2", features = ["full"] }
-tokio-util = "0.7.18"
-tracing = "0.1.44"
+tokio = { workspace = true, features = ["full"] }
+tokio-util.workspace = true
+tracing.workspace = true
 tracing-broadcast = { workspace = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 vane-core = { workspace = true }
@@ -71,18 +71,18 @@ assert_cmd = "2"
 # clean checkout. escargot drives `cargo build` for the sibling
 # package on first use and caches the resulting path.
 escargot = "0.5"
-http-body-util = "0.1"
-hyper = { version = "1.9.0", features = ["server", "http1"] }
-hyper-util = { version = "0.1.20", features = ["tokio"] }
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
 nix = { version = "0.31", features = ["signal"] }
-parking_lot = "0.12"
+parking_lot.workspace = true
 predicates = "3"
 rcgen = "0.14"
-rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls = { workspace = true, features = ["std"] }
 rustls-pki-types = "1"
-serde_json = "1.0.149"
+serde_json.workspace = true
 tempfile = "3"
-tokio = { version = "1.52.2", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 tokio-rustls = { version = "0.26", default-features = false }
 vane-engine = { path = "../engine", version = "0.10.4", default-features = false }
 vane-mgmt = { workspace = true }

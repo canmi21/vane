@@ -23,15 +23,15 @@ default = ["classify"]
 classify = ["dep:rustls", "dep:memchr"]
 
 [dependencies]
-bytes = "1"
+bytes.workspace = true
 
 # Classify path — gated behind the `classify` feature.
 memchr = { version = "2", optional = true }
-rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
+rustls = { workspace = true, features = ["std"], optional = true }
 
 [dev-dependencies]
 # Tests that build real ClientHello bytes need a rustls crypto
 # provider installed. We pick `aws-lc-rs` for dev because it's
 # pure-Rust-ish (no system dependency) and matches the most common
 # downstream choice. The runtime dep above stays backend-agnostic.
-rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
+rustls = { workspace = true, features = ["std", "aws-lc-rs"] }

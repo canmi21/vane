@@ -14,7 +14,7 @@ description = "Build the RFC 3875 environment-variable list for a CGI child from
 workspace = true
 
 [dependencies]
-http = "1"
+http.workspace = true
 
 [dev-dependencies]
-http = "1"
+http.workspace = true

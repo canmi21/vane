@@ -19,21 +19,21 @@ workspace = true
 all-features = true
 
 [dependencies]
-arc-swap = "1.9.1"
+arc-swap.workspace = true
 async-trait = { workspace = true }
 metrics = "0.24"
 prom-cardinality-cap = { workspace = true }
 rand = "0.10"
 sha2 = "0.11.0"
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }
-tracing = "0.1"
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time"] }
+tracing.workspace = true
 url = "2"
 vane-core = { workspace = true }
 wasmtime = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 # Wasm component fixtures used by the unit tests below live in
 # vane-testutil's OUT_DIR (so `cargo publish` doesn't trip on a
 # build script writing into the source tree). Pull the

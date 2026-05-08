@@ -14,11 +14,11 @@ description = "Load PEM-encoded CA certificates from files and directories into 
 workspace = true
 
 [dependencies]
-rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls = { workspace = true, features = ["std"] }
 rustls-pemfile = "2"
-thiserror = "2"
+thiserror.workspace = true
 
 [dev-dependencies]
 rcgen = "0.14"
-rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
+rustls = { workspace = true, features = ["std", "aws-lc-rs"] }
 tempfile = "3"

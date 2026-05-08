@@ -22,21 +22,21 @@ default = []
 fetch = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:tokio", "dep:url"]
 
 [dependencies]
-bytes = "1"
+bytes.workspace = true
 der = "0.7"
 sha1 = { version = "0.10", features = ["oid"] }
-thiserror = "2"
+thiserror.workspace = true
 x509-cert = "0.2"
 x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
 x509-parser = "0.18"
 
 # Async HTTP fetch — gated behind the `fetch` feature.
-http-body-util = { version = "0.1", optional = true }
-hyper = { version = "1.9", features = ["client", "http1"], optional = true }
-hyper-util = { version = "0.1", features = ["tokio"], optional = true }
-tokio = { version = "1", features = ["net", "time", "rt"], optional = true }
+http-body-util = { workspace = true, optional = true }
+hyper = { workspace = true, features = ["client", "http1"], optional = true }
+hyper-util = { workspace = true, features = ["tokio"], optional = true }
+tokio = { workspace = true, features = ["net", "time", "rt"], optional = true }
 url = { version = "2", optional = true }
 
 [dev-dependencies]
 rcgen = "0.14"
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

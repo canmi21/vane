@@ -6,9 +6,6 @@
 //! See the README for the gap this fills (no public hickory ↔
 //! hyper-util bridge).
 
-#![deny(unsafe_code)]
-#![warn(unreachable_pub)]
-
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};

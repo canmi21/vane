@@ -37,10 +37,10 @@ clap = { version = "4.6.1", features = ["derive"] }
 # `supports-colors` enables `if_supports_color(Stream::Stdout, ...)`
 # so piped output stays plain-text.
 owo-colors = { version = "4.3", features = ["supports-colors"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-tokio = { version = "1.52.2", features = ["rt", "macros", "signal", "io-util", "net"] }
-tracing = "0.1.44"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "signal", "io-util", "net"] }
+tracing.workspace = true
 vane-core = { workspace = true }
 vane-mgmt = { workspace = true }
 

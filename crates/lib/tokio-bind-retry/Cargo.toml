@@ -14,9 +14,9 @@ description = "Bind a tokio TcpListener / UdpSocket with exponential backoff and
 workspace = true
 
 [dependencies]
-tokio = { version = "1", features = ["net", "time"] }
-tokio-util = "0.7"
-tracing = "0.1"
+tokio = { workspace = true, features = ["net", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time", "net"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time", "net"] }

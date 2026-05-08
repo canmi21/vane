@@ -7,9 +7,6 @@
 //! See the README for the gap this fills (daemon ↔ CLI control planes
 //! that everyone re-implements).
 
-#![deny(unsafe_code)]
-#![warn(unreachable_pub)]
-
 pub mod client;
 pub mod http_client;
 pub mod http_server;

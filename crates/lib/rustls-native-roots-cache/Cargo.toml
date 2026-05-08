@@ -14,6 +14,6 @@ description = "Process-wide cache for rustls's native trust store, with platform
 workspace = true
 
 [dependencies]
-rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls = { workspace = true, features = ["std"] }
 rustls-native-certs = "0.8"
-tracing = "0.1"
+tracing.workspace = true

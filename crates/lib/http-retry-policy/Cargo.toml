@@ -14,5 +14,5 @@ description = "HTTP retry policy with exponential backoff, idempotent-method gat
 workspace = true
 
 [dependencies]
-http = "1"
+http.workspace = true
 rand = "0.10"

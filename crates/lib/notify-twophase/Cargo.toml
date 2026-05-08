@@ -16,9 +16,9 @@ workspace = true
 [dependencies]
 notify = "8"
 notify-debouncer-full = "0.7"
-tokio = { version = "1", features = ["sync"] }
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "fs"] }
-tokio-util = "0.7"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "fs"] }
+tokio-util.workspace = true

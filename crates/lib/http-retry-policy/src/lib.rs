@@ -6,9 +6,6 @@
 //! See the README for the gap this fills and the JSON schema callers
 //! typically wrap this in.
 
-#![deny(unsafe_code)]
-#![warn(unreachable_pub)]
-
 use std::collections::HashSet;
 use std::time::Duration;
 

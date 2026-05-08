@@ -7,9 +7,6 @@
 //! their own per-cert state (expiry timestamps, OCSP staple handles,
 //! ACME order IDs) without a fork.
 
-#![deny(unsafe_code)]
-#![warn(unreachable_pub)]
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
