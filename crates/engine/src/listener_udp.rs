@@ -166,15 +166,12 @@ pub async fn run_udp_listener(
 	bind_backoff_initial: Duration,
 	bind_backoff_max: Duration,
 ) {
-	let Some(socket) = bind_udp_with_retry(
-		addr,
-		&accept_cancel,
-		max_bind_attempts,
-		bind_backoff_initial,
-		bind_backoff_max,
-	)
-	.await
-	else {
+	let bind_policy = tokio_bind_retry::Policy {
+		max_attempts: max_bind_attempts,
+		initial: bind_backoff_initial,
+		max: bind_backoff_max,
+	};
+	let Some(socket) = tokio_bind_retry::udp(addr, &accept_cancel, &bind_policy).await else {
 		tracing::error!(
 			?addr,
 			attempts = max_bind_attempts,
@@ -663,39 +660,6 @@ fn unix_ms_now() -> u64 {
 	std::time::SystemTime::now()
 		.duration_since(std::time::UNIX_EPOCH)
 		.map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-}
-
-async fn bind_udp_with_retry(
-	addr: SocketAddr,
-	cancel: &CancellationToken,
-	max_attempts: u32,
-	initial: Duration,
-	max: Duration,
-) -> Option<UdpSocket> {
-	let mut attempt: u32 = 0;
-	let mut backoff = initial;
-	loop {
-		tokio::select! {
-			biased;
-			() = cancel.cancelled() => return None,
-			res = UdpSocket::bind(addr) => match res {
-				Ok(s) => return Some(s),
-				Err(e) => {
-					attempt = attempt.saturating_add(1);
-					tracing::warn!(?addr, attempt, error = %e, "udp bind retry");
-					if attempt >= max_attempts {
-						return None;
-					}
-					tokio::select! {
-						biased;
-						() = cancel.cancelled() => return None,
-						() = tokio::time::sleep(backoff) => {}
-					}
-					backoff = (backoff * 2).min(max);
-				}
-			}
-		}
-	}
 }
 
 #[cfg(test)]

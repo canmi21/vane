@@ -25,7 +25,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use parking_lot::Mutex;
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -640,14 +640,13 @@ async fn run_accept_loop(
 	bind_cfg: Arc<BindConfig>,
 	security: Arc<SecurityState>,
 ) {
-	let Some(listener) = bind_with_retry(
-		addr,
-		&accept_cancel,
-		bind_cfg.max_bind_attempts,
-		bind_cfg.bind_backoff_initial,
-		bind_cfg.bind_backoff_max,
-	)
-	.await
+	let bind_policy = tokio_bind_retry::Policy {
+		max_attempts: bind_cfg.max_bind_attempts,
+		initial: bind_cfg.bind_backoff_initial,
+		max: bind_cfg.bind_backoff_max,
+	};
+	let Some(listener) =
+		tokio_bind_retry::tcp(addr, &accept_cancel, &bind_policy, TCP_LISTEN_BACKLOG).await
 	else {
 		tracing::error!(
 			?addr,
@@ -670,8 +669,11 @@ async fn run_accept_loop(
 					Err(e) => {
 						// EMFILE / ENFILE / etc. — back off and resume.
 						tracing::warn!(?addr, ?e, "accept failed; backing off");
-						let cancelled =
-							backoff_sleep(bind_cfg.bind_backoff_initial, &accept_cancel).await;
+						let cancelled = tokio_bind_retry::sleep_or_cancel(
+							bind_cfg.bind_backoff_initial,
+							&accept_cancel,
+						)
+						.await;
 						if cancelled {
 							return;
 						}
@@ -729,16 +731,6 @@ async fn run_accept_loop(
 				));
 			}
 		}
-	}
-}
-
-/// Sleep for `delay`, returning `true` if the sleep was cut short by
-/// `cancel.cancelled()`.
-async fn backoff_sleep(delay: Duration, cancel: &CancellationToken) -> bool {
-	tokio::select! {
-		biased;
-		() = cancel.cancelled() => true,
-		() = tokio::time::sleep(delay) => false,
 	}
 }
 
@@ -1187,78 +1179,25 @@ async fn run_peek_phase(
 	}
 }
 
-/// Bind-with-retry per spec/topology.md § _Bind_:
-/// - `SO_REUSEADDR` on (best-effort).
-/// - Exponential backoff from `backoff_initial` up to `backoff_max`.
-/// - Up to `max_attempts` tries.
-/// - Honors `cancel`: if cancellation fires during a backoff window the
-///   function aborts and returns `None`.
-///
-/// `max_attempts` is parametric so tests can drive the give-up branch
-/// without burning real backoff time.
-async fn bind_with_retry(
-	addr: SocketAddr,
-	cancel: &CancellationToken,
-	max_attempts: u32,
-	backoff_initial: Duration,
-	backoff_max: Duration,
-) -> Option<TcpListener> {
-	let mut delay = backoff_initial;
-	for attempt in 0..max_attempts {
-		if cancel.is_cancelled() {
-			return None;
-		}
-		let socket_res = match addr {
-			SocketAddr::V4(_) => TcpSocket::new_v4(),
-			SocketAddr::V6(_) => TcpSocket::new_v6(),
-		};
-		let socket = match socket_res {
-			Ok(s) => s,
-			Err(e) => {
-				tracing::warn!(?addr, attempt, ?e, "tcp socket creation failed");
-				if backoff_sleep(delay, cancel).await {
-					return None;
-				}
-				delay = (delay * 2).min(backoff_max);
-				continue;
-			}
-		};
-		// Best-effort REUSEADDR; ignore failure (some platforms require root).
-		let _ = socket.set_reuseaddr(true);
-		match socket.bind(addr) {
-			Ok(()) => match socket.listen(TCP_LISTEN_BACKLOG) {
-				Ok(l) => return Some(l),
-				Err(e) => {
-					tracing::warn!(?addr, attempt, ?e, "tcp listen failed");
-				}
-			},
-			Err(e) => {
-				tracing::warn!(?addr, attempt, ?e, "tcp bind failed");
-			}
-		}
-		if backoff_sleep(delay, cancel).await {
-			return None;
-		}
-		delay = (delay * 2).min(backoff_max);
-	}
-	None
-}
-
-/// Test-only entry point: drive `bind_with_retry` with a custom attempt
-/// cap and default backoff timings. Tests use this to exercise the
-/// "give-up after N attempts" branch without burning real backoff time.
+/// Test-only entry point: drive `tokio_bind_retry::tcp` with a custom
+/// attempt cap and default backoff timings. Tests use this to exercise
+/// the "give-up after N attempts" branch without burning real backoff
+/// time.
 ///
 /// Exposed as `pub` (not `#[cfg(test)]`) because integration tests live
 /// in `crates/engine/tests/` — a separate crate per Cargo's test layout —
 /// and can only access this crate's *public* surface. `#[cfg(test)]` only
 /// activates inside the unit-test build of this crate, not in dependent
 /// test crates. `#[doc(hidden)]` keeps the symbol out of rustdoc; the
-/// `_for_test` suffix and this note discourage downstream use. Revisit if
-/// listener internals get refactored into a shape where the test hook can
-/// move under a feature gate.
+/// `_for_test` suffix and this note discourage downstream use.
 #[doc(hidden)]
 pub async fn bind_with_retry_for_test(addr: SocketAddr, max_attempts: u32) -> Option<TcpListener> {
 	let cancel = CancellationToken::new();
 	let cfg = BindConfig::default();
-	bind_with_retry(addr, &cancel, max_attempts, cfg.bind_backoff_initial, cfg.bind_backoff_max).await
+	let policy = tokio_bind_retry::Policy {
+		max_attempts,
+		initial: cfg.bind_backoff_initial,
+		max: cfg.bind_backoff_max,
+	};
+	tokio_bind_retry::tcp(addr, &cancel, &policy, TCP_LISTEN_BACKLOG).await
 }

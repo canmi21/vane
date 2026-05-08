@@ -30,5 +30,6 @@ crates.io as-is.
 | `rustls-crl-refresh`        | Process-wide CRL cache and refreshable rustls verifiers without `ServerConfig` churn.        |
 | `rustls-native-roots-cache` | Process-wide cache for rustls's native trust store, with platform-aware retry.               |
 | `rustls-ticketer`           | Install a process-wide rustls session ticketer once; idempotent across multiple call sites.  |
+| `tokio-bind-retry`          | Bind a tokio `TcpListener` / `UdpSocket` with exponential backoff and cancellation support.  |
 | `tracing-broadcast`         | `tracing_subscriber::Layer` that fans every event into a tokio broadcast channel as JSON.    |
 | `virtual-socket`            | Demultiplex a single tokio `UdpSocket` into multiple virtual UDP sockets.                    |

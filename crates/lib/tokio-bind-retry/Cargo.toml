@@ -1,0 +1,22 @@
+[package]
+name = "tokio-bind-retry"
+version = "0.0.1"
+categories = ["network-programming", "asynchronous"]
+edition.workspace = true
+keywords = ["tokio", "bind", "retry", "listener", "backoff"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Bind a tokio TcpListener / UdpSocket with exponential backoff and cancellation support."
+
+[lints]
+workspace = true
+
+[dependencies]
+tokio = { version = "1", features = ["net", "time"] }
+tokio-util = "0.7"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time", "net"] }
