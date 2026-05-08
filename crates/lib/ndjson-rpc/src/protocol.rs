@@ -1,12 +1,9 @@
-//! Management wire format: line-delimited JSON over a duplex byte
-//! stream. Each request is one JSON object on one line; each response
-//! is one JSON object on one line; lines end with `\n`. No length
-//! prefix — the framing is the newline. NDJSON keeps tools such as
-//! `nc -U` piped through `jq` usable for ad-hoc poking. The same frame
-//! shapes ride the HTTP-over-TCP transport (NDJSON over chunked
-//! encoding).
-//!
-//! See [`spec/crates/mgmt.md`](../../../spec/crates/mgmt.md).
+//! Wire format: line-delimited JSON over a duplex byte stream. Each
+//! request is one JSON object on one line; each response is one JSON
+//! object on one line; lines end with `\n`. No length prefix — the
+//! framing is the newline. NDJSON keeps tools such as `nc -U` piped
+//! through `jq` usable for ad-hoc poking. The same frame shapes ride
+//! the HTTP-over-TCP transport (NDJSON over chunked encoding).
 
 use serde::{Deserialize, Serialize};
 

@@ -13,6 +13,7 @@ members = [
 	"crates/lib/h3-body",
 	"crates/lib/hickory-tower-resolver",
 	"crates/lib/http-retry-policy",
+	"crates/lib/ndjson-rpc",
 	"crates/lib/notify-twophase",
 	"crates/lib/ocsp-mock-responder",
 	"crates/lib/ocsp-staple",
@@ -60,6 +61,7 @@ guess = { path = "crates/lib/guess", version = "0.2", default-features = false }
 h3-body = { path = "crates/lib/h3-body", version = "0.0.1" }
 hickory-tower-resolver = { path = "crates/lib/hickory-tower-resolver", version = "0.0.1" }
 http-retry-policy = { path = "crates/lib/http-retry-policy", version = "0.0.1" }
+ndjson-rpc = { path = "crates/lib/ndjson-rpc", version = "0.0.1" }
 notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.1" }
 ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.1" }
 ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.1" }

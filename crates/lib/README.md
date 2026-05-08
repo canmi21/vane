@@ -25,6 +25,7 @@ crates.io as-is.
 | `h3-body`                   | Adapt h3 server / client `RequestStream` to a single `http_body::Body` surface.               |
 | `hickory-tower-resolver`    | Wrap `hickory-resolver` as a `tower::Service` for hyper-util's `HttpConnector`.               |
 | `http-retry-policy`         | HTTP retry policy with exponential backoff, idempotent-method gating, and body-buffering.     |
+| `ndjson-rpc`                | Line-delimited JSON-RPC over Unix sockets and HTTP/1.1 chunked, one-shot + streaming verbs.   |
 | `notify-twophase`           | Two-phase notify-debouncer-full setup so events landing during server bind are not lost.      |
 | `ocsp-mock-responder`       | In-process mock OCSP responder for integration tests.                                         |
 | `ocsp-staple`               | Build OCSP requests, parse responses, and extract responder URLs from the AIA extension.      |

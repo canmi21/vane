@@ -2776,6 +2776,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndjson-rpc"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "serde",
+ "serde_json",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "ndk-context"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5260,19 +5280,13 @@ name = "vane-mgmt"
 version = "0.10.4"
 dependencies = [
  "async-trait",
- "bytes",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
+ "ndjson-rpc",
  "serde",
  "serde_json",
- "subtle",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
- "tracing",
 ]
 
 [[package]]

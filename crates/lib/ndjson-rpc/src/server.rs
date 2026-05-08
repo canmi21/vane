@@ -1,9 +1,7 @@
-//! Management server: Unix-socket accept loop + per-connection
-//! line-delimited JSON dispatch to verb handlers. The HTTP-over-TCP
-//! transport ([`crate::http_server`]) speaks the same frame shapes,
-//! so dispatch logic is shared.
-//!
-//! See [`spec/crates/mgmt.md`](../../../spec/crates/mgmt.md).
+//! Unix-socket accept loop + per-connection line-delimited JSON
+//! dispatch to verb handlers. The HTTP-over-TCP transport
+//! ([`crate::http_server`]) speaks the same frame shapes, so dispatch
+//! logic is shared.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -19,9 +17,9 @@ use crate::protocol::{
 	EndMarker, Request, Response, ResponseOutcome, WireError, WireErrorKind, encode_line,
 };
 
-/// Server-side dispatcher. The daemon implements this against its own
-/// state — graph swap, listener set, factories, shutdown trigger —
-/// keeping `vane-mgmt` free of any engine dependency.
+/// Server-side dispatcher. Callers implement this against their own
+/// application state and pass an `Arc<H>` to [`spawn_unix_server`] or
+/// [`crate::spawn_http_server`].
 #[async_trait]
 pub trait Handler: Send + Sync + 'static {
 	/// Dispatch a parsed request to either a one-shot result or a

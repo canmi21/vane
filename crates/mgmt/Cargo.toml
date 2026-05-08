@@ -10,7 +10,7 @@ license.workspace = true
 readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "Management protocol (wire format, verbs, server, client) for the vane proxy"
+description = "Management protocol (verbs + thin shim over ndjson-rpc) for the vane proxy"
 
 [lints]
 workspace = true
@@ -19,19 +19,10 @@ workspace = true
 all-features = true
 
 [dependencies]
-async-trait = { workspace = true }
-bytes = "1.11.1"
-http = "1.4.0"
-http-body-util = "0.1"
-hyper = { version = "1.9.0", features = ["server", "client", "http1"] }
-hyper-util = { version = "0.1.20", features = ["tokio"] }
+ndjson-rpc = { workspace = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-subtle = "2"
 thiserror = "2"
-tokio = { version = "1.52.2", features = ["net", "io-util", "rt", "sync", "macros"] }
-tokio-util = { version = "0.7.18", default-features = false }
-tracing = "0.1.44"
 
 [dev-dependencies]
 async-trait = { workspace = true }

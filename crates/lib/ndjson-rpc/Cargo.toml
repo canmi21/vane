@@ -1,0 +1,35 @@
+[package]
+name = "ndjson-rpc"
+version = "0.0.1"
+categories = ["network-programming", "asynchronous", "web-programming::http-server"]
+edition.workspace = true
+keywords = ["rpc", "ndjson", "jsonl", "ipc", "hyper"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Line-delimited JSON-RPC framing with Unix socket and HTTP/1.1 chunked transports, supporting one-shot and streaming responses."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = "0.1"
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+subtle = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["net", "io-util", "rt", "sync", "macros"] }
+tokio-util = { version = "0.7", default-features = false }
+tracing = "0.1"
+
+[dev-dependencies]
+async-trait = "0.1"
+tempfile = "3"
+tokio = { version = "1", features = ["net", "io-util", "rt", "sync", "macros", "rt-multi-thread", "time"] }
+tokio-util = { version = "0.7", default-features = false }

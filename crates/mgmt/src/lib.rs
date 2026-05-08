@@ -1,18 +1,14 @@
-//! vane management protocol: wire format + verb schemas + server + client.
+//! vane management protocol: vane-specific verb schemas plus
+//! re-exports of the project-agnostic NDJSON-RPC framing
+//! ([`ndjson_rpc`]).
 //!
 //! See [`spec/crates/mgmt.md`](../../../spec/crates/mgmt.md).
 
-pub mod client;
-pub mod http_client;
-pub mod http_server;
-pub mod protocol;
-pub mod server;
 pub mod verb;
 
-pub use client::{MgmtClientError, UnixMgmtClient};
-pub use http_client::HttpMgmtClient;
-pub use http_server::{HttpServerConfig, HttpServerError, spawn_http_server};
-pub use protocol::{
-	EndMarker, Request, Response, ResponseOutcome, WireError, WireErrorKind, encode_line,
+pub use ndjson_rpc::{
+	DispatchOutcome, EndMarker, EventStream, Handler, HttpMgmtClient, HttpServerConfig,
+	HttpServerError, MgmtClientError, Request, Response, ResponseOutcome, UnixMgmtClient, WireError,
+	WireErrorKind, encode_line, spawn_http_server, spawn_unix_server,
 };
-pub use server::{DispatchOutcome, EventStream, Handler, spawn_unix_server};
+pub use ndjson_rpc::{client, http_client, http_server, protocol, server};

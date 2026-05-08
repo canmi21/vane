@@ -30,10 +30,9 @@ pub struct HttpMgmtClient {
 }
 
 impl HttpMgmtClient {
-	/// Build a client targeting the given mgmt HTTP endpoint. The
-	/// `token` argument matches the server's `bearer_token` setting:
-	/// pass `None` only when the server runs anonymous (loopback +
-	/// no token, per `spec/crates/mgmt.md` § _Auth model_).
+	/// Build a client targeting the given HTTP endpoint. The `token`
+	/// argument matches the server's `bearer_token` setting: pass
+	/// `None` only when the server is configured for anonymous access.
 	#[must_use]
 	pub fn new(addr: SocketAddr, token: Option<Arc<str>>) -> Self {
 		Self { addr, token }

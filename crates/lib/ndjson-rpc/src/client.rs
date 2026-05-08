@@ -1,10 +1,7 @@
-//! Typed management client — what `vane` CLI / TUI link against. Same
-//! verb set, same frame shapes as `server`. One Unix-socket connection
-//! per call: the API stays a simple `call(verb, args) -> result`, and
-//! a future multiplexed transport can be slotted in without changing
-//! the call shape.
-//!
-//! See [`spec/crates/mgmt.md`](../../../spec/crates/mgmt.md).
+//! Typed Unix-socket client. Same frame shapes as [`crate::server`].
+//! One Unix-socket connection per call: the API stays a simple
+//! `call(verb, args) -> result`, and a future multiplexed transport
+//! can be slotted in without changing the call shape.
 
 use std::path::{Path, PathBuf};
 
@@ -158,9 +155,18 @@ pub enum MgmtClientError {
 mod tests {
 	use super::*;
 	use crate::server::{DispatchOutcome, Handler, handle_conn};
-	use crate::verb::PingResult;
 	use async_trait::async_trait;
+	use serde::Deserialize;
 	use std::sync::Arc;
+
+	#[derive(Debug, Deserialize)]
+	struct PingResult {
+		pong: bool,
+		version: String,
+	}
+
+	#[derive(serde::Serialize)]
+	struct NoArgs {}
 
 	struct StubHandler;
 
@@ -222,14 +228,14 @@ mod tests {
 
 	#[tokio::test]
 	async fn client_call_decodes_typed_result() {
-		let result: PingResult = drive_call("ping", crate::verb::NoArgs {}).await.expect("ok");
+		let result: PingResult = drive_call("ping", NoArgs {}).await.expect("ok");
 		assert!(result.pong);
 		assert_eq!(result.version, "test");
 	}
 
 	#[tokio::test]
 	async fn client_surfaces_server_error_as_mgmt_client_error_server() {
-		let err = drive_call::<_, PingResult>("nope", crate::verb::NoArgs {}).await.expect_err("err");
+		let err = drive_call::<_, PingResult>("nope", NoArgs {}).await.expect_err("err");
 		match err {
 			MgmtClientError::Server(w) => {
 				assert_eq!(w.kind, crate::protocol::WireErrorKind::UnknownVerb);
@@ -240,8 +246,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn client_decode_error_when_result_shape_mismatches() {
-		let err =
-			drive_call::<_, PingResult>("bad_shape", crate::verb::NoArgs {}).await.expect_err("err");
+		let err = drive_call::<_, PingResult>("bad_shape", NoArgs {}).await.expect_err("err");
 		assert!(matches!(err, MgmtClientError::Decode(_)), "unexpected variant: {err:?}");
 	}
 
@@ -310,7 +315,7 @@ mod tests {
 		let path = tmp.path().join("not-there.sock");
 		let client = UnixMgmtClient::new(&path);
 		let err = client
-			.call::<_, PingResult>("ping", &crate::verb::NoArgs {})
+			.call::<_, PingResult>("ping", &NoArgs {})
 			.await
 			.expect_err("must fail without a server");
 		assert!(matches!(err, MgmtClientError::Io(_)), "unexpected variant: {err:?}");

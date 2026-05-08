@@ -1,8 +1,7 @@
-//! HTTP-over-TCP management transport.
+//! HTTP-over-TCP transport for the same NDJSON frame shapes the Unix
+//! socket [`crate::server`] speaks.
 //!
-//! Plaintext HTTP/1.1 only — TLS for the management endpoint is the
-//! operator's concern, layered as a vane reverse-proxy rule per
-//! [`spec/crates/mgmt.md` § _Auth model_](../../../spec/crates/mgmt.md#auth-model).
+//! Plaintext HTTP/1.1 only — TLS termination is the operator's concern.
 //!
 //! Wire shape:
 //! - request: `POST /` with a JSON body matching [`Request`]; any other
@@ -14,7 +13,9 @@
 //!   frame. The client cancels by closing the TCP connection.
 //!
 //! Auth: `Authorization: Bearer <token>`, constant-time compared
-//! against the configured token. Boot validation lives in the daemon.
+//! against the configured token via the `subtle` crate. Boot
+//! validation (e.g. "anonymous access only on loopback") lives in the
+//! caller.
 
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -44,26 +45,23 @@ const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 /// Channel depth for streaming responses. Each slot holds one already-
 /// encoded NDJSON frame; backpressure flows naturally from a slow client
 /// (TCP buffer fills → hyper stops draining → channel fills → producer
-/// awaits). Mirrors the broadcast capacities chosen for `tail_flow`
-/// in [`spec/crates/mgmt.md` § _Streaming verb lifecycle_](../../../spec/crates/mgmt.md#streaming-verb-lifecycle).
+/// awaits).
 const STREAM_CHANNEL_DEPTH: usize = 64;
 
 #[derive(Clone, Debug)]
 pub struct HttpServerConfig {
-	/// Bind addresses derived from `VANE_MGMT_HTTP_PORT` /
-	/// `VANE_MGMT_HTTP_PUBLIC` / `VANE_BIND_IPV*`. Empty = HTTP transport
-	/// disabled; the daemon should not call [`spawn_http_server`] in
-	/// that case.
+	/// Bind addresses. Empty = HTTP transport disabled; the caller
+	/// should not call [`spawn_http_server`] in that case.
 	pub binds: Vec<SocketAddr>,
-	/// `Some(token)` enforces bearer auth; `None` means the operator
-	/// opted into anonymous access (only legal on loopback per spec —
-	/// the daemon validates that combination at boot).
+	/// `Some(token)` enforces bearer auth; `None` means anonymous
+	/// access (typically only safe on loopback — the caller is
+	/// responsible for that policy decision).
 	pub bearer_token: Option<Arc<str>>,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum HttpServerError {
-	#[error("management http: bind {addr} failed: {source}")]
+	#[error("ndjson-rpc http: bind {addr} failed: {source}")]
 	Bind { addr: SocketAddr, source: std::io::Error },
 }
 
@@ -263,8 +261,7 @@ fn streaming_response(
 	// connection error) the receiver drops, the next `tx.send` fails,
 	// and the producer task terminates — which drops `stream`,
 	// triggering the EventStream's own cleanup. That is the
-	// cancellation contract documented in
-	// `spec/crates/mgmt.md` § _Streaming verb lifecycle_.
+	// streaming-verb cancellation contract.
 	let (tx, rx) = mpsc::channel::<Bytes>(STREAM_CHANNEL_DEPTH);
 	tokio::spawn(async move {
 		loop {
