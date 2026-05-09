@@ -35,6 +35,7 @@ pub mod flow_log_sink;
 pub mod h3;
 pub mod hot_reload;
 pub mod listener;
+pub(crate) mod listener_ctx;
 pub mod listener_udp;
 pub mod metrics;
 pub mod middleware;

@@ -12,13 +12,13 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use quinn_shared_socket::SharedSocket;
-use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 use vane_core::FlowLogSink;
 use virtual_socket::VirtualUdpSocket;
 
 use crate::flow_graph::FlowGraph;
-use crate::listener_udp::{DispatchHandle, DispatchKey, DispatchTable};
+use crate::listener_ctx::UdpAcceptCtx;
+use crate::listener_udp::{DispatchHandle, DispatchKey};
 use crate::verbosity::VerbosityState;
 
 /// Build the per-listener `quinn::ServerConfig` for ALPN `h3`. Reuses
@@ -67,20 +67,14 @@ pub fn build_quic_server_config(
 ///
 /// Returns a stringly error if the QUIC server config or the
 /// `quinn::Endpoint` fails to construct.
-pub fn spawn_h3_endpoint(
-	addr: SocketAddr,
-	physical: Arc<UdpSocket>,
+pub(crate) fn spawn_h3_endpoint(
+	ctx: &Arc<UdpAcceptCtx>,
 	tls_cfg: &Arc<rustls::ServerConfig>,
-	dispatch_table: &Arc<DispatchTable>,
-	graph: Arc<ArcSwap<FlowGraph>>,
-	log_sink: Arc<dyn FlowLogSink>,
-	verbosity: Arc<VerbosityState>,
-	force_cancel: CancellationToken,
 ) -> Result<(), String> {
 	let server_config = build_quic_server_config(tls_cfg)?;
 
-	let virtual_socket: Arc<VirtualUdpSocket> = VirtualUdpSocket::new(physical);
-	dispatch_table.insert(
+	let virtual_socket: Arc<VirtualUdpSocket> = VirtualUdpSocket::new(Arc::clone(&ctx.socket));
+	ctx.dispatch_table.insert(
 		DispatchKey::QuicConnId(quinn_proto::ConnectionId::new(&[])),
 		Arc::new(DispatchHandle::Quic(Arc::clone(&virtual_socket))),
 	);
@@ -94,6 +88,11 @@ pub fn spawn_h3_endpoint(
 	)
 	.map_err(|e| format!("quic endpoint: {e}"))?;
 
+	let addr = ctx.base.addr;
+	let graph = Arc::clone(&ctx.base.graph);
+	let log_sink = Arc::clone(&ctx.base.log_sink);
+	let verbosity = Arc::clone(&ctx.base.verbosity);
+	let force_cancel = ctx.base.force_cancel.clone();
 	tokio::spawn(async move {
 		run_h3_accept_loop(addr, endpoint, graph, &log_sink, &verbosity, force_cancel).await;
 	});

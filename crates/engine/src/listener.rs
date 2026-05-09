@@ -36,7 +36,8 @@ use vane_core::{
 
 use crate::executor::{ExecutorInput, execute};
 use crate::flow_graph::FlowGraph;
-use crate::listener_udp::{DispatchTable, run_udp_listener};
+use crate::listener_ctx::{AcceptCtx, ConnDispatchCtx};
+use crate::listener_udp::run_udp_listener;
 use crate::security::{SecurityConfig, SecurityState};
 use crate::verbosity::VerbosityState;
 use guess::classify;
@@ -318,40 +319,24 @@ impl ListenerSet {
 		let in_flight_count = Arc::new(AtomicUsize::new(0));
 		let bind_ready = Arc::new(AtomicBool::new(false));
 
+		let ctx = Arc::new(AcceptCtx {
+			addr,
+			graph,
+			verbosity,
+			log_sink,
+			security: Arc::clone(&self.security),
+			accept_cancel: accept_cancel.clone(),
+			force_cancel: force_cancel.clone(),
+			in_flight: Arc::clone(&in_flight),
+			in_flight_count: Arc::clone(&in_flight_count),
+			bind_ready: Arc::clone(&bind_ready),
+			bind_cfg: Arc::clone(&self.bind_cfg),
+			connections: Arc::clone(&self.connections),
+		});
+
 		let join = match transport {
-			Transport::Tcp => tokio::spawn(run_accept_loop(
-				addr,
-				graph,
-				verbosity,
-				log_sink,
-				accept_cancel.clone(),
-				force_cancel.clone(),
-				Arc::clone(&in_flight),
-				Arc::clone(&in_flight_count),
-				Arc::clone(&bind_ready),
-				Arc::clone(&self.connections),
-				Arc::clone(&self.bind_cfg),
-				Arc::clone(&self.security),
-			)),
-			Transport::Udp => {
-				let dispatch_table = Arc::new(DispatchTable::new());
-				let bind_cfg = Arc::clone(&self.bind_cfg);
-				tokio::spawn(run_udp_listener(
-					addr,
-					graph,
-					verbosity,
-					log_sink,
-					accept_cancel.clone(),
-					force_cancel.clone(),
-					Arc::clone(&in_flight),
-					Arc::clone(&in_flight_count),
-					Arc::clone(&bind_ready),
-					dispatch_table,
-					bind_cfg.max_bind_attempts,
-					bind_cfg.bind_backoff_initial,
-					bind_cfg.bind_backoff_max,
-				))
-			}
+			Transport::Tcp => tokio::spawn(run_accept_loop(ctx)),
+			Transport::Udp => tokio::spawn(run_udp_listener(ctx)),
 		};
 		ListenerHandle { accept_cancel, force_cancel, in_flight, in_flight_count, bind_ready, join }
 	}
@@ -623,52 +608,39 @@ async fn drain_in_flight(set: &AsyncMutex<JoinSet<()>>) {
 	while g.join_next().await.is_some() {}
 }
 
-async fn run_accept_loop(
-	addr: SocketAddr,
-	graph: Arc<ArcSwap<FlowGraph>>,
-	verbosity: Arc<VerbosityState>,
-	log_sink: Arc<dyn FlowLogSink>,
-	accept_cancel: CancellationToken,
-	force_cancel: CancellationToken,
-	in_flight: Arc<AsyncMutex<JoinSet<()>>>,
-	in_flight_count: Arc<AtomicUsize>,
-	bind_ready: Arc<AtomicBool>,
-	connections: Arc<DashMap<ConnId, ConnEntry>>,
-	bind_cfg: Arc<BindConfig>,
-	security: Arc<SecurityState>,
-) {
+async fn run_accept_loop(ctx: Arc<AcceptCtx>) {
 	let bind_policy = tokio_bind_retry::Policy {
-		max_attempts: bind_cfg.max_bind_attempts,
-		initial: bind_cfg.bind_backoff_initial,
-		max: bind_cfg.bind_backoff_max,
+		max_attempts: ctx.bind_cfg.max_bind_attempts,
+		initial: ctx.bind_cfg.bind_backoff_initial,
+		max: ctx.bind_cfg.bind_backoff_max,
 	};
 	let Some(listener) =
-		tokio_bind_retry::tcp(addr, &accept_cancel, &bind_policy, TCP_LISTEN_BACKLOG).await
+		tokio_bind_retry::tcp(ctx.addr, &ctx.accept_cancel, &bind_policy, TCP_LISTEN_BACKLOG).await
 	else {
 		tracing::error!(
-			?addr,
-			attempts = bind_cfg.max_bind_attempts,
+			addr = ?ctx.addr,
+			attempts = ctx.bind_cfg.max_bind_attempts,
 			"listener bind failed after exhausting retries — giving up on this address",
 		);
 		// `bind_ready` stays `false` so the daemon's boot health
 		// watchdog observes the failed listener and can react.
 		return;
 	};
-	bind_ready.store(true, Ordering::Release);
+	ctx.bind_ready.store(true, Ordering::Release);
 
 	loop {
 		tokio::select! {
 			biased;
-			() = accept_cancel.cancelled() => return,
+			() = ctx.accept_cancel.cancelled() => return,
 			accepted = listener.accept() => {
 				let (stream, remote) = match accepted {
 					Ok(s) => s,
 					Err(e) => {
 						// EMFILE / ENFILE / etc. — back off and resume.
-						tracing::warn!(?addr, ?e, "accept failed; backing off");
+						tracing::warn!(addr = ?ctx.addr, ?e, "accept failed; backing off");
 						let cancelled = tokio_bind_retry::sleep_or_cancel(
-							bind_cfg.bind_backoff_initial,
-							&accept_cancel,
+							ctx.bind_cfg.bind_backoff_initial,
+							&ctx.accept_cancel,
 						)
 						.await;
 						if cancelled {
@@ -686,45 +658,36 @@ async fn run_accept_loop(
 				// travels with this connection to natural completion;
 				// `ArcSwap::store` from the reload pipeline never disturbs
 				// in-flight work.
-				let captured: Arc<FlowGraph> = graph.load_full();
-				let Some(entry) = captured.symbolic().entries.get(&addr).copied() else {
+				let captured: Arc<FlowGraph> = ctx.graph.load_full();
+				let Some(entry) = captured.symbolic().entries.get(&ctx.addr).copied() else {
 					// Active graph has no entry for this listener: a reload
 					// removed the rule that owned the address. Drop the
 					// stream so the client sees TCP RST. The accept socket
 					// itself stays bound until the daemon restarts (no
 					// listener-set diff yet).
-					tracing::debug!(?addr, "no entry in active graph; dropping connection");
+					tracing::debug!(addr = ?ctx.addr, "no entry in active graph; dropping connection");
 					drop(stream);
 					continue;
 				};
 
-				let verbosity = Arc::clone(&verbosity);
-				let log_sink = Arc::clone(&log_sink);
-				let force = force_cancel.clone();
 				// Per-accept TLS lookup. `None` for cleartext listeners; on
 				// hot reload the new graph's `listener_tls` is read for
 				// every fresh accept (existing connections retain their
 				// captured `Arc<FlowGraph>`).
-				let tls_cfg = captured.listener_tls(&addr).cloned();
+				let tls_cfg = captured.listener_tls(&ctx.addr).cloned();
 				// Bump the in-flight counter and hand the guard to the spawned
 				// task so the matching decrement runs on any exit path
 				// (success, panic, cancellation).
-				in_flight_count.fetch_add(1, Ordering::Relaxed);
-				let in_flight_guard = InFlightGuard(Arc::clone(&in_flight_count));
-				let registry = Arc::clone(&connections);
-				in_flight.lock().await.spawn(handle_connection(
+				ctx.in_flight_count.fetch_add(1, Ordering::Relaxed);
+				let in_flight_guard = InFlightGuard(Arc::clone(&ctx.in_flight_count));
+				ctx.in_flight.lock().await.spawn(handle_connection(
+					Arc::clone(&ctx),
 					stream,
 					remote,
-					addr,
 					entry,
 					captured,
 					tls_cfg,
-					verbosity,
-					log_sink,
-					force,
 					in_flight_guard,
-					registry,
-					Arc::clone(&security),
 				));
 			}
 		}
@@ -732,29 +695,25 @@ async fn run_accept_loop(
 }
 
 async fn handle_connection(
+	ctx: Arc<AcceptCtx>,
 	stream: TcpStream,
 	remote: SocketAddr,
-	local: SocketAddr,
 	entry: NodeId,
 	graph: Arc<FlowGraph>,
 	tls_cfg: Option<Arc<rustls::ServerConfig>>,
-	verbosity: Arc<VerbosityState>,
-	log_sink: Arc<dyn FlowLogSink>,
-	force_cancel: CancellationToken,
 	// Held purely for its `Drop` impl — the in-flight counter
 	// decrement runs on every exit path including panics and cancellation.
 	_in_flight_guard: InFlightGuard,
-	registry: Arc<DashMap<ConnId, ConnEntry>>,
-	security: Arc<SecurityState>,
 ) {
 	// L1 security floor: enforce per-IP and global connection caps
 	// before any further work. On rejection the stream is dropped here,
 	// which sends TCP RST to the client.
-	let Some(_sec_guard) = security.check_and_register(remote.ip()) else {
+	let Some(_sec_guard) = ctx.security.check_and_register(remote.ip()) else {
 		tracing::debug!(?remote, "L1 connection cap: dropping connection");
 		return;
 	};
 
+	let local = ctx.addr;
 	metrics::counter!("vane.requests.total", "listener_addr" => local.to_string()).increment(1);
 
 	let conn_id = next_conn_id();
@@ -763,8 +722,8 @@ async fn handle_connection(
 	// `ConnRegistration` construction is panic-free, so the registry
 	// can never see a stranded entry — the guard's `Drop` always runs.
 	let accepted_at = Instant::now();
-	registry.insert(conn_id, ConnEntry { conn_id, listener_addr: local, remote, accepted_at });
-	let _conn_registration = ConnRegistration { registry: Arc::clone(&registry), conn_id };
+	ctx.connections.insert(conn_id, ConnEntry { conn_id, listener_addr: local, remote, accepted_at });
+	let _conn_registration = ConnRegistration { registry: Arc::clone(&ctx.connections), conn_id };
 	let conn = Arc::new(ConnContext {
 		id: conn_id,
 		remote,
@@ -777,11 +736,11 @@ async fn handle_connection(
 	});
 
 	let span = tracing::info_span!("conn", id = %conn.id);
-	let mut ctx = FlowCtx {
+	let mut flow_ctx = FlowCtx {
 		span,
-		log: log_sink,
-		cancel: force_cancel,
-		verbosity: verbosity.current(),
+		log: Arc::clone(&ctx.log_sink),
+		cancel: ctx.force_cancel.clone(),
+		verbosity: ctx.verbosity.current(),
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};
 
@@ -794,6 +753,15 @@ async fn handle_connection(
 
 	let kind = graph.listener_kind(&local);
 
+	let dispatch_ctx = ConnDispatchCtx {
+		kind,
+		graph: Arc::clone(&graph),
+		entry,
+		conn: Arc::clone(&conn),
+		remote,
+		tls_cfg,
+	};
+
 	// On-demand peek gating: only run the prelude if some node walked
 	// from `entry` references an L4Peek middleware. Listeners whose
 	// graph is L4Peek-free stay on the zero-copy fast path. Spec
@@ -801,11 +769,11 @@ async fn handle_connection(
 	// `L4Peek` reachable, so the no-peek branch is unreachable for
 	// them — defensive logic below still handles it.
 	if !graph.needs_peek(entry) {
-		dispatch_no_peek(stream, tls_cfg, kind, &graph, entry, &conn, &mut ctx, remote).await;
+		dispatch_no_peek(stream, &dispatch_ctx, &mut flow_ctx).await;
 		return;
 	}
 
-	let peek_timeout = security.cfg.header_timeout;
+	let peek_timeout = ctx.security.cfg.header_timeout;
 	let (peeked_buffer, peeked_stream, peek_result) =
 		match tokio::time::timeout(peek_timeout, run_peek_phase(stream)).await {
 			Ok(Ok(triple)) => triple,
@@ -848,33 +816,31 @@ async fn handle_connection(
 	}
 
 	let peeked = PeekedStream::new(peeked_buffer, peeked_stream);
-	dispatch_peeked(peeked, detected, tls_cfg, kind, &graph, entry, &conn, &mut ctx, remote).await;
+	dispatch_peeked(peeked, detected, &dispatch_ctx, &mut flow_ctx).await;
 }
 
 /// `needs_peek = false` dispatch: the graph has no `L4Peek` middleware
 /// reachable from `entry`, so we never read a prefix and `detected`
 /// is always `None`. The decision table reduces to `(kind,
 /// listener_tls)`. Spec: spec/crates/engine.md § _Dispatch table_.
-async fn dispatch_no_peek(
-	stream: TcpStream,
-	tls_cfg: Option<Arc<rustls::ServerConfig>>,
-	kind: ListenerKind,
-	graph: &Arc<FlowGraph>,
-	entry: NodeId,
-	conn: &Arc<ConnContext>,
-	ctx: &mut FlowCtx,
-	remote: SocketAddr,
-) {
-	match (kind, tls_cfg) {
+async fn dispatch_no_peek(stream: TcpStream, dctx: &ConnDispatchCtx, ctx: &mut FlowCtx) {
+	match (dctx.kind, dctx.tls_cfg.as_ref()) {
 		(ListenerKind::Raw, _) => {
-			let result =
-				execute(graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), conn, ctx).await;
+			let result = execute(
+				&dctx.graph,
+				dctx.entry,
+				ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))),
+				&dctx.conn,
+				ctx,
+			)
+			.await;
 			if let Err(e) = result {
-				tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+				tracing::warn!(error = %e, conn_id = %dctx.conn.id, "connection ended with error");
 			}
 		}
 		(ListenerKind::Http | ListenerKind::Auto, Some(tls_cfg)) => {
-			run_tls(stream, tls_cfg, graph, entry, conn, ctx, remote).await;
+			run_tls(stream, Arc::clone(tls_cfg), &dctx.graph, dctx.entry, &dctx.conn, ctx, dctx.remote)
+				.await;
 		}
 		// `spec/crates/engine.md` § _Dispatch table_ literally rejects
 		// `Http+None` and warns that `Auto+needs_peek=false` is a
@@ -887,15 +853,21 @@ async fn dispatch_no_peek(
 		// surfaces the misconfiguration without dropping traffic.
 		(ListenerKind::Http | ListenerKind::Auto, None) => {
 			tracing::debug!(
-				conn_id = %conn.id,
-				?remote,
-				?kind,
+				conn_id = %dctx.conn.id,
+				remote = ?dctx.remote,
+				kind = ?dctx.kind,
 				"no-peek dispatch with no TLS config — handing to L4 subgraph",
 			);
-			let result =
-				execute(graph, entry, ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))), conn, ctx).await;
+			let result = execute(
+				&dctx.graph,
+				dctx.entry,
+				ExecutorInput::L4(Box::new(L4Conn::Tcp(stream))),
+				&dctx.conn,
+				ctx,
+			)
+			.await;
 			if let Err(e) = result {
-				tracing::warn!(error = %e, conn_id = %conn.id, "connection ended with error");
+				tracing::warn!(error = %e, conn_id = %dctx.conn.id, "connection ended with error");
 			}
 		}
 	}
@@ -907,27 +879,23 @@ async fn dispatch_no_peek(
 async fn dispatch_peeked(
 	peeked: PeekedStream<TcpStream>,
 	detected: Option<DetectedProtocol>,
-	tls_cfg: Option<Arc<rustls::ServerConfig>>,
-	kind: ListenerKind,
-	graph: &Arc<FlowGraph>,
-	entry: NodeId,
-	conn: &Arc<ConnContext>,
+	dctx: &ConnDispatchCtx,
 	ctx: &mut FlowCtx,
-	remote: SocketAddr,
 ) {
 	let detected = detected.unwrap_or(DetectedProtocol::Unknown);
-	match (kind, detected, tls_cfg) {
+	match (dctx.kind, detected, dctx.tls_cfg.as_ref()) {
 		// TLS termination — listener has cert; both `Http` and `Auto`
 		// take the standard `run_tls` path.
 		(ListenerKind::Http | ListenerKind::Auto, DetectedProtocol::TlsClientHello, Some(tls_cfg)) => {
-			run_tls(peeked, tls_cfg, graph, entry, conn, ctx, remote).await;
+			run_tls(peeked, Arc::clone(tls_cfg), &dctx.graph, dctx.entry, &dctx.conn, ctx, dctx.remote)
+				.await;
 		}
 		// Http: cleartext / TLS-without-cert / unknown all reject.
 		// spec/crates/engine.md § _Dispatch table_.
 		(ListenerKind::Http, _, _) => {
 			tracing::debug!(
-				conn_id = %conn.id,
-				?remote,
+				conn_id = %dctx.conn.id,
+				remote = ?dctx.remote,
 				?detected,
 				"rejecting connection: Http listener requires TLS-wrapped traffic",
 			);
@@ -935,14 +903,14 @@ async fn dispatch_peeked(
 		// Cleartext H1 — pre-set `conn.http_version` so the
 		// executor's `Node::Upgrade` arm picks the H1 driver.
 		(ListenerKind::Auto, DetectedProtocol::Http1, _) => {
-			let _ = conn.http_version.set(HttpVersion::Http1_1);
-			l4_subgraph(peeked, graph, entry, conn, ctx).await;
+			let _ = dctx.conn.http_version.set(HttpVersion::Http1_1);
+			l4_subgraph(peeked, &dctx.graph, dctx.entry, &dctx.conn, ctx).await;
 		}
 		// Cleartext H2c — same shape, but http_version=Http2 picks
 		// the h2 driver at the Upgrade arm.
 		(ListenerKind::Auto, DetectedProtocol::Http2Preface, _) => {
-			let _ = conn.http_version.set(HttpVersion::Http2);
-			l4_subgraph(peeked, graph, entry, conn, ctx).await;
+			let _ = dctx.conn.http_version.set(HttpVersion::Http2);
+			l4_subgraph(peeked, &dctx.graph, dctx.entry, &dctx.conn, ctx).await;
 		}
 		// Raw + any, Auto + (TLS no cert | QUIC | DNS | Unknown |
 		// indeterminate): hand into the L4 subgraph. SNI passthrough
@@ -950,7 +918,7 @@ async fn dispatch_peeked(
 		// pre-filled from the `ClientHello` peek so an `L4Forward`
 		// rule can pick the upstream by SNI without decrypting.
 		(ListenerKind::Raw | ListenerKind::Auto, _, _) => {
-			l4_subgraph(peeked, graph, entry, conn, ctx).await;
+			l4_subgraph(peeked, &dctx.graph, dctx.entry, &dctx.conn, ctx).await;
 		}
 	}
 }

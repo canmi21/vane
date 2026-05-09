@@ -13,24 +13,21 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use arc_swap::ArcSwap;
 use bytes::Bytes;
 use clienthello::{Extractor, PushOutcome};
 use dashmap::DashMap;
 use parking_lot::Mutex;
-use tokio::net::UdpSocket;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use vane_core::{
-	ConnContext, FlowCtx, FlowLogSink, L4Conn, NodeId, TlsInfo, TrajectoryBuilder, Transport,
-	UdpAssoc,
+	ConnContext, FlowCtx, L4Conn, NodeId, TlsInfo, TrajectoryBuilder, Transport, UdpAssoc,
 };
 
 use crate::executor::{ExecutorInput, execute};
 use crate::flow_graph::FlowGraph;
-use crate::verbosity::VerbosityState;
+use crate::listener_ctx::{AcceptCtx, UdpAcceptCtx};
 
 /// Maximum UDP datagram size. The recv buffer is sized for the IP
 /// theoretical max (65535 minus IP+UDP headers, but we round up to
@@ -150,36 +147,28 @@ pub struct UdpListenerHandle {
 /// Spec: `spec/crates/engine.md` § _`udp_dispatch`_ for the dispatch table flow,
 /// § _`udp_dispatch`_ for the per-session
 /// timeout (owned by the `L4Forward` forwarder).
-pub async fn run_udp_listener(
-	addr: SocketAddr,
-	graph: Arc<ArcSwap<FlowGraph>>,
-	verbosity: Arc<VerbosityState>,
-	log_sink: Arc<dyn FlowLogSink>,
-	accept_cancel: CancellationToken,
-	force_cancel: CancellationToken,
-	in_flight: Arc<AsyncMutex<JoinSet<()>>>,
-	in_flight_count: Arc<AtomicUsize>,
-	bind_ready: Arc<AtomicBool>,
-	dispatch_table: Arc<DispatchTable>,
-	max_bind_attempts: u32,
-	bind_backoff_initial: Duration,
-	bind_backoff_max: Duration,
-) {
+pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 	let bind_policy = tokio_bind_retry::Policy {
-		max_attempts: max_bind_attempts,
-		initial: bind_backoff_initial,
-		max: bind_backoff_max,
+		max_attempts: base.bind_cfg.max_bind_attempts,
+		initial: base.bind_cfg.bind_backoff_initial,
+		max: base.bind_cfg.bind_backoff_max,
 	};
-	let Some(socket) = tokio_bind_retry::udp(addr, &accept_cancel, &bind_policy).await else {
+	let Some(socket) = tokio_bind_retry::udp(base.addr, &base.accept_cancel, &bind_policy).await
+	else {
 		tracing::error!(
-			?addr,
-			attempts = max_bind_attempts,
+			addr = ?base.addr,
+			attempts = base.bind_cfg.max_bind_attempts,
 			"udp listener bind failed after exhausting retries — giving up on this address",
 		);
 		return;
 	};
-	bind_ready.store(true, Ordering::Release);
+	base.bind_ready.store(true, Ordering::Release);
 	let socket = Arc::new(socket);
+	let ctx = Arc::new(UdpAcceptCtx {
+		base,
+		socket: Arc::clone(&socket),
+		dispatch_table: Arc::new(DispatchTable::new()),
+	});
 
 	// On UDP+Http listeners, bring up the H3 stack: per-listener
 	// quinn::Endpoint wrapping a VirtualUdpSocket, registered in the
@@ -187,36 +176,27 @@ pub async fn run_udp_listener(
 	// see `spec/crates/engine.md` § _`udp_dispatch`_.
 	#[cfg(feature = "h3")]
 	{
-		let captured = graph.load_full();
+		let captured = ctx.base.graph.load_full();
 		let kind = captured
 			.symbolic()
 			.meta
 			.listener_kinds
-			.get(&addr)
+			.get(&ctx.base.addr)
 			.copied()
 			.unwrap_or(vane_core::ListenerKind::Raw);
 		if matches!(kind, vane_core::ListenerKind::Http) {
-			if let Some(tls_cfg) = captured.listener_tls(&addr).cloned() {
-				match crate::h3::listener::spawn_h3_endpoint(
-					addr,
-					Arc::clone(&socket),
-					&tls_cfg,
-					&dispatch_table,
-					Arc::clone(&graph),
-					Arc::clone(&log_sink),
-					Arc::clone(&verbosity),
-					force_cancel.clone(),
-				) {
+			if let Some(tls_cfg) = captured.listener_tls(&ctx.base.addr).cloned() {
+				match crate::h3::listener::spawn_h3_endpoint(&ctx, &tls_cfg) {
 					Ok(()) => {
-						tracing::info!(?addr, "h3 listener up");
+						tracing::info!(addr = ?ctx.base.addr, "h3 listener up");
 					}
 					Err(e) => {
-						tracing::error!(?addr, error = %e, "h3 endpoint setup failed");
+						tracing::error!(addr = ?ctx.base.addr, error = %e, "h3 endpoint setup failed");
 					}
 				}
 			} else {
 				tracing::warn!(
-					?addr,
+					addr = ?ctx.base.addr,
 					"udp Http listener has no listener_tls config; H3 requires TLS — skipping H3 setup",
 				);
 			}
@@ -234,7 +214,7 @@ pub async fn run_udp_listener(
 	loop {
 		tokio::select! {
 			biased;
-			() = accept_cancel.cancelled() => {
+			() = ctx.base.accept_cancel.cancelled() => {
 				// Recv loop exits; in-flight cold-path tasks will observe
 				// `force_cancel` via their FlowCtx (drive_byte_tunnel arm
 				// propagates into the forwarder's cancel token).
@@ -244,13 +224,13 @@ pub async fn run_udp_listener(
 				let (n, peer) = match recv {
 					Ok(v) => v,
 					Err(e) => {
-						tracing::debug!(?addr, ?e, "udp recv_from error; continuing");
+						tracing::debug!(addr = ?ctx.base.addr, ?e, "udp recv_from error; continuing");
 						continue;
 					}
 				};
 				let datagram = Bytes::copy_from_slice(&buf[..n]);
 				let key = DispatchKey::Peer(peer);
-				if let Some(entry) = dispatch_table.get(&key) {
+				if let Some(entry) = ctx.dispatch_table.get(&key) {
 					match &**entry {
 						DispatchHandle::L4Forward(session) => {
 							// Bounded channel; full = drop. UDP is lossy by
@@ -288,37 +268,23 @@ pub async fn run_udp_listener(
 				// always get the datagram first, regardless of listener
 				// kind.
 				let pending_key = DispatchKey::PendingPeek(peer);
-				if let Some(entry) = dispatch_table.get(&pending_key)
+				if let Some(entry) = ctx.dispatch_table.get(&pending_key)
 					&& let DispatchHandle::PendingPeek(state) = &**entry {
 						let state = Arc::clone(state);
 						drop(entry);
 						match advance_pending_peek(&state, &datagram) {
 							PendingAdvance::Sni(sni) => {
 								let datagrams = drain_pending(&state, datagram);
-								if dispatch_table.remove(&pending_key).is_some() {
+								if ctx.dispatch_table.remove(&pending_key).is_some() {
 									pending_count.fetch_sub(1, Ordering::Relaxed);
 								}
-								spawn_cold_path(
-									&socket,
-									&dispatch_table,
-									&graph,
-									&verbosity,
-									&log_sink,
-									&force_cancel,
-									&in_flight,
-									&in_flight_count,
-									addr,
-									peer,
-									datagrams,
-									Some(sni),
-								)
-								.await;
+								spawn_cold_path(&ctx, peer, datagrams, Some(sni)).await;
 							}
 							PendingAdvance::NeedMore => {
 								// Buffered for later datagram; no spawn.
 							}
 							PendingAdvance::Drop => {
-								if dispatch_table.remove(&pending_key).is_some() {
+								if ctx.dispatch_table.remove(&pending_key).is_some() {
 									pending_count.fetch_sub(1, Ordering::Relaxed);
 								}
 							}
@@ -332,7 +298,7 @@ pub async fn run_udp_listener(
 				// CID-keyed demultiplexing internally for the connections
 				// it terminates.
 				#[cfg(feature = "h3")]
-				let datagram = match try_route_to_h3(&graph, &dispatch_table, addr, peer, datagram) {
+				let datagram = match try_route_to_h3(&ctx, peer, datagram) {
 					RouteH3::Routed => continue,
 					RouteH3::NotApplicable(d) => d,
 				};
@@ -341,17 +307,17 @@ pub async fn run_udp_listener(
 				// reload cannot pull the rug. Decide whether to enter
 				// pending-peek (multi-packet QUIC SNI extraction) or go
 				// straight to the FlowGraph entry.
-				let captured: Arc<FlowGraph> = graph.load_full();
-				let Some(entry) = captured.symbolic().entries.get(&addr).copied() else {
+				let captured: Arc<FlowGraph> = ctx.base.graph.load_full();
+				let Some(entry) = captured.symbolic().entries.get(&ctx.base.addr).copied() else {
 					tracing::debug!(
-						?addr,
+						addr = ?ctx.base.addr,
 						?peer,
 						"udp cold path: no entry in active graph; dropping datagram",
 					);
 					continue;
 				};
 
-				if captured.needs_pending_peek(addr, entry)
+				if captured.needs_pending_peek(ctx.base.addr, entry)
 					&& is_quic_long_header_initial(&datagram)
 				{
 					if pending_count.load(Ordering::Relaxed) >= PENDING_PEEK_MAX_PER_LISTENER {
@@ -365,25 +331,11 @@ pub async fn run_udp_listener(
 					match advance_pending_peek(&state, &datagram) {
 						PendingAdvance::Sni(sni) => {
 							let datagrams = drain_pending(&state, datagram);
-							spawn_cold_path(
-								&socket,
-								&dispatch_table,
-								&graph,
-								&verbosity,
-								&log_sink,
-								&force_cancel,
-								&in_flight,
-								&in_flight_count,
-								addr,
-								peer,
-								datagrams,
-								Some(sni),
-							)
-							.await;
+							spawn_cold_path(&ctx, peer, datagrams, Some(sni)).await;
 						}
 						PendingAdvance::NeedMore => {
 							let handle = Arc::new(DispatchHandle::PendingPeek(Arc::clone(&state)));
-							if dispatch_table.insert(pending_key, handle).is_none() {
+							if ctx.dispatch_table.insert(pending_key, handle).is_none() {
 								pending_count.fetch_add(1, Ordering::Relaxed);
 							}
 						}
@@ -392,41 +344,13 @@ pub async fn run_udp_listener(
 							// to immediate cold-path entry with the
 							// raw datagram, mirroring spec behavior of
 							// "not Initial → fall through".
-							spawn_cold_path(
-								&socket,
-								&dispatch_table,
-								&graph,
-								&verbosity,
-								&log_sink,
-								&force_cancel,
-								&in_flight,
-								&in_flight_count,
-								addr,
-								peer,
-								vec![datagram],
-								None,
-							)
-							.await;
+							spawn_cold_path(&ctx, peer, vec![datagram], None).await;
 						}
 					}
 					continue;
 				}
 
-				spawn_cold_path(
-					&socket,
-					&dispatch_table,
-					&graph,
-					&verbosity,
-					&log_sink,
-					&force_cancel,
-					&in_flight,
-					&in_flight_count,
-					addr,
-					peer,
-					vec![datagram],
-					None,
-				)
-				.await;
+				spawn_cold_path(&ctx, peer, vec![datagram], None).await;
 			}
 		}
 	}
@@ -489,42 +413,29 @@ fn is_quic_long_header_initial(datagram: &[u8]) -> bool {
 }
 
 async fn spawn_cold_path(
-	socket: &Arc<UdpSocket>,
-	dispatch_table: &Arc<DispatchTable>,
-	graph: &Arc<ArcSwap<FlowGraph>>,
-	verbosity: &Arc<VerbosityState>,
-	log_sink: &Arc<dyn FlowLogSink>,
-	force_cancel: &CancellationToken,
-	in_flight: &Arc<AsyncMutex<JoinSet<()>>>,
-	in_flight_count: &Arc<AtomicUsize>,
-	addr: SocketAddr,
+	ctx: &Arc<UdpAcceptCtx>,
 	peer: SocketAddr,
 	first_packets: Vec<Bytes>,
 	sni: Option<String>,
 ) {
-	let captured: Arc<FlowGraph> = graph.load_full();
-	let Some(entry) = captured.symbolic().entries.get(&addr).copied() else {
+	let captured: Arc<FlowGraph> = ctx.base.graph.load_full();
+	let Some(entry) = captured.symbolic().entries.get(&ctx.base.addr).copied() else {
 		tracing::debug!(
-			?addr,
+			addr = ?ctx.base.addr,
 			?peer,
 			"udp cold path: no entry in active graph at spawn time; dropping datagram",
 		);
 		return;
 	};
-	in_flight_count.fetch_add(1, Ordering::Relaxed);
-	let in_flight_guard = InFlightGuard(Arc::clone(in_flight_count));
-	in_flight.lock().await.spawn(handle_cold_path(
-		Arc::clone(socket),
+	ctx.base.in_flight_count.fetch_add(1, Ordering::Relaxed);
+	let in_flight_guard = InFlightGuard(Arc::clone(&ctx.base.in_flight_count));
+	ctx.base.in_flight.lock().await.spawn(handle_cold_path(
+		Arc::clone(ctx),
 		peer,
 		first_packets,
 		sni,
-		addr,
 		entry,
 		captured,
-		Arc::clone(dispatch_table),
-		Arc::clone(verbosity),
-		Arc::clone(log_sink),
-		force_cancel.clone(),
 		in_flight_guard,
 	));
 }
@@ -547,27 +458,21 @@ enum RouteH3 {
 /// the empty-CID slot is the listener's single QUIC fan-in entry
 /// rather than a per-connection key.
 #[cfg(feature = "h3")]
-fn try_route_to_h3(
-	graph: &Arc<ArcSwap<FlowGraph>>,
-	dispatch_table: &Arc<DispatchTable>,
-	addr: SocketAddr,
-	peer: SocketAddr,
-	datagram: Bytes,
-) -> RouteH3 {
-	let captured: Arc<FlowGraph> = graph.load_full();
+fn try_route_to_h3(ctx: &Arc<UdpAcceptCtx>, peer: SocketAddr, datagram: Bytes) -> RouteH3 {
+	let captured: Arc<FlowGraph> = ctx.base.graph.load_full();
 	let kind = captured
 		.symbolic()
 		.meta
 		.listener_kinds
-		.get(&addr)
+		.get(&ctx.base.addr)
 		.copied()
 		.unwrap_or(vane_core::ListenerKind::Raw);
 	if !matches!(kind, vane_core::ListenerKind::Http) {
 		return RouteH3::NotApplicable(datagram);
 	}
 	let listener_slot = DispatchKey::QuicConnId(quinn_proto::ConnectionId::new(&[]));
-	let Some(entry) = dispatch_table.get(&listener_slot) else {
-		tracing::trace!(?addr, ?peer, "h3 listener not yet ready; dropping datagram");
+	let Some(entry) = ctx.dispatch_table.get(&listener_slot) else {
+		tracing::trace!(addr = ?ctx.base.addr, ?peer, "h3 listener not yet ready; dropping datagram");
 		return RouteH3::Routed;
 	};
 	if let DispatchHandle::Quic(vs) = &**entry {
@@ -604,19 +509,15 @@ impl Drop for InFlightGuard {
 /// matching `tls.sni` predicate evaluates correctly without the
 /// listener needing TLS termination.
 async fn handle_cold_path(
-	socket: Arc<UdpSocket>,
+	ctx: Arc<UdpAcceptCtx>,
 	peer: SocketAddr,
 	first_packets: Vec<Bytes>,
 	sni: Option<String>,
-	local: SocketAddr,
 	entry: NodeId,
 	graph: Arc<FlowGraph>,
-	dispatch_table: Arc<DispatchTable>,
-	verbosity: Arc<VerbosityState>,
-	log_sink: Arc<dyn FlowLogSink>,
-	force_cancel: CancellationToken,
 	_in_flight_guard: InFlightGuard,
 ) {
+	let local = ctx.base.addr;
 	metrics::counter!("vane.requests.total", "listener_addr" => local.to_string()).increment(1);
 
 	let conn_id = crate::listener::next_conn_id();
@@ -635,19 +536,19 @@ async fn handle_cold_path(
 	// can register a session under its own DispatchKey. Stored as
 	// `Arc<DispatchTable>` so the fetch can cheaply clone it for
 	// cleanup-on-shutdown.
-	conn.user.lock().insert(Arc::clone(&dispatch_table));
+	conn.user.lock().insert(Arc::clone(&ctx.dispatch_table));
 
 	let span = tracing::info_span!("udp_conn", id = %conn.id);
-	let mut ctx = FlowCtx {
+	let mut flow_ctx = FlowCtx {
 		span,
-		log: log_sink,
-		cancel: force_cancel,
-		verbosity: verbosity.current(),
+		log: Arc::clone(&ctx.base.log_sink),
+		cancel: ctx.base.force_cancel.clone(),
+		verbosity: ctx.base.verbosity.current(),
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};
 
-	let l4 = L4Conn::Udp(UdpAssoc { socket, peer, first_packets });
-	let result = execute(&graph, entry, ExecutorInput::L4(Box::new(l4)), &conn, &mut ctx).await;
+	let l4 = L4Conn::Udp(UdpAssoc { socket: Arc::clone(&ctx.socket), peer, first_packets });
+	let result = execute(&graph, entry, ExecutorInput::L4(Box::new(l4)), &conn, &mut flow_ctx).await;
 	if let Err(e) = result {
 		tracing::warn!(error = %e, conn_id = %conn.id, "udp cold path ended with error");
 	}
