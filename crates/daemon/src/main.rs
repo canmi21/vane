@@ -22,6 +22,7 @@
 
 #[cfg(feature = "acme")]
 mod acme_boot;
+mod boot;
 mod mgmt_handlers;
 mod providers;
 mod reload;
@@ -37,22 +38,18 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use clap::Parser;
-use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 use tracing_broadcast::BroadcastTracingLayer;
 use tracing_subscriber::EnvFilter;
-use vane_core::FlowLogSink;
 use vane_core::compile::compile;
 use vane_core::version::{BuildInfo, print_banner};
 use vane_engine::VerbosityState;
 use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 use vane_engine::flow_graph::FlowGraph;
-use vane_engine::flow_log_sink::{BroadcastSink, FanoutSink, default_sink_from_env};
-use vane_engine::{BindConfig, ListenerSet, SecurityConfig, SecurityState};
+use vane_engine::{BindConfig, ListenerSet};
 
 use crate::mgmt_handlers::MgmtState;
-use crate::providers::MetadataProviders;
-use crate::watcher::{arm_watcher_subscription, spawn_watcher_handler};
+use crate::watcher::arm_watcher_subscription;
 
 const FEATURES: &[&str] = &[
 	#[cfg(feature = "aws-lc-rs")]
@@ -129,22 +126,18 @@ async fn main() -> std::process::ExitCode {
 	std::process::ExitCode::SUCCESS
 }
 
+#[allow(
+	clippy::too_many_lines,
+	reason = "daemon boot roadmap: ~12 named phase calls + their per-phase wiring (ReloadCtx, listener spawn, ACME, mgmt plane). Every line is sequenced orchestration; further extraction would hide the boot ordering across files without compressing intrinsic complexity"
+)]
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let args = Args::parse();
 
 	// Load config + .env BEFORE initialising tracing so the file's
 	// `VANE_LOG_LEVEL` is honored. dotenvy never overrides pre-existing
-	// OS env, so `RUST_LOG` from the operator's shell still wins. The
-	// trade-off is that `load()`'s own internal warnings (malformed
-	// .env) emit before any subscriber is attached and are lost — that's
-	// acceptable: a malformed .env will still surface as a parse error
-	// from `Env::from_process_env`.
+	// OS env, so `RUST_LOG` from the operator's shell still wins.
 	let loaded = vane_core::config::load(&args.config_dir)?;
 
-	// Construct the broadcast tracing layer first so the subscriber
-	// stack composes it alongside the stderr fmt layer. The layer
-	// itself is Clone (cheap — wraps a broadcast::Sender); we hand one
-	// clone to the subscriber and keep the original for `MgmtState`.
 	let tracing_broadcast = BroadcastTracingLayer::new();
 	init_tracing(tracing_broadcast.clone(), &loaded.env.log_level);
 
@@ -156,97 +149,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		"config loaded",
 	);
 
-	// Install rustls's process-wide default crypto provider before any
-	// `ServerConfig::builder()` runs in `FlowGraph::link`. The selection
-	// (aws-lc-rs vs ring) is fixed at compile time by the engine's
-	// crypto-backend feature; see `spec/crates/daemon.md` § _Crypto provider_.
-	vane_engine::crypto::install_default_provider();
+	boot::install_global_runtime();
+	boot::log_cgi_concurrency_cap();
 
-	// Daemon-wide TLS session ticketer — must follow
-	// `install_default_provider` (the backend RNG fuels the initial
-	// key) and precede any `FlowGraph::link` (which reads the ticketer
-	// into each listener's `ServerConfig`). Failure here is fatal —
-	// it implies the kernel CSPRNG is unavailable. See spec/crates/engine-tls.md
-	// § _Session tickets_.
-	vane_engine::tls::install_default_ticketer().expect("install rustls session ticketer");
-	vane_engine::metrics::install_recorder().expect("install metrics recorder");
-	// Note: the system trust store is loaded lazily on first
-	// `build_client_config` call (via `vane_engine::tls::native_roots`).
-	// Eager warm-up was tried and rejected: under parallel boot (e.g.
-	// nextest spawning many daemons) it serialises every process on the
-	// macOS keychain queue even when the daemon won't use HTTPS
-	// upstream. The lazy path's outcome is logged once per process
-	// inside `native_roots`'s init.
+	let plugins = boot::init_plugin_state(&loaded).await?;
 
-	// Surface operator-tunable env vars not in the typed `Env` struct
-	// (those that affect feature-gated subsystems and are read via
-	// `OnceLock` at first invocation rather than at boot). Logging
-	// here makes the active value visible in the startup log even
-	// when no CGI request has fired yet. See
-	// `spec/crates/engine.md` § _Concurrency cap_.
-	let cgi_max_concurrent = std::env::var("VANE_CGI_MAX_CONCURRENT")
-		.ok()
-		.and_then(|s| s.parse::<usize>().ok())
-		.filter(|n| *n > 0)
-		.unwrap_or(100);
-	tracing::info!(cgi_max_concurrent, "cgi concurrency cap resolved");
-
-	// Boot-time WASM scan: must happen before the first compile so the
-	// `MetadataProviders` knows which `<module>:<export>` plugin
-	// references resolve. `loaded_wasm` stays `None` when the daemon
-	// is built without `wasm`, when the dir is missing, or when every
-	// load failed — in every case we fall through to the no-plugin
-	// link path.
-	#[cfg(feature = "wasm")]
-	let loaded_wasm = wasm_loader::load_all(&loaded.env.wasm_dir).await;
-
-	// `Arc<ArcSwap<PluginRegistry>>` is what the reload pipeline
-	// rotates atomically; the rule pipeline reads a stable Arc
-	// snapshot via `load_full()` per compile/link cycle.
-	#[cfg(feature = "wasm")]
-	let plugin_registry: Option<Arc<arc_swap::ArcSwap<vane_engine::flow_graph::PluginRegistry>>> =
-		loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.registry));
-	#[cfg(not(feature = "wasm"))]
-	let plugin_registry: Option<Arc<arc_swap::ArcSwap<vane_engine::flow_graph::PluginRegistry>>> =
-		None;
-	#[cfg(feature = "wasm")]
-	let plugin_policies: Option<Arc<arc_swap::ArcSwap<vane_core::PluginPolicyTable>>> =
-		loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.policies));
-	#[cfg(not(feature = "wasm"))]
-	let _plugin_policies: Option<Arc<arc_swap::ArcSwap<vane_core::PluginPolicyTable>>> = None;
-
-	// Snapshot the registry once for boot-time use (ref-check, compile,
-	// link). Reload publishes a new Arc into `plugin_registry`; this
-	// initial Arc keeps the boot link path stable.
-	let registry_boot_snap = plugin_registry.as_ref().map(|s| s.load_full());
-
-	// Boot ref-check (must run *before* compile): walk the raw rule
-	// JSON for every `<module>:<export>` plugin reference and refuse
-	// to start when any of them is missing from `plugin_registry`.
-	// Compile would otherwise fail with the first single "unknown
-	// middleware" error; the curated list this produces gives the
-	// operator the full fix list at once, and runs even when rule
-	// shape would otherwise blow up downstream phase checks.
-	let missing_plugins = collect_missing_plugin_refs(&loaded.files, registry_boot_snap.as_ref());
-	if !missing_plugins.is_empty() {
-		return Err(
-			format!(
-				"refusing to start: rules reference unloaded wasm plugins: [{}]; \
-			 restart with the matching .wasm files present in {}",
-				missing_plugins.join(", "),
-				loaded.env.wasm_dir.display(),
-			)
-			.into(),
-		);
-	}
-
-	let providers = match registry_boot_snap.as_ref() {
-		#[cfg(feature = "wasm")]
-		Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
-		#[cfg(not(feature = "wasm"))]
-		Some(_) => MetadataProviders::new(),
-		None => MetadataProviders::new(),
-	};
+	let providers = boot::build_metadata_providers(plugins.registry_boot_snap.as_ref());
 	let symbolic = compile(loaded.files, &providers, &providers)?;
 	tracing::info!(
 		nodes = symbolic.nodes.len(),
@@ -256,34 +164,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		"compiled symbolic flow graph",
 	);
 
-	// CRL cache: collected once across all listener client_auth + upstream
-	// args.tls.crls sources, fetched synchronously at link time (30s per
-	// source), and shared daemon-wide. Per
-	// `spec/crates/engine-tls.md` § _CRL_, the cache key is
-	// source identity (path / URL string) so refreshing CRL bytes does
-	// not invalidate cached `Arc<ClientConfig>` / `Arc<ServerConfig>`.
 	let crl_cache = init_crl_cache(&symbolic)?;
-
-	// L1 security floor: validate env floors, build daemon-scoped state.
-	let mut security_cfg_inner = SecurityConfig::new(&loaded.env)?;
-	security_cfg_inner.crl_cache = crl_cache.clone();
-	let security_cfg = Arc::new(security_cfg_inner);
-	let security = Arc::new(SecurityState::new((*security_cfg).clone()));
-	tracing::info!(
-		header_timeout_secs = security_cfg.header_timeout.as_secs(),
-		max_conn_per_ip = security_cfg.max_conn_per_ip,
-		max_total_conns = security_cfg.max_total_conns,
-		crl_cache = security_cfg.crl_cache.is_some(),
-		"L1 security floor configured",
-	);
+	let (security_cfg, security) = boot::init_security(&loaded.env, crl_cache.clone())?;
 
 	let mw_factories = Arc::new(build_middleware_factories());
 
-	// Open the ACME registry before linking so the AcmeChallenge
-	// fetch factory can capture it. `None` when the compiled config
-	// has no `tls.managed` rules — in that case the inject pass
-	// won't fire either, so the AcmeChallenge factory is never asked
-	// to construct a fetch and the registration is a no-op.
+	// Open the ACME registry before linking so the AcmeChallenge fetch
+	// factory can capture it.
 	#[cfg(feature = "acme")]
 	let acme_registry = acme_boot::open_registry_if_needed(&symbolic).await?;
 
@@ -292,86 +179,43 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		#[cfg(feature = "acme")]
 		acme_registry.clone(),
 	));
-	let initial_graph = {
+	let initial_graph = boot::link_initial_graph(
+		symbolic,
+		&mw_factories,
+		&fetch_factories,
+		&security_cfg,
+		plugins.registry_boot_snap.as_deref(),
 		#[cfg(feature = "acme")]
-		{
-			FlowGraph::link_with_acme(
-				symbolic,
-				&mw_factories,
-				registry_boot_snap.as_deref(),
-				&fetch_factories,
-				Arc::clone(&security_cfg),
-				acme_registry.as_ref(),
-			)?
-		}
-		#[cfg(not(feature = "acme"))]
-		{
-			match registry_boot_snap.as_ref() {
-				Some(reg) => FlowGraph::link_with_plugins(
-					symbolic,
-					&mw_factories,
-					reg,
-					&fetch_factories,
-					Arc::clone(&security_cfg),
-				)?,
-				None => FlowGraph::link_with_security(
-					symbolic,
-					&mw_factories,
-					&fetch_factories,
-					Arc::clone(&security_cfg),
-				)?,
-			}
-		}
-	};
+		acme_registry.as_ref(),
+	)?;
 	let graph_swap: Arc<ArcSwap<FlowGraph>> = Arc::new(ArcSwap::new(initial_graph));
 	tracing::info!("linked flow graph");
 
 	// Pack the reload-pipeline state into one Arc so the mgmt verb
 	// handler and the file-watcher loop both call `reload_once` against
-	// the same shared bag. Built once here; cloned (refcount-only) into
-	// `MgmtState` and `WatcherCtx` below.
-	let reload_ctx = Arc::new(crate::reload::ReloadCtx {
-		config_dir: args.config_dir.clone(),
-		graph: Arc::clone(&graph_swap),
-		mw_factories: Arc::clone(&mw_factories),
-		fetch_factories: Arc::clone(&fetch_factories),
-		security_cfg: Arc::clone(&security_cfg),
-		plugin_registry: plugin_registry.clone(),
+	// the same shared bag. Cloned (refcount-only) into `MgmtState` and
+	// `WatcherCtx` below.
+	let reload_ctx = Arc::new(crate::reload::ReloadCtx::new(
+		args.config_dir.clone(),
+		&graph_swap,
+		&mw_factories,
+		&fetch_factories,
+		&security_cfg,
+		plugins.plugin_registry.as_ref(),
 		#[cfg(feature = "wasm")]
-		wasm_dir: loaded.env.wasm_dir.clone(),
+		loaded.env.wasm_dir.clone(),
 		#[cfg(feature = "wasm")]
-		wasm_runtime: loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.runtime)),
+		plugins.loaded_wasm.as_ref().map(|lw| &lw.runtime),
 		#[cfg(feature = "wasm")]
-		plugin_policies: plugin_policies.clone(),
+		plugins.plugin_policies.as_ref(),
 		#[cfg(feature = "acme")]
-		acme_registry: acme_registry.clone(),
-	});
+		acme_registry.as_ref(),
+	));
 
-	// Compose the runtime flow-log sink. The default (`RingBufferSink`,
-	// optionally an env-driven `FileSink`) is wrapped in a `FanoutSink`
-	// alongside a `BroadcastSink` so the mgmt `tail_flow` verb has a
-	// live event source. The `BroadcastSink` is held separately on
-	// `MgmtState` so handlers can call `subscribe()` directly.
-	let default_sink = default_sink_from_env().await?;
-	let broadcast_sink = Arc::new(BroadcastSink::new());
-	let sink: Arc<dyn FlowLogSink> = Arc::new(FanoutSink::new(vec![
-		default_sink,
-		Arc::clone(&broadcast_sink) as Arc<dyn FlowLogSink>,
-	]));
+	let (sink, broadcast_sink) = boot::compose_log_sink().await?;
 	let verbosity = Arc::new(VerbosityState::new());
 
-	// Install POSIX shutdown-signal streams BEFORE any listener starts.
-	// `tokio::signal::unix::signal()` registers the kernel-level handler
-	// eagerly; from this point on SIGTERM / SIGINT are queued onto the
-	// streams instead of taking their default termination disposition.
-	// Wiring this earlier closes a startup race where a SIGINT delivered
-	// between `listeners.start()` (port becomes reachable, which is the
-	// readiness signal supervisors use) and the previous handler-install
-	// site inside `wait_for_shutdown_signal` would kill the daemon
-	// outright. The streams are awaited at the end of `main` via
-	// [`wait_for_shutdown_signal`].
-	let sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
-	let sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
+	let (sigterm, sigint) = boot::install_signal_handlers();
 
 	let listeners = Arc::new(ListenerSet::from_security_and_bind_config(
 		Arc::clone(&security),
@@ -382,12 +226,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// BEFORE calling `listeners.start`. Once a listener is reachable on
 	// its bound port the operator can drop a new rule file and rightly
 	// expect it to take effect; if the watcher subscribed late, that
-	// drop's fs event would fire in the gap and be lost (FSEvents on
-	// macOS does not replay events that pre-date subscription). The
-	// debouncer's mpsc channel is unbounded — events queued before the
-	// handler task spawns just sit there until phase 2 drains them.
-	// Init failure (typically permission-denied at the directory) is
-	// logged and the daemon proceeds without auto-reload.
+	// drop's fs event could fire in the gap and be lost (FSEvents on
+	// macOS does not replay events that pre-date subscription). Init
+	// failure (typically permission-denied at the directory) is logged
+	// and the daemon proceeds without auto-reload.
 	let watcher_sub = match arm_watcher_subscription(args.config_dir.clone()) {
 		Ok(s) => Some(s),
 		Err(e) => {
@@ -401,114 +243,57 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 	// `shutdown_trigger` is shared by the boot health watchdog (fires
 	// it on total bind failure), the mgmt `shutdown` verb, and the
-	// `wait_for_shutdown_signal` select loop. Constructed once here and
-	// cloned into each consumer.
+	// `wait_for_shutdown_signal` select loop.
 	let shutdown_trigger = CancellationToken::new();
 
-	// ACME boot tasks: kick off first-time issuance for every
-	// `tls.managed` SNI without a cached cert, and auto-bind a
-	// synthetic `:80` listener if the operator's config has none
-	// per `spec/crates/engine-acme.md` § _Challenge: HTTP-01_. Both are
-	// fire-and-forget; ACME failures surface via `tracing::error!`
-	// and don't abort boot. After both, the renewal scheduler ticks
-	// every 5 minutes per `spec/crates/engine-acme.md` § _Renewal triggers_ and dispatches
-	// renewal attempts based on each SNI's
-	// `now + renew_before >= not_after` threshold; its abort handle
-	// is dropped on daemon shutdown via `shutdown_trigger.cancel()`
-	// (the scheduler tick checks no cancellation token directly,
-	// but `tokio::spawn` tasks die with the runtime).
 	#[cfg(feature = "acme")]
-	if let Some(registry) = acme_registry.clone() {
-		let graph = graph_swap.load_full();
-		let _issuance_handles =
-			acme_boot::kick_off_managed_issuance(&registry, &graph, &shutdown_trigger);
-		let _auto_bind_handles =
-			acme_boot::maybe_auto_bind_port_80(Arc::clone(&registry), &graph, &shutdown_trigger).await;
-		let _scheduler_handle = registry.spawn_scheduler();
+	if let Some(registry) = acme_registry.as_ref() {
+		boot::spawn_acme_boot_tasks(registry, &graph_swap, &shutdown_trigger).await;
 	}
 
-	// CRL background refresher: one tokio task per URL source, scheduled
-	// off `nextUpdate − 1h`. File sources are not refreshed here — they
-	// re-read on `FlowGraph` reload via `init_crl_cache` (the watcher
-	// path).
-	if let Some(cache) = &security_cfg.crl_cache {
-		cache.spawn_refresher(&shutdown_trigger);
-	}
+	boot::spawn_boot_background_services(
+		&security_cfg,
+		&security,
+		&listeners,
+		&shutdown_trigger,
+		loaded.env.boot_health_timeout_secs,
+	);
 
-	// Background cleanup for L1 security state: prunes zero-count
-	// per-IP entries and stale log-dedup slots every 60 seconds.
-	Arc::clone(&security).spawn_cleanup(shutdown_trigger.clone());
-
-	// Boot health watchdog: detect "every listener failed to bind"
-	// within a bounded budget and force shutdown with a non-zero exit
-	// code. Partial failures stay warn-only.
-	let expected_listener_count = listeners.expected_count();
-	if expected_listener_count == 0 {
-		tracing::warn!("graph has no listener entries; daemon will serve nothing");
-	} else {
-		spawn_boot_health_watchdog(
-			Arc::clone(&listeners),
-			shutdown_trigger.clone(),
-			expected_listener_count,
-			loaded.env.boot_health_timeout_secs,
-		);
-	}
-
-	// Phase 2 of file-watcher startup: spawn the handler task that
-	// drains queued reload signals. Subscription was armed before
-	// listeners.start (above) so any event landing in the bind window
-	// is already queued in the unbounded mpsc; this task picks them
-	// up immediately on first poll.
+	// Phase 2 of file-watcher startup. Subscription was armed before
+	// `listeners.start` so any event landing in the bind window is
+	// already queued; the handler task picks them up on first poll.
 	let watcher_cancel = CancellationToken::new();
-	let watcher_handle = match watcher_sub {
-		Some(sub) => {
-			let watcher_ctx = Arc::new(crate::watcher::WatcherCtx {
-				reload: Arc::clone(&reload_ctx),
-				listeners: Arc::clone(&listeners),
-				verbosity: Arc::clone(&verbosity),
-				log_sink: Arc::clone(&sink),
-			});
-			let h = spawn_watcher_handler(sub, watcher_ctx, watcher_cancel.clone());
-			tracing::info!("file watcher armed");
-			Some(h)
-		}
-		None => None,
-	};
-
-	// Management plane: bind the Unix mgmt socket and dispatch verbs to
-	// `MgmtState`. Bind failures (e.g. directory missing, perms denied)
-	// are logged and the daemon continues serving traffic without mgmt
-	// — the operator can fix the path and restart.
-	let mgmt_state = Arc::new(MgmtState {
-		started_at: Instant::now(),
-		reload: Arc::clone(&reload_ctx),
-		listeners: Arc::clone(&listeners),
-		verbosity: Arc::clone(&verbosity),
-		log_sink: Arc::clone(&sink),
-		broadcast: Arc::clone(&broadcast_sink),
-		tracing_broadcast,
-		shutdown_trigger: shutdown_trigger.clone(),
-		#[cfg(feature = "wasm")]
-		wasm_pool_stats: loaded_wasm
-			.as_ref()
-			.map(|lw| Arc::clone(&lw.runtime) as Arc<dyn vane_core::WasmPoolStats>),
-		#[cfg(not(feature = "wasm"))]
-		wasm_pool_stats: None,
+	let watcher_handle = watcher_sub.map(|sub| {
+		boot::spawn_file_watcher(
+			sub,
+			Arc::clone(&reload_ctx),
+			Arc::clone(&listeners),
+			Arc::clone(&verbosity),
+			Arc::clone(&sink),
+			watcher_cancel.clone(),
+		)
 	});
-	let mgmt_cancel = CancellationToken::new();
-	let mgmt_unix_handle =
-		bind_mgmt_unix_server(Arc::clone(&mgmt_state), mgmt_cancel.clone(), &loaded.env.mgmt_unix)
-			.await;
-	let mgmt_http_handles =
-		bind_mgmt_http_server(Arc::clone(&mgmt_state), mgmt_cancel.clone(), &loaded.env).await?;
+
+	let mgmt = boot::spawn_mgmt_plane(
+		&reload_ctx,
+		&listeners,
+		&verbosity,
+		&sink,
+		&broadcast_sink,
+		tracing_broadcast,
+		&shutdown_trigger,
+		&plugins,
+		&loaded.env,
+	)
+	.await?;
 
 	wait_for_shutdown_signal(
 		listeners,
 		watcher_cancel,
 		watcher_handle,
-		mgmt_cancel,
-		mgmt_unix_handle,
-		mgmt_http_handles,
+		mgmt.cancel,
+		mgmt.unix_handle,
+		mgmt.http_handles,
 		shutdown_trigger,
 		sigterm,
 		sigint,
@@ -592,7 +377,7 @@ fn build_fetch_factories(
 /// Bind the Unix mgmt socket. Returns the spawned task's `JoinHandle`
 /// or `None` if bind failed — the daemon continues serving traffic in
 /// that case.
-async fn bind_mgmt_unix_server(
+pub(crate) async fn bind_mgmt_unix_server(
 	mgmt_state: Arc<MgmtState>,
 	cancel: CancellationToken,
 	socket: &std::path::Path,
@@ -623,7 +408,7 @@ async fn bind_mgmt_unix_server(
 ///
 /// Returns the per-bind task handles. Empty when the operator
 /// disabled the transport via `VANE_MGMT_HTTP_PORT=`.
-async fn bind_mgmt_http_server(
+pub(crate) async fn bind_mgmt_http_server(
 	mgmt_state: Arc<MgmtState>,
 	cancel: CancellationToken,
 	env: &vane_core::Env,
@@ -702,7 +487,7 @@ async fn bind_mgmt_http_server(
 /// transition site (success path, retry-exhaust path) and the bound on
 /// the race window would still be the polling period. Polling reads
 /// the truth regardless of which path got us there.
-fn spawn_boot_health_watchdog(
+pub(crate) fn spawn_boot_health_watchdog(
 	listeners: Arc<ListenerSet>,
 	shutdown_trigger: CancellationToken,
 	expected: usize,
@@ -791,7 +576,7 @@ async fn wait_for_shutdown_signal(
 /// every nested object / array so plugin references buried under
 /// preset-specific shapes are caught regardless of where the rule
 /// schema places them.
-fn collect_missing_plugin_refs(
+pub(crate) fn collect_missing_plugin_refs(
 	files: &[vane_core::compile::RawRuleFile],
 	plugin_registry: Option<&Arc<vane_engine::flow_graph::PluginRegistry>>,
 ) -> Vec<String> {

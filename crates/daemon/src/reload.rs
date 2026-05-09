@@ -52,6 +52,46 @@ pub(crate) struct ReloadCtx {
 	pub acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
 }
 
+impl ReloadCtx {
+	/// Build the daemon-wide reload context from the boot products that
+	/// own each piece. Cloning each [`Arc`] inside is refcount-only so
+	/// the caller's handles stay live for downstream wiring (`MgmtState`,
+	/// `WatcherCtx`, etc.).
+	#[allow(
+		clippy::too_many_arguments,
+		reason = "ctx aggregator: every param is one schema field; alternative would be a stateless builder that just renames the noise"
+	)]
+	pub(crate) fn new(
+		config_dir: PathBuf,
+		graph: &Arc<ArcSwap<FlowGraph>>,
+		mw_factories: &Arc<MiddlewareFactories>,
+		fetch_factories: &Arc<FetchFactories>,
+		security_cfg: &Arc<SecurityConfig>,
+		plugin_registry: Option<&Arc<ArcSwap<PluginRegistry>>>,
+		#[cfg(feature = "wasm")] wasm_dir: PathBuf,
+		#[cfg(feature = "wasm")] wasm_runtime: Option<&Arc<WasmtimeRuntime>>,
+		#[cfg(feature = "wasm")] plugin_policies: Option<&Arc<ArcSwap<PluginPolicyTable>>>,
+		#[cfg(feature = "acme")] acme_registry: Option<&Arc<vane_engine::acme::ManagedCertRegistry>>,
+	) -> Self {
+		Self {
+			config_dir,
+			graph: Arc::clone(graph),
+			mw_factories: Arc::clone(mw_factories),
+			fetch_factories: Arc::clone(fetch_factories),
+			security_cfg: Arc::clone(security_cfg),
+			plugin_registry: plugin_registry.cloned(),
+			#[cfg(feature = "wasm")]
+			wasm_dir,
+			#[cfg(feature = "wasm")]
+			wasm_runtime: wasm_runtime.cloned(),
+			#[cfg(feature = "wasm")]
+			plugin_policies: plugin_policies.cloned(),
+			#[cfg(feature = "acme")]
+			acme_registry: acme_registry.cloned(),
+		}
+	}
+}
+
 /// Outcome of a single reload attempt. Both successful variants carry
 /// the post-link `version_hash` so observers (mgmt API, eventually) can
 /// correlate reload events with on-disk config changes.
