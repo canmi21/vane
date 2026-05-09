@@ -26,6 +26,11 @@ jobs:
         with:
           cache: false
 
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: style
+
       - name: Format
         run: cargo fmt --all -- --check
 
@@ -37,5 +42,8 @@ jobs:
       - name: Prose
         run: dprint check
 
+      - name: Workspace dep sync
+        run: cargo xtask sync-deps check
+
       - name: Anchors
-        run: perl scripts/check_spec_anchors.pl
+        run: cargo xtask check-spec-anchors
