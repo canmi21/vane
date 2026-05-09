@@ -159,7 +159,7 @@ pub(crate) fn init_security(
 /// Phase: link the symbolic flow graph against the engine's middleware
 /// and fetch factories, returning the initial concrete [`FlowGraph`].
 /// The `cfg(feature = "acme")` branch routes through
-/// [`FlowGraph::link_with_acme`] so the boot graph picks up
+/// `FlowGraph::link_with_acme` so the boot graph picks up
 /// `tls.managed` populators; the non-acme branch picks
 /// `link_with_plugins` or `link_with_security` based on whether any
 /// plugins are loaded.
@@ -262,7 +262,7 @@ pub(crate) async fn spawn_acme_boot_tasks(
 	let _scheduler_handle = registry.spawn_scheduler();
 }
 
-/// Phase 2 of file-watcher startup: build [`WatcherCtx`] from the
+/// Phase 2 of file-watcher startup: build [`crate::watcher::WatcherCtx`] from the
 /// active reload + listener handles and spawn the handler task that
 /// drains queued reload signals. Subscription is consumed; the
 /// returned `JoinHandle` lives until `cancel` fires.
@@ -305,7 +305,7 @@ pub(crate) struct ShutdownContext {
 	pub soft_drain: std::time::Duration,
 }
 
-/// Phase: build [`MgmtState`] from the live daemon handles, bind the
+/// Phase: build [`crate::mgmt_handlers::MgmtState`] from the live daemon handles, bind the
 /// Unix mgmt socket, bind the HTTP mgmt listeners. Bind failures on
 /// either transport are logged and the daemon continues serving traffic
 /// without that flavour of mgmt — operators can fix the path / config

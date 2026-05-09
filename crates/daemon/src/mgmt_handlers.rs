@@ -40,7 +40,7 @@ use crate::reload::{ReloadCtx, ReloadOutcome, reload_once};
 /// boot in `main::run` and shared by every accepted mgmt connection
 /// through `Arc<MgmtState>`. Reload-related state (graph swap, factories,
 /// security cfg, wasm runtime, plugin / acme registries, config dir) is
-/// packed into [`reload`] so the same `Arc<ReloadCtx>` can be shared
+/// packed into the `reload` field so the same `Arc<ReloadCtx>` can be shared
 /// with the file watcher.
 pub(crate) struct MgmtState {
 	pub started_at: Instant,
