@@ -55,6 +55,7 @@ pedantic = { level = "warn", priority = -1 }
 # Internal path-based crates only. Third-party deps live in each crate's own
 # Cargo.toml; `cargo-deny` (deny.toml, `bans.multiple-versions`) enforces unity.
 [workspace.dependencies]
+# crates/lib/* — generic, independently-publishable libs.
 acme-provider = { path = "crates/lib/acme-provider", version = "0.0.1", default-features = false }
 cgi-request = { path = "crates/lib/cgi-request", version = "0.0.1" }
 cgi-response = { path = "crates/lib/cgi-response", version = "0.0.1" }
@@ -77,6 +78,9 @@ rustls-sni-resolver = { path = "crates/lib/rustls-sni-resolver", version = "0.0.
 rustls-ticketer = { path = "crates/lib/rustls-ticketer", version = "0.0.1", default-features = false }
 tokio-bind-retry = { path = "crates/lib/tokio-bind-retry", version = "0.0.1" }
 tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.1" }
+virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }
+
+# crates/* — vane product crates.
 vane-core = { path = "crates/core", version = "0.10.4" }
 vane-engine = { path = "crates/engine", version = "0.10.4" }
 vane-mgmt = { path = "crates/mgmt", version = "0.10.4" }
@@ -84,8 +88,6 @@ vane-mgmt = { path = "crates/mgmt", version = "0.10.4" }
 # published manifests entirely — testutil is `publish = false`.
 vane-testutil = { path = "crates/testutil" }
 vane-wasm = { path = "crates/wasm", version = "0.10.4" }
-virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }
-wasmtime = { version = "44.0.1", features = ["component-model", "async", "cranelift"] }
 
 [profile.release]
 opt-level = "z"
