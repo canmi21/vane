@@ -11,7 +11,9 @@
 //           the next dependent's verify-build runs.
 //
 // `run` runs `just gate` first (skip with `--skip-gate`) and requires
-// `CARGO_REGISTRY_TOKEN` in the environment.
+// crates.io auth via either `CARGO_REGISTRY_TOKEN` in the environment
+// or a token previously written by `cargo login` into
+// `$CARGO_HOME/credentials.toml` (defaults to `~/.cargo/credentials.toml`).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
@@ -56,8 +58,14 @@ pub(crate) fn plan(only: Option<&str>, json: bool) -> Result<()> {
 }
 
 pub(crate) fn run(mode: Mode, only: Option<&str>, skip_gate: bool) -> Result<()> {
-	if matches!(mode, Mode::Real) && std::env::var_os("CARGO_REGISTRY_TOKEN").is_none() {
-		bail!("real publish requires CARGO_REGISTRY_TOKEN in the environment");
+	if matches!(mode, Mode::Real)
+		&& std::env::var_os("CARGO_REGISTRY_TOKEN").is_none()
+		&& !has_cargo_login_token()
+	{
+		bail!(
+			"real publish needs crates.io auth: set CARGO_REGISTRY_TOKEN or run `cargo login` \
+			 to write the token into $CARGO_HOME/credentials.toml"
+		);
 	}
 	if matches!(mode, Mode::Real) {
 		if skip_gate {
@@ -305,4 +313,49 @@ fn index_path(name: &str) -> String {
 		3 => format!("3/{}/{name}", &name[..1]),
 		_ => format!("{}/{}/{name}", &name[..2], &name[2..4]),
 	}
+}
+
+/// Locate `credentials.toml` honouring `$CARGO_HOME` (Cargo's documented
+/// override) and falling back to `$HOME/.cargo/credentials.toml`.
+fn cargo_credentials_path() -> Option<PathBuf> {
+	if let Some(cargo_home) = std::env::var_os("CARGO_HOME") {
+		return Some(PathBuf::from(cargo_home).join("credentials.toml"));
+	}
+	let home = std::env::var_os("HOME")?;
+	Some(PathBuf::from(home).join(".cargo").join("credentials.toml"))
+}
+
+/// Whether `cargo login` has written a usable crates.io token into
+/// `credentials.toml`. Cargo recognises two layouts and either
+/// satisfies the publish path:
+///
+/// * `[registry]` with a `token = "..."` field (older `cargo login` form).
+/// * `[registries.crates-io]` with a `token = "..."` field (newer form
+///   produced by `cargo login --registry crates-io` or recent cargo
+///   versions).
+///
+/// Empty / quoted-empty token strings count as missing so an operator
+/// who blanked the file doesn't silently bypass the precondition.
+fn has_cargo_login_token() -> bool {
+	let Some(path) = cargo_credentials_path() else { return false };
+	let Ok(text) = std::fs::read_to_string(&path) else { return false };
+	let Ok(doc) = text.parse::<toml_edit::DocumentMut>() else { return false };
+	let nonempty_token = |item: Option<&toml_edit::Item>| -> bool {
+		item.and_then(toml_edit::Item::as_str).is_some_and(|s| !s.is_empty())
+	};
+	if let Some(reg) = doc.get("registry").and_then(toml_edit::Item::as_table)
+		&& nonempty_token(reg.get("token"))
+	{
+		return true;
+	}
+	if let Some(crates_io) = doc
+		.get("registries")
+		.and_then(toml_edit::Item::as_table)
+		.and_then(|t| t.get("crates-io"))
+		.and_then(toml_edit::Item::as_table)
+		&& nonempty_token(crates_io.get("token"))
+	{
+		return true;
+	}
+	false
 }
