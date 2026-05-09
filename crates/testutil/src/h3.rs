@@ -189,10 +189,10 @@ impl Drop for H3ServerHandle {
 /// status code returned by `handler` — only the test author can
 /// trigger this, by returning a value outside `http::StatusCode`'s
 /// valid range, which the type itself already prevents.
-// `async fn` is intentional even though the body only spawns a task —
-// `tokio::spawn` requires an active runtime, and the `async` modifier
-// makes that requirement visible to callers (and lets them write the
-// natural `serve_h3(...).await` shape that mirrors `connect_h3`).
+#[allow(
+	clippy::unused_async,
+	reason = "intentional API shape: mirrors connect_h3 await form and signals the tokio runtime requirement of the inner spawn"
+)]
 pub async fn serve_h3<F, Fut>(
 	cert_pem: &str,
 	key_pem: &str,

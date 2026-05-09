@@ -290,6 +290,10 @@ fn ws_passthrough_rule(
 }
 
 #[cfg(test)]
+#[allow(
+	clippy::case_sensitive_file_extension_comparisons,
+	reason = "rule name suffix, not a filesystem path"
+)]
 mod tests {
 	use super::*;
 	use crate::rule::SourceInfo;

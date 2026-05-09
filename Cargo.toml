@@ -57,6 +57,13 @@ cognitive_complexity = "warn"
 # backticks around BTreeMap / HashMap / NEXTEST_ENV-style identifiers
 # in /// docs. Net signal too low to keep on.
 doc_markdown = "allow"
+# Triggered by `validate_*` placeholder fns whose `Result<(), Error>`
+# signature must match the real validators they stand in for. Removing
+# the wrap would break the function-pointer contract.
+unnecessary_wraps = "allow"
+# Triggered by AEAD / QUIC crypto bindings (`aad` vs `aead`) where the
+# names are standards-defined terms of art.
+similar_names = "allow"
 
 # Internal path-based crates only. Third-party deps live in each crate's own
 # Cargo.toml; `cargo-deny` (deny.toml, `bans.multiple-versions`) enforces unity.

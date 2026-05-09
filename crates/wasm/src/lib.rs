@@ -703,6 +703,10 @@ fn metric_gauge_core(
 		return Ok(());
 	}
 	let labels = build_metric_labels(state, name, user_labels);
+	#[allow(
+		clippy::cast_precision_loss,
+		reason = "metrics-rs gauge API is f64-only; ABI s64 widening documented at fn-level doc"
+	)]
 	let value_f = value as f64;
 	metrics::gauge!("vane_plugin_metric_gauge", labels).set(value_f);
 	Ok(())
@@ -791,6 +795,10 @@ async fn http_fetch_core(
 		metrics::Label::new("module_id", state.module_id.to_string()),
 		metrics::Label::new("metadata_name", state.metadata_name.to_string()),
 	];
+	#[allow(
+		clippy::cast_precision_loss,
+		reason = "metrics-rs histogram API is f64-only; durations fit in 2^52 ms"
+	)]
 	let elapsed_f = elapsed_ms as f64;
 	metrics::histogram!("vane_plugin_http_fetch_duration_ms", dur_labels).record(elapsed_f);
 

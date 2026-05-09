@@ -8,6 +8,5 @@
 too-many-lines-threshold = 100
 
 # `clippy::cognitive_complexity` (in nursery, opt-in via [workspace.lints]).
-# Default 25; bumped to 30 — the listener / flow-graph state machines
-# legitimately have more branching than typical code.
-cognitive-complexity-threshold = 30
+# Default 25.
+cognitive-complexity-threshold = 25
