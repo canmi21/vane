@@ -1,0 +1,13 @@
+# Per-lint behaviour. Lint level (warn/deny/allow) lives in root
+# Cargo.toml's [workspace.lints]; this file only tunes the lints
+# already turned on there.
+#
+# msrv is auto-read from [workspace.package].rust-version (1.95).
+
+# `clippy::too_many_lines` (in pedantic, already on). Default 100.
+too-many-lines-threshold = 100
+
+# `clippy::cognitive_complexity` (in nursery, opt-in via [workspace.lints]).
+# Default 25; bumped to 30 — the listener / flow-graph state machines
+# legitimately have more branching than typical code.
+cognitive-complexity-threshold = 30

@@ -150,7 +150,7 @@ pub struct UdpListenerHandle {
 /// Spec: `spec/crates/engine.md` § _`udp_dispatch`_ for the dispatch table flow,
 /// § _`udp_dispatch`_ for the per-session
 /// timeout (owned by the `L4Forward` forwarder).
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines, clippy::cognitive_complexity)]
 pub async fn run_udp_listener(
 	addr: SocketAddr,
 	graph: Arc<ArcSwap<FlowGraph>>,
