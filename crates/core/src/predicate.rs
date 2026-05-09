@@ -395,6 +395,10 @@ impl PredicateInst {
 	/// is surfaced as a clear panic instead of a silent miss. All other
 	/// arms are panic-free; absent state misses sound-by-default.
 	#[must_use]
+	#[allow(
+		clippy::too_many_lines,
+		reason = "truth-table dispatch over the full FieldPath enum: each arm reads one connection / request field per spec/crates/core.md § Predicate. Splitting by sub-arm scatters the field-by-field reading across helpers and adds nothing beyond satisfying the lint"
+	)]
 	pub fn test(&self, view: &PredicateView<'_>) -> bool {
 		match &self.path {
 			FieldPath::Transport => {

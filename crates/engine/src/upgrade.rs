@@ -51,6 +51,10 @@ use crate::flow_graph::FlowGraph;
 /// during a request, etc.). Per-request executor errors are translated
 /// to a synthetic 500 *inside* the service-fn so the connection itself
 /// can stay alive for the next request on a keep-alive socket.
+#[allow(
+	clippy::too_many_lines,
+	reason = "the body length is dominated by a single hyper service_fn closure that captures graph + conn + log + cancel + verbosity + l7_entry + h1_max_header_bytes. Extracting the closure body would just move those captures into a ctx struct without compressing the actual logic"
+)]
 pub(crate) async fn drive_h1_server<S>(
 	stream: S,
 	graph: Arc<FlowGraph>,

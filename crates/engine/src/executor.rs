@@ -82,6 +82,10 @@ impl std::fmt::Debug for ExecutorOutput {
 /// the phase DFS guarantees each consumer reaches its variant's slot
 /// only in the phase that fills it). An engine driving an un-validated
 /// or hand-forged graph may hit these; don't.
+#[allow(
+	clippy::too_many_lines,
+	reason = "central FlowGraph state machine: the loop dispatches on Node::{Check,Middleware,Fetch,Upgrade,Terminate} and each arm shares the same mutable l4/req/resp/tunnel/cur/seq locals. Splitting by node kind would need every helper to take 7+ &mut refs (or a giant ctx struct that just renames the noise), which moves complexity rather than reducing it"
+)]
 pub async fn execute(
 	graph: &Arc<FlowGraph>,
 	entry: NodeId,

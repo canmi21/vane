@@ -294,6 +294,10 @@ mod tests {
 	}
 
 	#[test]
+	#[allow(
+		clippy::cognitive_complexity,
+		reason = "exhaustive Node-variant round-trip assertion: complexity grows with the number of variants, not with logic. Splitting to a per-variant helper just renames the variant-tag dispatch"
+	)]
 	fn symbolic_flow_graph_round_trip_preserves_structure_and_revalidates() {
 		// Dry-run JSON contract (spec/flow-model.md § _The compiled form_): a compiled
 		// SymbolicFlowGraph serializes to JSON and the result deserializes
