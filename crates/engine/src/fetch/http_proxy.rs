@@ -621,29 +621,9 @@ pub fn factory(
 	if upstream.is_empty() {
 		return Err(FactoryError("args.upstream must not be empty".to_string()));
 	}
-	let version_str = args.get("version").and_then(serde_json::Value::as_str).unwrap_or("auto");
-	let version = match version_str {
-		"auto" => UpstreamVersion::Auto,
-		"h1" => UpstreamVersion::Http1,
-		"h2" => UpstreamVersion::Http2,
-		#[cfg(feature = "h3")]
-		"h3" => UpstreamVersion::Http3,
-		#[cfg(not(feature = "h3"))]
-		"h3" => {
-			return Err(FactoryError(
-				"version 'h3' requires the 'h3' cargo feature, which is not active in this build"
-					.to_string(),
-			));
-		}
-		other => {
-			return Err(FactoryError(format!(
-				"args.version must be one of 'auto' / 'h1' / 'h2' / 'h3' — got {other:?}"
-			)));
-		}
-	};
+	let version = parse_version_arg(args)?;
 	let tls = parse_tls_args(upstream, args.get("tls"), crl_cache)
 		.map_err(|e| FactoryError(format!("args.tls: {e}")))?;
-
 	let dns = parse_dns_args(args.get("dns")).map_err(|e| FactoryError(format!("args.dns: {e}")))?;
 
 	if matches!(version, UpstreamVersion::Auto) && tls.is_none() {
@@ -660,49 +640,9 @@ pub fn factory(
 	let retry = crate::fetch::retry::parse(args.get("retry"))
 		.map_err(|e| FactoryError(format!("args.retry: {e}")))?;
 
-	// H3 dispatch — TLS is mandatory (RFC 9114 mandates QUIC + TLS
-	// 1.3); reject cleartext H3 at factory time. Build a separate
-	// rustls config with ALPN pinned to `[b"h3"]` since the QUIC pool
-	// embeds ALPN into the rustls config (vs the hyper-rustls
-	// connector's `enable_httpN`).
 	#[cfg(feature = "h3")]
 	if matches!(version, UpstreamVersion::Http3) {
-		let tls = tls.ok_or_else(|| {
-			FactoryError("version 'h3' requires args.tls (h3 mandates QUIC + TLS 1.3)".to_string())
-		})?;
-		// Clone the parsed `ClientConfig` and patch ALPN — the cached
-		// `Arc<ClientConfig>` from `build_client_config` has no ALPN set
-		// (the TCP path's hyper-rustls connector reserves that field).
-		let mut h3_rustls: rustls::ClientConfig = (*tls.client_config).clone();
-		h3_rustls.alpn_protocols = vec![b"h3".to_vec()];
-		let h3_rustls = Arc::new(h3_rustls);
-		let mut tls_fp = tls.fingerprint.clone();
-		tls_fp.alpn_protocols = vec![b"h3".to_vec()];
-		let connect_timeout = match args.get("connect_timeout").and_then(serde_json::Value::as_str) {
-			Some(s) => crate::fetch::retry::parse_duration(s)
-				.map_err(|e| FactoryError(format!("args.connect_timeout: {e}")))?,
-			None => H3_CONNECT_TIMEOUT_DEFAULT,
-		};
-		let resolver = HickoryDnsResolver::build(&dns)
-			.map_err(|e| FactoryError(format!("args.dns hickory build: {e}")))?;
-		let (host, port) = split_host_port(upstream)
-			.map_err(|e| FactoryError(format!("args.upstream {upstream:?}: {e}")))?;
-		let dispatch = Dispatch::Quic(QuicDispatchState {
-			rustls_cfg: h3_rustls,
-			sni: Arc::from(tls.verify_hostname.as_str()),
-			tls_fp,
-			connect_timeout,
-			resolver: Arc::new(resolver),
-			host: Arc::from(host.as_str()),
-			port,
-		});
-		return Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
-			upstream: Arc::from(upstream),
-			version,
-			scheme: "https",
-			dispatch,
-			retry: Arc::new(retry),
-		})));
+		return build_h3_dispatch(args, upstream, version, tls, &dns, retry);
 	}
 
 	// TCP family — compute the cache key. The connector wires ALPN
@@ -746,6 +686,76 @@ pub fn factory(
 /// invocation routes through the daemon-wide cache.
 pub fn register(factories: &mut FetchFactories, crl_cache: Option<Arc<crate::tls::CrlCache>>) {
 	factories.register(FetchKind::HttpProxy, move |args| factory(args, crl_cache.as_ref()));
+}
+
+/// Parse `args.version` (default `"auto"`) into [`UpstreamVersion`].
+/// `"h3"` on a build without the `h3` feature surfaces the rebuild
+/// hint at factory time so operators don't get a less specific link
+/// error downstream.
+fn parse_version_arg(args: &serde_json::Value) -> Result<UpstreamVersion, FactoryError> {
+	match args.get("version").and_then(serde_json::Value::as_str).unwrap_or("auto") {
+		"auto" => Ok(UpstreamVersion::Auto),
+		"h1" => Ok(UpstreamVersion::Http1),
+		"h2" => Ok(UpstreamVersion::Http2),
+		#[cfg(feature = "h3")]
+		"h3" => Ok(UpstreamVersion::Http3),
+		#[cfg(not(feature = "h3"))]
+		"h3" => Err(FactoryError(
+			"version 'h3' requires the 'h3' cargo feature, which is not active in this build".to_string(),
+		)),
+		other => Err(FactoryError(format!(
+			"args.version must be one of 'auto' / 'h1' / 'h2' / 'h3' — got {other:?}"
+		))),
+	}
+}
+
+/// Build the H3 dispatch state and wrap it as a [`FetchInst::L7`].
+/// TLS is mandatory (RFC 9114 mandates QUIC + TLS 1.3); cleartext H3
+/// is rejected at factory time. The rustls config is cloned and ALPN
+/// is pinned to `[b"h3"]` since the QUIC pool embeds ALPN into the
+/// rustls config (vs the hyper-rustls connector's `enable_httpN`).
+#[cfg(feature = "h3")]
+fn build_h3_dispatch(
+	args: &serde_json::Value,
+	upstream: &str,
+	version: UpstreamVersion,
+	tls: Option<UpstreamTls>,
+	dns: &DnsConfig,
+	retry: RetryPolicy,
+) -> Result<FetchInst, FactoryError> {
+	let tls = tls.ok_or_else(|| {
+		FactoryError("version 'h3' requires args.tls (h3 mandates QUIC + TLS 1.3)".to_string())
+	})?;
+	let mut h3_rustls: rustls::ClientConfig = (*tls.client_config).clone();
+	h3_rustls.alpn_protocols = vec![b"h3".to_vec()];
+	let h3_rustls = Arc::new(h3_rustls);
+	let mut tls_fp = tls.fingerprint.clone();
+	tls_fp.alpn_protocols = vec![b"h3".to_vec()];
+	let connect_timeout = match args.get("connect_timeout").and_then(serde_json::Value::as_str) {
+		Some(s) => crate::fetch::retry::parse_duration(s)
+			.map_err(|e| FactoryError(format!("args.connect_timeout: {e}")))?,
+		None => H3_CONNECT_TIMEOUT_DEFAULT,
+	};
+	let resolver = HickoryDnsResolver::build(dns)
+		.map_err(|e| FactoryError(format!("args.dns hickory build: {e}")))?;
+	let (host, port) = split_host_port(upstream)
+		.map_err(|e| FactoryError(format!("args.upstream {upstream:?}: {e}")))?;
+	let dispatch = Dispatch::Quic(QuicDispatchState {
+		rustls_cfg: h3_rustls,
+		sni: Arc::from(tls.verify_hostname.as_str()),
+		tls_fp,
+		connect_timeout,
+		resolver: Arc::new(resolver),
+		host: Arc::from(host.as_str()),
+		port,
+	});
+	Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
+		upstream: Arc::from(upstream),
+		version,
+		scheme: "https",
+		dispatch,
+		retry: Arc::new(retry),
+	})))
 }
 
 #[cfg(test)]
