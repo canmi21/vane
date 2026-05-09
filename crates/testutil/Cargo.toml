@@ -13,11 +13,7 @@ workspace = true
 
 [features]
 default = []
-# Pulls in the h3 client stack (quinn + h3-quinn + h3 + rustls). Engine
-# integration tests opt in via `vane-testutil = { ..., features = ["h3"] }`.
-# Production code never depends on this — testutil is dev-only and the
-# h3 client dependencies would otherwise cost compile time on every
-# downstream test that doesn't exercise H3.
+# H3 client stack for engine integration tests that exercise the H3 listener.
 h3 = [
 	"dep:quinn",
 	"dep:h3",
@@ -27,12 +23,7 @@ h3 = [
 	"dep:bytes",
 	"dep:http",
 ]
-# Pulls in the Pebble fixture for ACME HTTP-01 e2e tests + the
-# in-process mock DNS server for DNS-01 tests. Engine tests opt
-# in via `vane-testutil = { ..., features = ["acme"] }`. The
-# Pebble fixture skips at runtime when Docker is unavailable; the
-# mock DNS fixture is pure-Rust and runs everywhere a tokio
-# runtime can spawn a UDP listener.
+# Pebble (HTTP-01 e2e, skipped at runtime if Docker is unavailable) + in-process MockDns (DNS-01).
 acme = [
 	"dep:async-trait",
 	"dep:hickory-proto",
@@ -46,19 +37,9 @@ acme = [
 	"dep:vane-engine",
 	"vane-engine?/acme",
 ]
-# Pulls in the in-process mock OCSP responder used by populator
-# integration tests (both the static populator's `ocsp_fetch`
-# path and the registry's post-issuance fetch). Re-exported as
-# `vane_testutil::ocsp` for backwards compatibility with existing
-# call sites; new code can depend on `ocsp-mock-responder` directly.
+# In-process mock OCSP responder; re-exported as `vane_testutil::ocsp`.
 ocsp = ["dep:ocsp-mock-responder"]
-# Generates the wasm component fixtures used by `vane-wasm`'s own
-# unit tests and the daemon's wasm-loader / wasm-e2e tests. Pulls
-# the `wat` + `wit-component` + `wit-parser` toolchain into
-# build-dependencies; gated so testutil consumers that don't
-# touch wasm fixtures don't pay the build cost. Outputs land in
-# `OUT_DIR` and are exposed via `wasm_fixture::metadata()` /
-# `::mismatch()`.
+# Wasm component fixtures for vane-wasm and daemon wasm-loader tests; outputs to OUT_DIR via wasm_fixture::{metadata,mismatch}.
 wasm-fixtures = ["dep:wat", "dep:wit-component", "dep:wit-parser"]
 
 [build-dependencies]
@@ -70,13 +51,10 @@ wit-parser = { version = "0.248.0", optional = true }
 tokio = { version = "1", features = ["net", "io-util", "rt", "time", "macros"] }
 vane-core = { workspace = true }
 
-# Hyper is used by both the H3 fixture (h3 feature) and the mock
-# OCSP responder (ocsp feature). Default-on to keep the existing
-# fixture wiring; ocsp adds `server-auto` via `dep:hyper-util`.
+# Shared by the H3 fixture and the mock OCSP responder; ocsp adds server-auto via dep:hyper-util.
 hyper = { version = "1", features = ["server", "http1", "client"] }
 
-# H3 client stack — gated behind the `h3` feature; only engine tests
-# that exercise the H3 listener path opt in.
+# H3 client stack — gated behind `h3`.
 bytes = { version = "1", optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
@@ -85,31 +63,17 @@ quinn = { version = "0.11", default-features = false, features = ["runtime-tokio
 rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
 
-# Mock OCSP responder — gated behind the `ocsp` feature.
 ocsp-mock-responder = { workspace = true, optional = true }
 
-# ACME e2e — gated behind the `acme` feature.
-# - `testcontainers` runs the official Pebble image in Docker;
-#   pinned to `aws-lc-rs` so its default `ring` doesn't double-
-#   register the rustls crypto provider in the workspace dep graph.
-# - `reqwest` (`-no-provider` flavour) fetches Pebble's self-signed
-#   root CA over its management endpoint without pinning a backend.
-# - `hickory-server` + `hickory-proto` power the in-process MockDns
-#   server used by DNS-01 tests; `hickory-resolver` runs queries
-#   against it from the test process.
-# - `vane-engine` is needed because the MockDns provider implements
-#   `vane_engine::acme::DnsProvider`.
+# ACME e2e — gated behind `acme`. testcontainers: Pebble image (aws-lc-rs pinned to keep workspace single-provider).
+# reqwest (rustls-no-provider): fetch Pebble's self-signed root over its mgmt endpoint without pinning a backend.
+# hickory-server/-proto/-resolver: in-process MockDns for DNS-01. vane-engine: MockDns implements vane_engine::acme::DnsProvider.
 async-trait = { version = "0.1", optional = true }
 hickory-proto = { version = "0.26", optional = true }
 hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"], optional = true }
 hickory-server = { version = "0.26", default-features = false, optional = true }
 parking_lot = { version = "0.12", optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "rustls-no-provider"], optional = true }
-# `default-features = false` on testcontainers + explicit
-# `aws-lc-rs` feature avoids pulling its `ring` default into the
-# workspace's rustls dep graph. Two crypto backends in the same
-# rustls instance break `CryptoProvider::install_default`'s
-# auto-detect, which the engine's TLS tests rely on.
 testcontainers = { version = "0.27", default-features = false, features = ["aws-lc-rs"], optional = true }
 thiserror = { version = "2", optional = true }
 tracing = { version = "0.1", optional = true }

@@ -36,10 +36,7 @@ wasm = ["dep:vane-wasm"]
 anyhow = "1.0.102"
 arc-swap = "1"
 async-trait = "0.1"
-# ACME-only deps: pulled in by the `acme` feature for the auto-bind
-# `:80` synthetic listener (a tiny hyper service serving the
-# challenge route). Dev-deps below already pull these for the
-# integration tests.
+# ACME-only — auto-bind `:80` synthetic listener serving the challenge route.
 bytes = { version = "1", optional = true }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 http-body-util = { version = "0.1", optional = true }
@@ -48,9 +45,7 @@ hyper-util = { version = "0.1", features = ["tokio"], optional = true }
 notify-twophase = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# `time` powers RFC 3339 rendering of the `get_certs` lifecycle
-# timestamps; pulled only with `acme` since non-ACME builds don't
-# expose those verbs.
+# RFC 3339 rendering of `get_certs` lifecycle timestamps; gated with `acme`.
 time = { version = "0.3", default-features = false, features = ["formatting"], optional = true }
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
@@ -64,12 +59,9 @@ vane-wasm = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"
-# `escargot` is the assert_cmd-recommended way to invoke a binary
-# living in a sibling crate. Cargo only sets `CARGO_BIN_EXE_<name>`
-# for binaries declared in the test's own package, so the daemon
-# tests cannot find the `vane` CLI via `cargo_bin("vane")` on a
-# clean checkout. escargot drives `cargo build` for the sibling
-# package on first use and caches the resulting path.
+# escargot drives `cargo build` for sibling-package binaries; cargo only sets
+# CARGO_BIN_EXE_<name> for the test's own package, so cargo_bin("vane") fails
+# on a clean checkout without it.
 escargot = "0.5"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["server", "http1"] }
@@ -86,9 +78,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-rustls = { version = "0.26", default-features = false }
 vane-engine = { path = "../engine", version = "0.10.4", default-features = false }
 vane-mgmt = { workspace = true }
-# Wasm-loader and wasm-e2e tests pull the fixture out of testutil's
-# OUT_DIR (under the `wasm-fixtures` feature). The fixture
-# generation only kicks in here, never in production builds.
+# wasm-loader / wasm-e2e tests pull testutil's `wasm-fixtures` OUT_DIR fixture (dev-only).
 vane-testutil = { workspace = true, features = ["wasm-fixtures"] }
 
 [[bin]]

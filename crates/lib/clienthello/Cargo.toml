@@ -14,22 +14,15 @@ description = "Extract the TLS SNI from QUIC Initial datagrams without performin
 workspace = true
 
 [dependencies]
-# AEAD + HKDF for RFC 9001 §5.2 initial keys derivation. Pure-Rust
-# RustCrypto v0.10-generation stack — no C deps, ergonomic for
-# downstream publishers, and aligned with the workspace's `sha2 0.11`
-# so cargo deduplicates the SHA-256 implementation.
-#
-# `aes-gcm` is pinned to the precise 0.11-rc release that lines up
-# with `aes 0.9` / `ctr 0.10`; loosening this pin would let cargo
-# pick a future rc whose API may shift before stabilisation. Bump
-# the pin in lockstep when newer rc / stable releases land.
+# RFC 9001 §5.2 initial-keys derivation. RustCrypto v0.10-gen pure-Rust stack;
+# `sha2 0.11` matches the workspace pin so cargo dedups the SHA-256 impl.
 aes = "0.9"
+# Pinned to this rc — looser pin would let cargo pick a future rc whose API may shift. Bump in lockstep.
 aes-gcm = "=0.11.0-rc.3"
-# AES-CTR for QUIC header protection (RFC 9001 §5.4).
+# QUIC header protection (RFC 9001 §5.4).
 ctr = "0.10"
 hkdf = "0.13"
 sha2 = "0.11"
-# subtle: constant-time comparison primitives.
+# Constant-time comparison.
 subtle = "2"
-# thiserror: idiomatic error enum boilerplate.
 thiserror = "2"

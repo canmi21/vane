@@ -34,8 +34,5 @@ wasmtime = { workspace = true }
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
-# Wasm component fixtures used by the unit tests below live in
-# vane-testutil's OUT_DIR (so `cargo publish` doesn't trip on a
-# build script writing into the source tree). Pull the
-# `wasm-fixtures` feature in only here, never as a runtime dep.
+# Wasm fixtures live in testutil's OUT_DIR (keeps `cargo publish` clean of build-script writes); dev-only.
 vane-testutil = { workspace = true, features = ["wasm-fixtures"] }

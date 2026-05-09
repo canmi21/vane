@@ -25,10 +25,7 @@ aws-lc-rs = [
 	"tokio-rustls/aws-lc-rs",
 	"hyper-rustls/aws-lc-rs",
 	"rustls-ticketer/aws-lc-rs",
-	# Propagate the crypto backend choice into instant-acme so its
-	# default features (which pull in *both* aws-lc-rs and ring)
-	# don't double-register and break rustls's auto-detect. The `?`
-	# only fires when `acme` is also enabled.
+	# instant-acme defaults pull both backends; propagate explicitly to keep rustls auto-detect single-provider.
 	"instant-acme?/aws-lc-rs",
 ]
 ring = [
@@ -49,10 +46,7 @@ h3 = [
 ]
 cgi = []
 acme = ["dep:acme-provider", "dep:fs4", "dep:futures", "dep:instant-acme", "dep:rcgen"]
-# Cloudflare DNS-01 provider. The provider implementation lives in
-# the `acme-provider` crate; flipping this engine feature flips
-# `acme-provider/cloudflare`, which pulls the reqwest / hickory
-# stack only in this combination.
+# Flips acme-provider/cloudflare (where the DnsProvider impl lives).
 cloudflare = ["acme", "acme-provider/cloudflare"]
 
 [dependencies]
@@ -60,17 +54,11 @@ arc-swap = "1"
 async-trait = "0.1"
 base64 = "0.22"
 bytes = "1"
-# RustCrypto formats stack used by the OCSP module:
-# - `der` for the `Decode` / `Encode` trait imports the OCSP
-#   request / response types implement.
-# - `x509-cert` to decode issuer + leaf certs into the `Certificate`
-#   shape the x509-ocsp builder accepts.
-# Direct dep to avoid leaning on `pub use` re-exports through
-# x509-ocsp (some types we need aren't re-exported).
 cgi-request = { workspace = true }
 cgi-response = { workspace = true }
 clienthello = { workspace = true }
 dashmap = "6.1.0"
+# Direct OCSP RustCrypto deps: `der` for Decode/Encode on OCSP req/resp; `x509-cert` for Certificate decode (some types not re-exported by x509-ocsp).
 der = "0.7"
 guess = { workspace = true, features = ["classify"] }
 hickory-tower-resolver = { workspace = true }
@@ -103,17 +91,11 @@ rustls-sni-resolver = { workspace = true }
 rustls-ticketer = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Required by `x509_ocsp::CertId::from_cert::<Sha1>` — RFC 6960
-# §4.1.1 mandates SHA-1 for the cert ID (this is a routing
-# identifier, not a security hash). `oid` provides the
-# `AssociatedOid` impl `x509-ocsp` needs (not on by default; the
-# `default` set is just `["std"]`).
+# RFC 6960 §4.1.1 mandates SHA-1 for OCSP CertId (routing, not security); `oid` provides the AssociatedOid x509-ocsp needs.
 sha1 = { version = "0.10", features = ["oid"] }
 sha2 = "0.11.0"
 thiserror = "2"
-# `time` powers CRL `nextUpdate` parsing (via `x509-parser::ASN1Time`)
-# and the daemon-wide CRL refresh scheduler. `rcgen` (dev-dep) also
-# uses `time` so the workspace already pins a compatible version.
+# CRL `nextUpdate` parsing (via x509-parser::ASN1Time) and the workspace refresh scheduler.
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tokio-bind-retry = { workspace = true }
@@ -121,57 +103,35 @@ tokio-rustls = { version = "0.26", default-features = false }
 tokio-util = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry"] }
-# Used by `wasm_fetch` to resolve relative `Location` headers when
-# following redirects. `hyper`'s `Uri` lacks a base-relative join.
+# wasm_fetch redirect `Location` resolution; hyper::Uri lacks base-relative join.
 url = "2"
 vane-core = { workspace = true }
 virtual-socket = { workspace = true, optional = true }
 x509-cert = "0.2"
-# OCSP request build / response parse via the RustCrypto stack.
-# `builder` enables the request builder API; `std` lets us use
-# `SystemTime::try_into::<OcspGeneralizedTime>` in tests.
+# `builder` enables the OcspRequest builder; `std` lets tests use SystemTime → OcspGeneralizedTime.
 x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
 x509-parser = "0.18"
 
-# H3 stack — gated behind the `h3` feature per spec/crates/daemon.md.
-# Optional so non-H3 builds don't pull quinn / h3 / quinn-proto into the dep graph.
+# H3 stack — gated behind `h3`.
 h3 = { version = "0.0.8", optional = true }
 h3-body = { workspace = true, optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
 quinn-proto = { version = "0.11", default-features = false, optional = true }
 
-# ACME stack — gated behind the `acme` feature.
-# `fs4` provides cross-platform `flock(2)` for `AcmeStore::with_lock`.
-# `futures` is needed for `BoxFuture` in the `with_lock` closure signature.
-# `instant-acme` is the RFC 8555 client (HTTP-01 + DNS-01).
-# `rcgen` generates ECDSA / RSA keypairs and CSRs at issuance time.
-# Generic ACME `DnsProvider` trait + Cloudflare implementation
-# (gated by this crate's `cloudflare` feature, which flips the
-# lib's `cloudflare` feature in turn).
+# ACME stack — gated behind `acme`. fs4: flock for AcmeStore::with_lock.
+# futures: BoxFuture for the with_lock signature. instant-acme: RFC 8555 client.
+# rcgen: keypair + CSR at issuance. acme-provider: DnsProvider trait (+ Cloudflare via this crate's `cloudflare` flag).
 acme-provider = { workspace = true, optional = true }
 fs4 = { version = "1.1", default-features = false, features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
-# `default-features = false` to keep instant-acme from pulling
-# `aws-lc-rs` AND `ring` simultaneously (its default feature set
-# includes both, which makes rustls's `CryptoProvider::install_default`
-# auto-detect fail). The active crypto backend is wired via the
-# `aws-lc-rs?` / `ring?` features above. `hyper-rustls` is
-# instant-acme's HTTP client feature; `rcgen` is unused (we
-# build our own CSR via vane-engine's rcgen dep).
-instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", # RFC 9773 ARI support: `time` enables the `RenewalInfo` /
-	# `SuggestedWindow` types and `Account::renewal_info()`.
-	# `x509-parser` enables `CertificateIdentifier::try_from(&CertificateDer)`
-	# so we can derive the cert's AKI + serial from its DER bytes
-	# without re-implementing the extraction.
-	"time","x509-parser",], optional = true }
+# `default-features = false`: instant-acme's defaults pull both aws-lc-rs and ring; the
+# `aws-lc-rs?`/`ring?` features above wire the active backend. `hyper-rustls` is its HTTP
+# client; `time` + `x509-parser` enable RFC 9773 ARI (RenewalInfo, CertificateIdentifier).
+instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", "time", "x509-parser"], optional = true }
 rcgen = { version = "0.14", optional = true }
 
-# `libc` is already in the workspace dep graph (transitively via tokio,
-# rustls, hyper, ...). The CGI driver promotes it to a direct dep so
-# the `pre_exec` closure can call setuid / setgid / setrlimit
-# directly. Gated to `cfg(unix)` since CGI is unix-only — non-unix
-# builds simply never compile the CGI module's `pre_exec` path.
+# CGI `pre_exec` calls setuid/setgid/setrlimit directly; cfg(unix) since CGI is unix-only.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -180,9 +140,7 @@ async-trait = "0.1"
 rcgen = "0.14"
 serial_test = "3"
 tempfile = "3"
-# `early-data` is only needed by the `zero_rtt` integration test client;
-# production builds (which use the runtime [dependencies] entry) don't
-# pull this feature.
+# `early-data` is only needed by the zero_rtt test client.
 tokio-rustls = { version = "0.26", default-features = false, features = ["early-data"] }
 tracing-broadcast = { workspace = true }
 vane-testutil = { workspace = true, features = ["h3", "acme", "ocsp"] }

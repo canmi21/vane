@@ -15,10 +15,7 @@ workspace = true
 
 [features]
 default = []
-# Pulls in a hyper-based async fetch path for the OCSP responder.
-# Without this feature the crate is pure-function: it only knows
-# how to parse and build the protocol bytes, leaving transport to
-# the caller.
+# Hyper-based async fetch. Without this the crate is pure-function (parse/build only).
 fetch = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:tokio", "dep:url"]
 
 [dependencies]
@@ -30,7 +27,7 @@ x509-cert = "0.2"
 x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
 x509-parser = "0.18"
 
-# Async HTTP fetch — gated behind the `fetch` feature.
+# Async HTTP fetch — gated behind `fetch`.
 http-body-util = { version = "0.1", optional = true }
 hyper = { version = "1", features = ["client", "http1"], optional = true }
 hyper-util = { version = "0.1", features = ["tokio"], optional = true }

@@ -29,25 +29,19 @@ cloudflare = [
 async-trait = "0.1"
 thiserror = "2"
 
-# Cloudflare-only deps. Each is `optional = true` and pulled in by
-# `features.cloudflare`; default builds get just the trait + error.
+# Cloudflare-only — gated by features.cloudflare; default builds get just trait + error.
 hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"], optional = true }
 parking_lot = { version = "0.12", optional = true }
-# `rustls` + `rustls-native-certs` + `rustls-no-provider` lets the
-# host pick the rustls crypto backend (aws-lc-rs / ring); we don't
-# bake one in here because vane and other downstream callers may
-# want different choices. (Pre-0.13 reqwest exposed this combo as
-# the single feature `rustls-tls-native-roots-no-provider`; 0.13
-# split it into three composable flags.)
+# rustls + native-certs + no-provider lets the host pick the rustls crypto backend.
+# (Pre-0.13 reqwest exposed this combo as the single feature `rustls-tls-native-roots-no-provider`.)
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "rustls-no-provider", "json"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 tokio = { version = "1", features = ["sync", "time"], optional = true }
 
 [dev-dependencies]
-# Cloudflare tests need a rustls crypto provider installed before
-# reqwest builds its (lazy) TLS config — even for tests that only
-# talk to a wiremock server over plain HTTP.
+# Cloudflare tests need a rustls provider installed before reqwest builds its (lazy)
+# TLS config — even when only talking to a wiremock server over plain HTTP.
 rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

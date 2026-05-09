@@ -52,13 +52,8 @@ unreachable_pub = "warn"
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 
-# [workspace.dependencies] is intentionally limited to internal,
-# path-based crates only — workspace-level pinning is the right
-# centralization for *our* crates (sync-deps keeps `version = "..."`
-# in step with each crate's own version, and `cargo publish` rewrites
-# `path = ...` away on upload). Third-party deps live in each crate's
-# own Cargo.toml — `cargo-deny` (deny.toml) enforces version
-# consistency across the workspace via `bans.multiple-versions`.
+# Internal path-based crates only. Third-party deps live in each crate's own
+# Cargo.toml; `cargo-deny` (deny.toml, `bans.multiple-versions`) enforces unity.
 [workspace.dependencies]
 acme-provider = { path = "crates/lib/acme-provider", version = "0.0.1", default-features = false }
 cgi-request = { path = "crates/lib/cgi-request", version = "0.0.1" }
@@ -85,11 +80,8 @@ tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.1" }
 vane-core = { path = "crates/core", version = "0.10.4" }
 vane-engine = { path = "crates/engine", version = "0.10.4" }
 vane-mgmt = { path = "crates/mgmt", version = "0.10.4" }
-# `vane-testutil` is an internal test fixture that never goes to
-# crates.io — see its `publish = false` in `crates/testutil/Cargo.toml`.
-# Path-only here so `cargo publish` strips this dev-dependency entirely
-# from sibling crates' published Cargo.toml (cargo silently drops
-# dev-dependencies that don't carry a `version =` pin).
+# Path-only (no `version =`) so `cargo publish` strips it from sibling crates'
+# published manifests entirely — testutil is `publish = false`.
 vane-testutil = { path = "crates/testutil" }
 vane-wasm = { path = "crates/wasm", version = "0.10.4" }
 virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }

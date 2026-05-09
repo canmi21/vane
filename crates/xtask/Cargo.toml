@@ -18,9 +18,6 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml_edit = "0.25"
-# `rustls-no-provider` keeps ureq from pulling in its default `ring`
-# crypto backend, which would unify with the engine's existing
-# `aws-lc-rs` choice and break rustls's auto-detect (the workspace
-# pins exactly one provider). xtask's `main` installs the workspace
-# provider at startup before any HTTPS call.
+# `rustls-no-provider` avoids ureq's default `ring` (would conflict with the
+# workspace's aws-lc-rs and break rustls auto-detect). xtask `main` installs the provider.
 ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }

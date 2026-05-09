@@ -15,23 +15,18 @@ workspace = true
 
 [features]
 default = ["classify"]
-# Includes the `classify` cascade, which uses rustls's Acceptor to
-# parse a real TLS ClientHello plus a memchr-backed HTTP/1
-# request-line scanner. Disable when only the result types are
-# needed (e.g. a downstream crate wants to *describe* a peek
-# without performing one).
+# Cascade that uses rustls's Acceptor + a memchr HTTP/1 request-line scanner.
+# Disable when only the result types are needed (describe-without-peek).
 classify = ["dep:rustls", "dep:memchr"]
 
 [dependencies]
 bytes = "1"
 
-# Classify path — gated behind the `classify` feature.
+# Classify path — gated.
 memchr = { version = "2", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
-# Tests that build real ClientHello bytes need a rustls crypto
-# provider installed. We pick `aws-lc-rs` for dev because it's
-# pure-Rust-ish (no system dependency) and matches the most common
-# downstream choice. The runtime dep above stays backend-agnostic.
+# Tests build real ClientHello bytes; aws-lc-rs is dev-only (pure-Rust-ish, no system dep).
+# Runtime dep above stays backend-agnostic.
 rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
