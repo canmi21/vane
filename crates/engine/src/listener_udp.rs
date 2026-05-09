@@ -43,7 +43,7 @@ const MAX_DATAGRAM: usize = 65535;
 /// stall every other session sharing the physical socket.
 pub const SESSION_INBOUND_CAPACITY: usize = 64;
 
-/// Per `spec/crates/engine.md` § _Multi-packet peek_ § _Multi-packet peek_.
+/// Per `spec/crates/engine.md` § _Multi-packet peek_.
 /// Values are fixed (not configurable) — the spec table justifies each.
 pub const PENDING_PEEK_MAX_BYTES: usize = 16 * 1024;
 pub const PENDING_PEEK_MAX_DATAGRAMS: usize = 8;
@@ -284,10 +284,10 @@ pub async fn run_udp_listener(
 					continue;
 				}
 
-				// Pending-peek state machine, per `spec/crates/engine.md` §
-				// _Multi-packet peek_ § _Multi-packet peek_. Existing
-				// PendingPeek entries always get the datagram first,
-				// regardless of listener kind.
+				// Pending-peek state machine, per `spec/crates/engine.md`
+				// § _Multi-packet peek_. Existing PendingPeek entries
+				// always get the datagram first, regardless of listener
+				// kind.
 				let pending_key = DispatchKey::PendingPeek(peer);
 				if let Some(entry) = dispatch_table.get(&pending_key)
 					&& let DispatchHandle::PendingPeek(state) = &**entry {
