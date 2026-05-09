@@ -13,9 +13,9 @@ anyhow = "1"
 cargo_metadata = "0.23"
 clap = { version = "4.6", features = ["derive"] }
 fancy-regex = "0.18"
-rustls = { workspace = true, features = ["aws-lc-rs"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml_edit = "0.25"
 # `rustls-no-provider` keeps ureq from pulling in its default `ring`
 # crypto backend, which would unify with the engine's existing

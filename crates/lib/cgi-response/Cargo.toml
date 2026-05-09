@@ -14,12 +14,12 @@ description = "Parse a CGI child's stdout into an http::Response with a streamin
 workspace = true
 
 [dependencies]
-bytes.workspace = true
-http.workspace = true
+bytes = "1"
+http = "1"
 http-body = "1"
-thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util", "time"] }
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "time"] }
 
 [dev-dependencies]
-http-body-util.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util", "time", "test-util"] }
+http-body-util = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "time", "test-util"] }

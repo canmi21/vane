@@ -14,11 +14,11 @@ description = "tracing_subscriber::Layer that fans every event into a tokio broa
 workspace = true
 
 [dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-tokio = { workspace = true, features = ["sync"] }
-tracing.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync"] }
+tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["sync", "macros", "rt"] }
+tokio = { version = "1", features = ["sync", "macros", "rt"] }

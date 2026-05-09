@@ -14,9 +14,9 @@ description = "SNI-keyed certificate map implementing rustls::ResolvesServerCert
 workspace = true
 
 [dependencies]
-arc-swap.workspace = true
-rustls = { workspace = true, features = ["std"] }
+arc-swap = "1"
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 rcgen = "0.14"
-rustls = { workspace = true, features = ["std", "aws-lc-rs"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }

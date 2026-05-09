@@ -47,3 +47,11 @@ jobs:
 
       - name: Anchors
         run: cargo xtask check-spec-anchors
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Cargo deny (bans)
+        run: cargo deny check bans

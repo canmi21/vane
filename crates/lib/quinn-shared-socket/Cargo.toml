@@ -14,9 +14,9 @@ description = "Run a quinn::Endpoint on a UDP socket shared with other consumers
 workspace = true
 
 [dependencies]
-bytes.workspace = true
+bytes = "1"
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
 virtual-socket = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["net", "macros", "rt", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["net", "macros", "rt", "rt-multi-thread", "time"] }

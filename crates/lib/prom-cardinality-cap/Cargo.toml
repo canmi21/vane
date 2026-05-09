@@ -14,4 +14,4 @@ description = "Per-namespace cap on Prometheus metric label cardinality, with wa
 workspace = true
 
 [dependencies]
-tracing.workspace = true
+tracing = "0.1"

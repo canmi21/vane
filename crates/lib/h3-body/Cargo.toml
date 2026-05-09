@@ -15,8 +15,8 @@ workspace = true
 
 [dependencies]
 async-trait = "0.1"
-bytes.workspace = true
+bytes = "1"
 h3 = "0.0.8"
-http.workspace = true
+http = "1"
 http-body = "1"
-tokio = { workspace = true, features = ["sync", "rt"] }
+tokio = { version = "1", features = ["sync", "rt"] }

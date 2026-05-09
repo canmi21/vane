@@ -14,17 +14,17 @@ description = "In-process mock OCSP responder for integration tests, with config
 workspace = true
 
 [dependencies]
-bytes.workspace = true
+bytes = "1"
 const-oid = { version = "0.9", default-features = false, features = ["db"] }
 der = "0.7"
-http-body-util.workspace = true
-hyper = { workspace = true, features = ["server", "http1"] }
-hyper-util = { workspace = true, features = ["tokio"] }
-parking_lot.workspace = true
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+parking_lot = "0.12"
 sha1 = { version = "0.10", features = ["oid"] }
 spki = "0.7"
-thiserror.workspace = true
-tokio = { workspace = true, features = ["net", "rt", "macros", "sync"] }
-tracing.workspace = true
+thiserror = "2"
+tokio = { version = "1", features = ["net", "rt", "macros", "sync"] }
+tracing = "0.1"
 x509-cert = "0.2"
 x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }

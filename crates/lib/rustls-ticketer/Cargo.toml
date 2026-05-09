@@ -19,7 +19,7 @@ aws-lc-rs = ["rustls/aws-lc-rs"]
 ring = ["rustls/ring"]
 
 [dependencies]
-rustls = { workspace = true, features = ["std"] }
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-rustls = { workspace = true, features = ["std", "aws-lc-rs"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }

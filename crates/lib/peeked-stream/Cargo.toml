@@ -14,8 +14,8 @@ description = "Replay a peeked byte buffer back onto the read side of an AsyncRe
 workspace = true
 
 [dependencies]
-bytes.workspace = true
-tokio = { workspace = true, features = ["io-util"] }
+bytes = "1"
+tokio = { version = "1", features = ["io-util"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["io-util", "macros", "rt"] }
+tokio = { version = "1", features = ["io-util", "macros", "rt"] }

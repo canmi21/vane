@@ -19,29 +19,29 @@ workspace = true
 all-features = true
 
 [dependencies]
-arc-swap.workspace = true
-async-trait = { workspace = true }
+arc-swap = "1"
+async-trait = "0.1"
 base64 = "0.22"
-bytes.workspace = true
+bytes = "1"
 dotenvy = "0.15.7"
 fancy-regex = "0.18.0"
 guess = { workspace = true }
-http.workspace = true
+http = "1"
 http-body = "1.0.1"
 ipnet = { version = "2.12.0", features = ["serde"] }
 # Colored banner output via `vane_core::version::print_banner` —
 # both `vane` and `vaned` share the same palette so the lib owns
 # the printer. `supports-colors` keeps non-TTY output plain.
 owo-colors = { version = "4.3", features = ["supports-colors"] }
-parking_lot.workspace = true
+parking_lot = "0.12"
 rustls-pki-types = "1"
-serde = { workspace = true, features = ["derive", "rc"] }
-serde_json.workspace = true
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
 sha2 = "0.11.0"
-thiserror.workspace = true
-tokio = { workspace = true, features = ["net", "sync", "time"] }
-tokio-util.workspace = true
-tracing.workspace = true
+thiserror = "2"
+tokio = { version = "1", features = ["net", "sync", "time"] }
+tokio-util = "0.7"
+tracing = "0.1"
 x509-parser = "0.18"
 
 [dev-dependencies]

@@ -20,12 +20,12 @@ all-features = true
 
 [dependencies]
 ndjson-rpc = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-thiserror.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
 
 [dev-dependencies]
-async-trait = { workspace = true }
+async-trait = "0.1"
 tempfile = "3"
-tokio = { workspace = true, features = ["net", "io-util", "rt", "sync", "macros", "rt-multi-thread", "time"] }
-tokio-util.workspace = true
+tokio = { version = "1", features = ["net", "io-util", "rt", "sync", "macros", "rt-multi-thread", "time"] }
+tokio-util = "0.7"

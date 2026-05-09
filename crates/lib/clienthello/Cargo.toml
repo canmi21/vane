@@ -32,4 +32,4 @@ sha2 = "0.11"
 # subtle: constant-time comparison primitives.
 subtle = "2"
 # thiserror: idiomatic error enum boilerplate.
-thiserror.workspace = true
+thiserror = "2"
