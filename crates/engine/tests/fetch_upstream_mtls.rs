@@ -9,8 +9,6 @@
 //! `insecure_skip_verify: true` (the test cares about client-side
 //! authentication, not server-side).
 
-#![allow(clippy::too_many_lines)]
-
 use std::convert::Infallible;
 use std::sync::Arc;
 

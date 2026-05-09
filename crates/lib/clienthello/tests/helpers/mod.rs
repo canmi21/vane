@@ -7,10 +7,6 @@
 //! using the same RustCrypto primitives the crate's decrypt side uses.
 //! These helpers are test-only and not exposed in the public API.
 
-#![allow(clippy::doc_markdown)]
-#![allow(clippy::similar_names)]
-#![allow(clippy::missing_panics_doc)]
-
 use aes::Aes128;
 use aes::cipher::BlockCipherEncrypt;
 use aes_gcm::Aes128Gcm;

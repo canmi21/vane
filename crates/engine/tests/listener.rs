@@ -16,8 +16,6 @@
 //! `ListenerSet::shutdown` against it. No configuration pipeline is
 //! exercised.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

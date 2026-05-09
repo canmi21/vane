@@ -10,8 +10,6 @@
 //! Spec: `spec/crates/engine.md` § _DNS_,
 //! `spec/crates/core.md` § _Compile pipeline_ (`dns` row).
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::net::SocketAddr;

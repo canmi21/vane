@@ -37,7 +37,7 @@
 //!
 //! Auditor: Canmi
 
-#![allow(unsafe_code)]
+#![allow(unsafe_code)] // CGI fork+exec via std::os::unix::process::CommandExt::pre_exec; audited per module doc.
 
 use std::future::poll_fn;
 use std::io;
@@ -284,7 +284,6 @@ fn parse_timeouts(obj: &serde_json::Map<String, Value>) -> Result<CgiTimeouts, S
 // `similar_names` flags `file_uid` / `file_gid` against each other —
 // they're a pair of related fields and the close naming is the clearer
 // expression here.
-#[allow(clippy::similar_names)]
 #[cfg(unix)]
 fn validate_binary(binary: &std::path::Path, security: &CgiSecurity) -> Result<(), String> {
 	use std::os::unix::fs::MetadataExt as _;
@@ -467,7 +466,6 @@ impl L7Fetch for CgiFetch {
 
 #[cfg(unix)]
 impl CgiFetch {
-	#[allow(clippy::too_many_lines)]
 	async fn run(
 		&self,
 		req: Request,

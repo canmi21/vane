@@ -395,7 +395,6 @@ impl PredicateInst {
 	/// is surfaced as a clear panic instead of a silent miss. All other
 	/// arms are panic-free; absent state misses sound-by-default.
 	#[must_use]
-	#[allow(clippy::too_many_lines)]
 	pub fn test(&self, view: &PredicateView<'_>) -> bool {
 		match &self.path {
 			FieldPath::Transport => {

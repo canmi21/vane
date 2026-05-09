@@ -19,8 +19,6 @@
 //! drive a hyper H1 client at the listener, and assert the wire-level
 //! response. Factory-arg validation tests call `factory(args)` directly.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

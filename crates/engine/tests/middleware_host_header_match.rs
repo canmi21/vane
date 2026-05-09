@@ -12,8 +12,6 @@
 //! Treats the middleware as a black box — drives it through `execute` with
 //! a 3-node graph `Middleware(L7Request) -> Fetch(L7) -> Terminate(...)`.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

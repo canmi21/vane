@@ -51,7 +51,6 @@ impl MetadataProviders {
 	}
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn validate_args_pass(_: &serde_json::Value) -> Result<(), Error> {
 	// Per-factory args validation lives inside each factory at link
 	// time. The compile pipeline only needs `Some(meta)` to confirm the
@@ -97,7 +96,6 @@ impl MetadataProviders {
 	}
 
 	#[cfg(not(feature = "wasm"))]
-	#[allow(clippy::unused_self)]
 	fn lookup_plugin(&self, _name: &str) -> Option<MiddlewareMetadata> {
 		None
 	}

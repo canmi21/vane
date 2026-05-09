@@ -9,8 +9,6 @@
 //! (e) plugin error with force-close hint bypasses `on_error`,
 //! (f) `PluginError::Trap` propagates as Err, (g) stateless dedup via Arc.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;

@@ -67,7 +67,6 @@ pub fn build_quic_server_config(
 ///
 /// Returns a stringly error if the QUIC server config or the
 /// `quinn::Endpoint` fails to construct.
-#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 pub fn spawn_h3_endpoint(
 	addr: SocketAddr,
 	physical: Arc<UdpSocket>,
@@ -105,7 +104,6 @@ pub fn spawn_h3_endpoint(
 /// negotiates the QUIC handshake, then spawns
 /// [`crate::upgrade::drive_h3_server`] to run streams over it. Exits
 /// when the cancel token fires.
-#[allow(clippy::needless_pass_by_value)]
 async fn run_h3_accept_loop(
 	addr: SocketAddr,
 	endpoint: quinn::Endpoint,

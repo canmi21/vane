@@ -193,7 +193,6 @@ impl Drop for H3ServerHandle {
 // `tokio::spawn` requires an active runtime, and the `async` modifier
 // makes that requirement visible to callers (and lets them write the
 // natural `serve_h3(...).await` shape that mirrors `connect_h3`).
-#[allow(clippy::unused_async)]
 pub async fn serve_h3<F, Fut>(
 	cert_pem: &str,
 	key_pem: &str,

@@ -150,7 +150,6 @@ pub struct UdpListenerHandle {
 /// Spec: `spec/crates/engine.md` § _`udp_dispatch`_ for the dispatch table flow,
 /// § _`udp_dispatch`_ for the per-session
 /// timeout (owned by the `L4Forward` forwarder).
-#[allow(clippy::too_many_arguments, clippy::too_many_lines, clippy::cognitive_complexity)]
 pub async fn run_udp_listener(
 	addr: SocketAddr,
 	graph: Arc<ArcSwap<FlowGraph>>,
@@ -489,7 +488,6 @@ fn is_quic_long_header_initial(datagram: &[u8]) -> bool {
 	datagram.first().is_some_and(|first| first & 0xf0 == 0xc0)
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn spawn_cold_path(
 	socket: &Arc<UdpSocket>,
 	dispatch_table: &Arc<DispatchTable>,
@@ -605,7 +603,6 @@ impl Drop for InFlightGuard {
 /// pre-extracted SNI is stamped onto `ConnContext.tls.sni` so the
 /// matching `tls.sni` predicate evaluates correctly without the
 /// listener needing TLS termination.
-#[allow(clippy::too_many_arguments)]
 async fn handle_cold_path(
 	socket: Arc<UdpSocket>,
 	peer: SocketAddr,

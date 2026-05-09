@@ -8,8 +8,6 @@
 //! and back. Mirrors the dispatching shape used by `tests/mgmt.rs`
 //! but exercises the data plane rather than the mgmt plane.
 
-#![allow(clippy::too_many_lines)]
-
 use std::io::{Read, Write};
 use std::net::TcpListener as StdTcpListener;
 use std::path::Path;

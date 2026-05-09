@@ -312,7 +312,6 @@ mod tests {
 	fn find_main(rules: &[RawRule]) -> &RawRule {
 		// `.main` is a name suffix, not a file extension — the lint's heuristic
 		// triggers on every dot-bearing literal.
-		#[allow(clippy::case_sensitive_file_extension_comparisons)]
 		rules.iter().find(|r| r.name.ends_with(".main")).expect("main rule present")
 	}
 

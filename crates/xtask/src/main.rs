@@ -7,7 +7,6 @@
 // CLI help (`///` on clap-derived enums) renders `VANE_BIN`,
 // `CARGO_REGISTRY_TOKEN`, and similar identifiers as plain text;
 // wrapping them in backticks would muddy the rendered --help.
-#![allow(clippy::doc_markdown, clippy::module_name_repetitions)]
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};

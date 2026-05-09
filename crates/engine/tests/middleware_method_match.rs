@@ -10,8 +10,6 @@
 //!   other RFC-7230-illegal characters are rejected at link time.
 //! - Empty / missing / non-string `methods` configuration is rejected.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

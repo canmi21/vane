@@ -51,7 +51,6 @@ mod tests {
 
 	struct Providers;
 
-	#[allow(clippy::unnecessary_wraps)]
 	fn validate_ok(_: &serde_json::Value) -> Result<(), Error> {
 		Ok(())
 	}

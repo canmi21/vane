@@ -15,8 +15,6 @@
 //! Treats the middleware as a black box — calls
 //! `RateLimitMiddleware::run` directly via the registered factory.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;

@@ -31,8 +31,6 @@
 //! Spec anchors: `spec/crates/engine-tls.md` § _TLS 1.3 0-RTT (early
 //! data)_, § _Session tickets_.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::net::SocketAddr;

@@ -23,8 +23,6 @@
 //! against raw TCP rather than going through hyper because the tests
 //! need full control over the wire bytes for the post-101 byte tunnel.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

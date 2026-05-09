@@ -14,8 +14,6 @@
 //! `spec/crates/engine.md` § _Body streaming_,
 //! `spec/crates/engine-tls.md` § _Library policy_.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::io::Write as _;

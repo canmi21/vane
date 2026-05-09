@@ -12,8 +12,6 @@
 //!
 //! Spec anchor: `spec/crates/engine-tls.md` § _Session tickets_.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::net::SocketAddr;

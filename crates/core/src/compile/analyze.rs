@@ -199,7 +199,6 @@ mod tests {
 
 	struct Providers;
 
-	#[allow(clippy::unnecessary_wraps)]
 	fn validate_ok(_: &Value) -> Result<(), Error> {
 		Ok(())
 	}

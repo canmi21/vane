@@ -56,7 +56,6 @@ pub(crate) fn arm_watcher_subscription(
 /// Phase 2 — spawn the tokio task that drains queued reload signals
 /// into [`reload_once`] + `ListenerSet::reconcile`. Consumes the
 /// subscription returned by [`arm_watcher_subscription`].
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_watcher_handler(
 	sub: Subscription,
 	config_dir: PathBuf,

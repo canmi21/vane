@@ -15,7 +15,6 @@ pub struct MiddlewareMetadata {
 /// `validate-args` host call); the compile pipeline only needs
 /// `Some(meta)` to confirm the name resolves. Schema violations
 /// surface at link time when the runtime invokes the plugin.
-#[allow(clippy::unnecessary_wraps)]
 fn plugin_validate_args_pass(_: &serde_json::Value) -> Result<(), Error> {
 	Ok(())
 }

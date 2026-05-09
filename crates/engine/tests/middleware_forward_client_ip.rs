@@ -14,8 +14,6 @@
 //! installed under `FetchKind::HttpSynthesize` so the main thread can
 //! inspect what the middleware actually wrote.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

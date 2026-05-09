@@ -13,8 +13,6 @@
 //! with a 3-node graph `Middleware(L7Request) -> Fetch(L7) ->
 //! Terminate(WriteHttpResponse)`.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

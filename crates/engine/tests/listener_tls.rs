@@ -19,8 +19,6 @@
 //!   `["h2", "http/1.1"]`; the executor's Upgrade arm dispatches to the
 //!   matching driver.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::net::SocketAddr;

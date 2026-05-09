@@ -309,10 +309,6 @@ fn build_dns_provider(
 ///
 /// Returns the spawned task handles (one per dual-stack address)
 /// or `None` when auto-bind isn't called for.
-#[allow(
-	clippy::unused_async,
-	reason = "kept async so a future bound-port readiness await can land without a signature break"
-)]
 pub(crate) async fn maybe_auto_bind_port_80(
 	registry: Arc<ManagedCertRegistry>,
 	graph: &FlowGraph,

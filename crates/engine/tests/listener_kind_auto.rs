@@ -16,8 +16,6 @@
 //! Spec anchors: `spec/crates/core.md` § _Listener kind
 //! derivation_, `spec/crates/engine.md` § _Dispatch table_.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::net::SocketAddr;

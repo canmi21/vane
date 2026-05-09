@@ -10,8 +10,6 @@
 //! `FlowGraph::link`, and drives `execute` against it — no configuration
 //! pipeline is exercised.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;

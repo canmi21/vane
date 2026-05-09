@@ -78,7 +78,6 @@ pub(crate) struct LoadedModuleInfo {
 /// first successful load, register every export, and return the
 /// bundle. Returns `None` when the directory is missing, empty, or
 /// every load failed — the daemon then runs without a wasm runtime.
-#[allow(clippy::too_many_lines, reason = "linear boot phase: scan + load + policy parse")]
 pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 	let entries = match std::fs::read_dir(wasm_dir) {
 		Ok(rd) => rd,
@@ -253,7 +252,6 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 /// Returns the first fatal error: `wasm_dir` unreadable, or
 /// `policy.json` re-parse failure that would otherwise leave the
 /// daemon with stale policy state.
-#[allow(clippy::too_many_lines, reason = "linear scan + reconcile + policy reload")]
 pub(crate) async fn reload_dir(
 	wasm_dir: &Path,
 	runtime: &Arc<WasmtimeRuntime>,

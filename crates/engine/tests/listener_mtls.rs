@@ -19,8 +19,6 @@
 //! Spec: `spec/crates/engine-tls.md` § _Client certificate
 //! verification (mTLS on listener)_ + § _CRL_.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::net::SocketAddr;

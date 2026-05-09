@@ -29,8 +29,6 @@
 //! drive it indirectly through `ListenerSet::start` plus a TCP client
 //! using `hyper::client::conn::http1`.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;

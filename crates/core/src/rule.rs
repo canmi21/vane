@@ -118,10 +118,6 @@ pub struct TlsConfig {
 // `skip_serializing_if` requires a `fn(&T) -> bool` signature; the
 // argument cannot be by-value, so the trivially-copy-pass-by-ref
 // lint is a false positive here.
-#[allow(
-	clippy::trivially_copy_pass_by_ref,
-	reason = "serde skip_serializing_if signature is fn(&T) -> bool"
-)]
 fn is_default_false(b: &bool) -> bool {
 	!*b
 }

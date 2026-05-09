@@ -53,6 +53,10 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 # Cherry-picked from nursery. Threshold tuned in clippy.toml.
 cognitive_complexity = "warn"
+# Pedantic's noisiest lint by an order of magnitude — mostly demands
+# backticks around BTreeMap / HashMap / NEXTEST_ENV-style identifiers
+# in /// docs. Net signal too low to keep on.
+doc_markdown = "allow"
 
 # Internal path-based crates only. Third-party deps live in each crate's own
 # Cargo.toml; `cargo-deny` (deny.toml, `bans.multiple-versions`) enforces unity.

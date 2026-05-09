@@ -313,7 +313,6 @@ impl HttpProxyFetch {
 	/// `spec/crates/engine.md` § _Body streaming_ +
 	/// `spec/crates/engine.md` § _Concrete fetches_.
 	#[cfg(feature = "h3")]
-	#[allow(clippy::too_many_lines)]
 	async fn send_one_attempt_h3(&self, req: Request) -> Result<L7FetchOutput, Error> {
 		use http_body::Body as _;
 
@@ -608,7 +607,6 @@ fn dispatch_upstream_kind(args: &serde_json::Value) -> Option<Result<FetchInst, 
 /// `version` is not one of the four accepted strings, when
 /// `version: "h3"` is requested on a build without the `h3` feature,
 /// or when the TLS client config fails to build.
-#[allow(clippy::too_many_lines)]
 pub fn factory(
 	args: &serde_json::Value,
 	crl_cache: Option<&Arc<crate::tls::CrlCache>>,

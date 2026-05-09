@@ -11,8 +11,6 @@
 //! Spec: `spec/crates/engine.md` § _`udp_dispatch`_,
 //! § _`udp_dispatch`_, § _`udp_dispatch`_.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::sync::Arc;

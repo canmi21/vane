@@ -23,8 +23,6 @@
 //! Args shape mirrors `spec/crates/core.md` § _Compile pipeline_
 //! (`{ "upstream": "host:port" }`).
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

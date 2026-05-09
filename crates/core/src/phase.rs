@@ -44,7 +44,6 @@ const ANY_PHASE: &[Phase] =
 // arms with equal bodies would hide the table structure, which the spec
 // calls out as the whole point of the single-source design.
 #[must_use]
-#[allow(clippy::match_same_arms)]
 pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 	match kind {
 		PhaseNodeKind::Check => ANY_PHASE,
@@ -75,7 +74,6 @@ pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 /// # Errors
 /// Returns [`PhaseError`] when `cur` is not in the node's accepted in-phase
 /// set. Validator consumers translate this into the spec/flow-model.md error format.
-#[allow(clippy::match_same_arms)]
 pub fn transition(kind: PhaseNodeKind, cur: Phase) -> Result<Transition, PhaseError> {
 	let accepted = accepted_in_phases(kind);
 	if !accepted.contains(&cur) {

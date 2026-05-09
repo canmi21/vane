@@ -9,8 +9,6 @@
 //! Spec: `spec/crates/engine-tls.md` § _Client cache_,
 //! `spec/crates/engine.md` § _Pool fingerprint_.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::io::Write as _;

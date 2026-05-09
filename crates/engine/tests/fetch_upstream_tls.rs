@@ -9,8 +9,6 @@
 //! the pattern in `tests/listener_tls.rs` but the server-side
 //! certificate is consumed by the engine's *upstream* path here.
 
-#![allow(clippy::too_many_lines)]
-
 use std::sync::Arc;
 
 use http_body_util::BodyExt;

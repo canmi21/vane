@@ -28,8 +28,6 @@
 //! The vane factory pattern is identical to the L4-forward integration
 //! tests; only the graph shape changes (Upgrade-prefixed L7 path).
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;

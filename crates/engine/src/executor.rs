@@ -82,7 +82,6 @@ impl std::fmt::Debug for ExecutorOutput {
 /// the phase DFS guarantees each consumer reaches its variant's slot
 /// only in the phase that fills it). An engine driving an un-validated
 /// or hand-forged graph may hit these; don't.
-#[allow(clippy::too_many_lines)]
 pub async fn execute(
 	graph: &Arc<FlowGraph>,
 	entry: NodeId,
@@ -724,7 +723,6 @@ fn plugin_error_to_decision(pe: PluginError) -> Result<Decision, Error> {
 }
 
 #[doc(hidden)]
-#[allow(clippy::too_many_lines)]
 pub async fn dispatch_wasm(
 	w: &crate::flow_graph::WasmMiddleware,
 	l4: &mut Option<L4Conn>,

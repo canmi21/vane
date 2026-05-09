@@ -12,7 +12,7 @@
 // make the type-translation surface easier to evolve. No functional
 // change required.
 
-#![allow(unsafe_code)] // Component::deserialize_file is unsafe per wasmtime API
+#![allow(unsafe_code)] // wasmtime's Component::deserialize_file is unsafe-by-API (mmap risk).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -124,7 +124,6 @@ struct HostState {
 }
 
 impl HostState {
-	#[allow(clippy::too_many_arguments, reason = "every field is a per-plugin context handle")]
 	fn new(
 		args: String,
 		fetch_backend: Arc<dyn HttpFetchBackend>,
@@ -704,10 +703,6 @@ fn metric_gauge_core(
 		return Ok(());
 	}
 	let labels = build_metric_labels(state, name, user_labels);
-	#[allow(
-		clippy::cast_precision_loss,
-		reason = "spec defines gauge as numeric; metrics crate is f64"
-	)]
 	let value_f = value as f64;
 	metrics::gauge!("vane_plugin_metric_gauge", labels).set(value_f);
 	Ok(())
@@ -796,7 +791,6 @@ async fn http_fetch_core(
 		metrics::Label::new("module_id", state.module_id.to_string()),
 		metrics::Label::new("metadata_name", state.metadata_name.to_string()),
 	];
-	#[allow(clippy::cast_precision_loss, reason = "metrics histogram is f64-typed")]
 	let elapsed_f = elapsed_ms as f64;
 	metrics::histogram!("vane_plugin_http_fetch_duration_ms", dur_labels).record(elapsed_f);
 

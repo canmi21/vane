@@ -21,8 +21,6 @@
 //!
 //! * `spec/crates/engine.md` § _Protocol detection_.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::net::SocketAddr;

@@ -15,8 +15,6 @@
 //!
 //! Spec anchor: `spec/crates/engine.md`.
 
-#![allow(clippy::too_many_lines)]
-
 use std::io::Write as _;
 use std::net::SocketAddr;
 use std::os::unix::fs::PermissionsExt as _;

@@ -12,8 +12,6 @@
 //! detector + listener integration; downstream routing is covered by
 //! the existing `fetch_*` / `executor` tests.
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -129,7 +129,6 @@ async fn main() -> std::process::ExitCode {
 	std::process::ExitCode::SUCCESS
 }
 
-#[allow(clippy::too_many_lines)]
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let args = Args::parse();
 
@@ -748,7 +747,6 @@ fn spawn_boot_health_watchdog(
 	});
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn wait_for_shutdown_signal(
 	listeners: Arc<ListenerSet>,
 	watcher_cancel: CancellationToken,

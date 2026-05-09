@@ -13,8 +13,8 @@
 // touches the OnceLock that initialises from it. There is no
 // concurrent reader, so the standard `set_var` race condition that
 // motivates the `unsafe` annotation in Rust 2024 doesn't apply here.
-#![allow(unsafe_code)]
-#![allow(clippy::too_many_lines)]
+
+#![allow(unsafe_code)] // std::env::set_var is unsafe in 2024 edition; single-threaded binary isolates the race.
 
 use std::io::Write as _;
 use std::net::SocketAddr;

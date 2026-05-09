@@ -256,7 +256,6 @@ impl ListenerSet {
 	/// Spawning is fire-and-forget; bind failures and accept-loop errors
 	/// surface only via `tracing` events. The handle stored in `running`
 	/// drives the shutdown protocol.
-	#[allow(clippy::needless_pass_by_value)]
 	pub fn start(
 		&self,
 		graph: Arc<ArcSwap<FlowGraph>>,
@@ -518,7 +517,6 @@ impl ListenerSet {
 	/// `ArcSwap::store` of a reload's new graph; in-flight connections
 	/// accepted before this call retain their captured
 	/// `Arc<FlowGraph>` and run to completion regardless of the diff.
-	#[allow(clippy::needless_pass_by_value)]
 	pub fn reconcile(
 		&self,
 		graph: Arc<ArcSwap<FlowGraph>>,
@@ -625,7 +623,6 @@ async fn drain_in_flight(set: &AsyncMutex<JoinSet<()>>) {
 	while g.join_next().await.is_some() {}
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_accept_loop(
 	addr: SocketAddr,
 	graph: Arc<ArcSwap<FlowGraph>>,
@@ -734,7 +731,6 @@ async fn run_accept_loop(
 	}
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
 	stream: TcpStream,
 	remote: SocketAddr,
@@ -859,7 +855,6 @@ async fn handle_connection(
 /// reachable from `entry`, so we never read a prefix and `detected`
 /// is always `None`. The decision table reduces to `(kind,
 /// listener_tls)`. Spec: spec/crates/engine.md § _Dispatch table_.
-#[allow(clippy::too_many_arguments)]
 async fn dispatch_no_peek(
 	stream: TcpStream,
 	tls_cfg: Option<Arc<rustls::ServerConfig>>,
@@ -909,7 +904,6 @@ async fn dispatch_no_peek(
 /// Post-peek dispatch implementing spec/crates/engine.md § _Dispatch table_
 /// in full. `detected` may be `None` if the peek prelude exited
 /// without a detector committing — treated as `Unknown` per spec.
-#[allow(clippy::too_many_arguments)]
 async fn dispatch_peeked(
 	peeked: PeekedStream<TcpStream>,
 	detected: Option<DetectedProtocol>,

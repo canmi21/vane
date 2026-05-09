@@ -23,7 +23,6 @@
 //!   `insecure_skip_verify` covers the test's self-signed cert path.
 
 #![cfg(feature = "h3")]
-#![allow(clippy::too_many_lines)]
 
 use std::collections::HashMap;
 use std::io::Write as _;

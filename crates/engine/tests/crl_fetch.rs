@@ -11,8 +11,6 @@
 //! See `spec/crates/engine-tls.md` § _CRL_ for the
 //! authoritative semantics.
 
-#![allow(clippy::too_many_lines)]
-
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -16,7 +16,6 @@
 //!   request-body streaming path that Step 3 wires up.
 
 #![cfg(feature = "h3")]
-#![allow(clippy::too_many_lines)]
 
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;

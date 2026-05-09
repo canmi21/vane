@@ -1,5 +1,3 @@
-#![allow(clippy::module_name_repetitions)]
-
 use std::borrow::Cow;
 
 pub const SERIALIZED_MESSAGE_CAP: usize = 4 * 1024;

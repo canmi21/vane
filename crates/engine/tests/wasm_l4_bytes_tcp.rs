@@ -5,8 +5,6 @@
 //! runtime so the assertions land squarely on the host-side
 //! peek-buffer wiring rather than on a real wasm round-trip.
 
-#![allow(clippy::too_many_lines)]
-
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;

@@ -12,8 +12,6 @@
 //!   NDJSON lines to disk; flushing on drop preserves enqueued events.
 //! * `VerbosityState` starts in `Trajectory` and flips both directions.
 
-#![allow(clippy::too_many_lines)]
-
 use std::sync::Arc;
 use std::time::Duration;
 

@@ -51,7 +51,6 @@ use crate::flow_graph::FlowGraph;
 /// during a request, etc.). Per-request executor errors are translated
 /// to a synthetic 500 *inside* the service-fn so the connection itself
 /// can stay alive for the next request on a keep-alive socket.
-#[allow(clippy::too_many_lines)]
 pub(crate) async fn drive_h1_server<S>(
 	stream: S,
 	graph: Arc<FlowGraph>,
@@ -551,7 +550,6 @@ pub(crate) async fn drive_h3_server(
 /// body channel, so a streaming upstream sees bytes as the client
 /// sends them rather than after a full request-body buffer.
 #[cfg(feature = "h3")]
-#[allow(clippy::too_many_arguments)]
 async fn handle_h3_request(
 	req: http::Request<()>,
 	stream: h3::server::RequestStream<h3_quinn::BidiStream<bytes::Bytes>, bytes::Bytes>,

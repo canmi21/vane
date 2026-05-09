@@ -3,11 +3,9 @@
 // would force every protocol identifier inside that pseudocode into
 // backticks, which damages readability of the diagrams. Identifiers
 // in prose docs still get backticks via per-comment care.
-#![allow(clippy::doc_markdown)]
 // `aad` (AEAD additional data) and `aead` (the `Aes128Gcm` primitive)
 // are domain-canonical names from RFC 5116 / 9001; renaming either
 // for the pedantic `similar_names` lint would obscure the crypto.
-#![allow(clippy::similar_names)]
 
 //! Extract the TLS Server Name Indication (SNI) from a QUIC client's
 //! Initial datagrams without performing a full QUIC handshake.

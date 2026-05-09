@@ -347,7 +347,6 @@ impl MgmtState {
 	// `&self` is used by `dispatch` as the method receiver — the body
 	// just doesn't read state. Suppressing the lint instead of moving
 	// to an associated function keeps every handler shape consistent.
-	#[allow(clippy::unused_self)]
 	fn handle_ping(&self) -> Result<serde_json::Value, WireError> {
 		json(&PingResult { pong: true, version: env!("CARGO_PKG_VERSION").to_string() })
 	}
@@ -457,7 +456,6 @@ impl MgmtState {
 		json(&GetConnectionsResult { listeners: self.listener_status(), connections })
 	}
 
-	#[allow(clippy::unused_self)]
 	fn handle_get_metrics(&self, args: serde_json::Value) -> Result<serde_json::Value, WireError> {
 		let parsed: GetMetricsArgs = serde_json::from_value(args)
 			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("{e}") })?;
@@ -512,7 +510,6 @@ impl MgmtState {
 		json(&GetPoolsResult { wasm, cgi })
 	}
 
-	#[allow(clippy::unused_self)]
 	fn handle_get_upstreams(&self) -> Result<serde_json::Value, WireError> {
 		let tcp = vane_engine::fetch::client_cache::snapshot()
 			.into_iter()

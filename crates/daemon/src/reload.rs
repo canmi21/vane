@@ -61,7 +61,6 @@ pub(crate) enum ReloadOutcome {
 /// (preset / merge / lower / validate), link (factory rejection,
 /// kind mismatch, feature-disabled), or WASM rescan (dir unreadable,
 /// component validation failure).
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn reload_once(
 	config_dir: &Path,
 	#[cfg(feature = "wasm")] wasm_dir: Option<&Path>,

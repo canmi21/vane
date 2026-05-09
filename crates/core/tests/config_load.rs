@@ -15,7 +15,8 @@
 //! relaxed here for that reason — there is no race-safe alternative
 //! for testing the actual dotenvy/OS-env precedence chain end-to-end
 //! (unit-level coverage uses the `EnvReader` test seam instead).
-#![allow(unsafe_code)]
+
+#![allow(unsafe_code)] // std::env::set_var / remove_var are unsafe in 2024 edition; serial test isolation makes it sound.
 
 use std::fs;
 
@@ -59,7 +60,6 @@ fn clear_touched_env() {
 /// middleware and fetch shapes that `reverse_proxy` synthesises.
 struct Providers;
 
-#[allow(clippy::unnecessary_wraps)]
 fn validate_ok(_: &serde_json::Value) -> Result<(), vane_core::Error> {
 	Ok(())
 }

@@ -6,8 +6,6 @@
 //! upstreams, opportunistic vs force buffering, POST opt-in,
 //! backoff timing, single-attempt non-retryable cases).
 
-#![allow(clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::net::SocketAddr;
