@@ -118,22 +118,30 @@ fn compute_plan(only: Option<&str>) -> Result<Vec<PlanRow>> {
 
 	let order = topo_sort(&deps).context("dependency cycle in workspace")?;
 
+	let candidates: Vec<&String> =
+		order.iter().filter(|n| only.is_none_or(|f| f == n.as_str())).collect();
+	eprintln!(
+		"xtask publish: querying sparse index for {} workspace crate{}...",
+		candidates.len(),
+		if candidates.len() == 1 { "" } else { "s" },
+	);
+
 	let mut plan = Vec::new();
-	for name in &order {
-		if let Some(filter) = only
-			&& filter != name
-		{
-			continue;
-		}
-		let pkg = publishable[name];
+	for (i, name) in candidates.iter().enumerate() {
+		let pkg = publishable[name.as_str()];
 		let version = pkg.version.to_string();
 		let action = if version_published(name, &version)? { Action::Skip } else { Action::Publish };
+		let tag = match action {
+			Action::Skip => "on-registry",
+			Action::Publish => "needs-publish",
+		};
+		eprintln!("  [check] [{}/{}] {name} {version} → {tag}", i + 1, candidates.len());
 		plan.push(PlanRow {
 			action,
-			name: name.clone(),
+			name: (*name).clone(),
 			version,
 			manifest: pkg.manifest_path.clone().into_std_path_buf(),
-			deps: deps[name].clone(),
+			deps: deps[name.as_str()].clone(),
 		});
 	}
 
@@ -266,12 +274,19 @@ fn wait_for_index(name: &str, version: &str) -> Result<()> {
 	let mut interval = Duration::from_secs(2);
 	let mut elapsed = Duration::ZERO;
 	let deadline = Duration::from_mins(1);
+	eprintln!("  [wait]    {name} {version} (sparse index propagation)");
 	while elapsed < deadline {
 		if version_published(name, version)? {
+			eprintln!("  [seen]    {name} {version} ({}s)", elapsed.as_secs());
 			return Ok(());
 		}
 		thread::sleep(interval);
 		elapsed += interval;
+		eprintln!(
+			"  [wait]    {name} {version} ({}s elapsed, retry in {}s)",
+			elapsed.as_secs(),
+			interval.as_secs()
+		);
 		let bump = (interval / 2).max(Duration::from_secs(1));
 		interval = (interval + bump).min(Duration::from_secs(10));
 	}
