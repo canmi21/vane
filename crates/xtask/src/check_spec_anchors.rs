@@ -12,8 +12,10 @@
 //   from the previous 30 source lines carries forward.
 // - Slash continuations after a primary anchor are treated as sibling
 //   sections under the same spec file as the primary.
-// - Two adjacent primary anchors with the same section name are
-//   reported as a duplicate regression.
+// - Two same-section primary anchors with only whitespace between
+//   them are reported as a duplicate regression. Same-section
+//   references that are separated by prose (or by a different anchor)
+//   are not flagged — they're assumed intentional cross-references.
 // - Heading match is exact — no substring fallback, no near-match.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -224,7 +226,11 @@ fn scan_file(
 			Some((path, line)) if first_line.saturating_sub(*line) <= 30 => Some(path.clone()),
 			_ => None,
 		};
-		let mut last_section: Option<String> = None;
+		// Tracks the most recent primary anchor: section name plus the
+		// byte offset right after its closing `_`. Used to flag adjacent
+		// duplicates only when nothing but whitespace sits between the
+		// two matches.
+		let mut last_primary: Option<(String, usize)> = None;
 
 		for cap in token_re.captures_iter(&block.text) {
 			let cap = cap.context("regex capture iteration failed")?;
@@ -237,7 +243,7 @@ fn scan_file(
 				current = Some(path.clone());
 				let at_line = block.offset_to_line.get(pos).copied().unwrap_or(first_line);
 				carry = Some((path, at_line));
-				last_section = None;
+				last_primary = None;
 				continue;
 			}
 
@@ -256,7 +262,10 @@ fn scan_file(
 			*total += 1;
 
 			if primary.is_some() {
-				if last_section.as_deref() == Some(sec.as_str()) {
+				if let Some((prev_sec, prev_end)) = &last_primary
+					&& prev_sec == &sec
+					&& block.text[*prev_end..pos].chars().all(char::is_whitespace)
+				{
 					broken
 						.entry(BrokenKey {
 							kind: BrokenKind::Duplicate,
@@ -266,7 +275,7 @@ fn scan_file(
 						.or_default()
 						.push(format!("{src_str}:{line_num}"));
 				}
-				last_section = Some(sec.clone());
+				last_primary = Some((sec.clone(), whole.end()));
 			}
 
 			let Some(spec_path) = current.as_ref() else {
