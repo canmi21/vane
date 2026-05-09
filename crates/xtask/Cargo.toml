@@ -10,10 +10,16 @@ workspace = true
 
 [dependencies]
 anyhow = "1"
-cargo_metadata = "0.18"
-clap = { version = "4.5", features = ["derive"] }
-fancy-regex = "0.14"
+cargo_metadata = "0.23"
+clap = { version = "4.6", features = ["derive"] }
+fancy-regex = "0.18"
+rustls = { workspace = true, features = ["aws-lc-rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-toml_edit = "0.22"
-ureq = { version = "2.10", default-features = false, features = ["tls"] }
+toml_edit = "0.25"
+# `rustls-no-provider` keeps ureq from pulling in its default `ring`
+# crypto backend, which would unify with the engine's existing
+# `aws-lc-rs` choice and break rustls's auto-detect (the workspace
+# pins exactly one provider). xtask's `main` installs the workspace
+# provider at startup before any HTTPS call.
+ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }

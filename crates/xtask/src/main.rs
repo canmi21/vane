@@ -76,6 +76,14 @@ enum PublishCmd {
 }
 
 fn main() -> Result<()> {
+	// xtask uses rustls (via ureq) for the publish workflow's HTTPS
+	// requests to the crates.io sparse index. rustls 0.23 panics if no
+	// crypto provider is installed when a `ClientConfig` is built, and
+	// ureq is configured with `rustls-no-provider` so we install the
+	// workspace's chosen provider here. Idempotent: a second call is
+	// silently ignored, matching engine::crypto::install_default_provider.
+	let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
 	match Cli::parse().command {
 		Command::BuildVaneCli => build_vane_cli::run(),
 		Command::CheckSpecAnchors => check_spec_anchors::run(),

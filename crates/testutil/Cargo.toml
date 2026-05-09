@@ -104,7 +104,7 @@ hickory-proto = { version = "0.26", optional = true }
 hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"], optional = true }
 hickory-server = { version = "0.26", default-features = false, optional = true }
 parking_lot = { workspace = true, optional = true }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots-no-provider"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "rustls-no-provider"], optional = true }
 # `default-features = false` on testcontainers + explicit
 # `aws-lc-rs` feature avoids pulling its `ring` default into the
 # workspace's rustls dep graph. Two crypto backends in the same

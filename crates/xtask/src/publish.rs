@@ -78,11 +78,14 @@ pub(crate) fn run(mode: Mode, only: Option<&str>, skip_gate: bool) -> Result<()>
 fn compute_plan(only: Option<&str>) -> Result<Vec<PlanRow>> {
 	let metadata = load_metadata()?;
 
+	// cargo_metadata 0.23 wraps Package.name in a `PackageName` newtype;
+	// flatten to `String` at the boundary so the rest of this module
+	// keeps working with plain strings.
 	let publishable: BTreeMap<String, &cargo_metadata::Package> = metadata
 		.packages
 		.iter()
 		.filter(|p| !matches!(p.publish.as_deref(), Some(&[])))
-		.map(|p| (p.name.clone(), p))
+		.map(|p| (p.name.to_string(), p))
 		.collect();
 
 	let deps: BTreeMap<String, Vec<String>> = publishable
@@ -101,7 +104,7 @@ fn compute_plan(only: Option<&str>) -> Result<Vec<PlanRow>> {
 					out.push(d.name.clone());
 				}
 			}
-			(p.name.clone(), out)
+			(p.name.to_string(), out)
 		})
 		.collect();
 
@@ -269,14 +272,20 @@ fn wait_for_index(name: &str, version: &str) -> Result<()> {
 
 fn version_published(name: &str, version: &str) -> Result<bool> {
 	let url = format!("https://index.crates.io/{}", index_path(name));
-	let response = match ureq::get(&url).timeout(Duration::from_secs(15)).call() {
-		Ok(r) => r,
-		Err(ureq::Error::Status(404, _)) => return Ok(false),
-		Err(e) => {
-			return Err(anyhow::Error::new(e).context(format!("sparse index lookup for {name}")));
-		}
-	};
-	let body = response.into_string().context("reading sparse index body")?;
+	// ureq 3 moved per-request timeout from `RequestBuilder::timeout`
+	// to a `RequestBuilder::config()` builder chain; the 404 variant
+	// also flattened from `Error::Status(code, response)` to
+	// `Error::StatusCode(code)` (responses for non-success codes are
+	// no longer carried on the error path by default).
+	let mut response =
+		match ureq::get(&url).config().timeout_global(Some(Duration::from_secs(15))).build().call() {
+			Ok(r) => r,
+			Err(ureq::Error::StatusCode(404)) => return Ok(false),
+			Err(e) => {
+				return Err(anyhow::Error::new(e).context(format!("sparse index lookup for {name}")));
+			}
+		};
+	let body = response.body_mut().read_to_string().context("reading sparse index body")?;
 	for line in body.lines() {
 		let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
 			continue;

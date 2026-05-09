@@ -33,11 +33,13 @@ thiserror.workspace = true
 # `features.cloudflare`; default builds get just the trait + error.
 hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"], optional = true }
 parking_lot = { workspace = true, optional = true }
-# The `rustls-tls-native-roots-no-provider` feature lets the host
-# pick the rustls crypto backend (aws-lc-rs / ring); we don't bake
-# one in here because vane and other downstream callers may want
-# different choices.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots-no-provider", "json"], optional = true }
+# `rustls` + `rustls-native-certs` + `rustls-no-provider` lets the
+# host pick the rustls crypto backend (aws-lc-rs / ring); we don't
+# bake one in here because vane and other downstream callers may
+# want different choices. (Pre-0.13 reqwest exposed this combo as
+# the single feature `rustls-tls-native-roots-no-provider`; 0.13
+# split it into three composable flags.)
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "rustls-no-provider", "json"], optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["sync", "time"], optional = true }
