@@ -17,7 +17,31 @@ pre-commit:
     clippy:
       glob: "*.rs"
       run: cargo clippy --workspace --all-targets -- -D warnings
+      fail_text: |
+        Auto-fix machine-applicable suggestions:
+            cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged
+        Skip for an intentional mid-state commit:
+            LEFTHOOK_EXCLUDE=clippy git commit ...
     sync-workspace-deps:
       glob: "**/Cargo.toml"
       run: cargo xtask sync-deps write
       stage_fixed: true
+    spec-anchors:
+      glob: "{**/*.rs,**/*.md}"
+      run: cargo xtask check-spec-anchors
+      fail_text: |
+        Skip for an intentional mid-state commit:
+            LEFTHOOK_EXCLUDE=spec-anchors git commit ...
+
+pre-push:
+  parallel: true
+  commands:
+    cargo-deny:
+      run: cargo deny check
+      fail_text: |
+        See output for the failing category (advisories / bans / licenses / sources).
+          - bans drift → fix the offending Cargo.toml
+          - new license → add to deny.toml `licenses.allow` or scope via `[[licenses.exceptions]]`
+          - new transitive duplicate → add to `bans.skip-tree` with one-line rationale
+        Skip for an emergency push:
+            LEFTHOOK_EXCLUDE=cargo-deny git push ...
