@@ -170,39 +170,8 @@ pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 		dispatch_table: Arc::new(DispatchTable::new()),
 	});
 
-	// On UDP+Http listeners, bring up the H3 stack: per-listener
-	// quinn::Endpoint wrapping a VirtualUdpSocket, registered in the
-	// dispatch table under the well-known `QuicConnId(empty)` slot —
-	// see `spec/crates/engine.md` § _`udp_dispatch`_.
 	#[cfg(feature = "h3")]
-	{
-		let captured = ctx.base.graph.load_full();
-		let kind = captured
-			.symbolic()
-			.meta
-			.listener_kinds
-			.get(&ctx.base.addr)
-			.copied()
-			.unwrap_or(vane_core::ListenerKind::Raw);
-		if matches!(kind, vane_core::ListenerKind::Http) {
-			if let Some(tls_cfg) = captured.listener_tls(&ctx.base.addr).cloned() {
-				match crate::h3::listener::spawn_h3_endpoint(&ctx, &tls_cfg) {
-					Ok(()) => {
-						tracing::info!(addr = ?ctx.base.addr, "h3 listener up");
-					}
-					Err(e) => {
-						tracing::error!(addr = ?ctx.base.addr, error = %e, "h3 endpoint setup failed");
-					}
-				}
-			} else {
-				tracing::warn!(
-					addr = ?ctx.base.addr,
-					"udp Http listener has no listener_tls config; H3 requires TLS — skipping H3 setup",
-				);
-			}
-		}
-		drop(captured);
-	}
+	setup_h3_endpoint(&ctx);
 
 	// Concurrent pending-peek sessions on this listener. Incremented
 	// when a PendingPeek entry is inserted, decremented on removal.
@@ -229,129 +198,188 @@ pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 					}
 				};
 				let datagram = Bytes::copy_from_slice(&buf[..n]);
-				let key = DispatchKey::Peer(peer);
-				if let Some(entry) = ctx.dispatch_table.get(&key) {
-					match &**entry {
-						DispatchHandle::L4Forward(session) => {
-							// Bounded channel; full = drop. UDP is lossy by
-							// design and stalling the listener loop would
-							// hold up every other session sharing the
-							// physical socket.
-							if session.inbound_tx.try_send(datagram).is_err() {
-								tracing::warn!(
-									target: "udp_forward",
-									?peer,
-									"udp session inbound channel full or closed; dropping datagram",
-								);
-							}
-						}
-						DispatchHandle::PendingPeek(_) => {
-							// `Peer(peer)` cannot legally point at a
-							// PendingPeek handle — pending-peek lives under
-							// the `PendingPeek(peer)` key. This branch is
-							// unreachable in correct code; trace and drop.
-							tracing::warn!(
-								?peer,
-								"dispatch table internal invariant: Peer(_) → PendingPeek; dropping",
-							);
-						}
-						#[cfg(feature = "h3")]
-						DispatchHandle::Quic(virtual_socket) => {
-							virtual_socket.enqueue_inbound(peer, datagram);
-						}
-					}
+
+				if let Some(entry) = ctx.dispatch_table.get(&DispatchKey::Peer(peer)) {
+					dispatch_existing_entry(&entry, peer, datagram);
 					continue;
 				}
 
-				// Pending-peek state machine, per `spec/crates/engine.md`
-				// § _Multi-packet peek_. Existing PendingPeek entries
-				// always get the datagram first, regardless of listener
-				// kind.
-				let pending_key = DispatchKey::PendingPeek(peer);
-				if let Some(entry) = ctx.dispatch_table.get(&pending_key)
-					&& let DispatchHandle::PendingPeek(state) = &**entry {
-						let state = Arc::clone(state);
-						drop(entry);
-						match advance_pending_peek(&state, &datagram) {
-							PendingAdvance::Sni(sni) => {
-								let datagrams = drain_pending(&state, datagram);
-								if ctx.dispatch_table.remove(&pending_key).is_some() {
-									pending_count.fetch_sub(1, Ordering::Relaxed);
-								}
-								spawn_cold_path(&ctx, peer, datagrams, Some(sni)).await;
-							}
-							PendingAdvance::NeedMore => {
-								// Buffered for later datagram; no spawn.
-							}
-							PendingAdvance::Drop => {
-								if ctx.dispatch_table.remove(&pending_key).is_some() {
-									pending_count.fetch_sub(1, Ordering::Relaxed);
-								}
-							}
-						}
-						continue;
-					}
+				let datagram = match advance_existing_pending_peek(&ctx, peer, datagram, &pending_count).await {
+					PendingPeekDispatch::Handled => continue,
+					PendingPeekDispatch::FellThrough(d) => d,
+				};
 
-				// On Http UDP listeners, route any unmatched datagram to
-				// the listener-level QUIC virtual socket — one per
-				// listener per `spec/crates/engine.md` § _`udp_dispatch`_; `quinn::Endpoint` then performs
-				// CID-keyed demultiplexing internally for the connections
-				// it terminates.
 				#[cfg(feature = "h3")]
 				let datagram = match try_route_to_h3(&ctx, peer, datagram) {
 					RouteH3::Routed => continue,
 					RouteH3::NotApplicable(d) => d,
 				};
 
-				// Cold path — capture a graph snapshot per-datagram so
-				// reload cannot pull the rug. Decide whether to enter
-				// pending-peek (multi-packet QUIC SNI extraction) or go
-				// straight to the FlowGraph entry.
-				let captured: Arc<FlowGraph> = ctx.base.graph.load_full();
-				let Some(entry) = captured.symbolic().entries.get(&ctx.base.addr).copied() else {
-					tracing::debug!(
-						addr = ?ctx.base.addr,
-						?peer,
-						"udp cold path: no entry in active graph; dropping datagram",
-					);
-					continue;
-				};
-
-				if captured.needs_pending_peek(ctx.base.addr, entry)
-					&& is_quic_long_header_initial(&datagram)
-				{
-					if pending_count.load(Ordering::Relaxed) >= PENDING_PEEK_MAX_PER_LISTENER {
-						// `spec/crates/engine.md` § _Multi-packet peek_: silent drop past the
-						// per-listener cap. Operators see the drop
-						// only via metrics / counts — no per-drop log
-						// to avoid amplifying a flood.
-						continue;
-					}
-					let state = Arc::new(PendingPeekState::new());
-					match advance_pending_peek(&state, &datagram) {
-						PendingAdvance::Sni(sni) => {
-							let datagrams = drain_pending(&state, datagram);
-							spawn_cold_path(&ctx, peer, datagrams, Some(sni)).await;
-						}
-						PendingAdvance::NeedMore => {
-							let handle = Arc::new(DispatchHandle::PendingPeek(Arc::clone(&state)));
-							if ctx.dispatch_table.insert(pending_key, handle).is_none() {
-								pending_count.fetch_add(1, Ordering::Relaxed);
-							}
-						}
-						PendingAdvance::Drop => {
-							// First datagram failed parsing — fall back
-							// to immediate cold-path entry with the
-							// raw datagram, mirroring spec behavior of
-							// "not Initial → fall through".
-							spawn_cold_path(&ctx, peer, vec![datagram], None).await;
-						}
-					}
-					continue;
-				}
-
-				spawn_cold_path(&ctx, peer, vec![datagram], None).await;
+				dispatch_cold_datagram(&ctx, peer, datagram, &pending_count).await;
 			}
+		}
+	}
+}
+
+/// Bring up the per-listener H3 stack on UDP+Http listeners: a
+/// `quinn::Endpoint` wrapping a `VirtualUdpSocket`, registered in the
+/// dispatch table under the well-known `QuicConnId(empty)` slot — see
+/// `spec/crates/engine.md` § _`udp_dispatch`_. No-op when the listener
+/// is non-Http or has no TLS config.
+#[cfg(feature = "h3")]
+fn setup_h3_endpoint(ctx: &Arc<UdpAcceptCtx>) {
+	let captured = ctx.base.graph.load_full();
+	let kind = captured
+		.symbolic()
+		.meta
+		.listener_kinds
+		.get(&ctx.base.addr)
+		.copied()
+		.unwrap_or(vane_core::ListenerKind::Raw);
+	if !matches!(kind, vane_core::ListenerKind::Http) {
+		return;
+	}
+	let Some(tls_cfg) = captured.listener_tls(&ctx.base.addr).cloned() else {
+		tracing::warn!(
+			addr = ?ctx.base.addr,
+			"udp Http listener has no listener_tls config; H3 requires TLS — skipping H3 setup",
+		);
+		return;
+	};
+	match crate::h3::listener::spawn_h3_endpoint(ctx, &tls_cfg) {
+		Ok(()) => tracing::info!(addr = ?ctx.base.addr, "h3 listener up"),
+		Err(e) => tracing::error!(addr = ?ctx.base.addr, error = %e, "h3 endpoint setup failed"),
+	}
+}
+
+/// Route an inbound datagram that matched an existing dispatch-table
+/// entry. The handle variant decides the destination: live `L4Forward`
+/// session inbound channel (bounded; drop on full per spec since UDP
+/// is lossy and back-pressure to the listener loop would stall every
+/// peer sharing the socket), the listener-level QUIC virtual socket,
+/// or the unreachable Peer(_) → PendingPeek invariant violation.
+fn dispatch_existing_entry(handle: &DispatchHandle, peer: SocketAddr, datagram: Bytes) {
+	match handle {
+		DispatchHandle::L4Forward(session) => {
+			if session.inbound_tx.try_send(datagram).is_err() {
+				tracing::warn!(
+					target: "udp_forward",
+					?peer,
+					"udp session inbound channel full or closed; dropping datagram",
+				);
+			}
+		}
+		DispatchHandle::PendingPeek(_) => {
+			// `Peer(peer)` cannot legally point at a PendingPeek handle
+			// — pending-peek lives under the `PendingPeek(peer)` key.
+			// This branch is unreachable in correct code; trace + drop.
+			tracing::warn!(?peer, "dispatch table internal invariant: Peer(_) → PendingPeek; dropping",);
+		}
+		#[cfg(feature = "h3")]
+		DispatchHandle::Quic(virtual_socket) => {
+			virtual_socket.enqueue_inbound(peer, datagram);
+		}
+	}
+}
+
+/// Outcome of [`advance_existing_pending_peek`]: either the datagram
+/// was consumed by an in-progress pending-peek session (caller
+/// `continue`s), or no session existed and the original datagram is
+/// returned for the cold-path / H3 fan-in branches downstream.
+enum PendingPeekDispatch {
+	Handled,
+	FellThrough(Bytes),
+}
+
+/// Drive the existing pending-peek session for `peer` (per
+/// `spec/crates/engine.md` § _Multi-packet peek_). When the session
+/// completes (`Sni`), the buffered datagrams are replayed via
+/// `spawn_cold_path`. `NeedMore` keeps the session live; `Drop` evicts
+/// the entry and decrements the counter. Returns whether the caller
+/// should `continue` past the rest of the recv-loop dispatch chain.
+async fn advance_existing_pending_peek(
+	ctx: &Arc<UdpAcceptCtx>,
+	peer: SocketAddr,
+	datagram: Bytes,
+	pending_count: &Arc<AtomicUsize>,
+) -> PendingPeekDispatch {
+	let pending_key = DispatchKey::PendingPeek(peer);
+	let Some(entry) = ctx.dispatch_table.get(&pending_key) else {
+		return PendingPeekDispatch::FellThrough(datagram);
+	};
+	let DispatchHandle::PendingPeek(state) = &**entry else {
+		return PendingPeekDispatch::FellThrough(datagram);
+	};
+	let state = Arc::clone(state);
+	drop(entry);
+	match advance_pending_peek(&state, &datagram) {
+		PendingAdvance::Sni(sni) => {
+			let datagrams = drain_pending(&state, datagram);
+			if ctx.dispatch_table.remove(&pending_key).is_some() {
+				pending_count.fetch_sub(1, Ordering::Relaxed);
+			}
+			spawn_cold_path(ctx, peer, datagrams, Some(sni)).await;
+		}
+		PendingAdvance::NeedMore => {
+			// Buffered for later datagram; no spawn.
+		}
+		PendingAdvance::Drop => {
+			if ctx.dispatch_table.remove(&pending_key).is_some() {
+				pending_count.fetch_sub(1, Ordering::Relaxed);
+			}
+		}
+	}
+	PendingPeekDispatch::Handled
+}
+
+/// Cold-path entry for a datagram with no existing dispatch state.
+/// Capture a graph snapshot per-datagram so reload cannot pull the rug,
+/// then decide between starting a pending-peek session (multi-packet
+/// QUIC SNI extraction) and immediate cold-path spawn.
+async fn dispatch_cold_datagram(
+	ctx: &Arc<UdpAcceptCtx>,
+	peer: SocketAddr,
+	datagram: Bytes,
+	pending_count: &Arc<AtomicUsize>,
+) {
+	let captured: Arc<FlowGraph> = ctx.base.graph.load_full();
+	let Some(entry) = captured.symbolic().entries.get(&ctx.base.addr).copied() else {
+		tracing::debug!(
+			addr = ?ctx.base.addr,
+			?peer,
+			"udp cold path: no entry in active graph; dropping datagram",
+		);
+		return;
+	};
+	if !(captured.needs_pending_peek(ctx.base.addr, entry) && is_quic_long_header_initial(&datagram))
+	{
+		spawn_cold_path(ctx, peer, vec![datagram], None).await;
+		return;
+	}
+	if pending_count.load(Ordering::Relaxed) >= PENDING_PEEK_MAX_PER_LISTENER {
+		// `spec/crates/engine.md` § _Multi-packet peek_: silent drop past
+		// the per-listener cap. Operators see the drop only via metrics;
+		// no per-drop log to avoid amplifying a flood.
+		return;
+	}
+	let state = Arc::new(PendingPeekState::new());
+	match advance_pending_peek(&state, &datagram) {
+		PendingAdvance::Sni(sni) => {
+			let datagrams = drain_pending(&state, datagram);
+			spawn_cold_path(ctx, peer, datagrams, Some(sni)).await;
+		}
+		PendingAdvance::NeedMore => {
+			let pending_key = DispatchKey::PendingPeek(peer);
+			let handle = Arc::new(DispatchHandle::PendingPeek(Arc::clone(&state)));
+			if ctx.dispatch_table.insert(pending_key, handle).is_none() {
+				pending_count.fetch_add(1, Ordering::Relaxed);
+			}
+		}
+		PendingAdvance::Drop => {
+			// First datagram failed parsing — fall back to immediate
+			// cold-path entry with the raw datagram, mirroring spec
+			// behaviour of "not Initial → fall through".
+			spawn_cold_path(ctx, peer, vec![datagram], None).await;
 		}
 	}
 }
