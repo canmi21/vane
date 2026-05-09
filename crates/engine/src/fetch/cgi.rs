@@ -473,39 +473,11 @@ impl CgiFetch {
 		permit: tokio::sync::OwnedSemaphorePermit,
 		total_deadline: Instant,
 	) -> Result<L7FetchOutput, Error> {
-		// Build the env up-front (per-request). The builder is
-		// infallible — every input is already validated at link time
-		// or comes from connection state.
-		let env = build_env(&self.args, &req, conn);
-
-		let mut cmd = Command::new(&self.args.binary);
-		cmd
-			.env_clear()
-			.envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-			.current_dir(&self.args.working_dir)
-			.stdin(Stdio::piped())
-			.stdout(Stdio::piped())
-			.stderr(Stdio::piped());
-
-		install_pre_exec(&mut cmd, self.args.security.clone());
-
-		let mut child = match cmd.spawn() {
-			Ok(c) => c,
-			Err(e) => {
-				tracing::warn!(
-					target: "vane::cgi",
-					binary = %self.args.binary.display(),
-					error = %e,
-					"cgi spawn failed",
-				);
-				return Ok(L7FetchOutput::Response(static_response(StatusCode::BAD_GATEWAY)));
-			}
-		};
-
-		let stdin = child.stdin.take().expect("stdin piped");
-		let stdout = child.stdout.take().expect("stdout piped");
-		let stderr = child.stderr.take().expect("stderr piped");
-		let pid = child.id();
+		let Spawned { mut child, stdin, stdout, stderr, pid } =
+			match spawn_cgi_child(&self.args, &req, conn) {
+				Ok(s) => s,
+				Err(early) => return Ok(early),
+			};
 
 		let binary_for_stderr = self.args.binary.clone();
 		tokio::spawn(stderr_drain(stderr, binary_for_stderr, pid));
@@ -533,89 +505,219 @@ impl CgiFetch {
 		// on `_exit(2)`, the parent's read returns 0, and the lib
 		// reports `Eof`.
 		let connect_deadline = Instant::now() + self.args.timeouts.connect;
-		let parsed = cgi_response::read_until_header_end(stdout, connect_deadline).await;
+		let acquired = match read_and_parse_cgi_headers(
+			&self.args,
+			&mut child,
+			pid,
+			stdout,
+			&stdin_task,
+			connect_deadline,
+			permit,
+		)
+		.await
+		{
+			Ok(a) => a,
+			Err(early) => return Ok(early),
+		};
+		let CgiHeadersAcquired { builder, leftover, stdout, permit } = acquired;
 
-		let (header_block, leftover, stdout) = match parsed {
+		spawn_cgi_tail_wait(child, pid, stdin_task, self.args.binary.clone());
+
+		// The lib's `CgiResponseBody` carries the permit as a generic
+		// drop guard so the daemon-wide concurrency cap continues to
+		// reflect in-flight CGI children, not just spawn throughput.
+		let body_stream = cgi_response::CgiResponseBody::new(leftover, stdout, total_deadline, permit);
+		let response = builder
+			.body(Body::from_producer(body_stream))
+			.map_err(|e| Error::internal(format!("cgi response build: {e}")))?;
+		Ok(L7FetchOutput::Response(response))
+	}
+}
+
+/// Pipes + handles produced by [`spawn_cgi_child`].
+#[cfg(unix)]
+struct Spawned {
+	child: tokio::process::Child,
+	stdin: tokio::process::ChildStdin,
+	stdout: tokio::process::ChildStdout,
+	stderr: tokio::process::ChildStderr,
+	pid: Option<u32>,
+}
+
+/// Build the env, configure the [`Command`], install the pre-fork
+/// privilege-drop hook, spawn the child, and take the piped
+/// stdin/stdout/stderr handles. Spawn failure is warn-logged and
+/// surfaced as a 502 [`L7FetchOutput`] so the caller can short-circuit.
+#[cfg(unix)]
+#[allow(
+	clippy::result_large_err,
+	reason = "Err carries the early-return response; boxing it would add an allocation per spawn-failure path for no benefit"
+)]
+fn spawn_cgi_child(
+	args: &CgiArgs,
+	req: &Request,
+	conn: &Arc<ConnContext>,
+) -> Result<Spawned, L7FetchOutput> {
+	let env = build_env(args, req, conn);
+	let mut cmd = Command::new(&args.binary);
+	cmd
+		.env_clear()
+		.envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+		.current_dir(&args.working_dir)
+		.stdin(Stdio::piped())
+		.stdout(Stdio::piped())
+		.stderr(Stdio::piped());
+	install_pre_exec(&mut cmd, args.security.clone());
+	let mut child = match cmd.spawn() {
+		Ok(c) => c,
+		Err(e) => {
+			tracing::warn!(
+				target: "vane::cgi",
+				binary = %args.binary.display(),
+				error = %e,
+				"cgi spawn failed",
+			);
+			return Err(L7FetchOutput::Response(static_response(StatusCode::BAD_GATEWAY)));
+		}
+	};
+	let stdin = child.stdin.take().expect("stdin piped");
+	let stdout = child.stdout.take().expect("stdout piped");
+	let stderr = child.stderr.take().expect("stderr piped");
+	let pid = child.id();
+	Ok(Spawned { child, stdin, stdout, stderr, pid })
+}
+
+/// State produced by a successful header-read + parse phase: the
+/// `http::response::Builder` ready for `.body(...)`, the leftover bytes
+/// the lib consumed past `\r\n\r\n` (replayed into the body stream),
+/// the still-open `stdout` for streaming, and the permit echoed back
+/// for the body's drop guard.
+#[cfg(unix)]
+struct CgiHeadersAcquired {
+	builder: http::response::Builder,
+	leftover: Vec<u8>,
+	stdout: tokio::process::ChildStdout,
+	permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+/// Connect-phase: read until `\r\n\r\n`, then parse the header block.
+///
+/// `cgi_response::read_until_header_end` is the single arbiter of the
+/// connect outcome:
+///
+/// * `Ok((headers, leftover, stdout))` — header block parsed.
+/// * `Err(HeaderReadError::Eof)` — stdout EOFed before the separator
+///   (child crashed without producing a valid response → 502).
+/// * `Err(HeaderReadError::Timeout)` — `connect_deadline` fired (504).
+///
+/// We deliberately do NOT race a `child.wait()` arm against this
+/// future: a fast-exiting child that wrote a valid response can
+/// complete `wait()` before the parent drains stdout, and treating that
+/// as an early exit would override a good response with a false-positive
+/// 502. The "child exited without headers" case still surfaces — the
+/// kernel closes the stdout pipe on `_exit(2)`, the parent's read
+/// returns 0, and the lib reports `Eof`.
+///
+/// Errors short-circuit through the cleanup choreography (kill / wait
+/// child, abort the stdin task, drop the permit) and surface as the
+/// matching static response.
+#[cfg(unix)]
+#[allow(
+	clippy::too_many_arguments,
+	reason = "phase aggregator: each param is one in-flight subprocess handle that the cleanup choreography on early-return needs to touch"
+)]
+#[allow(
+	clippy::result_large_err,
+	reason = "Err carries the early-return response; boxing it would add an allocation per error path for no benefit"
+)]
+async fn read_and_parse_cgi_headers(
+	args: &CgiArgs,
+	child: &mut tokio::process::Child,
+	pid: Option<u32>,
+	stdout: tokio::process::ChildStdout,
+	stdin_task: &tokio::task::JoinHandle<io::Result<()>>,
+	connect_deadline: Instant,
+	permit: tokio::sync::OwnedSemaphorePermit,
+) -> Result<CgiHeadersAcquired, L7FetchOutput> {
+	let (header_block, leftover, stdout) =
+		match cgi_response::read_until_header_end(stdout, connect_deadline).await {
 			Ok(triple) => triple,
 			Err(early) => {
 				let status = match early {
 					HeaderReadError::Eof => {
 						tracing::warn!(
 							target: "vane::cgi",
-							binary = %self.args.binary.display(),
+							binary = %args.binary.display(),
 							pid = pid.unwrap_or(0),
 							"cgi child exited before producing a usable header block",
 						);
 						StatusCode::BAD_GATEWAY
 					}
 					HeaderReadError::Timeout => {
-						terminate_child(&mut child).await;
+						terminate_child(child).await;
 						StatusCode::GATEWAY_TIMEOUT
 					}
 				};
 				stdin_task.abort();
 				let _ = child.wait().await;
 				drop(permit);
-				return Ok(L7FetchOutput::Response(static_response(status)));
+				return Err(L7FetchOutput::Response(static_response(status)));
 			}
 		};
+	let builder = match cgi_response::parse_response_headers(&header_block) {
+		Ok(b) => b,
+		Err(e) => {
+			tracing::warn!(
+				target: "vane::cgi",
+				binary = %args.binary.display(),
+				pid = pid.unwrap_or(0),
+				error = %e,
+				"cgi header parse failed",
+			);
+			let _ = child.kill().await;
+			stdin_task.abort();
+			drop(permit);
+			return Err(L7FetchOutput::Response(static_response(StatusCode::BAD_GATEWAY)));
+		}
+	};
+	Ok(CgiHeadersAcquired { builder, leftover, stdout, permit })
+}
 
-		let resp_builder = match cgi_response::parse_response_headers(&header_block) {
-			Ok(b) => b,
+/// Spawn the post-headers tail task: wait for the child, log non-zero
+/// exit informationally (headers are already on the wire, so the
+/// spec's "non-zero → 502" rule no longer applies), and drop the
+/// stdin task handle so its drain ends cleanly.
+#[cfg(unix)]
+fn spawn_cgi_tail_wait(
+	mut child: tokio::process::Child,
+	pid: Option<u32>,
+	stdin_task: tokio::task::JoinHandle<io::Result<()>>,
+	binary: std::path::PathBuf,
+) {
+	tokio::spawn(async move {
+		match child.wait().await {
+			Ok(status) if !status.success() => {
+				tracing::warn!(
+					target: "vane::cgi",
+					binary = %binary.display(),
+					pid = pid.unwrap_or(0),
+					exit_code = status.code().unwrap_or(-1),
+					"cgi child exited non-zero (after streaming response)",
+				);
+			}
+			Ok(_) => {}
 			Err(e) => {
 				tracing::warn!(
 					target: "vane::cgi",
-					binary = %self.args.binary.display(),
+					binary = %binary.display(),
 					pid = pid.unwrap_or(0),
 					error = %e,
-					"cgi header parse failed",
+					"cgi child wait() failed",
 				);
-				let _ = child.kill().await;
-				stdin_task.abort();
-				drop(permit);
-				return Ok(L7FetchOutput::Response(static_response(StatusCode::BAD_GATEWAY)));
 			}
-		};
-
-		// Tail task: wait for child + log non-zero exit. Headers are
-		// already on the wire, so the exit code is informational from
-		// here on; the spec's "non-zero → 502" applies only to the
-		// header-block-EOF path above.
-		let binary_for_exit = self.args.binary.clone();
-		tokio::spawn(async move {
-			match child.wait().await {
-				Ok(status) if !status.success() => {
-					tracing::warn!(
-						target: "vane::cgi",
-						binary = %binary_for_exit.display(),
-						pid = pid.unwrap_or(0),
-						exit_code = status.code().unwrap_or(-1),
-						"cgi child exited non-zero (after streaming response)",
-					);
-				}
-				Ok(_) => {}
-				Err(e) => {
-					tracing::warn!(
-						target: "vane::cgi",
-						binary = %binary_for_exit.display(),
-						pid = pid.unwrap_or(0),
-						error = %e,
-						"cgi child wait() failed",
-					);
-				}
-			}
-			drop(stdin_task);
-		});
-
-		// The lib's `CgiResponseBody` carries the permit as a generic
-		// drop guard so the daemon-wide concurrency cap continues to
-		// reflect in-flight CGI children, not just spawn throughput.
-		let body_stream = cgi_response::CgiResponseBody::new(leftover, stdout, total_deadline, permit);
-		let response = resp_builder
-			.body(Body::from_producer(body_stream))
-			.map_err(|e| Error::internal(format!("cgi response build: {e}")))?;
-		Ok(L7FetchOutput::Response(response))
-	}
+		}
+		drop(stdin_task);
+	});
 }
 
 #[cfg(unix)]
