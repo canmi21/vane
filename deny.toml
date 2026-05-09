@@ -1,34 +1,16 @@
-# cargo-deny config. Enforces version consistency across the
-# workspace's third-party deps now that they live in each crate's
-# Cargo.toml rather than in a centralized [workspace.dependencies].
-#
-# Run locally:  cargo deny check bans
-# Run all:      cargo deny check
-#
-# Other checks (advisories, licenses, sources) are intentionally
-# left at cargo-deny's defaults — only `bans` is the gate this repo
-# depends on. Tightening the rest is fair game when the need shows up.
+# `cargo deny check` runs all four sections; `bans` is the
+# load-bearing one (workspace direct-dep version unity).
 
 [graph]
 all-features = true
 
 [advisories]
-# RustSec advisory categories. We track yanked / vuln advisories at
-# their default levels; `unmaintained = "none"` opts out of the
-# unmaintained-crate signal because it fires too eagerly on long-lived
-# upstreams (e.g. a crate that hasn't seen a commit in 18 months but
-# is doing exactly what we need is not a real signal).
+# unmaintained fires too eagerly on stable long-lived crates.
 unmaintained = "none"
 ignore = []
 
 [licenses]
-# SPDX identifiers we accept for any crate in the dep graph. Add new
-# lines as cargo-deny reports them; the goal is "explicit allowlist
-# of permissive-OSS licenses we're already comfortable shipping with."
-# `confidence-threshold = 0.8` lets cargo-deny fall back to text
-# matching when LICENSE files lack a clean SPDX header — strict enough
-# to not silently accept exotic licenses, lax enough to handle the
-# minor textual drift in MIT / Apache-2.0 boilerplates upstream.
+# Permissive OSS only; add identifiers as cargo-deny reports them.
 confidence-threshold = 0.8
 allow = [
 	"Apache-2.0",
@@ -41,10 +23,8 @@ allow = [
 	"Zlib",
 ]
 
-# Per-crate license exceptions. CDLA-Permissive-2.0 is the
-# Mozilla-CA-bundle data license; it's permissive enough to ship
-# with, but we scope it to the two crates that actually redistribute
-# the bundle so a future random crate that picks up CDLA gets caught.
+# CDLA-Permissive-2.0 is a data license (Mozilla CA bundle) — scope
+# per-crate so a future code crate adopting it still gets caught.
 [[licenses.exceptions]]
 name = "webpki-roots"
 allow = ["CDLA-Permissive-2.0"]
@@ -54,67 +34,34 @@ name = "webpki-root-certs"
 allow = ["CDLA-Permissive-2.0"]
 
 [sources]
-# Where deps may come from. `unknown-registry`/`unknown-git` are at
-# `warn` so the gate doesn't fail on a private registry / git URL,
-# but the warning still shows up — promote to `deny` once we audit
-# what the workspace actually pulls.
+# warn (not deny) until we audit what's actually in scope.
 unknown-registry = "warn"
 unknown-git = "warn"
 allow-git = []
 
 [bans]
-# The reason this config exists: any crate appearing at two different
-# versions in the resolved graph fails the gate. Workspace members
-# must agree on third-party versions; transitive-only duplicates that
-# we genuinely can't unify (typically because two upstream crates pin
-# different majors) get listed under `skip` below with a one-line
-# rationale.
 multiple-versions = "deny"
 wildcards = "deny"
-# `vane-testutil` is intentionally path-only in [workspace.dependencies]
-# (no `version =`) because it's `publish = false`; cargo strips it
-# from sibling crates' published manifests entirely. cargo-deny sees
-# the omitted version as a wildcard, which is fine for path-based
-# entries — the path constrains the source.
+# vane-testutil is path-only (publish = false); path constrains source.
 allow-wildcard-paths = true
 
-# Transitive duplicates we can't unify. Each entry suppresses an
-# entire upstream subtree — what we're saying with each line is
-# "we accept any version dup that exists *only because of this
-# upstream's transitive graph*; we'll re-evaluate when the upstream
-# bumps." Workspace-direct duplicates are still caught by the
-# `multiple-versions = "deny"` above.
+# skip-tree suppresses whole upstream subtrees that bring multiple
+# majors we can't unify. Revisit each line when the upstream bumps.
 skip-tree = [
-	# wasmtime + wit-component pin different majors of the wasm
-	# tooling stack (wasm-encoder, wasmparser, wit-bindgen, wit-parser).
-	# wasmtime is a runtime dep of vane-wasm; wit-component is a
-	# build-dep of testutil for fixture generation.
+	# wasmtime / wit-component: split majors of wasm-encoder, wasmparser, wit-*.
 	{ crate = "wasmtime" },
 	{ crate = "wit-component" },
-	# rustls-platform-verifier brings jni / android crypto bits
-	# (thiserror@1, supports-color@2, jni, jni-sys, core-foundation
-	# older versions). Pulled transitively via reqwest in testutil's
-	# acme feature.
+	# rustls-platform-verifier: jni + thiserror@1 + supports-color@2 (Android).
 	{ crate = "rustls-platform-verifier" },
-	# instant-acme pulls older majors of rand / rand_core / getrandom.
-	# Used by the engine's ACME feature; bump path is upstream.
+	# instant-acme: older rand / rand_core / getrandom majors.
 	{ crate = "instant-acme" },
-	# Docker / container test fixtures bring older windows-targets,
-	# nix, and a few RustCrypto-stack duplicates.
+	# bollard / testcontainers: older windows-targets, nix.
 	{ crate = "bollard" },
 	{ crate = "testcontainers" },
-	# x509-cert 0.2 holds back the RustCrypto formats stack
-	# (const-oid 0.9, der 0.7, sha2 0.10, digest 0.10, block-buffer
-	# 0.10, crypto-common 0.1) against clienthello's newer hkdf which
-	# brings 0.10 / 0.8 / 0.11 / 0.11 / 0.12 / 0.2. Re-unify when
-	# x509-ocsp ships a 0.3 release on crates.io (not yet, as of
-	# this commit).
+	# x509-cert 0.2 holds RustCrypto formats stack at older majors; revisit on x509-ocsp 0.3.
 	{ crate = "x509-cert" },
 ]
 skip = [
-	# owo-colors brings two versions of supports-color through its
-	# own feature graph (one for the v2-era detection path, one for
-	# v3). Same direct dep, two transitive supports-color majors —
-	# nothing the workspace can do about it short of forking owo-colors.
+	# owo-colors's feature graph pulls supports-color 2 and 3 simultaneously.
 	{ crate = "supports-color@2.1.0" },
 ]
