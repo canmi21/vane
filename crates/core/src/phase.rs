@@ -40,10 +40,11 @@ const TUNNEL: &[Phase] = &[Phase::Tunnel];
 const ANY_PHASE: &[Phase] =
 	&[Phase::L4Raw, Phase::L4Peeked, Phase::L7Request, Phase::L7Response, Phase::Tunnel];
 
-// Each arm mirrors one row of the spec/flow-model.md § _Phase state machine_. Merging
-// arms with equal bodies would hide the table structure, which the spec
-// calls out as the whole point of the single-source design.
 #[must_use]
+#[allow(
+	clippy::match_same_arms,
+	reason = "truth table per spec/flow-model.md § Phase state machine: each arm = one PhaseNodeKind row; merging by RHS hides the table structure"
+)]
 pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 	match kind {
 		PhaseNodeKind::Check => ANY_PHASE,
@@ -74,6 +75,10 @@ pub const fn accepted_in_phases(kind: PhaseNodeKind) -> &'static [Phase] {
 /// # Errors
 /// Returns [`PhaseError`] when `cur` is not in the node's accepted in-phase
 /// set. Validator consumers translate this into the spec/flow-model.md error format.
+#[allow(
+	clippy::match_same_arms,
+	reason = "truth table per spec/flow-model.md § Phase state machine: each arm = one PhaseNodeKind row; merging by RHS hides the table structure"
+)]
 pub fn transition(kind: PhaseNodeKind, cur: Phase) -> Result<Transition, PhaseError> {
 	let accepted = accepted_in_phases(kind);
 	if !accepted.contains(&cur) {

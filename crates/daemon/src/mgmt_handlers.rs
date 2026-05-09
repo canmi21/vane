@@ -343,10 +343,11 @@ fn hex32(bytes: &[u8; 32]) -> String {
 	s
 }
 
+#[allow(
+	clippy::unused_self,
+	reason = "uniform handler signature `&self -> Result<Value, WireError>` is the dispatch table's contract; some handlers don't read state today but the shape must stay consistent for `self.handle_X(...)` dispatch"
+)]
 impl MgmtState {
-	// `&self` is used by `dispatch` as the method receiver — the body
-	// just doesn't read state. Suppressing the lint instead of moving
-	// to an associated function keeps every handler shape consistent.
 	fn handle_ping(&self) -> Result<serde_json::Value, WireError> {
 		json(&PingResult { pong: true, version: env!("CARGO_PKG_VERSION").to_string() })
 	}
