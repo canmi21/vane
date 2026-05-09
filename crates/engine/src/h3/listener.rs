@@ -70,14 +70,14 @@ pub fn build_quic_server_config(
 pub fn spawn_h3_endpoint(
 	addr: SocketAddr,
 	physical: Arc<UdpSocket>,
-	tls_cfg: Arc<rustls::ServerConfig>,
-	dispatch_table: Arc<DispatchTable>,
+	tls_cfg: &Arc<rustls::ServerConfig>,
+	dispatch_table: &Arc<DispatchTable>,
 	graph: Arc<ArcSwap<FlowGraph>>,
 	log_sink: Arc<dyn FlowLogSink>,
 	verbosity: Arc<VerbosityState>,
 	force_cancel: CancellationToken,
 ) -> Result<(), String> {
-	let server_config = build_quic_server_config(&tls_cfg)?;
+	let server_config = build_quic_server_config(tls_cfg)?;
 
 	let virtual_socket: Arc<VirtualUdpSocket> = VirtualUdpSocket::new(physical);
 	dispatch_table.insert(

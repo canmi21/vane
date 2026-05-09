@@ -189,7 +189,7 @@ async fn listener_accepts_tcp_and_routes_to_executor() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 	assert!(set.is_running(&addr), "start must register a running listener for the entry addr");
 	assert_eq!(set.len(), 1, "exactly one entry → one running listener");
 
@@ -250,7 +250,7 @@ async fn listener_drains_in_flight_within_timeout() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 
 	// Wait briefly so the accept loop binds, then connect.
 	tokio::time::sleep(Duration::from_millis(50)).await;
@@ -300,7 +300,7 @@ async fn listener_set_starts_multiple_entries_independently() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 
 	assert_eq!(set.len(), 2, "two entries → two running listeners");
 	assert!(set.is_running(&addr1), "addr1 listener must be registered");
@@ -335,7 +335,7 @@ async fn listener_shutdown_idempotent_or_after_empty_start() {
 	let sink = Arc::new(RecordingSink::new());
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 	assert!(set.is_empty(), "no entries → no listeners spawned");
 
 	let started = Instant::now();
@@ -368,7 +368,7 @@ async fn reconcile_adds_listener_for_new_address() {
 	let swap = Arc::new(ArcSwap::new(Arc::clone(&graph_a)));
 
 	let set = ListenerSet::new();
-	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	set.start(&swap, &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	assert!(set.is_running(&addr_a));
 	assert_eq!(set.len(), 1);
@@ -378,7 +378,7 @@ async fn reconcile_adds_listener_for_new_address() {
 	entries_ab.insert(addr_a, NodeId::new(0));
 	entries_ab.insert(addr_b, NodeId::new(0));
 	swap.store(close_only_graph(entries_ab));
-	set.reconcile(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	set.reconcile(&swap, &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(100)).await;
 
 	assert!(set.is_running(&addr_a), "unchanged listener kept running");
@@ -408,7 +408,7 @@ async fn reconcile_removes_listener_for_deleted_address() {
 	let swap = Arc::new(ArcSwap::new(Arc::clone(&graph_ab)));
 
 	let set = ListenerSet::new();
-	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	set.start(&swap, &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	assert_eq!(set.len(), 2);
 	assert!(set.is_running(&addr_a));
@@ -418,7 +418,7 @@ async fn reconcile_removes_listener_for_deleted_address() {
 	let mut entries_a = HashMap::new();
 	entries_a.insert(addr_a, NodeId::new(0));
 	swap.store(close_only_graph(entries_a));
-	set.reconcile(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	set.reconcile(&swap, &verbosity, &sink);
 
 	// `reconcile` is sync; the actual drain task runs `tokio::spawn`'d.
 	// Reconcile removes the handle from the registry synchronously, so
@@ -449,7 +449,7 @@ async fn reconcile_noop_for_unchanged_address_set() {
 	let swap = Arc::new(ArcSwap::new(Arc::clone(&graph_v1)));
 
 	let set = ListenerSet::new();
-	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	set.start(&swap, &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	assert!(set.is_running(&addr_a));
 	assert_eq!(set.len(), 1);
@@ -458,7 +458,7 @@ async fn reconcile_noop_for_unchanged_address_set() {
 	// identity, same `entries` keys).
 	let graph_v2 = close_only_graph(entries);
 	swap.store(graph_v2);
-	set.reconcile(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	set.reconcile(&swap, &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	assert!(set.is_running(&addr_a), "unchanged address kept running");
@@ -485,7 +485,7 @@ async fn bound_count_flips_to_expected_after_bind_succeeds() {
 	assert_eq!(set.expected_count(), 0, "fresh set has no listeners");
 	assert_eq!(set.bound_count(), 0);
 
-	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	set.start(&swap, &verbosity, &sink);
 	assert_eq!(set.expected_count(), 1, "registry knows about the listener immediately");
 
 	// Poll until bind_ready flips. The actual bind happens inside the
@@ -517,7 +517,7 @@ async fn list_connections_registers_on_accept_and_deregisters_on_task_end() {
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	assert!(set.is_bound(&addr), "listener bound before client connects");
 	assert_eq!(set.list_connections().len(), 0, "no clients yet");
@@ -575,7 +575,7 @@ async fn bound_count_stays_zero_when_address_is_already_in_use() {
 	let swap = Arc::new(ArcSwap::new(close_only_graph(entries)));
 
 	let set = ListenerSet::new();
-	set.start(Arc::clone(&swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	set.start(&swap, &verbosity, &sink);
 	assert_eq!(set.expected_count(), 1);
 
 	// Give the accept loop time to attempt at least one bind. Without
@@ -670,7 +670,7 @@ async fn shutdown_drains_idle_keep_alive_connections_within_drain_timeout() {
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(graph)), verbosity, sink);
+	set.start(&Arc::new(ArcSwap::new(graph)), &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	// Open one H1 keep-alive connection. hyper's client::conn::http1::handshake

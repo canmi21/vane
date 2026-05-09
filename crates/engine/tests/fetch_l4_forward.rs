@@ -205,7 +205,7 @@ async fn l4_forward_echoes_bytes_through_upstream() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 
 	// Listener tests cap wait at ~50ms before the first connect — same here.
 	tokio::time::sleep(Duration::from_millis(50)).await;
@@ -259,7 +259,7 @@ async fn l4_forward_propagates_upstream_eof_to_client() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	let mut client = TcpStream::connect(proxy_addr).await.expect("connect proxy");
@@ -296,7 +296,7 @@ async fn l4_forward_unreachable_upstream_surfaces_as_walker_err() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	let mut client = TcpStream::connect(proxy_addr).await.expect("connect proxy");
@@ -374,7 +374,7 @@ async fn l4_forward_handles_concurrent_connections() {
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	let mut handles = Vec::with_capacity(5);
@@ -419,7 +419,7 @@ async fn l4_forward_close_reason_graceful_emits_byte_tunnel_terminate_outcome() 
 	let sink_dyn: Arc<dyn FlowLogSink> = Arc::clone(&sink) as Arc<dyn FlowLogSink>;
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink_dyn);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink_dyn);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	let mut client = TcpStream::connect(proxy_addr).await.expect("connect proxy");

@@ -401,11 +401,7 @@ impl MgmtState {
 			Ok(ReloadOutcome::Swapped { hash }) => {
 				// Match the watcher's post-swap behaviour: reconcile the
 				// listener set with the new graph's `entries`.
-				self.listeners.reconcile(
-					Arc::clone(&self.graph_swap),
-					Arc::clone(&self.verbosity),
-					Arc::clone(&self.log_sink),
-				);
+				self.listeners.reconcile(&self.graph_swap, &self.verbosity, &self.log_sink);
 				json(&ReloadResult::Swapped { hash: hex32(&hash) })
 			}
 			Ok(ReloadOutcome::Unchanged { hash }) => {

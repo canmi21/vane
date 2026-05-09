@@ -170,7 +170,7 @@ async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(DropSink);
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(graph)), verbosity, sink);
+	set.start(&Arc::new(ArcSwap::new(graph)), &verbosity, &sink);
 	// Bind + h3 endpoint setup is async; give it a moment so the client
 	// connect doesn't race the listener's UDP bind.
 	tokio::time::sleep(Duration::from_millis(200)).await;

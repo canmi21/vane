@@ -258,9 +258,9 @@ impl ListenerSet {
 	/// drives the shutdown protocol.
 	pub fn start(
 		&self,
-		graph: Arc<ArcSwap<FlowGraph>>,
-		verbosity: Arc<VerbosityState>,
-		log_sink: Arc<dyn FlowLogSink>,
+		graph: &Arc<ArcSwap<FlowGraph>>,
+		verbosity: &Arc<VerbosityState>,
+		log_sink: &Arc<dyn FlowLogSink>,
 	) {
 		let addrs: Vec<SocketAddr> = {
 			let initial = graph.load_full();
@@ -292,9 +292,9 @@ impl ListenerSet {
 			let handle = self.spawn_listener_for_addr(
 				addr,
 				transport,
-				Arc::clone(&graph),
-				Arc::clone(&verbosity),
-				Arc::clone(&log_sink),
+				Arc::clone(graph),
+				Arc::clone(verbosity),
+				Arc::clone(log_sink),
 			);
 			running.insert(addr, handle);
 		}
@@ -519,9 +519,9 @@ impl ListenerSet {
 	/// `Arc<FlowGraph>` and run to completion regardless of the diff.
 	pub fn reconcile(
 		&self,
-		graph: Arc<ArcSwap<FlowGraph>>,
-		verbosity: Arc<VerbosityState>,
-		log_sink: Arc<dyn FlowLogSink>,
+		graph: &Arc<ArcSwap<FlowGraph>>,
+		verbosity: &Arc<VerbosityState>,
+		log_sink: &Arc<dyn FlowLogSink>,
 	) {
 		let target: std::collections::HashSet<SocketAddr> = {
 			let g = graph.load_full();
@@ -558,9 +558,9 @@ impl ListenerSet {
 			let handle = self.spawn_listener_for_addr(
 				addr,
 				transport,
-				Arc::clone(&graph),
-				Arc::clone(&verbosity),
-				Arc::clone(&log_sink),
+				Arc::clone(graph),
+				Arc::clone(verbosity),
+				Arc::clone(log_sink),
 			);
 			running.insert(addr, handle);
 		}

@@ -116,11 +116,7 @@ pub(crate) fn spawn_watcher_handler(
 							// addresses, background-drain any removed
 							// ones. Unchanged addresses are picked up by
 							// the existing per-accept entry lookup.
-							listeners.reconcile(
-								Arc::clone(&graph),
-								Arc::clone(&verbosity),
-								Arc::clone(&log_sink),
-							);
+							listeners.reconcile(&graph, &verbosity, &log_sink);
 						}
 						Ok(ReloadOutcome::Unchanged { .. }) => tracing::debug!(
 							"reloaded — no semantic change, swap skipped",

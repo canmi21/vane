@@ -172,7 +172,7 @@ async fn protocol_detect_classifies_http1_request() {
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(NullSink);
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	drive_client(addr, b"GET / HTTP/1.1\r\nHost: x\r\n\r\n").await;
@@ -192,7 +192,7 @@ async fn protocol_detect_classifies_http2_preface() {
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(NullSink);
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	drive_client(addr, H2_PREFACE).await;
@@ -211,7 +211,7 @@ async fn protocol_detect_classifies_tls_clienthello_and_populates_sni() {
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(NullSink);
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	let hello_bytes = build_client_hello_bytes("api.example.com", &[b"h2".to_vec()]);
@@ -240,7 +240,7 @@ async fn protocol_detect_unknown_payload_routes_to_l4_subgraph() {
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(NullSink);
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(Arc::clone(&graph))), Arc::clone(&verbosity), sink);
+	set.start(&Arc::new(ArcSwap::new(Arc::clone(&graph))), &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(50)).await;
 
 	// Random-ish prefix that none of the detectors will commit on:

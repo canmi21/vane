@@ -141,7 +141,7 @@ async fn start_listener(graph: Arc<FlowGraph>) -> (ListenerSet, SocketAddr) {
 	let sink: Arc<dyn FlowLogSink> = Arc::new(DropSink);
 
 	let set = ListenerSet::new();
-	set.start(Arc::new(ArcSwap::new(graph)), verbosity, sink);
+	set.start(&Arc::new(ArcSwap::new(graph)), &verbosity, &sink);
 
 	tokio::time::sleep(Duration::from_millis(50)).await;
 	(set, addr)

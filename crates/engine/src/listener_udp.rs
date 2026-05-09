@@ -200,8 +200,8 @@ pub async fn run_udp_listener(
 				match crate::h3::listener::spawn_h3_endpoint(
 					addr,
 					Arc::clone(&socket),
-					tls_cfg,
-					Arc::clone(&dispatch_table),
+					&tls_cfg,
+					&dispatch_table,
 					Arc::clone(&graph),
 					Arc::clone(&log_sink),
 					Arc::clone(&verbosity),

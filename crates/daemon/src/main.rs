@@ -375,7 +375,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		}
 	};
 
-	listeners.start(Arc::clone(&graph_swap), Arc::clone(&verbosity), Arc::clone(&sink));
+	listeners.start(&graph_swap, &verbosity, &sink);
 	tracing::info!(active = listeners.len(), "listeners started");
 
 	// `shutdown_trigger` is shared by the boot health watchdog (fires
