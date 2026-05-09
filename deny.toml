@@ -12,6 +12,56 @@
 [graph]
 all-features = true
 
+[advisories]
+# RustSec advisory categories. We track yanked / vuln advisories at
+# their default levels; `unmaintained = "none"` opts out of the
+# unmaintained-crate signal because it fires too eagerly on long-lived
+# upstreams (e.g. a crate that hasn't seen a commit in 18 months but
+# is doing exactly what we need is not a real signal).
+unmaintained = "none"
+ignore = []
+
+[licenses]
+# SPDX identifiers we accept for any crate in the dep graph. Add new
+# lines as cargo-deny reports them; the goal is "explicit allowlist
+# of permissive-OSS licenses we're already comfortable shipping with."
+# `confidence-threshold = 0.8` lets cargo-deny fall back to text
+# matching when LICENSE files lack a clean SPDX header — strict enough
+# to not silently accept exotic licenses, lax enough to handle the
+# minor textual drift in MIT / Apache-2.0 boilerplates upstream.
+confidence-threshold = 0.8
+allow = [
+	"Apache-2.0",
+	"Apache-2.0 WITH LLVM-exception",
+	"BSD-3-Clause",
+	"CC0-1.0",
+	"ISC",
+	"MIT",
+	"Unicode-3.0",
+	"Zlib",
+]
+
+# Per-crate license exceptions. CDLA-Permissive-2.0 is the
+# Mozilla-CA-bundle data license; it's permissive enough to ship
+# with, but we scope it to the two crates that actually redistribute
+# the bundle so a future random crate that picks up CDLA gets caught.
+[[licenses.exceptions]]
+name = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
+
+[[licenses.exceptions]]
+name = "webpki-root-certs"
+allow = ["CDLA-Permissive-2.0"]
+
+[sources]
+# Where deps may come from. `unknown-registry`/`unknown-git` are at
+# `warn` so the gate doesn't fail on a private registry / git URL,
+# but the warning still shows up — promote to `deny` once we audit
+# what the workspace actually pulls.
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-git = []
+
 [bans]
 # The reason this config exists: any crate appearing at two different
 # versions in the resolved graph fails the gate. Workspace members

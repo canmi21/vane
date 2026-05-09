@@ -53,5 +53,5 @@ jobs:
         with:
           tool: cargo-deny
 
-      - name: Cargo deny (bans)
-        run: cargo deny check bans
+      - name: Cargo deny
+        run: cargo deny check
