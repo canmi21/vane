@@ -1,29 +1,14 @@
 experimental = ["setup-scripts"]
 
 [profile.default]
-# Warn at 10s, kill at 20s. The slowest legitimate test in this
-# workspace is around 4s (boot-health watchdog tied to its 3s
-# deadline + spawn jitter). Anything past 10s is already off the
-# expected curve; anything past 20s is wedged. terminate-after = 2
-# means the kill lands at 2 × period = 20s.
+# Slowest legitimate test ~4s (3s boot-health watchdog + spawn jitter).
+# Past 10s is off-curve; past 20s is wedged.
 slow-timeout = { period = "10s", terminate-after = 2 }
 
-# Pre-build the `vane` CLI before daemon mgmt tests run and export
-# its path through `$NEXTEST_ENV` so `vane_cli()` can `Command::new`
-# the binary directly. `mgmt.rs` shells out to the CLI for pretty
-# / JSON output coverage, but `vane` lives in a sibling package and
-# is not in nextest's `--workspace` implicit build set.
-#
-# An earlier version of this setup ran `cargo build -p vane --bin
-# vane` here and let each mgmt test process call escargot at
-# runtime to discover the path. Even with a warm cache, escargot
-# still invokes `cargo build` once per test process — cargo's
-# build lock then serialises the parallel mgmt-test fan-out, and
-# on slower CI runners that serialisation routinely pushed the
-# four CLI-driven tests past the 20 s `slow-timeout`. Driving the
-# build through `cargo xtask build-vane-cli` and reading the path
-# from `$NEXTEST_ENV` keeps the cargo lock out of the test
-# critical path entirely.
+# Pre-build vane CLI for daemon mgmt tests; export the path via $NEXTEST_ENV
+# so test processes don't each run their own `cargo build`. Escargot's
+# per-process build serialised on cargo's build lock under `--workspace`
+# parallelism and pushed CLI-driven tests past slow-timeout on slower CI.
 [scripts.setup.build-vane-cli]
 command = "cargo xtask build-vane-cli"
 slow-timeout = { period = "60s", terminate-after = 4 }
@@ -32,27 +17,10 @@ slow-timeout = { period = "60s", terminate-after = 4 }
 filter = "binary(mgmt)"
 setup = ["build-vane-cli"]
 
-# The reload + wasm_e2e tests each spawn a real `vaned` process and
-# drive it through watcher debounce + reload + listener reconcile.
-# Solo, each test finishes in 1-3 s. Under workspace parallelism the
-# binary races against the rest of the workspace's TLS handshakes for
-# CPU and OS scheduler attention; wait_until polls inflate as a
-# result.
-#
-# Each binary gets its own single-thread group rather than sharing
-# one. Sharing meant 9 daemon-spawning tests serialised onto a single
-# scheduling slot — tests waiting later in the queue still had their
-# wait_until budgets running on wall-clock, and the slowest reload
-# scenario (`reload_adds_new_listen_port_serves_traffic`, which has
-# to bind a brand-new listener after reload) consistently lost to
-# the queue. Two parallel single-thread groups lets each binary make
-# progress without queueing behind the other.
-#
-# Cost: ~3 s added to wall-clock for `cargo nextest run --workspace`.
-# The reload tests get a 15 s in-test ceiling (see
-# `crates/daemon/tests/reload.rs::RELOAD_BUDGET`); wasm_e2e tests are
-# fast enough (~0.5 s each) that the workspace-level slow-timeout
-# above suffices.
+# reload + wasm_e2e spawn real vaned processes; under workspace parallelism
+# their wait_until polls inflate from CPU contention. Per-binary serial groups
+# (vs. one shared group) prevent 9 daemon-spawning tests from queuing behind
+# each other on wall-clock budgets — costs ~3s total wall-clock.
 [test-groups]
 reload-serial = { max-threads = 1 }
 wasm-e2e-serial = { max-threads = 1 }
@@ -66,11 +34,8 @@ test-group = "reload-serial"
 filter = "binary(wasm_e2e)"
 test-group = "wasm-e2e-serial"
 
-# The Pebble-backed ACME e2e tests pull a Docker image on first
-# run (~10s on a fresh box) and exercise the full RFC 8555 round
-# trip; their wall-clock comfortably exceeds the workspace
-# slow-timeout. Bump the per-test budget and serialise so the
-# tests don't race for the same Docker daemon's container slots.
+# Pebble-backed ACME e2e: cold Docker image pull (~10s) + full RFC 8555 round
+# trip; bumped per-test budget and serialised against Docker daemon contention.
 [[profile.default.overrides]]
 filter = "binary(acme_http01_e2e) | binary(acme_dns01_e2e) | binary(acme_handshake_e2e)"
 test-group = "acme-e2e-serial"
