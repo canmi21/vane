@@ -730,148 +730,165 @@ pub async fn dispatch_wasm(
 	resp: &mut Option<Response>,
 	conn: &Arc<ConnContext>,
 ) -> Result<Decision, Error> {
-	let ctx: Vec<ContextEntry> = match w.metadata.exports.iter().find(|e| e.name == w.export_name) {
-		Some(export) => {
-			crate::wasm_context::pack_context(&export.inspects, conn, w.module_id.0.as_ref())
-		}
+	let export = w.metadata.exports.iter().find(|e| e.name == w.export_name);
+	let ctx: Vec<ContextEntry> = match export {
+		Some(e) => crate::wasm_context::pack_context(&e.inspects, conn, w.module_id.0.as_ref()),
 		None => Vec::new(),
 	};
-
-	match w.metadata.exports.iter().find(|e| e.name == w.export_name).map(|e| e.kind) {
-		Some(MiddlewareKind::L4Peek) => {
-			// Peek bytes live on `ConnContext.user` as `PeekResult.buffer`,
-			// written by the listener-side peek prelude (spec/crates/engine.md §
-			// _Protocol detection_). Reading from `L4Conn::Peeked` would
-			// consume the rewound bytes and starve the L7 layer. Cloning
-			// the `Bytes` is refcounted-cheap; releasing the lock before
-			// the await keeps middleware free to take its own `conn.user`
-			// lock without self-deadlock.
-			let peek_buf: Option<bytes::Bytes> = {
-				let user = conn.user.lock();
-				user.get::<vane_core::PeekResult>().map(|r| r.buffer.clone())
-			};
-			// Absent `PeekResult` means the listener has no peek phase
-			// configured (`needs_peek = false`); plugins legitimately see
-			// an empty peek slice in that case.
-			let peek = peek_buf.map(|b| b.to_vec()).unwrap_or_default();
-			let input = L4PeekInput { peek, context: ctx };
-			match w.runtime.invoke_l4_peek(&w.module_id, &w.export_name, &w.args_json, input).await {
-				Ok(L4PeekDecision::Continue) => Ok(Decision::Continue),
-				Ok(L4PeekDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
-					CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l4-peek close")),
-				))),
-				Err(pe) => plugin_error_to_decision(pe),
-			}
-		}
-		Some(MiddlewareKind::L4Bytes) => {
-			// UDP carries the cold-path datagram on `UdpAssoc.first_packets`.
-			// L4Bytes reads the first datagram of the buffered set; multi-
-			// packet sets only arise after the pending-peek state machine
-			// completes (spec/crates/engine.md § _Multi-packet peek_), and even then the
-			// L4Bytes contract is "first data unit" semantics.
-			//
-			// On TCP / TLS the equivalent prefix lives on `ConnContext.user`
-			// as `PeekResult.buffer`, captured by the listener-side
-			// protocol-detection prelude (spec/crates/engine.md § _Protocol detection_) —
-			// the same buffer L4Peek reads. Reading from `L4Conn::Peeked`
-			// directly would consume the rewound bytes the L7 layer still
-			// needs, so the peek snapshot is the only safe TCP source.
-			// Continued post-peek byte streaming for L4Bytes is post-MVP.
-			let bytes_view = match l4.as_ref() {
-				Some(L4Conn::Udp(assoc)) => {
-					// Cold-path entry guarantees `first_packets` is non-empty
-					// (the listener never builds a UdpAssoc without at least
-					// one triggering datagram).
-					let pkt = assoc.first_packets.first().expect("UdpAssoc carries ≥1 datagram");
-					if pkt.len() > WASM_BODY_LIMIT_L4 {
-						BytesView { data: pkt[..WASM_BODY_LIMIT_L4].to_vec(), truncated: true }
-					} else {
-						BytesView { data: pkt.to_vec(), truncated: false }
-					}
-				}
-				Some(L4Conn::Tcp(_) | L4Conn::Peeked(_) | L4Conn::Tls(_)) => {
-					let peek_buf: Option<bytes::Bytes> = {
-						let user = conn.user.lock();
-						user.get::<vane_core::PeekResult>().map(|r| r.buffer.clone())
-					};
-					match peek_buf {
-						Some(buf) if buf.len() > WASM_BODY_LIMIT_L4 => {
-							BytesView { data: buf[..WASM_BODY_LIMIT_L4].to_vec(), truncated: true }
-						}
-						Some(buf) => BytesView { data: buf.to_vec(), truncated: false },
-						None => BytesView { data: vec![], truncated: false },
-					}
-				}
-				None => BytesView { data: vec![], truncated: false },
-			};
-			let input = L4BytesInput { bytes: bytes_view, context: ctx };
-			match w.runtime.invoke_l4_bytes(&w.module_id, &w.export_name, &w.args_json, input).await {
-				Ok(L4BytesDecision::Continue | L4BytesDecision::Tunnel) => Ok(Decision::Continue),
-				Ok(L4BytesDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
-					CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l4-bytes close")),
-				))),
-				Err(pe) => plugin_error_to_decision(pe),
-			}
-		}
-		Some(MiddlewareKind::L7Request) => {
-			let req_ref = req.as_mut().expect("phase invariant: L7Request wasm needs Request");
-			let method = req_ref.method().to_string();
-			let uri = req_ref.uri().to_string();
-			let headers = http_headers_to_wasm(req_ref.headers());
-			let body_view = if w.metadata.exports.iter().any(|e| e.name == w.export_name && e.needs_body)
-			{
-				Some(body_as_bytes_view(req_ref.body(), WASM_BODY_LIMIT_L7))
-			} else {
-				None
-			};
-			let input = L7RequestInput { method, uri, headers, body: body_view, context: ctx };
-			match w.runtime.invoke_l7_request(&w.module_id, &w.export_name, &w.args_json, input).await {
-				Ok(L7RequestDecision::Continue) => Ok(Decision::Continue),
-				Ok(L7RequestDecision::Short(sr)) => {
-					let response = synth_response_to_http(sr)?;
-					Ok(Decision::Short(ShortCircuit::Response(response)))
-				}
-				Ok(L7RequestDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
-					CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l7-request close")),
-				))),
-				Err(pe) => plugin_error_to_decision(pe),
-			}
-		}
+	match export.map(|e| e.kind) {
+		Some(MiddlewareKind::L4Peek) => dispatch_wasm_l4_peek(w, ctx, conn).await,
+		Some(MiddlewareKind::L4Bytes) => dispatch_wasm_l4_bytes(w, ctx, l4, conn).await,
+		Some(MiddlewareKind::L7Request) => dispatch_wasm_l7_request(w, ctx, req).await,
+		Some(MiddlewareKind::L7Response) => dispatch_wasm_l7_response(w, ctx, resp).await,
 		None => Err(Error::middleware(format!(
 			"export '{}' not found in plugin metadata for module '{}'",
 			w.export_name, w.module_id.0,
 		))),
-		Some(MiddlewareKind::L7Response) => {
-			let resp_ref = resp.as_mut().expect("phase invariant: L7Response wasm needs Response");
-			let status = resp_ref.status().as_u16();
-			let headers = http_headers_to_wasm(resp_ref.headers());
-			let body_view = if w.metadata.exports.iter().any(|e| e.name == w.export_name && e.needs_body)
-			{
-				Some(body_as_bytes_view(resp_ref.body(), WASM_BODY_LIMIT_L7))
+	}
+}
+
+/// L4Peek dispatch: reads the listener-side peek snapshot off
+/// `ConnContext.user` (spec/crates/engine.md § _Protocol detection_).
+/// Reading from `L4Conn::Peeked` directly would consume the rewound
+/// bytes and starve the L7 layer; the snapshot is the only safe source.
+/// Cloning the `Bytes` is refcounted-cheap; releasing the lock before
+/// `.await` keeps middleware free to take its own `conn.user` lock
+/// without self-deadlock.
+async fn dispatch_wasm_l4_peek(
+	w: &crate::flow_graph::WasmMiddleware,
+	ctx: Vec<ContextEntry>,
+	conn: &Arc<ConnContext>,
+) -> Result<Decision, Error> {
+	let peek_buf: Option<bytes::Bytes> = {
+		let user = conn.user.lock();
+		user.get::<vane_core::PeekResult>().map(|r| r.buffer.clone())
+	};
+	// Absent `PeekResult` means the listener has no peek phase configured
+	// (`needs_peek = false`); plugins legitimately see an empty slice.
+	let peek = peek_buf.map(|b| b.to_vec()).unwrap_or_default();
+	let input = L4PeekInput { peek, context: ctx };
+	match w.runtime.invoke_l4_peek(&w.module_id, &w.export_name, &w.args_json, input).await {
+		Ok(L4PeekDecision::Continue) => Ok(Decision::Continue),
+		Ok(L4PeekDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
+			CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l4-peek close")),
+		))),
+		Err(pe) => plugin_error_to_decision(pe),
+	}
+}
+
+/// L4Bytes dispatch: UDP reads the first cold-path datagram off
+/// `UdpAssoc.first_packets`; TCP / TLS / Peeked reuse the L4Peek
+/// snapshot off `ConnContext.user` because reading the rewound bytes
+/// would starve the L7 layer (continued post-peek byte streaming for
+/// L4Bytes is post-MVP). Each path truncates to `WASM_BODY_LIMIT_L4`.
+async fn dispatch_wasm_l4_bytes(
+	w: &crate::flow_graph::WasmMiddleware,
+	ctx: Vec<ContextEntry>,
+	l4: &mut Option<L4Conn>,
+	conn: &Arc<ConnContext>,
+) -> Result<Decision, Error> {
+	let bytes_view = match l4.as_ref() {
+		Some(L4Conn::Udp(assoc)) => {
+			// Cold-path entry guarantees `first_packets` is non-empty.
+			let pkt = assoc.first_packets.first().expect("UdpAssoc carries ≥1 datagram");
+			if pkt.len() > WASM_BODY_LIMIT_L4 {
+				BytesView { data: pkt[..WASM_BODY_LIMIT_L4].to_vec(), truncated: true }
 			} else {
-				None
-			};
-			let input = L7ResponseInput { status, headers, body: body_view, context: ctx };
-			match w.runtime.invoke_l7_response(&w.module_id, &w.export_name, &w.args_json, input).await {
-				Ok(L7ResponseDecision::Continue) => Ok(Decision::Continue),
-				Ok(L7ResponseDecision::Modify(mr)) => {
-					if let Some(Ok(code)) = mr.status.map(http::StatusCode::try_from) {
-						*resp_ref.status_mut() = code;
-					}
-					if let Some(hdrs) = mr.headers {
-						*resp_ref.headers_mut() = wasm_headers_to_http(hdrs);
-					}
-					if let Some(body_bytes) = mr.body {
-						*resp_ref.body_mut() = Body::Static(bytes::Bytes::from(body_bytes));
-					}
-					Ok(Decision::Continue)
-				}
-				Ok(L7ResponseDecision::Abort) => Ok(Decision::Short(ShortCircuit::Close(
-					CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l7-response abort")),
-				))),
-				Err(pe) => plugin_error_to_decision(pe),
+				BytesView { data: pkt.to_vec(), truncated: false }
 			}
 		}
+		Some(L4Conn::Tcp(_) | L4Conn::Peeked(_) | L4Conn::Tls(_)) => {
+			let peek_buf: Option<bytes::Bytes> = {
+				let user = conn.user.lock();
+				user.get::<vane_core::PeekResult>().map(|r| r.buffer.clone())
+			};
+			match peek_buf {
+				Some(buf) if buf.len() > WASM_BODY_LIMIT_L4 => {
+					BytesView { data: buf[..WASM_BODY_LIMIT_L4].to_vec(), truncated: true }
+				}
+				Some(buf) => BytesView { data: buf.to_vec(), truncated: false },
+				None => BytesView { data: vec![], truncated: false },
+			}
+		}
+		None => BytesView { data: vec![], truncated: false },
+	};
+	let input = L4BytesInput { bytes: bytes_view, context: ctx };
+	match w.runtime.invoke_l4_bytes(&w.module_id, &w.export_name, &w.args_json, input).await {
+		Ok(L4BytesDecision::Continue | L4BytesDecision::Tunnel) => Ok(Decision::Continue),
+		Ok(L4BytesDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
+			CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l4-bytes close")),
+		))),
+		Err(pe) => plugin_error_to_decision(pe),
+	}
+}
+
+/// L7Request dispatch: pack method / URI / headers + optional body
+/// (`needs_body`-gated) into the WASM ABI; translate the plugin's
+/// decision back to executor terms (Continue / Short(synth response) /
+/// Close).
+async fn dispatch_wasm_l7_request(
+	w: &crate::flow_graph::WasmMiddleware,
+	ctx: Vec<ContextEntry>,
+	req: &mut Option<Request>,
+) -> Result<Decision, Error> {
+	let req_ref = req.as_mut().expect("phase invariant: L7Request wasm needs Request");
+	let method = req_ref.method().to_string();
+	let uri = req_ref.uri().to_string();
+	let headers = http_headers_to_wasm(req_ref.headers());
+	let body_view = if w.metadata.exports.iter().any(|e| e.name == w.export_name && e.needs_body) {
+		Some(body_as_bytes_view(req_ref.body(), WASM_BODY_LIMIT_L7))
+	} else {
+		None
+	};
+	let input = L7RequestInput { method, uri, headers, body: body_view, context: ctx };
+	match w.runtime.invoke_l7_request(&w.module_id, &w.export_name, &w.args_json, input).await {
+		Ok(L7RequestDecision::Continue) => Ok(Decision::Continue),
+		Ok(L7RequestDecision::Short(sr)) => {
+			let response = synth_response_to_http(sr)?;
+			Ok(Decision::Short(ShortCircuit::Response(response)))
+		}
+		Ok(L7RequestDecision::Close) => Ok(Decision::Short(ShortCircuit::Close(
+			CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l7-request close")),
+		))),
+		Err(pe) => plugin_error_to_decision(pe),
+	}
+}
+
+/// L7Response dispatch: pack status / headers + optional body into
+/// the WASM ABI; on `Modify` apply the plugin's overrides back to the
+/// in-flight `Response` (status, headers, body).
+async fn dispatch_wasm_l7_response(
+	w: &crate::flow_graph::WasmMiddleware,
+	ctx: Vec<ContextEntry>,
+	resp: &mut Option<Response>,
+) -> Result<Decision, Error> {
+	let resp_ref = resp.as_mut().expect("phase invariant: L7Response wasm needs Response");
+	let status = resp_ref.status().as_u16();
+	let headers = http_headers_to_wasm(resp_ref.headers());
+	let body_view = if w.metadata.exports.iter().any(|e| e.name == w.export_name && e.needs_body) {
+		Some(body_as_bytes_view(resp_ref.body(), WASM_BODY_LIMIT_L7))
+	} else {
+		None
+	};
+	let input = L7ResponseInput { status, headers, body: body_view, context: ctx };
+	match w.runtime.invoke_l7_response(&w.module_id, &w.export_name, &w.args_json, input).await {
+		Ok(L7ResponseDecision::Continue) => Ok(Decision::Continue),
+		Ok(L7ResponseDecision::Modify(mr)) => {
+			if let Some(Ok(code)) = mr.status.map(http::StatusCode::try_from) {
+				*resp_ref.status_mut() = code;
+			}
+			if let Some(hdrs) = mr.headers {
+				*resp_ref.headers_mut() = wasm_headers_to_http(hdrs);
+			}
+			if let Some(body_bytes) = mr.body {
+				*resp_ref.body_mut() = Body::Static(bytes::Bytes::from(body_bytes));
+			}
+			Ok(Decision::Continue)
+		}
+		Ok(L7ResponseDecision::Abort) => Ok(Decision::Short(ShortCircuit::Close(
+			CloseReason::PolicyDenied(std::borrow::Cow::Borrowed("plugin l7-response abort")),
+		))),
+		Err(pe) => plugin_error_to_decision(pe),
 	}
 }
 
