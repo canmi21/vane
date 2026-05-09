@@ -287,18 +287,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	)
 	.await?;
 
-	wait_for_shutdown_signal(
+	wait_for_shutdown_signal(boot::ShutdownContext {
 		listeners,
 		watcher_cancel,
 		watcher_handle,
-		mgmt.cancel,
-		mgmt.unix_handle,
-		mgmt.http_handles,
+		mgmt,
 		shutdown_trigger,
 		sigterm,
 		sigint,
-		Duration::from_secs(loaded.env.drain_timeout_secs.into()),
-	)
+		soft_drain: Duration::from_secs(loaded.env.drain_timeout_secs.into()),
+	})
 	.await;
 	Ok(())
 }
@@ -526,18 +524,17 @@ pub(crate) fn spawn_boot_health_watchdog(
 	});
 }
 
-async fn wait_for_shutdown_signal(
-	listeners: Arc<ListenerSet>,
-	watcher_cancel: CancellationToken,
-	watcher_handle: Option<tokio::task::JoinHandle<()>>,
-	mgmt_cancel: CancellationToken,
-	mgmt_unix_handle: Option<tokio::task::JoinHandle<()>>,
-	mgmt_http_handles: Vec<tokio::task::JoinHandle<()>>,
-	mgmt_shutdown_trigger: CancellationToken,
-	mut sigterm: tokio::signal::unix::Signal,
-	mut sigint: tokio::signal::unix::Signal,
-	soft_drain: Duration,
-) {
+async fn wait_for_shutdown_signal(ctx: boot::ShutdownContext) {
+	let boot::ShutdownContext {
+		listeners,
+		watcher_cancel,
+		watcher_handle,
+		mgmt,
+		shutdown_trigger,
+		mut sigterm,
+		mut sigint,
+		soft_drain,
+	} = ctx;
 	let drain = tokio::select! {
 		_ = sigterm.recv() => {
 			tracing::info!(drain_secs = soft_drain.as_secs(), "SIGTERM received — soft drain");
@@ -547,20 +544,20 @@ async fn wait_for_shutdown_signal(
 			tracing::info!("SIGINT received — immediate shutdown");
 			Duration::from_secs(0)
 		}
-		() = mgmt_shutdown_trigger.cancelled() => {
+		() = shutdown_trigger.cancelled() => {
 			tracing::info!(drain_secs = soft_drain.as_secs(), "mgmt shutdown verb received — soft drain");
 			soft_drain
 		}
 	};
 	watcher_cancel.cancel();
-	mgmt_cancel.cancel();
+	mgmt.cancel.cancel();
 	if let Some(h) = watcher_handle {
 		let _ = h.await;
 	}
-	if let Some(h) = mgmt_unix_handle {
+	if let Some(h) = mgmt.unix_handle {
 		let _ = h.await;
 	}
-	for h in mgmt_http_handles {
+	for h in mgmt.http_handles {
 		let _ = h.await;
 	}
 	listeners.shutdown(drain).await;

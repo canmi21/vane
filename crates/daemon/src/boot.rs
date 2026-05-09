@@ -290,6 +290,21 @@ pub(crate) struct MgmtPlaneHandles {
 	pub http_handles: Vec<tokio::task::JoinHandle<()>>,
 }
 
+/// State passed to `wait_for_shutdown_signal`: every cancel token, every
+/// background JoinHandle that needs awaiting on a triggered shutdown,
+/// the listener set to drain, the POSIX signal streams, and the soft-
+/// drain budget. Built once at the end of `main::run` and consumed.
+pub(crate) struct ShutdownContext {
+	pub listeners: Arc<ListenerSet>,
+	pub watcher_cancel: CancellationToken,
+	pub watcher_handle: Option<tokio::task::JoinHandle<()>>,
+	pub mgmt: MgmtPlaneHandles,
+	pub shutdown_trigger: CancellationToken,
+	pub sigterm: tokio::signal::unix::Signal,
+	pub sigint: tokio::signal::unix::Signal,
+	pub soft_drain: std::time::Duration,
+}
+
 /// Phase: build [`MgmtState`] from the live daemon handles, bind the
 /// Unix mgmt socket, bind the HTTP mgmt listeners. Bind failures on
 /// either transport are logged and the daemon continues serving traffic
