@@ -6569,7 +6569,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.10.4"
 dependencies = [
  "anyhow",
  "cargo_metadata",
