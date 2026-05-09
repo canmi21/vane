@@ -424,6 +424,7 @@ mod tests {
 
 	#[test]
 	fn parse_tls_args_defaults_verify_hostname_to_host_portion() {
+		crate::crypto::install_default_provider();
 		let parsed = parse_tls_args(
 			"api.example.com:443",
 			Some(&serde_json::json!({ "insecure_skip_verify": true })),
@@ -436,6 +437,7 @@ mod tests {
 
 	#[test]
 	fn parse_tls_args_explicit_verify_hostname_overrides_default() {
+		crate::crypto::install_default_provider();
 		let parsed = parse_tls_args(
 			"127.0.0.1:9443",
 			Some(&serde_json::json!({
