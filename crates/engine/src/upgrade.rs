@@ -519,11 +519,15 @@ pub(crate) async fn drive_h3_server(
 							);
 							continue;
 						};
-						let conn = Arc::clone(&conn);
-						let log = Arc::clone(&log);
-						let cancel = cancel.clone();
-						let verbosity = verbosity.current();
-						tokio::spawn(handle_h3_request(req, stream, graph_snap, entry, conn, log, cancel, verbosity));
+						let sctx = H3StreamCtx {
+							graph: graph_snap,
+							entry,
+							conn: Arc::clone(&conn),
+							log: Arc::clone(&log),
+							cancel: cancel.clone(),
+							verbosity: verbosity.current(),
+						};
+						tokio::spawn(handle_h3_request(req, stream, sctx));
 					}
 					Ok(None) => return,
 					Err(e) => {
@@ -534,6 +538,21 @@ pub(crate) async fn drive_h3_server(
 			}
 		}
 	}
+}
+
+/// Per-stream executor inputs that are constant across the H3
+/// request's lifetime: the captured graph snapshot, the resolved L7
+/// entry, the shared `ConnContext`, and the FlowCtx primitives (log
+/// sink, cancel token, verbosity snapshot). One instance is built per
+/// accepted bidi stream and moved into [`handle_h3_request`].
+#[cfg(feature = "h3")]
+pub(crate) struct H3StreamCtx {
+	pub graph: Arc<FlowGraph>,
+	pub entry: NodeId,
+	pub conn: Arc<vane_core::ConnContext>,
+	pub log: Arc<dyn FlowLogSink>,
+	pub cancel: CancellationToken,
+	pub verbosity: vane_core::FlowLogVerbosity,
 }
 
 /// Per-stream handler — runs the executor then writes the response
@@ -553,14 +572,10 @@ pub(crate) async fn drive_h3_server(
 async fn handle_h3_request(
 	req: http::Request<()>,
 	stream: h3::server::RequestStream<h3_quinn::BidiStream<bytes::Bytes>, bytes::Bytes>,
-	graph: Arc<FlowGraph>,
-	entry: NodeId,
-	conn: Arc<vane_core::ConnContext>,
-	log: Arc<dyn FlowLogSink>,
-	cancel: CancellationToken,
-	verbosity: vane_core::FlowLogVerbosity,
+	sctx: H3StreamCtx,
 ) {
 	use http_body::Body as _;
+	let H3StreamCtx { graph, entry, conn, log, cancel, verbosity } = sctx;
 	let (mut parts, _empty) = req.into_parts();
 
 	// `h3` sets `parts.version = HTTP/3.0`. The L7 executor + middleware
