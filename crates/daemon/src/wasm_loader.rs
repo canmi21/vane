@@ -26,10 +26,9 @@
 //!   operator action — it shows up as a filesystem rename rather
 //!   than a silent change of in-rule reference.
 //!
-//! The watcher / hot-reload path (out of scope for this commit) will
-//! reuse this loader's output: re-running the scan and rebuilding
-//! the registry. For now reload reuses whatever the boot scan
-//! produced; adding new plugins requires a daemon restart.
+//! [`load_all`] runs at boot; [`reload_dir`] runs on every file-watcher
+//! reload, reconciling the runtime + registry against the current
+//! filesystem state.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -74,20 +73,240 @@ pub(crate) struct LoadedModuleInfo {
 	pub metadata: Arc<PluginMetadata>,
 }
 
+/// List `*.wasm` paths in `wasm_dir`, sorted. NotFound is treated as
+/// an empty directory — callers distinguish "missing" from "empty"
+/// downstream by checking whether the result is empty (cheap) without
+/// the extra signal in the return type.
+fn discover_wasm_files(wasm_dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+	let entries = match std::fs::read_dir(wasm_dir) {
+		Ok(rd) => rd,
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+		Err(e) => return Err(e),
+	};
+	let mut files: Vec<PathBuf> = entries
+		.filter_map(Result::ok)
+		.map(|e| e.path())
+		.filter(|p| p.is_file() && p.extension().is_some_and(|ext| ext == "wasm"))
+		.collect();
+	files.sort();
+	Ok(files)
+}
+
+/// Construct the daemon-wide WASM runtime: HTTP fetch backend + the
+/// `WasmtimeRuntime`. Both failures are warn-logged and surface as
+/// `None` so the daemon proceeds without WASM.
+fn build_wasm_runtime() -> Option<Arc<WasmtimeRuntime>> {
+	let backend: Arc<dyn HttpFetchBackend> = match HyperHttpFetchBackend::new() {
+		Ok(b) => Arc::new(b),
+		Err(e) => {
+			tracing::warn!(error = %e, "hyper http-fetch backend construction failed; skipping wasm runtime");
+			return None;
+		}
+	};
+	match WasmtimeRuntime::new(backend) {
+		Ok(rt) => Some(rt),
+		Err(e) => {
+			tracing::warn!(error = %e, "wasm runtime construction failed; skipping wasm runtime");
+			None
+		}
+	}
+}
+
+/// Register every export of one loaded module under
+/// `<stem>:<export>` keys; returns the export count for the caller's
+/// running total.
+fn register_module_exports(
+	registry: &mut PluginRegistry,
+	stem: &str,
+	module_id: &ModuleId,
+	runtime: &Arc<WasmtimeRuntime>,
+	metadata: &Arc<PluginMetadata>,
+) -> usize {
+	let runtime_for_registry: Arc<dyn WasmRuntime> = Arc::clone(runtime) as _;
+	let mut count = 0;
+	for export in &metadata.exports {
+		let plugin_name = format!("{stem}:{}", export.name);
+		registry.register(
+			&plugin_name,
+			module_id.clone(),
+			export.name.clone(),
+			Arc::clone(metadata),
+			Arc::clone(&runtime_for_registry),
+		);
+		count += 1;
+	}
+	count
+}
+
+/// Apply each module's resolved policy onto the runtime so subsequent
+/// `invoke_*` calls see the operator-owned view at host-fn time.
+fn apply_per_module_policies(
+	runtime: &WasmtimeRuntime,
+	modules: &[LoadedModuleInfo],
+	policies: &PluginPolicyTable,
+) {
+	for module in modules {
+		let stem = module.path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+		let policy = Arc::new(policies.get_or_default(stem));
+		runtime.set_policy(&module.module_id, policy);
+	}
+}
+
+/// Boot-side policy load: warn when policy.json is absent / empty,
+/// info-log policy count, fall back to deny-all on parse error.
+fn load_policies_for_boot(wasm_dir: &Path) -> PluginPolicyTable {
+	match PluginPolicyTable::load_from_dir(wasm_dir) {
+		Ok(t) => {
+			if t.policies.is_empty() {
+				tracing::warn!(
+					wasm_dir = %wasm_dir.display(),
+					"no wasm/policy.json present; every plugin starts under deny-all http-fetch \
+					 (allowed_hosts = []). Add policy.json to grant outbound access.",
+				);
+			} else {
+				tracing::info!(policies = t.policies.len(), "loaded plugin http policy table");
+			}
+			t
+		}
+		Err(e) => {
+			tracing::warn!(
+				wasm_dir = %wasm_dir.display(),
+				error = %e,
+				"wasm/policy.json failed to parse; falling back to deny-all defaults",
+			);
+			PluginPolicyTable::new()
+		}
+	}
+}
+
+/// Reload-side policy load: keep the prior table on parse failure so
+/// the daemon doesn't accidentally widen / narrow access during a
+/// transient `policy.json` error.
+fn load_policies_for_reload(
+	wasm_dir: &Path,
+	policies_swap: &Arc<ArcSwap<PluginPolicyTable>>,
+) -> PluginPolicyTable {
+	match PluginPolicyTable::load_from_dir(wasm_dir) {
+		Ok(t) => t,
+		Err(e) => {
+			tracing::warn!(error = %e, "wasm/policy.json reload failed; keeping prior policy table");
+			(*policies_swap.load_full()).clone()
+		}
+	}
+}
+
+/// Snapshot the current registry into a stem-keyed map so the reload
+/// pass can detect added / removed stems by membership testing.
+fn snapshot_stems_from_registry(current: &PluginRegistry) -> BTreeMap<String, Vec<String>> {
+	let mut by_stem: BTreeMap<String, Vec<String>> = BTreeMap::new();
+	for (key, _) in current.iter() {
+		if let Some((stem, _)) = key.split_once(':') {
+			by_stem.entry(stem.to_owned()).or_default().push(key.to_owned());
+		}
+	}
+	by_stem
+}
+
+/// Acquire metadata for one module during reload: known stems take the
+/// `reload_component` path (which may report MetadataChanged → schema
+/// flip); unknown stems take the fresh `load_component` path. Per-
+/// module load failures are warn-logged and surface as `None` so the
+/// caller skips this module without aborting the reload.
+///
+/// Returns `Some((metadata, schema_bumped))` on success; `schema_bumped`
+/// is `true` for added modules and metadata-incompatible reloads.
+async fn acquire_metadata_for_reload(
+	runtime: &Arc<WasmtimeRuntime>,
+	current: &PluginRegistry,
+	stem: &str,
+	module_id: &ModuleId,
+	path: &Path,
+	known_to_registry: bool,
+) -> Result<Option<(Arc<PluginMetadata>, bool)>, Error> {
+	if known_to_registry {
+		match runtime.reload_component(path).await {
+			Ok(ReloadComponentOutcome::Unchanged) => {
+				tracing::debug!(stem, "wasm module unchanged on disk; reusing entries");
+				let meta = runtime
+					.metadata_for_module(module_id)
+					.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?;
+				Ok(Some((meta, false)))
+			}
+			Ok(ReloadComponentOutcome::MetadataUnchanged) => {
+				tracing::info!(stem, "wasm module bytes changed; metadata-compatible swap");
+				let meta = runtime
+					.metadata_for_module(module_id)
+					.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?;
+				Ok(Some((meta, false)))
+			}
+			Ok(ReloadComponentOutcome::MetadataChanged) => {
+				tracing::info!(stem, "wasm module bytes changed; metadata-incompatible recompile");
+				let meta = runtime
+					.metadata_for_module(module_id)
+					.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?;
+				Ok(Some((meta, true)))
+			}
+			Err(e) => {
+				tracing::warn!(
+					path = %path.display(),
+					error = %e,
+					"wasm reload failed; keeping prior registry entries for this stem",
+				);
+				let prior = current
+					.iter()
+					.find(|(_, v)| v.module_id == *module_id)
+					.map(|(_, v)| Arc::clone(&v.metadata));
+				Ok(prior.map(|p| (p, false)))
+			}
+		}
+	} else {
+		match runtime.load_component(path).await {
+			Ok(meta) => {
+				tracing::info!(stem, "wasm module added");
+				Ok(Some((meta, true)))
+			}
+			Err(e) => {
+				tracing::warn!(
+					path = %path.display(),
+					error = %e,
+					"wasm module load failed during reload; skipping",
+				);
+				Ok(None)
+			}
+		}
+	}
+}
+
+/// Drop runtime state for stems that disappeared from disk; returns
+/// `true` if any drop happened (the caller flips `schema_changed`).
+fn drop_disappeared_stems(
+	runtime: &WasmtimeRuntime,
+	current_by_stem: &BTreeMap<String, Vec<String>>,
+	on_disk_stems: &BTreeSet<String>,
+	current: &PluginRegistry,
+) -> bool {
+	let mut any_dropped = false;
+	for stem in current_by_stem.keys() {
+		if on_disk_stems.contains(stem) {
+			continue;
+		}
+		any_dropped = true;
+		if let Some(entry) = current.iter().find(|(k, _)| k.starts_with(&format!("{stem}:"))) {
+			let module_id = entry.1.module_id.clone();
+			runtime.unload_module(&module_id);
+			tracing::info!(stem, "wasm module removed; runtime state unloaded");
+		}
+	}
+	any_dropped
+}
+
 /// Scan `wasm_dir` for `*.wasm`, instantiate the wasm runtime on
 /// first successful load, register every export, and return the
 /// bundle. Returns `None` when the directory is missing, empty, or
 /// every load failed — the daemon then runs without a wasm runtime.
 pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
-	let entries = match std::fs::read_dir(wasm_dir) {
-		Ok(rd) => rd,
-		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-			tracing::info!(
-				wasm_dir = %wasm_dir.display(),
-				"wasm dir not present; skipping wasm runtime",
-			);
-			return None;
-		}
+	let wasm_files = match discover_wasm_files(wasm_dir) {
+		Ok(f) => f,
 		Err(e) => {
 			tracing::warn!(
 				wasm_dir = %wasm_dir.display(),
@@ -97,14 +316,6 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 			return None;
 		}
 	};
-
-	let mut wasm_files: Vec<PathBuf> = entries
-		.filter_map(Result::ok)
-		.map(|e| e.path())
-		.filter(|p| p.is_file() && p.extension().is_some_and(|ext| ext == "wasm"))
-		.collect();
-	wasm_files.sort();
-
 	if wasm_files.is_empty() {
 		tracing::info!(
 			wasm_dir = %wasm_dir.display(),
@@ -113,23 +324,7 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 		return None;
 	}
 
-	let backend: Arc<dyn HttpFetchBackend> = match HyperHttpFetchBackend::new() {
-		Ok(b) => Arc::new(b),
-		Err(e) => {
-			tracing::warn!(
-				error = %e,
-				"hyper http-fetch backend construction failed; skipping wasm runtime",
-			);
-			return None;
-		}
-	};
-	let runtime = match WasmtimeRuntime::new(backend) {
-		Ok(rt) => rt,
-		Err(e) => {
-			tracing::warn!(error = %e, "wasm runtime construction failed; skipping wasm runtime");
-			return None;
-		}
-	};
+	let runtime = build_wasm_runtime()?;
 
 	let mut registry = PluginRegistry::new();
 	let mut modules = Vec::new();
@@ -137,36 +332,19 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 
 	for path in &wasm_files {
 		let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else {
-			tracing::warn!(
-				path = %path.display(),
-				"wasm module path has no UTF-8 file stem; skipping",
-			);
+			tracing::warn!(path = %path.display(), "wasm module path has no UTF-8 file stem; skipping");
 			continue;
 		};
 		let metadata = match runtime.load_component(path).await {
 			Ok(meta) => meta,
 			Err(e) => {
-				tracing::warn!(
-					path = %path.display(),
-					error = %e,
-					"wasm module load failed; skipping",
-				);
+				tracing::warn!(path = %path.display(), error = %e, "wasm module load failed; skipping");
 				continue;
 			}
 		};
 		let module_id = ModuleId(Arc::from(path.to_string_lossy().as_ref()));
-		let runtime_for_registry: Arc<dyn vane_core::WasmRuntime> = Arc::clone(&runtime) as _;
-		for export in &metadata.exports {
-			let plugin_name = format!("{stem}:{}", export.name);
-			registry.register(
-				&plugin_name,
-				module_id.clone(),
-				export.name.clone(),
-				Arc::clone(&metadata),
-				Arc::clone(&runtime_for_registry),
-			);
-			registered_exports += 1;
-		}
+		registered_exports +=
+			register_module_exports(&mut registry, &stem, &module_id, &runtime, &metadata);
 		tracing::info!(
 			path = %path.display(),
 			plugin = %metadata.name,
@@ -186,36 +364,8 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 		return None;
 	}
 
-	let policies = match PluginPolicyTable::load_from_dir(wasm_dir) {
-		Ok(t) => {
-			if t.policies.is_empty() {
-				tracing::warn!(
-					wasm_dir = %wasm_dir.display(),
-					"no wasm/policy.json present; every plugin starts under deny-all http-fetch \
-					 (allowed_hosts = []). Add policy.json to grant outbound access.",
-				);
-			} else {
-				tracing::info!(policies = t.policies.len(), "loaded plugin http policy table",);
-			}
-			t
-		}
-		Err(e) => {
-			tracing::warn!(
-				wasm_dir = %wasm_dir.display(),
-				error = %e,
-				"wasm/policy.json failed to parse; falling back to deny-all defaults",
-			);
-			PluginPolicyTable::new()
-		}
-	};
-
-	// Apply each module's resolved policy onto the runtime so
-	// invoke_* calls see the operator-owned view at host-fn time.
-	for module in &modules {
-		let stem = module.path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
-		let policy = Arc::new(policies.get_or_default(stem));
-		runtime.set_policy(&module.module_id, policy);
-	}
+	let policies = load_policies_for_boot(wasm_dir);
+	apply_per_module_policies(&runtime, &modules, &policies);
 
 	Some(LoadedWasm {
 		runtime,
@@ -258,30 +408,11 @@ pub(crate) async fn reload_dir(
 	registry_swap: &Arc<ArcSwap<PluginRegistry>>,
 	policies_swap: &Arc<ArcSwap<PluginPolicyTable>>,
 ) -> Result<WasmReloadOutcome, Error> {
-	let mut schema_changed = false;
-	let mut wasm_files: Vec<PathBuf> = match std::fs::read_dir(wasm_dir) {
-		Ok(rd) => rd
-			.filter_map(Result::ok)
-			.map(|e| e.path())
-			.filter(|p| p.is_file() && p.extension().is_some_and(|ext| ext == "wasm"))
-			.collect(),
-		Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-		Err(e) => {
-			return Err(Error::internal(format!("read wasm dir {}: {e}", wasm_dir.display())));
-		}
-	};
-	wasm_files.sort();
+	let wasm_files = discover_wasm_files(wasm_dir)
+		.map_err(|e| Error::internal(format!("read wasm dir {}: {e}", wasm_dir.display())))?;
 
-	// Snapshot the current registry so we can detect added / removed
-	// stems. Group registry entries by `<stem>` (the prefix of the
-	// `<stem>:<export>` key).
 	let current = registry_swap.load();
-	let mut current_by_stem: BTreeMap<String, Vec<String>> = BTreeMap::new();
-	for (key, _) in current.iter() {
-		if let Some((stem, _)) = key.split_once(':') {
-			current_by_stem.entry(stem.to_owned()).or_default().push(key.to_owned());
-		}
-	}
+	let current_by_stem = snapshot_stems_from_registry(&current);
 	let on_disk_stems: BTreeSet<String> = wasm_files
 		.iter()
 		.filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(str::to_owned))
@@ -292,6 +423,7 @@ pub(crate) async fn reload_dir(
 	// drop simply don't get added.
 	let mut new_registry = PluginRegistry::new();
 	let mut modules_seen: Vec<LoadedModuleInfo> = Vec::new();
+	let mut schema_changed = false;
 
 	for path in &wasm_files {
 		let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else {
@@ -299,103 +431,23 @@ pub(crate) async fn reload_dir(
 			continue;
 		};
 		let module_id = ModuleId(Arc::from(path.to_string_lossy().as_ref()));
-		let known_to_registry = current_by_stem.contains_key(&stem);
-		let metadata = if known_to_registry {
-			let reload_result = runtime.reload_component(path).await;
-			match reload_result {
-				Ok(ReloadComponentOutcome::Unchanged) => {
-					tracing::debug!(stem, "wasm module unchanged on disk; reusing entries");
-					runtime
-						.metadata_for_module(&module_id)
-						.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?
-				}
-				Ok(ReloadComponentOutcome::MetadataUnchanged) => {
-					tracing::info!(stem, "wasm module bytes changed; metadata-compatible swap");
-					runtime
-						.metadata_for_module(&module_id)
-						.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?
-				}
-				Ok(ReloadComponentOutcome::MetadataChanged) => {
-					tracing::info!(stem, "wasm module bytes changed; metadata-incompatible recompile");
-					schema_changed = true;
-					runtime
-						.metadata_for_module(&module_id)
-						.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?
-				}
-				Err(e) => {
-					tracing::warn!(
-						path = %path.display(),
-						error = %e,
-						"wasm reload failed; keeping prior registry entries for this stem",
-					);
-					let Some(prior) = current
-						.iter()
-						.find(|(_, v)| v.module_id == module_id)
-						.map(|(_, v)| Arc::clone(&v.metadata))
-					else {
-						continue;
-					};
-					prior
-				}
-			}
-		} else {
-			match runtime.load_component(path).await {
-				Ok(meta) => {
-					schema_changed = true;
-					tracing::info!(stem, "wasm module added");
-					meta
-				}
-				Err(e) => {
-					tracing::warn!(
-						path = %path.display(),
-						error = %e,
-						"wasm module load failed during reload; skipping",
-					);
-					continue;
-				}
-			}
+		let known = current_by_stem.contains_key(&stem);
+		let Some((metadata, bumped)) =
+			acquire_metadata_for_reload(runtime, &current, &stem, &module_id, path, known).await?
+		else {
+			continue;
 		};
-		let runtime_for_registry: Arc<dyn WasmRuntime> = Arc::clone(runtime) as _;
-		for export in &metadata.exports {
-			let plugin_name = format!("{stem}:{}", export.name);
-			new_registry.register(
-				&plugin_name,
-				module_id.clone(),
-				export.name.clone(),
-				Arc::clone(&metadata),
-				Arc::clone(&runtime_for_registry),
-			);
-		}
+		schema_changed |= bumped;
+		register_module_exports(&mut new_registry, &stem, &module_id, runtime, &metadata);
 		modules_seen.push(LoadedModuleInfo { path: path.clone(), module_id, metadata });
 	}
 
-	// Drop modules that disappeared from disk.
-	for stem in current_by_stem.keys() {
-		if !on_disk_stems.contains(stem) {
-			schema_changed = true;
-			if let Some(entry) = current.iter().find(|(k, _)| k.starts_with(&format!("{stem}:"))) {
-				let module_id = entry.1.module_id.clone();
-				runtime.unload_module(&module_id);
-				tracing::info!(stem, "wasm module removed; runtime state unloaded");
-			}
-		}
+	if drop_disappeared_stems(runtime, &current_by_stem, &on_disk_stems, &current) {
+		schema_changed = true;
 	}
 
-	// Re-load policy.json. Apply each module's resolved policy onto
-	// the runtime so subsequent `invoke_*` calls see the operator-
-	// owned view.
-	let policies = match PluginPolicyTable::load_from_dir(wasm_dir) {
-		Ok(t) => t,
-		Err(e) => {
-			tracing::warn!(error = %e, "wasm/policy.json reload failed; keeping prior policy table");
-			(*policies_swap.load_full()).clone()
-		}
-	};
-	for module in &modules_seen {
-		let stem = module.path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
-		let policy = Arc::new(policies.get_or_default(stem));
-		runtime.set_policy(&module.module_id, policy);
-	}
+	let policies = load_policies_for_reload(wasm_dir, policies_swap);
+	apply_per_module_policies(runtime, &modules_seen, &policies);
 
 	registry_swap.store(Arc::new(new_registry));
 	policies_swap.store(Arc::new(policies));
