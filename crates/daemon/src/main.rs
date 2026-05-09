@@ -326,6 +326,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let graph_swap: Arc<ArcSwap<FlowGraph>> = Arc::new(ArcSwap::new(initial_graph));
 	tracing::info!("linked flow graph");
 
+	// Pack the reload-pipeline state into one Arc so the mgmt verb
+	// handler and the file-watcher loop both call `reload_once` against
+	// the same shared bag. Built once here; cloned (refcount-only) into
+	// `MgmtState` and `WatcherCtx` below.
+	let reload_ctx = Arc::new(crate::reload::ReloadCtx {
+		config_dir: args.config_dir.clone(),
+		graph: Arc::clone(&graph_swap),
+		mw_factories: Arc::clone(&mw_factories),
+		fetch_factories: Arc::clone(&fetch_factories),
+		security_cfg: Arc::clone(&security_cfg),
+		plugin_registry: plugin_registry.clone(),
+		#[cfg(feature = "wasm")]
+		wasm_dir: loaded.env.wasm_dir.clone(),
+		#[cfg(feature = "wasm")]
+		wasm_runtime: loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.runtime)),
+		#[cfg(feature = "wasm")]
+		plugin_policies: plugin_policies.clone(),
+		#[cfg(feature = "acme")]
+		acme_registry: acme_registry.clone(),
+	});
+
 	// Compose the runtime flow-log sink. The default (`RingBufferSink`,
 	// optionally an env-driven `FileSink`) is wrapped in a `FanoutSink`
 	// alongside a `BroadcastSink` so the mgmt `tail_flow` verb has a
@@ -440,28 +461,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// up immediately on first poll.
 	let watcher_cancel = CancellationToken::new();
 	let watcher_handle = match watcher_sub {
-		Some((sub, dir)) => {
-			let h = spawn_watcher_handler(
-				sub,
-				dir,
-				Arc::clone(&graph_swap),
-				Arc::clone(&listeners),
-				Arc::clone(&verbosity),
-				Arc::clone(&sink),
-				Arc::clone(&mw_factories),
-				Arc::clone(&fetch_factories),
-				Arc::clone(&security_cfg),
-				plugin_registry.clone(),
-				#[cfg(feature = "wasm")]
-				plugin_policies.clone(),
-				#[cfg(feature = "wasm")]
-				loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.runtime)),
-				#[cfg(feature = "wasm")]
-				Some(loaded.env.wasm_dir.clone()),
-				#[cfg(feature = "acme")]
-				acme_registry.clone(),
-				watcher_cancel.clone(),
-			);
+		Some(sub) => {
+			let watcher_ctx = Arc::new(crate::watcher::WatcherCtx {
+				reload: Arc::clone(&reload_ctx),
+				listeners: Arc::clone(&listeners),
+				verbosity: Arc::clone(&verbosity),
+				log_sink: Arc::clone(&sink),
+			});
+			let h = spawn_watcher_handler(sub, watcher_ctx, watcher_cancel.clone());
 			tracing::info!("file watcher armed");
 			Some(h)
 		}
@@ -474,16 +481,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// — the operator can fix the path and restart.
 	let mgmt_state = Arc::new(MgmtState {
 		started_at: Instant::now(),
-		graph_swap: Arc::clone(&graph_swap),
+		reload: Arc::clone(&reload_ctx),
 		listeners: Arc::clone(&listeners),
-		mw_factories: Arc::clone(&mw_factories),
-		fetch_factories: Arc::clone(&fetch_factories),
-		config_dir: args.config_dir.clone(),
 		verbosity: Arc::clone(&verbosity),
 		log_sink: Arc::clone(&sink),
 		broadcast: Arc::clone(&broadcast_sink),
 		tracing_broadcast,
-		security_cfg: Arc::clone(&security_cfg),
 		shutdown_trigger: shutdown_trigger.clone(),
 		#[cfg(feature = "wasm")]
 		wasm_pool_stats: loaded_wasm
@@ -491,15 +494,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 			.map(|lw| Arc::clone(&lw.runtime) as Arc<dyn vane_core::WasmPoolStats>),
 		#[cfg(not(feature = "wasm"))]
 		wasm_pool_stats: None,
-		plugin_registry: plugin_registry.clone(),
-		#[cfg(feature = "wasm")]
-		plugin_policies: plugin_policies.clone(),
-		#[cfg(feature = "wasm")]
-		wasm_runtime: loaded_wasm.as_ref().map(|lw| Arc::clone(&lw.runtime)),
-		#[cfg(feature = "wasm")]
-		wasm_dir: loaded.env.wasm_dir.clone(),
-		#[cfg(feature = "acme")]
-		acme_registry: acme_registry.clone(),
 	});
 	let mgmt_cancel = CancellationToken::new();
 	let mgmt_unix_handle =

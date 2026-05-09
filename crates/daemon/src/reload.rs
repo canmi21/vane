@@ -13,7 +13,7 @@
 //! recompile reproduces the same hash — typical for `cp -p` mtime
 //! bumps or whitespace-only edits — the swap is skipped.
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -30,6 +30,27 @@ use vane_wasm::WasmtimeRuntime;
 use crate::providers::MetadataProviders;
 #[cfg(feature = "wasm")]
 use crate::wasm_loader;
+
+/// Daemon-wide bag of state the reload pipeline reads from. Built once
+/// at boot in `main::run`; shared via [`Arc<ReloadCtx>`] between the
+/// mgmt `reload` verb handler and the file-watcher's reload-on-change
+/// loop. Both call [`reload_once`] with the same Arc.
+pub(crate) struct ReloadCtx {
+	pub config_dir: PathBuf,
+	pub graph: Arc<ArcSwap<FlowGraph>>,
+	pub mw_factories: Arc<MiddlewareFactories>,
+	pub fetch_factories: Arc<FetchFactories>,
+	pub security_cfg: Arc<SecurityConfig>,
+	pub plugin_registry: Option<Arc<ArcSwap<PluginRegistry>>>,
+	#[cfg(feature = "wasm")]
+	pub wasm_dir: PathBuf,
+	#[cfg(feature = "wasm")]
+	pub wasm_runtime: Option<Arc<WasmtimeRuntime>>,
+	#[cfg(feature = "wasm")]
+	pub plugin_policies: Option<Arc<ArcSwap<PluginPolicyTable>>>,
+	#[cfg(feature = "acme")]
+	pub acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
+}
 
 /// Outcome of a single reload attempt. Both successful variants carry
 /// the post-link `version_hash` so observers (mgmt API, eventually) can
@@ -61,30 +82,20 @@ pub(crate) enum ReloadOutcome {
 /// (preset / merge / lower / validate), link (factory rejection,
 /// kind mismatch, feature-disabled), or WASM rescan (dir unreadable,
 /// component validation failure).
-pub(crate) async fn reload_once(
-	config_dir: &Path,
-	#[cfg(feature = "wasm")] wasm_dir: Option<&Path>,
-	#[cfg(feature = "wasm")] runtime: Option<&Arc<WasmtimeRuntime>>,
-	graph: &ArcSwap<FlowGraph>,
-	mw_factories: &MiddlewareFactories,
-	fetch_factories: &FetchFactories,
-	security_cfg: &Arc<SecurityConfig>,
-	plugin_registry: Option<&Arc<ArcSwap<PluginRegistry>>>,
-	#[cfg(feature = "wasm")] plugin_policies: Option<&Arc<ArcSwap<PluginPolicyTable>>>,
-	#[cfg(feature = "acme")] acme_registry: Option<&Arc<vane_engine::acme::ManagedCertRegistry>>,
-) -> Result<ReloadOutcome, Error> {
+pub(crate) async fn reload_once(ctx: &ReloadCtx) -> Result<ReloadOutcome, Error> {
 	#[cfg(feature = "wasm")]
-	let wasm_outcome = match (wasm_dir, runtime, plugin_registry, plugin_policies) {
-		(Some(dir), Some(rt), Some(reg), Some(pol)) => {
-			Some(wasm_loader::reload_dir(dir, rt, reg, pol).await?)
-		}
-		_ => None,
-	};
+	let wasm_outcome =
+		match (ctx.wasm_runtime.as_ref(), ctx.plugin_registry.as_ref(), ctx.plugin_policies.as_ref()) {
+			(Some(rt), Some(reg), Some(pol)) => {
+				Some(wasm_loader::reload_dir(&ctx.wasm_dir, rt, reg, pol).await?)
+			}
+			_ => None,
+		};
 	#[cfg(not(feature = "wasm"))]
 	let wasm_outcome: Option<wasm_loader_stub::WasmReloadOutcome> = None;
 
-	let loaded = vane_core::config::load(config_dir)?;
-	let registry_snap = plugin_registry.map(|r| r.load_full());
+	let loaded = vane_core::config::load(&ctx.config_dir)?;
+	let registry_snap = ctx.plugin_registry.as_ref().map(|r| r.load_full());
 	let providers = match registry_snap.as_ref() {
 		#[cfg(feature = "wasm")]
 		Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
@@ -98,7 +109,7 @@ pub(crate) async fn reload_once(
 	// daemon-wide cache so the upcoming `link` and subsequent handshakes
 	// see fresh bytes. URL sources already registered are left to the
 	// background refresher; file sources always re-read (`spec/crates/engine-tls.md` § _CRL_, file source reload semantics).
-	if let Some(cache) = &security_cfg.crl_cache {
+	if let Some(cache) = &ctx.security_cfg.crl_cache {
 		let listener_sources =
 			vane_engine::tls::collect_listener_crl_sources(&symbolic.meta.listener_tls);
 		let upstream_sources = vane_engine::tls::collect_upstream_crl_sources(&symbolic);
@@ -114,11 +125,11 @@ pub(crate) async fn reload_once(
 		{
 			FlowGraph::link_with_acme(
 				symbolic,
-				mw_factories,
+				&ctx.mw_factories,
 				registry_snap.as_deref(),
-				fetch_factories,
-				Arc::clone(security_cfg),
-				acme_registry,
+				&ctx.fetch_factories,
+				Arc::clone(&ctx.security_cfg),
+				ctx.acme_registry.as_ref(),
 			)
 			.map_err(|e| Error::compile(format!("link: {e}")))?
 		}
@@ -127,16 +138,16 @@ pub(crate) async fn reload_once(
 			match registry_snap.as_ref() {
 				Some(reg) => FlowGraph::link_with_plugins(
 					symbolic,
-					mw_factories,
+					&ctx.mw_factories,
 					reg,
-					fetch_factories,
-					Arc::clone(security_cfg),
+					&ctx.fetch_factories,
+					Arc::clone(&ctx.security_cfg),
 				),
 				None => FlowGraph::link_with_security(
 					symbolic,
-					mw_factories,
-					fetch_factories,
-					Arc::clone(security_cfg),
+					&ctx.mw_factories,
+					&ctx.fetch_factories,
+					Arc::clone(&ctx.security_cfg),
 				),
 			}
 			.map_err(|e| Error::compile(format!("link: {e}")))?
@@ -144,7 +155,7 @@ pub(crate) async fn reload_once(
 	};
 
 	let new_hash = new_graph.meta().version_hash;
-	let active_hash = graph.load().meta().version_hash;
+	let active_hash = ctx.graph.load().meta().version_hash;
 	// `version_hash` covers the canonical rule set but not plugin
 	// metadata; if WASM schema changed we force a swap so
 	// `MiddlewareInst::Wasm` carries the new metadata Arc. Follow-up:
@@ -154,7 +165,7 @@ pub(crate) async fn reload_once(
 	if active_hash == new_hash && !force_swap {
 		return Ok(ReloadOutcome::Unchanged { hash: new_hash });
 	}
-	graph.store(new_graph);
+	ctx.graph.store(new_graph);
 	Ok(ReloadOutcome::Swapped { hash: new_hash })
 }
 
@@ -168,6 +179,7 @@ mod wasm_loader_stub {
 #[cfg(test)]
 mod tests {
 	use std::fs;
+	use std::path::Path;
 	use std::sync::Arc;
 
 	use vane_engine::fetch::{http_proxy, http_synthesize, l4_forward};
@@ -217,7 +229,33 @@ mod tests {
 		let symbolic =
 			vane_core::compile::compile(loaded.files, &providers, &providers).expect("initial compile");
 		let (mw, fetch) = build_factories();
+		let mw = Arc::new(mw);
+		let fetch = Arc::new(fetch);
 		FlowGraph::link(symbolic, &mw, &fetch).expect("initial link")
+	}
+
+	fn make_ctx(
+		dir: &Path,
+		swap: Arc<ArcSwap<FlowGraph>>,
+		mw: Arc<MiddlewareFactories>,
+		fetch: Arc<FetchFactories>,
+	) -> ReloadCtx {
+		ReloadCtx {
+			config_dir: dir.to_path_buf(),
+			graph: swap,
+			mw_factories: mw,
+			fetch_factories: fetch,
+			security_cfg: default_security(),
+			plugin_registry: None,
+			#[cfg(feature = "wasm")]
+			wasm_dir: dir.join("wasm"),
+			#[cfg(feature = "wasm")]
+			wasm_runtime: None,
+			#[cfg(feature = "wasm")]
+			plugin_policies: None,
+			#[cfg(feature = "acme")]
+			acme_registry: None,
+		}
 	}
 
 	#[tokio::test]
@@ -226,28 +264,16 @@ mod tests {
 		write_rule(tmp.path(), &rule_v1(40001, "v1"));
 		let initial = initial_graph(tmp.path());
 		let h0 = initial.meta().version_hash;
-		let swap = ArcSwap::new(initial);
+		let swap = Arc::new(ArcSwap::new(initial));
 		let (mw, fetch) = build_factories();
+		let mw = Arc::new(mw);
+		let fetch = Arc::new(fetch);
 
 		write_rule(tmp.path(), &rule_v1(40001, "v2"));
-		let outcome = reload_once(
-			tmp.path(),
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			&swap,
-			&mw,
-			&fetch,
-			&default_security(),
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "acme")]
-			None,
-		)
-		.await
-		.expect("reload");
+		let outcome =
+			reload_once(&make_ctx(tmp.path(), Arc::clone(&swap), Arc::clone(&mw), Arc::clone(&fetch)))
+				.await
+				.expect("reload");
 		match outcome {
 			ReloadOutcome::Swapped { hash } => assert_ne!(hash, h0, "hash must change with body"),
 			ReloadOutcome::Unchanged { .. } => panic!("expected Swapped, got Unchanged"),
@@ -261,29 +287,17 @@ mod tests {
 		write_rule(tmp.path(), &rule_v1(40002, "stable"));
 		let initial = initial_graph(tmp.path());
 		let h0 = initial.meta().version_hash;
-		let swap = ArcSwap::new(initial);
+		let swap = Arc::new(ArcSwap::new(initial));
 		let (mw, fetch) = build_factories();
+		let mw = Arc::new(mw);
+		let fetch = Arc::new(fetch);
 
 		// Rewrite the same content — hash should match, swap should skip.
 		write_rule(tmp.path(), &rule_v1(40002, "stable"));
-		let outcome = reload_once(
-			tmp.path(),
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			&swap,
-			&mw,
-			&fetch,
-			&default_security(),
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "acme")]
-			None,
-		)
-		.await
-		.expect("reload");
+		let outcome =
+			reload_once(&make_ctx(tmp.path(), Arc::clone(&swap), Arc::clone(&mw), Arc::clone(&fetch)))
+				.await
+				.expect("reload");
 		assert!(matches!(outcome, ReloadOutcome::Unchanged { hash } if hash == h0));
 		assert_eq!(swap.load().meta().version_hash, h0);
 	}
@@ -294,29 +308,17 @@ mod tests {
 		write_rule(tmp.path(), &rule_v1(40003, "v1"));
 		let initial = initial_graph(tmp.path());
 		let h0 = initial.meta().version_hash;
-		let swap = ArcSwap::new(initial);
+		let swap = Arc::new(ArcSwap::new(initial));
 		let (mw, fetch) = build_factories();
+		let mw = Arc::new(mw);
+		let fetch = Arc::new(fetch);
 
 		// Corrupt the file with invalid JSON.
 		fs::write(tmp.path().join("rules").join("test.json"), "{ this is not json").unwrap();
-		let err = reload_once(
-			tmp.path(),
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			&swap,
-			&mw,
-			&fetch,
-			&default_security(),
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "acme")]
-			None,
-		)
-		.await
-		.expect_err("must fail compile");
+		let err =
+			reload_once(&make_ctx(tmp.path(), Arc::clone(&swap), Arc::clone(&mw), Arc::clone(&fetch)))
+				.await
+				.expect_err("must fail compile");
 		assert!(err.to_string().contains("parse"));
 		assert_eq!(swap.load().meta().version_hash, h0, "active graph untouched");
 	}
@@ -330,7 +332,7 @@ mod tests {
 		write_rule(tmp.path(), &rule_v1(40004, "ok"));
 		let initial = initial_graph(tmp.path());
 		let h0 = initial.meta().version_hash;
-		let swap = ArcSwap::new(initial);
+		let swap = Arc::new(ArcSwap::new(initial));
 
 		// New rule references the websocket fetch kind, which has core
 		// metadata but no factory in the link registry.
@@ -350,24 +352,12 @@ mod tests {
 		// Build factories WITHOUT registering websocket — that's the test fixture
 		// shape used in production until ws lands.
 		let (mw, fetch) = build_factories();
-		let err = reload_once(
-			tmp.path(),
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			&swap,
-			&mw,
-			&fetch,
-			&default_security(),
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "acme")]
-			None,
-		)
-		.await
-		.expect_err("must fail link");
+		let mw = Arc::new(mw);
+		let fetch = Arc::new(fetch);
+		let err =
+			reload_once(&make_ctx(tmp.path(), Arc::clone(&swap), Arc::clone(&mw), Arc::clone(&fetch)))
+				.await
+				.expect_err("must fail link");
 		assert!(err.to_string().to_lowercase().contains("link"));
 		assert_eq!(swap.load().meta().version_hash, h0, "active graph untouched");
 	}
@@ -378,29 +368,17 @@ mod tests {
 		let tmp = tempfile::tempdir().expect("tempdir");
 		fs::create_dir(tmp.path().join("rules")).unwrap();
 		let initial = initial_graph(tmp.path());
-		let swap = ArcSwap::new(initial);
+		let swap = Arc::new(ArcSwap::new(initial));
 		let (mw, fetch) = build_factories();
+		let mw = Arc::new(mw);
+		let fetch = Arc::new(fetch);
 
 		// Add a rule for the first time — the swap-once path.
 		write_rule(tmp.path(), &rule_v1(40006, "first"));
-		let outcome = reload_once(
-			tmp.path(),
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			&swap,
-			&mw,
-			&fetch,
-			&default_security(),
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "acme")]
-			None,
-		)
-		.await
-		.expect("reload");
+		let outcome =
+			reload_once(&make_ctx(tmp.path(), Arc::clone(&swap), Arc::clone(&mw), Arc::clone(&fetch)))
+				.await
+				.expect("reload");
 		assert!(matches!(outcome, ReloadOutcome::Swapped { .. }));
 		// `127.0.0.1:N` is v4-only — `:N` shorthand would expand to both v4 + v6.
 		assert_eq!(swap.load().symbolic().entries.len(), 1, "single v4 entry for 127.0.0.1:40006");

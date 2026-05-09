@@ -24,17 +24,24 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use notify_twophase::Subscription;
 use tokio_util::sync::CancellationToken;
 use vane_core::FlowLogSink;
 use vane_engine::ListenerSet;
-use vane_engine::SecurityConfig;
 use vane_engine::VerbosityState;
-use vane_engine::factories::{FetchFactories, MiddlewareFactories};
-use vane_engine::flow_graph::FlowGraph;
 
-use crate::reload::{ReloadOutcome, reload_once};
+use crate::reload::{ReloadCtx, ReloadOutcome, reload_once};
+
+/// Bundle the file-watcher's reload loop needs: the shared reload
+/// pipeline state plus the listener set + log/verbosity it must
+/// reconcile against post-swap. Built once at boot and shared via
+/// `Arc<WatcherCtx>` (along with [`Arc<ReloadCtx>`] inside).
+pub(crate) struct WatcherCtx {
+	pub reload: Arc<ReloadCtx>,
+	pub listeners: Arc<ListenerSet>,
+	pub verbosity: Arc<VerbosityState>,
+	pub log_sink: Arc<dyn FlowLogSink>,
+}
 
 /// Phase 1 — subscribe to `FSEvents` synchronously. Must be called
 /// **before** `ListenerSet::start` so the subscription is live by
@@ -48,9 +55,8 @@ use crate::reload::{ReloadOutcome, reload_once};
 /// (typically permission-denied on the directory).
 pub(crate) fn arm_watcher_subscription(
 	config_dir: PathBuf,
-) -> Result<(Subscription, PathBuf), notify_twophase::notify::Error> {
-	let sub = notify_twophase::arm(config_dir.clone())?;
-	Ok((sub, config_dir))
+) -> Result<Subscription, notify_twophase::notify::Error> {
+	notify_twophase::arm(config_dir)
 }
 
 /// Phase 2 — spawn the tokio task that drains queued reload signals
@@ -58,21 +64,7 @@ pub(crate) fn arm_watcher_subscription(
 /// subscription returned by [`arm_watcher_subscription`].
 pub(crate) fn spawn_watcher_handler(
 	sub: Subscription,
-	config_dir: PathBuf,
-	graph: Arc<ArcSwap<FlowGraph>>,
-	listeners: Arc<ListenerSet>,
-	verbosity: Arc<VerbosityState>,
-	log_sink: Arc<dyn FlowLogSink>,
-	mw_factories: Arc<MiddlewareFactories>,
-	fetch_factories: Arc<FetchFactories>,
-	security_cfg: Arc<SecurityConfig>,
-	plugin_registry: Option<Arc<arc_swap::ArcSwap<vane_engine::flow_graph::PluginRegistry>>>,
-	#[cfg(feature = "wasm")] plugin_policies: Option<
-		Arc<arc_swap::ArcSwap<vane_core::PluginPolicyTable>>,
-	>,
-	#[cfg(feature = "wasm")] wasm_runtime: Option<Arc<vane_wasm::WasmtimeRuntime>>,
-	#[cfg(feature = "wasm")] wasm_dir: Option<std::path::PathBuf>,
-	#[cfg(feature = "acme")] acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
+	ctx: Arc<WatcherCtx>,
 	cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
 	let mut sub = sub;
@@ -89,23 +81,7 @@ pub(crate) fn spawn_watcher_handler(
 					if evt.is_none() {
 						return;
 					}
-					let outcome = reload_once(
-						&config_dir,
-						#[cfg(feature = "wasm")]
-						wasm_dir.as_deref(),
-						#[cfg(feature = "wasm")]
-						wasm_runtime.as_ref(),
-						&graph,
-						&mw_factories,
-						&fetch_factories,
-						&security_cfg,
-						plugin_registry.as_ref(),
-						#[cfg(feature = "wasm")]
-						plugin_policies.as_ref(),
-						#[cfg(feature = "acme")]
-						acme_registry.as_ref(),
-					)
-					.await;
+					let outcome = reload_once(&ctx.reload).await;
 					match outcome {
 						Ok(ReloadOutcome::Swapped { hash }) => {
 							tracing::info!(
@@ -116,7 +92,7 @@ pub(crate) fn spawn_watcher_handler(
 							// addresses, background-drain any removed
 							// ones. Unchanged addresses are picked up by
 							// the existing per-accept entry lookup.
-							listeners.reconcile(&graph, &verbosity, &log_sink);
+							ctx.listeners.reconcile(&ctx.reload.graph, &ctx.verbosity, &ctx.log_sink);
 						}
 						Ok(ReloadOutcome::Unchanged { .. }) => tracing::debug!(
 							"reloaded — no semantic change, swap skipped",
@@ -145,6 +121,9 @@ mod tests {
 	use std::fs;
 	use std::time::{Duration, Instant};
 
+	use arc_swap::ArcSwap;
+	use vane_engine::SecurityConfig;
+	use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 	use vane_engine::fetch::{http_proxy, http_synthesize, l4_forward};
 	use vane_engine::flow_graph::FlowGraph;
 	use vane_engine::middleware::{forward_client_ip, host_header_match, method_match, path_prefix};
@@ -195,11 +174,34 @@ mod tests {
 		fn emit(&self, _event: vane_core::FlowLogEvent) {}
 	}
 
-	fn watcher_extras() -> (Arc<ListenerSet>, Arc<VerbosityState>, Arc<dyn vane_core::FlowLogSink>) {
-		let listeners = Arc::new(ListenerSet::new());
-		let verbosity = Arc::new(VerbosityState::new());
-		let sink: Arc<dyn vane_core::FlowLogSink> = Arc::new(NullSink);
-		(listeners, verbosity, sink)
+	fn make_watcher_ctx(
+		dir: &std::path::Path,
+		swap: Arc<ArcSwap<FlowGraph>>,
+		mw: Arc<MiddlewareFactories>,
+		fetch: Arc<FetchFactories>,
+	) -> Arc<WatcherCtx> {
+		let reload = Arc::new(ReloadCtx {
+			config_dir: dir.to_path_buf(),
+			graph: swap,
+			mw_factories: mw,
+			fetch_factories: fetch,
+			security_cfg: Arc::new(SecurityConfig::default()),
+			plugin_registry: None,
+			#[cfg(feature = "wasm")]
+			wasm_dir: dir.join("wasm"),
+			#[cfg(feature = "wasm")]
+			wasm_runtime: None,
+			#[cfg(feature = "wasm")]
+			plugin_policies: None,
+			#[cfg(feature = "acme")]
+			acme_registry: None,
+		});
+		Arc::new(WatcherCtx {
+			reload,
+			listeners: Arc::new(ListenerSet::new()),
+			verbosity: Arc::new(VerbosityState::new()),
+			log_sink: Arc::new(NullSink) as Arc<dyn vane_core::FlowLogSink>,
+		})
 	}
 
 	#[tokio::test]
@@ -213,30 +215,10 @@ mod tests {
 		let swap = Arc::new(ArcSwap::new(initial));
 		let (mw, fetch) = build_factories();
 		let cancel = CancellationToken::new();
-		let (listeners, verbosity, sink) = watcher_extras();
+		let watcher_ctx = make_watcher_ctx(tmp.path(), Arc::clone(&swap), mw, fetch);
 
-		let (sub, dir) = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
-		let _handle = spawn_watcher_handler(
-			sub,
-			dir,
-			Arc::clone(&swap),
-			listeners,
-			verbosity,
-			sink,
-			mw,
-			fetch,
-			Arc::new(SecurityConfig::default()),
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "acme")]
-			None,
-			cancel.clone(),
-		);
+		let sub = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
+		let _handle = spawn_watcher_handler(sub, watcher_ctx, cancel.clone());
 
 		// Give notify a moment to register on the path before mutating.
 		tokio::time::sleep(Duration::from_millis(200)).await;
@@ -267,30 +249,10 @@ mod tests {
 		let swap = Arc::new(ArcSwap::new(initial));
 		let (mw, fetch) = build_factories();
 		let cancel = CancellationToken::new();
-		let (listeners, verbosity, sink) = watcher_extras();
+		let watcher_ctx = make_watcher_ctx(tmp.path(), swap, mw, fetch);
 
-		let (sub, dir) = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
-		let handle = spawn_watcher_handler(
-			sub,
-			dir,
-			swap,
-			listeners,
-			verbosity,
-			sink,
-			mw,
-			fetch,
-			Arc::new(SecurityConfig::default()),
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "wasm")]
-			None,
-			#[cfg(feature = "acme")]
-			None,
-			cancel.clone(),
-		);
+		let sub = arm_watcher_subscription(tmp.path().to_path_buf()).expect("watcher init");
+		let handle = spawn_watcher_handler(sub, watcher_ctx, cancel.clone());
 
 		cancel.cancel();
 		// Watcher task should join within 1s after cancellation.

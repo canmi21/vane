@@ -13,7 +13,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -21,10 +20,7 @@ use tracing_broadcast::{BroadcastTracingLayer, TracingFrame};
 use vane_core::compile::compile;
 use vane_core::{FlowLogEvent, FlowLogSink, WasmPoolStats};
 use vane_engine::ListenerSet;
-use vane_engine::SecurityConfig;
 use vane_engine::VerbosityState;
-use vane_engine::factories::{FetchFactories, MiddlewareFactories};
-use vane_engine::flow_graph::FlowGraph;
 use vane_engine::flow_log_sink::BroadcastSink;
 use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
 use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
@@ -38,18 +34,18 @@ use vane_mgmt::verb::{
 };
 
 use crate::providers::MetadataProviders;
-use crate::reload::{ReloadOutcome, reload_once};
+use crate::reload::{ReloadCtx, ReloadOutcome, reload_once};
 
 /// Live daemon state visible to mgmt verb handlers. Built once during
 /// boot in `main::run` and shared by every accepted mgmt connection
-/// through `Arc<MgmtState>`.
+/// through `Arc<MgmtState>`. Reload-related state (graph swap, factories,
+/// security cfg, wasm runtime, plugin / acme registries, config dir) is
+/// packed into [`reload`] so the same `Arc<ReloadCtx>` can be shared
+/// with the file watcher.
 pub(crate) struct MgmtState {
 	pub started_at: Instant,
-	pub graph_swap: Arc<ArcSwap<FlowGraph>>,
+	pub reload: Arc<ReloadCtx>,
 	pub listeners: Arc<ListenerSet>,
-	pub mw_factories: Arc<MiddlewareFactories>,
-	pub fetch_factories: Arc<FetchFactories>,
-	pub config_dir: PathBuf,
 	pub verbosity: Arc<VerbosityState>,
 	pub log_sink: Arc<dyn FlowLogSink>,
 	/// Live broadcast handle. `tail_flow` subscribes here for
@@ -58,7 +54,6 @@ pub(crate) struct MgmtState {
 	/// Tracing layer that broadcasts every emitted event. `tail_log`
 	/// subscribes here. Cheap to clone (wraps a [`broadcast::Sender`]).
 	pub tracing_broadcast: BroadcastTracingLayer,
-	pub security_cfg: Arc<SecurityConfig>,
 	/// Fired by the `shutdown` verb. The daemon's main signal loop
 	/// awaits this alongside SIGINT/SIGTERM.
 	pub shutdown_trigger: CancellationToken,
@@ -68,40 +63,6 @@ pub(crate) struct MgmtState {
 	/// `get_pools` then returns an empty `wasm` list, and CGI / TCP
 	/// pool data still flows through.
 	pub wasm_pool_stats: Option<Arc<dyn WasmPoolStats>>,
-	/// Plugin registry built at boot from `<wasm_dir>/*.wasm`. `None`
-	/// when the daemon was built without the `wasm` feature, or when
-	/// the boot scan loaded nothing. Reload + `compile_dry_run`
-	/// thread this through so plugin references resolve consistently
-	/// across reload cycles without re-scanning the filesystem
-	/// (live-add of new modules is a daemon-restart operation).
-	///
-	/// `vane_engine::flow_graph::PluginRegistry` itself is always
-	/// available (not feature-gated in vane-engine), so the field
-	/// stays unconditional even when daemon's `wasm` is off.
-	pub plugin_registry: Option<Arc<arc_swap::ArcSwap<vane_engine::flow_graph::PluginRegistry>>>,
-	/// Operator-owned plugin policy table held in `ArcSwap` so reload
-	/// publishes a fresh table atomically. Only present when the
-	/// daemon was built with `wasm` and the boot scan succeeded.
-	#[cfg(feature = "wasm")]
-	pub plugin_policies: Option<Arc<arc_swap::ArcSwap<vane_core::PluginPolicyTable>>>,
-	/// Runtime handle the reload pipeline reuses when re-scanning
-	/// `<wasm_dir>` on every reload. `None` when wasm is off.
-	#[cfg(feature = "wasm")]
-	pub wasm_runtime: Option<Arc<vane_wasm::WasmtimeRuntime>>,
-	/// `<config_dir>/wasm` — re-scanned on every reload. `Option` is
-	/// not used here because the path is always derivable from the
-	/// daemon's `Env`; absent / empty dir is handled inside
-	/// `wasm_loader::reload_dir`.
-	#[cfg(feature = "wasm")]
-	pub wasm_dir: std::path::PathBuf,
-	/// Daemon-scoped ACME registry (per `spec/crates/engine-acme.md` § _Architecture_).
-	/// Threaded into `reload_once` so post-reload `FlowGraph::link`
-	/// re-attaches the same registry to fresh per-listener
-	/// `ManagedCertPopulator`s — accounts and issued certs survive
-	/// reloads. `None` when the daemon was built without `acme` or
-	/// when boot found no `tls.managed` rules.
-	#[cfg(feature = "acme")]
-	pub acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
 }
 
 #[async_trait]
@@ -354,7 +315,7 @@ impl MgmtState {
 
 	fn handle_stats(&self) -> Result<serde_json::Value, WireError> {
 		let listeners = self.listener_status();
-		let graph = self.graph_swap.load();
+		let graph = self.reload.graph.load();
 		let hex = hex32(&graph.meta().version_hash);
 		json(&StatsResult {
 			uptime_ms: u64::try_from(self.started_at.elapsed().as_millis()).unwrap_or(u64::MAX),
@@ -371,7 +332,7 @@ impl MgmtState {
 	}
 
 	fn handle_get_config(&self) -> Result<serde_json::Value, WireError> {
-		let graph = self.graph_swap.load();
+		let graph = self.reload.graph.load();
 		let serialized = serde_json::to_value(graph.symbolic().as_ref()).map_err(|e| WireError {
 			kind: WireErrorKind::Internal,
 			message: format!("symbolic: {e}"),
@@ -380,28 +341,12 @@ impl MgmtState {
 	}
 
 	async fn handle_reload(&self) -> Result<serde_json::Value, WireError> {
-		let outcome = reload_once(
-			&self.config_dir,
-			#[cfg(feature = "wasm")]
-			Some(self.wasm_dir.as_path()),
-			#[cfg(feature = "wasm")]
-			self.wasm_runtime.as_ref(),
-			&self.graph_swap,
-			&self.mw_factories,
-			&self.fetch_factories,
-			&self.security_cfg,
-			self.plugin_registry.as_ref(),
-			#[cfg(feature = "wasm")]
-			self.plugin_policies.as_ref(),
-			#[cfg(feature = "acme")]
-			self.acme_registry.as_ref(),
-		)
-		.await;
+		let outcome = reload_once(&self.reload).await;
 		match outcome {
 			Ok(ReloadOutcome::Swapped { hash }) => {
 				// Match the watcher's post-swap behaviour: reconcile the
 				// listener set with the new graph's `entries`.
-				self.listeners.reconcile(&self.graph_swap, &self.verbosity, &self.log_sink);
+				self.listeners.reconcile(&self.reload.graph, &self.verbosity, &self.log_sink);
 				json(&ReloadResult::Swapped { hash: hex32(&hash) })
 			}
 			Ok(ReloadOutcome::Unchanged { hash }) => {
@@ -419,7 +364,7 @@ impl MgmtState {
 		let dir = PathBuf::from(args.config_dir);
 		let loaded = vane_core::config::load(&dir)
 			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("load: {e}") })?;
-		let registry_snap = self.plugin_registry.as_ref().map(|s| s.load_full());
+		let registry_snap = self.reload.plugin_registry.as_ref().map(|s| s.load_full());
 		let providers = match registry_snap.as_ref() {
 			#[cfg(feature = "wasm")]
 			Some(reg) => MetadataProviders::with_plugins(Arc::clone(reg)),
@@ -567,7 +512,7 @@ impl MgmtState {
 				message: "force_renew: sni must not be empty".to_owned(),
 			});
 		}
-		let registry = match self.acme_registry.as_ref() {
+		let registry = match self.reload.acme_registry.as_ref() {
 			Some(r) => Arc::clone(r),
 			None => {
 				// daemon was built with `acme` but the current config has
@@ -606,7 +551,7 @@ impl MgmtState {
 		let mut certs: Vec<CertSummary> = Vec::new();
 
 		// Managed certs from the registry.
-		if let Some(registry) = self.acme_registry.as_ref() {
+		if let Some(registry) = self.reload.acme_registry.as_ref() {
 			for (sni, state) in registry.cert_states_snapshot() {
 				let (not_after, issued_at, ocsp_next_update, ocsp_aia_url, ocsp_status) =
 					match &state.stored {
@@ -646,7 +591,7 @@ impl MgmtState {
 		// already did at link time, and the rotation lifecycle for
 		// static certs is "edit + reload" which doesn't surface
 		// useful per-cert state through this verb.
-		let graph = self.graph_swap.load();
+		let graph = self.reload.graph.load();
 		let mut static_snis: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 		for spec in graph.symbolic().meta.listener_tls.values() {
 			if let Some(default) = &spec.default
@@ -690,7 +635,7 @@ impl MgmtState {
 	/// drive the per-listener summary; the latter additionally returns
 	/// the in-flight connection list.
 	fn listener_status(&self) -> Vec<ListenerStatus> {
-		let graph = self.graph_swap.load();
+		let graph = self.reload.graph.load();
 		graph
 			.symbolic()
 			.entries
@@ -708,7 +653,11 @@ impl MgmtState {
 mod tests {
 	use std::fs;
 
+	use arc_swap::ArcSwap;
+	use vane_engine::SecurityConfig;
+	use vane_engine::factories::{FetchFactories, MiddlewareFactories};
 	use vane_engine::fetch::{http_proxy, http_synthesize, l4_forward};
+	use vane_engine::flow_graph::FlowGraph;
 	use vane_engine::middleware::{forward_client_ip, host_header_match, method_match, path_prefix};
 
 	use super::*;
@@ -765,29 +714,32 @@ mod tests {
 		let graph = FlowGraph::link(symbolic, &mw, &fetch).expect("link");
 		let swap = Arc::new(ArcSwap::new(graph));
 
-		Arc::new(MgmtState {
-			started_at: Instant::now(),
-			graph_swap: swap,
-			listeners: Arc::new(ListenerSet::new()),
+		let reload = Arc::new(ReloadCtx {
+			config_dir: tmp.path().to_path_buf(),
+			graph: swap,
 			mw_factories: mw,
 			fetch_factories: fetch,
-			config_dir: tmp.path().to_path_buf(),
+			security_cfg: Arc::new(SecurityConfig::default()),
+			plugin_registry: None,
+			#[cfg(feature = "wasm")]
+			wasm_dir: tmp.path().join("wasm"),
+			#[cfg(feature = "wasm")]
+			wasm_runtime: None,
+			#[cfg(feature = "wasm")]
+			plugin_policies: None,
+			#[cfg(feature = "acme")]
+			acme_registry: None,
+		});
+		Arc::new(MgmtState {
+			started_at: Instant::now(),
+			reload,
+			listeners: Arc::new(ListenerSet::new()),
 			verbosity: Arc::new(VerbosityState::new()),
 			log_sink: Arc::new(NullSink),
 			broadcast: Arc::new(BroadcastSink::new()),
 			tracing_broadcast: BroadcastTracingLayer::new(),
-			security_cfg: Arc::new(SecurityConfig::default()),
 			shutdown_trigger: CancellationToken::new(),
 			wasm_pool_stats: None,
-			plugin_registry: None,
-			#[cfg(feature = "wasm")]
-			plugin_policies: None,
-			#[cfg(feature = "wasm")]
-			wasm_runtime: None,
-			#[cfg(feature = "wasm")]
-			wasm_dir: tmp.path().join("wasm"),
-			#[cfg(feature = "acme")]
-			acme_registry: None,
 		})
 	}
 
@@ -856,7 +808,7 @@ mod tests {
 	async fn dispatch_reload_returns_unchanged_on_noop_reload() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41005);
-		let h0 = state.graph_swap.load().meta().version_hash;
+		let h0 = state.reload.graph.load().meta().version_hash;
 		let value =
 			one_shot(&state, Request { id: 1, verb: VERB_RELOAD.into(), args: serde_json::Value::Null })
 				.await
@@ -872,7 +824,7 @@ mod tests {
 	async fn dispatch_reload_swaps_when_rule_body_changes() {
 		let tmp = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp, 41006);
-		let h0 = state.graph_swap.load().meta().version_hash;
+		let h0 = state.reload.graph.load().meta().version_hash;
 		// Rewrite with a different body.
 		fs::write(tmp.path().join("rules").join("site.json"), rule(41006, "v2")).unwrap();
 
@@ -884,7 +836,7 @@ mod tests {
 		match r {
 			ReloadResult::Swapped { hash } => {
 				assert_ne!(hash, hex32(&h0));
-				assert_eq!(state.graph_swap.load().meta().version_hash.to_vec().len(), 32);
+				assert_eq!(state.reload.graph.load().meta().version_hash.to_vec().len(), 32);
 			}
 			ReloadResult::Unchanged { .. } => panic!("expected Swapped after body change"),
 		}
@@ -894,7 +846,7 @@ mod tests {
 	async fn dispatch_compile_dry_run_runs_pipeline_against_arg_dir() {
 		let tmp_a = tempfile::tempdir().unwrap();
 		let state = initial_state(&tmp_a, 41007);
-		let h0 = state.graph_swap.load().meta().version_hash;
+		let h0 = state.reload.graph.load().meta().version_hash;
 
 		// Build a separate config directory with a different rule body.
 		let tmp_b = tempfile::tempdir().unwrap();
@@ -912,7 +864,7 @@ mod tests {
 		assert!(r.graph.is_object(), "graph payload is a JSON object");
 		assert!(r.graph.get("entries").is_some(), "symbolic graph carries `entries`");
 		// Active graph must be untouched.
-		assert_eq!(state.graph_swap.load().meta().version_hash, h0);
+		assert_eq!(state.reload.graph.load().meta().version_hash, h0);
 	}
 
 	#[tokio::test]
