@@ -1,22 +1,24 @@
-# Lint pipeline + the pre-push `gate` that bundles lint with the
-# workspace test run. `gate` lives here because the gate concept
-# is anchored to the lint pass; the `test` recipe it depends on
-# is imported from dev.just.
+# Lint pipeline + the pre-push `gate` (lint + workspace test).
 
-# Lint: clippy + rustfmt check + dprint check
+# clippy + rustfmt-check + dprint-check.
 lint: lint-clippy lint-fmt lint-prose
 
-# Clippy with -D warnings across workspace
+# clippy with -D warnings.
 lint-clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
 
-# Workspace rustfmt --check
+# rustfmt --check.
 lint-fmt:
 	cargo fmt --all -- --check
 
-# dprint --check for prose / config files
+# dprint --check (md/json/toml/yaml).
 lint-prose:
 	dprint check
 
-# Pre-push gate: full lint pass + workspace test run
-gate: lint test
+# Body invokes via `just` (not prereq deps) so cross-file `test`
+# resolves regardless of which justfile was named on entry.
+
+# Pre-push gate: lint + test.
+gate:
+	just lint
+	just test
