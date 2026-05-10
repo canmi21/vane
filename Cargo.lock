@@ -5262,7 +5262,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vane"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -5279,7 +5279,7 @@ dependencies = [
 
 [[package]]
 name = "vane-core"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -5309,7 +5309,7 @@ dependencies = [
 
 [[package]]
 name = "vane-engine"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "acme-provider",
  "arc-swap",
@@ -5386,7 +5386,7 @@ dependencies = [
 
 [[package]]
 name = "vane-mgmt"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "async-trait",
  "ndjson-rpc",
@@ -5400,7 +5400,7 @@ dependencies = [
 
 [[package]]
 name = "vane-tests"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "vane-core",
  "vane-testutil",
@@ -5408,7 +5408,7 @@ dependencies = [
 
 [[package]]
 name = "vane-testutil"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5438,7 +5438,7 @@ dependencies = [
 
 [[package]]
 name = "vane-wasm"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -5457,7 +5457,7 @@ dependencies = [
 
 [[package]]
 name = "vaned"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -6653,7 +6653,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "anyhow",
  "cargo_metadata",

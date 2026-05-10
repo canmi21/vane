@@ -36,7 +36,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.4"
+version = "0.10.5"
 authors = ["Canmi <t@canmi.icu>"]
 edition = "2024"
 homepage = "https://vane.canmi.app"
@@ -94,13 +94,13 @@ tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.1" }
 virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }
 
 # crates/* — vane product crates.
-vane-core = { path = "crates/core", version = "0.10.4" }
-vane-engine = { path = "crates/engine", version = "0.10.4" }
-vane-mgmt = { path = "crates/mgmt", version = "0.10.4" }
+vane-core = { path = "crates/core", version = "0.10.5" }
+vane-engine = { path = "crates/engine", version = "0.10.5" }
+vane-mgmt = { path = "crates/mgmt", version = "0.10.5" }
 # Path-only (no `version =`) so `cargo publish` strips it from sibling crates'
 # published manifests entirely — testutil is `publish = false`.
 vane-testutil = { path = "crates/testutil" }
-vane-wasm = { path = "crates/wasm", version = "0.10.4" }
+vane-wasm = { path = "crates/wasm", version = "0.10.5" }
 
 [profile.release]
 opt-level = "z"
