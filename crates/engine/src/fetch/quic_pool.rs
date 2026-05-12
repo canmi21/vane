@@ -99,16 +99,24 @@ impl Drop for QuicPoolEntry {
 // `drain_by_fingerprint_id`). Cache grows monotonically across reload
 // cycles otherwise (see `spec/crates/engine.md`
 // § _Upstream pools_).
-static QUIC_POOL: LazyLock<DashMap<QuicFingerprint, Arc<QuicPoolEntry>>> =
-	LazyLock::new(DashMap::new);
+/// One pool slot. Wraps the pooled entry in a `tokio::sync::OnceCell`
+/// so concurrent dialers for the same fingerprint share the single
+/// in-flight dial via the cell's internal initializer-semaphore — the
+/// first caller dials; the rest wait on the cell and observe the
+/// produced entry. If the dial fails, `tokio::sync::OnceCell` leaves
+/// the cell empty (no negative caching), so the next caller redials.
+type Slot = Arc<tokio::sync::OnceCell<Arc<QuicPoolEntry>>>;
 
-/// Look up the pooled entry for `fp`, returning `None` on miss.
-/// [`get_or_dial`] is the standard accessor; this read-only variant
-/// is exposed for the dispatch path's "fast cache hit" branch and
-/// for tests that assert pool population without triggering a dial.
+static QUIC_POOL: LazyLock<DashMap<QuicFingerprint, Slot>> = LazyLock::new(DashMap::new);
+
+/// Look up the pooled entry for `fp`, returning `None` on miss or
+/// while a dial is still in flight. [`get_or_dial`] is the standard
+/// accessor; this read-only variant is exposed for the dispatch
+/// path's "fast cache hit" branch and for tests that assert pool
+/// population without triggering a dial.
 #[must_use]
 pub fn get(fp: &QuicFingerprint) -> Option<Arc<QuicPoolEntry>> {
-	QUIC_POOL.get(fp).map(|r| Arc::clone(&r))
+	QUIC_POOL.get(fp).and_then(|slot| slot.get().cloned())
 }
 
 /// Remove the entry for `fp` from the pool. Used by the dispatch
@@ -151,12 +159,37 @@ pub async fn get_or_dial(
 	sni: &str,
 	rustls_cfg: Arc<rustls::ClientConfig>,
 ) -> Result<Arc<QuicPoolEntry>, Error> {
-	if let Some(existing) = get(&fp) {
-		return Ok(existing);
+	// Take or-insert the slot under the DashMap lock; drop the guard
+	// before awaiting init so concurrent callers for unrelated
+	// fingerprints don't serialize on the shard's RwLock.
+	let slot: Slot = QUIC_POOL.entry(fp.clone()).or_default().clone();
+
+	// `OnceCell::get_or_try_init` is the thundering-herd guard: it
+	// runs the initializer exactly once at a time per slot. Concurrent
+	// callers for the same fingerprint wait on the cell's internal
+	// semaphore; on success they all observe the produced entry. On
+	// failure the cell stays empty (no negative caching) so the next
+	// caller retries — same as the previous "dial fails → pool stays
+	// empty → next call redials" contract, but now only one dial is
+	// in flight at a time instead of N.
+	let init_result = slot
+		.get_or_try_init(|| async {
+			let entry = dial_new(&fp, sni, rustls_cfg).await?;
+			Ok::<_, Error>(entry)
+		})
+		.await;
+
+	match init_result {
+		Ok(entry) => Ok(Arc::clone(entry)),
+		Err(e) => {
+			// Drop the empty slot so the next caller doesn't observe
+			// a stuck empty `OnceCell` (which would still be eligible
+			// for re-init, but pool snapshots / `get()` would surface
+			// `None` for the stale fingerprint).
+			QUIC_POOL.remove(&fp);
+			Err(e)
+		}
 	}
-	let entry = dial_new(&fp, sni, rustls_cfg).await?;
-	let inserted = QUIC_POOL.entry(fp).or_insert(entry);
-	Ok(Arc::clone(&inserted))
 }
 
 /// Build one fresh QUIC connection + h3 client. Separate from
@@ -227,13 +260,18 @@ async fn dial_new(
 	Ok(Arc::new(QuicPoolEntry { send_request, driver, endpoint, sni: Arc::from(sni) }))
 }
 
-/// Number of pooled entries. Test-only: integration tests assert
-/// pool sharing by counting entries before and after a sequence of
-/// dials. Production code does not consult cache cardinality.
+/// Number of pooled entries that hold a successfully-dialed
+/// connection. Test-only: integration tests assert pool sharing by
+/// counting entries before and after a sequence of dials. Production
+/// code does not consult cache cardinality.
+///
+/// In-flight slots (empty `OnceCell` mid-dial) and slots whose dial
+/// failed and was evicted are not counted, matching the pre-OnceCell
+/// behaviour where a failed dial left the pool empty.
 #[doc(hidden)]
 #[must_use]
 pub fn cache_len() -> usize {
-	QUIC_POOL.len()
+	QUIC_POOL.iter().filter(|entry| entry.value().get().is_some()).count()
 }
 
 /// Read-only summary of one pooled QUIC connection. Surfaced via the
@@ -267,16 +305,20 @@ pub fn fingerprint_id(fp: &QuicFingerprint) -> String {
 pub fn snapshot() -> Vec<PooledQuicSummary> {
 	QUIC_POOL
 		.iter()
-		.map(|entry| {
+		.filter_map(|entry| {
 			let fp = entry.key();
+			// Skip in-flight (empty OnceCell) slots — they have no
+			// pooled entry to report yet. `OnceCell::get()` returns
+			// `None` while a concurrent dial is mid-flight.
+			let pool_entry = entry.value().get()?;
 			let alpn =
 				fp.tls.alpn_protocols.iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect();
-			PooledQuicSummary {
+			Some(PooledQuicSummary {
 				remote_addr: fp.addr.to_string(),
-				sni: entry.value().sni.as_ref().to_owned(),
+				sni: pool_entry.sni.as_ref().to_owned(),
 				alpn,
 				fingerprint_id: fingerprint_id(fp),
-			}
+			})
 		})
 		.collect()
 }
