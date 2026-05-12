@@ -102,6 +102,12 @@ fn analyze_rule(
 		let meta = mw_meta
 			.get(&mw_ref.name)
 			.ok_or_else(|| Error::compile(format!("unknown middleware: {:?}", mw_ref.name)))?;
+		// Schema-check each middleware's args at the analyze stage so a
+		// rule with a misspelled key fails compile loudly, instead of
+		// surfacing at runtime when the middleware instantiates.
+		(meta.validate_args)(&mw_ref.args).map_err(|e| {
+			Error::compile(format!("rule {:?}: middleware {:?} args invalid: {e}", raw.name, mw_ref.name))
+		})?;
 		if meta.needs_body {
 			match meta.kind {
 				crate::middleware::MiddlewareKind::L7Request => needs_request_body = true,
@@ -111,10 +117,17 @@ fn analyze_rule(
 		}
 	}
 
-	// fetch_meta is consulted so unknown kinds fail compile consistently with
-	// how link will fail later; the metadata itself is not currently consumed
-	// in analyze (phase comes from the fixed FetchKind table below).
-	let _ = fetch_meta;
+	// Schema-check the terminator's args via `fetch_meta`. Unknown
+	// fetch kinds are reported here too, matching the way the link
+	// pass would surface them — but now with the rule name attached.
+	if let Some(kind) = fetch_kind {
+		let meta = fetch_meta.get(kind).ok_or_else(|| {
+			Error::compile(format!("rule {:?}: unknown fetch kind {:?}", raw.name, kind))
+		})?;
+		(meta.validate_args)(&raw.terminate.args).map_err(|e| {
+			Error::compile(format!("rule {:?}: terminate.args for {:?} invalid: {e}", raw.name, kind))
+		})?;
+	}
 
 	let posture = match fetch_phase {
 		FetchPhase::L4 if max_level <= InspectionLevel::L4Peek => Posture::L4,
@@ -335,6 +348,86 @@ mod tests {
 		}));
 		let err = analyze(set(vec![rule]), &Providers, &Providers).expect_err("must error");
 		assert!(err.to_string().contains("does_not_exist"));
+	}
+
+	#[test]
+	fn rejects_middleware_args_failing_validate() {
+		// Providers' `req_plain` accepts any args, but `validate_ok`
+		// override below specifically rejects null args for the dummy
+		// middleware named "strict_args".
+		struct StrictProviders;
+		fn reject_null(v: &Value) -> Result<(), Error> {
+			if matches!(v, Value::Null) { Err(Error::compile("args must not be null")) } else { Ok(()) }
+		}
+		impl MiddlewareMetadataProvider for StrictProviders {
+			fn get(&self, name: &str) -> Option<MiddlewareMetadata> {
+				if name == "strict_args" {
+					Some(MiddlewareMetadata {
+						kind: MiddlewareKind::L7Request,
+						stateless: true,
+						needs_body: false,
+						validate_args: reject_null,
+					})
+				} else {
+					None
+				}
+			}
+		}
+		impl FetchMetadataProvider for StrictProviders {
+			fn get(&self, kind: FetchKind) -> Option<FetchMetadata> {
+				Some(FetchMetadata {
+					kind,
+					phase: FetchMetaPhase::L7,
+					output_modes: FetchOutputModes { response: true, tunnel: false },
+					validate_args: |_| Ok(()),
+				})
+			}
+		}
+		let rule = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"middleware_chain": [{ "use": "strict_args" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let err = analyze(set(vec![rule]), &StrictProviders, &StrictProviders)
+			.expect_err("must reject bad middleware args");
+		let msg = err.to_string();
+		assert!(msg.contains("strict_args"), "{msg}");
+		assert!(msg.contains("args invalid") || msg.contains("must not be null"), "{msg}");
+	}
+
+	#[test]
+	fn rejects_terminate_args_failing_validate() {
+		struct StrictProviders;
+		fn require_port(v: &Value) -> Result<(), Error> {
+			let ok = matches!(v, Value::Object(m) if m.get("port").is_some());
+			if ok { Ok(()) } else { Err(Error::compile("missing required `port` arg")) }
+		}
+		impl MiddlewareMetadataProvider for StrictProviders {
+			fn get(&self, _: &str) -> Option<MiddlewareMetadata> {
+				None
+			}
+		}
+		impl FetchMetadataProvider for StrictProviders {
+			fn get(&self, kind: FetchKind) -> Option<FetchMetadata> {
+				Some(FetchMetadata {
+					kind,
+					phase: FetchMetaPhase::L7,
+					output_modes: FetchOutputModes { response: true, tunnel: false },
+					validate_args: require_port,
+				})
+			}
+		}
+		let rule = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let err = analyze(set(vec![rule]), &StrictProviders, &StrictProviders)
+			.expect_err("must reject missing terminate args");
+		let msg = err.to_string();
+		assert!(msg.contains("terminate.args"), "{msg}");
+		assert!(msg.contains("missing required `port` arg"), "{msg}");
 	}
 
 	#[test]
