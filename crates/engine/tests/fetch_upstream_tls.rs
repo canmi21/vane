@@ -87,7 +87,14 @@ async fn spawn_tls_echo() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>)
 async fn dial_upstream_completes_tls_handshake_with_insecure_skip_verify() {
 	let (addr, server_task) = spawn_tls_echo().await;
 	let tls = skip_verify_tls();
-	let mut conn = dial_upstream(&addr.to_string(), Some(&tls)).await.expect("dial");
+	let mut conn = dial_upstream(
+		&addr.to_string(),
+		Some(&tls),
+		&tokio_util::sync::CancellationToken::new(),
+		vane_engine::fetch::upstream::DEFAULT_DIAL_TIMEOUT,
+	)
+	.await
+	.expect("dial");
 	conn.write_all(b"hello").await.expect("client write");
 	let mut buf = [0u8; 5];
 	conn.read_exact(&mut buf).await.expect("client read");

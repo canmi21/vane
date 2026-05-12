@@ -17,11 +17,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use std::time::Duration;
+
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::sign::CertifiedKey;
 use sha2::Digest as _;
 use tokio::net::TcpStream;
-use vane_core::{AsyncReadWrite, Error, UpstreamReason};
+use tokio_util::sync::CancellationToken;
+use vane_core::{AsyncReadWrite, Error, TimeoutKind, UpstreamReason};
 
 use crate::fetch::client_cache::{CrlSource, RootCaSource, TlsConfigFingerprint, VerifyMode};
 use crate::tls::crl_cache::{CrlFetchFailure, CrlSourceId};
@@ -61,27 +64,70 @@ pub struct UpstreamTls {
 	pub client_cert: Option<Arc<CertifiedKey>>,
 }
 
+/// Default per-dial timeout used by [`dial_upstream`] when the caller
+/// has no operator-supplied budget. 10 s matches what the H1 client
+/// pool uses for its own connect leg.
+pub const DEFAULT_DIAL_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Dial `upstream` and optionally complete a TLS handshake using the
 /// supplied configuration. Returns a boxed [`AsyncReadWrite`] ready
 /// for a hyper H1 client handshake. Best-effort `TCP_NODELAY` is set
 /// on the underlying socket — small request/response cycles
 /// shouldn't sit in Nagle's buffer.
 ///
+/// `cancel` propagates the per-connection cancel token: when the
+/// listener-level `force_cancel` fires (or the executor itself drops
+/// the fetch future for any reason) the in-flight TCP / TLS handshake
+/// aborts immediately, surfacing as
+/// [`UpstreamReason::Unreachable`]. Without this select the dial
+/// could happily complete after the rest of the connection has been
+/// torn down.
+///
+/// `connect_timeout` caps the entire `(connect + tls)` window —
+/// individual stages don't get their own budgets because the caller's
+/// view is "did the upstream answer in time?". On expiry the error
+/// surfaces as [`TimeoutKind::Connect`].
+///
 /// # Errors
-/// - [`UpstreamReason::Unreachable`] if the TCP connect fails.
+/// - [`UpstreamReason::Unreachable`] if the TCP connect fails or the
+///   cancel token fires mid-dial.
 /// - [`UpstreamReason::TlsHandshake`] if the SNI name parse or the
 ///   rustls handshake fails. The wrapped source carries the original
 ///   error message for tracing.
+/// - [`TimeoutKind::Connect`] if `connect_timeout` elapses.
 pub async fn dial_upstream(
 	upstream: &str,
 	tls: Option<&UpstreamTls>,
+	cancel: &CancellationToken,
+	connect_timeout: Duration,
+) -> Result<Box<dyn AsyncReadWrite + Send>, Error> {
+	let dial = dial_upstream_inner(upstream, tls, cancel);
+	if let Ok(result) = tokio::time::timeout(connect_timeout, dial).await {
+		result
+	} else {
+		tracing::debug!(?upstream, ?connect_timeout, "dial_upstream timed out");
+		Err(Error::timeout(TimeoutKind::Connect))
+	}
+}
+
+async fn dial_upstream_inner(
+	upstream: &str,
+	tls: Option<&UpstreamTls>,
+	cancel: &CancellationToken,
 ) -> Result<Box<dyn AsyncReadWrite + Send>, Error> {
 	tracing::debug!(?upstream, has_tls = tls.is_some(), "dial_upstream");
 	let start = std::time::Instant::now();
-	let tcp = TcpStream::connect(upstream).await.map_err(|e| {
-		tracing::debug!(?upstream, ?e, "dial_upstream tcp connect failed");
-		Error::upstream(UpstreamReason::Unreachable).with_source(e)
-	})?;
+	let tcp = tokio::select! {
+		biased;
+		() = cancel.cancelled() => {
+			tracing::debug!(?upstream, "dial_upstream cancelled during tcp connect");
+			return Err(Error::canceled());
+		}
+		res = TcpStream::connect(upstream) => res.map_err(|e| {
+			tracing::debug!(?upstream, ?e, "dial_upstream tcp connect failed");
+			Error::upstream(UpstreamReason::Unreachable).with_source(e)
+		})?,
+	};
 	metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "tcp")
 		.record(start.elapsed().as_secs_f64() * 1000.0);
 	let _ = tcp.set_nodelay(true);
@@ -97,10 +143,17 @@ pub async fn dial_upstream(
 			Error::upstream(UpstreamReason::TlsHandshake)
 				.with_source(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()))
 		})?;
-	let tls_stream = connector.connect(server_name, tcp).await.map_err(|e| {
-		tracing::debug!(?upstream, hostname = %tls.verify_hostname, ?e, "dial_upstream tls handshake failed");
-		Error::upstream(UpstreamReason::TlsHandshake).with_source(e)
-	})?;
+	let tls_stream = tokio::select! {
+		biased;
+		() = cancel.cancelled() => {
+			tracing::debug!(?upstream, "dial_upstream cancelled during tls handshake");
+			return Err(Error::canceled());
+		}
+		res = connector.connect(server_name, tcp) => res.map_err(|e| {
+			tracing::debug!(?upstream, hostname = %tls.verify_hostname, ?e, "dial_upstream tls handshake failed");
+			Error::upstream(UpstreamReason::TlsHandshake).with_source(e)
+		})?,
+	};
 	tracing::debug!(?upstream, "dial_upstream tls ready");
 	Ok(Box::new(tls_stream))
 }
@@ -394,7 +447,14 @@ mod tests {
 			sock.write_all(&buf).await.expect("write");
 		});
 
-		let mut conn = dial_upstream(&addr.to_string(), None).await.expect("dial");
+		let mut conn = dial_upstream(
+			&addr.to_string(),
+			None,
+			&tokio_util::sync::CancellationToken::new(),
+			DEFAULT_DIAL_TIMEOUT,
+		)
+		.await
+		.expect("dial");
 		conn.write_all(b"hello").await.expect("write");
 		let mut echoed = [0u8; 5];
 		conn.read_exact(&mut echoed).await.expect("read echo");
@@ -411,7 +471,14 @@ mod tests {
 		let addr = listener.local_addr().expect("local_addr");
 		drop(listener);
 
-		match dial_upstream(&addr.to_string(), None).await {
+		match dial_upstream(
+			&addr.to_string(),
+			None,
+			&tokio_util::sync::CancellationToken::new(),
+			DEFAULT_DIAL_TIMEOUT,
+		)
+		.await
+		{
 			Ok(_) => panic!("dial against closed port should fail"),
 			Err(e) => assert!(e.to_string().contains("upstream"), "{e}"),
 		}

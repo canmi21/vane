@@ -103,7 +103,13 @@ impl L7Fetch for WebSocketUpgradeFetch {
 		// pooled `hyper_util::Client` is unsuitable here regardless of
 		// scheme because pooled clients close their upgrade channel
 		// when they release the connection back to the pool.
-		let stream = dial_upstream(&self.upstream, self.tls.as_ref()).await?;
+		let stream = dial_upstream(
+			&self.upstream,
+			self.tls.as_ref(),
+			&_ctx.cancel,
+			crate::fetch::upstream::DEFAULT_DIAL_TIMEOUT,
+		)
+		.await?;
 		let io = TokioIo::new(stream);
 
 		let (mut sender, conn_task) =
