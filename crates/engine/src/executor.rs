@@ -107,6 +107,17 @@ pub async fn execute(
 	let mut seq: u32 = 0;
 	let sym = graph.symbolic();
 
+	// Pull the L4 peek buffer (set by the listener-side prelude on
+	// `ConnContext.user`) once for the lifetime of this execute call.
+	// Per `spec/crates/engine.md` § _Protocol detection_, the
+	// `PeekResult` is immutable after the prelude runs — it never
+	// disappears mid-flow — so re-locking on every `Check` / `L4Peek`
+	// step (the prior shape) was pure overhead. `bytes::Bytes` clone
+	// is a refcount bump; the slice handed to predicate views below
+	// borrows from this local. See `H14` in the perf audit.
+	let peek_bytes: Option<bytes::Bytes> =
+		conn.user.lock().get::<vane_core::PeekResult>().map(|r| r.buffer.clone());
+
 	loop {
 		let node = &sym[cur];
 
@@ -160,15 +171,12 @@ pub async fn execute(
 
 		match node {
 			Node::Check { predicate, on_match, on_miss, .. } => {
-				// Hold the user-extension lock for exactly the lifetime of
-				// the view: the peek slice borrows from the `PeekResult`
-				// inside the guard, and the predicate `test` call needs to
-				// read it before we release.
-				let user = conn.user.lock();
-				let peek = user.get::<vane_core::PeekResult>().map(|r| r.buffer.as_ref());
-				let view = PredicateView::build(conn, req.as_ref(), l4.as_ref(), peek);
+				// `peek_bytes` was captured once at execute entry — see
+				// the comment there. The slice handed to the predicate
+				// view borrows from the outer local so no per-step lock
+				// is needed.
+				let view = PredicateView::build(conn, req.as_ref(), l4.as_ref(), peek_bytes.as_deref());
 				let matched = sym[*predicate].test(&view);
-				drop(user);
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Check, Some(matched));
 				cur = if matched { *on_match } else { *on_miss };
 			}
@@ -177,23 +185,16 @@ pub async fn execute(
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Middleware, None);
 				let outcome = match &graph[*id] {
 					MiddlewareInst::L4Peek(m) => {
-						// PeekResult is keyed in `ConnContext.user` by the
-						// listener-side prelude. Cloning the `Bytes` here is
-						// cheap (refcounted) and lets us drop the user-
-						// extension lock before the await — middleware bodies
-						// are free to take their own `conn.user` locks
-						// without deadlocking on themselves.
-						let peek_buf: Option<bytes::Bytes> = {
-							let user = conn.user.lock();
-							user.get::<vane_core::PeekResult>().map(|r| r.buffer.clone())
-						};
-						if peek_buf.is_none() {
+						// `peek_bytes` was captured once at execute entry. The
+						// middleware borrows from that local instead of
+						// re-locking `conn.user` per dispatch.
+						if peek_bytes.is_none() {
 							tracing::warn!(
 								conn_id = %conn.id,
 								"L4Peek dispatched without PeekResult — listener prelude must run first",
 							);
 						}
-						let peek_slice: &[u8] = peek_buf.as_deref().unwrap_or(&[]);
+						let peek_slice: &[u8] = peek_bytes.as_deref().unwrap_or(&[]);
 						m.run(peek_slice, conn, ctx).await
 					}
 					MiddlewareInst::L4Bytes(m) => {
