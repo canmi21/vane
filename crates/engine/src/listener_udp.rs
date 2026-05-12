@@ -459,6 +459,21 @@ fn advance_pending_peek(state: &PendingPeekState, datagram: &Bytes) -> PendingAd
 	match state.extractor.lock().push(datagram) {
 		Ok(PushOutcome::Sni(s)) => PendingAdvance::Sni(s),
 		Ok(PushOutcome::NeedMore) => PendingAdvance::NeedMore,
+		Err(clienthello::Error::UnsupportedVersion(version)) => {
+			// QUIC v2 (0x6b33_43cf) and any other version probe lands
+			// here. Surface a dedicated counter so operators can watch
+			// the deployed client mix in their dashboards; the version
+			// nibble is a small bounded set (v1 doesn't reach this
+			// branch, v2 is the realistic case, anything else is an
+			// experiment or attacker) so the label cardinality stays
+			// safe. Remove once clienthello learns to extract from v2.
+			metrics::counter!(
+				"vane.peek.quic.unsupported_version",
+				"version" => format!("{version:#010x}"),
+			)
+			.increment(1);
+			PendingAdvance::Drop(PeekDropReason::ExtractError)
+		}
 		Err(_) => PendingAdvance::Drop(PeekDropReason::ExtractError),
 	}
 }
