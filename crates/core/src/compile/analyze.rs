@@ -1,5 +1,5 @@
 use crate::compile::expand::RawRuleSet;
-use crate::error::Error;
+use crate::error::{Diagnostics, Error};
 use crate::fetch::FetchKind;
 use crate::metadata::{FetchMetadataProvider, MiddlewareMetadataProvider};
 use crate::predicate::{FieldPath, Predicate};
@@ -47,11 +47,32 @@ pub fn analyze(
 	mw_meta: &dyn MiddlewareMetadataProvider,
 	fetch_meta: &dyn FetchMetadataProvider,
 ) -> Result<AnalyzedRuleSet, Error> {
+	let (rules, d) = analyze_collecting(set, mw_meta, fetch_meta);
+	d.into_result(rules).map_err(Error::from)
+}
+
+/// Push+continue form of [`analyze`]: every rule is analyzed
+/// independently; per-rule errors are collected and the offending
+/// rule is dropped from the returned [`AnalyzedRuleSet`]. The caller
+/// uses [`Diagnostics::has_fatal`] at the stage boundary to decide
+/// whether to bail or feed the (partial) set into the next stage —
+/// today the compile pipeline always bails because every downstream
+/// stage assumes a complete rule set, but the partial set is still
+/// useful for the dry-run dump endpoint.
+pub fn analyze_collecting(
+	set: RawRuleSet,
+	mw_meta: &dyn MiddlewareMetadataProvider,
+	fetch_meta: &dyn FetchMetadataProvider,
+) -> (AnalyzedRuleSet, Diagnostics) {
 	let mut analyzed = Vec::with_capacity(set.rules.len());
+	let mut d = Diagnostics::new();
 	for raw in set.rules {
-		analyzed.push(analyze_rule(raw, mw_meta, fetch_meta)?);
+		match analyze_rule(raw, mw_meta, fetch_meta) {
+			Ok(rule) => analyzed.push(rule),
+			Err(e) => d.push(e),
+		}
 	}
-	Ok(AnalyzedRuleSet { rules: analyzed, source_files: set.source_files })
+	(AnalyzedRuleSet { rules: analyzed, source_files: set.source_files }, d)
 }
 
 fn analyze_rule(

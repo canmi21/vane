@@ -6,7 +6,7 @@ pub mod validate;
 
 use std::sync::Arc;
 
-use crate::error::Error;
+use crate::error::{Diagnostics, Error};
 use crate::ir::SymbolicFlowGraph;
 use crate::metadata::{FetchMetadataProvider, MiddlewareMetadataProvider};
 
@@ -19,6 +19,13 @@ pub use merge::{MergedConfig, RawRuleFile};
 /// Runs `merge → expand → analyze → lower → validate` and returns an
 /// `Arc<SymbolicFlowGraph>` ready for `vane-engine::FlowGraph::link`.
 ///
+/// On error the message carries every diagnostic the pipeline
+/// accumulated — the underlying [`compile_collecting`] runs each
+/// stage's "leaf checks" with push+continue, and only the stage
+/// boundary decides whether to bail. Operators running
+/// `vane compile <dir>` see all problems at once instead of fixing
+/// them one-at-a-time.
+///
 /// # Errors
 /// Returns [`Error::compile`] on duplicate rule names, unknown middleware
 /// or fetch names referenced by rules, bad `ListenSpec` strings, predicate
@@ -29,11 +36,47 @@ pub fn compile(
 	mw_meta: &dyn MiddlewareMetadataProvider,
 	fetch_meta: &dyn FetchMetadataProvider,
 ) -> Result<Arc<SymbolicFlowGraph>, Error> {
-	let merged = merge::merge(files)?;
-	let expanded = expand::expand(merged)?;
-	let analyzed = analyze::analyze(expanded, mw_meta, fetch_meta)?;
-	let graph = lower::lower(analyzed, mw_meta, fetch_meta)?;
-	validate::validate(&graph)?;
+	compile_collecting(files, mw_meta, fetch_meta).map_err(Error::from)
+}
+
+/// Collecting form of [`compile`]: returns the accumulated
+/// [`Diagnostics`] when one or more stages report errors, instead of
+/// collapsing them into a single `Error`. Used by callers (CLI,
+/// management RPC dry-run) that want to surface every problem in one
+/// turn.
+///
+/// # Errors
+/// Returns [`Diagnostics`] when any stage pushes a fatal entry. The
+/// accumulator's `Display` impl formats a numbered list suitable for
+/// direct printing.
+pub fn compile_collecting(
+	files: Vec<RawRuleFile>,
+	mw_meta: &dyn MiddlewareMetadataProvider,
+	fetch_meta: &dyn FetchMetadataProvider,
+) -> Result<Arc<SymbolicFlowGraph>, Diagnostics> {
+	// merge + expand are early-bail today: each carries at most one
+	// authoritative error (duplicate rule names, unknown preset,
+	// etc.) so collecting buys nothing. Lift them through the
+	// Diagnostics channel so the caller's match is uniform.
+	let merged = merge::merge(files).map_err(Diagnostics::from)?;
+	let expanded = expand::expand(merged).map_err(Diagnostics::from)?;
+
+	// analyze collects per-rule errors and returns the partial set
+	// alongside diagnostics. If anything was pushed, bail before
+	// lower (every downstream stage assumes a complete rule set).
+	let (analyzed, analyze_d) = analyze::analyze_collecting(expanded, mw_meta, fetch_meta);
+	analyze_d.into_result(())?;
+
+	// lower still uses ?-return internally; collect at the stage
+	// boundary into the same accumulator.
+	let graph = lower::lower(analyzed, mw_meta, fetch_meta).map_err(Diagnostics::from)?;
+
+	// validate runs every IR-level check to completion, accumulates
+	// all findings, and the stage boundary turns them into a single
+	// Err if any.
+	let validate_d = validate::validate_collecting(&graph);
+	validate_d.into_result(())?;
+
 	Ok(Arc::new(graph))
 }
 
@@ -1294,6 +1337,58 @@ mod tests {
 			!any_check_collects,
 			"non-body predicate must not set collect_body_before on any Check node"
 		);
+	}
+
+	#[test]
+	fn compile_collecting_surfaces_every_analyze_failure_in_one_pass() {
+		// Two rules each reference an unknown middleware — the legacy
+		// `compile()` short-circuits on the first; the collecting form
+		// must accumulate both.
+		let a = parse_rule(serde_json::json!({
+			"name": "a",
+			"listen": [":9201"],
+			"middleware_chain": [{ "use": "does_not_exist_a" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "b",
+			"listen": [":9202"],
+			"middleware_chain": [{ "use": "does_not_exist_b" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let d =
+			super::compile_collecting(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
+				.expect_err("must accumulate errors");
+		assert_eq!(d.len(), 2, "expected one error per bad rule, got {d}");
+		let s = d.to_string();
+		assert!(s.contains("does_not_exist_a"), "{s}");
+		assert!(s.contains("does_not_exist_b"), "{s}");
+	}
+
+	#[test]
+	fn compile_facade_collapses_diagnostics_into_single_error_message() {
+		// The back-compat `compile()` API must keep emitting one
+		// Error whose message names every accumulated failure, so
+		// existing callers (daemon RPC, etc.) still surface every
+		// problem in one turn.
+		let a = parse_rule(serde_json::json!({
+			"name": "a",
+			"listen": [":9301"],
+			"middleware_chain": [{ "use": "does_not_exist_x" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "b",
+			"listen": [":9302"],
+			"middleware_chain": [{ "use": "does_not_exist_y" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let err = super::compile(vec![rule_file("a.json", vec![a, b])], &Providers, &Providers)
+			.expect_err("must error");
+		let msg = err.to_string();
+		assert!(msg.contains("does_not_exist_x"), "{msg}");
+		assert!(msg.contains("does_not_exist_y"), "{msg}");
+		assert!(msg.contains("2 compile errors"), "{msg}");
 	}
 
 	#[test]

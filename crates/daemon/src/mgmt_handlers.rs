@@ -17,7 +17,9 @@ use async_trait::async_trait;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing_broadcast::{BroadcastTracingLayer, TracingFrame};
+#[cfg(test)]
 use vane_core::compile::compile;
+use vane_core::compile::compile_collecting;
 use vane_core::{FlowLogEvent, FlowLogSink, WasmPoolStats};
 use vane_engine::ListenerSet;
 use vane_engine::VerbosityState;
@@ -372,8 +374,11 @@ impl MgmtState {
 			Some(_) => MetadataProviders::new(),
 			None => MetadataProviders::new(),
 		};
-		let symbolic = compile(loaded.files, &providers, &providers)
-			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("compile: {e}") })?;
+		// Dry-run consumers want every diagnostic the pipeline can
+		// surface in one turn, so use the collecting form and let its
+		// `Display` impl format the multi-line message.
+		let symbolic = compile_collecting(loaded.files, &providers, &providers)
+			.map_err(|d| WireError { kind: WireErrorKind::BadArgs, message: format!("compile: {d}") })?;
 		let value = serde_json::to_value(&symbolic).map_err(|e| WireError {
 			kind: WireErrorKind::Internal,
 			message: format!("symbolic: {e}"),

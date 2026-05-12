@@ -241,6 +241,125 @@ impl Error {
 	}
 }
 
+/// Accumulator for compile-pipeline diagnostics.
+///
+/// Each stage in `merge → expand → analyze → lower → validate` runs
+/// per-rule / per-node "leaf checks" against the input. Historically
+/// every leaf check used `?` to early-return, which meant an operator
+/// running `vane compile <dir>` only ever saw the first error: fix
+/// that, re-run, see the next, fix that, re-run, etc. With
+/// `Diagnostics`, leaf checks `push` instead of `?`-returning and the
+/// stage boundary decides whether to bail with the full accumulator
+/// or continue into the next stage.
+///
+/// Every entry currently has the same severity (compile error). The
+/// `has_fatal` helper exists so callers can express the "any error
+/// stops the next stage" gate clearly at stage boundaries; future
+/// warning-level diagnostics would slot in without changing call
+/// sites.
+#[derive(Debug, Default)]
+pub struct Diagnostics {
+	entries: Vec<Error>,
+}
+
+impl Diagnostics {
+	#[must_use]
+	pub const fn new() -> Self {
+		Self { entries: Vec::new() }
+	}
+
+	pub fn push(&mut self, e: Error) {
+		self.entries.push(e);
+	}
+
+	pub fn extend<I: IntoIterator<Item = Error>>(&mut self, iter: I) {
+		self.entries.extend(iter);
+	}
+
+	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self.entries.is_empty()
+	}
+
+	#[must_use]
+	pub fn len(&self) -> usize {
+		self.entries.len()
+	}
+
+	/// True when the accumulator carries at least one error that
+	/// should stop the pipeline at the next stage boundary. Equivalent
+	/// to `!is_empty()` today; reserved as a hook for warning-level
+	/// diagnostics that might land here in the future.
+	#[must_use]
+	pub fn has_fatal(&self) -> bool {
+		!self.entries.is_empty()
+	}
+
+	#[must_use]
+	pub fn entries(&self) -> &[Error] {
+		&self.entries
+	}
+
+	#[must_use]
+	pub fn into_errors(self) -> Vec<Error> {
+		self.entries
+	}
+
+	/// Stage-boundary gate. Returns `Ok(value)` when no diagnostics
+	/// have been pushed; otherwise returns `Err(Self)` so the caller
+	/// can either bubble or merge it into another accumulator.
+	///
+	/// # Errors
+	/// Returns `self` when `has_fatal()` is true.
+	pub fn into_result<T>(self, value: T) -> Result<T, Self> {
+		if self.has_fatal() { Err(self) } else { Ok(value) }
+	}
+}
+
+impl std::fmt::Display for Diagnostics {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self.entries.len() {
+			0 => write!(f, "no diagnostics"),
+			1 => write!(f, "{}", self.entries[0]),
+			n => {
+				writeln!(f, "{n} compile errors:")?;
+				for (i, e) in self.entries.iter().enumerate() {
+					writeln!(f, "  [{}/{n}] {e}", i + 1)?;
+				}
+				Ok(())
+			}
+		}
+	}
+}
+
+impl From<Error> for Diagnostics {
+	fn from(e: Error) -> Self {
+		Self { entries: vec![e] }
+	}
+}
+
+/// Collapse the accumulated diagnostics into a single
+/// [`ErrorKind::Compile`] `Error` whose context carries every entry's
+/// `to_string()`, separated by `\n`. Used at the boundary into APIs
+/// whose error channel is a single `Error` (e.g. the existing
+/// `compile()` facade, the management-RPC wire payload).
+impl From<Diagnostics> for Error {
+	fn from(d: Diagnostics) -> Self {
+		match d.entries.len() {
+			0 => Error::compile("no diagnostics"),
+			1 => d.entries.into_iter().next().expect("len == 1"),
+			n => {
+				use std::fmt::Write as _;
+				let mut joined = format!("{n} compile errors:");
+				for (i, e) in d.entries.iter().enumerate() {
+					let _ = write!(joined, "\n  [{}/{n}] {e}", i + 1);
+				}
+				Error::compile(joined)
+			}
+		}
+	}
+}
+
 fn from_source<E>(kind: ErrorKind, e: E) -> Error
 where
 	E: std::error::Error + Send + Sync + 'static,
@@ -342,4 +461,61 @@ fn cap_chain(chain: Vec<String>) -> Vec<String> {
 		chain.into_iter().take(keep).map(|s| cap_bytes(s, SERIALIZED_CHAIN_ENTRY_CAP)).collect();
 	out.push(format!("… [{dropped} more]"));
 	out
+}
+
+#[cfg(test)]
+mod diagnostics_tests {
+	use super::{Diagnostics, Error};
+
+	#[test]
+	fn empty_diagnostics_into_result_returns_ok_value() {
+		let d = Diagnostics::new();
+		assert!(d.is_empty());
+		assert!(!d.has_fatal());
+		let r: Result<u32, Diagnostics> = d.into_result(42);
+		assert_eq!(r.unwrap(), 42);
+	}
+
+	#[test]
+	fn non_empty_diagnostics_into_result_surfaces_self() {
+		let mut d = Diagnostics::new();
+		d.push(Error::compile("first"));
+		d.push(Error::compile("second"));
+		assert_eq!(d.len(), 2);
+		assert!(d.has_fatal());
+		let r: Result<(), Diagnostics> = d.into_result(());
+		let got = r.expect_err("non-empty must be Err");
+		assert_eq!(got.len(), 2);
+	}
+
+	#[test]
+	fn diagnostics_display_lists_every_entry_with_numbered_prefix() {
+		let mut d = Diagnostics::new();
+		d.push(Error::compile("alpha"));
+		d.push(Error::compile("beta"));
+		let s = d.to_string();
+		assert!(s.contains("2 compile errors"), "{s}");
+		assert!(s.contains("[1/2]") && s.contains("alpha"), "{s}");
+		assert!(s.contains("[2/2]") && s.contains("beta"), "{s}");
+	}
+
+	#[test]
+	fn diagnostics_to_single_error_joins_messages_under_compile_kind() {
+		let mut d = Diagnostics::new();
+		d.push(Error::compile("alpha"));
+		d.push(Error::compile("beta"));
+		let collapsed: Error = d.into();
+		let msg = collapsed.to_string();
+		assert!(msg.contains("alpha"));
+		assert!(msg.contains("beta"));
+		assert!(matches!(collapsed.kind, super::ErrorKind::Compile));
+	}
+
+	#[test]
+	fn single_error_diagnostics_collapses_to_that_error_verbatim() {
+		let mut d = Diagnostics::new();
+		d.push(Error::compile("solo"));
+		let collapsed: Error = d.into();
+		assert_eq!(collapsed.to_string(), Error::compile("solo").to_string());
+	}
 }

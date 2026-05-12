@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::error::Error;
+use crate::error::{Diagnostics, Error};
 use crate::ir::{Node, NodeId, SymbolicFlowGraph};
 use crate::phase::{Phase, PhaseNodeKind, Transition, transition};
 
@@ -9,16 +9,34 @@ use crate::phase::{Phase, PhaseNodeKind, Transition, transition};
 /// # Errors
 /// Returns [`Error::compile`] on missing-id references, Fetch edges that
 /// don't match the kind's output-mode contract, acyclicity violations, or
-/// phase-state-machine mismatches.
+/// phase-state-machine mismatches. When multiple violations are found
+/// they are collapsed into a single message via [`Diagnostics`].
 pub fn validate(graph: &SymbolicFlowGraph) -> Result<(), Error> {
-	check_id_ranges(graph)?;
-	check_fetch_edges(graph)?;
-	check_acyclic(graph)?;
-	check_phases(graph)?;
-	Ok(())
+	validate_collecting(graph).into_result(()).map_err(Error::from)
 }
 
-fn check_id_ranges(graph: &SymbolicFlowGraph) -> Result<(), Error> {
+/// Push+continue form of [`validate`]: every leaf check runs to
+/// completion and accumulates its errors into a [`Diagnostics`].
+/// Callers that drive the full compile pipeline use this so an
+/// operator running `vane compile <dir>` sees every structural
+/// violation at once instead of fixing them one-at-a-time.
+#[must_use]
+pub fn validate_collecting(graph: &SymbolicFlowGraph) -> Diagnostics {
+	let mut d = Diagnostics::new();
+	check_id_ranges(graph, &mut d);
+	// Every downstream check (fetch-edges, acyclic, phases) walks
+	// `graph.fetches[id]` / `graph.nodes[id]` etc., so dangling IDs
+	// would panic. Gate the rest on a clean id-range pass; the
+	// operator gets the dangling errors first and re-runs.
+	if d.is_empty() {
+		check_fetch_edges(graph, &mut d);
+		check_acyclic(graph, &mut d);
+		check_phases_collecting(graph, &mut d);
+	}
+	d
+}
+
+fn check_id_ranges(graph: &SymbolicFlowGraph, d: &mut Diagnostics) {
 	let n_nodes = u32::try_from(graph.nodes.len()).unwrap_or(u32::MAX);
 	let n_preds = u32::try_from(graph.predicates.len()).unwrap_or(u32::MAX);
 	let n_mws = u32::try_from(graph.middlewares.len()).unwrap_or(u32::MAX);
@@ -29,62 +47,58 @@ fn check_id_ranges(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 		match node {
 			Node::Check { predicate, on_match, on_miss, .. } => {
 				if predicate.get() >= n_preds {
-					return Err(Error::compile(format!(
-						"node {idx}: dangling PredicateId({})",
-						predicate.get()
-					)));
+					d.push(Error::compile(format!("node {idx}: dangling PredicateId({})", predicate.get())));
 				}
 				if on_match.get() >= n_nodes {
-					return Err(Error::compile(format!("node {idx}.on_match dangling")));
+					d.push(Error::compile(format!("node {idx}.on_match dangling")));
 				}
 				if on_miss.get() >= n_nodes {
-					return Err(Error::compile(format!("node {idx}.on_miss dangling")));
+					d.push(Error::compile(format!("node {idx}.on_miss dangling")));
 				}
 			}
 			Node::Middleware { id, next, on_error, .. } => {
 				if id.get() >= n_mws {
-					return Err(Error::compile(format!("node {idx}: dangling MiddlewareId({})", id.get())));
+					d.push(Error::compile(format!("node {idx}: dangling MiddlewareId({})", id.get())));
 				}
 				if next.get() >= n_nodes {
-					return Err(Error::compile(format!("node {idx}.next dangling")));
+					d.push(Error::compile(format!("node {idx}.next dangling")));
 				}
 				if let Some(e) = on_error
 					&& e.get() >= n_nodes
 				{
-					return Err(Error::compile(format!("node {idx}.on_error dangling")));
+					d.push(Error::compile(format!("node {idx}.on_error dangling")));
 				}
 			}
 			Node::Fetch { id, next_response, next_tunnel, .. } => {
 				if id.get() >= n_fetches {
-					return Err(Error::compile(format!("node {idx}: dangling FetchId({})", id.get())));
+					d.push(Error::compile(format!("node {idx}: dangling FetchId({})", id.get())));
 				}
 				if let Some(r) = next_response
 					&& r.get() >= n_nodes
 				{
-					return Err(Error::compile(format!("node {idx}.next_response dangling")));
+					d.push(Error::compile(format!("node {idx}.next_response dangling")));
 				}
 				if let Some(t) = next_tunnel
 					&& t.get() >= n_nodes
 				{
-					return Err(Error::compile(format!("node {idx}.next_tunnel dangling")));
+					d.push(Error::compile(format!("node {idx}.next_tunnel dangling")));
 				}
 			}
 			Node::Upgrade { next } => {
 				if next.get() >= n_nodes {
-					return Err(Error::compile(format!("node {idx}.next dangling")));
+					d.push(Error::compile(format!("node {idx}.next dangling")));
 				}
 			}
 			Node::Terminate(t) => {
 				if t.get() >= n_terms {
-					return Err(Error::compile(format!("node {idx}: dangling TerminatorId({})", t.get())));
+					d.push(Error::compile(format!("node {idx}: dangling TerminatorId({})", t.get())));
 				}
 			}
 		}
 	}
-	Ok(())
 }
 
-fn check_fetch_edges(graph: &SymbolicFlowGraph) -> Result<(), Error> {
+fn check_fetch_edges(graph: &SymbolicFlowGraph, d: &mut Diagnostics) {
 	use crate::fetch::FetchKind::{
 		AcmeChallenge, HttpProxy, HttpSynthesize, L4Forward, WebSocketUpgrade,
 	};
@@ -96,33 +110,32 @@ fn check_fetch_edges(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 		match kind {
 			HttpProxy | HttpSynthesize | AcmeChallenge => {
 				if next_response.is_none() {
-					return Err(Error::compile(format!("node {idx}: {kind:?} requires next_response")));
+					d.push(Error::compile(format!("node {idx}: {kind:?} requires next_response")));
 				}
 				if next_tunnel.is_some() {
-					return Err(Error::compile(format!("node {idx}: {kind:?} must not have next_tunnel")));
+					d.push(Error::compile(format!("node {idx}: {kind:?} must not have next_tunnel")));
 				}
 			}
 			L4Forward => {
 				if next_tunnel.is_none() {
-					return Err(Error::compile(format!("node {idx}: L4Forward requires next_tunnel")));
+					d.push(Error::compile(format!("node {idx}: L4Forward requires next_tunnel")));
 				}
 				if next_response.is_some() {
-					return Err(Error::compile(format!("node {idx}: L4Forward must not have next_response")));
+					d.push(Error::compile(format!("node {idx}: L4Forward must not have next_response")));
 				}
 			}
 			WebSocketUpgrade => {
 				if next_response.is_none() || next_tunnel.is_none() {
-					return Err(Error::compile(format!(
+					d.push(Error::compile(format!(
 						"node {idx}: WebSocketUpgrade requires both next_response and next_tunnel"
 					)));
 				}
 			}
 		}
 	}
-	Ok(())
 }
 
-fn check_acyclic(graph: &SymbolicFlowGraph) -> Result<(), Error> {
+fn check_acyclic(graph: &SymbolicFlowGraph, d: &mut Diagnostics) {
 	#[derive(Copy, Clone)]
 	enum Color {
 		White,
@@ -131,6 +144,7 @@ fn check_acyclic(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 	}
 	let mut color: Vec<Color> = (0..graph.nodes.len()).map(|_| Color::White).collect();
 
+	let mut reported: HashSet<usize> = HashSet::new();
 	for start in 0..graph.nodes.len() {
 		if !matches!(color[start], Color::White) {
 			continue;
@@ -148,7 +162,13 @@ fn check_acyclic(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 						stack.push((next, 0));
 					}
 					Color::Gray => {
-						return Err(Error::compile(format!("cycle in graph at node {next}")));
+						// Distinct cycles get distinct entries; collapse
+						// repeated reports against the same closing node
+						// so the accumulator stays readable for an
+						// operator running `vane compile`.
+						if reported.insert(next) {
+							d.push(Error::compile(format!("cycle in graph at node {next}")));
+						}
 					}
 					Color::Black => {}
 				}
@@ -158,7 +178,6 @@ fn check_acyclic(graph: &SymbolicFlowGraph) -> Result<(), Error> {
 			}
 		}
 	}
-	Ok(())
 }
 
 fn successors(node: &Node) -> Vec<NodeId> {
@@ -208,21 +227,27 @@ fn node_kind_for_phase(graph: &SymbolicFlowGraph, node: &Node) -> PhaseNodeKind 
 /// Returns [`Error::compile`] on phase mismatches per
 /// [`spec/flow-model.md` § _Phase state machine_](../../../../spec/flow-model.md#phase-state-machine).
 pub fn check_phases(graph: &SymbolicFlowGraph) -> Result<(), Error> {
+	let mut d = Diagnostics::new();
+	check_phases_collecting(graph, &mut d);
+	d.into_result(()).map_err(Error::from)
+}
+
+fn check_phases_collecting(graph: &SymbolicFlowGraph, d: &mut Diagnostics) {
 	let mut seen: HashSet<(NodeId, Phase)> = HashSet::new();
 	for &entry in graph.entries.values() {
-		visit_phase(graph, entry, Phase::L4Raw, &mut seen)?;
+		if let Err(e) = visit_phase(graph, entry, Phase::L4Raw, &mut seen) {
+			d.push(e);
+		}
 	}
-	// Walk every L7 listener's synthesised `Short(Response)` target as a
-	// second-class entry rooted at `Phase::L7Response`. The lower pass
-	// always emits these as `Terminate(WriteHttpResponse)` nodes —
-	// `WriteHttpResponse` accepts `L7Response` per the transition
-	// table, so a clean lower produces a clean walk. Bogus entries
-	// (a synth target whose terminator is not `WriteHttpResponse`) get
-	// caught here with the same "phase mismatch" error shape.
+	// Walk every L7 listener's synthesised `Short(Response)` target as
+	// a second-class entry rooted at `Phase::L7Response`. Each synth
+	// target collects independently so one bad listener doesn't mask
+	// errors in another.
 	for &synth in graph.meta.short_circuit_response_entry.values() {
-		visit_phase(graph, synth, Phase::L7Response, &mut seen)?;
+		if let Err(e) = visit_phase(graph, synth, Phase::L7Response, &mut seen) {
+			d.push(e);
+		}
 	}
-	Ok(())
 }
 
 fn visit_phase(
@@ -298,6 +323,42 @@ mod tests {
 			listener_transports: std::collections::BTreeMap::new(),
 			annotations: Vec::new(),
 		}
+	}
+
+	#[test]
+	fn validate_collecting_accumulates_every_dangling_check_edge_in_one_pass() {
+		// Two Checks each with both branches dangling — the legacy
+		// `validate` short-circuits after the first hit; the
+		// collecting form must surface all four.
+		let graph = SymbolicFlowGraph {
+			nodes: vec![
+				Node::Check {
+					predicate: PredicateId::new(0),
+					on_match: NodeId::new(50),
+					on_miss: NodeId::new(51),
+					collect_body_before: None,
+					body_limit: 0,
+				},
+				Node::Check {
+					predicate: PredicateId::new(0),
+					on_match: NodeId::new(52),
+					on_miss: NodeId::new(53),
+					collect_body_before: None,
+					body_limit: 0,
+				},
+			],
+			predicates: vec![dummy_predicate()],
+			middlewares: vec![],
+			fetches: vec![],
+			terminators: vec![],
+			entries: HashMap::new(),
+			meta: empty_meta(),
+		};
+		let d = validate_collecting(&graph);
+		assert_eq!(d.len(), 4, "expected one error per dangling edge: {d}");
+		let dump = d.to_string();
+		assert!(dump.contains("on_match dangling"), "{dump}");
+		assert!(dump.contains("on_miss dangling"), "{dump}");
 	}
 
 	#[test]
