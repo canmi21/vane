@@ -23,12 +23,14 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use std::sync::Arc;
+
 use notify::RecursiveMode;
 use notify::event::{EventKind, ModifyKind};
 use notify_debouncer_full::{
 	DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache, new_debouncer,
 };
-use tokio::sync::mpsc;
+use tokio::sync::Notify;
 
 // Re-export the upstream crates so callers don't have to add them as
 // direct dependencies just to name the event types in their filter.
@@ -47,13 +49,23 @@ pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(250);
 /// Active fs-watcher subscription. Drop the value to stop watching.
 ///
 /// Held by the caller across the listener-bind window so events
-/// landing in the gap are queued, not lost.
+/// landing in the gap are coalesced into a single pending wake-up,
+/// not silently dropped.
+///
+/// **Coalescing semantics.** The subscription replaces the previous
+/// unbounded mpsc with a single-slot [`tokio::sync::Notify`]. Multiple
+/// debounced batches that arrive while no consumer is awaiting (e.g.
+/// during a long reload pipeline) collapse into one permit — the
+/// caller wakes once, runs reload once, and only re-runs if more
+/// events landed during that run. The "fs spam → queued reload work"
+/// pile-up that an unbounded channel would create is impossible by
+/// construction.
 pub struct Subscription {
 	// `_debouncer` is held only for its `Drop` semantics — dropping
 	// the value stops the underlying `notify::RecommendedWatcher`'s
 	// background thread.
 	_debouncer: WatchHandle,
-	rx: mpsc::UnboundedReceiver<()>,
+	notify: Arc<Notify>,
 	watch_root: PathBuf,
 }
 
@@ -67,12 +79,15 @@ impl Subscription {
 		&self.watch_root
 	}
 
-	/// Await the next reload-worthy debounced batch. Returns `None`
-	/// once the underlying channel closes (this can only happen if
-	/// the watcher backend itself disappears; in normal operation
-	/// dropping the `Subscription` is what ends the loop).
+	/// Await the next reload-worthy debounced batch. Returns `Some(())`
+	/// per wake-up; `None` is reserved for future "watcher backend
+	/// died" semantics that the underlying [`Notify`] cannot express
+	/// today (and in normal operation dropping the `Subscription` is
+	/// what ends the loop anyway). Callers should rely on a
+	/// `CancellationToken` for shutdown.
 	pub async fn recv(&mut self) -> Option<()> {
-		self.rx.recv().await
+		self.notify.notified().await;
+		Some(())
 	}
 }
 
@@ -103,7 +118,7 @@ where
 	F: Fn(&[DebouncedEvent], &Path) -> bool + Send + 'static,
 {
 	let path = path.into();
-	let (tx, rx) = mpsc::unbounded_channel::<()>();
+	let notify = Arc::new(Notify::new());
 
 	// Canonicalise the watch root so `starts_with` in the predicate
 	// matches what `notify` reports. macOS FSEvents returns paths
@@ -113,17 +128,21 @@ where
 	let watch_root = path.canonicalize().unwrap_or_else(|_| path.clone());
 	let cb_root = watch_root.clone();
 
+	let cb_notify = Arc::clone(&notify);
 	let mut debouncer = new_debouncer(debounce, None, move |res: DebounceEventResult| {
 		let Ok(events) = res else { return };
 		if filter(&events, &cb_root) {
-			// Coalesce: a single () per debounce window. Receiver
-			// is unbounded so send is sync-ok.
-			let _ = tx.send(());
+			// Single-slot coalesce: `Notify::notify_one` stores at most
+			// one permit. Repeated callbacks while no consumer is
+			// awaiting collapse to one wake-up; the consumer
+			// re-checks for fresh events naturally on its next
+			// iteration.
+			cb_notify.notify_one();
 		}
 	})?;
 	debouncer.watch(&path, RecursiveMode::Recursive)?;
 
-	Ok(Subscription { _debouncer: debouncer, rx, watch_root })
+	Ok(Subscription { _debouncer: debouncer, notify, watch_root })
 }
 
 /// The default batch-filter predicate. A debounced batch is reload-
@@ -234,6 +253,36 @@ mod tests {
 			ev_under(&root, EventKind::Create(CreateKind::File)),
 		];
 		assert!(is_reloadable_batch(&batch, &root));
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn arm_coalesces_repeated_callbacks_into_single_pending_wakeup() {
+		// Drive the watcher with a flurry of fs events while the
+		// consumer is asleep. `Notify::notify_one`'s single-slot
+		// permit must collapse them into exactly one pending wake-up.
+		let tmp = tempfile::tempdir().expect("tempdir");
+		let mut sub = arm(tmp.path().to_path_buf()).expect("arm");
+
+		// Allow the backend to register on the path.
+		tokio::time::sleep(Duration::from_millis(200)).await;
+
+		for i in 0..16 {
+			let target = tmp.path().join(format!("burst-{i}.json"));
+			tokio::fs::write(&target, b"{}").await.expect("write");
+		}
+
+		// First wake-up must arrive within the debounce window
+		// (250 ms default + filesystem latency).
+		tokio::time::timeout(Duration::from_secs(3), sub.recv())
+			.await
+			.expect("first recv timed out")
+			.expect("permit absent");
+
+		// After draining the single permit, a second recv must NOT
+		// fire — every additional fs event collapsed into the same
+		// permit that we just consumed.
+		let second = tokio::time::timeout(Duration::from_millis(500), sub.recv()).await;
+		assert!(second.is_err(), "Notify single-slot semantics violated: extra wakeup arrived");
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
