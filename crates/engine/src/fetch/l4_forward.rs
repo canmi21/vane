@@ -158,32 +158,77 @@ impl L4ForwardFetch {
 		let cancel_for_task = cancel.clone();
 		let upstream_for_task = Arc::clone(&upstream_socket);
 
-		let join_handle = tokio::spawn(udp_forwarder_loop(
+		// RAII guard: removes the dispatch table entry on drop. Moved
+		// into the spawned forwarder task so cleanup fires on every
+		// exit path — natural completion, panic, or task abort during
+		// shutdown. The outer `join` future used to do the remove
+		// from the caller side, but it only ran if the caller drove
+		// `join.await` to completion; aborting the executor would
+		// leak the entry.
+		let cleanup_guard =
+			DispatchTableEntryGuard { table: Arc::clone(&dispatch_table), key: Some(key) };
+
+		let join_handle = tokio::spawn(udp_forwarder_with_cleanup(
 			cancel_for_task,
 			inbound_rx,
 			upstream_for_task,
 			listener_socket,
 			peer,
 			idle_timeout,
+			cleanup_guard,
 		));
 
-		// Cleanup wrapper: await the spawned forwarder, then evict the
-		// dispatch table entry. Returning the resolved `CloseReason`
-		// preserves the executor's view of session shape.
-		let cleanup_table = Arc::clone(&dispatch_table);
+		// The outer `join` future surfaces the spawned task's
+		// `CloseReason` to the executor. Cleanup is now inside the
+		// task itself (via `DispatchTableEntryGuard::Drop`), so the
+		// caller's `join.await` returning early is no longer a leak.
 		let join: std::pin::Pin<Box<dyn std::future::Future<Output = CloseReason> + Send>> =
 			Box::pin(async move {
-				let close = match join_handle.await {
+				match join_handle.await {
 					Ok(reason) => reason,
 					Err(_join_err) => {
 						CloseReason::ProtocolError(std::borrow::Cow::Borrowed("udp forwarder task panicked"))
 					}
-				};
-				cleanup_table.remove(&key);
-				close
+				}
 			});
 		Ok(Tunnel::Udp(UdpTunnel { join, cancel }))
 	}
+}
+
+/// RAII cleanup for the per-session dispatch-table entry.
+///
+/// Owned by the spawned forwarder task so the dispatch table is
+/// always cleaned up on task exit — natural completion, panic, or
+/// abort. The guard's `Drop` removes `key` from the table; the
+/// `Option<DispatchKey>` shape supports an explicit `take`-style
+/// release path if we ever need one.
+struct DispatchTableEntryGuard {
+	table: Arc<DispatchTable>,
+	key: Option<DispatchKey>,
+}
+
+impl Drop for DispatchTableEntryGuard {
+	fn drop(&mut self) {
+		if let Some(key) = self.key.take() {
+			self.table.remove(&key);
+		}
+	}
+}
+
+/// Thin wrapper around [`udp_forwarder_loop`] that owns the
+/// dispatch-table cleanup guard. Co-locating the guard with the
+/// forwarder ensures cleanup fires even if the outer `join` future
+/// is dropped before the forwarder exits.
+async fn udp_forwarder_with_cleanup(
+	cancel: CancellationToken,
+	inbound_rx: mpsc::Receiver<Bytes>,
+	upstream_socket: Arc<UdpSocket>,
+	listener_socket: Arc<UdpSocket>,
+	peer: SocketAddr,
+	idle_timeout: Duration,
+	_cleanup: DispatchTableEntryGuard,
+) -> CloseReason {
+	udp_forwarder_loop(cancel, inbound_rx, upstream_socket, listener_socket, peer, idle_timeout).await
 }
 
 /// Per-5-tuple forwarder loop. Owns one UDP socket connected to
