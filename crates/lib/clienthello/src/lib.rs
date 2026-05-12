@@ -160,6 +160,11 @@ pub enum PushOutcome {
 	/// The TLS `ClientHello` has been fully reassembled and parsed; this
 	/// is the SNI. Subsequent pushes return the same value (or another
 	/// `Sni` if the caller continues to feed the extractor).
+	///
+	/// **Invariant**: the returned string is ASCII-lowercased. SNI is
+	/// case-insensitive (RFC 6066 §3); normalization happens at the
+	/// parser so downstream comparators (e.g. `tls.sni` predicates,
+	/// `CertStore::by_sni`) can rely on lowercase keys.
 	Sni(String),
 	/// More datagrams are needed before the `ClientHello` can be parsed.
 	NeedMore,

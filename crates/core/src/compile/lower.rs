@@ -1893,6 +1893,7 @@ fn coerce_value(
 			let Value::Str(s) = v else {
 				return Err(mismatch());
 			};
+			ensure_sni_ascii_lowercase(path, s, op_name, source)?;
 			Ok(CompiledValue::Str(Arc::from(s.as_str())))
 		}
 		FieldValueType::Enum => {
@@ -1964,16 +1965,20 @@ fn value_to_bytes(
 	// of the literal, while `contains` on `http.body` (Bytes)
 	// base64-decodes.
 	match v {
-		Value::Str(s) => match path.value_type() {
-			FieldValueType::Bytes => B64.decode(s.as_bytes()).map(bytes::Bytes::from).map_err(|e| {
-				Error::compile(format!(
-					"{}operator `{op_name}` on field `{}` expected base64 string: {e}",
-					source_prefix(source),
-					path.display_name(),
-				))
-			}),
-			_ => Ok(bytes::Bytes::copy_from_slice(s.as_bytes())),
-		},
+		Value::Str(s) => {
+			if path.value_type() == FieldValueType::Bytes {
+				B64.decode(s.as_bytes()).map(bytes::Bytes::from).map_err(|e| {
+					Error::compile(format!(
+						"{}operator `{op_name}` on field `{}` expected base64 string: {e}",
+						source_prefix(source),
+						path.display_name(),
+					))
+				})
+			} else {
+				ensure_sni_ascii_lowercase(path, s, op_name, source)?;
+				Ok(bytes::Bytes::copy_from_slice(s.as_bytes()))
+			}
+		}
 		Value::Int(_) | Value::Bool(_) => Err(Error::compile(format!(
 			"{}operator `{op_name}` on field `{}` expects a string value, got {}",
 			source_prefix(source),
@@ -1981,6 +1986,26 @@ fn value_to_bytes(
 			value_kind(v),
 		))),
 	}
+}
+
+/// Enforce the `tls.sni` operand-lowercase contract. SNI is
+/// case-insensitive on the wire (RFC 6066 §3) and the listener prelude
+/// lowercases it before populating `ConnContext.tls.sni`; rules that
+/// compare against an upper-case literal would silently never match,
+/// so we hard-reject at compile time instead of soft-tolerating.
+fn ensure_sni_ascii_lowercase(
+	path: &FieldPath,
+	s: &str,
+	op_name: &'static str,
+	source: &SourceInfo,
+) -> Result<(), Error> {
+	if matches!(path, FieldPath::TlsSni) && s.bytes().any(|b| b.is_ascii_uppercase()) {
+		return Err(Error::compile(format!(
+			"{}operator `{op_name}` on field `tls.sni`: operand {s:?} must be ASCII lowercase",
+			source_prefix(source),
+		)));
+	}
+	Ok(())
 }
 
 fn value_kind(v: &Value) -> &'static str {
@@ -2463,6 +2488,117 @@ mod compat_tests {
 		let msg = err.to_string();
 		assert!(msg.contains("expected base64 string"), "{msg}");
 		assert!(msg.contains("tls.alpn"), "{msg}");
+	}
+
+	/// `tls.sni` operands MUST be ASCII lowercase per the predicate
+	/// contract. Wire-side SNI is normalized to lowercase by the
+	/// `guess` / `clienthello` parsers; rules carrying an upper-case
+	/// literal would silently never match, so compile rejects them.
+	#[test]
+	fn tls_sni_rejects_uppercase_ascii_in_equals() {
+		let err = compile_operator(
+			&Operator::Equals(Value::Str("Example.com".to_string())),
+			&FieldPath::TlsSni,
+			&src(),
+		)
+		.expect_err("uppercase tls.sni equals must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("tls.sni"), "{msg}");
+		assert!(msg.contains("ASCII lowercase"), "{msg}");
+	}
+
+	#[test]
+	fn tls_sni_rejects_uppercase_ascii_in_contains_prefix_suffix_in() {
+		for op in [
+			Operator::Contains(Value::Str("A".to_string())),
+			Operator::NotContains(Value::Str("B".to_string())),
+			Operator::Prefix(Value::Str("Api.".to_string())),
+			Operator::Suffix(Value::Str(".CoM".to_string())),
+			Operator::In(vec![Value::Str("ok.example.com".to_string()), Value::Str("X.com".to_string())]),
+			Operator::NotIn(vec![Value::Str("Bad.com".to_string())]),
+		] {
+			let err = compile_operator(&op, &FieldPath::TlsSni, &src())
+				.expect_err("uppercase tls.sni operand must reject");
+			let msg = err.to_string();
+			assert!(msg.contains("tls.sni"), "{msg}");
+			assert!(msg.contains("ASCII lowercase"), "{msg}");
+		}
+	}
+
+	#[test]
+	fn tls_sni_accepts_lowercase_and_non_ascii_punycode() {
+		// Pure ASCII lowercase is the canonical form.
+		compile_operator(
+			&Operator::Equals(Value::Str("api.example.com".to_string())),
+			&FieldPath::TlsSni,
+			&src(),
+		)
+		.expect("lowercase tls.sni equals must compile");
+		// A-label (xn--) IDNs are pure ASCII lowercase already; they must compile.
+		compile_operator(
+			&Operator::Equals(Value::Str("xn--bcher-kva.example".to_string())),
+			&FieldPath::TlsSni,
+			&src(),
+		)
+		.expect("punycode tls.sni equals must compile");
+	}
+
+	#[test]
+	fn tls_sni_lowercase_invariant_on_compiled_values() {
+		// IR-level scan: every CompiledValue produced for FieldPath::TlsSni
+		// must be free of ASCII uppercase. Compile a small batch of legal
+		// operators and walk their CompiledOperators end-to-end.
+		use crate::predicate::{CompiledOperator, CompiledValue};
+
+		fn check_bytes(b: &bytes::Bytes) {
+			assert!(
+				!b.iter().any(u8::is_ascii_uppercase),
+				"tls.sni CompiledValue::Bytes must be ASCII lowercase, got {b:?}"
+			);
+		}
+		fn check_value(v: &CompiledValue) {
+			match v {
+				CompiledValue::Str(s) => {
+					assert!(
+						!s.bytes().any(|b| b.is_ascii_uppercase()),
+						"tls.sni CompiledValue::Str must be ASCII lowercase, got {s:?}"
+					);
+				}
+				CompiledValue::Bytes(b) => check_bytes(b),
+				other => panic!("tls.sni produced non-Str/Bytes CompiledValue: {other:?}"),
+			}
+		}
+
+		let legal = [
+			Operator::Equals(Value::Str("a.example.com".to_string())),
+			Operator::NotEquals(Value::Str("b.example.com".to_string())),
+			Operator::Contains(Value::Str("api".to_string())),
+			Operator::NotContains(Value::Str("internal".to_string())),
+			Operator::Prefix(Value::Str("api.".to_string())),
+			Operator::Suffix(Value::Str(".example.com".to_string())),
+			Operator::In(vec![
+				Value::Str("a.example.com".to_string()),
+				Value::Str("b.example.com".to_string()),
+			]),
+			Operator::NotIn(vec![Value::Str("c.example.com".to_string())]),
+		];
+		for op in &legal {
+			let compiled =
+				compile_operator(op, &FieldPath::TlsSni, &src()).expect("legal tls.sni op compiles");
+			match compiled {
+				CompiledOperator::Equals(v) | CompiledOperator::NotEquals(v) => check_value(&v),
+				CompiledOperator::Contains(b)
+				| CompiledOperator::NotContains(b)
+				| CompiledOperator::Prefix(b)
+				| CompiledOperator::Suffix(b) => check_bytes(&b),
+				CompiledOperator::In(vs) | CompiledOperator::NotIn(vs) => {
+					for v in &vs {
+						check_value(v);
+					}
+				}
+				other => panic!("unexpected compiled op for tls.sni: {other:?}"),
+			}
+		}
 	}
 
 	/// End-to-end via parse + lower: spec example object compiles to

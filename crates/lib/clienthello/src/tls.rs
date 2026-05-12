@@ -32,7 +32,11 @@ const NAME_TYPE_HOST_NAME: u8 = 0x00;
 ///
 /// Returns:
 ///   * `Ok(Some(sni))` when a complete ClientHello is parsed and the
-///     SNI extension carries a host_name.
+///     SNI extension carries a host_name. The returned string is
+///     **guaranteed ASCII-lowercased**: SNI is case-insensitive per
+///     RFC 6066 §3 and the `tls.sni` predicate compiles its operand to
+///     ASCII-lowercase, so this parser normalizes once on the wire side
+///     to keep the equality semantics consistent across TCP and QUIC.
 ///   * `Ok(None)` when the buffer is shorter than the declared
 ///     ClientHello body — more bytes needed.
 ///   * `Err(_)` when the structure is malformed or the SNI extension
@@ -129,7 +133,11 @@ fn parse_server_name_extension(payload: &[u8]) -> Result<String, Error> {
 		}
 		let name_bytes = &list[idx..name_end];
 		if name_type == NAME_TYPE_HOST_NAME {
-			return std::str::from_utf8(name_bytes).map(str::to_owned).map_err(|_| Error::TlsParse);
+			// Lowercase invariant — see `try_extract_sni` docs and
+			// the `tls.sni` operand contract in `core::predicate`.
+			return std::str::from_utf8(name_bytes)
+				.map(str::to_ascii_lowercase)
+				.map_err(|_| Error::TlsParse);
 		}
 		idx = name_end;
 	}
@@ -221,5 +229,15 @@ mod tests {
 		let hello = build_client_hello(long);
 		let sni = try_extract_sni(&hello).expect("parse").expect("present");
 		assert_eq!(sni, long);
+	}
+
+	#[test]
+	fn extracts_uppercase_sni_normalized_to_lowercase() {
+		// Wire-side invariant: SNI is case-insensitive (RFC 6066 §3),
+		// the parser hands back ASCII-lowercased bytes so downstream
+		// `tls.sni` comparators do not need to re-normalize.
+		let hello = build_client_hello("Example.COM");
+		let sni = try_extract_sni(&hello).expect("parse").expect("present");
+		assert_eq!(sni, "example.com");
 	}
 }
