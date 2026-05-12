@@ -9,6 +9,7 @@ use std::time::SystemTime;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 /// Persistence abstraction for ACME state — accounts (per directory
 /// URL) and issued certs (per SNI). Implementations must be safe to
@@ -115,10 +116,12 @@ pub trait AcmeStore: Send + Sync {
 /// in a future passed to `tokio::spawn`.
 pub trait LockGuard: Send + Sync + std::fmt::Debug {}
 
-/// Persisted ACME account material. The `key_jwk` field is the
-/// verbatim `instant-acme` `AccountCredentials` serialised as JSON;
-/// reload reconstructs the live `Account` via
-/// `AccountBuilder::from_credentials`.
+/// Persisted ACME account material. The `key_jwk` field carries the
+/// verbatim `instant-acme` `AccountCredentials` serialised as JSON
+/// text; reload reconstructs the live `Account` via
+/// `AccountBuilder::from_credentials`. Wrapped in [`Zeroizing`] so
+/// the in-memory copy is wiped on drop — the JSON text contains the
+/// account private key.
 ///
 /// `agreed_tos_at` is recorded at registration time and surfaces in
 /// `get_certs` for operator audit; `spec/crates/engine-acme.md` § _Account key strategy_
@@ -127,7 +130,7 @@ pub trait LockGuard: Send + Sync + std::fmt::Debug {}
 #[derive(Debug, Clone)]
 pub struct AcmeAccount {
 	pub directory_url: String,
-	pub key_jwk: serde_json::Value,
+	pub key_jwk: Zeroizing<String>,
 	pub kid: String,
 	pub contacts: Vec<String>,
 	pub agreed_tos_at: SystemTime,
@@ -159,7 +162,10 @@ pub struct AcmeAccount {
 pub struct StoredCert {
 	pub leaf_pem: String,
 	pub chain_pem: String,
-	pub key_pem: String,
+	/// PKCS#8 PEM private key wrapped in [`Zeroizing`]: the in-memory
+	/// copy is wiped on drop so cert rotation / shutdown stop
+	/// leaving private-key residue in process memory.
+	pub key_pem: Zeroizing<String>,
 	pub not_after: SystemTime,
 	pub ari_replacement_id: Option<String>,
 	pub last_renew_at: SystemTime,
@@ -183,21 +189,33 @@ pub(super) struct AccountFileV1 {
 impl AccountFileV1 {
 	pub(super) const VERSION: u32 = 1;
 
-	pub(super) fn from_account(a: &AcmeAccount) -> Self {
-		Self {
+	/// Build the on-disk shape from an in-memory account. Parses the
+	/// `Zeroizing<String>` JWK text back into a `serde_json::Value`
+	/// so the file remains schema-compatible with V1 stores; a parse
+	/// failure here would only happen if the in-memory text was
+	/// constructed from non-JSON, which the type system already
+	/// rules out at every callsite (we always pass a `to_string`
+	/// of an `instant-acme` credential).
+	///
+	/// # Errors
+	/// `StoreError::Encode` when `key_jwk` is not valid JSON.
+	pub(super) fn from_account(a: &AcmeAccount) -> Result<Self, StoreError> {
+		let key_jwk = serde_json::from_str(a.key_jwk.as_str())
+			.map_err(|e| StoreError::Encode(format!("key_jwk: {e}")))?;
+		Ok(Self {
 			version: Self::VERSION,
 			directory_url: a.directory_url.clone(),
-			key_jwk: a.key_jwk.clone(),
+			key_jwk,
 			kid: a.kid.clone(),
 			contacts: a.contacts.clone(),
 			agreed_tos_at_unix_ms: system_time_to_unix_ms(a.agreed_tos_at),
-		}
+		})
 	}
 
 	pub(super) fn into_account(self) -> AcmeAccount {
 		AcmeAccount {
 			directory_url: self.directory_url,
-			key_jwk: self.key_jwk,
+			key_jwk: Zeroizing::new(self.key_jwk.to_string()),
 			kid: self.kid,
 			contacts: self.contacts,
 			agreed_tos_at: unix_ms_to_system_time(self.agreed_tos_at_unix_ms),
@@ -306,12 +324,12 @@ mod tests {
 	fn account_file_v1_round_trips_through_json() {
 		let original = AcmeAccount {
 			directory_url: "https://acme-staging-v02.api.letsencrypt.org/directory".into(),
-			key_jwk: serde_json::json!({"kty": "EC", "crv": "P-256"}),
+			key_jwk: Zeroizing::new(r#"{"kty":"EC","crv":"P-256"}"#.to_owned()),
 			kid: "https://acme-staging-v02.api.letsencrypt.org/acme/acct/123".into(),
 			contacts: vec!["mailto:ops@example.com".into()],
 			agreed_tos_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
 		};
-		let file = AccountFileV1::from_account(&original);
+		let file = AccountFileV1::from_account(&original).expect("encode");
 		let json = serde_json::to_string(&file).expect("serialize");
 		let decoded: AccountFileV1 = serde_json::from_str(&json).expect("deserialize");
 		assert_eq!(decoded.version, AccountFileV1::VERSION);
@@ -320,7 +338,11 @@ mod tests {
 		assert_eq!(back.kid, original.kid);
 		assert_eq!(back.contacts, original.contacts);
 		assert_eq!(back.agreed_tos_at, original.agreed_tos_at);
-		assert_eq!(back.key_jwk, original.key_jwk);
+		// Round-trip preserves semantic equality; the textual form
+		// may reorder keys, so compare via parsed Value.
+		let a: serde_json::Value = serde_json::from_str(back.key_jwk.as_str()).unwrap();
+		let b: serde_json::Value = serde_json::from_str(original.key_jwk.as_str()).unwrap();
+		assert_eq!(a, b);
 	}
 
 	#[test]

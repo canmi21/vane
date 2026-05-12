@@ -111,6 +111,7 @@ x509-cert = "0.2"
 # `builder` enables the OcspRequest builder; `std` lets tests use SystemTime → OcspGeneralizedTime.
 x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
 x509-parser = "0.18"
+zeroize = { version = "1", features = ["alloc"] }
 
 # H3 stack — gated behind `h3`.
 h3 = { version = "0.0.8", optional = true }

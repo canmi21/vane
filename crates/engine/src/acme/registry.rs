@@ -679,8 +679,9 @@ impl ManagedCertRegistry {
 		}
 
 		if let Some(stored) = self.store.load_account(directory_url).await? {
-			let creds: instant_acme::AccountCredentials = serde_json::from_value(stored.key_jwk)
-				.map_err(|e| RegistryError::Acme(format!("decode account credentials: {e}")))?;
+			let creds: instant_acme::AccountCredentials =
+				serde_json::from_str(stored.key_jwk.as_str())
+					.map_err(|e| RegistryError::Acme(format!("decode account credentials: {e}")))?;
 			let builder = build_account_builder(extra_root_ca_pem)?;
 			let live = builder.from_credentials(creds).await.map_err(map_acme_error)?;
 			let live = Arc::new(live);
@@ -701,9 +702,13 @@ impl ManagedCertRegistry {
 
 		// Persist before returning. Failure here means we have a
 		// CA-side account we can't recover — surface as Store error
-		// so the boot hook logs at ERROR and operators see it.
-		let key_jwk = serde_json::to_value(&creds)
-			.map_err(|e| RegistryError::Acme(format!("encode account credentials: {e}")))?;
+		// so the boot hook logs at ERROR and operators see it. The
+		// JWK is held as zeroizing JSON text so the in-memory copy
+		// is wiped at drop.
+		let key_jwk = zeroize::Zeroizing::new(
+			serde_json::to_string(&creds)
+				.map_err(|e| RegistryError::Acme(format!("encode account credentials: {e}")))?,
+		);
 		let acme_account = AcmeAccount {
 			directory_url: directory_url.to_owned(),
 			key_jwk,
@@ -1224,8 +1229,11 @@ fn map_dns_error(err: &super::DnsProviderError) -> RegistryError {
 }
 
 /// Generate an ECDSA P-256 keypair and a CSR for `sni`. Returns
-/// the PKCS#8 PEM private key and the DER-encoded CSR.
-fn generate_ecdsa_p256_csr(sni: &str) -> Result<(String, Vec<u8>), RegistryError> {
+/// the PKCS#8 PEM private key (wrapped in [`zeroize::Zeroizing`] so
+/// the in-memory copy is wiped on drop) and the DER-encoded CSR.
+fn generate_ecdsa_p256_csr(
+	sni: &str,
+) -> Result<(zeroize::Zeroizing<String>, Vec<u8>), RegistryError> {
 	let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
 		.map_err(|e| RegistryError::Acme(format!("rcgen keypair: {e}")))?;
 	let params = rcgen::CertificateParams::new(vec![sni.to_owned()])
@@ -1233,7 +1241,7 @@ fn generate_ecdsa_p256_csr(sni: &str) -> Result<(String, Vec<u8>), RegistryError
 	let csr = params
 		.serialize_request(&key_pair)
 		.map_err(|e| RegistryError::Acme(format!("rcgen csr: {e}")))?;
-	let key_pem = key_pair.serialize_pem();
+	let key_pem = zeroize::Zeroizing::new(key_pair.serialize_pem());
 	let csr_der: Vec<u8> = csr.der().to_vec();
 	Ok((key_pem, csr_der))
 }
@@ -1502,7 +1510,7 @@ mod tests {
 		StoredCert {
 			leaf_pem: "leaf".into(),
 			chain_pem: String::new(),
-			key_pem: "key".into(),
+			key_pem: zeroize::Zeroizing::new("key".to_owned()),
 			not_after: SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000_000),
 			ari_replacement_id: None,
 			last_renew_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
@@ -1699,7 +1707,7 @@ mod tests {
 	#[test]
 	fn generate_ecdsa_p256_csr_round_trip_through_rcgen() {
 		let (key_pem, csr_der) = generate_ecdsa_p256_csr("api.example.com").expect("rcgen ok");
-		assert!(key_pem.contains("-----BEGIN PRIVATE KEY-----"), "{key_pem}");
+		assert!(key_pem.contains("-----BEGIN PRIVATE KEY-----"), "{}", key_pem.as_str());
 		assert!(!csr_der.is_empty());
 		// The CSR should be a valid DER-encoded PKCS #10 — a
 		// well-formed CSR always starts with the SEQUENCE tag 0x30.

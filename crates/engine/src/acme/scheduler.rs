@@ -364,7 +364,7 @@ mod tests {
 		Arc::new(StoredCert {
 			leaf_pem: "leaf".into(),
 			chain_pem: String::new(),
-			key_pem: "key".into(),
+			key_pem: zeroize::Zeroizing::new("key".to_owned()),
 			not_after,
 			ari_replacement_id: None,
 			last_renew_at: SystemTime::UNIX_EPOCH,

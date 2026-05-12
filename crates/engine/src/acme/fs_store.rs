@@ -46,6 +46,7 @@ use fs4::FileExt;
 use parking_lot::Mutex as ParkingMutex;
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex as TokioMutex, OwnedMutexGuard};
+use zeroize::Zeroizing;
 
 use super::store::{
 	AccountFileV1, AcmeAccount, AcmeStore, CertMetaV1, CertMetaV2, CertMetaVersionProbe, LockGuard,
@@ -154,7 +155,7 @@ impl AcmeStore for FsAcmeStore {
 		let dir = self.account_dir(directory_url);
 		std::fs::create_dir_all(&dir)?;
 		ensure_dir_mode(&dir, MODE_PRIVATE_DIR)?;
-		let file = AccountFileV1::from_account(account);
+		let file = AccountFileV1::from_account(account)?;
 		let bytes = serde_json::to_vec_pretty(&file).map_err(|e| StoreError::Encode(format!("{e}")))?;
 		atomic_write_file(&dir.join(ACCOUNT_FILE), &bytes, MODE_PRIVATE_FILE)?;
 		Ok(())
@@ -172,6 +173,12 @@ impl AcmeStore for FsAcmeStore {
 			std::fs::read(&meta_path),
 		) {
 			(Ok(cert_chain_pem), Ok(key_pem), Ok(meta_bytes)) => {
+				// Wrap the on-disk key PEM in Zeroizing at the read
+				// boundary so the in-memory copy is wiped on drop;
+				// the temporary `String` from `read_to_string` is the
+				// only window where unprotected bytes exist, and it
+				// is consumed below.
+				let key_pem = Zeroizing::new(key_pem);
 				// Read the version field first so we can dispatch to
 				// the right meta-shape variant. Old (v1) stores
 				// upgrade transparently with OCSP fields = None.
@@ -185,7 +192,7 @@ impl AcmeStore for FsAcmeStore {
 						StoredCert {
 							leaf_pem,
 							chain_pem,
-							key_pem,
+							key_pem: key_pem.clone(),
 							not_after: unix_ms_to_system_time(meta.not_after_unix_ms),
 							ari_replacement_id: meta.ari_replacement_id,
 							last_renew_at: unix_ms_to_system_time(meta.last_renew_at_unix_ms),
@@ -465,7 +472,7 @@ mod tests {
 	fn fixture_account() -> AcmeAccount {
 		AcmeAccount {
 			directory_url: "https://acme-staging-v02.api.letsencrypt.org/directory".into(),
-			key_jwk: serde_json::json!({"kty": "EC", "crv": "P-256", "d": "xxx"}),
+			key_jwk: Zeroizing::new(r#"{"kty":"EC","crv":"P-256","d":"xxx"}"#.to_owned()),
 			kid: "https://acme-staging-v02.api.letsencrypt.org/acme/acct/42".into(),
 			contacts: vec!["mailto:ops@example.com".into()],
 			agreed_tos_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
@@ -476,7 +483,9 @@ mod tests {
 		StoredCert {
 			leaf_pem: "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n".into(),
 			chain_pem: "-----BEGIN CERTIFICATE-----\nCHAIN\n-----END CERTIFICATE-----\n".into(),
-			key_pem: "-----BEGIN PRIVATE KEY-----\nKEY\n-----END PRIVATE KEY-----\n".into(),
+			key_pem: Zeroizing::new(
+				"-----BEGIN PRIVATE KEY-----\nKEY\n-----END PRIVATE KEY-----\n".to_owned(),
+			),
 			not_after: SystemTime::UNIX_EPOCH + Duration::from_hours(500_000),
 			ari_replacement_id: None,
 			last_renew_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
@@ -497,7 +506,11 @@ mod tests {
 		assert_eq!(back.kid, acct.kid);
 		assert_eq!(back.contacts, acct.contacts);
 		assert_eq!(back.agreed_tos_at, acct.agreed_tos_at);
-		assert_eq!(back.key_jwk, acct.key_jwk);
+		// Round-trip preserves JSON semantics; key ordering may
+		// differ since the on-disk shape is a `serde_json::Value`.
+		let a: serde_json::Value = serde_json::from_str(back.key_jwk.as_str()).unwrap();
+		let b: serde_json::Value = serde_json::from_str(acct.key_jwk.as_str()).unwrap();
+		assert_eq!(a, b);
 	}
 
 	#[tokio::test]

@@ -259,7 +259,7 @@ mod tests {
 		StoredCert {
 			leaf_pem: issued.cert.pem(),
 			chain_pem: String::new(),
-			key_pem: issued.signing_key.serialize_pem(),
+			key_pem: zeroize::Zeroizing::new(issued.signing_key.serialize_pem()),
 			not_after: SystemTime::now() + Duration::from_hours(24 * 30),
 			ari_replacement_id: None,
 			last_renew_at: SystemTime::now(),
