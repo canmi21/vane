@@ -590,7 +590,11 @@ async fn handle_cold_path(
 	_in_flight_guard: InFlightGuard,
 ) {
 	let local = ctx.base.addr;
-	metrics::counter!("vane.requests.total", "listener_addr" => local.to_string()).increment(1);
+	// Same cardinality discipline as the TCP path (see
+	// `crates/engine/src/listener.rs`): port-only label keeps the
+	// admit-table footprint bounded.
+	metrics::counter!("vane.requests.total", "listener_port" => local.port().to_string())
+		.increment(1);
 
 	let conn_id = crate::listener::next_conn_id();
 	let initial_tls = sni.map(|s| TlsInfo { sni: Some(s), ..TlsInfo::default() });

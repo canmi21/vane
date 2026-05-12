@@ -810,7 +810,13 @@ async fn handle_connection(
 	};
 
 	let local = ctx.addr;
-	metrics::counter!("vane.requests.total", "listener_addr" => local.to_string()).increment(1);
+	// Cardinality discipline: emit only the bound port — there are
+	// O(listener_count) port values (bounded by config), whereas
+	// `local.to_string()` would encode the full SocketAddr and
+	// dual-stack v4/v6 binds would expand the label set. The IP side
+	// belongs in trace events, not prometheus labels.
+	metrics::counter!("vane.requests.total", "listener_port" => local.port().to_string())
+		.increment(1);
 
 	let conn_id = next_conn_id();
 	// Register before any further work, hold the deregister guard for
