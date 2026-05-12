@@ -603,7 +603,12 @@ fn finish_error(
 		"reason" => err.reason_label().unwrap_or("_"),
 	)
 	.increment(1);
-	let message = std::borrow::Cow::Owned(err.to_string());
+	// Route through `SerializedError::from(&err)` so the capped-message
+	// contract is uniform: `error = Some(SerializedError)` on every
+	// emitted `FlowLogEvent` uses the same byte cap as the inline
+	// trajectory message, and a verbose upstream error can no longer
+	// blow up the sink-side memory budget.
+	let message = vane_core::flow_log::TrajectoryErrorMessage::from(&err);
 	emit_trajectory(ctx, conn, seq, TrajectoryOutcome::Error { node: cur, message });
 	Err(err)
 }

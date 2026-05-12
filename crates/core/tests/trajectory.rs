@@ -9,8 +9,7 @@
 //! types ship `Serialize + Deserialize` derives that the management API
 //! relies on.
 
-use std::borrow::Cow;
-
+use vane_core::flow_log::TrajectoryErrorMessage;
 use vane_core::{
 	ConnId, FlowLogKind, FlowLogVerbosity, FlowTrajectory, NodeId, TerminatorOutcomeKind,
 	TrajectoryBuilder, TrajectoryOutcome, TrajectoryStep,
@@ -71,7 +70,10 @@ fn trajectory_builder_finalizes_with_error_outcome() {
 	// is a valid "errored before any step ran" trajectory.
 	let b = TrajectoryBuilder::new(ConnId(7), NodeId::new(0), 1_000);
 	let traj = b.finalize(
-		TrajectoryOutcome::Error { node: NodeId::new(0), message: Cow::Borrowed("boom") },
+		TrajectoryOutcome::Error {
+			node: NodeId::new(0),
+			message: TrajectoryErrorMessage::from_static("boom"),
+		},
 		2_000,
 	);
 
@@ -79,7 +81,7 @@ fn trajectory_builder_finalizes_with_error_outcome() {
 	match &traj.outcome {
 		TrajectoryOutcome::Error { node, message } => {
 			assert_eq!(*node, NodeId::new(0));
-			assert_eq!(message.as_ref(), "boom");
+			assert_eq!(message.as_str(), "boom");
 		}
 		other @ TrajectoryOutcome::Terminated { .. } => {
 			panic!("expected Error outcome, got {other:?}")
@@ -113,7 +115,7 @@ fn assert_trajectories_match(a: &FlowTrajectory, b: &FlowTrajectory) {
 			TrajectoryOutcome::Error { node: nb, message: mb },
 		) => {
 			assert_eq!(na, nb);
-			assert_eq!(ma.as_ref(), mb.as_ref());
+			assert_eq!(ma.as_str(), mb.as_str());
 		}
 		(left, right) => panic!("outcome variant mismatch: {left:?} vs {right:?}"),
 	}
@@ -142,7 +144,10 @@ fn flow_trajectory_round_trips_through_json() {
 
 	// Sub-case B: Error outcome with an empty step list.
 	let err = TrajectoryBuilder::new(ConnId(42), NodeId::new(7), 0).finalize(
-		TrajectoryOutcome::Error { node: NodeId::new(8), message: Cow::Borrowed("upstream went away") },
+		TrajectoryOutcome::Error {
+			node: NodeId::new(8),
+			message: TrajectoryErrorMessage::from_static("upstream went away"),
+		},
 		17,
 	);
 	let encoded = serde_json::to_string(&err).expect("serialize error");

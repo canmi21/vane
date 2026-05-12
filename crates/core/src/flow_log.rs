@@ -64,7 +64,76 @@ pub enum TerminatorOutcomeKind {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TrajectoryOutcome {
 	Terminated { node: NodeId, terminator: TerminatorOutcomeKind },
-	Error { node: NodeId, message: std::borrow::Cow<'static, str> },
+	Error { node: NodeId, message: TrajectoryErrorMessage },
+}
+
+/// Capped error-message payload for [`TrajectoryOutcome::Error`].
+///
+/// Wraps a `String` that has been truncated to
+/// [`TrajectoryErrorMessage::MAX_BYTES`]. `Cow<'static, str>` (the
+/// previous shape) made `err.to_string().into()` look harmless even
+/// though the full `Display` form can carry many KiB of context —
+/// every event then balloons the size of the flow-log sinks. Constrain
+/// the type so a caller can't accidentally bypass the cap.
+///
+/// Construction:
+///
+/// - `From<&Error>` — the production path: routes the message through
+///   [`SerializedError::from`], inheriting its byte cap.
+/// - `from_static(&'static str)` — convenience for tests / fixtures.
+/// - `from_truncated(String)` — explicit cap on an already-built
+///   string; useful when the caller already has a message they don't
+///   want to re-wrap.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct TrajectoryErrorMessage(String);
+
+impl TrajectoryErrorMessage {
+	/// Hard cap on the rendered message. Matches the
+	/// `SerializedError::message` ceiling so the two carriers stay in
+	/// lock-step; anything beyond this is truncated with a
+	/// `… [truncated]` suffix.
+	pub const MAX_BYTES: usize = crate::error::SERIALIZED_MESSAGE_CAP;
+
+	/// Build from a static string slice. No truncation needed at the
+	/// type level — call sites that exceed the cap are caller-error.
+	#[must_use]
+	pub fn from_static(s: &'static str) -> Self {
+		Self(cap_message_for_traj(s.to_owned()))
+	}
+
+	/// Cap an already-built `String` to [`Self::MAX_BYTES`].
+	#[must_use]
+	pub fn from_truncated(s: String) -> Self {
+		Self(cap_message_for_traj(s))
+	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		&self.0
+	}
+}
+
+impl From<&crate::error::Error> for TrajectoryErrorMessage {
+	fn from(err: &crate::error::Error) -> Self {
+		Self(SerializedError::from(err).message)
+	}
+}
+
+fn cap_message_for_traj(s: String) -> String {
+	const SUFFIX: &str = "… [truncated]";
+	if s.len() <= TrajectoryErrorMessage::MAX_BYTES {
+		return s;
+	}
+	let budget = TrajectoryErrorMessage::MAX_BYTES.saturating_sub(SUFFIX.len());
+	let mut end = budget.min(s.len());
+	while end > 0 && !s.is_char_boundary(end) {
+		end -= 1;
+	}
+	let mut out = String::with_capacity(end + SUFFIX.len());
+	out.push_str(&s[..end]);
+	out.push_str(SUFFIX);
+	out
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

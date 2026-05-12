@@ -1052,7 +1052,7 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 	match &traj.outcome {
 		TrajectoryOutcome::Error { message, .. } => {
 			assert!(
-				message.as_ref().contains("simulated"),
+				message.as_str().contains("simulated"),
 				"trajectory error message must contain the middleware's Display payload; got {message:?}",
 			);
 		}
