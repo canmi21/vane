@@ -92,6 +92,7 @@ impl Handler for MgmtState {
 			VERB_GET_METRICS => self.handle_get_metrics(req.args),
 			VERB_GET_POOLS => self.handle_get_pools(),
 			VERB_GET_UPSTREAMS => self.handle_get_upstreams(),
+			vane_mgmt::verb::VERB_RELOAD_NATIVE_ROOTS => Self::handle_reload_native_roots(),
 			vane_mgmt::verb::VERB_POOL_DRAIN => Self::handle_pool_drain(req.args),
 			#[cfg(feature = "acme")]
 			VERB_FORCE_RENEW => self.handle_force_renew(req.args),
@@ -519,6 +520,19 @@ impl MgmtState {
 			.collect();
 		let quic = quic_upstream_entries();
 		json(&GetUpstreamsResult { tcp, quic })
+	}
+
+	/// `reload_native_roots` verb: re-read the OS trust store and
+	/// publish the new snapshot via the process-wide cache so future
+	/// rustls `ClientConfig` builds see updated anchors without a
+	/// daemon restart. Already-built configs keep their `Arc<...>` —
+	/// callers that need a refreshed config rebuild lazily on the
+	/// next request through `fetch/upstream.rs`.
+	fn handle_reload_native_roots() -> Result<serde_json::Value, WireError> {
+		match vane_engine::tls::refresh_native_roots() {
+			Ok(store) => json(&vane_mgmt::verb::ReloadNativeRootsResult { anchors: store.len() }),
+			Err(e) => Err(WireError::new(WireErrorKind::Internal, format!("reload_native_roots: {e}"))),
+		}
 	}
 
 	/// Manual pool eviction. Operators read `fingerprint_id` from

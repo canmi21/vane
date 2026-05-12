@@ -11,26 +11,28 @@
 //!
 //! The fix is a process-wide cache: read the trust store **once per
 //! process**, share the resulting [`rustls::RootCertStore`] behind
-//! `Arc`. The [`std::sync::OnceLock`] initializer barrier serialises
-//! the (single) load attempt; every subsequent caller gets a cheap
-//! `Arc::clone`.
+//! `Arc`. The first call's init barrier serialises the (single) load
+//! attempt; every subsequent caller gets a cheap `Arc::clone`.
 //!
-//! In-process the `OnceLock` is sufficient. Across processes (e.g. a
-//! test runner that boots multiple binaries in parallel) each binary
-//! still makes its own first call, and those simultaneous calls can
-//! lose to keychain contention. The init path therefore retries on
-//! transient failure with a small backoff before giving up —
-//! `errSecIO` is documented by Apple as recoverable, and the happy
-//! path skips the backoff entirely.
+//! In-process the cache is sufficient. Across processes (e.g. a test
+//! runner that boots multiple binaries in parallel) each binary still
+//! makes its own first call, and those simultaneous calls can lose to
+//! keychain contention. The init path therefore retries on transient
+//! failure with a small backoff before giving up — `errSecIO` is
+//! documented by Apple as recoverable, and the happy path skips the
+//! backoff entirely.
 //!
-//! Failure semantics: after the bounded retries are exhausted the
-//! outcome is sticky. The cached error re-yields on every subsequent
-//! call so the operator sees consistent behaviour and can restart
-//! the process to attempt a fresh load — there is no per-request
-//! retry storm against an OS API that is already telling us it is
-//! unhappy.
+//! Long-running daemons need to pick up CA-cert updates (an OS
+//! security update revoking a root, an operator dropping a corporate
+//! CA into the keychain) without restarting. [`refresh_native_roots`]
+//! re-runs the load and atomically swaps the cached store on success;
+//! on failure the previous value is preserved and a warning is
+//! logged. The swap is lock-free on the read side so the upstream-TLS
+//! hot path is unaffected.
 
 use std::sync::{Arc, OnceLock};
+
+use arc_swap::ArcSwap;
 
 /// Shared error type. Carries an operator-readable message; the
 /// underlying `rustls_native_certs::Error` is not `Clone`, so we
@@ -49,21 +51,36 @@ impl std::fmt::Display for NativeRootsError {
 
 impl std::error::Error for NativeRootsError {}
 
-static NATIVE_ROOTS: OnceLock<Result<Arc<rustls::RootCertStore>, NativeRootsError>> =
+/// Cached load outcome. Cloned cheaply behind `Arc` so `load_full`
+/// hands callers an owned snapshot without a per-call deep copy.
+type Cached = Arc<Result<Arc<rustls::RootCertStore>, NativeRootsError>>;
+
+/// Lazy-initialised current trust-store snapshot. The first call
+/// through [`native_roots`] populates this; subsequent calls,
+/// including [`refresh_native_roots`], swap the inner value through
+/// `ArcSwap` without invalidating the [`OnceLock`].
+static NATIVE_ROOTS: OnceLock<ArcSwap<Result<Arc<rustls::RootCertStore>, NativeRootsError>>> =
 	OnceLock::new();
+
+fn snapshot() -> &'static ArcSwap<Result<Arc<rustls::RootCertStore>, NativeRootsError>> {
+	NATIVE_ROOTS.get_or_init(|| ArcSwap::from(Arc::new(load_native_roots())))
+}
 
 /// Return the cached system trust store, loading it on first call.
 ///
 /// Concurrent first calls are serialised by the [`OnceLock`] barrier,
 /// so the OS keychain sees exactly one load attempt per process even
 /// under reload pressure that builds many fingerprints in parallel.
+/// Subsequent calls are lock-free: they read the current snapshot
+/// through `ArcSwap` and clone the inner `Arc<RootCertStore>`.
 ///
 /// # Errors
 ///
-/// Surfaces the load attempt's error (sticky for the lifetime of the
-/// process). Restart the process to retry.
+/// Surfaces the most recently observed load outcome. A failed first
+/// load remains sticky until [`refresh_native_roots`] succeeds.
 pub fn native_roots() -> Result<Arc<rustls::RootCertStore>, NativeRootsError> {
-	NATIVE_ROOTS.get_or_init(load_native_roots).as_ref().map(Arc::clone).map_err(Clone::clone)
+	let cached: Cached = snapshot().load_full();
+	cached.as_ref().as_ref().map(Arc::clone).map_err(Clone::clone)
 }
 
 /// Eagerly trigger the first load. Useful when a daemon's boot path
@@ -77,6 +94,38 @@ pub fn native_roots() -> Result<Arc<rustls::RootCertStore>, NativeRootsError> {
 /// load failed.
 pub fn warm_native_roots() -> Result<Arc<rustls::RootCertStore>, NativeRootsError> {
 	native_roots()
+}
+
+/// Re-read the OS trust store and atomically swap the cached
+/// snapshot when the load succeeds.
+///
+/// Long-lived daemons call this on a periodic timer or in response
+/// to an operator-triggered mgmt verb so OS-side CA updates land
+/// without a process restart. On failure the previous snapshot is
+/// preserved and a warning is logged — operators still see a working
+/// trust store while the load error surfaces in the warn record.
+///
+/// # Errors
+///
+/// Returns the new load attempt's error verbatim. The cached value
+/// is **not** replaced with the error in that case; subsequent
+/// [`native_roots`] callers continue to see whichever outcome was
+/// last cached (typically the prior successful store).
+pub fn refresh_native_roots() -> Result<Arc<rustls::RootCertStore>, NativeRootsError> {
+	let outcome = load_native_roots();
+	match &outcome {
+		Ok(store) => {
+			snapshot().store(Arc::new(Ok(Arc::clone(store))));
+			Ok(Arc::clone(store))
+		}
+		Err(e) => {
+			tracing::warn!(
+				error = %e,
+				"native trust store refresh failed; keeping previous snapshot",
+			);
+			Err(e.clone())
+		}
+	}
 }
 
 /// Maximum number of attempts at loading the OS trust store.
@@ -157,5 +206,18 @@ mod tests {
 		let warmed = warm_native_roots().expect("warm");
 		let lazy = native_roots().expect("lazy");
 		assert!(Arc::ptr_eq(&warmed, &lazy));
+	}
+
+	#[test]
+	fn refresh_native_roots_swaps_to_a_fresh_arc() {
+		// A successful refresh must publish a *new* Arc so callers
+		// re-reading `native_roots` see the new value (even when the
+		// keychain contents happen to be identical). Pointer
+		// inequality is the proxy.
+		let before = native_roots().expect("first load");
+		let refreshed = refresh_native_roots().expect("refresh");
+		assert!(!Arc::ptr_eq(&before, &refreshed), "refresh swaps Arc identity");
+		let after = native_roots().expect("post-refresh");
+		assert!(Arc::ptr_eq(&refreshed, &after), "subsequent reads see refreshed snapshot");
 	}
 }

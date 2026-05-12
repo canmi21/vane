@@ -26,6 +26,8 @@ pub use ocsp_staple::{OcspError, OcspStaple};
 pub use populator::{CertPopulator, PopulatorError};
 pub use resolver::VaneCertResolver;
 pub use rustls_crl_refresh::{RefreshableClientCertVerifier, RefreshableServerCertVerifier};
-pub use rustls_native_roots_cache::{NativeRootsError, native_roots, warm_native_roots};
+pub use rustls_native_roots_cache::{
+	NativeRootsError, native_roots, refresh_native_roots, warm_native_roots,
+};
 pub use rustls_ticketer::{default_ticketer, install_default_ticketer};
 pub use static_populator::StaticCertPopulator;

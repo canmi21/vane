@@ -3982,6 +3982,7 @@ dependencies = [
 name = "rustls-native-roots-cache"
 version = "0.0.1"
 dependencies = [
+ "arc-swap",
  "rustls",
  "rustls-native-certs",
  "tracing",

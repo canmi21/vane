@@ -22,6 +22,7 @@ pub const VERB_TAIL_LOG: &str = "tail_log";
 pub const VERB_GET_METRICS: &str = "get_metrics";
 pub const VERB_GET_POOLS: &str = "get_pools";
 pub const VERB_GET_UPSTREAMS: &str = "get_upstreams";
+pub const VERB_RELOAD_NATIVE_ROOTS: &str = "reload_native_roots";
 
 /// Placeholder for verbs that accept no arguments. Round-trips as `{}`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -84,6 +85,14 @@ pub enum ReloadResult {
 	Swapped { hash: String },
 	/// Recompile reproduced the active graph's hash; swap was skipped.
 	Unchanged { hash: String },
+}
+
+/// Result of the `reload_native_roots` verb. `anchors` is the count
+/// of trust anchors successfully loaded; operators use it as a quick
+/// sanity check that the refresh produced a non-empty store.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReloadNativeRootsResult {
+	pub anchors: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

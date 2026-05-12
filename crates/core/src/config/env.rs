@@ -94,6 +94,13 @@ pub struct Env {
 	/// `VANE_MGMT_HTTP_TOKEN` — bearer token for the HTTP management
 	/// transport (`None` when unset or empty string).
 	pub mgmt_http_token: Option<String>,
+	/// `VANE_NATIVE_ROOTS_REFRESH_INTERVAL_SECS` — cadence at which
+	/// the daemon re-reads the OS native trust store, in seconds
+	/// (default 21 600 = 6h). The refresh is non-blocking; failures
+	/// preserve the previous snapshot and emit a warn. Operators who
+	/// want a one-shot refresh use the `reload_native_roots` mgmt
+	/// verb instead.
+	pub native_roots_refresh_interval_secs: u32,
 }
 
 impl Env {
@@ -141,6 +148,11 @@ impl Env {
 			mgmt_http_port: parse_http_port(r)?,
 			mgmt_http_public: parse_truthy(r, "VANE_MGMT_HTTP_PUBLIC"),
 			mgmt_http_token: r.get("VANE_MGMT_HTTP_TOKEN").filter(|s| !s.is_empty()),
+			native_roots_refresh_interval_secs: parse_u32_default(
+				r,
+				"VANE_NATIVE_ROOTS_REFRESH_INTERVAL_SECS",
+				21_600,
+			)?,
 		})
 	}
 }

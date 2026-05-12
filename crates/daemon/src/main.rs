@@ -273,6 +273,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		loaded.env.boot_health_timeout_secs,
 	);
 
+	let _native_roots_refresh = spawn_native_roots_refresh(
+		shutdown_trigger.clone(),
+		loaded.env.native_roots_refresh_interval_secs,
+	);
+
 	// Phase 2 of file-watcher startup. Subscription was armed before
 	// `listeners.start` so any event landing in the bind window is
 	// already queued; the handler task picks them up on first poll.
@@ -499,6 +504,43 @@ pub(crate) async fn bind_mgmt_http_server(
 /// transition site (success path, retry-exhaust path) and the bound on
 /// the race window would still be the polling period. Polling reads
 /// the truth regardless of which path got us there.
+/// Background task that periodically re-reads the OS native trust
+/// store and atomically swaps the cached snapshot. Runs every
+/// `VANE_NATIVE_ROOTS_REFRESH_INTERVAL_SECS` (default 6h). A zero
+/// interval disables the loop; operators relying on the
+/// `reload_native_roots` mgmt verb for explicit refreshes can pin to
+/// `0` so the daemon doesn't touch the keychain on its own.
+pub(crate) fn spawn_native_roots_refresh(
+	cancel: CancellationToken,
+	interval_secs: u32,
+) -> Option<tokio::task::JoinHandle<()>> {
+	if interval_secs == 0 {
+		tracing::info!("native trust store refresh disabled (interval=0)");
+		return None;
+	}
+	let interval = Duration::from_secs(u64::from(interval_secs));
+	Some(tokio::spawn(async move {
+		let mut ticker = tokio::time::interval(interval);
+		ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+		// First tick fires immediately; consume it so we don't refresh
+		// during boot when the OnceLock has already cached the warm
+		// load — the next tick is the first useful refresh.
+		ticker.tick().await;
+		loop {
+			tokio::select! {
+				biased;
+				() = cancel.cancelled() => return,
+				_ = ticker.tick() => {
+					match vane_engine::tls::refresh_native_roots() {
+						Ok(store) => tracing::info!(anchors = store.len(), "native trust store refreshed"),
+						Err(e) => tracing::warn!(error = %e, "native trust store refresh failed"),
+					}
+				}
+			}
+		}
+	}))
+}
+
 pub(crate) fn spawn_boot_health_watchdog(
 	listeners: Arc<ListenerSet>,
 	shutdown_trigger: CancellationToken,
