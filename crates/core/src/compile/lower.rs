@@ -2049,19 +2049,34 @@ fn canonical_json(v: &serde_json::Value) -> String {
 	}
 }
 
+/// SHA-256 of every rule's full canonical JSON form, sorted by rule
+/// name so order in the on-disk config does not perturb the hash.
+///
+/// Hashing the whole `RawRule` (minus `source`, which is file-layout
+/// metadata, not semantic configuration) is intentional: per-field
+/// hashing has historically dropped `match` / `middleware_chain` /
+/// `tls` / `allow_zero_rtt` from the digest, letting hot-reload
+/// silently miss real configuration changes. The version hash is the
+/// reload-equivalence key — anything that influences executor behavior
+/// belongs in it.
 fn hash_rules(rules: &[AnalyzedRule]) -> [u8; 32] {
+	let mut entries: Vec<serde_json::Value> = rules
+		.iter()
+		.map(|rule| {
+			let mut v = serde_json::to_value(&rule.raw).unwrap_or(serde_json::Value::Null);
+			if let serde_json::Value::Object(map) = &mut v {
+				map.remove("source");
+			}
+			v
+		})
+		.collect();
+	entries.sort_by(|a, b| {
+		let an = a.get("name").and_then(serde_json::Value::as_str).unwrap_or("");
+		let bn = b.get("name").and_then(serde_json::Value::as_str).unwrap_or("");
+		an.cmp(bn)
+	});
 	let mut hasher = Sha256::new();
-	for rule in rules {
-		hasher.update(rule.raw.name.as_bytes());
-		hasher.update(b"|");
-		for spec in &rule.raw.listen {
-			hasher.update(spec.as_bytes());
-			hasher.update(b",");
-		}
-		hasher.update(b"|");
-		hasher.update(canonical_json(&rule.raw.terminate.args).as_bytes());
-		hasher.update(b"||");
-	}
+	hasher.update(canonical_json(&serde_json::Value::Array(entries)).as_bytes());
 	let _ = PathBuf::new;
 	hasher.finalize().into()
 }

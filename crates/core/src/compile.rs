@@ -1297,6 +1297,78 @@ mod tests {
 	}
 
 	#[test]
+	fn version_hash_changes_with_match_predicate() {
+		let with_match = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":9001"],
+			"match": { "tls.sni": { "equals": "a.example.com" } },
+			"terminate": { "type": "http_proxy" },
+		}));
+		let without_match = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":9001"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let g1 = compile(vec![rule_file("a.json", vec![with_match])], &Providers, &Providers)
+			.expect("compile with match");
+		let g2 = compile(vec![rule_file("a.json", vec![without_match])], &Providers, &Providers)
+			.expect("compile without match");
+		assert_ne!(
+			g1.meta.version_hash, g2.meta.version_hash,
+			"version_hash must distinguish rules whose match predicate differs",
+		);
+	}
+
+	#[test]
+	fn version_hash_changes_with_middleware_chain() {
+		let with_mw = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":9002"],
+			"middleware_chain": [{ "use": "forward_client_ip" }],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let without_mw = parse_rule(serde_json::json!({
+			"name": "r",
+			"listen": [":9002"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let g1 = compile(vec![rule_file("a.json", vec![with_mw])], &Providers, &Providers)
+			.expect("compile with chain");
+		let g2 = compile(vec![rule_file("a.json", vec![without_mw])], &Providers, &Providers)
+			.expect("compile without chain");
+		assert_ne!(
+			g1.meta.version_hash, g2.meta.version_hash,
+			"version_hash must distinguish rules whose middleware_chain differs",
+		);
+	}
+
+	#[test]
+	fn version_hash_stable_under_rule_input_order_and_source_path() {
+		// Two equivalent configs differing only in rule input order and
+		// the file path they come from must produce the same hash —
+		// `hash_rules` sorts by rule name and strips source metadata.
+		let a = parse_rule(serde_json::json!({
+			"name": "a",
+			"listen": [":9101"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let b = parse_rule(serde_json::json!({
+			"name": "b",
+			"listen": [":9102"],
+			"terminate": { "type": "http_proxy" },
+		}));
+		let g1 =
+			compile(vec![rule_file("first.json", vec![a.clone(), b.clone()])], &Providers, &Providers)
+				.expect("compile first order");
+		let g2 = compile(vec![rule_file("second.json", vec![b, a])], &Providers, &Providers)
+			.expect("compile reversed order");
+		assert_eq!(
+			g1.meta.version_hash, g2.meta.version_hash,
+			"version_hash must be stable across rule order and file path",
+		);
+	}
+
+	#[test]
 	fn malformed_base64_in_http_body_predicate_fails_compile() {
 		// The base64 literal in a Bytes-typed field predicate is decoded at
 		// lower time, not at predicate-test time. A syntactically invalid
