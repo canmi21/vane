@@ -28,7 +28,7 @@ pub mod wasm_fixture;
 /// for the rest of the test binary. Tests that bring up a self-
 /// signed TLS upstream cannot pass real verification, so they need
 /// the daemon's env-level master switch flipped on; production
-/// binaries leave [`VANE_ALLOW_INSECURE_UPSTREAM`] unset and the
+/// binaries leave `VANE_ALLOW_INSECURE_UPSTREAM` unset and the
 /// parser rejects the config.
 ///
 /// Idempotent — wraps a `std::sync::Once`. Safe to call from every
