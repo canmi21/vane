@@ -104,7 +104,16 @@ impl L7RequestMiddleware for RateLimitMiddleware {
 			KeyDerivation::RemoteIp => BucketKey::RemoteIp(conn.remote.ip()),
 			KeyDerivation::Global => BucketKey::Global,
 		};
-		let allowed = {
+		// Hot path: try the read-only `get` first. `TokenBucket::try_consume`
+		// takes `&self` (it stores its mutable state in atomics), so a
+		// cache hit only takes DashMap's read shard. Only the cold-start
+		// miss for a fresh key falls back to `entry().or_insert_with`,
+		// which acquires the write shard. The old code unconditionally
+		// took the write shard on every request — at scale every
+		// hot-key request serialized on the same shard's RwLock.
+		let allowed = if let Some(bucket) = self.buckets.get(&key) {
+			bucket.try_consume(self.rate_per_sec, self.capacity)
+		} else {
 			let bucket = self.buckets.entry(key).or_insert_with(|| TokenBucket::new(self.capacity));
 			bucket.try_consume(self.rate_per_sec, self.capacity)
 		};
