@@ -38,7 +38,7 @@ use super::scheduler::{
 	self, CertState, CertStatus, MAX_CONCURRENT_ACME_ORDERS, RenewalJob, RenewalPlan, mark_renewing,
 	record_failure, record_success, should_attempt, should_refresh_ocsp,
 };
-use super::store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
+use super::store::{AcmeAccount, AcmeStore, LockScope, StoreError, StoredCert};
 use ocsp_staple::{FETCH_TIMEOUT, OcspError, extract_ocsp_url, fetch_ocsp_for_cert};
 
 /// Lookup key for the pending-challenge table. Per
@@ -541,8 +541,7 @@ impl ManagedCertRegistry {
 				updated.ocsp_next_update = ocsp_next_update;
 				updated.ocsp_aia_url = ocsp_aia_url;
 				let arc = Arc::new(updated);
-				let scope = format!("cert/{sni}");
-				let _guard = self.store.lock(&scope).await?;
+				let _guard = self.store.lock(LockScope::cert(sni.to_owned())).await?;
 				self.store.save_cert(sni, &arc).await?;
 				arc
 			}
@@ -669,8 +668,7 @@ impl ManagedCertRegistry {
 
 		// Slow path: serialised across tasks + processes by the
 		// store's advisory lock keyed on the directory URL hash.
-		let scope = format!("account/{}", directory_url_scope(directory_url));
-		let _guard = self.store.lock(&scope).await?;
+		let _guard = self.store.lock(LockScope::account(directory_url_scope(directory_url))).await?;
 
 		// Re-check after acquiring the lock — another task may have
 		// raced ahead and populated the cache while we waited.
@@ -842,8 +840,7 @@ impl ManagedCertRegistry {
 		dns: Arc<dyn super::DnsProvider>,
 		force: bool,
 	) -> Result<Arc<StoredCert>, RegistryError> {
-		let cert_scope = format!("cert/{sni}");
-		let cert_lock = self.store.lock(&cert_scope).await?;
+		let cert_lock = self.store.lock(LockScope::cert(sni.to_owned())).await?;
 
 		// Renewal callers (`force == true`) skip the cached-cert
 		// short-circuit so the scheduler can replace a near-expiry
@@ -940,8 +937,7 @@ impl ManagedCertRegistry {
 		extra_root_ca_pem: Option<&std::path::Path>,
 		force: bool,
 	) -> Result<Arc<StoredCert>, RegistryError> {
-		let cert_scope = format!("cert/{sni}");
-		let cert_lock = self.store.lock(&cert_scope).await?;
+		let cert_lock = self.store.lock(LockScope::cert(sni.to_owned())).await?;
 
 		// If the cache already has a cert (race vs another task on
 		// the same SNI), short-circuit unless this is a forced
@@ -1501,7 +1497,10 @@ mod tests {
 			snis.sort();
 			Ok(snis)
 		}
-		async fn lock(&self, _scope: &str) -> Result<Box<dyn LockGuard>, StoreError> {
+		async fn lock(
+			&self,
+			_scope: crate::acme::store::LockScope,
+		) -> Result<Box<dyn LockGuard>, StoreError> {
 			Ok(Box::new(MockGuard))
 		}
 	}

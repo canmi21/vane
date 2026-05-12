@@ -951,7 +951,10 @@ mod tests {
 				snis.sort();
 				Ok(snis)
 			}
-			async fn lock(&self, _scope: &str) -> Result<Box<dyn LockGuard>, StoreError> {
+			async fn lock(
+				&self,
+				_scope: crate::acme::store::LockScope,
+			) -> Result<Box<dyn LockGuard>, StoreError> {
 				Ok(Box::new(MockGuard))
 			}
 		}

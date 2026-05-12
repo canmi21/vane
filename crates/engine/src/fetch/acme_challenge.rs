@@ -157,7 +157,10 @@ mod tests {
 		async fn list_cert_snis(&self) -> Result<Vec<String>, StoreError> {
 			Ok(Vec::new())
 		}
-		async fn lock(&self, _: &str) -> Result<Box<dyn LockGuard>, StoreError> {
+		async fn lock(
+			&self,
+			_: crate::acme::store::LockScope,
+		) -> Result<Box<dyn LockGuard>, StoreError> {
 			Ok(Box::new(MockGuard))
 		}
 	}

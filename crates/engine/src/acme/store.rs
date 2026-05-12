@@ -88,14 +88,14 @@ pub trait AcmeStore: Send + Sync {
 	async fn list_cert_snis(&self) -> Result<Vec<String>, StoreError>;
 
 	/// Acquire an exclusive advisory lock for `scope`. The returned
-	/// guard releases the lock on drop (RAII). Different `scope`
-	/// strings are independent; the same `scope` serialises across
-	/// both async tasks **and** OS processes.
+	/// guard releases the lock on drop (RAII). Different scopes are
+	/// independent; the same scope serialises across both async
+	/// tasks **and** OS processes.
 	///
 	/// Idiomatic use:
 	///
 	/// ```ignore
-	/// let _guard = store.lock("cert/api.example.com").await?;
+	/// let _guard = store.lock(LockScope::cert("api.example.com")).await?;
 	/// // … critical section: read-modify-write the cert files …
 	/// // _guard drops here; the lock is released.
 	/// ```
@@ -104,7 +104,47 @@ pub trait AcmeStore: Send + Sync {
 	/// `StoreError::Locked` if the lock cannot be acquired;
 	/// `StoreError::Io` for filesystem failures opening the lock
 	/// file.
-	async fn lock(&self, scope: &str) -> Result<Box<dyn LockGuard>, StoreError>;
+	async fn lock(&self, scope: LockScope) -> Result<Box<dyn LockGuard>, StoreError>;
+}
+
+/// Typed scope for [`AcmeStore::lock`]. Replaces the prior stringly-
+/// typed `"account/<id>"` / `"cert/<sni>"` convention so callers
+/// can't accidentally invent a third bucket (which would silently
+/// land in an unsupervised `<root>/locks/` shelf) or mis-spell the
+/// prefix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LockScope {
+	/// Per-CA-directory account scope. The inner string is the
+	/// directory-URL hash that backs the `accounts/` subtree;
+	/// callers usually obtain it via `super::registry::directory_url_scope`.
+	Account(String),
+	/// Per-SNI cert scope. The inner string is the unlowercased
+	/// SNI; the store normalises it the same way [`Self::cert_dir`]
+	/// does.
+	Cert(String),
+}
+
+impl LockScope {
+	#[must_use]
+	pub fn account(directory_id: impl Into<String>) -> Self {
+		Self::Account(directory_id.into())
+	}
+
+	#[must_use]
+	pub fn cert(sni: impl Into<String>) -> Self {
+		Self::Cert(sni.into())
+	}
+
+	/// Render the scope as the canonical wire string. Used by
+	/// implementations that want a single string-keyed mutex map
+	/// (e.g. [`super::FsAcmeStore`]'s `scope_mutexes`).
+	#[must_use]
+	pub fn as_key(&self) -> String {
+		match self {
+			Self::Account(id) => format!("account/{id}"),
+			Self::Cert(sni) => format!("cert/{sni}"),
+		}
+	}
 }
 
 /// Marker trait for an RAII handle returned by

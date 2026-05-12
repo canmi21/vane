@@ -50,7 +50,7 @@ use zeroize::Zeroizing;
 
 use super::store::{
 	AccountFileV1, AcmeAccount, AcmeStore, CertMetaV1, CertMetaV2, CertMetaVersionProbe, LockGuard,
-	StoreError, StoredCert, system_time_to_unix_ms, unix_ms_to_system_time,
+	LockScope, StoreError, StoredCert, system_time_to_unix_ms, unix_ms_to_system_time,
 };
 
 const ACCOUNTS_DIR: &str = "accounts";
@@ -116,18 +116,16 @@ impl FsAcmeStore {
 		self.root.join(CERTS_DIR).join(sanitise_sni(sni))
 	}
 
-	/// Translate an opaque [`AcmeStore::lock`] scope into the on-disk lock
-	/// file path. The fs layout pins lock files alongside their
-	/// data, so we recognise the two scope shapes the registry
-	/// uses; unknown scopes get a `.lock` file under `<root>/locks/`
-	/// to avoid escaping the store root.
-	fn lock_path_for_scope(&self, scope: &str) -> PathBuf {
-		if let Some(rest) = scope.strip_prefix("account/") {
-			self.root.join(ACCOUNTS_DIR).join(rest).join(LOCK_FILE)
-		} else if let Some(rest) = scope.strip_prefix("cert/") {
-			self.root.join(CERTS_DIR).join(sanitise_sni(rest)).join(LOCK_FILE)
-		} else {
-			self.root.join("locks").join(format!("{}.lock", sanitise_scope(scope)))
+	/// Translate a typed [`LockScope`] into the on-disk lock-file
+	/// path. The fs layout pins lock files alongside their data —
+	/// `accounts/<directory_id>/.lock` for account scopes and
+	/// `certs/<sanitised-sni>/.lock` for cert scopes.
+	fn lock_path_for_scope(&self, scope: &LockScope) -> PathBuf {
+		match scope {
+			LockScope::Account(directory_id) => {
+				self.root.join(ACCOUNTS_DIR).join(directory_id).join(LOCK_FILE)
+			}
+			LockScope::Cert(sni) => self.root.join(CERTS_DIR).join(sanitise_sni(sni)).join(LOCK_FILE),
 		}
 	}
 }
@@ -307,13 +305,13 @@ impl AcmeStore for FsAcmeStore {
 		Ok(out)
 	}
 
-	async fn lock(&self, scope: &str) -> Result<Box<dyn LockGuard>, StoreError> {
+	async fn lock(&self, scope: LockScope) -> Result<Box<dyn LockGuard>, StoreError> {
 		// Step 1: per-process serialisation via tokio::sync::Mutex so
 		// `.lock().await` doesn't block the runtime worker. We need
 		// `OwnedMutexGuard` because the guard outlives this scope —
 		// it travels back to the caller as part of the boxed
 		// `LockGuard`.
-		let mutex = self.scope_mutex(scope);
+		let mutex = self.scope_mutex(&scope.as_key());
 		let proc_guard: OwnedMutexGuard<()> = Arc::clone(&mutex).lock_owned().await;
 
 		// Step 2: cross-process flock. Open the on-disk lock file
@@ -321,7 +319,7 @@ impl AcmeStore for FsAcmeStore {
 		// exclusive flock for the lifetime of the returned guard.
 		// `spawn_blocking` keeps the (potentially blocking) flock
 		// syscall off the runtime's workers.
-		let lock_path = self.lock_path_for_scope(scope);
+		let lock_path = self.lock_path_for_scope(&scope);
 		if let Some(parent) = lock_path.parent() {
 			std::fs::create_dir_all(parent)?;
 		}
@@ -398,22 +396,6 @@ fn sanitise_sni(sni: &str) -> String {
 /// reconstruct the operator-visible SNI from the on-disk dir name.
 fn unsanitise_sni(name: &str) -> String {
 	name.replace("_wild_", "*")
-}
-
-/// Generic scope sanitiser for unknown `with_lock` scopes (those
-/// that don't match the `account/` / `cert/` prefixes). Replaces
-/// path separators and dot-runs with underscores so a malicious
-/// scope can't escape `<root>/locks/`.
-fn sanitise_scope(scope: &str) -> String {
-	scope
-		.chars()
-		.map(|c| match c {
-			'/' | '\\' | '\0' => '_',
-			c if c.is_control() => '_',
-			c => c,
-		})
-		.collect::<String>()
-		.replace("..", "__")
 }
 
 /// Atomic write: `tmp` file + fsync + `rename(2)`. Sets `mode` on
@@ -743,7 +725,7 @@ mod tests {
 			let parallel = Arc::clone(&parallel);
 			let max_parallel = Arc::clone(&max_parallel);
 			handles.push(tokio::spawn(async move {
-				let _guard = store.lock("test/scope").await.unwrap();
+				let _guard = store.lock(LockScope::cert("scope.example.test")).await.unwrap();
 				let n = parallel.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
 				let mut prev = max_parallel.load(std::sync::atomic::Ordering::SeqCst);
 				while n > prev {
@@ -785,9 +767,9 @@ mod tests {
 			let store = Arc::clone(&store);
 			let parallel = Arc::clone(&parallel);
 			let max_parallel = Arc::clone(&max_parallel);
-			let scope = format!("cert/sni-{i}");
+			let scope = LockScope::cert(format!("sni-{i}.example"));
 			handles.push(tokio::spawn(async move {
-				let _guard = store.lock(&scope).await.unwrap();
+				let _guard = store.lock(scope).await.unwrap();
 				let n = parallel.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
 				let mut prev = max_parallel.load(std::sync::atomic::Ordering::SeqCst);
 				while n > prev {
@@ -823,12 +805,15 @@ mod tests {
 		// scope without timing out. If the previous guard didn't
 		// release the lock, this would deadlock.
 		{
-			let _g1 = store.lock("test/release").await.unwrap();
+			let _g1 = store.lock(LockScope::cert("release.example.test")).await.unwrap();
 		}
-		let _g2 = tokio::time::timeout(Duration::from_millis(200), store.lock("test/release"))
-			.await
-			.expect("second acquire must succeed quickly")
-			.expect("lock");
+		let _g2 = tokio::time::timeout(
+			Duration::from_millis(200),
+			store.lock(LockScope::cert("release.example.test")),
+		)
+		.await
+		.expect("second acquire must succeed quickly")
+		.expect("lock");
 	}
 
 	#[test]
