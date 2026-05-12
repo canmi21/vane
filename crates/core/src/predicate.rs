@@ -675,6 +675,26 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
 
 pub const REGEX_PATTERN_MAX_BYTES: usize = 4 * 1024;
 
+/// Maximum backtracks the fancy-regex matcher is allowed per call.
+/// Rules carrying a `matches` operator are compiled with this limit
+/// baked in; the matcher returns `Err(Error::BacktrackLimitExceeded)`
+/// when a pathological input would otherwise spin (RegEx DoS).
+///
+/// 1e6 is the spec figure and roughly matches "100 ms on a single
+/// core" for typical adversarial inputs in benchmark harnesses.
+pub const REGEX_BACKTRACK_LIMIT: usize = 1_000_000;
+
+/// Cap on the size (in bytes) that fancy-regex is allowed to allocate
+/// for delegate NFA/DFA structures. Caps the worst-case memory a
+/// single rule can demand at compile time.
+pub const REGEX_DELEGATE_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+
+/// Adversarial smoke-test input used by the compile-time check on
+/// every `matches` regex: a long run of `a` plus a non-matching
+/// suffix, which is the classic catastrophic-backtracking trigger
+/// for patterns like `(a+)+b`.
+pub const REGEX_SMOKE_TEST_INPUT_LEN: usize = 64;
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum Predicate {
 	AnyOf(AnyOfP),

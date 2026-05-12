@@ -1801,15 +1801,7 @@ fn compile_operator(
 		}
 		Operator::Prefix(v) => CompiledOperator::Prefix(value_to_bytes(v, path, op.name(), source)?),
 		Operator::Suffix(v) => CompiledOperator::Suffix(value_to_bytes(v, path, op.name(), source)?),
-		Operator::Matches(pat) => {
-			CompiledOperator::Matches(fancy_regex::Regex::new(pat).map_err(|e| {
-				Error::compile(format!(
-					"{}invalid regex in `matches` operator on field `{}`: {e}",
-					source_prefix(source),
-					path.display_name(),
-				))
-			})?)
-		}
+		Operator::Matches(pat) => CompiledOperator::Matches(compile_matches_regex(pat, path, source)?),
 		Operator::In(vs) => {
 			let mut out = Vec::with_capacity(vs.len());
 			for v in vs {
@@ -1984,6 +1976,61 @@ fn value_to_bytes(
 			source_prefix(source),
 			path.display_name(),
 			value_kind(v),
+		))),
+	}
+}
+
+/// Compile a `matches` operand into a fancy-regex with explicit
+/// resource caps:
+///
+/// - `backtrack_limit` keeps matching from spinning on adversarial
+///   inputs (RegEx DoS guard, per [`REGEX_BACKTRACK_LIMIT`]).
+/// - `delegate_size_limit` caps the bytes the engine may allocate for
+///   delegate NFA/DFA structures (per [`REGEX_DELEGATE_SIZE_LIMIT`]).
+///
+/// After compile, runs a smoke test against an adversarial-style input
+/// (`"a".repeat(REGEX_SMOKE_TEST_INPUT_LEN)`) to surface patterns that
+/// trip the backtrack limit even on short, plausibly-legitimate inputs.
+/// If the smoke test reports `BacktrackLimitExceeded`, the rule is
+/// rejected at compile time so the runtime never hits the same wall.
+fn compile_matches_regex(
+	pat: &str,
+	path: &FieldPath,
+	source: &SourceInfo,
+) -> Result<fancy_regex::Regex, Error> {
+	use crate::predicate::{
+		REGEX_BACKTRACK_LIMIT, REGEX_DELEGATE_SIZE_LIMIT, REGEX_SMOKE_TEST_INPUT_LEN,
+	};
+	let re = fancy_regex::RegexBuilder::new(pat)
+		.backtrack_limit(REGEX_BACKTRACK_LIMIT)
+		.delegate_size_limit(REGEX_DELEGATE_SIZE_LIMIT)
+		.build()
+		.map_err(|e| {
+			Error::compile(format!(
+				"{}invalid regex in `matches` operator on field `{}`: {e}",
+				source_prefix(source),
+				path.display_name(),
+			))
+		})?;
+
+	// Smoke-test: feed an adversarial run of `a` to surface patterns
+	// that would spin on production traffic before they reach the
+	// runtime. Anchored or short patterns return quickly; pathological
+	// alternations (e.g. `(a+)+b`) hit the backtrack limit here.
+	let probe: String = "a".repeat(REGEX_SMOKE_TEST_INPUT_LEN);
+	match re.is_match(&probe) {
+		Ok(_) => Ok(re),
+		Err(fancy_regex::Error::RuntimeError(fancy_regex::RuntimeError::BacktrackLimitExceeded)) => {
+			Err(Error::compile(format!(
+				"{}regex in `matches` on field `{}` exceeded backtrack limit on smoke-test input; refusing to compile to avoid runtime ReDoS",
+				source_prefix(source),
+				path.display_name(),
+			)))
+		}
+		Err(e) => Err(Error::compile(format!(
+			"{}regex in `matches` on field `{}` errored on smoke test: {e}",
+			source_prefix(source),
+			path.display_name(),
 		))),
 	}
 }
@@ -2268,6 +2315,39 @@ mod compat_tests {
 		assert!(msg.contains("rules/30-api.json:14"), "{msg}");
 		assert!(msg.contains("`matches`"), "{msg}");
 		assert!(msg.contains("http.uri.path"), "{msg}");
+	}
+
+	#[test]
+	fn redos_pattern_rejected_at_compile_via_backtrack_smoke_test() {
+		// Catastrophic-backtracking trigger that activates fancy-regex's
+		// backtracking engine: a nested-quantifier shape inside a
+		// look-ahead. Patterns without lookaround/backrefs delegate to
+		// regex-automata and run in linear time — no ReDoS possible —
+		// so they are not what the smoke test guards against.
+		let err = compile_operator(
+			&Operator::Matches("^(a+)*b\\1$".to_string()),
+			&FieldPath::HttpUriPath,
+			&src(),
+		)
+		.expect_err("redos pattern must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("backtrack"), "error mentions backtrack limit: {msg}");
+		assert!(msg.contains("http.uri.path"), "{msg}");
+	}
+
+	#[test]
+	fn well_behaved_regex_passes_smoke_test() {
+		// Plain anchored alternation — runs in linear time and must compile.
+		let op = compile_operator(
+			&Operator::Matches("^(api|web|static)/[a-z0-9-]+$".to_string()),
+			&FieldPath::HttpUriPath,
+			&src(),
+		)
+		.expect("well-behaved regex compiles");
+		match op {
+			crate::predicate::CompiledOperator::Matches(_) => {}
+			other => panic!("expected Matches, got {other:?}"),
+		}
 	}
 
 	#[test]
