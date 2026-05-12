@@ -40,8 +40,14 @@ pub enum TlsVersion {
 
 #[derive(Clone, Debug, Default)]
 pub struct TlsInfo {
-	pub sni: Option<String>,
-	pub alpn: Option<Vec<u8>>,
+	/// Negotiated SNI value, lower-cased. Stored as `Arc<str>` so
+	/// predicate readers can hand out borrowed slices and the
+	/// listener-side population path can reuse the same arc across
+	/// multiple `TlsInfo` snapshots for the same connection.
+	pub sni: Option<Arc<str>>,
+	/// Negotiated ALPN bytes. `Arc<[u8]>` for the same reason — the
+	/// hot `alpn.clone()` patterns now bump a refcount.
+	pub alpn: Option<Arc<[u8]>>,
 	pub version: Option<TlsVersion>,
 	pub peer_cert: Option<Arc<PeerCertificate>>,
 	/// Whether the client's request arrived (in part or wholly) as
@@ -75,12 +81,17 @@ pub struct PeerCertificate {
 	/// fields not pre-extracted; current readers should use the
 	/// pre-extracted scalar fields below.
 	pub leaf_der: Bytes,
-	pub subject_cn: Option<String>,
-	pub san_dns: Vec<String>,
-	pub fingerprint_sha256: String,
-	pub spki_sha256: String,
-	pub issuer_cn: Option<String>,
-	pub serial: String,
+	/// All `String` / `Vec<String>` predicate-readable fields are
+	/// stored as `Arc<str>` / `Arc<[Arc<str>]>` so per-Check
+	/// predicate dispatch can hand out borrowed `&str` slices
+	/// instead of cloning ~30ns Strings inside the connection
+	/// `Mutex<Option<TlsInfo>>` guard.
+	pub subject_cn: Option<Arc<str>>,
+	pub san_dns: Arc<[Arc<str>]>,
+	pub fingerprint_sha256: Arc<str>,
+	pub spki_sha256: Arc<str>,
+	pub issuer_cn: Option<Arc<str>>,
+	pub serial: Arc<str>,
 }
 
 impl PeerCertificate {
@@ -97,38 +108,33 @@ impl PeerCertificate {
 		let (_, cert) = X509Certificate::from_der(bytes).ok()?;
 		let tbs = &cert.tbs_certificate;
 
-		let subject_cn = tbs
-			.subject()
-			.iter_common_name()
-			.next()
-			.and_then(|attr| attr.as_str().ok().map(ToString::to_string));
-		let issuer_cn = tbs
-			.issuer()
-			.iter_common_name()
-			.next()
-			.and_then(|attr| attr.as_str().ok().map(ToString::to_string));
+		let subject_cn =
+			tbs.subject().iter_common_name().next().and_then(|attr| attr.as_str().ok().map(Arc::from));
+		let issuer_cn =
+			tbs.issuer().iter_common_name().next().and_then(|attr| attr.as_str().ok().map(Arc::from));
 
 		// SAN dNSName entries — RFC 5280 §4.2.1.6. Other GeneralName
 		// variants (URI, RFC822, etc.) are not exposed via this path
 		// per the predicate-schema table.
-		let mut san_dns: Vec<String> = Vec::new();
+		let mut san_dns: Vec<Arc<str>> = Vec::new();
 		if let Ok(Some(san_ext)) = tbs.subject_alternative_name() {
 			for name in &san_ext.value.general_names {
 				if let GeneralName::DNSName(d) = name {
-					san_dns.push((*d).to_string());
+					san_dns.push(Arc::from(*d));
 				}
 			}
 		}
+		let san_dns: Arc<[Arc<str>]> = san_dns.into();
 
 		let mut hasher = Sha256::new();
 		hasher.update(bytes);
-		let fingerprint_sha256 = hex_lower(&hasher.finalize());
+		let fingerprint_sha256: Arc<str> = Arc::from(hex_lower(&hasher.finalize()));
 
-		let spki_sha256 = {
+		let spki_sha256: Arc<str> = {
 			let spki_der = tbs.subject_pki.raw;
 			let mut h = Sha256::new();
 			h.update(spki_der);
-			hex_lower(&h.finalize())
+			Arc::from(hex_lower(&h.finalize()))
 		};
 
 		// Serial: x509-parser gives BigUint; canonicalise as
@@ -136,7 +142,7 @@ impl PeerCertificate {
 		// spec). `to_bytes_be` returns the minimal-length
 		// representation; pad nothing — operators copy the value out
 		// verbatim from `openssl x509 -serial` when matching.
-		let serial = hex_lower(&tbs.serial.to_bytes_be());
+		let serial: Arc<str> = Arc::from(hex_lower(&tbs.serial.to_bytes_be()));
 
 		Some(Self {
 			leaf_der: Bytes::copy_from_slice(bytes),

@@ -612,7 +612,7 @@ async fn handle_cold_path(
 		.increment(1);
 
 	let conn_id = crate::listener::next_conn_id();
-	let initial_tls = sni.map(|s| TlsInfo { sni: Some(s), ..TlsInfo::default() });
+	let initial_tls = sni.map(|s| TlsInfo { sni: Some(Arc::from(s)), ..TlsInfo::default() });
 	let conn = Arc::new(ConnContext {
 		id: conn_id,
 		remote: peer,

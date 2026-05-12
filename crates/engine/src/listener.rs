@@ -909,7 +909,7 @@ async fn handle_connection(
 	{
 		let mut guard = conn.tls.lock();
 		let info = guard.get_or_insert_with(TlsInfo::default);
-		info.sni.clone_from(&tls_hello.sni);
+		info.sni = tls_hello.sni.as_deref().map(Arc::from);
 	}
 
 	let detected = peek_result.detected;
@@ -1077,7 +1077,7 @@ async fn run_tls<S>(
 
 	{
 		let hello = start.client_hello();
-		let sni = hello.server_name().map(str::to_ascii_lowercase);
+		let sni = hello.server_name().map(|s| Arc::from(s.to_ascii_lowercase()));
 		let mut guard = conn.tls.lock();
 		let info = guard.get_or_insert_with(TlsInfo::default);
 		info.sni = sni;
@@ -1102,7 +1102,7 @@ async fn run_tls<S>(
 	let early_data_buf;
 	{
 		let (_io, server_conn) = tls_stream.get_mut();
-		alpn = server_conn.alpn_protocol().map(<[u8]>::to_vec);
+		alpn = server_conn.alpn_protocol().map(Arc::<[u8]>::from);
 		match alpn.as_deref() {
 			Some(b"h2") => {
 				let _ = conn.http_version.set(HttpVersion::Http2);

@@ -508,7 +508,7 @@ pub(crate) async fn drive_h3_server(
 		transport: vane_core::Transport::Udp,
 		entered_at: std::time::Instant::now(),
 		tls: parking_lot::Mutex::new(Some(vane_core::TlsInfo {
-			alpn: Some(b"h3".to_vec()),
+			alpn: Some(std::sync::Arc::from(&b"h3"[..])),
 			..vane_core::TlsInfo::default()
 		})),
 		http_version: std::sync::OnceLock::new(),

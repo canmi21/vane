@@ -419,14 +419,14 @@ impl PredicateInst {
 				.lock()
 				.as_ref()
 				.and_then(|t| t.sni.clone())
-				.is_some_and(|got| test_str(&self.op, got.as_str())),
+				.is_some_and(|got| test_str(&self.op, &got)),
 			FieldPath::TlsAlpn => view
 				.conn()
 				.tls
 				.lock()
 				.as_ref()
 				.and_then(|t| t.alpn.clone())
-				.is_some_and(|got| test_bytes(&self.op, got.as_slice())),
+				.is_some_and(|got| test_bytes(&self.op, &got)),
 			FieldPath::TlsVersion => view
 				.conn()
 				.tls
@@ -453,45 +453,50 @@ impl PredicateInst {
 				.lock()
 				.as_ref()
 				.and_then(|t| t.peer_cert.as_ref().and_then(|p| p.subject_cn.clone()))
-				.is_some_and(|cn| test_str(&self.op, cn.as_str())),
+				.is_some_and(|cn| test_str(&self.op, &cn)),
 			FieldPath::TlsPeerCertSanDns => {
-				let dns_list: Vec<String> = view
+				// `san_dns` is an `Arc<[Arc<str>]>`; bump the slice
+				// refcount once and hand the slice to `test_vec_str` —
+				// no Vec<String> reallocation per Check anymore.
+				let dns: Option<Arc<[Arc<str>]>> = view
 					.conn()
 					.tls
 					.lock()
 					.as_ref()
-					.and_then(|t| t.peer_cert.as_ref().map(|p| p.san_dns.clone()))
-					.unwrap_or_default();
-				test_vec_str(&self.op, &dns_list)
+					.and_then(|t| t.peer_cert.as_ref().map(|p| Arc::clone(&p.san_dns)));
+				match dns {
+					Some(list) => test_vec_str(&self.op, &list),
+					None => test_vec_str::<&str>(&self.op, &[]),
+				}
 			}
 			FieldPath::TlsPeerCertFingerprintSha256 => view
 				.conn()
 				.tls
 				.lock()
 				.as_ref()
-				.and_then(|t| t.peer_cert.as_ref().map(|p| p.fingerprint_sha256.clone()))
-				.is_some_and(|s| test_str(&self.op, s.as_str())),
+				.and_then(|t| t.peer_cert.as_ref().map(|p| Arc::clone(&p.fingerprint_sha256)))
+				.is_some_and(|s| test_str(&self.op, &s)),
 			FieldPath::TlsPeerCertSpkiSha256 => view
 				.conn()
 				.tls
 				.lock()
 				.as_ref()
-				.and_then(|t| t.peer_cert.as_ref().map(|p| p.spki_sha256.clone()))
-				.is_some_and(|s| test_str(&self.op, s.as_str())),
+				.and_then(|t| t.peer_cert.as_ref().map(|p| Arc::clone(&p.spki_sha256)))
+				.is_some_and(|s| test_str(&self.op, &s)),
 			FieldPath::TlsPeerCertIssuerCn => view
 				.conn()
 				.tls
 				.lock()
 				.as_ref()
 				.and_then(|t| t.peer_cert.as_ref().and_then(|p| p.issuer_cn.clone()))
-				.is_some_and(|s| test_str(&self.op, s.as_str())),
+				.is_some_and(|s| test_str(&self.op, &s)),
 			FieldPath::TlsPeerCertSerial => view
 				.conn()
 				.tls
 				.lock()
 				.as_ref()
-				.and_then(|t| t.peer_cert.as_ref().map(|p| p.serial.clone()))
-				.is_some_and(|s| test_str(&self.op, s.as_str())),
+				.and_then(|t| t.peer_cert.as_ref().map(|p| Arc::clone(&p.serial)))
+				.is_some_and(|s| test_str(&self.op, &s)),
 			FieldPath::HttpMethod => {
 				let Some(req) = view.request() else { return false };
 				test_str(&self.op, req.method().as_str())
@@ -571,11 +576,13 @@ fn test_bool(op: &CompiledOperator, value: bool) -> bool {
 /// semantics is "the list contains / does not contain this exact
 /// element", not byte-level substring. Other operators
 /// matrix-reject at compile.
-fn test_vec_str(op: &CompiledOperator, values: &[String]) -> bool {
+fn test_vec_str<S: AsRef<str>>(op: &CompiledOperator, values: &[S]) -> bool {
 	match op {
-		CompiledOperator::Contains(needle) => values.iter().any(|v| v.as_bytes() == needle.as_ref()),
+		CompiledOperator::Contains(needle) => {
+			values.iter().any(|v| v.as_ref().as_bytes() == needle.as_ref())
+		}
 		CompiledOperator::NotContains(needle) => {
-			!values.iter().any(|v| v.as_bytes() == needle.as_ref())
+			!values.iter().any(|v| v.as_ref().as_bytes() == needle.as_ref())
 		}
 		_ => false,
 	}
@@ -1891,7 +1898,7 @@ mod tests {
 	fn conn_with_sni(sni: &str) -> Arc<ConnContext> {
 		let conn = make_conn();
 		*conn.tls.lock() = Some(crate::conn_context::TlsInfo {
-			sni: Some(sni.to_string()),
+			sni: Some(Arc::from(sni)),
 			alpn: None,
 			version: None,
 			peer_cert: None,
@@ -2084,7 +2091,7 @@ mod tests {
 		let conn = make_conn();
 		*conn.tls.lock() = Some(crate::conn_context::TlsInfo {
 			sni: None,
-			alpn: Some(alpn.to_vec()),
+			alpn: Some(Arc::from(alpn)),
 			version: None,
 			peer_cert: None,
 			zero_rtt_used: false,

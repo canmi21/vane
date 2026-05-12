@@ -36,7 +36,7 @@ use vane_engine::verbosity::VerbosityState;
 struct Captured {
 	peek_len: usize,
 	detected: Option<DetectedProtocol>,
-	sni_in_conn_tls: Option<String>,
+	sni_in_conn_tls: Option<std::sync::Arc<str>>,
 	tls_hello_sni: Option<String>,
 }
 

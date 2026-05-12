@@ -88,25 +88,40 @@ fn pack_one(path: &str, conn: &ConnContext, tls: Option<&TlsInfo>) -> Option<Con
 			ContextValue::Boolean(tls.and_then(|t| t.peer_cert.as_ref()).is_some())
 		}
 		"conn.tls.peer_cert.subject_cn" => ContextValue::Text(
-			tls.and_then(|t| t.peer_cert.as_ref()).and_then(|c| c.subject_cn.clone()).unwrap_or_default(),
+			tls
+				.and_then(|t| t.peer_cert.as_ref())
+				.and_then(|c| c.subject_cn.as_deref().map(String::from))
+				.unwrap_or_default(),
 		),
 		"conn.tls.peer_cert.san_dns" => ContextValue::ListText(
-			tls.and_then(|t| t.peer_cert.as_ref()).map(|c| c.san_dns.clone()).unwrap_or_default(),
+			tls
+				.and_then(|t| t.peer_cert.as_ref())
+				.map(|c| c.san_dns.iter().map(|s| String::from(s.as_ref())).collect())
+				.unwrap_or_default(),
 		),
 		"conn.tls.peer_cert.fingerprint_sha256" => ContextValue::Text(
 			tls
 				.and_then(|t| t.peer_cert.as_ref())
-				.map(|c| c.fingerprint_sha256.clone())
+				.map(|c| String::from(c.fingerprint_sha256.as_ref()))
 				.unwrap_or_default(),
 		),
 		"conn.tls.peer_cert.spki_sha256" => ContextValue::Text(
-			tls.and_then(|t| t.peer_cert.as_ref()).map(|c| c.spki_sha256.clone()).unwrap_or_default(),
+			tls
+				.and_then(|t| t.peer_cert.as_ref())
+				.map(|c| String::from(c.spki_sha256.as_ref()))
+				.unwrap_or_default(),
 		),
 		"conn.tls.peer_cert.issuer_cn" => ContextValue::Text(
-			tls.and_then(|t| t.peer_cert.as_ref()).and_then(|c| c.issuer_cn.clone()).unwrap_or_default(),
+			tls
+				.and_then(|t| t.peer_cert.as_ref())
+				.and_then(|c| c.issuer_cn.as_deref().map(String::from))
+				.unwrap_or_default(),
 		),
 		"conn.tls.peer_cert.serial" => ContextValue::Text(
-			tls.and_then(|t| t.peer_cert.as_ref()).map(|c| c.serial.clone()).unwrap_or_default(),
+			tls
+				.and_then(|t| t.peer_cert.as_ref())
+				.map(|c| String::from(c.serial.as_ref()))
+				.unwrap_or_default(),
 		),
 
 		// Grammar-valid request / response path — load-time validation
@@ -298,8 +313,8 @@ mod tests {
 	#[test]
 	fn tls_scalar_paths_pack_from_snapshot() {
 		let tls = TlsInfo {
-			sni: Some("Example.COM".to_owned()),
-			alpn: Some(b"h2".to_vec()),
+			sni: Some(Arc::from("Example.COM")),
+			alpn: Some(Arc::from(&b"h2"[..])),
 			version: Some(TlsVersion::Tls13),
 			peer_cert: None,
 			zero_rtt_used: false,
@@ -315,12 +330,12 @@ mod tests {
 	fn tls_peer_cert_paths_pack_from_snapshot() {
 		let cert = PeerCertificate {
 			leaf_der: bytes::Bytes::from_static(b"\x30\x82\x01\x00fake-der"),
-			subject_cn: Some("client.example".to_owned()),
-			san_dns: vec!["api.example".to_owned(), "edge.example".to_owned()],
-			fingerprint_sha256: "deadbeef".to_owned(),
-			spki_sha256: "feedface".to_owned(),
-			issuer_cn: Some("Example CA".to_owned()),
-			serial: "1234abcd".to_owned(),
+			subject_cn: Some(Arc::from("client.example")),
+			san_dns: vec![Arc::from("api.example"), Arc::from("edge.example")].into(),
+			fingerprint_sha256: Arc::from("deadbeef"),
+			spki_sha256: Arc::from("feedface"),
+			issuer_cn: Some(Arc::from("Example CA")),
+			serial: Arc::from("1234abcd"),
 		};
 		let tls = TlsInfo { peer_cert: Some(Arc::new(cert)), ..TlsInfo::default() };
 		let conn = conn_with("127.0.0.1:1", "127.0.0.1:1", Transport::Tcp, Some(tls));
