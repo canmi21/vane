@@ -14,6 +14,7 @@ description = "Process-wide CRL cache and refreshable rustls verifiers without S
 workspace = true
 
 [dependencies]
+arc-swap = "1"
 async-trait = "0.1"
 parking_lot = "0.12"
 rustls = { version = "0.23", default-features = false, features = ["std"] }

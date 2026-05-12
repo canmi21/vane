@@ -3953,6 +3953,7 @@ dependencies = [
 name = "rustls-crl-refresh"
 version = "0.0.1"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "parking_lot",
  "rcgen",

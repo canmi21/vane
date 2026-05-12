@@ -8,24 +8,62 @@
 
 use std::sync::Arc;
 
+use arc_swap::ArcSwapOption;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, ServerName, UnixTime};
 use rustls::server::WebPkiClientVerifier;
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{DigitallySignedStruct, DistinguishedName, RootCertStore, SignatureScheme};
 
 use crate::cache::{CrlCache, CrlSourceId};
 
-/// Listener-side wrapper that defers to a freshly-built
-/// `WebPkiClientVerifier` per handshake against the latest CRL bytes
-/// pulled from the cache.
-#[derive(Debug)]
+/// Identity fingerprint of a CRL snapshot. We hash by the
+/// `Arc::as_ptr` of each `CertificateRevocationListDer` rather than by
+/// the bytes themselves: [`CrlCache`] guarantees that the inner Arc
+/// changes iff the bytes change, so the pointer-tuple is a cheap and
+/// correct "did this snapshot move?" key. Heavy CRLs that arrive every
+/// few hours therefore don't pay a per-handshake byte compare.
+type CrlFingerprint = Vec<usize>;
+
+fn fingerprint(crls: &[Arc<CertificateRevocationListDer<'static>>]) -> CrlFingerprint {
+	crls.iter().map(|arc| Arc::as_ptr(arc) as usize).collect()
+}
+
+fn build_owned(
+	crls: &[Arc<CertificateRevocationListDer<'static>>],
+) -> Vec<CertificateRevocationListDer<'static>> {
+	crls.iter().map(|arc| (**arc).clone()).collect()
+}
+
+struct CachedClient {
+	fingerprint: CrlFingerprint,
+	verifier: Arc<dyn ClientCertVerifier>,
+}
+
+struct CachedServer {
+	fingerprint: CrlFingerprint,
+	verifier: Arc<dyn ServerCertVerifier>,
+}
+
+/// Listener-side wrapper that defers to a `WebPkiClientVerifier`
+/// rebuilt only when the cached CRL snapshot's Arc identity changes,
+/// against the latest CRL bytes pulled from the cache.
 pub struct RefreshableClientCertVerifier {
 	cache: Arc<CrlCache>,
 	sources: Vec<CrlSourceId>,
 	cas: Arc<RootCertStore>,
 	allow_unauthenticated: bool,
 	root_hint_subjects: Vec<DistinguishedName>,
+	cached: ArcSwapOption<CachedClient>,
+}
+
+impl std::fmt::Debug for RefreshableClientCertVerifier {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("RefreshableClientCertVerifier")
+			.field("sources", &self.sources)
+			.field("allow_unauthenticated", &self.allow_unauthenticated)
+			.finish_non_exhaustive()
+	}
 }
 
 impl RefreshableClientCertVerifier {
@@ -37,7 +75,14 @@ impl RefreshableClientCertVerifier {
 		allow_unauthenticated: bool,
 	) -> Arc<Self> {
 		let root_hint_subjects = cas.subjects();
-		Arc::new(Self { cache, sources, cas, allow_unauthenticated, root_hint_subjects })
+		Arc::new(Self {
+			cache,
+			sources,
+			cas,
+			allow_unauthenticated,
+			root_hint_subjects,
+			cached: ArcSwapOption::from(None),
+		})
 	}
 
 	fn build_inner(&self) -> Result<Arc<dyn ClientCertVerifier>, rustls::Error> {
@@ -45,16 +90,26 @@ impl RefreshableClientCertVerifier {
 			.cache
 			.snapshot(&self.sources)
 			.map_err(|e| rustls::Error::General(format!("crl unavailable: {e}")))?;
+		let fp = fingerprint(&crls);
+		if let Some(hit) = self.cached.load_full()
+			&& hit.fingerprint == fp
+		{
+			return Ok(Arc::clone(&hit.verifier));
+		}
 		let mut builder = WebPkiClientVerifier::builder(Arc::clone(&self.cas));
 		if !crls.is_empty() {
-			let owned: Vec<rustls::pki_types::CertificateRevocationListDer<'static>> =
-				crls.iter().map(|arc| (**arc).clone()).collect();
-			builder = builder.with_crls(owned);
+			builder = builder.with_crls(build_owned(&crls));
 		}
 		if self.allow_unauthenticated {
 			builder = builder.allow_unauthenticated();
 		}
-		builder.build().map_err(|e| rustls::Error::General(format!("verifier build: {e}")))
+		let verifier =
+			builder.build().map_err(|e| rustls::Error::General(format!("verifier build: {e}")))?;
+		let verifier: Arc<dyn ClientCertVerifier> = verifier;
+		self
+			.cached
+			.store(Some(Arc::new(CachedClient { fingerprint: fp, verifier: Arc::clone(&verifier) })));
+		Ok(verifier)
 	}
 }
 
@@ -122,13 +177,23 @@ impl ClientCertVerifier for RefreshableClientCertVerifier {
 	}
 }
 
-/// Upstream-side counterpart. Constructs a fresh
-/// `WebPkiServerVerifier` per handshake.
-#[derive(Debug)]
+/// Upstream-side counterpart. Reuses a cached `WebPkiServerVerifier`
+/// across handshakes when the CRL snapshot's Arc identity is
+/// unchanged; rebuilds only after a refresh swaps the underlying
+/// bytes.
 pub struct RefreshableServerCertVerifier {
 	cache: Arc<CrlCache>,
 	sources: Vec<CrlSourceId>,
 	cas: Arc<RootCertStore>,
+	cached: ArcSwapOption<CachedServer>,
+}
+
+impl std::fmt::Debug for RefreshableServerCertVerifier {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("RefreshableServerCertVerifier")
+			.field("sources", &self.sources)
+			.finish_non_exhaustive()
+	}
 }
 
 impl RefreshableServerCertVerifier {
@@ -138,7 +203,7 @@ impl RefreshableServerCertVerifier {
 		sources: Vec<CrlSourceId>,
 		cas: Arc<RootCertStore>,
 	) -> Arc<Self> {
-		Arc::new(Self { cache, sources, cas })
+		Arc::new(Self { cache, sources, cas, cached: ArcSwapOption::from(None) })
 	}
 
 	fn build_inner(&self) -> Result<Arc<dyn ServerCertVerifier>, rustls::Error> {
@@ -146,15 +211,23 @@ impl RefreshableServerCertVerifier {
 			.cache
 			.snapshot(&self.sources)
 			.map_err(|e| rustls::Error::General(format!("crl unavailable: {e}")))?;
+		let fp = fingerprint(&crls);
+		if let Some(hit) = self.cached.load_full()
+			&& hit.fingerprint == fp
+		{
+			return Ok(Arc::clone(&hit.verifier));
+		}
 		let mut builder = rustls::client::WebPkiServerVerifier::builder(Arc::clone(&self.cas));
 		if !crls.is_empty() {
-			let owned: Vec<rustls::pki_types::CertificateRevocationListDer<'static>> =
-				crls.iter().map(|arc| (**arc).clone()).collect();
-			builder = builder.with_crls(owned);
+			builder = builder.with_crls(build_owned(&crls));
 		}
 		let inner =
 			builder.build().map_err(|e| rustls::Error::General(format!("verifier build: {e}")))?;
-		Ok(inner as Arc<dyn ServerCertVerifier>)
+		let verifier: Arc<dyn ServerCertVerifier> = inner;
+		self
+			.cached
+			.store(Some(Arc::new(CachedServer { fingerprint: fp, verifier: Arc::clone(&verifier) })));
+		Ok(verifier)
 	}
 }
 
@@ -335,6 +408,46 @@ mod tests {
 		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("load");
 		let v = RefreshableServerCertVerifier::new(cache, vec![src], cas);
 		assert!(v.build_inner().is_ok());
+	}
+
+	// Test-only fetcher that serves a different byte string on the
+	// second fetch so we can simulate a real CRL rotation without
+	// rebuilding the cache from scratch.
+	struct SwapFetcher {
+		calls: AtomicUsize,
+		first: Vec<u8>,
+		second: Vec<u8>,
+	}
+
+	#[async_trait]
+	impl CrlFetcher for SwapFetcher {
+		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, String> {
+			let n = self.calls.fetch_add(1, Ordering::SeqCst);
+			Ok(if n == 0 { self.first.clone() } else { self.second.clone() })
+		}
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn client_verifier_reuses_cached_inner_until_crl_arc_changes() {
+		install_crypto_once();
+		let (cas, issuer) = ca_only_root_store();
+		let bytes_v1 = fixture_crl(&issuer, &[1]);
+		let bytes_v2 = fixture_crl(&issuer, &[1, 2]);
+		let fetcher =
+			Arc::new(SwapFetcher { calls: AtomicUsize::new(0), first: bytes_v1, second: bytes_v2 });
+		let cache = CrlCache::new(fetcher);
+		let src = CrlSourceId::Url("https://crl.example/cached".into());
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("load v1");
+		let v = RefreshableClientCertVerifier::new(cache.clone(), vec![src.clone()], cas, false);
+		let a = v.build_inner().expect("build a");
+		let b = v.build_inner().expect("build b");
+		assert!(Arc::ptr_eq(&a, &b), "cache hit reuses the same inner verifier Arc");
+
+		// Refresh: cache now serves the v2 bytes, so a new build is
+		// required.
+		cache.ensure_loaded(&[(src, CrlFetchFailure::Tolerate)]).expect("refresh to v2");
+		let c = v.build_inner().expect("build c");
+		assert!(!Arc::ptr_eq(&b, &c), "post-refresh forces a rebuild");
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
