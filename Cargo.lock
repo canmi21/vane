@@ -4882,6 +4882,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-splice2"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3512dd280d6eb6810a34477214bb12640c791f148a14c8c8aecd69b4da6c1f25"
+dependencies = [
+ "crossbeam-utils",
+ "pin-project",
+ "rustix",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-stream"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5385,6 +5397,7 @@ dependencies = [
  "tokio",
  "tokio-bind-retry",
  "tokio-rustls",
+ "tokio-splice2",
  "tokio-util",
  "tracing",
  "tracing-broadcast",

@@ -545,6 +545,25 @@ fn record_step(
 	}
 }
 
+/// Pick between `splice(2)` and the user-space copy_bidirectional
+/// driver based on the host OS. Linux gets the kernel-space pipe
+/// route via `tokio-splice2`; every other target falls back to
+/// `tokio::io::copy_bidirectional` so cross-platform builds keep
+/// working without a Linux dependency.
+async fn splice_or_copy(
+	client: &mut tokio::net::TcpStream,
+	upstream: &mut tokio::net::TcpStream,
+) -> std::io::Result<()> {
+	#[cfg(target_os = "linux")]
+	{
+		tokio_splice2::copy_bidirectional(client, upstream).await.map(|_traffic| ())
+	}
+	#[cfg(not(target_os = "linux"))]
+	{
+		tokio::io::copy_bidirectional(client, upstream).await.map(|_bytes| ())
+	}
+}
+
 // ByteTunnel drive
 async fn drive_byte_tunnel(t: Tunnel, cancel: &tokio_util::sync::CancellationToken) {
 	match t {
@@ -566,6 +585,24 @@ async fn drive_byte_tunnel(t: Tunnel, cancel: &tokio_util::sync::CancellationTok
 			if let Some(tx) = close_reason_tx.take() {
 				// Receiver dropped is fine — Fetch may have moved on; the tunnel
 				// io result is still observable in tracing if anyone wants it.
+				let _ = tx.send(reason);
+			}
+		}
+		Tunnel::SpliceBidi { mut client, mut upstream, mut close_reason_tx } => {
+			// Linux fast path: route through `splice(2)` via tokio-splice2
+			// so bytes traverse a kernel pipe without round-tripping the
+			// user-space copy buffer. The cancellation contract matches the
+			// `Bidi` arm — dropping the future drops both `TcpStream`s,
+			// which closes both sockets and signals the peer.
+			let reason = tokio::select! {
+				biased;
+				() = cancel.cancelled() => CloseReason::Cancelled,
+				res = splice_or_copy(&mut client, &mut upstream) => match res {
+					Ok(()) => CloseReason::Graceful,
+					Err(e) => CloseReason::ProtocolError(std::borrow::Cow::Owned(format!("splice tunnel io: {e}"))),
+				},
+			};
+			if let Some(tx) = close_reason_tx.take() {
 				let _ = tx.send(reason);
 			}
 		}

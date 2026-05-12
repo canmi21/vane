@@ -137,6 +137,12 @@ rcgen = { version = "0.14", optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# splice(2) is Linux-specific. `tokio-splice2` wraps it behind an
+# async API that uses tokio's `AsyncFd` for readiness; the engine
+# routes bare TCP↔TCP L4 forwards through it on Linux only.
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio-splice2 = "0.3"
+
 [dev-dependencies]
 async-trait = "0.1"
 rcgen = "0.14"

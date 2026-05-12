@@ -73,7 +73,11 @@ impl L4Fetch for L4ForwardFetch {
 			}
 			(L4Conn::Tcp(s), Transport::Tcp) => {
 				let _ = s.set_nodelay(true);
-				self.forward_tcp(Box::new(s)).await
+				// Bare TCP both sides → emit `Tunnel::SpliceBidi` so
+				// the executor can route through `splice(2)` on Linux
+				// (and `copy_bidirectional` everywhere else); see
+				// [`Self::forward_tcp_native`].
+				self.forward_tcp_native(s).await
 			}
 			(L4Conn::Peeked(s), Transport::Tcp) => self.forward_tcp(s).await,
 			(L4Conn::Tls(_), Transport::Tcp) => Err(Error::internal(
@@ -97,6 +101,19 @@ impl L4ForwardFetch {
 			// oneshot send.
 			close_reason_tx: None,
 		})
+	}
+
+	/// TCP↔TCP fast path: both halves are bare `TcpStream`s so the
+	/// executor can route them through `splice(2)` on Linux. This is
+	/// the only arm that emits [`Tunnel::SpliceBidi`]; the `Peeked` /
+	/// TLS / virtual arms fall through to [`Self::forward_tcp`] with
+	/// a trait-object client.
+	async fn forward_tcp_native(&self, client: TcpStream) -> Result<Tunnel, Error> {
+		let upstream = TcpStream::connect(&self.upstream)
+			.await
+			.map_err(|e| Error::upstream(UpstreamReason::Unreachable).with_source(e))?;
+		let _ = upstream.set_nodelay(true);
+		Ok(Tunnel::SpliceBidi { client, upstream, close_reason_tx: None })
 	}
 
 	async fn forward_udp(

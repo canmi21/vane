@@ -55,6 +55,20 @@ pub enum Tunnel {
 		upstream: Box<dyn AsyncReadWrite + Send>,
 		close_reason_tx: Option<oneshot::Sender<CloseReason>>,
 	},
+	/// Zero-copy TCP↔TCP forward suitable for `splice(2)` on Linux.
+	/// Both halves are bare `tokio::net::TcpStream`s — no TLS, no
+	/// peek prelude, no virtual sockets — so the kernel can move
+	/// bytes through a pipe without entering user space. The engine
+	/// emits this variant from `L4ForwardFetch` when the inbound
+	/// `L4Conn::Tcp` and the dialed upstream are both raw TCP, and
+	/// `drive_byte_tunnel` routes Linux platforms through
+	/// `tokio-splice2`; non-Linux platforms fall back to the same
+	/// `tokio::io::copy_bidirectional` driver as [`Self::Bidi`].
+	SpliceBidi {
+		client: tokio::net::TcpStream,
+		upstream: tokio::net::TcpStream,
+		close_reason_tx: Option<oneshot::Sender<CloseReason>>,
+	},
 	Udp(UdpTunnel),
 }
 
