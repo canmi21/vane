@@ -91,6 +91,15 @@ pub fn lower(
 	// to the AcmeChallenge fetch on match.
 	let annotations = inject_acme_http01_routes(&mut builder);
 
+	// Invariant: each path from a listener entry to a terminator must
+	// carry at most one `collect_body_before` per side. The DFS-based
+	// reader marker in `lower_rule` only flags the first reader per
+	// path, but post-lower transformations (ACME route injection,
+	// future check insertions) could in principle re-converge paths
+	// that each marked their own reader; enforce the invariant
+	// explicitly so any such regression fails compile loud.
+	validate_unique_body_reader_per_path(&builder.nodes, &builder.entries)?;
+
 	Ok(SymbolicFlowGraph {
 		nodes: builder.nodes,
 		predicates: builder.predicates,
@@ -959,32 +968,8 @@ impl Builder {
 		_mw_meta: &dyn MiddlewareMetadataProvider,
 		body_limit: usize,
 	) -> Result<(), Error> {
-		// Walk from chain_head forward through Middleware / Fetch nodes and
-		// flag the first reader on the request side. A Check reading http.body
-		// is handled inline in `lower_rule`; this covers the middleware case.
-		let mut cur = chain_head;
-		loop {
-			match &self.nodes[cur.get() as usize] {
-				Node::Middleware { id, next, .. } => {
-					let sym = &self.middlewares[id.get() as usize];
-					let is_req_reader = sym.kind == MiddlewareKind::L7Request && sym.needs_body;
-					let next_id = *next;
-					if is_req_reader {
-						if let Node::Middleware { collect_body_before, body_limit: bl, .. } =
-							&mut self.nodes[cur.get() as usize]
-						{
-							*collect_body_before = Some(BodySide::Request);
-							*bl = body_limit;
-						}
-						return Ok(());
-					}
-					cur = next_id;
-				}
-				Node::Fetch { .. } | Node::Terminate(_) | Node::Upgrade { .. } | Node::Check { .. } => {
-					return Ok(());
-				}
-			}
-		}
+		self.mark_first_body_reader_dfs(chain_head, BodySide::Request, body_limit);
+		Ok(())
 	}
 
 	fn mark_response_reader(
@@ -993,29 +978,86 @@ impl Builder {
 		_mw_meta: &dyn MiddlewareMetadataProvider,
 		body_limit: usize,
 	) -> Result<(), Error> {
-		// Walk from chain_head forward through Middleware nodes, find the first
-		// L7Response middleware that needs_body, and flag it.
-		let mut cur = chain_head;
-		loop {
-			match &self.nodes[cur.get() as usize] {
-				Node::Middleware { id, next, .. } => {
+		self.mark_first_body_reader_dfs(chain_head, BodySide::Response, body_limit);
+		Ok(())
+	}
+
+	/// DFS through the `LazyBuffer` subgraph starting at `chain_head`,
+	/// flagging the first middleware on every path that reads the body
+	/// for `side`. Edges followed:
+	///
+	/// - `Node::Middleware { next, on_error }` — both arms continue the
+	///   walk, since each is a distinct downstream path.
+	/// - `Node::Check { on_match, on_miss }` — both branches continue.
+	/// - `Node::Fetch { next_response, next_tunnel }` — response-side
+	///   marking continues past the fetch (post-fetch L7Response
+	///   middlewares exist); request-side stops at the fetch (the body
+	///   has already been consumed by the time the fetch fires).
+	/// - `Node::Terminate(_) | Node::Upgrade { .. }` — terminal.
+	///
+	/// The walk uses a `(node, already_marked_on_this_path)` visited
+	/// set so re-convergent diamonds don't re-flag a node and don't
+	/// loop. The marking itself is idempotent: revisiting a node that
+	/// is already flagged on this side is a no-op.
+	fn mark_first_body_reader_dfs(&mut self, chain_head: NodeId, side: BodySide, body_limit: usize) {
+		use std::collections::HashSet;
+		let mut stack: Vec<(NodeId, bool)> = vec![(chain_head, false)];
+		let mut visited: HashSet<(u32, bool)> = HashSet::new();
+		while let Some((cur, already_marked)) = stack.pop() {
+			if !visited.insert((cur.get(), already_marked)) {
+				continue;
+			}
+			let idx = cur.get() as usize;
+			match &self.nodes[idx] {
+				Node::Middleware { id, next, on_error, .. } => {
 					let sym = &self.middlewares[id.get() as usize];
-					let is_resp_reader = sym.kind == MiddlewareKind::L7Response && sym.needs_body;
+					let is_reader = match side {
+						BodySide::Request => sym.kind == MiddlewareKind::L7Request && sym.needs_body,
+						BodySide::Response => sym.kind == MiddlewareKind::L7Response && sym.needs_body,
+					};
 					let next_id = *next;
-					if is_resp_reader {
+					let on_error_id = *on_error;
+					let now_marked = if is_reader && !already_marked {
 						if let Node::Middleware { collect_body_before, body_limit: bl, .. } =
-							&mut self.nodes[cur.get() as usize]
+							&mut self.nodes[idx]
 						{
-							*collect_body_before = Some(BodySide::Response);
+							*collect_body_before = Some(side);
 							*bl = body_limit;
 						}
-						return Ok(());
+						true
+					} else {
+						already_marked
+					};
+					stack.push((next_id, now_marked));
+					if let Some(eid) = on_error_id {
+						stack.push((eid, now_marked));
 					}
-					cur = next_id;
 				}
-				Node::Fetch { .. } | Node::Terminate(_) | Node::Upgrade { .. } | Node::Check { .. } => {
-					return Ok(());
+				Node::Check { on_match, on_miss, .. } => {
+					let m = *on_match;
+					let s = *on_miss;
+					stack.push((m, already_marked));
+					stack.push((s, already_marked));
 				}
+				Node::Fetch { next_response, next_tunnel, .. } => {
+					// Response-side marking traverses past the fetch into
+					// any post-fetch L7Response middleware. Request-side
+					// stops here — the body is by then either consumed or
+					// already buffered upstream.
+					if matches!(side, BodySide::Response) {
+						if let Some(n) = next_response {
+							stack.push((*n, already_marked));
+						}
+						if let Some(t) = next_tunnel {
+							stack.push((*t, already_marked));
+						}
+					}
+				}
+				Node::Upgrade { next } => {
+					let n = *next;
+					stack.push((n, already_marked));
+				}
+				Node::Terminate(_) => {}
 			}
 		}
 	}
@@ -1978,6 +2020,76 @@ fn value_to_bytes(
 			value_kind(v),
 		))),
 	}
+}
+
+/// Forward DAG-DP over every listener-entry subgraph asserting that
+/// any path from entry to terminal carries at most one node whose
+/// `collect_body_before` is set, per side (request / response).
+///
+/// State is `(node, req_count_capped, resp_count_capped)` with
+/// counts clamped to 2 so the visited set stays at `O(nodes * 4)`.
+/// Reaching state `(node, 2, _)` or `(node, _, 2)` is the failure
+/// condition.
+fn validate_unique_body_reader_per_path(
+	nodes: &[Node],
+	entries: &std::collections::HashMap<SocketAddr, NodeId>,
+) -> Result<(), Error> {
+	use std::collections::HashSet;
+	let mut visited: HashSet<(u32, u8, u8)> = HashSet::new();
+	for &entry in entries.values() {
+		let mut stack: Vec<(NodeId, u8, u8)> = vec![(entry, 0, 0)];
+		while let Some((cur, req, resp)) = stack.pop() {
+			if !visited.insert((cur.get(), req, resp)) {
+				continue;
+			}
+			let idx = cur.get() as usize;
+			let (own_req, own_resp) = match &nodes[idx] {
+				Node::Middleware { collect_body_before, .. }
+				| Node::Check { collect_body_before, .. }
+				| Node::Fetch { collect_body_before, .. } => match collect_body_before {
+					Some(BodySide::Request) => (1u8, 0u8),
+					Some(BodySide::Response) => (0u8, 1u8),
+					None => (0, 0),
+				},
+				Node::Upgrade { .. } | Node::Terminate(_) => (0, 0),
+			};
+			let new_req = req.saturating_add(own_req).min(2);
+			let new_resp = resp.saturating_add(own_resp).min(2);
+			if new_req > 1 {
+				return Err(Error::compile(format!(
+					"node {idx}: path through listener entry has more than one collect_body_before=Some(Request)",
+				)));
+			}
+			if new_resp > 1 {
+				return Err(Error::compile(format!(
+					"node {idx}: path through listener entry has more than one collect_body_before=Some(Response)",
+				)));
+			}
+			match &nodes[idx] {
+				Node::Middleware { next, on_error, .. } => {
+					stack.push((*next, new_req, new_resp));
+					if let Some(eid) = on_error {
+						stack.push((*eid, new_req, new_resp));
+					}
+				}
+				Node::Check { on_match, on_miss, .. } => {
+					stack.push((*on_match, new_req, new_resp));
+					stack.push((*on_miss, new_req, new_resp));
+				}
+				Node::Fetch { next_response, next_tunnel, .. } => {
+					if let Some(n) = next_response {
+						stack.push((*n, new_req, new_resp));
+					}
+					if let Some(t) = next_tunnel {
+						stack.push((*t, new_req, new_resp));
+					}
+				}
+				Node::Upgrade { next } => stack.push((*next, new_req, new_resp)),
+				Node::Terminate(_) => {}
+			}
+		}
+	}
+	Ok(())
 }
 
 /// Compile a `matches` operand into a fancy-regex with explicit
