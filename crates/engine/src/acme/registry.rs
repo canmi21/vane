@@ -35,8 +35,8 @@ use vane_core::rule::ChallengeKind;
 
 use super::ari::{self, AriOutcome};
 use super::scheduler::{
-	self, CertState, CertStatus, RenewalJob, RenewalPlan, mark_renewing, record_failure,
-	record_success, should_attempt, should_refresh_ocsp,
+	self, CertState, CertStatus, MAX_CONCURRENT_ACME_ORDERS, RenewalJob, RenewalPlan, mark_renewing,
+	record_failure, record_success, should_attempt, should_refresh_ocsp,
 };
 use super::store::{AcmeAccount, AcmeStore, StoreError, StoredCert};
 use ocsp_staple::{FETCH_TIMEOUT, OcspError, extract_ocsp_url, fetch_ocsp_for_cert};
@@ -115,6 +115,13 @@ pub struct ManagedCertRegistry {
 	// loop here keeps the call site uniform.
 	#[allow(dead_code)]
 	schedule: Arc<RenewalScheduler>,
+	/// Global cap on concurrent in-flight ACME orders. Acquired by
+	/// every [`Self::run_renewal_attempt`] call so a tick that finds
+	/// N due SNIs only ever has [`MAX_CONCURRENT_ACME_ORDERS`] of them
+	/// dialing the CA at once. Excess attempts queue on the
+	/// semaphore; the next permit released by a finishing order
+	/// admits the next waiter without dropping the attempt entirely.
+	order_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 /// Owns the renewal scheduling configuration for the registry. Holds
@@ -157,6 +164,7 @@ impl ManagedCertRegistry {
 			live_accounts: parking_lot::Mutex::new(BTreeMap::new()),
 			declared: DashMap::new(),
 			schedule: Arc::new(RenewalScheduler::new()),
+			order_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_ACME_ORDERS)),
 		});
 		registry.hydrate().await?;
 		Ok(registry)
@@ -346,7 +354,7 @@ impl ManagedCertRegistry {
 			let sni = entry.key();
 			let job = entry.value();
 			let Some(state) = self.certs.get(sni) else { continue };
-			if should_attempt(state.value(), job, now) {
+			if should_attempt(sni, state.value(), job, now) {
 				out.push(RenewalPlan { sni: sni.clone(), job: job.clone() });
 			}
 		}
@@ -372,6 +380,22 @@ impl ManagedCertRegistry {
 			}
 			mark_renewing(entry.value_mut(), now);
 		}
+
+		// Bound the in-flight order count across the whole registry.
+		// Holding the permit across the issuance keeps the CA-facing
+		// concurrency at MAX_CONCURRENT_ACME_ORDERS even when a tick
+		// spawns hundreds of plans. Waiting here is fine: per-SNI
+		// state is already Renewing so duplicate dispatches are
+		// suppressed, and the wait is bounded by other orders'
+		// completion times.
+		let Ok(_permit) = Arc::clone(&self.order_semaphore).acquire_owned().await else {
+			// Semaphore::close is the only error path; we never close
+			// it. Treat as defensive — record a failure so a later
+			// tick retries instead of leaving the SNI Renewing.
+			let err = RegistryError::Acme("order semaphore closed unexpectedly".into());
+			self.record_failure(&key, &err);
+			return;
+		};
 
 		let outcome = match job.challenge {
 			ChallengeKind::Http01 => {

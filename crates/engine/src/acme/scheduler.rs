@@ -170,6 +170,34 @@ pub const BACKOFF_BASE: Duration = Duration::from_mins(30);
 /// the same spec section.
 pub const BACKOFF_CAP: Duration = Duration::from_hours(24);
 
+/// Spread renewals for a fleet of SNIs that share an issuance batch
+/// (and therefore an identical `not_after`) over this many seconds.
+/// Each SNI's [`renew_jitter`] is a stable hash modulo this window,
+/// so two scheduler ticks after a daemon restart see different SNIs
+/// crossing the renewal threshold at different ticks instead of every
+/// SNI dialing the CA on the same five-minute boundary.
+pub const RENEW_JITTER_WINDOW: Duration = Duration::from_hours(1);
+
+/// Maximum concurrent in-flight ACME orders. Even with jitter, a tick
+/// boundary can land plenty of SNIs in the "due now" cohort; an
+/// 8-permit semaphore caps the burst the registry presents to the CA.
+/// Operators with massive cert fleets can raise this later via a
+/// dedicated knob — for now the constant matches the spec default.
+pub const MAX_CONCURRENT_ACME_ORDERS: usize = 8;
+
+/// Per-SNI stable jitter offset. The same SNI always returns the same
+/// jitter so renewals stay deterministic across daemon restarts; two
+/// SNIs in the same fleet get different offsets so the renewal
+/// deadlines spread across [`RENEW_JITTER_WINDOW`].
+#[must_use]
+pub fn renew_jitter(sni: &str) -> Duration {
+	use std::hash::{DefaultHasher, Hash, Hasher};
+	let mut h = DefaultHasher::new();
+	sni.hash(&mut h);
+	let window_secs = RENEW_JITTER_WINDOW.as_secs().max(1);
+	Duration::from_secs(h.finish() % window_secs)
+}
+
 /// Compute the next backoff gap given how many consecutive failures
 /// have stacked since the last success. The first failure
 /// (`consecutive_failures == 0` at the time of the failure, becomes
@@ -268,22 +296,30 @@ pub fn should_refresh_ocsp(state: &CertState, now: SystemTime) -> bool {
 }
 
 /// Decide whether `state` warrants a renewal attempt at `now` for a
-/// cert that was issued under `job` (specifically: `job.renew_before`
-/// + the cert's `not_after`, plus any cached ARI window).
+/// cert that was issued under `job`. Inputs to the decision are
+/// `job.renew_before`, the cert's `not_after`, any cached ARI window,
+/// and a stable per-SNI jitter offset that spreads same-batch
+/// renewals across [`RENEW_JITTER_WINDOW`].
 ///
 /// Triggers per `spec/crates/engine-acme.md` § _Renewal triggers_:
 ///
-/// - status `Valid` AND `now + renew_before >= not_after` (timer);
-///   when no cert is cached yet (first-time issuance never ran), the
-///   timer also fires so the scheduler picks up newly-declared SNIs.
+/// - status `Valid` AND `now + renew_before + jitter(sni) >= not_after`
+///   (timer with jitter); when no cert is cached yet (first-time
+///   issuance never ran), the timer also fires so the scheduler picks
+///   up newly-declared SNIs.
 /// - status `Valid` AND `now ∈ ari_window` (RFC 9773): renew even
 ///   before `renew_before` would otherwise fire; this lets CAs
 ///   spread renewal load and signal forced rotation.
 /// - status `Failed` / `Limited` AND `now >= next_attempt_at` (backoff
 ///   elapsed).
 /// - status `Renewing` is always skipped (already in flight).
+///
+/// `sni` is used only to compute a stable jitter offset via
+/// [`renew_jitter`] so fleets of SNIs with synchronised `not_after`
+/// (the common case after a batch issuance) don't all cross the
+/// renewal threshold on the same scheduler tick.
 #[must_use]
-pub fn should_attempt(state: &CertState, job: &RenewalJob, now: SystemTime) -> bool {
+pub fn should_attempt(sni: &str, state: &CertState, job: &RenewalJob, now: SystemTime) -> bool {
 	match state.status {
 		CertStatus::Renewing => false,
 		CertStatus::Valid => {
@@ -294,10 +330,13 @@ pub fn should_attempt(state: &CertState, job: &RenewalJob, now: SystemTime) -> b
 			}
 			match &state.stored {
 				None => true,
-				Some(stored) => match stored.not_after.checked_sub(job.renew_before) {
-					Some(deadline) => now >= deadline,
-					None => true,
-				},
+				Some(stored) => {
+					let effective_lead = job.renew_before.saturating_add(renew_jitter(sni));
+					match stored.not_after.checked_sub(effective_lead) {
+						Some(deadline) => now >= deadline,
+						None => true,
+					}
+				}
 			}
 		}
 		CertStatus::Failed | CertStatus::Limited => {
@@ -416,13 +455,13 @@ mod tests {
 	fn should_attempt_skips_renewing() {
 		let mut state = CertState::fresh(None);
 		state.status = CertStatus::Renewing;
-		assert!(!should_attempt(&state, &dummy_job(), SystemTime::UNIX_EPOCH));
+		assert!(!should_attempt("test.example", &state, &dummy_job(), SystemTime::UNIX_EPOCH));
 	}
 
 	#[test]
 	fn should_attempt_fires_when_no_cert_cached() {
 		let state = CertState::fresh(None);
-		assert!(should_attempt(&state, &dummy_job(), SystemTime::UNIX_EPOCH));
+		assert!(should_attempt("test.example", &state, &dummy_job(), SystemTime::UNIX_EPOCH));
 	}
 
 	#[test]
@@ -431,14 +470,29 @@ mod tests {
 		let renew_before = Duration::from_hours(1);
 		let mut job = dummy_job();
 		job.renew_before = renew_before;
-		// not_after = now + 90 min: now + 60min < not_after → don't renew.
-		let stored = dummy_stored(now + Duration::from_mins(90));
+		// not_after = now + (renew_before + RENEW_JITTER_WINDOW + 30 min):
+		// the effective deadline is at least `now + 30 min` regardless of
+		// per-SNI jitter, so no SNI fires yet.
+		let safe_headroom = renew_before + RENEW_JITTER_WINDOW + Duration::from_mins(30);
+		let stored = dummy_stored(now + safe_headroom);
 		let state = CertState::fresh(Some(stored));
-		assert!(!should_attempt(&state, &job, now));
-		// not_after = now + 30 min: now + 60min > not_after → renew.
+		assert!(!should_attempt("test.example", &state, &job, now));
+		// not_after = now + 30 min: even with zero jitter, now + 60 min
+		// > not_after → renew.
 		let stored2 = dummy_stored(now + Duration::from_mins(30));
 		let state2 = CertState::fresh(Some(stored2));
-		assert!(should_attempt(&state2, &job, now));
+		assert!(should_attempt("test.example", &state2, &job, now));
+	}
+
+	#[test]
+	fn renew_jitter_is_stable_per_sni_and_within_window() {
+		let a = renew_jitter("alpha.example.com");
+		let b = renew_jitter("alpha.example.com");
+		assert_eq!(a, b, "same SNI must produce the same jitter across calls");
+		for sni in ["a.example", "b.example", "very-long.subdomain.example.com"] {
+			let j = renew_jitter(sni);
+			assert!(j < RENEW_JITTER_WINDOW, "jitter must stay within the window for {sni}");
+		}
 	}
 
 	#[test]
@@ -451,12 +505,12 @@ mod tests {
 		let stored = dummy_stored(now + Duration::from_hours(8760));
 		let mut state = CertState::fresh(Some(stored));
 		// Without ARI window, no renewal yet.
-		assert!(!should_attempt(&state, &job, now));
+		assert!(!should_attempt("test.example", &state, &job, now));
 		// CA-suggested window covers `now` — renew despite the
 		// timer being satisfied.
 		state.ari_window =
 			Some(AriWindow { start: now - Duration::from_mins(1), end: now + Duration::from_mins(1) });
-		assert!(should_attempt(&state, &job, now));
+		assert!(should_attempt("test.example", &state, &job, now));
 	}
 
 	#[test]
@@ -468,7 +522,7 @@ mod tests {
 		let mut state = CertState::fresh(Some(stored));
 		state.ari_window =
 			Some(AriWindow { start: now + Duration::from_hours(2), end: now + Duration::from_hours(4) });
-		assert!(!should_attempt(&state, &job, now), "future window doesn't fire yet");
+		assert!(!should_attempt("test.example", &state, &job, now), "future window doesn't fire yet");
 	}
 
 	#[test]
@@ -477,9 +531,9 @@ mod tests {
 		let mut state = CertState::fresh(None);
 		state.status = CertStatus::Failed;
 		state.next_attempt_at = Some(now + Duration::from_mins(1));
-		assert!(!should_attempt(&state, &dummy_job(), now));
+		assert!(!should_attempt("test.example", &state, &dummy_job(), now));
 		state.next_attempt_at = Some(now - Duration::from_secs(1));
-		assert!(should_attempt(&state, &dummy_job(), now));
+		assert!(should_attempt("test.example", &state, &dummy_job(), now));
 	}
 
 	#[test]
@@ -536,6 +590,6 @@ mod tests {
 		mark_renewing(&mut state, now);
 		assert_eq!(state.status, CertStatus::Renewing);
 		assert_eq!(state.last_attempt_at, Some(now));
-		assert!(!should_attempt(&state, &dummy_job(), now));
+		assert!(!should_attempt("test.example", &state, &dummy_job(), now));
 	}
 }
