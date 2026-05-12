@@ -3,6 +3,7 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use http_body::{Body as HttpBody, Frame, SizeHint};
+use pin_project_lite::pin_project;
 
 use crate::error::Error;
 
@@ -26,7 +27,12 @@ impl Body {
 		B: HttpBody<Data = Bytes, Error = E> + Send + 'static,
 		E: Into<Error> + Send + Sync + 'static,
 	{
-		Self::Stream(Box::pin(BodyStreamAdapter { inner: Box::pin(producer) }))
+		// One heap allocation — for the outer `dyn HttpBody` —
+		// instead of two. The inner adapter pin-projects to its
+		// stored producer in place via `pin_project_lite`, so we
+		// drop the prior `inner: Pin<Box<B>>` layer that existed
+		// only to dodge an `unsafe` projection.
+		Self::Stream(Box::pin(BodyStreamAdapter { inner: producer }))
 	}
 }
 
@@ -69,10 +75,17 @@ impl HttpBody for Body {
 	}
 }
 
-// `inner` is `Pin<Box<B>>` rather than `B` so we can poll without unsafe pin
-// projection; the extra heap indirection is the price of `unsafe_code = deny`.
-pub struct BodyStreamAdapter<B> {
-	inner: Pin<Box<B>>,
+pin_project! {
+	/// Erases the producer's error type into [`Error`] via the
+	/// caller-supplied `Into` impl, leaving the rest of the
+	/// [`HttpBody`] surface untouched. `pin_project_lite` generates a
+	/// safe `project()` so the inner producer is stored by value and
+	/// projected without an `unsafe` block (the prior shape stored it
+	/// behind a `Pin<Box<B>>` purely to dodge `unsafe`).
+	pub struct BodyStreamAdapter<B> {
+		#[pin]
+		inner: B,
+	}
 }
 
 impl<B, E> HttpBody for BodyStreamAdapter<B>
@@ -87,7 +100,7 @@ where
 		self: Pin<&mut Self>,
 		cx: &mut Context<'_>,
 	) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-		match self.get_mut().inner.as_mut().poll_frame(cx) {
+		match self.project().inner.poll_frame(cx) {
 			Poll::Pending => Poll::Pending,
 			Poll::Ready(None) => Poll::Ready(None),
 			Poll::Ready(Some(Ok(f))) => Poll::Ready(Some(Ok(f))),
