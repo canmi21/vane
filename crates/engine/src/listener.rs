@@ -25,8 +25,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use std::sync::Mutex as SyncMutex;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use vane_core::{
@@ -155,7 +155,7 @@ impl Drop for ConnRegistration {
 struct ListenerHandle {
 	accept_cancel: CancellationToken,
 	force_cancel: CancellationToken,
-	in_flight: Arc<AsyncMutex<JoinSet<()>>>,
+	in_flight: Arc<SyncMutex<JoinSet<()>>>,
 	/// Live count of accepted-but-not-yet-completed connections on this
 	/// listener. Bumped at spawn, decremented via RAII guard so panics
 	/// and cancellations don't leak the counter. Surfaced through
@@ -315,7 +315,7 @@ impl ListenerSet {
 	) -> ListenerHandle {
 		let accept_cancel = CancellationToken::new();
 		let force_cancel = CancellationToken::new();
-		let in_flight = Arc::new(AsyncMutex::new(JoinSet::new()));
+		let in_flight = Arc::new(SyncMutex::new(JoinSet::new()));
 		let in_flight_count = Arc::new(AtomicUsize::new(0));
 		let bind_ready = Arc::new(AtomicBool::new(false));
 
@@ -431,6 +431,12 @@ impl ListenerSet {
 	/// another for shutdown. Internally `running.lock().drain()` empties
 	/// the registry as a side effect, so a second `shutdown` call is a
 	/// cheap no-op.
+	///
+	/// # Panics
+	/// Panics if the per-listener `in_flight` mutex is poisoned, which
+	/// only happens if another thread already panicked while holding
+	/// it — a fatal state that warrants halting shutdown rather than
+	/// silently leaking the abort-all step.
 	pub async fn shutdown(&self, drain_timeout: Duration) {
 		let handles: Vec<(SocketAddr, ListenerHandle)> = {
 			let mut running = self.running.lock();
@@ -473,9 +479,15 @@ impl ListenerSet {
 				let _ =
 					tokio::time::timeout(self.bind_cfg.force_cancel_grace, drain_in_flight(&in_flight)).await;
 				// Step 4: anything still alive gets the abort hammer.
-				let mut g = in_flight.lock().await;
-				g.abort_all();
-				while g.join_next().await.is_some() {}
+				// `abort_all` is sync; take the JoinSet out under the
+				// sync mutex and drive `join_next` off-lock so we never
+				// hold a `std::sync::Mutex` guard across `.await`.
+				let mut taken = {
+					let mut g = in_flight.lock().expect("in_flight mutex poisoned");
+					g.abort_all();
+					std::mem::replace(&mut *g, JoinSet::new())
+				};
+				while taken.join_next().await.is_some() {}
 			}
 		}
 	}
@@ -588,9 +600,12 @@ async fn drain_handle_async(
 	tracing::warn!(?addr, "reconcile drain timed out; firing force_cancel for in-flight");
 	force_cancel.cancel();
 	let _ = tokio::time::timeout(force_cancel_grace, drain_in_flight(&in_flight)).await;
-	let mut g = in_flight.lock().await;
-	g.abort_all();
-	while g.join_next().await.is_some() {}
+	let mut taken = {
+		let mut g = in_flight.lock().expect("in_flight mutex poisoned");
+		g.abort_all();
+		std::mem::replace(&mut *g, JoinSet::new())
+	};
+	while taken.join_next().await.is_some() {}
 	tracing::info!(?addr, "reconcile drain complete (forced)");
 }
 
@@ -600,12 +615,17 @@ impl Default for ListenerSet {
 	}
 }
 
-async fn drain_in_flight(set: &AsyncMutex<JoinSet<()>>) {
+async fn drain_in_flight(set: &SyncMutex<JoinSet<()>>) {
 	// The accept loop has exited before this is called (`join.await`
-	// completed in `shutdown`), so no new tasks enter the set. Holding the
-	// lock across `join_next` is safe — there are no contending spawners.
-	let mut g = set.lock().await;
-	while g.join_next().await.is_some() {}
+	// completed in `shutdown`), so no new tasks enter the set. Move the
+	// JoinSet out under a brief sync critical section, drop the lock,
+	// then drive `join_next` off-lock — we never hold a
+	// `std::sync::Mutex` guard across `.await`.
+	let mut taken = {
+		let mut g = set.lock().expect("in_flight mutex poisoned");
+		std::mem::replace(&mut *g, JoinSet::new())
+	};
+	while taken.join_next().await.is_some() {}
 }
 
 async fn run_accept_loop(ctx: Arc<AcceptCtx>) {
@@ -680,7 +700,9 @@ async fn run_accept_loop(ctx: Arc<AcceptCtx>) {
 				// (success, panic, cancellation).
 				ctx.in_flight_count.fetch_add(1, Ordering::Relaxed);
 				let in_flight_guard = InFlightGuard(Arc::clone(&ctx.in_flight_count));
-				ctx.in_flight.lock().await.spawn(handle_connection(
+				// Sync mutex: `JoinSet::spawn` is sync; the accept path
+				// never yields here.
+				ctx.in_flight.lock().expect("in_flight mutex poisoned").spawn(handle_connection(
 					Arc::clone(&ctx),
 					stream,
 					remote,

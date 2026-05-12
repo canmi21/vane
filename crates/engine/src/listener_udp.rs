@@ -17,7 +17,7 @@ use bytes::Bytes;
 use clienthello::{Extractor, PushOutcome};
 use dashmap::DashMap;
 use parking_lot::Mutex;
-use tokio::sync::Mutex as AsyncMutex;
+use std::sync::Mutex as SyncMutex;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -132,7 +132,7 @@ pub type DispatchTable = DashMap<DispatchKey, Arc<DispatchHandle>>;
 pub struct UdpListenerHandle {
 	pub accept_cancel: CancellationToken,
 	pub force_cancel: CancellationToken,
-	pub in_flight: Arc<AsyncMutex<JoinSet<()>>>,
+	pub in_flight: Arc<SyncMutex<JoinSet<()>>>,
 	pub in_flight_count: Arc<AtomicUsize>,
 	pub bind_ready: Arc<AtomicBool>,
 	pub join: tokio::task::JoinHandle<()>,
@@ -204,7 +204,7 @@ pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 					continue;
 				}
 
-				let datagram = match advance_existing_pending_peek(&ctx, peer, datagram, &pending_count).await {
+				let datagram = match advance_existing_pending_peek(&ctx, peer, datagram, &pending_count) {
 					PendingPeekDispatch::Handled => continue,
 					PendingPeekDispatch::FellThrough(d) => d,
 				};
@@ -215,7 +215,7 @@ pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 					RouteH3::NotApplicable(d) => d,
 				};
 
-				dispatch_cold_datagram(&ctx, peer, datagram, &pending_count).await;
+				dispatch_cold_datagram(&ctx, peer, datagram, &pending_count);
 			}
 		}
 	}
@@ -297,7 +297,7 @@ enum PendingPeekDispatch {
 /// `spawn_cold_path`. `NeedMore` keeps the session live; `Drop` evicts
 /// the entry and decrements the counter. Returns whether the caller
 /// should `continue` past the rest of the recv-loop dispatch chain.
-async fn advance_existing_pending_peek(
+fn advance_existing_pending_peek(
 	ctx: &Arc<UdpAcceptCtx>,
 	peer: SocketAddr,
 	datagram: Bytes,
@@ -318,7 +318,7 @@ async fn advance_existing_pending_peek(
 			if ctx.dispatch_table.remove(&pending_key).is_some() {
 				pending_count.fetch_sub(1, Ordering::Relaxed);
 			}
-			spawn_cold_path(ctx, peer, datagrams, Some(sni)).await;
+			spawn_cold_path(ctx, peer, datagrams, Some(sni));
 		}
 		PendingAdvance::NeedMore => {
 			// Buffered for later datagram; no spawn.
@@ -336,7 +336,7 @@ async fn advance_existing_pending_peek(
 /// Capture a graph snapshot per-datagram so reload cannot pull the rug,
 /// then decide between starting a pending-peek session (multi-packet
 /// QUIC SNI extraction) and immediate cold-path spawn.
-async fn dispatch_cold_datagram(
+fn dispatch_cold_datagram(
 	ctx: &Arc<UdpAcceptCtx>,
 	peer: SocketAddr,
 	datagram: Bytes,
@@ -353,7 +353,7 @@ async fn dispatch_cold_datagram(
 	};
 	if !(captured.needs_pending_peek(ctx.base.addr, entry) && is_quic_long_header_initial(&datagram))
 	{
-		spawn_cold_path(ctx, peer, vec![datagram], None).await;
+		spawn_cold_path(ctx, peer, vec![datagram], None);
 		return;
 	}
 	if pending_count.load(Ordering::Relaxed) >= PENDING_PEEK_MAX_PER_LISTENER {
@@ -366,7 +366,7 @@ async fn dispatch_cold_datagram(
 	match advance_pending_peek(&state, &datagram) {
 		PendingAdvance::Sni(sni) => {
 			let datagrams = drain_pending(&state, datagram);
-			spawn_cold_path(ctx, peer, datagrams, Some(sni)).await;
+			spawn_cold_path(ctx, peer, datagrams, Some(sni));
 		}
 		PendingAdvance::NeedMore => {
 			let pending_key = DispatchKey::PendingPeek(peer);
@@ -379,7 +379,7 @@ async fn dispatch_cold_datagram(
 			// First datagram failed parsing — fall back to immediate
 			// cold-path entry with the raw datagram, mirroring spec
 			// behaviour of "not Initial → fall through".
-			spawn_cold_path(ctx, peer, vec![datagram], None).await;
+			spawn_cold_path(ctx, peer, vec![datagram], None);
 		}
 	}
 }
@@ -440,7 +440,7 @@ fn is_quic_long_header_initial(datagram: &[u8]) -> bool {
 	datagram.first().is_some_and(|first| first & 0xf0 == 0xc0)
 }
 
-async fn spawn_cold_path(
+fn spawn_cold_path(
 	ctx: &Arc<UdpAcceptCtx>,
 	peer: SocketAddr,
 	first_packets: Vec<Bytes>,
@@ -457,7 +457,7 @@ async fn spawn_cold_path(
 	};
 	ctx.base.in_flight_count.fetch_add(1, Ordering::Relaxed);
 	let in_flight_guard = InFlightGuard(Arc::clone(&ctx.base.in_flight_count));
-	ctx.base.in_flight.lock().await.spawn(handle_cold_path(
+	ctx.base.in_flight.lock().expect("in_flight mutex poisoned").spawn(handle_cold_path(
 		Arc::clone(ctx),
 		peer,
 		first_packets,
