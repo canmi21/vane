@@ -89,7 +89,7 @@ pub fn lower(
 	// into every plaintext `:80` listener — per spec § _Challenge: HTTP-01_. The pass mutates `builder.entries` in place, swapping
 	// each affected listener's entry node for a Check that branches
 	// to the AcmeChallenge fetch on match.
-	let annotations = inject_acme_http01_routes(&mut builder);
+	let annotations = inject_acme_http01_routes(&mut builder)?;
 
 	// Invariant: each path from a listener entry to a terminator must
 	// carry at most one `collect_body_before` per side. The DFS-based
@@ -1401,13 +1401,15 @@ fn display_cert_file(tls: &crate::rule::TlsConfig) -> String {
 ///
 /// Returns the annotations the caller folds into
 /// [`FlowGraphMeta::annotations`].
-fn inject_acme_http01_routes(builder: &mut Builder) -> Vec<crate::ir::DryRunAnnotation> {
+fn inject_acme_http01_routes(
+	builder: &mut Builder,
+) -> Result<Vec<crate::ir::DryRunAnnotation>, Error> {
 	let mut annotations = Vec::new();
 	let any_http01 = builder.listener_tls.values().any(|spec| {
 		spec.managed_snis.values().any(|m| matches!(m.challenge, crate::rule::ChallengeKind::Http01))
 	});
 	if !any_http01 {
-		return annotations;
+		return Ok(annotations);
 	}
 
 	// Snapshot the addresses to mutate so we can keep
@@ -1424,7 +1426,7 @@ fn inject_acme_http01_routes(builder: &mut Builder) -> Vec<crate::ir::DryRunAnno
 		.collect();
 
 	if targets.is_empty() {
-		return annotations;
+		return Ok(annotations);
 	}
 
 	// Build the shared ACME nodes once and reuse across listeners.
@@ -1456,10 +1458,11 @@ fn inject_acme_http01_routes(builder: &mut Builder) -> Vec<crate::ir::DryRunAnno
 	});
 
 	for addr in targets {
-		let original_entry = *builder
-			.entries
-			.get(&addr)
-			.expect("listener_kinds and entries must agree on populated listeners");
+		let original_entry = *builder.entries.get(&addr).ok_or_else(|| {
+			Error::internal(format!(
+				"invariant: listener_kinds names {addr} but builder.entries has no matching listener-entry node; ACME http-01 injection cannot proceed",
+			))
+		})?;
 		// The Check predicate inspects `http.uri.path`, an L7 field —
 		// it must live in the L7Request phase, not at the L4 listener
 		// entry. Locate the Upgrade node that bridges L4 → L7 in the
@@ -1487,7 +1490,7 @@ fn inject_acme_http01_routes(builder: &mut Builder) -> Vec<crate::ir::DryRunAnno
 		});
 	}
 
-	annotations
+	Ok(annotations)
 }
 
 /// Find the L7 entry inside a listener subgraph rooted at
