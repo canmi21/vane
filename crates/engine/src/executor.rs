@@ -933,12 +933,30 @@ enum CollectError {
 	Io(Error),
 }
 
+/// Lower bound on the pre-sized `BytesMut` used inside
+/// [`collect_body`]. Avoids the doubling-realloc walk for typical
+/// small bodies (JSON request, control-plane post).
+const COLLECT_FLOOR: usize = 4 * 1024;
+/// Upper bound on the pre-sized `BytesMut` used inside
+/// [`collect_body`] when no Content-Length-style hint is available.
+/// Prevents a misconfigured `body_limit = 1 GiB` from forcing a giant
+/// up-front allocation on every request.
+const COLLECT_CEIL: usize = 64 * 1024;
+
 async fn collect_body(body: &mut Body, limit: usize) -> Result<(), CollectError> {
 	use http_body::Body as HttpBodyExt;
 	let Body::Stream(s) = body else {
 		return Ok(());
 	};
-	let mut collected = bytes::BytesMut::new();
+	// Pre-size from the producer's size_hint when it gives us an
+	// exact value (typical for fixed-length HTTP request bodies via
+	// Content-Length), otherwise clamp the operator-set `limit` to
+	// the [`COLLECT_FLOOR`] / [`COLLECT_CEIL`] window.
+	let initial_capacity = match usize::try_from(s.size_hint().exact().unwrap_or(u64::MAX)) {
+		Ok(exact) if exact <= limit => exact.max(COLLECT_FLOOR.min(limit)),
+		_ => limit.min(COLLECT_CEIL).max(COLLECT_FLOOR.min(limit)),
+	};
+	let mut collected = bytes::BytesMut::with_capacity(initial_capacity);
 	loop {
 		// `s` is `Pin<Box<dyn HttpBody<...>>>`. Use `poll_fn` to drive the
 		// async poll interface without requiring extra dependencies.
