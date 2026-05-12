@@ -54,6 +54,7 @@ fn make_ctx() -> (Arc<ConnContext>, FlowCtx) {
 #[tokio::test(flavor = "multi_thread")]
 async fn h3_dial_with_unreachable_custom_nameserver_surfaces_dns_failure() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 
 	// Custom nameserver pointing at a port where nothing listens.
 	// hickory will time out / refuse on every query; the H3 dial
@@ -86,6 +87,7 @@ async fn h3_dial_with_unreachable_custom_nameserver_surfaces_dns_failure() {
 #[tokio::test(flavor = "multi_thread")]
 async fn h3_factory_accepts_ipv6_bracketed_upstream() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	// Bracketed IPv6 literal upstream. The factory must split it into
 	// host = `::1`, port = 8443 and accept; the dial path's resolver
 	// short-circuit then converts the IP literal to `IpAddr::V6` with

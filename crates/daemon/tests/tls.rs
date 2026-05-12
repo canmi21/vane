@@ -56,6 +56,7 @@ async fn spawn_https_static(
 	body: &'static str,
 ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind https");
 	let addr = listener.local_addr().expect("local_addr");
 	let server_config = rcgen_server_config();

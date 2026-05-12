@@ -92,6 +92,7 @@ fn factory_args(
 #[tokio::test(flavor = "multi_thread")]
 async fn h3_retry_loops_on_unreachable_with_backoff() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let addr = pick_unbound_udp_port().await;
 
 	// max_attempts: 3, fixed 100ms backoff → at minimum 2 sleeps of
@@ -115,6 +116,7 @@ async fn h3_retry_loops_on_unreachable_with_backoff() {
 #[tokio::test(flavor = "multi_thread")]
 async fn h3_no_retry_for_streaming_body_collapses_to_single_attempt() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let addr = pick_unbound_udp_port().await;
 
 	// `max_attempts: 5` would try five times if the body were
@@ -142,6 +144,7 @@ async fn h3_no_retry_for_streaming_body_collapses_to_single_attempt() {
 #[tokio::test(flavor = "multi_thread")]
 async fn h3_no_retry_for_non_whitelisted_method_collapses_to_single_attempt() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let addr = pick_unbound_udp_port().await;
 
 	// Default whitelist is the RFC 7231 idempotent set
@@ -168,6 +171,7 @@ async fn h3_no_retry_for_non_whitelisted_method_collapses_to_single_attempt() {
 #[tokio::test(flavor = "multi_thread")]
 async fn h3_single_attempt_when_max_attempts_one() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let addr = pick_unbound_udp_port().await;
 
 	// max_attempts: 1 must short-circuit to send_one_attempt_h3

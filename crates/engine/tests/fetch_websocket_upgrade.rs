@@ -257,6 +257,7 @@ fn rcgen_server_config() -> Arc<rustls::ServerConfig> {
 /// it, then `copy_bidirectional` of the post-101 byte tunnel.
 async fn spawn_fake_wss_upstream_echo() -> SocketAddr {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let server_config = rcgen_server_config();
 	let listener = TcpListener::bind("127.0.0.1:0").await.expect("upstream bind");
 	let addr = listener.local_addr().expect("addr");

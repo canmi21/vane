@@ -32,6 +32,7 @@ use vane_engine::verbosity::VerbosityState;
 
 fn install_provider() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 }
 
 /// rcgen issuer + matching cert DER. Used both as a CA (`Issuer` for

@@ -209,6 +209,7 @@ fn echo_handler(
 #[tokio::test]
 async fn h3_upstream_get_round_trips_h1_to_h3() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	quic_pool::clear_for_test();
 
 	let cert = make_cert("localhost");
@@ -245,6 +246,7 @@ async fn h3_upstream_get_round_trips_h1_to_h3() {
 #[tokio::test]
 async fn h3_upstream_post_round_trips_h1_to_h3() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	quic_pool::clear_for_test();
 
 	let cert = make_cert("localhost");
@@ -282,6 +284,7 @@ async fn h3_upstream_post_round_trips_h1_to_h3() {
 #[tokio::test]
 async fn h3_upstream_pool_reuses_connection_across_requests() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	quic_pool::clear_for_test();
 
 	let cert = make_cert("localhost");
@@ -340,6 +343,7 @@ async fn h3_upstream_pool_reuses_connection_across_requests() {
 #[tokio::test]
 async fn h3_upstream_verify_skip_accepts_unknown_cert() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	quic_pool::clear_for_test();
 
 	let cert = make_cert("localhost");
@@ -377,6 +381,7 @@ async fn h3_upstream_verify_skip_accepts_unknown_cert() {
 #[tokio::test]
 async fn h3_upstream_verify_full_rejects_unknown_cert() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	quic_pool::clear_for_test();
 
 	let cert = make_cert("localhost");
@@ -420,6 +425,7 @@ async fn h3_upstream_verify_full_rejects_unknown_cert() {
 #[tokio::test]
 async fn h3_upstream_dial_failure_surfaces_5xx() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	quic_pool::clear_for_test();
 
 	// Ephemeral bind on UDP, take the addr, drop the socket — likely

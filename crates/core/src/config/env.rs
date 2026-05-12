@@ -34,6 +34,7 @@ impl EnvReader for ProcessEnv {
 /// takes that path explicitly so derived defaults (`wasm_dir`) follow
 /// it without an extra env var to keep in sync.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // each bool maps 1:1 to a documented env var; collapsing them into bitflags would obscure the surface.
 pub struct Env {
 	/// `VANE_WASM_DIR` — WASM plugin source directory scanned at boot.
 	/// Defaults to `<config_dir>/wasm` where `config_dir` is the
@@ -101,6 +102,15 @@ pub struct Env {
 	/// want a one-shot refresh use the `reload_native_roots` mgmt
 	/// verb instead.
 	pub native_roots_refresh_interval_secs: u32,
+	/// `VANE_ALLOW_INSECURE_UPSTREAM` — master gate for the
+	/// per-upstream `tls.insecure_skip_verify: true` knob. Falsy
+	/// (default) makes the parser reject any config that sets the
+	/// flag, so an accidental `insecure_skip_verify: true` left in a
+	/// production rules file fails the reload instead of silently
+	/// disabling cert verification. Truthy values authorise the
+	/// per-upstream override; the per-upstream flag still has to be
+	/// set explicitly — the env var alone never weakens verification.
+	pub allow_insecure_upstream: bool,
 }
 
 impl Env {
@@ -153,6 +163,7 @@ impl Env {
 				"VANE_NATIVE_ROOTS_REFRESH_INTERVAL_SECS",
 				21_600,
 			)?,
+			allow_insecure_upstream: parse_truthy(r, "VANE_ALLOW_INSECURE_UPSTREAM"),
 		})
 	}
 }

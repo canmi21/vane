@@ -289,6 +289,20 @@ impl rustls::client::danger::ServerCertVerifier for NoVerify {
 	}
 }
 
+/// Read the process-wide `VANE_ALLOW_INSECURE_UPSTREAM` env var as a
+/// truthy boolean. The check happens at config-parse time per-call so
+/// a hot reload that flips the env var (typically via SIGHUP-style
+/// supervisor restart) reflects without bouncing the daemon — but the
+/// usual lifecycle is "set once at boot, never changes again".
+///
+/// Truthy values: `1`, `true`, `yes`, `on`, case-insensitive.
+fn allow_insecure_upstream_env() -> bool {
+	matches!(
+		std::env::var("VANE_ALLOW_INSECURE_UPSTREAM").ok().map(|s| s.to_ascii_lowercase()).as_deref(),
+		Some("1" | "true" | "yes" | "on"),
+	)
+}
+
 /// Normalise a hostname before handing it to `rustls`. The pipeline
 /// is: IDNA → ASCII (so unicode IDNs match the cert's punycode SANs),
 /// ASCII-lowercase (rustls compares case-insensitively, but matching
@@ -353,6 +367,13 @@ pub fn parse_tls_args(
 		.map_err(|e| format!("verify_hostname {raw_hostname:?}: {e}"))?;
 	let insecure =
 		tls_args.get("insecure_skip_verify").and_then(serde_json::Value::as_bool).unwrap_or(false);
+	if insecure && !allow_insecure_upstream_env() {
+		return Err(
+			"tls.insecure_skip_verify=true requires VANE_ALLOW_INSECURE_UPSTREAM=1 in the daemon environment; \
+			 refusing to disable upstream cert verification by config alone"
+				.to_owned(),
+		);
+	}
 	let crls = parse_crls(tls_args.get("crls"))?;
 	let client_cert = parse_client_cert(tls_args.get("client_cert"))?;
 	let client_config =
@@ -544,14 +565,13 @@ mod tests {
 
 	#[test]
 	fn parse_tls_args_defaults_verify_hostname_to_host_portion() {
+		// `insecure_skip_verify` would otherwise be gated by the env
+		// master switch; this test only exercises the hostname
+		// defaulting path, so explicitly leave the flag unset.
 		crate::crypto::install_default_provider();
-		let parsed = parse_tls_args(
-			"api.example.com:443",
-			Some(&serde_json::json!({ "insecure_skip_verify": true })),
-			None,
-		)
-		.expect("ok")
-		.expect("Some");
+		let parsed = parse_tls_args("api.example.com:443", Some(&serde_json::json!({})), None)
+			.expect("ok")
+			.expect("Some");
 		assert_eq!(parsed.verify_hostname, "api.example.com");
 	}
 
@@ -560,14 +580,27 @@ mod tests {
 		crate::crypto::install_default_provider();
 		let parsed = parse_tls_args(
 			"127.0.0.1:9443",
-			Some(&serde_json::json!({
-				"verify_hostname": "api.internal",
-				"insecure_skip_verify": true,
-			})),
+			Some(&serde_json::json!({ "verify_hostname": "api.internal" })),
 			None,
 		)
 		.expect("ok")
 		.expect("Some");
 		assert_eq!(parsed.verify_hostname, "api.internal");
+	}
+
+	#[test]
+	fn parse_tls_args_rejects_insecure_skip_verify_without_env_opt_in() {
+		// The master-switch contract: per-upstream `insecure_skip_verify`
+		// is rejected unless VANE_ALLOW_INSECURE_UPSTREAM is set in
+		// the daemon env. The unit-test environment never sets it.
+		crate::crypto::install_default_provider();
+		let Err(err) = parse_tls_args(
+			"api.example.com:443",
+			Some(&serde_json::json!({ "insecure_skip_verify": true })),
+			None,
+		) else {
+			panic!("must reject without env opt-in")
+		};
+		assert!(err.contains("VANE_ALLOW_INSECURE_UPSTREAM"), "error names env var: {err}");
 	}
 }

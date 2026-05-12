@@ -232,6 +232,7 @@ async fn spawn_cleartext_upstream() -> CleartextUpstream {
 #[serial]
 async fn client_cache_two_fetches_with_same_tls_share_one_pool() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	clear_cache_for_test();
 	let upstream = spawn_tls_upstream(vec![b"http/1.1".to_vec()]).await;
 
@@ -269,6 +270,7 @@ async fn client_cache_two_fetches_with_same_tls_share_one_pool() {
 #[serial]
 async fn client_cache_different_versions_get_separate_clients() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	clear_cache_for_test();
 	let upstream = spawn_tls_upstream(vec![b"h2".to_vec(), b"http/1.1".to_vec()]).await;
 
@@ -306,6 +308,7 @@ async fn client_cache_different_versions_get_separate_clients() {
 #[serial]
 async fn client_cache_secure_and_insecure_get_separate_clients() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	clear_cache_for_test();
 	let upstream = spawn_tls_upstream(vec![b"http/1.1".to_vec()]).await;
 
@@ -363,6 +366,7 @@ async fn client_cache_secure_and_insecure_get_separate_clients() {
 #[serial]
 async fn client_cache_cleartext_two_fetches_share_pool() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	clear_cache_for_test();
 	let upstream = spawn_cleartext_upstream().await;
 

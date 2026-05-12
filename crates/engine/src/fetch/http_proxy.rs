@@ -798,16 +798,22 @@ mod tests {
 	}
 
 	#[test]
-	fn factory_accepts_tls_with_insecure_skip_verify() {
+	fn factory_rejects_tls_with_insecure_skip_verify_when_env_unset() {
+		// Per the spec's master-switch contract: `insecure_skip_verify`
+		// in config alone is insufficient — VANE_ALLOW_INSECURE_UPSTREAM=1
+		// has to be set in the daemon env. The unit-test environment
+		// never sets that, so the factory must refuse the config.
 		install_crypto();
-		let result = factory(
+		let Err(FactoryError(msg)) = factory(
 			&serde_json::json!({
 				"upstream": "127.0.0.1:9443",
 				"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
 			}),
 			None,
-		);
-		assert!(result.is_ok(), "factory must accept insecure tls config");
+		) else {
+			panic!("factory must reject insecure tls config without env opt-in");
+		};
+		assert!(msg.contains("VANE_ALLOW_INSECURE_UPSTREAM"), "error names env var: {msg}");
 	}
 
 	#[cfg(not(feature = "h3"))]
@@ -847,17 +853,21 @@ mod tests {
 
 	#[cfg(feature = "h3")]
 	#[test]
-	fn factory_accepts_h3_with_tls() {
+	fn factory_rejects_h3_with_insecure_skip_verify_when_env_unset() {
+		// Same master-switch contract as the H1/H2 path: H3 + TLS with
+		// `insecure_skip_verify` is rejected without the env opt-in.
 		install_crypto();
-		let result = factory(
+		let Err(FactoryError(msg)) = factory(
 			&serde_json::json!({
 				"upstream": "127.0.0.1:9443",
 				"version": "h3",
 				"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
 			}),
 			None,
-		);
-		assert!(result.is_ok(), "h3 + tls must build: {:?}", result.err());
+		) else {
+			panic!("h3 + insecure must be rejected without env opt-in");
+		};
+		assert!(msg.contains("VANE_ALLOW_INSECURE_UPSTREAM"), "error names env var: {msg}");
 	}
 
 	#[test]

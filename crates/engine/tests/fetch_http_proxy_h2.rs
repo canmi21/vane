@@ -212,6 +212,7 @@ async fn serve_ok(
 #[tokio::test]
 async fn http_proxy_h2_tls_negotiates_h2_via_alpn() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let (upstream, _cert) = spawn_tls_upstream(vec![b"h2".to_vec(), b"http/1.1".to_vec()]).await;
 
 	let proxy_addr = pick_port().await;
@@ -235,6 +236,7 @@ async fn http_proxy_h2_tls_negotiates_h2_via_alpn() {
 #[tokio::test]
 async fn http_proxy_h1_explicit_forces_h1_alpn_only() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let (upstream, _cert) = spawn_tls_upstream(vec![b"h2".to_vec(), b"http/1.1".to_vec()]).await;
 
 	let proxy_addr = pick_port().await;
@@ -256,6 +258,7 @@ async fn http_proxy_h1_explicit_forces_h1_alpn_only() {
 #[tokio::test]
 async fn http_proxy_h2_cleartext_uses_prior_knowledge_h2c() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 
 	// Cleartext h2c upstream: serve hyper http2 directly on a plain
 	// TCP socket. The vane proxy was built with `version: "h2"` +
@@ -294,6 +297,7 @@ async fn http_proxy_h2_cleartext_uses_prior_knowledge_h2c() {
 #[test]
 fn http_proxy_factory_rejects_version_h3_without_feature() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let Err(FactoryError(msg)) = http_proxy_factory(
 		&serde_json::json!({
 			"upstream": "127.0.0.1:9443",
@@ -313,6 +317,7 @@ fn http_proxy_factory_accepts_auto_with_cleartext() {
 	// We don't pull `tracing-test` in just to assert log lines; the
 	// factory contract here is that the warning path doesn't error.
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let result = http_proxy_factory(
 		&serde_json::json!({
 			"upstream": "127.0.0.1:9443",
@@ -326,6 +331,7 @@ fn http_proxy_factory_accepts_auto_with_cleartext() {
 #[tokio::test]
 async fn http_proxy_pool_reuses_connection_across_requests() {
 	vane_engine::crypto::install_default_provider();
+	vane_testutil::allow_insecure_upstream_for_tests();
 	let (upstream, _cert) = spawn_tls_upstream(vec![b"http/1.1".to_vec()]).await;
 
 	let proxy_addr = pick_port().await;
