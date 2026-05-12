@@ -140,9 +140,36 @@ impl Error {
 		Self::new(ErrorKind::Resource(kind))
 	}
 
+	/// Build an `ErrorKind::Internal` carrier for a detected invariant
+	/// violation.
+	///
+	/// **Reserved for invariant breaks.** The error class signals that
+	/// the code has reached a state the type system or the lower-pass
+	/// invariants were supposed to make unreachable — examples in this
+	/// codebase are `l4_forward` receiving an unexpected `L4Conn`
+	/// variant, the executor finding the dispatch table missing from
+	/// `ConnContext.user`, or a response builder rejecting bytes we
+	/// validated upstream. Runtime user-data failures
+	/// (`std::io::Error`, WASM trap, hyper-build mismatch on operator-
+	/// controlled bytes) belong on `Error::middleware` / `Error::io` /
+	/// `Error::protocol` instead.
+	///
+	/// In debug / test builds the constructor `debug_assert!`s false so
+	/// the panic surfaces locally with the message context — invariant
+	/// breaks are bugs that deserve to be found at dev time, not
+	/// silently 500ed in production. Release builds keep the cheap
+	/// `Error` construction path.
 	#[must_use]
+	#[track_caller]
 	pub fn internal(msg: impl Into<Cow<'static, str>>) -> Self {
-		Self::new(ErrorKind::Internal).with_ctx(msg)
+		let ctx = msg.into();
+		// Allow tests to construct `Error::internal(...)` as a fixture
+		// (e.g. asserting downstream code surfaces it correctly).
+		// Non-test debug builds panic so dev iterations catch the
+		// invariant break immediately.
+		#[cfg(all(debug_assertions, not(test)))]
+		debug_assert!(false, "Error::internal invariant violation: {ctx}");
+		Self::new(ErrorKind::Internal).with_ctx(ctx)
 	}
 
 	#[must_use]

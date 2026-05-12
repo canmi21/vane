@@ -1398,7 +1398,7 @@ impl StatefulPoolHandle {
 			&mut linker,
 			|x| x,
 		)
-		.map_err(|e| Error::internal(format!("stateful lazy linker: {e}")))?;
+		.map_err(|e| Error::middleware(format!("stateful lazy linker: {e}")))?;
 
 		let component = self.component.load_full();
 		let host_state = HostState::new(
@@ -1415,7 +1415,7 @@ impl StatefulPoolHandle {
 		let plugin =
 			invoke_l4peek::PluginL4PeekInvoke::instantiate_async(&mut store, &component, &linker)
 				.await
-				.map_err(|e| Error::internal(format!("stateful lazy instantiate: {e}")))?;
+				.map_err(|e| Error::middleware(format!("stateful lazy instantiate: {e}")))?;
 		Ok(StatefulInstance { store, plugin, generation })
 	}
 
@@ -1534,7 +1534,7 @@ impl WasmtimeRuntime {
 		fetch_backend: Arc<dyn HttpFetchBackend>,
 		pool_cap: u32,
 	) -> Result<Arc<Self>, Error> {
-		let engine = build_engine(pool_cap).map_err(|e| Error::internal(e.to_string()))?;
+		let engine = build_engine(pool_cap).map_err(|e| Error::middleware(e.to_string()))?;
 
 		let ticker_engine = engine.clone();
 		let handle = tokio::spawn(async move {
@@ -1552,28 +1552,28 @@ impl WasmtimeRuntime {
 			&mut invoke_linker,
 			|x| x,
 		)
-		.map_err(|e| Error::internal(format!("invoke linker setup: {e}")))?;
+		.map_err(|e| Error::middleware(format!("invoke linker setup: {e}")))?;
 
 		let mut invoke_l4bytes_linker = Linker::<HostState>::new(&engine);
 		invoke_l4bytes::PluginL4BytesInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
 			&mut invoke_l4bytes_linker,
 			|x| x,
 		)
-		.map_err(|e| Error::internal(format!("l4bytes linker setup: {e}")))?;
+		.map_err(|e| Error::middleware(format!("l4bytes linker setup: {e}")))?;
 
 		let mut invoke_l7request_linker = Linker::<HostState>::new(&engine);
 		invoke_l7request::PluginL7RequestInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
 			&mut invoke_l7request_linker,
 			|x| x,
 		)
-		.map_err(|e| Error::internal(format!("l7request linker setup: {e}")))?;
+		.map_err(|e| Error::middleware(format!("l7request linker setup: {e}")))?;
 
 		let mut invoke_l7response_linker = Linker::<HostState>::new(&engine);
 		invoke_l7response::PluginL7ResponseInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
 			&mut invoke_l7response_linker,
 			|x| x,
 		)
-		.map_err(|e| Error::internal(format!("l7response linker setup: {e}")))?;
+		.map_err(|e| Error::middleware(format!("l7response linker setup: {e}")))?;
 
 		Ok(Arc::new(Self {
 			engine,
@@ -1705,14 +1705,14 @@ impl WasmtimeRuntime {
 			.unwrap()
 			.get(&key)
 			.cloned()
-			.ok_or_else(|| Error::internal("module not loaded"))?;
+			.ok_or_else(|| Error::middleware("module not loaded"))?;
 
 		let mut linker = Linker::<HostState>::new(&self.engine);
 		invoke_l4peek::PluginL4PeekInvoke::add_to_linker::<HostState, HasSelf<HostState>>(
 			&mut linker,
 			|x| x,
 		)
-		.map_err(|e| Error::internal(format!("stateful linker setup: {e}")))?;
+		.map_err(|e| Error::middleware(format!("stateful linker setup: {e}")))?;
 
 		let mut instances = Vec::with_capacity(pool_size);
 		for _ in 0..pool_size {
@@ -1722,7 +1722,7 @@ impl WasmtimeRuntime {
 			let plugin =
 				invoke_l4peek::PluginL4PeekInvoke::instantiate_async(&mut store, &component, &linker)
 					.await
-					.map_err(|e| Error::internal(format!("stateful instantiate: {e}")))?;
+					.map_err(|e| Error::middleware(format!("stateful instantiate: {e}")))?;
 			instances.push(StatefulInstance { store, plugin, generation: 0 });
 		}
 
@@ -1834,8 +1834,8 @@ impl WasmtimeRuntime {
 	///
 	/// Panics if any internal `RwLock` is poisoned.
 	pub async fn reload_component(&self, path: &Path) -> Result<ReloadComponentOutcome, Error> {
-		let bytes =
-			std::fs::read(path).map_err(|e| Error::internal(format!("read {}: {e}", path.display())))?;
+		let bytes = std::fs::read(path)
+			.map_err(|e| Error::middleware(format!("read {}: {e}", path.display())))?;
 		let new_hash = sha256_bytes(&bytes);
 		let key = path.to_string_lossy().into_owned();
 
@@ -1993,8 +1993,8 @@ impl WasmPoolStats for WasmtimeRuntime {
 #[async_trait::async_trait]
 impl WasmRuntime for WasmtimeRuntime {
 	async fn load_component(&self, path: &Path) -> Result<Arc<PluginMetadata>, Error> {
-		let bytes =
-			std::fs::read(path).map_err(|e| Error::internal(format!("read {}: {e}", path.display())))?;
+		let bytes = std::fs::read(path)
+			.map_err(|e| Error::middleware(format!("read {}: {e}", path.display())))?;
 		let bytes_hash = sha256_bytes(&bytes);
 
 		let hash = hex_sha256(&bytes);
@@ -2383,7 +2383,7 @@ fn load_or_compile(
 	}
 
 	let component = Component::from_binary(engine, bytes)
-		.map_err(|e| Error::internal(format!("compile {}: {e}", src.display())))?;
+		.map_err(|e| Error::middleware(format!("compile {}: {e}", src.display())))?;
 
 	if let Ok(()) = std::fs::create_dir_all(CWASM_CACHE_DIR) {
 		match component.serialize() {
@@ -2407,7 +2407,7 @@ async fn get_metadata(
 ) -> Result<Arc<PluginMetadata>, Error> {
 	let mut linker = Linker::<HostState>::new(engine);
 	Plugin::add_to_linker::<HostState, HasSelf<HostState>>(&mut linker, |x| x)
-		.map_err(|e| Error::internal(format!("linker setup: {e}")))?;
+		.map_err(|e| Error::middleware(format!("linker setup: {e}")))?;
 
 	// Bootstrap host state for the metadata round-trip — the
 	// component's `get-metadata` host call only touches `args` /
@@ -2430,12 +2430,12 @@ async fn get_metadata(
 
 	let plugin = Plugin::instantiate_async(&mut store, component, &linker)
 		.await
-		.map_err(|e| Error::internal(format!("instantiate: {e}")))?;
+		.map_err(|e| Error::middleware(format!("instantiate: {e}")))?;
 
 	let raw = plugin
 		.vane_plugin_registry()
 		.call_get_metadata(&mut store)
-		.map_err(|e| Error::internal(format!("get-metadata: {e}")))?;
+		.map_err(|e| Error::middleware(format!("get-metadata: {e}")))?;
 
 	parse_metadata(raw)
 }
@@ -2457,7 +2457,7 @@ fn validate_handler_exports(
 			MiddlewareKind::L7Response => "vane:plugin/handler-l7-response@0.1.0",
 		};
 		if comp_type.get_export(engine, iface).is_none() {
-			return Err(Error::internal(format!(
+			return Err(Error::middleware(format!(
 				"export '{}' declares kind '{}' but component does not export handler interface '{iface}'",
 				export.name,
 				kind_str(export.kind),
@@ -2465,7 +2465,7 @@ fn validate_handler_exports(
 		}
 		for path in &export.inspects {
 			if !crate::inspects::validate_inspects_path(path) {
-				return Err(Error::internal(format!(
+				return Err(Error::middleware(format!(
 					"export '{}' declares unknown inspects path '{path}' \
 					 — see `spec/wasm-abi.md` § _Path grammar — connection-level_ for the allowed set",
 					export.name,
@@ -2490,12 +2490,11 @@ fn parse_metadata(
 ) -> Result<Arc<PluginMetadata>, Error> {
 	// Validate abi-version major == ABI_MAJOR (0).
 	let abi = &raw.abi_version;
-	let major =
-		abi.split('.').next().and_then(|s| s.parse::<u64>().ok()).ok_or_else(|| {
-			Error::internal(format!("abi-version '{abi}' is not a valid semver string"))
-		})?;
+	let major = abi.split('.').next().and_then(|s| s.parse::<u64>().ok()).ok_or_else(|| {
+		Error::middleware(format!("abi-version '{abi}' is not a valid semver string"))
+	})?;
 	if major != ABI_MAJOR {
-		return Err(Error::internal(format!(
+		return Err(Error::middleware(format!(
 			"abi-version '{abi}' major {major} != expected {ABI_MAJOR}"
 		)));
 	}
@@ -2503,7 +2502,7 @@ fn parse_metadata(
 	// Reject any export with needs-streaming-body: true.
 	for exp in &raw.exports {
 		if exp.needs_streaming_body {
-			return Err(Error::internal(format!(
+			return Err(Error::middleware(format!(
 				"export '{}' sets needs-streaming-body: true, which is reserved in 0.1.0",
 				exp.name
 			)));
@@ -2514,7 +2513,7 @@ fn parse_metadata(
 	let mut seen = std::collections::HashSet::new();
 	for exp in &raw.exports {
 		if !seen.insert(exp.name.as_str()) {
-			return Err(Error::internal(format!("duplicate export name '{}' in metadata", exp.name)));
+			return Err(Error::middleware(format!("duplicate export name '{}' in metadata", exp.name)));
 		}
 	}
 

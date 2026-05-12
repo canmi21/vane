@@ -229,21 +229,21 @@ async fn acquire_metadata_for_reload(
 				tracing::debug!(stem, "wasm module unchanged on disk; reusing entries");
 				let meta = runtime
 					.metadata_for_module(module_id)
-					.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?;
+					.ok_or_else(|| Error::middleware(format!("metadata missing post-reload for {stem}")))?;
 				Ok(Some((meta, false)))
 			}
 			Ok(ReloadComponentOutcome::MetadataUnchanged) => {
 				tracing::info!(stem, "wasm module bytes changed; metadata-compatible swap");
 				let meta = runtime
 					.metadata_for_module(module_id)
-					.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?;
+					.ok_or_else(|| Error::middleware(format!("metadata missing post-reload for {stem}")))?;
 				Ok(Some((meta, false)))
 			}
 			Ok(ReloadComponentOutcome::MetadataChanged) => {
 				tracing::info!(stem, "wasm module bytes changed; metadata-incompatible recompile");
 				let meta = runtime
 					.metadata_for_module(module_id)
-					.ok_or_else(|| Error::internal(format!("metadata missing post-reload for {stem}")))?;
+					.ok_or_else(|| Error::middleware(format!("metadata missing post-reload for {stem}")))?;
 				Ok(Some((meta, true)))
 			}
 			Err(e) => {
@@ -409,7 +409,7 @@ pub(crate) async fn reload_dir(
 	policies_swap: &Arc<ArcSwap<PluginPolicyTable>>,
 ) -> Result<WasmReloadOutcome, Error> {
 	let wasm_files = discover_wasm_files(wasm_dir)
-		.map_err(|e| Error::internal(format!("read wasm dir {}: {e}", wasm_dir.display())))?;
+		.map_err(|e| Error::middleware(format!("read wasm dir {}: {e}", wasm_dir.display())))?;
 
 	let current = registry_swap.load();
 	let current_by_stem = snapshot_stems_from_registry(&current);
