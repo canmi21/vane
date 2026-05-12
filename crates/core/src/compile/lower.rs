@@ -1310,27 +1310,36 @@ fn resolve_listener_tls(
 	}
 
 	// Aggregate per-rule `tls.client_auth` into one listener-level
-	// `ClientAuthSpec`. Per `spec/crates/engine-tls.md` § _Client certificate verification (mTLS on listener)_, mTLS is per-listener: rules on the same listener
-	// must agree on `mode` AND `trust_store`. The first rule's spec
-	// (after structural validation) becomes the listener's policy;
-	// subsequent rules must produce the same value.
+	// `ClientAuthSpec`. Per `spec/crates/engine-tls.md` § _Client
+	// certificate verification (mTLS on listener)_, mTLS is
+	// per-listener: every rule on the same listener must agree on
+	// mode AND trust_store. Crucially, "no client_auth declared"
+	// (`Option::None`) is a distinct value here — silently letting a
+	// rule that omits `client_auth` co-exist with a rule that sets
+	// `Some(Require{...})` would force a posture the omitting
+	// rule's author never asked for. Collect all rules' values and
+	// hard-reject mixed postures.
 	let mut resolved: Option<crate::rule::ClientAuthSpec> = None;
+	let mut saw_any_tls_rule = false;
 	for rule in rules {
 		let Some(tls) = rule.raw.tls.as_ref() else { continue };
-		let Some(ca) = tls.client_auth.as_ref() else { continue };
-		let candidate = compile_client_auth(addrs, ca)?;
+		saw_any_tls_rule = true;
+		let candidate = match tls.client_auth.as_ref() {
+			Some(ca) => compile_client_auth(addrs, ca)?,
+			None => crate::rule::ClientAuthSpec::None,
+		};
 		match &resolved {
 			None => resolved = Some(candidate),
 			Some(existing) if existing == &candidate => {}
-			Some(_) => {
+			Some(existing) => {
 				return Err(Error::compile(format!(
-					"listener {addrs:?}: rules disagree on `client_auth` — mTLS is per-listener; every rule on the same address must agree on mode and trust_store"
+					"listener {addrs:?}: rules disagree on `client_auth` posture — saw {existing:?} and {candidate:?}; mTLS is per-listener so every rule must declare the same `client_auth` (or all omit it)"
 				)));
 			}
 		}
 	}
-	if let Some(ca) = resolved {
-		spec.client_auth = ca;
+	if saw_any_tls_rule {
+		spec.client_auth = resolved.unwrap_or(crate::rule::ClientAuthSpec::None);
 	}
 
 	// Aggregate per-rule `tls.enable_zero_rtt` into the listener-level
