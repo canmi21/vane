@@ -5470,6 +5470,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "metrics",
  "nix",
  "notify-twophase",
  "parking_lot",

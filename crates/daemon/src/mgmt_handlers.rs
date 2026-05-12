@@ -142,6 +142,12 @@ impl EventStream for TailLogStream {
 				},
 				Err(broadcast::error::RecvError::Lagged(n)) => {
 					tracing::warn!(dropped = n, "tail_log subscriber lagged");
+					// Mirror the layer-side drop counter: a slow
+					// subscriber that misses N frames is the same
+					// observable event ("frames lost") as the no-
+					// subscribers case, only with a different cause.
+					metrics::counter!("vane.trace.broadcast_dropped", "reason" => "subscriber_lagged")
+						.increment(n);
 					return Some(serde_json::json!({
 						"kind": "lagged",
 						"dropped": n,
@@ -170,8 +176,16 @@ impl EventStream for FlowLogStream {
 				Err(broadcast::error::RecvError::Lagged(n)) => {
 					// Slow subscriber dropped n events. Surface a
 					// synthetic sentinel so the operator notices the
-					// gap rather than seeing a "smooth" stream.
+					// gap rather than seeing a "smooth" stream, AND
+					// record on the same counter the sink side uses
+					// for no-subscribers drops so dashboards see one
+					// "frames lost" rate.
 					tracing::warn!(dropped = n, "tail_flow subscriber lagged");
+					metrics::counter!(
+						"vane.flow_log.broadcast_dropped",
+						"reason" => "subscriber_lagged",
+					)
+					.increment(n);
 					return Some(serde_json::json!({
 						"kind": "lagged",
 						"dropped": n,

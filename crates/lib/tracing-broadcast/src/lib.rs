@@ -75,9 +75,16 @@ pub struct TracingFrame {
 /// and shares the channel through an internal `Arc`. Compose one
 /// instance into the subscriber registry and keep cloned references
 /// wherever handlers need to call [`Self::subscribe`].
+///
+/// Optional `on_drop` callback is invoked when the broadcast channel
+/// has no receivers and `send` returns `Err` (i.e. the frame is lost).
+/// The default is a no-op; the daemon wires it to a metrics counter
+/// so operators can observe drop rate without this crate pulling a
+/// metrics-framework dependency.
 #[derive(Clone)]
 pub struct BroadcastTracingLayer {
 	tx: broadcast::Sender<TracingFrame>,
+	on_drop: std::sync::Arc<dyn Fn() + Send + Sync>,
 }
 
 impl BroadcastTracingLayer {
@@ -92,11 +99,24 @@ impl BroadcastTracingLayer {
 	/// [`DEFAULT_BROADCAST_CAP`].
 	#[must_use]
 	pub fn with_capacity(capacity: usize) -> Self {
+		Self::with_capacity_and_drop_hook(capacity, std::sync::Arc::new(|| {}))
+	}
+
+	/// Construct the layer with both a custom channel capacity and a
+	/// drop callback. The callback runs every time a frame is dropped
+	/// because no subscriber was attached; the daemon installs a
+	/// `metrics::counter!` here to surface the rate without this crate
+	/// pulling a metrics dep.
+	#[must_use]
+	pub fn with_capacity_and_drop_hook(
+		capacity: usize,
+		on_drop: std::sync::Arc<dyn Fn() + Send + Sync>,
+	) -> Self {
 		// Initial receiver dropped immediately; subscribers come and go
 		// over the lifetime of the process as clients connect.
 		let cap = capacity.max(1);
 		let (tx, _initial_rx) = broadcast::channel(cap);
-		Self { tx }
+		Self { tx, on_drop }
 	}
 
 	/// Subscribe to live events. Each subscriber gets its own receiver
@@ -138,8 +158,13 @@ where
 			fields: serde_json::Value::Object(visitor.fields),
 		};
 		// `send` returns `Err` only when there are no receivers — that's
-		// the steady state when no client is tailing. Drop quietly.
-		let _ = self.tx.send(frame);
+		// the steady state when no client is tailing. Run the
+		// constructor-supplied drop hook so the daemon can record the
+		// rate as a metric; the hook defaults to a no-op when no one
+		// installed one.
+		if self.tx.send(frame).is_err() {
+			(self.on_drop)();
+		}
 	}
 }
 

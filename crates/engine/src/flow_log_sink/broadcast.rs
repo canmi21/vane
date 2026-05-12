@@ -75,8 +75,21 @@ impl BroadcastSink {
 impl FlowLogSink for BroadcastSink {
 	fn emit(&self, event: FlowLogEvent) {
 		// `send` returns `Err` only when there are no receivers. That's
-		// the steady state when no mgmt client is tailing — drop quietly.
-		let _ = self.tx.send(event);
+		// the steady state when no mgmt client is tailing, BUT it's
+		// also indistinguishable from "a subscriber was dropped between
+		// `subscribe()` and the next emit". Either way the frame is
+		// lost; record one so operators can see the rate of unseen
+		// events when nobody's tailing. The counter is sized by the
+		// engine's emit rate (high), so be sure the metric has a
+		// `reason = "no_subscribers"` slot rather than a label per
+		// dropped event.
+		if self.tx.send(event).is_err() {
+			metrics::counter!(
+				"vane.flow_log.broadcast_dropped",
+				"reason" => "no_subscribers",
+			)
+			.increment(1);
+		}
 	}
 }
 

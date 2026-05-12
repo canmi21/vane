@@ -138,7 +138,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// OS env, so `RUST_LOG` from the operator's shell still wins.
 	let loaded = vane_core::config::load(&args.config_dir)?;
 
-	let tracing_broadcast = BroadcastTracingLayer::new();
+	// Install the drop counter on the tracing broadcast layer so an
+	// operator running `vane stats` can see how many tracing frames
+	// have been emitted while no `tail_log` subscriber was attached.
+	let tracing_broadcast = BroadcastTracingLayer::with_capacity_and_drop_hook(
+		tracing_broadcast::DEFAULT_BROADCAST_CAP,
+		std::sync::Arc::new(|| {
+			metrics::counter!("vane.trace.broadcast_dropped", "reason" => "no_subscribers").increment(1);
+		}),
+	);
 	init_tracing(tracing_broadcast.clone(), &loaded.env.log_level);
 
 	tracing::info!(config_dir = %args.config_dir.display(), "loading config");
