@@ -113,6 +113,17 @@ fn unix_ms_now() -> u64 {
 /// duplicate addresses (already-running keys are skipped with a warn).
 pub struct ListenerSet {
 	running: Mutex<HashMap<SocketAddr, ListenerHandle>>,
+	/// Background drain tasks spawned by [`Self::reconcile`] when a
+	/// listener is removed. Tracked here (instead of being
+	/// `tokio::spawn`'d and forgotten) so [`Self::shutdown`] can
+	/// `join_all` them — the daemon's `Drop` path knows when every
+	/// removed-listener drain has actually finished.
+	///
+	/// Each entry also surfaces through the mgmt `stats` /
+	/// `get_connections` verbs via [`Self::draining_snapshot`], so
+	/// operators can see how many drains are still outstanding and
+	/// their remaining budget.
+	draining: Mutex<Vec<DrainingHandle>>,
 	/// Daemon-wide live-connection registry. Populated at accept time
 	/// and cleaned up via [`ConnRegistration`] when the per-connection
 	/// task ends. Read by the mgmt `get_connections` verb.
@@ -122,6 +133,29 @@ pub struct ListenerSet {
 	/// counters). Survives hot-reload so counters are never reset by
 	/// a config change.
 	security: Arc<SecurityState>,
+}
+
+/// Bookkeeping for one in-flight `drain_handle_async` task spawned by
+/// reconcile when a listener is removed. The in-flight counter is the
+/// removed listener's original counter (alive until the drain task
+/// drops it).
+struct DrainingHandle {
+	addr: SocketAddr,
+	deadline: Instant,
+	in_flight_count: Arc<AtomicUsize>,
+	join: JoinHandle<()>,
+}
+
+/// Snapshot of one in-flight removed-listener drain. Surfaced through
+/// the mgmt API so operators can watch the post-reconcile tail.
+#[derive(Clone, Debug)]
+pub struct DrainingListenerStatus {
+	pub addr: SocketAddr,
+	pub in_flight: usize,
+	/// Hard deadline at which the drain task will fire `force_cancel`
+	/// and start the abort sequence. Operators read this against
+	/// `Instant::now()` to estimate how much soft-drain time remains.
+	pub deadline: Instant,
 }
 
 /// One in-flight connection's projection for the management plane.
@@ -218,6 +252,7 @@ impl ListenerSet {
 	pub fn from_security_and_bind_config(security: Arc<SecurityState>, cfg: BindConfig) -> Self {
 		Self {
 			running: Mutex::new(HashMap::new()),
+			draining: Mutex::new(Vec::new()),
 			connections: Arc::new(DashMap::new()),
 			bind_cfg: Arc::new(cfg),
 			security,
@@ -490,6 +525,36 @@ impl ListenerSet {
 				while taken.join_next().await.is_some() {}
 			}
 		}
+
+		// Drain any in-flight removed-listener drain tasks tracked by
+		// reconcile. Without this join the daemon's exit path could
+		// race a still-active drain task and leak its in-flight set.
+		let draining: Vec<DrainingHandle> = {
+			let mut guard = self.draining.lock();
+			std::mem::take(&mut *guard)
+		};
+		for entry in draining {
+			let _ = entry.join.await;
+		}
+	}
+
+	/// Read-only snapshot of in-flight removed-listener drains. Stale
+	/// entries (whose underlying task already finished) are NOT
+	/// filtered here — `reconcile` sweeps them on its next pass, and
+	/// callers usually just want a current view. Operators consume
+	/// this through the mgmt `stats` verb for the post-reconcile tail.
+	#[must_use]
+	pub fn draining_snapshot(&self) -> Vec<DrainingListenerStatus> {
+		let guard = self.draining.lock();
+		guard
+			.iter()
+			.filter(|d| !d.join.is_finished())
+			.map(|d| DrainingListenerStatus {
+				addr: d.addr,
+				in_flight: d.in_flight_count.load(Ordering::Relaxed),
+				deadline: d.deadline,
+			})
+			.collect()
 	}
 
 	/// Diff the active graph's `entries` keys against currently bound
@@ -534,12 +599,20 @@ impl ListenerSet {
 		for addr in removed {
 			if let Some(handle) = running.remove(&addr) {
 				tracing::info!(?addr, "reconcile: removing listener");
-				tokio::spawn(drain_handle_async(
+				let in_flight_count = Arc::clone(&handle.in_flight_count);
+				let deadline = Instant::now() + self.bind_cfg.reconcile_drain_timeout;
+				let join = tokio::spawn(drain_handle_async(
 					addr,
 					handle,
 					self.bind_cfg.force_cancel_grace,
 					self.bind_cfg.reconcile_drain_timeout,
 				));
+				// Sweep dead drains before pushing — `shutdown` would
+				// otherwise have to wade through every drain ever
+				// spawned to find the still-running ones.
+				let mut draining = self.draining.lock();
+				draining.retain(|d| !d.join.is_finished());
+				draining.push(DrainingHandle { addr, deadline, in_flight_count, join });
 			}
 		}
 
