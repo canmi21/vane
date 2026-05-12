@@ -716,7 +716,8 @@ pub enum Predicate {
 /// itself runs in `O(n)` time and `O(depth)` space without recursion.
 ///
 /// # Errors
-/// Returns an [`Error::compile`] whose message names the limit.
+/// Returns an [`Error::compile`](crate::error::Error::compile) whose
+/// message names the limit.
 pub fn check_max_depth(pred: &Predicate) -> Result<(), crate::error::Error> {
 	let mut stack: Vec<(&Predicate, usize)> = vec![(pred, 1)];
 	while let Some((p, depth)) = stack.pop() {
