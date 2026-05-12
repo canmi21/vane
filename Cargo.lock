@@ -4080,7 +4080,12 @@ dependencies = [
 name = "rustls-ticketer"
 version = "0.0.1"
 dependencies = [
+ "aws-lc-rs",
+ "libc",
  "rustls",
+ "tempfile",
+ "tracing",
+ "zeroize",
 ]
 
 [[package]]

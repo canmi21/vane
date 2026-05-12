@@ -29,5 +29,7 @@ pub use rustls_crl_refresh::{RefreshableClientCertVerifier, RefreshableServerCer
 pub use rustls_native_roots_cache::{
 	NativeRootsError, native_roots, refresh_native_roots, warm_native_roots,
 };
+#[cfg(feature = "aws-lc-rs")]
+pub use rustls_ticketer::install_persistent_ticketer;
 pub use rustls_ticketer::{default_ticketer, install_default_ticketer};
 pub use static_populator::StaticCertPopulator;

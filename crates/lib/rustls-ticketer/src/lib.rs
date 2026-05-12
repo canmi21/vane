@@ -22,7 +22,12 @@ use std::sync::{Arc, OnceLock};
 
 use rustls::server::ProducesTickets;
 
-static DEFAULT_TICKETER: OnceLock<Arc<dyn ProducesTickets>> = OnceLock::new();
+#[cfg(feature = "aws-lc-rs")]
+mod persistent;
+#[cfg(feature = "aws-lc-rs")]
+pub use persistent::install_persistent_ticketer;
+
+pub(crate) static DEFAULT_TICKETER: OnceLock<Arc<dyn ProducesTickets>> = OnceLock::new();
 
 /// Build a fresh ticketer using the compile-time-selected crypto
 /// backend's RFC 5077 constructor. Each call asks the backend for

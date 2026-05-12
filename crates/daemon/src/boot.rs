@@ -48,8 +48,51 @@ pub(crate) struct PluginBootState {
 /// daemon at boot — both are unrecoverable.
 pub(crate) fn install_global_runtime() {
 	vane_engine::crypto::install_default_provider();
-	vane_engine::tls::install_default_ticketer().expect("install rustls session ticketer");
+	install_session_ticketer();
 	vane_engine::metrics::install_recorder().expect("install metrics recorder");
+}
+
+/// Install the process-wide TLS session ticketer. Try the disk-
+/// backed `<acme_dir>/ticketer.bin` first so session tickets survive
+/// daemon restarts; fall back to the random auto-rotating ticketer
+/// on error so the daemon keeps booting even if the ACME directory
+/// is read-only or the crypto backend doesn't expose AES-256-GCM
+/// directly (only available under the `aws-lc-rs` feature today).
+fn install_session_ticketer() {
+	#[cfg(feature = "aws-lc-rs")]
+	{
+		let path = acme_ticketer_path();
+		if let Some(parent) = path.parent()
+			&& let Err(e) = std::fs::create_dir_all(parent)
+		{
+			tracing::warn!(
+				path = %path.display(),
+				error = %e,
+				"could not create ACME directory for persistent ticket key; falling back to random ticketer",
+			);
+		} else {
+			match vane_engine::tls::install_persistent_ticketer(&path) {
+				Ok(()) => return,
+				Err(e) => tracing::warn!(
+					path = %path.display(),
+					error = %e,
+					"persistent ticketer install failed; falling back to random ticketer",
+				),
+			}
+		}
+	}
+	vane_engine::tls::install_default_ticketer().expect("install rustls session ticketer");
+}
+
+/// Resolve the disk path for the persistent TLS ticket key. Lives
+/// alongside the ACME store under `VANE_ACME_DIR` (default
+/// `/var/lib/vaned/acme`) so cert / key / ticket-key all share one
+/// privilege boundary.
+#[cfg(feature = "aws-lc-rs")]
+fn acme_ticketer_path() -> std::path::PathBuf {
+	let dir = std::env::var("VANE_ACME_DIR")
+		.map_or_else(|_| std::path::PathBuf::from("/var/lib/vaned/acme"), std::path::PathBuf::from);
+	dir.join("ticketer.bin")
 }
 
 /// Phase: surface the operator-tunable CGI concurrency cap. Read here

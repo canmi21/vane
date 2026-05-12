@@ -15,11 +15,23 @@ workspace = true
 
 [features]
 default = []
-aws-lc-rs = ["rustls/aws-lc-rs"]
+aws-lc-rs = ["rustls/aws-lc-rs", "dep:aws-lc-rs"]
 ring = ["rustls/ring"]
 
 [dependencies]
+# The persistent ticketer reaches directly for AES-256-GCM since
+# rustls's built-in `Ticketer::new()` constructors do not accept a
+# caller-supplied key. Feature-gated so non-aws-lc-rs builds keep
+# the rustls auto-rotating ticketer.
+aws-lc-rs = { version = "1", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
+tempfile = "3"
+tracing = "0.1"
+zeroize = { version = "1", features = ["alloc"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
+tempfile = "3"
