@@ -103,7 +103,7 @@ pub(crate) fn spawn_watcher_handler(
 							"reloaded — no semantic change, swap skipped",
 						),
 						Err(e) => tracing::error!(
-							error = %e, "reload failed; active graph unchanged",
+							error = %e.tracing(), "reload failed; active graph unchanged",
 						),
 					}
 				}

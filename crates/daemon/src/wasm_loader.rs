@@ -106,7 +106,7 @@ fn build_wasm_runtime() -> Option<Arc<WasmtimeRuntime>> {
 	match WasmtimeRuntime::new(backend) {
 		Ok(rt) => Some(rt),
 		Err(e) => {
-			tracing::warn!(error = %e, "wasm runtime construction failed; skipping wasm runtime");
+			tracing::warn!(error = %e.tracing(), "wasm runtime construction failed; skipping wasm runtime");
 			None
 		}
 	}
@@ -171,7 +171,7 @@ fn load_policies_for_boot(wasm_dir: &Path) -> PluginPolicyTable {
 		Err(e) => {
 			tracing::warn!(
 				wasm_dir = %wasm_dir.display(),
-				error = %e,
+				error = %e.tracing(),
 				"wasm/policy.json failed to parse; falling back to deny-all defaults",
 			);
 			PluginPolicyTable::new()
@@ -189,7 +189,7 @@ fn load_policies_for_reload(
 	match PluginPolicyTable::load_from_dir(wasm_dir) {
 		Ok(t) => t,
 		Err(e) => {
-			tracing::warn!(error = %e, "wasm/policy.json reload failed; keeping prior policy table");
+			tracing::warn!(error = %e.tracing(), "wasm/policy.json reload failed; keeping prior policy table");
 			(*policies_swap.load_full()).clone()
 		}
 	}
@@ -249,7 +249,7 @@ async fn acquire_metadata_for_reload(
 			Err(e) => {
 				tracing::warn!(
 					path = %path.display(),
-					error = %e,
+					error = %e.tracing(),
 					"wasm reload failed; keeping prior registry entries for this stem",
 				);
 				let prior = current
@@ -268,7 +268,7 @@ async fn acquire_metadata_for_reload(
 			Err(e) => {
 				tracing::warn!(
 					path = %path.display(),
-					error = %e,
+					error = %e.tracing(),
 					"wasm module load failed during reload; skipping",
 				);
 				Ok(None)
@@ -338,7 +338,7 @@ pub(crate) async fn load_all(wasm_dir: &Path) -> Option<LoadedWasm> {
 		let metadata = match runtime.load_component(path).await {
 			Ok(meta) => meta,
 			Err(e) => {
-				tracing::warn!(path = %path.display(), error = %e, "wasm module load failed; skipping");
+				tracing::warn!(path = %path.display(), error = %e.tracing(), "wasm module load failed; skipping");
 				continue;
 			}
 		};

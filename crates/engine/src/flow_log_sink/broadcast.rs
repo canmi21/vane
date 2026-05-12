@@ -47,8 +47,9 @@ impl BroadcastSink {
 	}
 
 	/// Explicit-capacity constructor for tests and bespoke wiring. The
-	/// `new` / `Default` path resolves from `VANE_FLOW_LOG_BROADCAST_CAP`,
-	/// falling back to [`DEFAULT_BROADCAST_CAP`].
+	/// `new` / `Default` path resolves from
+	/// `VANE_FLOW_LOG_BROADCAST_CAP`, falling back to the crate's
+	/// default (currently 4096).
 	#[must_use]
 	pub fn with_capacity(capacity: usize) -> Self {
 		let cap = capacity.max(1);

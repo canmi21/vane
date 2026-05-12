@@ -318,6 +318,41 @@ impl Error {
 		}
 		out
 	}
+
+	/// Display adapter that renders the error in a richer one-line
+	/// form suitable for `tracing::error!(error = %e.tracing(), …)`.
+	///
+	/// Layout:
+	/// ```text
+	/// <Display> reason=<reason?> chain=[<src> / <src> / …]
+	/// ```
+	///
+	/// Drop-in replacement for `error = %e`. `kind` is already
+	/// embedded in the `Display` impl (`<kind>{ctx}`); `reason` and
+	/// `chain` add the structured fields that operator post-mortems
+	/// otherwise lose. Released by `to_string()`; no extra allocations
+	/// at construction time.
+	#[must_use]
+	pub fn tracing(&self) -> ErrorTracing<'_> {
+		ErrorTracing(self)
+	}
+}
+
+/// Display adapter — see [`Error::tracing`].
+pub struct ErrorTracing<'a>(&'a Error);
+
+impl std::fmt::Display for ErrorTracing<'_> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.0)?;
+		if let Some(reason) = self.0.reason_label() {
+			write!(f, " reason={reason}")?;
+		}
+		let chain = self.0.source_chain();
+		if !chain.is_empty() {
+			write!(f, " chain=[{}]", chain.join(" / "))?;
+		}
+		Ok(())
+	}
 }
 
 /// Accumulator for compile-pipeline diagnostics.
@@ -483,7 +518,7 @@ impl From<ipnet::AddrParseError> for Error {
 /// so every call site spells out which stage owns the timeout.
 ///
 /// # Errors
-/// On expiry returns [`Error::timeout(kind)`]; otherwise propagates
+/// On expiry returns [`Error::timeout`]; otherwise propagates
 /// `fut`'s own `Result`.
 pub async fn timeout_with<T, E, F>(
 	kind: TimeoutKind,

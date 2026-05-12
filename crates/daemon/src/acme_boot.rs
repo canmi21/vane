@@ -111,7 +111,7 @@ pub(crate) fn kick_off_managed_issuance(
 				error!(
 					target: "vane::acme",
 					sni = %plan.sni,
-					error = %e,
+					error = %e.tracing(),
 					"renewal job build failed; scheduler will not retry this SNI",
 				);
 			}
@@ -200,7 +200,7 @@ fn validated_renew_before(managed: &ManagedSpec) -> std::time::Duration {
 		warn!(
 			target: "vane::acme",
 			renew_before = %managed.renew_before,
-			error = %e,
+			error = %e.tracing(),
 			"managed cert renew_before failed to re-parse; defaulting to 30d",
 		);
 		std::time::Duration::from_secs(30 * 24 * 60 * 60)
@@ -230,7 +230,7 @@ async fn run_one_issuance(
 					error!(
 						target: "vane::acme",
 						sni = %plan.sni,
-						error = %e,
+						error = %e.tracing(),
 						"dns provider config invalid; dns-01 issuance skipped",
 					);
 					return;
@@ -262,7 +262,7 @@ async fn run_one_issuance(
 			error!(
 				target: "vane::acme",
 				sni = %plan.sni,
-				error = %e,
+				error = %e.tracing(),
 				"managed cert issuance failed",
 			);
 		}
@@ -363,7 +363,7 @@ async fn run_auto_bind(
 			error!(
 				target: "vane::acme",
 				addr = %addr,
-				error = %e,
+				error = %e.tracing(),
 				"acme: auto-bind :80 plaintext listener failed; HTTP-01 validation will fail until \
 				 the operator configures an explicit :80 listener or grants CAP_NET_BIND_SERVICE",
 			);
@@ -388,7 +388,7 @@ async fn run_auto_bind(
 						warn!(
 							target: "vane::acme",
 							addr = %addr,
-							error = %e,
+							error = %e.tracing(),
 							"acme auto-bind accept failed; continuing",
 						);
 						continue;
@@ -422,7 +422,7 @@ async fn serve_one_connection(
 			if let Err(e) = res {
 				// `hyper::Error` from a closed connection is normal; only
 				// surface unexpected shapes.
-				tracing::trace!(target: "vane::acme", error = %e, "auto-bind conn ended");
+				tracing::trace!(target: "vane::acme", error = %e.tracing(), "auto-bind conn ended");
 			}
 		}
 	}
