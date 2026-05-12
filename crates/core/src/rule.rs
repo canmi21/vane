@@ -13,6 +13,7 @@ pub type ListenSpec = String;
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct RawRule {
 	pub name: String,
+	#[serde(deserialize_with = "de_listen_non_empty")]
 	pub listen: Vec<ListenSpec>,
 	#[serde(default, rename = "match")]
 	pub match_predicate: Option<Predicate>,
@@ -52,6 +53,21 @@ pub struct RawRule {
 
 fn default_max_body_bytes() -> usize {
 	8 * 1024 * 1024
+}
+
+/// Reject `listen: []` at parse time. An empty listen list silently
+/// drops the rule from every listener pool, which is almost always an
+/// operator mistake — surface it before the rule reaches lower / link.
+pub(crate) fn de_listen_non_empty<'de, D: serde::Deserializer<'de>>(
+	d: D,
+) -> Result<Vec<ListenSpec>, D::Error> {
+	let v: Vec<ListenSpec> = serde::Deserialize::deserialize(d)?;
+	if v.is_empty() {
+		return Err(serde::de::Error::custom(
+			"rule `listen` must not be empty; specify at least one address",
+		));
+	}
+	Ok(v)
 }
 
 /// Listener-side TLS termination config — paths to the cert chain +
@@ -620,6 +636,18 @@ pub struct SourceInfo {
 mod tests {
 	use super::*;
 	use crate::predicate::{CheckMap, FieldPath, Operator, Predicate, Value as PredValue};
+
+	#[test]
+	fn raw_rule_with_empty_listen_is_rejected_at_deserialize() {
+		let raw = serde_json::json!({
+			"name": "r",
+			"listen": [],
+			"terminate": { "type": "http_proxy", "upstream": "127.0.0.1:8080" },
+		});
+		let err = serde_json::from_value::<RawRule>(raw).expect_err("empty listen must reject");
+		let msg = err.to_string();
+		assert!(msg.contains("listen") && msg.contains("not be empty"), "{msg}");
+	}
 
 	#[test]
 	fn raw_rule_minimal_parses_with_defaults() {

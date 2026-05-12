@@ -27,6 +27,7 @@ pub struct PresetInvocation {
 	/// Discriminator. One of `reverse_proxy` / `port_forward` /
 	/// `static_site` / `redirect_https`.
 	pub preset: String,
+	#[serde(deserialize_with = "crate::rule::de_listen_non_empty")]
 	pub listen: Vec<ListenSpec>,
 	#[serde(default)]
 	pub args: Value,
