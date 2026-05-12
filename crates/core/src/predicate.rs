@@ -695,12 +695,52 @@ pub const REGEX_DELEGATE_SIZE_LIMIT: usize = 4 * 1024 * 1024;
 /// for patterns like `(a+)+b`.
 pub const REGEX_SMOKE_TEST_INPUT_LEN: usize = 64;
 
+/// Maximum nesting depth allowed in a `match` predicate tree.
+///
+/// Anything beyond this is operator error (no real rule needs deep
+/// nesting) and would also stress the recursive walker functions in
+/// lower / analyze. The depth check uses an explicit stack so the
+/// guard itself is never the source of a stack overflow.
+pub const MAX_PREDICATE_DEPTH: usize = 64;
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum Predicate {
 	AnyOf(AnyOfP),
 	AllOf(AllOfP),
 	Not(NotP),
 	Check(CheckMap),
+}
+
+/// Reject predicate trees whose nesting depth exceeds
+/// [`MAX_PREDICATE_DEPTH`]. Uses an explicit stack so the depth check
+/// itself runs in `O(n)` time and `O(depth)` space without recursion.
+///
+/// # Errors
+/// Returns an [`Error::compile`] whose message names the limit.
+pub fn check_max_depth(pred: &Predicate) -> Result<(), crate::error::Error> {
+	let mut stack: Vec<(&Predicate, usize)> = vec![(pred, 1)];
+	while let Some((p, depth)) = stack.pop() {
+		if depth > MAX_PREDICATE_DEPTH {
+			return Err(crate::error::Error::compile(format!(
+				"predicate nests deeper than {MAX_PREDICATE_DEPTH} levels (MAX_PREDICATE_DEPTH)"
+			)));
+		}
+		match p {
+			Predicate::Check(_) => {}
+			Predicate::AnyOf(a) => {
+				for child in &a.any_of {
+					stack.push((child, depth + 1));
+				}
+			}
+			Predicate::AllOf(a) => {
+				for child in &a.all_of {
+					stack.push((child, depth + 1));
+				}
+			}
+			Predicate::Not(n) => stack.push((n.not.as_ref(), depth + 1)),
+		}
+	}
+	Ok(())
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]

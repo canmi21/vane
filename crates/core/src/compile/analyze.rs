@@ -75,6 +75,12 @@ fn analyze_rule(
 	let mut specificity = 0usize;
 	let mut reads_http_body = false;
 	if let Some(pred) = &raw.match_predicate {
+		// Bound predicate nesting depth before any recursive walker
+		// (here, in lower, or in collect_levels) touches the tree — a
+		// pathologically nested operator-authored rule should fail
+		// loud at compile, not crash the recursive walks at runtime.
+		crate::predicate::check_max_depth(pred)
+			.map_err(|e| Error::compile(format!("rule {:?}: {}", raw.name, e)))?;
 		walk_predicate(pred, &mut |p| match p {
 			Predicate::Check(c) => {
 				specificity += 1;
@@ -144,21 +150,31 @@ const fn fetch_phase_of(kind: Option<FetchKind>) -> FetchPhase {
 	}
 }
 
-fn walk_predicate(p: &Predicate, f: &mut impl FnMut(&Predicate)) {
-	f(p);
-	match p {
-		Predicate::AnyOf(a) => {
-			for child in &a.any_of {
-				walk_predicate(child, f);
+/// Pre-order walk over a predicate tree using an explicit stack.
+///
+/// Depth is bounded by [`crate::predicate::MAX_PREDICATE_DEPTH`]
+/// thanks to the upstream `check_max_depth` guard in `analyze_rule`,
+/// but the iterative form keeps the walker independent of the system
+/// stack and matches the spec recommendation to mirror
+/// `check_acyclic`'s explicit-stack shape.
+fn walk_predicate(root: &Predicate, f: &mut impl FnMut(&Predicate)) {
+	let mut stack: Vec<&Predicate> = vec![root];
+	while let Some(p) = stack.pop() {
+		f(p);
+		match p {
+			Predicate::AnyOf(a) => {
+				for child in a.any_of.iter().rev() {
+					stack.push(child);
+				}
 			}
-		}
-		Predicate::AllOf(a) => {
-			for child in &a.all_of {
-				walk_predicate(child, f);
+			Predicate::AllOf(a) => {
+				for child in a.all_of.iter().rev() {
+					stack.push(child);
+				}
 			}
+			Predicate::Not(n) => stack.push(n.not.as_ref()),
+			Predicate::Check(_) => {}
 		}
-		Predicate::Not(n) => walk_predicate(&n.not, f),
-		Predicate::Check(_) => {}
 	}
 }
 
@@ -319,6 +335,46 @@ mod tests {
 		}));
 		let err = analyze(set(vec![rule]), &Providers, &Providers).expect_err("must error");
 		assert!(err.to_string().contains("does_not_exist"));
+	}
+
+	#[test]
+	fn rejects_predicate_nested_deeper_than_max_predicate_depth() {
+		// Build `not(not(not(... check ...)))` over `MAX_PREDICATE_DEPTH+1`
+		// levels — straight chains are the easiest pathological shape.
+		let depth = crate::predicate::MAX_PREDICATE_DEPTH + 1;
+		let mut inner = serde_json::json!({ "tls.sni": { "equals": "a" } });
+		for _ in 0..depth {
+			inner = serde_json::json!({ "not": inner });
+		}
+		let raw = serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"match": inner,
+			"terminate": { "type": "http_proxy" },
+		});
+		let rule: crate::rule::RawRule = serde_json::from_value(raw).expect("parse");
+		let err =
+			analyze(set(vec![rule]), &Providers, &Providers).expect_err("deep predicate must reject");
+		assert!(err.to_string().contains("MAX_PREDICATE_DEPTH"), "{err}");
+	}
+
+	#[test]
+	fn accepts_predicate_at_max_predicate_depth() {
+		// Exactly MAX_PREDICATE_DEPTH levels of `not` wrapping a leaf
+		// Check must still compile.
+		let depth = crate::predicate::MAX_PREDICATE_DEPTH - 1;
+		let mut inner = serde_json::json!({ "tls.sni": { "equals": "a" } });
+		for _ in 0..depth {
+			inner = serde_json::json!({ "not": inner });
+		}
+		let raw = serde_json::json!({
+			"name": "r",
+			"listen": [":443"],
+			"match": inner,
+			"terminate": { "type": "http_proxy" },
+		});
+		let rule: crate::rule::RawRule = serde_json::from_value(raw).expect("parse");
+		analyze(set(vec![rule]), &Providers, &Providers).expect("at-limit predicate compiles");
 	}
 
 	#[test]
