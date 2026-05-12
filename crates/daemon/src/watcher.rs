@@ -81,6 +81,11 @@ pub(crate) fn spawn_watcher_handler(
 					if evt.is_none() {
 						return;
 					}
+					// Serialize against the mgmt `reload` verb: both
+					// sources call `reload_once + reconcile`, and
+					// `ListenerSet::reconcile` mutates shared listener
+					// state. The lock keeps the full pipeline atomic.
+					let _guard = ctx.reload.run_lock.lock().await;
 					let outcome = reload_once(&ctx.reload).await;
 					match outcome {
 						Ok(ReloadOutcome::Swapped { hash }) => {
@@ -195,6 +200,7 @@ mod tests {
 			plugin_policies: None,
 			#[cfg(feature = "acme")]
 			acme_registry: None,
+			run_lock: tokio::sync::Mutex::new(()),
 		});
 		Arc::new(WatcherCtx {
 			reload,

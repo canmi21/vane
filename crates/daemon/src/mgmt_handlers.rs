@@ -343,6 +343,11 @@ impl MgmtState {
 	}
 
 	async fn handle_reload(&self) -> Result<serde_json::Value, WireError> {
+		// Serialize against the file-watcher loop. Both call sites
+		// take this mutex around the full `reload_once + reconcile`
+		// pipeline so concurrent triggers never race on `ArcSwap::store`
+		// or `ListenerSet::reconcile`.
+		let _guard = self.reload.run_lock.lock().await;
 		let outcome = reload_once(&self.reload).await;
 		match outcome {
 			Ok(ReloadOutcome::Swapped { hash }) => {
@@ -734,6 +739,7 @@ mod tests {
 			plugin_policies: None,
 			#[cfg(feature = "acme")]
 			acme_registry: None,
+			run_lock: tokio::sync::Mutex::new(()),
 		});
 		Arc::new(MgmtState {
 			started_at: Instant::now(),

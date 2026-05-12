@@ -50,6 +50,17 @@ pub(crate) struct ReloadCtx {
 	pub plugin_policies: Option<Arc<ArcSwap<PluginPolicyTable>>>,
 	#[cfg(feature = "acme")]
 	pub acme_registry: Option<Arc<vane_engine::acme::ManagedCertRegistry>>,
+	/// Cross-source reload serialization. The mgmt `reload` verb and
+	/// the file-watcher loop both drive the same pipeline; without a
+	/// lock, two concurrent triggers can race on `ArcSwap::store` (the
+	/// later-completing one wins, but the intermediate `version_hash`
+	/// log lines interleave) and on the downstream
+	/// `ListenerSet::reconcile` (which mutates the listener registry
+	/// — two racing reconciles can leave an entry leaking from / stuck
+	/// in the registry). Take this mutex across the full
+	/// `reload_once + reconcile` sequence so the pipeline runs
+	/// single-threaded end-to-end.
+	pub run_lock: tokio::sync::Mutex<()>,
 }
 
 impl ReloadCtx {
@@ -88,6 +99,7 @@ impl ReloadCtx {
 			plugin_policies: plugin_policies.cloned(),
 			#[cfg(feature = "acme")]
 			acme_registry: acme_registry.cloned(),
+			run_lock: tokio::sync::Mutex::new(()),
 		}
 	}
 }
@@ -295,6 +307,7 @@ mod tests {
 			plugin_policies: None,
 			#[cfg(feature = "acme")]
 			acme_registry: None,
+			run_lock: tokio::sync::Mutex::new(()),
 		}
 	}
 
