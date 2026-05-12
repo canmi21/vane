@@ -92,30 +92,66 @@ pub(crate) fn spawn_h3_endpoint(
 	let graph = Arc::clone(&ctx.base.graph);
 	let log_sink = Arc::clone(&ctx.base.log_sink);
 	let verbosity = Arc::clone(&ctx.base.verbosity);
+	let accept_cancel = ctx.base.accept_cancel.clone();
 	let force_cancel = ctx.base.force_cancel.clone();
+	let in_flight = Arc::clone(&ctx.base.in_flight);
 	tokio::spawn(async move {
-		run_h3_accept_loop(addr, endpoint, graph, &log_sink, &verbosity, force_cancel).await;
+		run_h3_accept_loop(
+			addr,
+			endpoint,
+			graph,
+			&log_sink,
+			&verbosity,
+			accept_cancel,
+			force_cancel,
+			in_flight,
+		)
+		.await;
 	});
 	Ok(())
 }
 
 /// Accept-loop task: pulls each `Incoming` from the endpoint, fully
 /// negotiates the QUIC handshake, then spawns
-/// [`crate::upgrade::drive_h3_server`] to run streams over it. Exits
-/// when the cancel token fires.
+/// [`crate::upgrade::drive_h3_server`] into the listener-wide
+/// `in_flight` `JoinSet` so the same shutdown tier
+/// (`accept_cancel` → drain → `force_cancel` → abort) that drains TCP
+/// connections also drains H3.
+///
+/// Two cancel tokens flow through the H3 stack:
+///
+/// - `accept_cancel` stops accepting new QUIC connections (this loop)
+///   and, downstream, new H3 streams (the per-conn driver) — but lets
+///   in-flight streams run to completion.
+/// - `force_cancel` is the hard cancel — closes the endpoint and
+///   propagates into per-stream `FlowCtx::cancel` for immediate teardown.
+#[allow(
+	clippy::too_many_arguments,
+	reason = "accept-loop wiring: each arg threads one piece of listener state; alternative is a fresh bag struct that just renames the noise"
+)]
 async fn run_h3_accept_loop(
 	addr: SocketAddr,
 	endpoint: quinn::Endpoint,
 	graph: Arc<ArcSwap<FlowGraph>>,
 	log_sink: &Arc<dyn FlowLogSink>,
 	verbosity: &Arc<VerbosityState>,
+	accept_cancel: CancellationToken,
 	force_cancel: CancellationToken,
+	in_flight: Arc<std::sync::Mutex<tokio::task::JoinSet<()>>>,
 ) {
 	loop {
 		tokio::select! {
 			biased;
 			() = force_cancel.cancelled() => {
 				endpoint.close(0u32.into(), b"shutdown");
+				return;
+			}
+			() = accept_cancel.cancelled() => {
+				// Soft drain: stop accepting new QUIC connections but
+				// let in-flight ones run to completion. The endpoint
+				// stays open so per-conn drivers can finish their
+				// streams; `force_cancel` is the kill-switch.
+				tracing::debug!(?addr, "h3 accept loop received accept_cancel; stopping accept");
 				return;
 			}
 			incoming = endpoint.accept() => {
@@ -132,8 +168,13 @@ async fn run_h3_accept_loop(
 				let graph = Arc::clone(&graph);
 				let log_sink = Arc::clone(log_sink);
 				let verbosity = Arc::clone(verbosity);
+				let accept_cancel = accept_cancel.clone();
 				let force_cancel = force_cancel.clone();
-				tokio::spawn(async move {
+				// Spawn into the listener's `in_flight` JoinSet so the
+				// per-listener drain (shutdown / reconcile) joins on
+				// the H3 driver instead of leaking it as a detached
+				// `tokio::spawn`.
+				in_flight.lock().expect("in_flight mutex poisoned").spawn(async move {
 					match connecting.await {
 						Ok(quic_conn) => {
 							crate::upgrade::drive_h3_server(
@@ -141,6 +182,7 @@ async fn run_h3_accept_loop(
 								quic_conn,
 								graph,
 								log_sink,
+								accept_cancel,
 								force_cancel,
 								verbosity,
 							)

@@ -448,9 +448,16 @@ pub(crate) async fn drive_h3_server(
 	quic_conn: quinn::Connection,
 	graph: Arc<arc_swap::ArcSwap<FlowGraph>>,
 	log: Arc<dyn FlowLogSink>,
-	cancel: CancellationToken,
+	accept_cancel: CancellationToken,
+	force_cancel: CancellationToken,
 	verbosity: Arc<crate::verbosity::VerbosityState>,
 ) {
+	// Alias for the existing per-stream FlowCtx wiring below — every
+	// stream still binds its `FlowCtx::cancel` to `force_cancel`, so
+	// nothing about the stream-level lifecycle changed. `accept_cancel`
+	// only governs whether the H3 connection-level accept loop below
+	// pulls a fresh stream out of the QUIC connection.
+	let cancel = force_cancel.clone();
 	let remote = quic_conn.remote_address();
 	let conn_id = crate::listener::next_conn_id();
 	let conn = Arc::new(vane_core::ConnContext {
@@ -480,7 +487,17 @@ pub(crate) async fn drive_h3_server(
 	loop {
 		tokio::select! {
 			biased;
-			() = cancel.cancelled() => return,
+			() = force_cancel.cancelled() => return,
+			() = accept_cancel.cancelled() => {
+				// Soft drain: stop accepting new H3 streams on this
+				// connection, but let any in-flight stream complete.
+				// Each handle_h3_request task ran to completion
+				// already-spawned via `tokio::spawn`; we exit the
+				// outer accept loop and the connection enters QUIC's
+				// natural drain.
+				tracing::debug!(conn_id = %conn.id, "h3 driver received accept_cancel; stopping stream accept");
+				return;
+			}
 			accepted = h3_conn.accept() => {
 				match accepted {
 					Ok(Some(resolver)) => {
