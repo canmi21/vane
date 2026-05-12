@@ -68,9 +68,16 @@ pub enum UpstreamVersion {
 /// family owns its own pooling discipline; see the module-level
 /// docstring for the full posture matrix.
 pub struct HttpProxyFetch {
-	upstream: Arc<str>,
 	version: UpstreamVersion,
-	scheme: &'static str,
+	/// `http::uri::Scheme` resolved once at factory time. Both
+	/// variants ([`http::uri::Scheme::HTTP`] / [`http::uri::Scheme::HTTPS`])
+	/// are cheap to clone (refcount under the hood) — per-request
+	/// `format!`-driven URI rebuild is avoided in favour of
+	/// `Uri::builder().scheme(...).authority(...)`.
+	scheme: http::uri::Scheme,
+	/// `http::uri::Authority` parsed once at factory time and
+	/// `Clone`d per request (`Authority` wraps a refcounted `Bytes`).
+	authority: http::uri::Authority,
 	dispatch: Dispatch,
 	retry: Arc<RetryPolicy>,
 }
@@ -127,16 +134,26 @@ impl L7Fetch for HttpProxyFetch {
 		_conn: &Arc<ConnContext>,
 		_ctx: &mut FlowCtx,
 	) -> Result<L7FetchOutput, Error> {
-		// Compose the full upstream URI so the dispatch path routes by
-		// scheme + authority. For TCP (hyper-util Client) the connector
+		// Compose the upstream URI from `scheme + authority` resolved
+		// once at factory time and the inbound path/query, refcounted
+		// where possible. For TCP (hyper-util Client) the connector
 		// reads `http://` / `https://` to pick cleartext vs TLS; for QUIC
 		// (h3 client) the scheme + authority become :scheme / :authority
 		// pseudo-headers so the upstream sees the rewritten target.
-		let path_and_query =
-			req.uri().path_and_query().map_or("/", http::uri::PathAndQuery::as_str).to_string();
-		let new_uri = format!("{}://{}{}", self.scheme, self.upstream, path_and_query);
-		*req.uri_mut() =
-			new_uri.parse().map_err(|e| Error::protocol("upstream uri rewrite").with_source(e))?;
+		// `PathAndQuery` clones are refcounted; `Scheme` / `Authority`
+		// clones are `Bytes`-backed refcount bumps. No format!, no
+		// per-request parse — only the `Uri::builder` assembly cost.
+		let path_and_query = req
+			.uri()
+			.path_and_query()
+			.cloned()
+			.unwrap_or_else(|| http::uri::PathAndQuery::from_static("/"));
+		*req.uri_mut() = http::Uri::builder()
+			.scheme(self.scheme.clone())
+			.authority(self.authority.clone())
+			.path_and_query(path_and_query)
+			.build()
+			.map_err(|e| Error::protocol("upstream uri rewrite").with_source(e))?;
 
 		// Snapshot the request body for replay. `Body::Stream` is
 		// one-shot — it collapses retry to a single attempt
@@ -318,8 +335,8 @@ impl HttpProxyFetch {
 		Err(last_err.expect("retry loop runs at least once"))
 	}
 
-	/// Single-attempt QUIC-family path. Resolves `self.upstream` to a
-	/// `SocketAddr`, composes the per-request `QuicFingerprint`,
+	/// Single-attempt QUIC-family path. Resolves the dispatch's
+	/// `host:port` to a `SocketAddr`, composes the per-request `QuicFingerprint`,
 	/// acquires the pooled `h3::client::SendRequest` (dialing on miss),
 	/// and runs one request / response round-trip with the response
 	/// body wrapped in `Body::Stream(Box::pin(H3Body::new(...)))` per
@@ -683,12 +700,15 @@ pub fn factory(
 		build_client(version, tls_for_build.as_ref(), &dns_for_build)
 	});
 
-	let scheme = if tls.is_some() { "https" } else { "http" };
+	let scheme = if tls.is_some() { http::uri::Scheme::HTTPS } else { http::uri::Scheme::HTTP };
+	let authority: http::uri::Authority = upstream
+		.parse()
+		.map_err(|e| FactoryError(format!("args.upstream {upstream:?}: invalid authority: {e}")))?;
 
 	Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
-		upstream: Arc::from(upstream),
 		version,
 		scheme,
+		authority,
 		dispatch: Dispatch::Tcp(client),
 		retry: Arc::new(retry),
 	})))
@@ -762,10 +782,13 @@ fn build_h3_dispatch(
 		host: Arc::from(host.as_str()),
 		port,
 	});
+	let authority: http::uri::Authority = upstream
+		.parse()
+		.map_err(|e| FactoryError(format!("args.upstream {upstream:?}: invalid authority: {e}")))?;
 	Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
-		upstream: Arc::from(upstream),
 		version,
-		scheme: "https",
+		scheme: http::uri::Scheme::HTTPS,
+		authority,
 		dispatch,
 		retry: Arc::new(retry),
 	})))
