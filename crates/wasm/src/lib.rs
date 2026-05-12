@@ -1848,8 +1848,7 @@ impl WasmtimeRuntime {
 
 		let old_meta = self.metadata.read().unwrap().get(&key).cloned();
 
-		let cwasm_path =
-			std::path::PathBuf::from(CWASM_CACHE_DIR).join(format!("{}.cwasm", hex_sha256(&bytes)));
+		let cwasm_path = cwasm_cache_path(&self.engine, &bytes);
 		let component = load_or_compile(&self.engine, path, &cwasm_path, &bytes)?;
 		let new_meta = get_metadata(
 			&self.engine,
@@ -1997,8 +1996,7 @@ impl WasmRuntime for WasmtimeRuntime {
 			.map_err(|e| Error::middleware(format!("read {}: {e}", path.display())))?;
 		let bytes_hash = sha256_bytes(&bytes);
 
-		let hash = hex_sha256(&bytes);
-		let cwasm_path = std::path::PathBuf::from(CWASM_CACHE_DIR).join(format!("{hash}.cwasm"));
+		let cwasm_path = cwasm_cache_path(&self.engine, &bytes);
 
 		let component = load_or_compile(&self.engine, path, &cwasm_path, &bytes)?;
 		let meta = get_metadata(
@@ -2364,20 +2362,73 @@ fn hex_sha256(data: &[u8]) -> String {
 	})
 }
 
+/// Build the cache filename for a wasm source. Embeds both the source
+/// SHA-256 (so two different modules with the same wasmtime version
+/// don't collide) and a hash of the [`Engine`]'s precompile
+/// compatibility shape (so a wasmtime upgrade or config change
+/// invalidates the cache automatically — recreating it is cheap, and
+/// loading a cwasm produced by an incompatible engine is undefined).
+fn cwasm_filename(engine: &Engine, bytes: &[u8]) -> String {
+	use std::hash::{DefaultHasher, Hash, Hasher};
+	let src = hex_sha256(bytes);
+	let compat = {
+		let mut h = DefaultHasher::new();
+		engine.precompile_compatibility_hash().hash(&mut h);
+		h.finish()
+	};
+	format!("{src}.{compat:016x}.cwasm")
+}
+
+/// Resolve the cwasm cache path for `(engine, bytes)`. Centralised so
+/// the two `load_component` call sites and `load_or_compile` agree on
+/// the filename shape.
+fn cwasm_cache_path(engine: &Engine, bytes: &[u8]) -> std::path::PathBuf {
+	std::path::PathBuf::from(CWASM_CACHE_DIR).join(cwasm_filename(engine, bytes))
+}
+
+/// Create the cwasm cache directory if missing. On unix the directory
+/// is created with `0o700`: cwasm files are precompiled native code
+/// loaded via `Component::deserialize_file` (which `mmap`s the file
+/// PROT_EXEC); a world-writable cache is a privilege-escalation
+/// vector. `recursive(true)` matches `create_dir_all` semantics.
+fn ensure_cwasm_cache_dir() -> std::io::Result<()> {
+	let mut b = std::fs::DirBuilder::new();
+	b.recursive(true);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::DirBuilderExt;
+		b.mode(0o700);
+	}
+	b.create(CWASM_CACHE_DIR)
+}
+
 fn load_or_compile(
 	engine: &Engine,
 	src: &Path,
 	cache: &Path,
 	bytes: &[u8],
 ) -> Result<Component, Error> {
-	if cache.exists() {
-		match unsafe { Component::deserialize_file(engine, cache) } {
-			Ok(c) => {
-				trace!("wasm cache hit: {cache:?}");
-				return Ok(c);
-			}
-			Err(e) => {
-				warn!("wasm cache deserialize failed, recompiling: {e}");
+	// Cache hit: stat first so we catch zero-byte or truncated files
+	// before `deserialize_file`'s mmap. The deserializer happily mmaps
+	// a zero-byte file and then trips at parse time; gating on `len`
+	// here surfaces the "stale empty file" failure mode as a recompile
+	// instead of a confusing wasmtime error.
+	if let Ok(meta) = std::fs::metadata(cache) {
+		if meta.len() < 64 {
+			warn!(
+				cache = %cache.display(),
+				size = meta.len(),
+				"wasm cache file is suspiciously small, ignoring and recompiling",
+			);
+		} else {
+			match unsafe { Component::deserialize_file(engine, cache) } {
+				Ok(c) => {
+					trace!("wasm cache hit: {cache:?}");
+					return Ok(c);
+				}
+				Err(e) => {
+					warn!("wasm cache deserialize failed, recompiling: {e}");
+				}
 			}
 		}
 	}
@@ -2385,18 +2436,53 @@ fn load_or_compile(
 	let component = Component::from_binary(engine, bytes)
 		.map_err(|e| Error::middleware(format!("compile {}: {e}", src.display())))?;
 
-	if let Ok(()) = std::fs::create_dir_all(CWASM_CACHE_DIR) {
-		match component.serialize() {
-			Ok(cwasm) => {
-				if let Err(e) = std::fs::write(cache, &cwasm) {
-					warn!("wasm cache write failed ({cache:?}): {e}");
+	if let Err(e) = ensure_cwasm_cache_dir() {
+		warn!("wasm cache dir create failed ({CWASM_CACHE_DIR}): {e}");
+		return Ok(component);
+	}
+
+	match component.serialize() {
+		Ok(cwasm) => match persist_cwasm(cache, &cwasm) {
+			Ok(()) => {
+				// Self-test: round-trip the just-persisted cwasm through
+				// `deserialize_file` so a corrupted-after-persist file
+				// (FS corruption, half-baked atomic write race) is
+				// caught immediately and torn down rather than waiting
+				// for the next boot to fail. The in-memory `component`
+				// the caller wants is unchanged either way.
+				if let Err(e) = unsafe { Component::deserialize_file(engine, cache) } {
+					warn!(
+						cache = %cache.display(),
+						error = %e,
+						"wasm cache self-test failed; removing entry",
+					);
+					let _ = std::fs::remove_file(cache);
 				}
 			}
-			Err(e) => warn!("wasm serialize failed: {e}"),
-		}
+			Err(e) => warn!("wasm cache write failed ({cache:?}): {e}"),
+		},
+		Err(e) => warn!("wasm serialize failed: {e}"),
 	}
 
 	Ok(component)
+}
+
+/// Atomic cwasm persist: write to a `NamedTempFile` in the cache dir,
+/// flush user-space buffers + ask the kernel to sync the data blocks,
+/// then `persist` (rename within the same FS so the swap is atomic on
+/// POSIX). On crash mid-write a partial temp file is left behind for
+/// the next boot's `tempfile` cleanup pass to reap; the canonical
+/// path either holds the previous good cwasm or nothing.
+fn persist_cwasm(cache: &Path, cwasm: &[u8]) -> std::io::Result<()> {
+	use std::io::Write as _;
+	let parent = cache.parent().ok_or_else(|| {
+		std::io::Error::new(std::io::ErrorKind::InvalidInput, "cwasm cache path has no parent")
+	})?;
+	let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+	tmp.write_all(cwasm)?;
+	tmp.as_file().sync_data()?;
+	tmp.persist(cache).map_err(|e| e.error)?;
+	Ok(())
 }
 
 async fn get_metadata(
