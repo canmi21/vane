@@ -4,6 +4,7 @@
 
 pub mod body;
 pub use body::*;
+pub mod canonical;
 pub mod compile;
 pub use compile::compile;
 pub mod config;

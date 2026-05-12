@@ -140,40 +140,14 @@ fn canonical_json_eq(a: &serde_json::Value, b: &serde_json::Value) -> bool {
 	}
 }
 
+/// Hash the canonical byte form of `v` (produced by the workspace
+/// `crate::canonical` serializer). Routing every hash-cons through the
+/// same canonicalizer keeps middleware/fetch arg dedup in lockstep
+/// with `FlowGraphMeta::version_hash`.
 fn hash_canonical_json<H: std::hash::Hasher>(v: &serde_json::Value, state: &mut H) {
-	use serde_json::Value;
-	match v {
-		Value::Null => 0u8.hash(state),
-		Value::Bool(b) => {
-			1u8.hash(state);
-			b.hash(state);
-		}
-		Value::Number(n) => {
-			2u8.hash(state);
-			n.to_string().hash(state);
-		}
-		Value::String(s) => {
-			3u8.hash(state);
-			s.hash(state);
-		}
-		Value::Array(xs) => {
-			4u8.hash(state);
-			xs.len().hash(state);
-			for x in xs {
-				hash_canonical_json(x, state);
-			}
-		}
-		Value::Object(xs) => {
-			5u8.hash(state);
-			let mut keys: Vec<&String> = xs.keys().collect();
-			keys.sort();
-			keys.len().hash(state);
-			for k in keys {
-				k.hash(state);
-				hash_canonical_json(&xs[k], state);
-			}
-		}
-	}
+	let mut buf = String::new();
+	crate::canonical::write_into_lossy(&mut buf, v);
+	buf.hash(state);
 }
 
 #[cfg(test)]

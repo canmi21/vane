@@ -2024,29 +2024,14 @@ fn source_prefix(source: &SourceInfo) -> String {
 	}
 }
 
+/// Canonical-JSON wrapper that delegates to the workspace's single
+/// canonicalizer (`crate::canonical`). All hash-cons / version-hash
+/// sites flow through this helper so the byte form is identical
+/// across consumers.
 fn canonical_json(v: &serde_json::Value) -> String {
-	use serde_json::Value as V;
-	match v {
-		V::Null => "null".to_string(),
-		V::Bool(b) => b.to_string(),
-		V::Number(n) => n.to_string(),
-		V::String(s) => serde_json::to_string(s).unwrap_or_else(|_| s.clone()),
-		V::Array(xs) => {
-			let parts: Vec<String> = xs.iter().map(canonical_json).collect();
-			format!("[{}]", parts.join(","))
-		}
-		V::Object(xs) => {
-			let mut keys: Vec<&String> = xs.keys().collect();
-			keys.sort();
-			let parts: Vec<String> = keys
-				.iter()
-				.map(|k| {
-					format!("{}:{}", serde_json::to_string(k).unwrap_or_default(), canonical_json(&xs[*k]))
-				})
-				.collect();
-			format!("{{{}}}", parts.join(","))
-		}
-	}
+	let mut out = String::new();
+	crate::canonical::write_into_lossy(&mut out, v);
+	out
 }
 
 /// SHA-256 of every rule's full canonical JSON form, sorted by rule
