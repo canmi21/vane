@@ -1755,11 +1755,14 @@ dependencies = [
 name = "h3-body"
 version = "0.0.1"
 dependencies = [
+ "async-stream",
  "async-trait",
  "bytes",
+ "futures-core",
  "h3",
  "http",
  "http-body",
+ "pin-project-lite",
  "tokio",
 ]
 

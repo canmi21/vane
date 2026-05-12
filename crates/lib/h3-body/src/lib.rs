@@ -4,9 +4,13 @@
 //!
 //! `h3` exposes its body shape as two separate calls — one returning
 //! `impl Buf` data chunks and a once-only `recv_trailers()` after the
-//! data half closes. [`H3Body`] runs a small pump task that walks both
-//! calls in order and pushes each result onto a bounded channel;
-//! [`http_body::Body::poll_frame`] simply forwards the channel.
+//! data half closes. [`H3Body`] embeds those two calls directly inside
+//! an `async-stream`-backed generator that drives `recv_data` until
+//! end-of-stream and then `recv_trailers` once; [`http_body::Body::poll_frame`]
+//! polls that single self-contained future. No `tokio::spawn`, no
+//! `mpsc` channel — the consumer's poll drives h3 directly so a slow
+//! consumer naturally throttles h3 reads through the QUIC flow-control
+//! window.
 //!
 //! [`ServerStreamSource`] adapts the listener-side stream — used to
 //! feed inbound request bodies into an HTTP stack. [`ClientStreamSource`]
@@ -21,15 +25,10 @@ use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
+use futures_core::Stream;
 use http::HeaderMap;
 use http_body::{Body, Frame};
-use tokio::sync::mpsc;
-
-/// Backpressure cap for the body channel — chosen to balance burstiness
-/// (h3's `recv_data` may produce small frames quickly) against the cost
-/// of a stalled consumer holding a memory ceiling. The channel is
-/// per-stream so the cap is per-stream too.
-const FRAME_CHANNEL_CAPACITY: usize = 8;
+use pin_project_lite::pin_project;
 
 /// Trait that hides the difference between `h3::server::RequestStream`
 /// and `h3::client::RequestStream`. Each impl adapts h3's two-call
@@ -153,49 +152,50 @@ where
 	}
 }
 
-/// `http_body::Body` adapter over a trait-erased h3 stream source.
-/// Construct via `H3Body::new(source)` at every H3 ingress site
-/// (server or client).
-///
-/// A spawned pump task drives `recv_data` then `recv_trailers` and
-/// pushes each result onto a bounded channel. `poll_frame` is a thin
-/// wrapper around `Receiver::poll_recv`. The pump exits cleanly when
-/// the consumer drops `H3Body` — `tx.send` returns `Err`, the loop
-/// breaks, and the source's drop frees the underlying h3 stream.
-pub struct H3Body {
-	rx: mpsc::Receiver<io::Result<Frame<Bytes>>>,
+pin_project! {
+	/// `http_body::Body` adapter over a trait-erased h3 stream source.
+	/// Construct via `H3Body::new(source)` at every H3 ingress site
+	/// (server or client).
+	///
+	/// Internally backed by an `async-stream` generator whose state
+	/// machine owns the underlying `H3StreamSource` and drives
+	/// `recv_data` until end-of-stream then `recv_trailers` once.
+	/// `poll_frame` polls that generator directly — no `tokio::spawn`,
+	/// no `mpsc::channel`. Backpressure flows through QUIC's flow-
+	/// control window: a slow `poll_frame` consumer stops draining
+	/// `recv_data`, which lets the QUIC stack signal the peer to
+	/// throttle.
+	pub struct H3Body {
+		#[pin]
+		stream: Pin<Box<dyn Stream<Item = io::Result<Frame<Bytes>>> + Send>>,
+	}
 }
 
 impl H3Body {
 	#[must_use]
 	pub fn new<S: H3StreamSource + 'static>(mut source: S) -> Self {
-		let (tx, rx) = mpsc::channel(FRAME_CHANNEL_CAPACITY);
-		tokio::spawn(async move {
+		// `async_stream::try_stream!` lets us write the state machine
+		// straight through. Yield-and-await pattern preserves
+		// readability while collapsing the prior pump task into a
+		// single self-pinning future driven by the consumer.
+		let stream = async_stream::stream! {
 			loop {
 				match source.recv_data().await {
-					Ok(Some(b)) => {
-						if tx.send(Ok(Frame::data(b))).await.is_err() {
-							return;
-						}
-					}
+					Ok(Some(b)) => yield Ok(Frame::data(b)),
 					Ok(None) => break,
 					Err(e) => {
-						let _ = tx.send(Err(e)).await;
+						yield Err(e);
 						return;
 					}
 				}
 			}
 			match source.recv_trailers().await {
-				Ok(Some(t)) => {
-					let _ = tx.send(Ok(Frame::trailers(t))).await;
-				}
+				Ok(Some(t)) => yield Ok(Frame::trailers(t)),
 				Ok(None) => {}
-				Err(e) => {
-					let _ = tx.send(Err(e)).await;
-				}
+				Err(e) => yield Err(e),
 			}
-		});
-		Self { rx }
+		};
+		Self { stream: Box::pin(stream) }
 	}
 }
 
@@ -204,9 +204,9 @@ impl Body for H3Body {
 	type Error = io::Error;
 
 	fn poll_frame(
-		mut self: Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut Context<'_>,
 	) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-		self.rx.poll_recv(cx)
+		self.project().stream.poll_next(cx)
 	}
 }

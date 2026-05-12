@@ -14,9 +14,12 @@ description = "Adapt h3 server / client RequestStream to a single http_body::Bod
 workspace = true
 
 [dependencies]
+async-stream = "0.3"
 async-trait = "0.1"
 bytes = "1"
+futures-core = "0.3"
 h3 = "0.0.8"
 http = "1"
 http-body = "1"
+pin-project-lite = "0.2"
 tokio = { version = "1", features = ["sync", "rt"] }
