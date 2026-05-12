@@ -21,6 +21,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited, combinators::BoxBody};
@@ -28,9 +29,9 @@ use hyper::body::{Body, Frame, Incoming};
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE, WWW_AUTHENTICATE};
 use hyper::service::service_fn;
 use hyper::{HeaderMap, Method, StatusCode};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -47,6 +48,23 @@ const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 /// (TCP buffer fills → hyper stops draining → channel fills → producer
 /// awaits).
 const STREAM_CHANNEL_DEPTH: usize = 64;
+
+/// Per-listener cap on concurrent live HTTP connections. Mgmt is a
+/// control plane, not a data plane — a handful of concurrent operators
+/// is the realistic ceiling, and capping here turns connection-flood
+/// attacks into deterministic 503-ish backpressure (new connects sit
+/// in the OS accept queue) instead of unbounded task spawning.
+const MAX_CONCURRENT_CONNECTIONS: usize = 64;
+
+/// Hard cap on the size of one HTTP/1 header-section read buffer.
+/// Mgmt requests carry one `Authorization` header plus a small POST
+/// body framing; 64 KiB is generous and matches the L1 listener cap.
+const HTTP1_MAX_BUF_SIZE: usize = 64 * 1024;
+
+/// Header-section read timeout. A slowloris client that opens a TCP
+/// connection and dribbles header bytes one per second will be
+/// disconnected here instead of pinning a hyper task indefinitely.
+const HTTP1_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug)]
 pub struct HttpServerConfig {
@@ -110,7 +128,25 @@ async fn run_accept_loop<H: Handler>(
 	bind_addr: SocketAddr,
 ) {
 	tracing::info!(%bind_addr, auth = if token.is_some() { "bearer" } else { "anonymous" }, "mgmt http listening");
+	let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
 	loop {
+		// Reserve a connection slot BEFORE accept so a flood of
+		// connects backs up in the OS accept queue rather than
+		// causing us to spawn an unbounded number of hyper drivers
+		// that all then have to serialize behind the cap.
+		let permit = tokio::select! {
+			biased;
+			() = cancel.cancelled() => return,
+			p = Arc::clone(&semaphore).acquire_owned() => match p {
+				Ok(p) => p,
+				// Semaphore::close is the only way `acquire_owned`
+				// errors. We never close, so this is unreachable in
+				// practice; treat it as a hard stop to avoid a spin
+				// loop if the invariant ever breaks.
+				Err(_) => return,
+			},
+		};
+
 		tokio::select! {
 			biased;
 			() = cancel.cancelled() => return,
@@ -119,22 +155,27 @@ async fn run_accept_loop<H: Handler>(
 					Ok(v) => v,
 					Err(e) => {
 						tracing::debug!(?e, %bind_addr, "mgmt http accept error");
+						drop(permit);
 						continue;
 					}
 				};
 				let handler = Arc::clone(&handler);
 				let token = token.clone();
 				tokio::spawn(async move {
+					let _permit = permit; // released when this task exits
 					let io = TokioIo::new(stream);
 					let svc = service_fn(move |req| {
 						let handler = Arc::clone(&handler);
 						let token = token.clone();
 						async move { handle_request(req, handler, token, peer).await }
 					});
-					if let Err(e) = hyper::server::conn::http1::Builder::new()
-						.serve_connection(io, svc)
-						.await
-					{
+					let mut builder = hyper::server::conn::http1::Builder::new();
+					builder
+						.keep_alive(false)
+						.max_buf_size(HTTP1_MAX_BUF_SIZE)
+						.timer(TokioTimer::new())
+						.header_read_timeout(HTTP1_HEADER_READ_TIMEOUT);
+					if let Err(e) = builder.serve_connection(io, svc).await {
 						tracing::debug!(?e, %peer, "mgmt http connection ended");
 					}
 				});
