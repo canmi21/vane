@@ -69,6 +69,8 @@ pub enum OcspError {
 	ResponseParse(String),
 	#[error("OCSP responder returned non-successful status: {0}")]
 	ResponderError(String),
+	#[error("OCSP response body exceeds {cap} bytes")]
+	BodyTooLarge { cap: usize },
 }
 
 /// Parsed OCSP response result. `staple` is the full DER `OCSPResponse`
@@ -220,12 +222,19 @@ mod fetch {
 	use std::time::Duration;
 
 	use bytes::Bytes;
-	use http_body_util::{BodyExt, Full};
+	use http_body_util::{BodyExt, Full, Limited};
 	use hyper::Request;
 
 	use super::{
 		OcspError, OcspStaple, build_ocsp_request, classify_url, extract_ocsp_url, parse_ocsp_response,
 	};
+
+	/// Hard cap on the OCSP response body. A signed OCSPResponse for a
+	/// single cert is typically a few KiB; 1 MiB is generous and
+	/// rejects pathological / adversarial responders before they pin
+	/// RAM. Matches the cap used by the CRL fetcher so the two trust-
+	/// material channels surface the same magnitude of failure.
+	const MAX_OCSP_BODY_BYTES: usize = 1024 * 1024;
 
 	/// HTTP POST `request_der` to `responder_url` and return the raw
 	/// `OCSPResponse` bytes. Caps the entire fetch at `timeout` (DNS +
@@ -305,12 +314,17 @@ mod fetch {
 			conn_handle.abort();
 			return Err(OcspError::HttpStatus { status: status.as_u16() });
 		}
-		let bytes = resp
-			.into_body()
-			.collect()
-			.await
-			.map_err(|e| OcspError::Transport(format!("read body: {e}")))?
-			.to_bytes();
+		let limited = Limited::new(resp.into_body(), MAX_OCSP_BODY_BYTES);
+		let bytes = match limited.collect().await {
+			Ok(collected) => collected.to_bytes(),
+			Err(e) => {
+				conn_handle.abort();
+				if e.downcast_ref::<http_body_util::LengthLimitError>().is_some() {
+					return Err(OcspError::BodyTooLarge { cap: MAX_OCSP_BODY_BYTES });
+				}
+				return Err(OcspError::Transport(format!("read body: {e}")));
+			}
+		};
 		drop(sender);
 		let _ = conn_handle.await;
 		Ok(bytes.to_vec())
