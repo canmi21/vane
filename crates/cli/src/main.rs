@@ -7,14 +7,15 @@
 #[cfg(feature = "tui")]
 mod tui;
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::builder::styling::{AnsiColor, Effects, Styles};
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 use owo_colors::{OwoColorize, Stream, Style};
 use vane_core::version::{BuildInfo, print_banner};
-use vane_mgmt::UnixMgmtClient;
 use vane_mgmt::verb::{
 	CgiPoolEntry, CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, ForceRenewArgs,
 	ForceRenewResult, GetCertsResult, GetConfigResult, GetConnectionsResult, GetMetricsArgs,
@@ -25,6 +26,7 @@ use vane_mgmt::verb::{
 	VERB_POOL_DRAIN, VERB_RELOAD, VERB_SHUTDOWN, VERB_STATS, VERB_TAIL_FLOW, VERB_TAIL_LOG,
 	WasmPoolEntry,
 };
+use vane_mgmt::{HttpMgmtClient, MgmtClientError, UnixMgmtClient};
 
 const BUILD_INFO: BuildInfo = BuildInfo {
 	version: env!("CARGO_PKG_VERSION"),
@@ -70,6 +72,7 @@ const HELP_TEMPLATE: &str =
 	styles = HELP_STYLES,
 	help_template = HELP_TEMPLATE,
 	before_help = "",
+	group = ArgGroup::new("transport").args(["socket", "http"]).multiple(false),
 )]
 struct Cli {
 	/// Print the build banner and exit.
@@ -79,8 +82,23 @@ struct Cli {
 	/// Mgmt Unix socket path. Resolution order: `--socket` →
 	/// `$VANE_MGMT_UNIX` → `$XDG_RUNTIME_DIR/vaned.sock` →
 	/// `/run/vaned.sock`. `/tmp` is intentionally not a default.
+	/// Mutually exclusive with `--http`.
 	#[arg(long, global = true)]
 	socket: Option<PathBuf>,
+
+	/// Mgmt HTTP endpoint as `host:port`. When set, the CLI speaks
+	/// the HTTP-over-TCP transport instead of the Unix socket. The
+	/// bearer token is sourced from `--token-env`; an HTTP daemon
+	/// configured with anonymous loopback access tolerates missing
+	/// `--token-env`. Mutually exclusive with `--socket`.
+	#[arg(long, value_name = "ADDR", global = true)]
+	http: Option<SocketAddr>,
+
+	/// Name of the env var holding the bearer token for `--http`.
+	/// The CLI reads the token from `env::var(<value>)` so secrets
+	/// never appear on the command line or in shell history.
+	#[arg(long = "token-env", value_name = "VAR", global = true, requires = "http")]
+	token_env: Option<String>,
 
 	/// Emit JSON instead of human-readable output.
 	#[arg(long, global = true)]
@@ -88,6 +106,44 @@ struct Cli {
 
 	#[command(subcommand)]
 	cmd: Option<Cmd>,
+}
+
+/// Operator-facing transport abstraction. Either Unix-socket or
+/// HTTP-over-TCP, picked by the clap transport group at parse time;
+/// every `run_*` calls through here so the dispatch table stays
+/// transport-agnostic.
+enum MgmtTransport {
+	Unix(UnixMgmtClient),
+	Http(HttpMgmtClient),
+}
+
+impl MgmtTransport {
+	async fn call<A, R>(&self, verb: &str, args: &A) -> Result<R, MgmtClientError>
+	where
+		A: serde::Serialize,
+		R: for<'de> serde::Deserialize<'de>,
+	{
+		match self {
+			Self::Unix(c) => c.call(verb, args).await,
+			Self::Http(c) => c.call(verb, args).await,
+		}
+	}
+
+	async fn call_stream<A, F>(
+		&self,
+		verb: &str,
+		args: &A,
+		on_event: F,
+	) -> Result<(), MgmtClientError>
+	where
+		A: serde::Serialize,
+		F: FnMut(serde_json::Value),
+	{
+		match self {
+			Self::Unix(c) => c.call_stream(verb, args, on_event).await,
+			Self::Http(c) => c.stream(verb, args, on_event).await,
+		}
+	}
 }
 
 #[derive(Subcommand, Debug)]
@@ -193,7 +249,7 @@ async fn main() -> std::process::ExitCode {
 		return std::process::ExitCode::SUCCESS;
 	}
 
-	let cli = Cli::parse();
+	let mut cli = Cli::parse();
 	if cli.version {
 		print_banner(&BUILD_INFO);
 		return std::process::ExitCode::SUCCESS;
@@ -203,26 +259,25 @@ async fn main() -> std::process::ExitCode {
 	// we fall back to the original "no subcommand — try --help" hint
 	// rather than launching a missing binary path.
 	#[cfg(feature = "tui")]
-	let cmd = cli.cmd.unwrap_or(Cmd::Tui);
+	let cmd = cli.cmd.take().unwrap_or(Cmd::Tui);
 	#[cfg(not(feature = "tui"))]
-	let Some(cmd) = cli.cmd else {
+	let Some(cmd) = cli.cmd.take() else {
 		eprintln!(
 			"{} no subcommand — try `vane --help`",
 			"vane:".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold())),
 		);
 		return std::process::ExitCode::FAILURE;
 	};
-	let socket = cli
-		.socket
-		.or_else(|| std::env::var("VANE_MGMT_UNIX").ok().filter(|s| !s.is_empty()).map(PathBuf::from))
-		.or_else(|| {
-			std::env::var("XDG_RUNTIME_DIR")
-				.ok()
-				.filter(|s| !s.is_empty())
-				.map(|dir| PathBuf::from(dir).join("vaned.sock"))
-		})
-		.unwrap_or_else(|| PathBuf::from(DEFAULT_SOCKET));
-	let client = UnixMgmtClient::new(&socket);
+	let client = match build_transport(&cli) {
+		Ok(c) => c,
+		Err(e) => {
+			eprintln!(
+				"{} {e}",
+				"vane:".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold())),
+			);
+			return std::process::ExitCode::FAILURE;
+		}
+	};
 
 	let result = match cmd {
 		Cmd::Ping => run_ping(&client, cli.json).await,
@@ -252,12 +307,58 @@ async fn main() -> std::process::ExitCode {
 				"{} {e}",
 				"vane:".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold()))
 			);
+			// Surface structured WireError details when the daemon
+			// attached any. Compile dry-run pushes per-diagnostic
+			// `SerializedError` entries here, so operators see every
+			// stage's complaint instead of a single joined message.
+			if let Some(MgmtClientError::Server(w)) = e.downcast_ref::<MgmtClientError>()
+				&& let Some(details) = &w.details
+				&& let Ok(rendered) = serde_json::to_string_pretty(details)
+			{
+				eprintln!("details:\n{rendered}");
+			}
 			std::process::ExitCode::FAILURE
 		}
 	}
 }
 
-async fn run_ping(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+/// Resolve the operator's transport choice into a concrete client.
+///
+/// Picks the HTTP transport when `--http` is supplied, otherwise
+/// falls through to the Unix-socket resolution chain (`--socket` →
+/// `$VANE_MGMT_UNIX` → `$XDG_RUNTIME_DIR/vaned.sock` → `/run/vaned.sock`).
+/// `--token-env` reads the bearer token from the named env var; we
+/// resolve it once here so the rest of the CLI never sees the raw
+/// secret string.
+fn build_transport(cli: &Cli) -> Result<MgmtTransport, String> {
+	if let Some(addr) = cli.http {
+		let token = match &cli.token_env {
+			Some(var) => match std::env::var(var) {
+				Ok(v) if v.is_empty() => {
+					return Err(format!("--token-env {var:?}: env var is empty"));
+				}
+				Ok(v) => Some(Arc::<str>::from(v)),
+				Err(_) => return Err(format!("--token-env {var:?}: env var not set")),
+			},
+			None => None,
+		};
+		return Ok(MgmtTransport::Http(HttpMgmtClient::new(addr, token)));
+	}
+	let socket = cli
+		.socket
+		.clone()
+		.or_else(|| std::env::var("VANE_MGMT_UNIX").ok().filter(|s| !s.is_empty()).map(PathBuf::from))
+		.or_else(|| {
+			std::env::var("XDG_RUNTIME_DIR")
+				.ok()
+				.filter(|s| !s.is_empty())
+				.map(|dir| PathBuf::from(dir).join("vaned.sock"))
+		})
+		.unwrap_or_else(|| PathBuf::from(DEFAULT_SOCKET));
+	Ok(MgmtTransport::Unix(UnixMgmtClient::new(&socket)))
+}
+
+async fn run_ping(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let r: PingResult = client.call(VERB_PING, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
@@ -267,7 +368,7 @@ async fn run_ping(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
 	Ok(())
 }
 
-async fn run_stats(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_stats(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let r: StatsResult = client.call(VERB_STATS, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
@@ -280,7 +381,7 @@ async fn run_stats(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
 	Ok(())
 }
 
-async fn run_shutdown(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_shutdown(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let r: ShutdownResult = client.call(VERB_SHUTDOWN, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
@@ -292,14 +393,14 @@ async fn run_shutdown(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()>
 	Ok(())
 }
 
-async fn run_get_config(client: &UnixMgmtClient) -> anyhow::Result<()> {
+async fn run_get_config(client: &MgmtTransport) -> anyhow::Result<()> {
 	let r: GetConfigResult = client.call(VERB_GET_CONFIG, &NoArgs {}).await?;
 	// Always JSON — the symbolic graph has no sensible tabular form.
 	print_json(&r.graph)?;
 	Ok(())
 }
 
-async fn run_reload(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_reload(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let r: ReloadResult = client.call(VERB_RELOAD, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
@@ -316,14 +417,14 @@ async fn run_reload(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
 	Ok(())
 }
 
-async fn run_compile_dry_run(client: &UnixMgmtClient, config_dir: &Path) -> anyhow::Result<()> {
+async fn run_compile_dry_run(client: &MgmtTransport, config_dir: &Path) -> anyhow::Result<()> {
 	let args = CompileDryRunArgs { config_dir: config_dir.to_string_lossy().into_owned() };
 	let r: CompileDryRunResult = client.call(VERB_COMPILE_DRY_RUN, &args).await?;
 	print_json(&r.graph)?;
 	Ok(())
 }
 
-async fn run_cert_renew(client: &UnixMgmtClient, sni: &str, json: bool) -> anyhow::Result<()> {
+async fn run_cert_renew(client: &MgmtTransport, sni: &str, json: bool) -> anyhow::Result<()> {
 	let args = ForceRenewArgs { sni: sni.to_owned() };
 	let r: ForceRenewResult = client.call(VERB_FORCE_RENEW, &args).await?;
 	if json {
@@ -336,7 +437,7 @@ async fn run_cert_renew(client: &UnixMgmtClient, sni: &str, json: bool) -> anyho
 	Ok(())
 }
 
-async fn run_get_certs(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_get_certs(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let r: GetCertsResult = client.call(VERB_GET_CERTS, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
@@ -360,7 +461,7 @@ async fn run_get_certs(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()
 	Ok(())
 }
 
-async fn run_get_connections(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_get_connections(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let r: GetConnectionsResult = client.call(VERB_GET_CONNECTIONS, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
@@ -373,7 +474,7 @@ async fn run_get_connections(client: &UnixMgmtClient, json: bool) -> anyhow::Res
 	Ok(())
 }
 
-async fn run_get_metrics(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_get_metrics(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let format = if json { "json" } else { "prometheus" };
 	let args = GetMetricsArgs { format: Some(format.to_string()) };
 	let r: GetMetricsResult = client.call(VERB_GET_METRICS, &args).await?;
@@ -384,7 +485,7 @@ async fn run_get_metrics(client: &UnixMgmtClient, json: bool) -> anyhow::Result<
 	Ok(())
 }
 
-async fn run_get_pools(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_get_pools(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let r: GetPoolsResult = client.call(VERB_GET_POOLS, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
@@ -397,7 +498,7 @@ async fn run_get_pools(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()
 	Ok(())
 }
 
-async fn run_get_upstreams(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_get_upstreams(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	let r: GetUpstreamsResult = client.call(VERB_GET_UPSTREAMS, &NoArgs {}).await?;
 	if json {
 		print_json(&r)?;
@@ -411,7 +512,7 @@ async fn run_get_upstreams(client: &UnixMgmtClient, json: bool) -> anyhow::Resul
 }
 
 async fn run_pool_drain(
-	client: &UnixMgmtClient,
+	client: &MgmtTransport,
 	fingerprint_id: &str,
 	json: bool,
 ) -> anyhow::Result<()> {
@@ -425,7 +526,7 @@ async fn run_pool_drain(
 	Ok(())
 }
 
-async fn run_tail_flow(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_tail_flow(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	// Race the streaming call against Ctrl-C. The streaming verb returns
 	// `Ok(())` on a clean End frame; Ctrl-C aborts the future, which
 	// drops the socket and lets the daemon notice the disconnect.
@@ -453,7 +554,7 @@ async fn run_tail_flow(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()
 	}
 }
 
-async fn run_tail_log(client: &UnixMgmtClient, json: bool) -> anyhow::Result<()> {
+async fn run_tail_log(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {
 	// Race the streaming call against Ctrl-C — same pattern as
 	// `tail flow`. Each frame matches the wire shape of
 	// `tracing_broadcast::TracingFrame`:
