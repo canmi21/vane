@@ -56,16 +56,25 @@ fn ring_buffer_evicts_on_cap_overflow() {
 
 #[test]
 fn ring_buffer_evicts_on_ttl_expiry() {
-	// Spec (spec/flow-model.md § _Flow log verbosity_): the 60s default ttl
-	// is a sliding window keyed on `event.t` differences. We stub a 10ms
-	// ttl and emit two events 20ms apart; the elder must be evicted.
-	let ring = RingBufferSink::new(10, Duration::from_millis(10));
+	// TTL is keyed on the server-side `Instant::now()` at emit, NOT
+	// the producer-supplied `event.t` (`event.t` would let a skewed
+	// producer pin entries forever or evict siblings on demand —
+	// hence the move to server-side Instant). Drive eviction with a
+	// real sleep across the TTL boundary.
+	let ring = RingBufferSink::new(10, Duration::from_millis(20));
 	ring.emit(make_event(0, 0));
-	ring.emit(make_event(20, 1));
-	ring.emit(make_event(20, 2));
+	std::thread::sleep(Duration::from_millis(40));
+	// On the next emit, the front entry is past the TTL and gets
+	// evicted before the new entry pushes in.
+	ring.emit(make_event(0, 1));
+	ring.emit(make_event(0, 2));
 	let snap = ring.snapshot();
 	let surviving: Vec<u32> = snap.iter().map(|e| e.seq).collect();
-	assert_eq!(surviving, vec![1, 2], "t=0 must be ttl-evicted; the two t=20 events survive");
+	assert_eq!(
+		surviving,
+		vec![1, 2],
+		"elder past TTL must be evicted; the two recent events survive"
+	);
 }
 
 // 8. ring_buffer_snapshot_returns_clone_in_order

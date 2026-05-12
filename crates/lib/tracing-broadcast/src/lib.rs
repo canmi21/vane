@@ -24,10 +24,29 @@ use tracing::{Event, Subscriber};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 
-/// Broadcast channel capacity. A subscriber that falls more than this
-/// many events behind sees [`broadcast::error::RecvError::Lagged`] and
-/// resumes from the next available event.
-const BROADCAST_CAP: usize = 1024;
+/// Default broadcast channel capacity for tracing frames. Tracing
+/// events are lower-volume than flow logs (one per log line vs one
+/// per per-step trajectory), so the channel is sized smaller —
+/// `spec/flow-model.md` § _Flow log verbosity_ owns the per-stream
+/// sizing rationale. Override via `VANE_TRACE_BROADCAST_CAP`.
+///
+/// A subscriber that falls more than `capacity` events behind sees
+/// [`broadcast::error::RecvError::Lagged`] and resumes from the next
+/// available event.
+pub const DEFAULT_BROADCAST_CAP: usize = 1024;
+
+/// Env var that overrides [`DEFAULT_BROADCAST_CAP`] at construction
+/// time. Values that fail to parse or evaluate to 0 fall back to the
+/// default — same shape as the rest of the daemon's `VANE_*` knobs.
+pub const ENV_BROADCAST_CAP: &str = "VANE_TRACE_BROADCAST_CAP";
+
+fn resolve_broadcast_cap() -> usize {
+	std::env::var(ENV_BROADCAST_CAP)
+		.ok()
+		.and_then(|s| s.parse::<usize>().ok())
+		.filter(|&n| n > 0)
+		.unwrap_or(DEFAULT_BROADCAST_CAP)
+}
 
 /// Wire shape for a single tracing event.
 ///
@@ -64,9 +83,19 @@ pub struct BroadcastTracingLayer {
 impl BroadcastTracingLayer {
 	#[must_use]
 	pub fn new() -> Self {
+		Self::with_capacity(resolve_broadcast_cap())
+	}
+
+	/// Explicit-capacity constructor for tests and bespoke wiring. The
+	/// `new` / `Default` path resolves capacity from
+	/// `VANE_TRACE_BROADCAST_CAP`, falling back to
+	/// [`DEFAULT_BROADCAST_CAP`].
+	#[must_use]
+	pub fn with_capacity(capacity: usize) -> Self {
 		// Initial receiver dropped immediately; subscribers come and go
 		// over the lifetime of the process as clients connect.
-		let (tx, _initial_rx) = broadcast::channel(BROADCAST_CAP);
+		let cap = capacity.max(1);
+		let (tx, _initial_rx) = broadcast::channel(cap);
 		Self { tx }
 	}
 
@@ -226,7 +255,7 @@ mod tests {
 
 		// Saturate the channel beyond a single subscriber's buffer
 		// without ever calling `rx.recv` so the backlog overflows.
-		for i in 0..(BROADCAST_CAP + 5) {
+		for i in 0..(DEFAULT_BROADCAST_CAP + 5) {
 			tracing::info!(seq = i as u64, "saturate");
 		}
 		match rx.recv().await {

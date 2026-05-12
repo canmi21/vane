@@ -9,12 +9,32 @@
 use tokio::sync::broadcast;
 use vane_core::{FlowLogEvent, FlowLogSink};
 
-/// Broadcast channel capacity. A subscriber that falls more than
-/// `BROADCAST_CAP` events behind sees [`broadcast::error::RecvError::Lagged`]
-/// and resumes from the next available event. The mgmt handler maps
-/// that to a synthetic `kind:"lagged"` sentinel so the operator can
-/// see they're getting a sampled view rather than the full stream.
-const BROADCAST_CAP: usize = 1024;
+/// Default flow-log broadcast capacity. 4096 matches the volume
+/// profile of `spec/flow-model.md` § _Flow log verbosity_: flow logs
+/// run at per-step granularity inside the executor walk so they're
+/// significantly higher-volume than tracing frames, and the buffer is
+/// sized to absorb a typical-burst worth of events without forcing
+/// `Lagged` errors on a freshly-attached `tail_flow` subscriber.
+/// Override via `VANE_FLOW_LOG_BROADCAST_CAP`.
+///
+/// A subscriber that falls more than `capacity` events behind sees
+/// [`broadcast::error::RecvError::Lagged`] and resumes from the next
+/// available event. The mgmt handler maps that to a synthetic
+/// `kind:"lagged"` sentinel so the operator can see they're getting a
+/// sampled view rather than the full stream.
+pub(crate) const DEFAULT_BROADCAST_CAP: usize = 4096;
+
+/// Env var that overrides [`DEFAULT_BROADCAST_CAP`] at construction
+/// time. Empty / unparseable / zero values fall back to the default.
+pub(crate) const ENV_BROADCAST_CAP: &str = "VANE_FLOW_LOG_BROADCAST_CAP";
+
+fn resolve_broadcast_cap() -> usize {
+	std::env::var(ENV_BROADCAST_CAP)
+		.ok()
+		.and_then(|s| s.parse::<usize>().ok())
+		.filter(|&n| n > 0)
+		.unwrap_or(DEFAULT_BROADCAST_CAP)
+}
 
 pub struct BroadcastSink {
 	tx: broadcast::Sender<FlowLogEvent>,
@@ -23,10 +43,16 @@ pub struct BroadcastSink {
 impl BroadcastSink {
 	#[must_use]
 	pub fn new() -> Self {
-		// `broadcast::channel` returns `(Sender, Receiver)`; we discard the
-		// initial receiver. Subscribers are created on demand via
-		// `subscribe()`.
-		let (tx, _initial_rx) = broadcast::channel(BROADCAST_CAP);
+		Self::with_capacity(resolve_broadcast_cap())
+	}
+
+	/// Explicit-capacity constructor for tests and bespoke wiring. The
+	/// `new` / `Default` path resolves from `VANE_FLOW_LOG_BROADCAST_CAP`,
+	/// falling back to [`DEFAULT_BROADCAST_CAP`].
+	#[must_use]
+	pub fn with_capacity(capacity: usize) -> Self {
+		let cap = capacity.max(1);
+		let (tx, _initial_rx) = broadcast::channel(cap);
 		Self { tx }
 	}
 
@@ -109,7 +135,8 @@ mod tests {
 		// subscriber to see `Lagged(n)` on its next recv.
 		let sink = BroadcastSink::new();
 		let mut rx = sink.subscribe();
-		let total = u32::try_from(BROADCAST_CAP).expect("BROADCAST_CAP fits in u32") + 5;
+		let total =
+			u32::try_from(DEFAULT_BROADCAST_CAP).expect("DEFAULT_BROADCAST_CAP fits in u32") + 5;
 		for s in 0..total {
 			<BroadcastSink as FlowLogSink>::emit(&sink, evt(s));
 		}
