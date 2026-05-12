@@ -680,10 +680,16 @@ fn http_headers_to_wasm(map: &http::HeaderMap) -> Vec<Header> {
 	map
 		.iter()
 		.filter_map(|(name, value)| {
-			value
-				.to_str()
-				.ok()
-				.map(|v| Header { name: name.as_str().to_ascii_lowercase(), value: v.to_owned() })
+			// `http::HeaderName::as_str` is documented to return the
+			// canonical ASCII-lowercase form, so there is no need to
+			// `to_ascii_lowercase()` the borrow before owning it. A
+			// `debug_assert` keeps us honest if the `http` crate ever
+			// regresses on that invariant.
+			debug_assert!(
+				name.as_str().bytes().all(|b| !b.is_ascii_uppercase()),
+				"http::HeaderName::as_str() must return lower-case"
+			);
+			value.to_str().ok().map(|v| Header { name: name.as_str().to_owned(), value: v.to_owned() })
 		})
 		.collect()
 }
