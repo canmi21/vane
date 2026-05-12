@@ -221,6 +221,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	));
 
 	let (sink, broadcast_sink) = boot::compose_log_sink().await?;
+	// Wire the same flow-log sink into the L1 security floor so
+	// `SecurityState::maybe_warn` emits `FlowLogKind::SecurityLimit`
+	// events alongside its tracing warn. Previously the kind was
+	// dead code — the tracing warn fired but nothing reached the
+	// structured flow log.
+	security.set_log_sink(Arc::clone(&sink));
 	let verbosity = Arc::new(VerbosityState::new());
 
 	let (sigterm, sigint) = boot::install_signal_handlers();

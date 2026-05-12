@@ -163,13 +163,40 @@ pub struct SecurityState {
 	per_ip: DashMap<IpAddr, AtomicUsize>,
 	total: AtomicUsize,
 	/// Last warn timestamp per `(limit, ip)` for 1-second dedup.
+	/// Shared between the tracing path and the optional flow-log
+	/// emission so both stay coalesced on the same window.
 	last_warn: DashMap<LimitLogKey, Instant>,
+	/// Optional sink installed at boot time so `maybe_warn` can emit
+	/// a [`vane_core::FlowLogKind::SecurityLimit`] event alongside
+	/// the tracing warn. `None` keeps the existing tracing-only
+	/// behaviour, useful for unit tests that never wire a sink.
+	///
+	/// `OnceLock` so the daemon can fix the sink post-construction
+	/// (boot phase creates `SecurityState` before the sink exists),
+	/// while every read after boot is lock-free.
+	log_sink: std::sync::OnceLock<Arc<dyn vane_core::FlowLogSink>>,
 }
 
 impl SecurityState {
 	#[must_use]
 	pub fn new(cfg: SecurityConfig) -> Self {
-		Self { cfg, per_ip: DashMap::new(), total: AtomicUsize::new(0), last_warn: DashMap::new() }
+		Self {
+			cfg,
+			per_ip: DashMap::new(),
+			total: AtomicUsize::new(0),
+			last_warn: DashMap::new(),
+			log_sink: std::sync::OnceLock::new(),
+		}
+	}
+
+	/// Install a [`vane_core::FlowLogSink`] so `maybe_warn` emits a
+	/// `SecurityLimit` flow-log event next to its tracing warn. The
+	/// daemon calls this once at boot, after the sink fan-out is
+	/// constructed. Subsequent calls are no-ops (`OnceLock::set`
+	/// semantics) — the sink fixes for the rest of the daemon's
+	/// lifetime.
+	pub fn set_log_sink(&self, sink: Arc<dyn vane_core::FlowLogSink>) {
+		let _ = self.log_sink.set(sink);
 	}
 
 	/// Attempt to register a new connection from `ip`.
@@ -211,9 +238,34 @@ impl SecurityState {
 			None => true,
 			Some(ref t) => now.checked_duration_since(**t).is_none_or(|d| d >= Duration::from_secs(1)),
 		};
-		if emit {
-			self.last_warn.insert(key, now);
-			tracing::warn!(%ip, limit, "L1 security limit exceeded — new connection rejected");
+		if !emit {
+			return;
+		}
+		self.last_warn.insert(key, now);
+		tracing::warn!(%ip, limit, "L1 security limit exceeded — new connection rejected");
+		// Mirror the warn into the structured flow log when a sink is
+		// installed. `FlowLogKind::SecurityLimit` is the spec slot for
+		// this event class but used to be dead code — every tracer-
+		// only emission silently bypassed the flow log. The dedup
+		// window above gates both channels in lockstep.
+		if let Some(sink) = self.log_sink.get() {
+			use std::time::SystemTime;
+			let t_ms = SystemTime::now()
+				.duration_since(SystemTime::UNIX_EPOCH)
+				.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+				.unwrap_or_default();
+			sink.emit(vane_core::FlowLogEvent {
+				t: t_ms,
+				conn: vane_core::ConnId(0),
+				seq: 0,
+				kind: vane_core::FlowLogKind::SecurityLimit,
+				node: None,
+				error: None,
+				data: Some(serde_json::json!({
+					"limit": limit,
+					"source": ip.to_string(),
+				})),
+			});
 		}
 	}
 
