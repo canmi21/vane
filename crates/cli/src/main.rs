@@ -36,7 +36,10 @@ const BUILD_INFO: BuildInfo = BuildInfo {
 	protocols: &[],
 };
 
-const DEFAULT_SOCKET: &str = "/tmp/vaned.sock";
+/// Fallback socket path when neither `--socket` nor `VANE_MGMT_UNIX`
+/// nor `XDG_RUNTIME_DIR` are set. System-wide transient directory;
+/// `/tmp` is never the default — see daemon's `default_mgmt_unix`.
+const DEFAULT_SOCKET: &str = "/run/vaned.sock";
 
 /// Help-text palette for clap. clap 4's built-in styling is bold +
 /// underline only; this opts into the `cargo`/`ripgrep`-flavoured
@@ -73,7 +76,9 @@ struct Cli {
 	#[arg(short = 'v', long = "version", global = true)]
 	version: bool,
 
-	/// Mgmt Unix socket path (env `VANE_MGMT_UNIX`, default `/tmp/vaned.sock`).
+	/// Mgmt Unix socket path. Resolution order: `--socket` →
+	/// `$VANE_MGMT_UNIX` → `$XDG_RUNTIME_DIR/vaned.sock` →
+	/// `/run/vaned.sock`. `/tmp` is intentionally not a default.
 	#[arg(long, global = true)]
 	socket: Option<PathBuf>,
 
@@ -209,7 +214,13 @@ async fn main() -> std::process::ExitCode {
 	};
 	let socket = cli
 		.socket
-		.or_else(|| std::env::var("VANE_MGMT_UNIX").ok().map(PathBuf::from))
+		.or_else(|| std::env::var("VANE_MGMT_UNIX").ok().filter(|s| !s.is_empty()).map(PathBuf::from))
+		.or_else(|| {
+			std::env::var("XDG_RUNTIME_DIR")
+				.ok()
+				.filter(|s| !s.is_empty())
+				.map(|dir| PathBuf::from(dir).join("vaned.sock"))
+		})
 		.unwrap_or_else(|| PathBuf::from(DEFAULT_SOCKET));
 	let client = UnixMgmtClient::new(&socket);
 

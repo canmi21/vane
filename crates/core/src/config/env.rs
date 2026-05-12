@@ -75,7 +75,11 @@ pub struct Env {
 	/// `VANE_BOOT_HEALTH_TIMEOUT_SECS` — budget for all listeners to flip `bind_ready`,
 	/// seconds (default 60). Partial bind (some bound, some failed) stays a warn.
 	pub boot_health_timeout_secs: u32,
-	/// `VANE_MGMT_UNIX` — management Unix socket path (default `/tmp/vaned.sock`).
+	/// `VANE_MGMT_UNIX` — management Unix socket path. Defaults to
+	/// `$XDG_RUNTIME_DIR/vaned.sock` when that env var is set, then to
+	/// `/run/vaned.sock`. `/tmp/...` is intentionally not the default:
+	/// it's world-writable and survives reboots, both of which make it
+	/// the wrong place for a privileged control socket.
 	pub mgmt_unix: PathBuf,
 	/// `VANE_MGMT_HTTP_PORT` — TCP port for the HTTP management transport.
 	/// `Some(3333)` by default; an explicit empty string disables the
@@ -133,12 +137,31 @@ impl Env {
 			mgmt_unix: r
 				.get("VANE_MGMT_UNIX")
 				.filter(|s| !s.is_empty())
-				.map_or_else(|| PathBuf::from("/tmp/vaned.sock"), PathBuf::from),
+				.map_or_else(|| default_mgmt_unix(r), PathBuf::from),
 			mgmt_http_port: parse_http_port(r)?,
 			mgmt_http_public: parse_truthy(r, "VANE_MGMT_HTTP_PUBLIC"),
 			mgmt_http_token: r.get("VANE_MGMT_HTTP_TOKEN").filter(|s| !s.is_empty()),
 		})
 	}
+}
+
+/// Resolve the default management socket path when no `VANE_MGMT_UNIX`
+/// is set. Preference order:
+///
+/// 1. `$XDG_RUNTIME_DIR/vaned.sock` — per-user transient directory
+///    that systemd manages with 0700 perms; right place for an
+///    unprivileged daemon's control socket.
+/// 2. `/run/vaned.sock` — system-wide transient directory; right
+///    place for a privileged daemon running under PID 1.
+///
+/// `/tmp` is never the default: it's world-writable, world-readable
+/// in many distros, and survives reboots — any one of which makes
+/// it the wrong host for a control socket.
+fn default_mgmt_unix<R: EnvReader>(r: &R) -> PathBuf {
+	if let Some(dir) = r.get("XDG_RUNTIME_DIR").filter(|s| !s.is_empty()) {
+		return PathBuf::from(dir).join("vaned.sock");
+	}
+	PathBuf::from("/run/vaned.sock")
 }
 
 fn parse_bool_default_true<R: EnvReader>(r: &R, key: &str) -> Result<bool, Error> {
@@ -216,10 +239,19 @@ mod tests {
 		assert_eq!(env.sec_header_timeout_secs, 30);
 		assert_eq!(env.sec_max_conn_per_ip, 100);
 		assert_eq!(env.sec_max_total_conns, 65_536);
-		assert_eq!(env.mgmt_unix, PathBuf::from("/tmp/vaned.sock"));
+		// `/run/vaned.sock` is the no-XDG_RUNTIME_DIR fallback. `/tmp`
+		// is never the default — see `default_mgmt_unix` for rationale.
+		assert_eq!(env.mgmt_unix, PathBuf::from("/run/vaned.sock"));
 		assert_eq!(env.mgmt_http_port, Some(3333));
 		assert!(!env.mgmt_http_public);
 		assert!(env.mgmt_http_token.is_none());
+	}
+
+	#[test]
+	fn env_mgmt_unix_prefers_xdg_runtime_dir_when_set() {
+		let env = Env::from_reader(&FakeEnv::with(&[("XDG_RUNTIME_DIR", "/run/user/1000")]), &cfg())
+			.expect("ok");
+		assert_eq!(env.mgmt_unix, PathBuf::from("/run/user/1000/vaned.sock"));
 	}
 
 	#[test]
@@ -348,7 +380,7 @@ mod tests {
 	#[test]
 	fn env_mgmt_unix_default_path() {
 		let env = Env::from_reader(&FakeEnv::empty(), &cfg()).expect("defaults");
-		assert_eq!(env.mgmt_unix, PathBuf::from("/tmp/vaned.sock"));
+		assert_eq!(env.mgmt_unix, PathBuf::from("/run/vaned.sock"));
 	}
 
 	#[test]

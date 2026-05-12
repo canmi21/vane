@@ -56,6 +56,41 @@ pub trait EventStream: Send {
 	async fn next_event(&mut self) -> Option<serde_json::Value>;
 }
 
+/// RAII guard that tightens the process's file-mode-creation mask
+/// (`umask`) for the duration of a scope and restores the prior value
+/// on drop. Used around `UnixListener::bind` so a permissive operator
+/// umask cannot widen the perms of the freshly-created socket file.
+///
+/// `umask(2)` is process-global, so any concurrent file creation in
+/// other tasks while this guard is alive will also see the tightened
+/// mask. For mgmt-socket bind this window is sub-millisecond and we
+/// hold no other I/O off the critical path.
+struct UmaskRestore {
+	prev: libc::mode_t,
+}
+
+impl UmaskRestore {
+	#[allow(unsafe_code)] // libc::umask is FFI; thread-safe POSIX call with no preconditions.
+	fn tighten(mask: libc::mode_t) -> Self {
+		// SAFETY: `umask` is a thread-safe POSIX call with no
+		// preconditions. The return value is the previous mask.
+		let prev = unsafe { libc::umask(mask) };
+		Self { prev }
+	}
+}
+
+impl Drop for UmaskRestore {
+	#[allow(unsafe_code)] // libc::umask is FFI; see `tighten`.
+	fn drop(&mut self) {
+		// SAFETY: see `tighten`. Restoration is best-effort: there is
+		// nothing useful to do if the kernel rejects the value (it
+		// cannot — `umask` accepts any `mode_t`).
+		unsafe {
+			libc::umask(self.prev);
+		}
+	}
+}
+
 /// Bind a Unix socket and serve mgmt requests until `cancel` fires.
 ///
 /// On bind, an existing socket file at `socket_path` is unlinked first
@@ -77,10 +112,39 @@ pub async fn spawn_unix_server<H: Handler>(
 	// Unlink any stale socket file before bind. systemd-style socket
 	// activation is not supported this round.
 	let _ = std::fs::remove_file(socket_path);
+
+	// Tighten the inherited umask BEFORE bind so the kernel creates
+	// the socket file with restrictive perms (0o660 modulo umask =
+	// 0o600). Restore the previous umask via RAII regardless of bind
+	// outcome so the daemon's other I/O paths see their original
+	// settings.
+	let _umask_restore = UmaskRestore::tighten(0o117);
+
 	let listener = UnixListener::bind(socket_path)?;
 
+	// Belt-and-suspenders: fchmod the socket to 0600 explicitly. The
+	// umask path covers the bind-side race; this covers operators
+	// running with permissive umasks (`077`) where the kernel would
+	// have created the socket more permissively than we want.
 	let perms = std::fs::Permissions::from_mode(0o600);
 	std::fs::set_permissions(socket_path, perms)?;
+
+	// Best-effort: warn when the socket's parent directory is more
+	// permissive than the operator probably intends. A 0o755 parent
+	// dir means any local user can `stat` the socket; a 0o777 parent
+	// can unlink it. Both are footguns on multi-tenant hosts.
+	if let Some(parent) = socket_path.parent()
+		&& let Ok(meta) = std::fs::metadata(parent)
+	{
+		let mode = meta.permissions().mode() & 0o777;
+		if mode != 0o700 && mode != 0o770 {
+			tracing::warn!(
+				dir = %parent.display(),
+				mode = format!("{:#o}", mode),
+				"mgmt socket parent dir is broader than 0700/0770; restrict perms or move the socket",
+			);
+		}
+	}
 
 	let socket_path: PathBuf = socket_path.to_path_buf();
 	let handle = tokio::spawn(async move {
