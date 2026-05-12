@@ -56,6 +56,18 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 const FALLBACK_INTERVAL: Duration = Duration::from_hours(4);
 const REFRESH_LEAD: Duration = Duration::from_hours(1);
 
+/// Floor on the refresh-loop sleep. A CRL whose `nextUpdate` is in
+/// the past would otherwise yield a `Duration::ZERO` sleep and busy-
+/// loop the fetcher against the CDN. 30s gives the CDN a chance to
+/// publish a fresh CRL while preventing per-task hot spins.
+const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Upper bound on the failure-backoff exponential. With base 30s and
+/// max 10 min the schedule is roughly `30s, 1m, 2m, 4m, 8m, 10m, ...`
+/// — long enough to avoid hammering an unhealthy upstream, short
+/// enough that recovery is sub-half-hour even after a long outage.
+const MAX_REFRESH_BACKOFF: Duration = Duration::from_mins(10);
+
 struct CrlEntry {
 	bytes: Option<Arc<CertificateRevocationListDer<'static>>>,
 	next_update: Option<OffsetDateTime>,
@@ -63,6 +75,26 @@ struct CrlEntry {
 	last_failure: Option<OffsetDateTime>,
 	fetch_failure: CrlFetchFailure,
 	last_logged_state: HealthState,
+	/// Consecutive failed fetches since the last success. Drives
+	/// [`expo_backoff`] for the next refresh sleep, regardless of
+	/// whether the entry's policy is `Tolerate` or `Reject` — both
+	/// classes count.
+	consecutive_failures: u32,
+}
+
+/// Exponential backoff helper. `failures == 0` returns `min`;
+/// `failures == 1` returns `min` (we treat the first failure as
+/// "wait one base interval"); each additional failure doubles, capped
+/// at `max`. Independent of any wall-clock reference.
+fn expo_backoff(failures: u32, min: Duration, max: Duration) -> Duration {
+	if failures <= 1 {
+		return min;
+	}
+	let exp = failures.saturating_sub(1).min(20);
+	let multiplier: u64 = 1u64 << exp;
+	let secs = min.as_secs().saturating_mul(multiplier);
+	let candidate = Duration::from_secs(secs);
+	if candidate > max { max } else { candidate }
 }
 
 /// Pluggable transport. Production wires up an HTTP / `tokio::fs`
@@ -249,17 +281,29 @@ impl CrlCache {
 		let Some(entry) = guard.get(src) else {
 			return FALLBACK_INTERVAL;
 		};
+		// While the source is failing, ignore `nextUpdate` — the CDN
+		// is unhealthy and crowding more requests under a stale
+		// nextUpdate window won't help. Walk the exponential schedule
+		// up to MAX_REFRESH_BACKOFF; a single successful fetch resets
+		// the counter and we fall back into the nextUpdate-driven
+		// schedule below.
+		if entry.consecutive_failures > 0 {
+			return expo_backoff(entry.consecutive_failures, MIN_REFRESH_INTERVAL, MAX_REFRESH_BACKOFF);
+		}
 		let Some(nu) = entry.next_update else {
 			return FALLBACK_INTERVAL;
 		};
 		let now = OffsetDateTime::now_utc();
 		let target = nu - REFRESH_LEAD;
-		if target <= now {
-			Duration::from_secs(0)
+		let raw = if target <= now {
+			Duration::ZERO
 		} else {
 			let delta = target - now;
 			delta.try_into().unwrap_or(FALLBACK_INTERVAL)
-		}
+		};
+		// Floor the sleep so a CRL whose `nextUpdate` is already in
+		// the past doesn't busy-spin the refresh loop against the CDN.
+		if raw < MIN_REFRESH_INTERVAL { MIN_REFRESH_INTERVAL } else { raw }
 	}
 
 	async fn fetch_source(&self, src: &CrlSourceId, policy: CrlFetchFailure) -> Result<(), String> {
@@ -274,6 +318,7 @@ impl CrlCache {
 				last_failure: None,
 				fetch_failure: policy,
 				last_logged_state: HealthState::Unavailable,
+				consecutive_failures: 0,
 			});
 			entry.fetch_failure = policy;
 		}
@@ -300,6 +345,9 @@ impl CrlCache {
 					entry.next_update = next_update;
 					entry.last_success = Some(OffsetDateTime::now_utc());
 					entry.last_logged_state = HealthState::Healthy;
+					// Reset the failure counter so the refresh loop
+					// falls back to the nextUpdate-driven schedule.
+					entry.consecutive_failures = 0;
 					prev
 				};
 				if prev_state == HealthState::Unavailable {
@@ -314,6 +362,10 @@ impl CrlCache {
 					entry.last_failure = Some(OffsetDateTime::now_utc());
 					let prev = entry.last_logged_state;
 					entry.last_logged_state = HealthState::Unavailable;
+					// Tracked independent of policy: a tolerated
+					// failure still counts toward the backoff so
+					// the loop doesn't hammer a sick CDN.
+					entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
 					(prev, entry.fetch_failure)
 				};
 				if prev_state == HealthState::Healthy {
@@ -581,6 +633,118 @@ mod tests {
 		let cache = CrlCache::new(fetcher);
 		let src = CrlSourceId::Url("https://crl.example/never-loaded".into());
 		assert!(cache.snapshot(&[src]).is_err());
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn next_refresh_delay_clamps_to_min_when_next_update_is_past() {
+		// A CRL whose `nextUpdate` is already in the past must NOT
+		// produce a Duration::ZERO sleep; the loop would busy-spin.
+		// Inject an entry directly so we don't fight test wall-clock.
+		let fetcher = Arc::new(AlwaysFailFetcher { count: AtomicUsize::new(0) });
+		let cache = CrlCache::new(fetcher);
+		let src = CrlSourceId::Url("https://crl.example/past".into());
+		{
+			let mut guard = cache.inner.write();
+			guard.insert(
+				src.clone(),
+				CrlEntry {
+					bytes: None,
+					next_update: Some(OffsetDateTime::now_utc() - time::Duration::hours(1)),
+					last_success: None,
+					last_failure: None,
+					fetch_failure: CrlFetchFailure::Tolerate,
+					last_logged_state: HealthState::Healthy,
+					consecutive_failures: 0,
+				},
+			);
+		}
+		let d = cache.next_refresh_delay(&src);
+		assert!(d >= MIN_REFRESH_INTERVAL, "got {d:?}, want >= {MIN_REFRESH_INTERVAL:?}");
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn next_refresh_delay_uses_expo_backoff_after_failures() {
+		// Inject a synthetic failure history and confirm the delay
+		// follows the expo schedule rather than the nextUpdate timer.
+		let fetcher = Arc::new(AlwaysFailFetcher { count: AtomicUsize::new(0) });
+		let cache = CrlCache::new(fetcher);
+		let src = CrlSourceId::Url("https://crl.example/sick".into());
+		{
+			let mut guard = cache.inner.write();
+			guard.insert(
+				src.clone(),
+				CrlEntry {
+					bytes: None,
+					next_update: Some(OffsetDateTime::now_utc() + time::Duration::days(7)),
+					last_success: None,
+					last_failure: Some(OffsetDateTime::now_utc()),
+					fetch_failure: CrlFetchFailure::Tolerate,
+					last_logged_state: HealthState::Unavailable,
+					consecutive_failures: 4,
+				},
+			);
+		}
+		// failures=4 → expo: min * 2^3 = 30s * 8 = 4 min, still below the 10 min cap.
+		let d = cache.next_refresh_delay(&src);
+		assert_eq!(d, Duration::from_mins(4));
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn tolerated_failure_increments_consecutive_counter() {
+		let fetcher = Arc::new(AlwaysFailFetcher { count: AtomicUsize::new(0) });
+		let cache = CrlCache::new(fetcher);
+		let src = CrlSourceId::Url("https://crl.example/inc".into());
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("tolerate ok");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("tolerate ok");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("tolerate ok");
+		let guard = cache.inner.read();
+		assert_eq!(guard.get(&src).expect("entry").consecutive_failures, 3);
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	async fn successful_fetch_resets_failure_counter() {
+		let bytes = fixture_crl_bytes();
+		let fetcher =
+			Arc::new(FlippingFetcher { ok_bytes: bytes.clone(), succeed: AtomicBool::new(false) });
+		let cache = CrlCache::new(fetcher.clone());
+		let src = CrlSourceId::Url("https://crl.example/recover".into());
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("first fail tolerated");
+		cache
+			.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+			.expect("second fail tolerated");
+		{
+			let guard = cache.inner.read();
+			assert_eq!(guard.get(&src).expect("entry").consecutive_failures, 2);
+		}
+		fetcher.succeed.store(true, Ordering::SeqCst);
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("success");
+		let guard = cache.inner.read();
+		assert_eq!(guard.get(&src).expect("entry").consecutive_failures, 0);
+	}
+
+	#[test]
+	fn expo_backoff_doubles_until_cap() {
+		assert_eq!(expo_backoff(0, MIN_REFRESH_INTERVAL, MAX_REFRESH_BACKOFF), MIN_REFRESH_INTERVAL);
+		assert_eq!(expo_backoff(1, MIN_REFRESH_INTERVAL, MAX_REFRESH_BACKOFF), MIN_REFRESH_INTERVAL);
+		assert_eq!(
+			expo_backoff(2, MIN_REFRESH_INTERVAL, MAX_REFRESH_BACKOFF),
+			MIN_REFRESH_INTERVAL * 2
+		);
+		assert_eq!(
+			expo_backoff(3, MIN_REFRESH_INTERVAL, MAX_REFRESH_BACKOFF),
+			MIN_REFRESH_INTERVAL * 4
+		);
+		// 30s * 2^4 = 480s ≤ 600s cap.
+		assert_eq!(
+			expo_backoff(5, MIN_REFRESH_INTERVAL, MAX_REFRESH_BACKOFF),
+			MIN_REFRESH_INTERVAL * 16
+		);
+		// 30s * 2^5 = 960s > 600s cap.
+		assert_eq!(expo_backoff(6, MIN_REFRESH_INTERVAL, MAX_REFRESH_BACKOFF), MAX_REFRESH_BACKOFF);
+		assert_eq!(
+			expo_backoff(u32::MAX, MIN_REFRESH_INTERVAL, MAX_REFRESH_BACKOFF),
+			MAX_REFRESH_BACKOFF
+		);
 	}
 
 	#[test]
