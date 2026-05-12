@@ -633,6 +633,7 @@ async fn run_accept_loop(ctx: Arc<AcceptCtx>) {
 		max_attempts: ctx.bind_cfg.max_bind_attempts,
 		initial: ctx.bind_cfg.bind_backoff_initial,
 		max: ctx.bind_cfg.bind_backoff_max,
+		..tokio_bind_retry::Policy::default()
 	};
 	let Some(listener) =
 		tokio_bind_retry::tcp(ctx.addr, &ctx.accept_cancel, &bind_policy, TCP_LISTEN_BACKLOG).await
@@ -1183,6 +1184,7 @@ pub async fn bind_with_retry_for_test(addr: SocketAddr, max_attempts: u32) -> Op
 		max_attempts,
 		initial: cfg.bind_backoff_initial,
 		max: cfg.bind_backoff_max,
+		..tokio_bind_retry::Policy::default()
 	};
 	tokio_bind_retry::tcp(addr, &cancel, &policy, TCP_LISTEN_BACKLOG).await
 }

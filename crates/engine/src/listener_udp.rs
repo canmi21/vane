@@ -152,6 +152,7 @@ pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 		max_attempts: base.bind_cfg.max_bind_attempts,
 		initial: base.bind_cfg.bind_backoff_initial,
 		max: base.bind_cfg.bind_backoff_max,
+		..tokio_bind_retry::Policy::default()
 	};
 	let Some(socket) = tokio_bind_retry::udp(base.addr, &base.accept_cancel, &bind_policy).await
 	else {

@@ -23,12 +23,47 @@ pub struct Policy {
 	pub initial: Duration,
 	/// Cap for the doubled backoff delay.
 	pub max: Duration,
+	/// Jitter ratio in `[0.0, 1.0]`. The effective delay is
+	/// `base * (1 + uniform(-jitter/2, +jitter/2))`, clamped to
+	/// `[initial, max]`. Default `0.2` (±10% per attempt) — keeps
+	/// many concurrent re-binders (e.g. several listener tasks
+	/// racing on the same `TIME_WAIT` socket on daemon restart)
+	/// from waking up in lockstep and immediately re-colliding.
+	pub jitter: f64,
 }
 
 impl Default for Policy {
 	fn default() -> Self {
-		Self { max_attempts: 10, initial: Duration::from_millis(100), max: Duration::from_secs(5) }
+		Self {
+			max_attempts: 10,
+			initial: Duration::from_millis(100),
+			max: Duration::from_secs(5),
+			jitter: 0.2,
+		}
 	}
+}
+
+/// Compute the next delay: `base` doubled, capped at `max`, then
+/// scaled by a uniform jitter factor in `[1 - jitter/2, 1 + jitter/2]`
+/// and re-clamped to `[initial, max]`. Pure function so tests can
+/// pin behaviour deterministically by setting `jitter = 0.0`.
+fn next_delay(base: Duration, policy: &Policy) -> Duration {
+	let doubled = base.saturating_mul(2).min(policy.max);
+	if policy.jitter <= f64::EPSILON {
+		return doubled;
+	}
+	let half = policy.jitter / 2.0;
+	let factor = 1.0 + (fastrand::f64() * policy.jitter - half);
+	#[allow(
+		clippy::cast_precision_loss,
+		clippy::cast_possible_truncation,
+		clippy::cast_sign_loss,
+		reason = "jitter math: a backoff delay is bounded by `policy.max` (hours at most); f64 loses precision past 2^53 ns ≈ 104 days, well beyond any realistic max"
+	)]
+	let nanos = (doubled.as_nanos() as f64) * factor;
+	#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+	let scaled = Duration::from_nanos(nanos.max(0.0) as u64);
+	scaled.clamp(policy.initial, policy.max)
 }
 
 /// Bind a `TcpListener` with exponential backoff and cancellation.
@@ -62,7 +97,7 @@ pub async fn tcp(
 				if sleep_or_cancel(delay, cancel).await {
 					return None;
 				}
-				delay = (delay * 2).min(policy.max);
+				delay = next_delay(delay, policy);
 				continue;
 			}
 		};
@@ -81,7 +116,7 @@ pub async fn tcp(
 		if sleep_or_cancel(delay, cancel).await {
 			return None;
 		}
-		delay = (delay * 2).min(policy.max);
+		delay = next_delay(delay, policy);
 	}
 	None
 }
@@ -111,7 +146,7 @@ pub async fn udp(
 					if sleep_or_cancel(delay, cancel).await {
 						return None;
 					}
-					delay = (delay * 2).min(policy.max);
+					delay = next_delay(delay, policy);
 				}
 			}
 		}
@@ -164,8 +199,12 @@ mod tests {
 		let cancel = CancellationToken::new();
 		let first = tcp(unused_addr(), &cancel, &Policy::default(), 64).await.unwrap();
 		let busy = first.local_addr().unwrap();
-		let policy =
-			Policy { max_attempts: 2, initial: Duration::from_millis(1), max: Duration::from_millis(2) };
+		let policy = Policy {
+			max_attempts: 2,
+			initial: Duration::from_millis(1),
+			max: Duration::from_millis(2),
+			jitter: 0.0,
+		};
 		let result = tcp(busy, &cancel, &policy, 64).await;
 		assert!(result.is_none());
 	}
@@ -176,8 +215,12 @@ mod tests {
 		let first = tcp(unused_addr(), &cancel, &Policy::default(), 64).await.unwrap();
 		let busy = first.local_addr().unwrap();
 
-		let policy =
-			Policy { max_attempts: 100, initial: Duration::from_mins(1), max: Duration::from_mins(1) };
+		let policy = Policy {
+			max_attempts: 100,
+			initial: Duration::from_mins(1),
+			max: Duration::from_mins(1),
+			jitter: 0.0,
+		};
 		let cancel_clone = cancel.clone();
 		tokio::spawn(async move {
 			tokio::time::sleep(Duration::from_millis(20)).await;
@@ -202,5 +245,38 @@ mod tests {
 		let cancel = CancellationToken::new();
 		let cut_short = sleep_or_cancel(Duration::from_millis(1), &cancel).await;
 		assert!(!cut_short);
+	}
+
+	#[test]
+	fn next_delay_zero_jitter_doubles_capped_at_max() {
+		let policy = Policy {
+			max_attempts: 10,
+			initial: Duration::from_millis(100),
+			max: Duration::from_millis(500),
+			jitter: 0.0,
+		};
+		assert_eq!(next_delay(Duration::from_millis(100), &policy), Duration::from_millis(200));
+		assert_eq!(next_delay(Duration::from_millis(200), &policy), Duration::from_millis(400));
+		// Doubled would be 800 ms; max-cap clamps to 500 ms.
+		assert_eq!(next_delay(Duration::from_millis(400), &policy), Duration::from_millis(500));
+	}
+
+	#[test]
+	fn next_delay_with_jitter_stays_within_band() {
+		let policy = Policy {
+			max_attempts: 10,
+			initial: Duration::from_millis(10),
+			max: Duration::from_secs(1),
+			jitter: 0.2,
+		};
+		// Doubled is 200 ms; ±10% band is [180, 220] ms after jitter.
+		// Run a handful of samples to exercise the random factor.
+		for _ in 0..32 {
+			let d = next_delay(Duration::from_millis(100), &policy);
+			assert!(
+				d >= Duration::from_millis(180) && d <= Duration::from_millis(220),
+				"jittered delay {d:?} outside band"
+			);
+		}
 	}
 }

@@ -4843,6 +4843,7 @@ dependencies = [
 name = "tokio-bind-retry"
 version = "0.0.1"
 dependencies = [
+ "fastrand",
  "tokio",
  "tokio-util",
  "tracing",
