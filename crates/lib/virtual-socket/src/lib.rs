@@ -52,6 +52,22 @@ pub const DEFAULT_INBOUND_CAPACITY: usize = 256;
 /// closed flag. This is intended: typical use installs one clone in
 /// the router's dispatch table and hands another to the consumer
 /// task.
+///
+/// # Single-consumer contract
+///
+/// `poll_dequeue` stores the polling task's [`Waker`] in a single
+/// slot — a second concurrent poller silently shadows the first and
+/// the first task never wakes again. By design only ONE task should
+/// be polling a given `VirtualUdpSocket` at a time; typical use is
+/// one quinn `AsyncUdpSocket` consumer per listener. Debug builds
+/// trip a [`debug_assert!`] inside `poll_dequeue` when a different
+/// task's waker overwrites the previous one, so misuse fails loud
+/// during tests. Release builds keep the original silent-shadow
+/// behaviour (zero-cost contract).
+///
+/// To fan-out a virtual socket to multiple consumers, wrap it in your
+/// own broadcast/notify layer; this crate intentionally does not
+/// pretend to be multi-consumer-safe.
 pub struct VirtualUdpSocket {
 	physical: Arc<UdpSocket>,
 	inbound: Mutex<Inbound>,
@@ -139,6 +155,12 @@ impl VirtualUdpSocket {
 	/// - `Poll::Pending` otherwise; the waker from `cx` is registered
 	///   and woken on the next [`Self::enqueue_inbound`] /
 	///   [`Self::close`].
+	///
+	/// **Single-consumer.** A second concurrent caller's waker
+	/// silently shadows the first; debug builds trip a
+	/// [`debug_assert!`] when that happens (see the type's
+	/// `Single-consumer contract` section). Wrap in your own
+	/// fan-out layer if you need multiple consumers.
 	pub fn poll_dequeue(&self, cx: &mut Context<'_>) -> Poll<Option<(SocketAddr, Bytes)>> {
 		let mut inbound = self.inbound.lock();
 		if let Some(item) = inbound.queue.pop_front() {
@@ -147,6 +169,17 @@ impl VirtualUdpSocket {
 		if self.closed.load(Ordering::Relaxed) {
 			return Poll::Ready(None);
 		}
+		// Single-consumer contract: a pre-existing waker that doesn't
+		// match the current `cx.waker()` means a different task is
+		// trying to poll the same virtual socket and will lose its
+		// wake-up signal silently. Trip the assertion in debug builds
+		// so the contract violation surfaces during tests; release
+		// builds keep the prior behaviour (last-poller-wins) so this
+		// is a zero-cost contract in production.
+		debug_assert!(
+			inbound.waker.as_ref().is_none_or(|w| w.will_wake(cx.waker())),
+			"VirtualUdpSocket is single-consumer; a second poller would silently shadow the first",
+		);
 		inbound.waker = Some(cx.waker().clone());
 		Poll::Pending
 	}
@@ -316,5 +349,64 @@ mod tests {
 		let (phys, addr) = bound().await;
 		let v = VirtualUdpSocket::new(phys);
 		assert_eq!(v.local_addr().unwrap(), addr);
+	}
+
+	#[tokio::test]
+	async fn poll_dequeue_re_poll_by_same_task_is_idempotent() {
+		// A single task that polls twice (the legitimate Future state-
+		// machine pattern) uses the same waker — `will_wake` returns
+		// true, the debug_assert is a no-op, and the slot stays valid.
+		let (phys, _) = bound().await;
+		let v = VirtualUdpSocket::new(phys);
+		let got = std::future::poll_fn(|cx| {
+			match v.poll_dequeue(cx) {
+				Poll::Pending => {}
+				Poll::Ready(_) => panic!("expected Pending on empty queue"),
+			}
+			// Second poll on the same context — would panic if the
+			// single-consumer assertion misread "same task" as
+			// "different task".
+			match v.poll_dequeue(cx) {
+				Poll::Pending => Poll::Ready(()),
+				Poll::Ready(_) => panic!("expected Pending on empty queue"),
+			}
+		})
+		.await;
+		assert_eq!(got, ());
+	}
+
+	#[tokio::test]
+	#[cfg(debug_assertions)]
+	#[should_panic(expected = "single-consumer")]
+	async fn poll_dequeue_by_two_different_tasks_panics_in_debug() {
+		// Two concurrent pollers store distinct wakers; the second
+		// poll trips the single-consumer assertion in debug builds.
+		let (phys, _) = bound().await;
+		let v = VirtualUdpSocket::new(phys);
+
+		let v_first = Arc::clone(&v);
+		let first =
+			tokio::spawn(async move { std::future::poll_fn(|cx| v_first.poll_dequeue(cx)).await });
+		// Yield so `first` registers its waker before `second` runs.
+		tokio::task::yield_now().await;
+		tokio::task::yield_now().await;
+
+		let v_second = Arc::clone(&v);
+		let second =
+			tokio::spawn(async move { std::future::poll_fn(|cx| v_second.poll_dequeue(cx)).await });
+
+		// The second task's poll will trip the debug_assert. Wait
+		// for either task to surface the panic — JoinError on panic
+		// is what we propagate with `should_panic`.
+		let r = tokio::select! {
+			r = first => r,
+			r = second => r,
+		};
+		// JoinError carries the original panic message; unwrap to
+		// re-raise so `#[should_panic]` matches it.
+		match r {
+			Ok(_) => panic!("expected debug_assert to fire on second poller"),
+			Err(e) => std::panic::resume_unwind(e.into_panic()),
+		}
 	}
 }
