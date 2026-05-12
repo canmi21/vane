@@ -289,6 +289,38 @@ impl rustls::client::danger::ServerCertVerifier for NoVerify {
 	}
 }
 
+/// Normalise a hostname before handing it to `rustls`. The pipeline
+/// is: IDNA → ASCII (so unicode IDNs match the cert's punycode SANs),
+/// ASCII-lowercase (rustls compares case-insensitively, but matching
+/// the cert verbatim avoids subtle bugs in middleware that hashes the
+/// raw string), and strip a single trailing FQDN dot (`example.com.`
+/// is the same host as `example.com` for cert matching but rustls's
+/// `ServerName` parser rejects the trailing dot).
+///
+/// Failures here mean an operator wrote a hostname that `rustls`
+/// would later reject at handshake time; surfacing the error at
+/// config-parse time turns "first connection fails mysteriously"
+/// into a deterministic compile error.
+///
+/// # Errors
+/// String description for empty input, non-ASCII bytes that IDNA
+/// can't translate, or addresses with embedded spaces / control
+/// chars.
+fn normalize_verify_hostname(host: &str) -> Result<String, String> {
+	if host.is_empty() {
+		return Err("hostname is empty".into());
+	}
+	// Strip a single trailing FQDN dot. `rstrip_*` would chew through
+	// `a..` which is invalid for other reasons; one dot is the only
+	// legal case we need to tolerate.
+	let trimmed = host.strip_suffix('.').unwrap_or(host);
+	let ascii = idna::domain_to_ascii(trimmed)
+		.map_err(|e| format!("idna domain_to_ascii rejected hostname: {e}"))?;
+	let mut lowered = ascii;
+	lowered.make_ascii_lowercase();
+	Ok(lowered)
+}
+
 /// Helper for fetch factories: parse an `args.tls` JSON object into
 /// an [`UpstreamTls`]. Returns `Ok(None)` when the field is absent
 /// (cleartext upstream). The default `verify_hostname` is the host
@@ -307,7 +339,7 @@ pub fn parse_tls_args(
 	let Some(tls_args) = tls_args else {
 		return Ok(None);
 	};
-	let verify_hostname =
+	let raw_hostname =
 		tls_args.get("verify_hostname").and_then(serde_json::Value::as_str).map_or_else(
 			|| {
 				// Default: strip the trailing `:port` if present. `rsplit_once`
@@ -317,6 +349,8 @@ pub fn parse_tls_args(
 			},
 			String::from,
 		);
+	let verify_hostname = normalize_verify_hostname(&raw_hostname)
+		.map_err(|e| format!("verify_hostname {raw_hostname:?}: {e}"))?;
 	let insecure =
 		tls_args.get("insecure_skip_verify").and_then(serde_json::Value::as_bool).unwrap_or(false);
 	let crls = parse_crls(tls_args.get("crls"))?;
@@ -431,6 +465,25 @@ mod tests {
 	use super::*;
 	use tokio::io::{AsyncReadExt, AsyncWriteExt};
 	use tokio::net::TcpListener;
+
+	#[test]
+	fn normalize_verify_hostname_lowercases_and_strips_trailing_dot() {
+		assert_eq!(normalize_verify_hostname("Example.COM.").unwrap(), "example.com");
+		assert_eq!(normalize_verify_hostname("api.example.com").unwrap(), "api.example.com");
+	}
+
+	#[test]
+	fn normalize_verify_hostname_idna_translates_unicode_to_punycode() {
+		// `bücher.example` is the canonical IDN test vector; IDNA
+		// maps it to `xn--bcher-kva.example`.
+		let got = normalize_verify_hostname("Bücher.Example").expect("idna");
+		assert_eq!(got, "xn--bcher-kva.example");
+	}
+
+	#[test]
+	fn normalize_verify_hostname_rejects_empty() {
+		assert!(normalize_verify_hostname("").is_err());
+	}
 
 	#[tokio::test]
 	async fn upstream_dial_cleartext_returns_box_async_read_write() {

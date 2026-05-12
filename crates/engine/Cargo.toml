@@ -69,6 +69,7 @@ http-retry-policy = { workspace = true }
 hyper = { version = "1", features = ["server", "http1", "http2", "client"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "rustls-native-certs", "tls12"] }
 hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "server-auto", "http1", "http2"] }
+idna = "1"
 memchr = "2.8.0"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
