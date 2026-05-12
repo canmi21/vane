@@ -4,11 +4,25 @@
 //! can be slotted in without changing the call shape.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 use crate::protocol::{Request, Response, ResponseOutcome, WireError, WireErrorKind, encode_line};
+
+/// Maximum time to wait for `UnixStream::connect` to return. The mgmt
+/// daemon is on the same host as the CLI; if the kernel doesn't grant
+/// the connection in five seconds something is badly wrong (daemon
+/// not running, socket file stale, FS perms wrong) and operators want
+/// the failure mode to be a fast error rather than a hang.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Maximum time between server-sourced bytes on a one-shot call. A
+/// server stall after we've sent the request shouldn't leave the
+/// operator's terminal hanging; this fires `MgmtClientError::Timeout`
+/// and lets the shell prompt return.
+pub const ONESHOT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Single-shot typed Unix mgmt client. Each `call` opens a fresh
 /// connection. Re-using one client for many calls works too — the
@@ -39,7 +53,9 @@ impl UnixMgmtClient {
 		A: serde::Serialize,
 		R: for<'de> serde::Deserialize<'de>,
 	{
-		let stream = UnixStream::connect(&self.socket_path).await?;
+		let stream = tokio::time::timeout(CONNECT_TIMEOUT, UnixStream::connect(&self.socket_path))
+			.await
+			.map_err(|_| MgmtClientError::Timeout("connect"))??;
 		let (read, mut write) = stream.into_split();
 
 		let req = Request {
@@ -55,7 +71,10 @@ impl UnixMgmtClient {
 		write.shutdown().await.ok();
 
 		let mut lines = BufReader::new(read).lines();
-		let line = lines.next_line().await?.ok_or(MgmtClientError::EmptyResponse)?;
+		let line = tokio::time::timeout(ONESHOT_TIMEOUT, lines.next_line())
+			.await
+			.map_err(|_| MgmtClientError::Timeout("read"))??
+			.ok_or(MgmtClientError::EmptyResponse)?;
 		let response: Response = serde_json::from_str(&line).map_err(MgmtClientError::Decode)?;
 		match response.outcome {
 			ResponseOutcome::Result { result } => {
@@ -96,7 +115,9 @@ impl UnixMgmtClient {
 		A: serde::Serialize,
 		F: FnMut(serde_json::Value),
 	{
-		let stream = UnixStream::connect(&self.socket_path).await?;
+		let stream = tokio::time::timeout(CONNECT_TIMEOUT, UnixStream::connect(&self.socket_path))
+			.await
+			.map_err(|_| MgmtClientError::Timeout("connect"))??;
 		let (read, mut write) = stream.into_split();
 
 		let req = Request {
@@ -149,6 +170,12 @@ pub enum MgmtClientError {
 	/// transport has no equivalent shape.
 	#[error("http {status}: {body}")]
 	Http { status: u16, body: String },
+	/// Transport-level deadline expired. Phase identifies the stage:
+	/// `"connect"` for a stalled accept on the mgmt socket / TCP
+	/// endpoint, `"read"` for a server that accepted the request but
+	/// then went silent.
+	#[error("timeout: {0}")]
+	Timeout(&'static str),
 }
 
 #[cfg(test)]

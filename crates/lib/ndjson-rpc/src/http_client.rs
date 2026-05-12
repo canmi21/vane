@@ -18,7 +18,7 @@ use hyper::{Method, StatusCode};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 
-use crate::client::MgmtClientError;
+use crate::client::{CONNECT_TIMEOUT, MgmtClientError, ONESHOT_TIMEOUT};
 use crate::protocol::{Request, Response, ResponseOutcome, WireError, WireErrorKind};
 
 /// Plaintext HTTP/1.1 mgmt client. Cheap to clone — `addr` is `Copy`,
@@ -59,10 +59,9 @@ impl HttpMgmtClient {
 		let body_bytes = Bytes::from(serde_json::to_vec(&req).map_err(MgmtClientError::Encode)?);
 		let resp = self.send(body_bytes).await?;
 		let status = resp.status();
-		let resp_body = resp
-			.into_body()
-			.collect()
+		let resp_body = tokio::time::timeout(ONESHOT_TIMEOUT, resp.into_body().collect())
 			.await
+			.map_err(|_| MgmtClientError::Timeout("read"))?
 			.map_err(|e| MgmtClientError::Io(std::io::Error::other(e.to_string())))?
 			.to_bytes();
 		if status != StatusCode::OK {
@@ -164,7 +163,9 @@ impl HttpMgmtClient {
 	/// caller drains the body before going out of scope; the spawned
 	/// driver task ends when the connection closes.
 	async fn send(&self, body: Bytes) -> Result<hyper::Response<Incoming>, MgmtClientError> {
-		let stream = TcpStream::connect(self.addr).await?;
+		let stream = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(self.addr))
+			.await
+			.map_err(|_| MgmtClientError::Timeout("connect"))??;
 		let io = TokioIo::new(stream);
 		let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
 			.await
