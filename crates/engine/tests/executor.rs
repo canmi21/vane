@@ -228,6 +228,7 @@ async fn run_execute(
 		span: tracing::Span::none(),
 		log: Arc::clone(sink) as Arc<dyn FlowLogSink>,
 		cancel: CancellationToken::new(),
+		accept_cancel: CancellationToken::new(),
 		verbosity: vane_core::FlowLogVerbosity::Trajectory,
 		trajectory: vane_core::TrajectoryBuilder::new(conn.id, entry, 0),
 	};
@@ -806,6 +807,7 @@ async fn run_execute_with_verbosity(
 		span: tracing::Span::none(),
 		log: Arc::clone(sink) as Arc<dyn FlowLogSink>,
 		cancel: CancellationToken::new(),
+		accept_cancel: CancellationToken::new(),
 		verbosity,
 		trajectory: vane_core::TrajectoryBuilder::new(conn.id, entry, 0),
 	};
@@ -1308,6 +1310,7 @@ async fn execute_byte_tunnel_drives_copy_bidirectional() {
 			span: tracing::Span::none(),
 			log: sink,
 			cancel: CancellationToken::new(),
+			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
 		};
@@ -1369,6 +1372,7 @@ async fn execute_byte_tunnel_sends_graceful_close_reason() {
 			span: tracing::Span::none(),
 			log: sink,
 			cancel: CancellationToken::new(),
+			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
 		};
@@ -1620,6 +1624,7 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 			span: tracing::Span::none(),
 			log: sink,
 			cancel: cancel_for_exec,
+			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
 		};

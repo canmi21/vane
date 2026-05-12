@@ -188,6 +188,7 @@ mod tests {
 			span: tracing::Span::none(),
 			log: Arc::new(NullSink),
 			cancel: CancellationToken::new(),
+			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: TrajectoryBuilder::new(conn_id, NodeId::new(0), 0),
 		}

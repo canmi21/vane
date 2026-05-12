@@ -57,6 +57,7 @@ fn make_ctx() -> FlowCtx {
 		span: tracing::Span::none(),
 		log: Arc::new(DropSink) as Arc<dyn FlowLogSink>,
 		cancel: CancellationToken::new(),
+		accept_cancel: CancellationToken::new(),
 		verbosity: FlowLogVerbosity::Trajectory,
 		trajectory: TrajectoryBuilder::new(ConnId(1), vane_core::NodeId::new(0), 0),
 	}

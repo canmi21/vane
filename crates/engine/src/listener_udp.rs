@@ -571,6 +571,7 @@ async fn handle_cold_path(
 		span,
 		log: Arc::clone(&ctx.base.log_sink),
 		cancel: ctx.base.force_cancel.clone(),
+		accept_cancel: ctx.base.accept_cancel.clone(),
 		verbosity: ctx.base.verbosity.current(),
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};

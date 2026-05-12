@@ -144,6 +144,7 @@ async fn run_execute(
 		span: tracing::Span::none(),
 		log: Arc::clone(sink) as Arc<dyn FlowLogSink>,
 		cancel: CancellationToken::new(),
+		accept_cancel: CancellationToken::new(),
 		verbosity: vane_core::FlowLogVerbosity::Trajectory,
 		trajectory: vane_core::TrajectoryBuilder::new(conn.id, entry, 0),
 	};

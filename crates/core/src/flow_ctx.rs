@@ -17,7 +17,21 @@ use crate::flow_log::{FlowLogSink, FlowLogVerbosity, TrajectoryBuilder};
 pub struct FlowCtx {
 	pub span: tracing::Span,
 	pub log: Arc<dyn FlowLogSink>,
+	/// Hard-cancel token. Fired by the listener's `force_cancel` tier
+	/// when shutdown's soft-drain window expires. Long-lived
+	/// terminators (`ByteTunnel`, UDP tunnel) `select!` on this and
+	/// surface `CloseReason::Cancelled`. Per-request hyper drivers
+	/// hand this to their per-request executor wiring.
 	pub cancel: CancellationToken,
+	/// Soft-drain token. Fired by the listener's `accept_cancel` tier
+	/// at the start of shutdown / listener removal — well before
+	/// `cancel` (`force_cancel`) trips. Hyper H1 / H2 drivers wire
+	/// this into `graceful_shutdown()` so idle keep-alive clients see
+	/// `Connection: close` (H1) or `GOAWAY` (H2) immediately rather
+	/// than camping until the drain budget runs out. Defaults to a
+	/// fresh detached `CancellationToken` so call sites that have not
+	/// been wired through yet keep their pre-split semantics.
+	pub accept_cancel: CancellationToken,
 	/// Verbosity selected when this connection was accepted. The listener
 	/// reads `engine::VerbosityState` once at `FlowCtx` construction;
 	/// in-flight connections retain the value they were built with.
@@ -60,12 +74,14 @@ mod tests {
 			span,
 			log: sink,
 			cancel,
+			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
 			trajectory: TrajectoryBuilder::new(ConnId(0), NodeId::new(0), 0),
 		};
 		let _ = &ctx.span;
 		let _ = &ctx.log;
 		let _ = &ctx.cancel;
+		let _ = &ctx.accept_cancel;
 		let _ = &ctx.verbosity;
 		let _ = &ctx.trajectory;
 	}

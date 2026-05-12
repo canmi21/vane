@@ -419,6 +419,7 @@ pub async fn execute(
 						Arc::clone(conn),
 						Arc::clone(&ctx.log),
 						ctx.cancel.clone(),
+						ctx.accept_cancel.clone(),
 						ctx.verbosity,
 					)
 					.await
@@ -430,6 +431,7 @@ pub async fn execute(
 						Arc::clone(conn),
 						Arc::clone(&ctx.log),
 						ctx.cancel.clone(),
+						ctx.accept_cancel.clone(),
 						ctx.verbosity,
 					)
 					.await

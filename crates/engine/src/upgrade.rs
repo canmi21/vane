@@ -55,6 +55,10 @@ use crate::flow_graph::FlowGraph;
 	clippy::too_many_lines,
 	reason = "the body length is dominated by a single hyper service_fn closure that captures graph + conn + log + cancel + verbosity + l7_entry + h1_max_header_bytes. Extracting the closure body would just move those captures into a ctx struct without compressing the actual logic"
 )]
+#[allow(
+	clippy::too_many_arguments,
+	reason = "h1 driver wiring: graph/entry/conn/log/cancel/accept_cancel/verbosity each thread one piece of per-conn state; bag struct would just rename the noise"
+)]
 pub(crate) async fn drive_h1_server<S>(
 	stream: S,
 	graph: Arc<FlowGraph>,
@@ -62,6 +66,7 @@ pub(crate) async fn drive_h1_server<S>(
 	conn: Arc<ConnContext>,
 	log: Arc<dyn FlowLogSink>,
 	cancel: CancellationToken,
+	accept_cancel: CancellationToken,
 	verbosity: FlowLogVerbosity,
 ) -> Result<ExecutorOutput, Error>
 where
@@ -78,13 +83,15 @@ where
 	let h1_max_header_bytes = graph.security_cfg().max_header_bytes;
 
 	// Outer cancel handle drives the connection-level select below.
-	// `svc` keeps its own clone for per-request executor wiring.
+	// `svc` keeps its own clones for per-request executor wiring.
 	let conn_cancel = cancel.clone();
+	let conn_accept_cancel = accept_cancel.clone();
 	let svc = service_fn(move |mut req: hyper::Request<Incoming>| {
 		let graph = Arc::clone(&graph);
 		let conn = Arc::clone(&conn);
 		let log = Arc::clone(&log);
 		let cancel = cancel.clone();
+		let accept_cancel = accept_cancel.clone();
 		async move {
 			// Precise header byte check (name + ": " + value + "\r\n" = +4).
 			// hyper's `max_buf_size` provides a coarse upper bound on the
@@ -127,6 +134,7 @@ where
 				span,
 				log,
 				cancel,
+				accept_cancel,
 				verbosity,
 				trajectory: TrajectoryBuilder::new(conn.id, l7_entry, unix_ms_now()),
 			};
@@ -255,21 +263,36 @@ where
 	};
 	tokio::pin!(server_conn);
 
-	// Watch the cancel token alongside the hyper connection. A
+	// Watch both cancel tokens alongside the hyper connection. A
 	// keep-alive idle H1 connection has no server-side IO to drive
-	// `serve_connection` toward EOF — the listener-level
-	// `force_cancel` is therefore the only signal that can pull a
-	// well-behaved client off our process during shutdown. On cancel
-	// we trigger hyper's `graceful_shutdown` (sends `Connection:
-	// close` on the next response and finishes any in-flight
-	// request, then closes the socket) and re-await once to let
-	// hyper finalize. Any post-upgrade WebSocket byte tunnel runs
-	// in its own spawned task that observes `ctx.cancel`
-	// independently, so this graceful_shutdown does not yank the
-	// upgraded socket out from under it.
+	// `serve_connection` toward EOF, so a cancel signal is the only
+	// way to pull a well-behaved client off our process during
+	// shutdown.
+	//
+	// `accept_cancel` (soft drain): the listener no longer accepts
+	// new connections — tell hyper to stop reusing this one. We call
+	// `graceful_shutdown` (sends `Connection: close` on the next
+	// response and finishes any in-flight request, then closes the
+	// socket) and keep awaiting so the in-flight request — if any —
+	// gets to write its body. This is what lets idle keep-alive
+	// clients exit immediately rather than camping until the drain
+	// budget runs out.
+	//
+	// `conn_cancel` (force_cancel): we've passed the soft-drain
+	// window. Trigger graceful_shutdown the same way and re-await
+	// once; any still-pending request finishes against the (now
+	// hard-cancelled) FlowCtx::cancel and the socket closes.
+	//
+	// Any post-upgrade WebSocket byte tunnel runs in its own spawned
+	// task that observes `FlowCtx::cancel` independently, so neither
+	// graceful_shutdown yanks the upgraded socket out from under it.
 	let outcome = tokio::select! {
 		biased;
 		result = server_conn.as_mut() => result,
+		() = conn_accept_cancel.cancelled() => {
+			server_conn.as_mut().graceful_shutdown();
+			server_conn.as_mut().await
+		}
 		() = conn_cancel.cancelled() => {
 			server_conn.as_mut().graceful_shutdown();
 			server_conn.as_mut().await
@@ -304,6 +327,10 @@ where
 /// `Error::protocol("h2 serve_connection").with_source(...)`.
 /// Per-request executor errors are translated to a synthetic 500
 /// inside the service-fn so the connection itself stays alive.
+#[allow(
+	clippy::too_many_arguments,
+	reason = "h2 driver wiring: same shape as h1; bag struct would just rename the noise"
+)]
 pub(crate) fn drive_h2_server<S>(
 	stream: S,
 	graph: Arc<FlowGraph>,
@@ -311,6 +338,7 @@ pub(crate) fn drive_h2_server<S>(
 	conn: Arc<ConnContext>,
 	log: Arc<dyn FlowLogSink>,
 	cancel: CancellationToken,
+	accept_cancel: CancellationToken,
 	verbosity: FlowLogVerbosity,
 ) -> Pin<Box<dyn Future<Output = Result<ExecutorOutput, Error>> + Send + 'static>>
 where
@@ -330,14 +358,16 @@ where
 		// negotiated ALPN; a redundant set is a silent no-op (`OnceLock`).
 		let _ = conn.http_version.set(HttpVersion::Http2);
 
-		// Outer cancel handle drives the connection-level select below.
-		// `svc` keeps its own clone for per-request executor wiring.
+		// Outer cancel handles drive the connection-level select below.
+		// `svc` keeps its own clones for per-request executor wiring.
 		let conn_cancel = cancel.clone();
+		let conn_accept_cancel = accept_cancel.clone();
 		let svc = service_fn(move |req: hyper::Request<Incoming>| {
 			let graph = Arc::clone(&graph);
 			let conn = Arc::clone(&conn);
 			let log = Arc::clone(&log);
 			let cancel = cancel.clone();
+			let accept_cancel = accept_cancel.clone();
 			async move {
 				let vane_req: Request =
 					req.map(|incoming| Body::Stream(Box::pin(IncomingAdapter::new(incoming))));
@@ -354,6 +384,7 @@ where
 					span,
 					log,
 					cancel,
+					accept_cancel,
 					verbosity,
 					trajectory: TrajectoryBuilder::new(conn.id, l7_entry, unix_ms_now()),
 				};
@@ -407,13 +438,23 @@ where
 
 		// H2 graceful_shutdown sends `GOAWAY` and waits for in-flight
 		// streams to finish; idle multiplexed connections then exit
-		// without further client traffic. As with the H1 driver, the
-		// listener's `force_cancel` is our only handle on a keep-alive
-		// idle connection during drain — without this select the
-		// outer shutdown stage waits FORCE_CANCEL_GRACE for nothing.
+		// without further client traffic. Wire both cancel tiers in
+		// (same logic as the H1 driver):
+		//
+		// - `accept_cancel` (soft drain): emit `GOAWAY` as soon as the
+		//   listener stops accepting — idle multiplexed clients see
+		//   the connection exit immediately instead of camping until
+		//   the drain budget runs out.
+		// - `conn_cancel` (force_cancel): final hammer; re-await once
+		//   so any still-in-flight stream finishes against the
+		//   hard-cancelled FlowCtx.
 		let outcome = tokio::select! {
 			biased;
 			result = server_conn.as_mut() => result,
+			() = conn_accept_cancel.cancelled() => {
+				server_conn.as_mut().graceful_shutdown();
+				server_conn.as_mut().await
+			}
 			() = conn_cancel.cancelled() => {
 				server_conn.as_mut().graceful_shutdown();
 				server_conn.as_mut().await
@@ -546,6 +587,7 @@ pub(crate) async fn drive_h3_server(
 							conn: Arc::clone(&conn),
 							log: Arc::clone(&log),
 							cancel: cancel.clone(),
+							accept_cancel: accept_cancel.clone(),
 							verbosity: verbosity.current(),
 						};
 						tokio::spawn(handle_h3_request(req, stream, sctx));
@@ -573,6 +615,7 @@ pub(crate) struct H3StreamCtx {
 	pub conn: Arc<vane_core::ConnContext>,
 	pub log: Arc<dyn FlowLogSink>,
 	pub cancel: CancellationToken,
+	pub accept_cancel: CancellationToken,
 	pub verbosity: vane_core::FlowLogVerbosity,
 }
 
@@ -596,7 +639,7 @@ async fn handle_h3_request(
 	sctx: H3StreamCtx,
 ) {
 	use http_body::Body as _;
-	let H3StreamCtx { graph, entry, conn, log, cancel, verbosity } = sctx;
+	let H3StreamCtx { graph, entry, conn, log, cancel, accept_cancel, verbosity } = sctx;
 	let (mut parts, _empty) = req.into_parts();
 
 	// `h3` sets `parts.version = HTTP/3.0`. The L7 executor + middleware
@@ -631,6 +674,7 @@ async fn handle_h3_request(
 		span,
 		log,
 		cancel,
+		accept_cancel,
 		verbosity,
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};

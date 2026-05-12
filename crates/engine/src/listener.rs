@@ -762,6 +762,7 @@ async fn handle_connection(
 		span,
 		log: Arc::clone(&ctx.log_sink),
 		cancel: ctx.force_cancel.clone(),
+		accept_cancel: ctx.accept_cancel.clone(),
 		verbosity: ctx.verbosity.current(),
 		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
 	};

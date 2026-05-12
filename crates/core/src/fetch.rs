@@ -408,6 +408,7 @@ mod tests {
 			span: tracing::Span::none(),
 			log: Arc::new(NullSink),
 			cancel: CancellationToken::new(),
+			accept_cancel: CancellationToken::new(),
 			verbosity: crate::flow_log::FlowLogVerbosity::Trajectory,
 			trajectory: crate::flow_log::TrajectoryBuilder::new(conn.id, crate::ir::NodeId::new(0), 0),
 		};

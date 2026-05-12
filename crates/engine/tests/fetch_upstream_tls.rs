@@ -157,6 +157,7 @@ fn make_ctx_and_conn() -> (Arc<ConnContext>, FlowCtx) {
 		span,
 		log: Arc::new(NullSink) as Arc<dyn FlowLogSink>,
 		cancel: tokio_util::sync::CancellationToken::new(),
+		accept_cancel: tokio_util::sync::CancellationToken::new(),
 		verbosity: VerbosityState::new().current(),
 		trajectory: TrajectoryBuilder::new(conn.id, NodeId::new(0), 0),
 	};
