@@ -324,7 +324,8 @@ fn advance_existing_pending_peek(
 		PendingAdvance::NeedMore => {
 			// Buffered for later datagram; no spawn.
 		}
-		PendingAdvance::Drop => {
+		PendingAdvance::Drop(reason) => {
+			record_peek_dropped(ctx.base.addr, reason);
 			if ctx.dispatch_table.remove(&pending_key).is_some() {
 				pending_count.fetch_sub(1, Ordering::Relaxed);
 			}
@@ -359,8 +360,10 @@ fn dispatch_cold_datagram(
 	}
 	if pending_count.load(Ordering::Relaxed) >= PENDING_PEEK_MAX_PER_LISTENER {
 		// `spec/crates/engine.md` § _Multi-packet peek_: silent drop past
-		// the per-listener cap. Operators see the drop only via metrics;
-		// no per-drop log to avoid amplifying a flood.
+		// the per-listener cap. Operators see the drop only via the
+		// `vane.listener.peek.dropped` counter; no per-drop log to
+		// avoid amplifying a flood.
+		record_peek_dropped(ctx.base.addr, PeekDropReason::PerListenerCap);
 		return;
 	}
 	let state = Arc::new(PendingPeekState::new());
@@ -376,10 +379,12 @@ fn dispatch_cold_datagram(
 				pending_count.fetch_add(1, Ordering::Relaxed);
 			}
 		}
-		PendingAdvance::Drop => {
-			// First datagram failed parsing — fall back to immediate
-			// cold-path entry with the raw datagram, mirroring spec
-			// behaviour of "not Initial → fall through".
+		PendingAdvance::Drop(reason) => {
+			// First datagram failed parsing — record the bound that
+			// tripped, then fall back to immediate cold-path entry
+			// with the raw datagram, mirroring spec behaviour of
+			// "not Initial → fall through".
+			record_peek_dropped(ctx.base.addr, reason);
 			spawn_cold_path(ctx, peer, vec![datagram], None);
 		}
 	}
@@ -389,7 +394,45 @@ fn dispatch_cold_datagram(
 enum PendingAdvance {
 	Sni(String),
 	NeedMore,
-	Drop,
+	Drop(PeekDropReason),
+}
+
+/// Why a pending-peek session was rejected. Each variant maps to a
+/// distinct `reason` label on the `vane.listener.peek.dropped` counter
+/// so operators can localise which bound trips most often in
+/// production. Keep the label set bounded — each new variant must
+/// land in the prom-cardinality-cap admit table.
+#[derive(Copy, Clone, Debug)]
+enum PeekDropReason {
+	LifetimeExpired,
+	MaxBytes,
+	MaxDatagrams,
+	ExtractError,
+	PerListenerCap,
+}
+
+impl PeekDropReason {
+	const fn label(self) -> &'static str {
+		match self {
+			Self::LifetimeExpired => "lifetime_expired",
+			Self::MaxBytes => "max_bytes",
+			Self::MaxDatagrams => "max_datagrams",
+			Self::ExtractError => "extract_error",
+			Self::PerListenerCap => "per_listener_cap",
+		}
+	}
+}
+
+fn record_peek_dropped(listener_addr: SocketAddr, reason: PeekDropReason) {
+	// Label cardinality stays bounded: `listener_port` is a u16 (one
+	// label value per bound port) and `reason` is the closed enum
+	// above. See `crates/lib/prom-cardinality-cap`.
+	metrics::counter!(
+		"vane.listener.peek.dropped",
+		"listener_port" => listener_addr.port().to_string(),
+		"reason" => reason.label(),
+	)
+	.increment(1);
 }
 
 /// Push one datagram into the `PendingPeekState` and apply the spec's
@@ -398,16 +441,16 @@ enum PendingAdvance {
 /// [`PendingAdvance::Drop`] so the caller removes the entry.
 fn advance_pending_peek(state: &PendingPeekState, datagram: &Bytes) -> PendingAdvance {
 	if state.started_at.elapsed() > PENDING_PEEK_LIFETIME {
-		return PendingAdvance::Drop;
+		return PendingAdvance::Drop(PeekDropReason::LifetimeExpired);
 	}
 	let new_bytes = state.bytes.load(Ordering::Relaxed).saturating_add(datagram.len());
 	if new_bytes > PENDING_PEEK_MAX_BYTES {
-		return PendingAdvance::Drop;
+		return PendingAdvance::Drop(PeekDropReason::MaxBytes);
 	}
 	{
 		let mut buf = state.datagrams.lock();
 		if buf.len() >= PENDING_PEEK_MAX_DATAGRAMS {
-			return PendingAdvance::Drop;
+			return PendingAdvance::Drop(PeekDropReason::MaxDatagrams);
 		}
 		buf.push(datagram.clone());
 	}
@@ -416,7 +459,7 @@ fn advance_pending_peek(state: &PendingPeekState, datagram: &Bytes) -> PendingAd
 	match state.extractor.lock().push(datagram) {
 		Ok(PushOutcome::Sni(s)) => PendingAdvance::Sni(s),
 		Ok(PushOutcome::NeedMore) => PendingAdvance::NeedMore,
-		Err(_) => PendingAdvance::Drop,
+		Err(_) => PendingAdvance::Drop(PeekDropReason::ExtractError),
 	}
 }
 
@@ -600,7 +643,7 @@ mod tests {
 		// invoking the extractor (the byte budget gate is upstream).
 		let state = PendingPeekState::new();
 		let oversize = Bytes::from(vec![0u8; PENDING_PEEK_MAX_BYTES + 1]);
-		assert!(matches!(advance_pending_peek(&state, &oversize), PendingAdvance::Drop));
+		assert!(matches!(advance_pending_peek(&state, &oversize), PendingAdvance::Drop(_)));
 	}
 
 	#[test]
@@ -617,7 +660,7 @@ mod tests {
 		let state = PendingPeekState { started_at: aged, ..PendingPeekState::new() };
 		// Datagram bytes don't matter — the lifetime check runs first.
 		let dgram = Bytes::from_static(&[0xc0, 0, 0, 0, 1]);
-		assert!(matches!(advance_pending_peek(&state, &dgram), PendingAdvance::Drop));
+		assert!(matches!(advance_pending_peek(&state, &dgram), PendingAdvance::Drop(_)));
 	}
 
 	#[test]
@@ -626,7 +669,7 @@ mod tests {
 		// `NotInitial` (or `HeaderParse`), which surfaces as Drop.
 		let state = PendingPeekState::new();
 		let garbage = Bytes::from_static(b"hello");
-		assert!(matches!(advance_pending_peek(&state, &garbage), PendingAdvance::Drop));
+		assert!(matches!(advance_pending_peek(&state, &garbage), PendingAdvance::Drop(_)));
 	}
 
 	#[test]
@@ -641,7 +684,7 @@ mod tests {
 			}
 		}
 		let dgram = Bytes::from_static(&[0xc0, 0, 0, 0, 1]);
-		assert!(matches!(advance_pending_peek(&state, &dgram), PendingAdvance::Drop));
+		assert!(matches!(advance_pending_peek(&state, &dgram), PendingAdvance::Drop(_)));
 	}
 
 	#[test]
