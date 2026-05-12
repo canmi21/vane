@@ -391,12 +391,34 @@ impl From<ipnet::AddrParseError> for Error {
 	}
 }
 
-// `Elapsed` carries no discriminator for which timeout tripped, so the
-// conversion picks the most general bucket; sites that know the specific
-// phase should build the error explicitly via `Error::timeout(kind)`.
-impl From<tokio::time::error::Elapsed> for Error {
-	fn from(e: tokio::time::error::Elapsed) -> Self {
-		from_source(ErrorKind::Timeout(TimeoutKind::Total), e)
+// `From<tokio::time::error::Elapsed>` is intentionally not provided.
+// `Elapsed` carries no discriminator for which timeout tripped, and a
+// blanket conversion swept every timeout site into `TimeoutKind::Total`
+// regardless of the actual stage (connect, read, header, etc.) —
+// observers and retry classifiers then lost the distinction. Use
+// [`timeout_with`] at the call site instead so the stage is named
+// explicitly.
+
+/// Run `fut` under a tokio timeout and translate the elapsed case into
+/// a named [`TimeoutKind`]. Replaces the previous `From<Elapsed>` impl
+/// so every call site spells out which stage owns the timeout.
+///
+/// # Errors
+/// On expiry returns [`Error::timeout(kind)`]; otherwise propagates
+/// `fut`'s own `Result`.
+pub async fn timeout_with<T, E, F>(
+	kind: TimeoutKind,
+	duration: std::time::Duration,
+	fut: F,
+) -> Result<T, Error>
+where
+	F: std::future::Future<Output = Result<T, E>>,
+	Error: From<E>,
+{
+	match tokio::time::timeout(duration, fut).await {
+		Ok(Ok(v)) => Ok(v),
+		Ok(Err(e)) => Err(Error::from(e)),
+		Err(_) => Err(Error::timeout(kind)),
 	}
 }
 
