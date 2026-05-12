@@ -60,10 +60,33 @@ pub enum ResponseOutcome {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EndMarker {}
 
+/// Structured error frame. `message` is a human-readable summary;
+/// `details`, when present, carries verb-specific structured context
+/// (compile error site, timeout stage, etc.) that the CLI can render
+/// alongside the message.
+///
+/// `details` is omitted from the wire when `None` so existing
+/// consumers that only inspect `kind` / `message` see the same shape
+/// they always did.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WireError {
 	pub kind: WireErrorKind,
 	pub message: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub details: Option<serde_json::Value>,
+}
+
+impl WireError {
+	#[must_use]
+	pub fn new(kind: WireErrorKind, message: impl Into<String>) -> Self {
+		Self { kind, message: message.into(), details: None }
+	}
+
+	#[must_use]
+	pub fn with_details(mut self, details: serde_json::Value) -> Self {
+		self.details = Some(details);
+		self
+	}
 }
 
 /// Error category. The full string message carries detail; the kind is
@@ -74,6 +97,10 @@ pub enum WireErrorKind {
 	UnknownVerb,
 	BadArgs,
 	Internal,
+	/// A bounded operation exceeded its time budget. Used by handlers
+	/// that wrap an inner future in `tokio::time::timeout` (or one of
+	/// `vane_core::timeout_with`'s named stages).
+	Timeout,
 	/// Future-proof for streaming verbs and other deferred capabilities.
 	NotImplemented,
 }
@@ -131,7 +158,7 @@ mod tests {
 		let resp = Response {
 			id: 3,
 			outcome: ResponseOutcome::Error {
-				error: WireError { kind: WireErrorKind::UnknownVerb, message: "no such verb".to_string() },
+				error: WireError::new(WireErrorKind::UnknownVerb, "no such verb"),
 			},
 		};
 		let value = serde_json::to_value(&resp).expect("to_value");
@@ -139,6 +166,18 @@ mod tests {
 		assert_eq!(value["error"]["kind"], "unknown_verb");
 		assert_eq!(value["error"]["message"], "no such verb");
 		assert!(value.get("result").is_none());
+		assert!(value["error"].get("details").is_none(), "details omitted when None");
+	}
+
+	#[test]
+	fn wire_error_with_details_round_trips() {
+		let err = WireError::new(WireErrorKind::BadArgs, "compile failed")
+			.with_details(serde_json::json!({"file": "rules/a.json", "line": 12}));
+		let s = serde_json::to_string(&err).expect("serialize");
+		assert!(s.contains("\"details\""), "details present on the wire: {s}");
+		let back: WireError = serde_json::from_str(&s).expect("deserialize");
+		assert_eq!(back.kind, WireErrorKind::BadArgs);
+		assert_eq!(back.details.expect("details")["line"], 12);
 	}
 
 	#[test]
@@ -147,6 +186,7 @@ mod tests {
 			WireErrorKind::UnknownVerb,
 			WireErrorKind::BadArgs,
 			WireErrorKind::Internal,
+			WireErrorKind::Timeout,
 			WireErrorKind::NotImplemented,
 		] {
 			let s = serde_json::to_string(&kind).expect("serialize kind");
@@ -155,6 +195,7 @@ mod tests {
 		}
 		assert_eq!(serde_json::to_string(&WireErrorKind::UnknownVerb).unwrap(), "\"unknown_verb\"");
 		assert_eq!(serde_json::to_string(&WireErrorKind::BadArgs).unwrap(), "\"bad_args\"");
+		assert_eq!(serde_json::to_string(&WireErrorKind::Timeout).unwrap(), "\"timeout\"");
 		assert_eq!(
 			serde_json::to_string(&WireErrorKind::NotImplemented).unwrap(),
 			"\"not_implemented\""

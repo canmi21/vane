@@ -66,10 +66,10 @@ impl UnixMgmtClient {
 				// Streaming frame on a one-shot `call`. Either the verb is
 				// a streaming verb (caller should use `call_stream`) or
 				// the server is buggy.
-				Err(MgmtClientError::Server(WireError {
-					kind: WireErrorKind::Internal,
-					message: "received streaming frame on one-shot call".to_string(),
-				}))
+				Err(MgmtClientError::Server(WireError::new(
+					WireErrorKind::Internal,
+					"received streaming frame on one-shot call",
+				)))
 			}
 		}
 	}
@@ -119,10 +119,10 @@ impl UnixMgmtClient {
 				ResponseOutcome::End { .. } => return Ok(()),
 				ResponseOutcome::Error { error } => return Err(MgmtClientError::Server(error)),
 				ResponseOutcome::Result { .. } => {
-					return Err(MgmtClientError::Server(WireError {
-						kind: WireErrorKind::Internal,
-						message: "received one-shot Result on streaming call".to_string(),
-					}));
+					return Err(MgmtClientError::Server(WireError::new(
+						WireErrorKind::Internal,
+						"received one-shot Result on streaming call",
+					)));
 				}
 			}
 		}
@@ -176,10 +176,7 @@ mod tests {
 			let result: Result<serde_json::Value, crate::protocol::WireError> = match req.verb.as_str() {
 				"ping" => Ok(serde_json::json!({ "pong": true, "version": "test" })),
 				"bad_shape" => Ok(serde_json::json!({ "unrelated": 1 })),
-				_ => Err(WireError {
-					kind: WireErrorKind::UnknownVerb,
-					message: format!("unknown {}", req.verb),
-				}),
+				_ => Err(WireError::new(WireErrorKind::UnknownVerb, format!("unknown {}", req.verb))),
 			};
 			DispatchOutcome::OneShot(result)
 		}

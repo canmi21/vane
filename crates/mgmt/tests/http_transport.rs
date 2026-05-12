@@ -28,16 +28,15 @@ impl Handler for StubHandler {
 		match req.verb.as_str() {
 			"ping" => DispatchOutcome::OneShot(Ok(serde_json::json!({ "pong": true }))),
 			"echo" => DispatchOutcome::OneShot(Ok(req.args)),
-			"boom" => DispatchOutcome::OneShot(Err(WireError {
-				kind: WireErrorKind::Internal,
-				message: "deliberate".into(),
-			})),
+			"boom" => {
+				DispatchOutcome::OneShot(Err(WireError::new(WireErrorKind::Internal, "deliberate")))
+			}
 			"stream3" => DispatchOutcome::Stream(Box::new(ThreeEvents::new())),
 			"infinite" => DispatchOutcome::Stream(Box::new(InfiniteEvents::default())),
-			_ => DispatchOutcome::OneShot(Err(WireError {
-				kind: WireErrorKind::UnknownVerb,
-				message: format!("unknown {}", req.verb),
-			})),
+			_ => DispatchOutcome::OneShot(Err(WireError::new(
+				WireErrorKind::UnknownVerb,
+				format!("unknown {}", req.verb),
+			))),
 		}
 	}
 }

@@ -98,17 +98,11 @@ impl Handler for MgmtState {
 			#[cfg(feature = "acme")]
 			VERB_GET_CERTS => self.handle_get_certs(),
 			#[cfg(not(feature = "acme"))]
-			VERB_FORCE_RENEW | VERB_GET_CERTS => Err(WireError {
-				kind: WireErrorKind::UnknownVerb,
-				message: format!(
-					"verb {:?} requires the daemon to be built with the `acme` feature",
-					req.verb,
-				),
-			}),
-			other => Err(WireError {
-				kind: WireErrorKind::UnknownVerb,
-				message: format!("unknown verb {other:?}"),
-			}),
+			VERB_FORCE_RENEW | VERB_GET_CERTS => Err(WireError::new(
+				WireErrorKind::UnknownVerb,
+				format!("verb {:?} requires the daemon to be built with the `acme` feature", req.verb),
+			)),
+			other => Err(WireError::new(WireErrorKind::UnknownVerb, format!("unknown verb {other:?}"))),
 		};
 		DispatchOutcome::OneShot(result)
 	}
@@ -201,7 +195,49 @@ fn parse_args<A: for<'de> serde::Deserialize<'de>>(
 	value: serde_json::Value,
 ) -> Result<A, WireError> {
 	serde_json::from_value(value)
-		.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("args: {e}") })
+		.map_err(|e| WireError::new(WireErrorKind::BadArgs, format!("args: {e}")))
+}
+
+/// Map a [`vane_core::Error`] onto a [`WireError`] for the mgmt wire.
+///
+/// The mapping is intentionally narrow: operator-fixable input
+/// problems flow as `bad_args`, deadlines flow as `timeout`, and
+/// everything else (including invariant violations) collapses to
+/// `internal`. The `details` payload carries the structured
+/// `SerializedError` so the CLI can render `kind` / `reason` / context
+/// / source-chain without re-parsing `message`.
+fn wire_error_from_core(e: &vane_core::Error) -> WireError {
+	use vane_core::error::{ErrorKind, SerializedError};
+	let kind = match e.kind() {
+		ErrorKind::Compile | ErrorKind::Protocol => WireErrorKind::BadArgs,
+		ErrorKind::Timeout(_) => WireErrorKind::Timeout,
+		_ => WireErrorKind::Internal,
+	};
+	let serialized = SerializedError::from(e);
+	let details = serde_json::to_value(&serialized).ok();
+	let err = WireError::new(kind, e.to_string());
+	match details {
+		Some(v) => err.with_details(v),
+		None => err,
+	}
+}
+
+/// Map a [`vane_core::Diagnostics`] onto a `bad_args` `WireError`. The
+/// caller's invariant is that `Diagnostics` only flows out of the
+/// compile pipeline, so the kind is always `bad_args`. The `details`
+/// payload is the array of structured `SerializedError` entries so the
+/// CLI can show every diagnostic the compile-collecting pipeline
+/// produced, not just the joined message.
+fn wire_error_from_diagnostics(d: &vane_core::error::Diagnostics) -> WireError {
+	use vane_core::error::SerializedError;
+	let message = d.to_string();
+	let entries: Vec<SerializedError> = d.entries().iter().map(SerializedError::from).collect();
+	let details = serde_json::to_value(&entries).ok();
+	let err = WireError::new(WireErrorKind::BadArgs, format!("compile: {message}"));
+	match details {
+		Some(v) => err.with_details(v),
+		None => err,
+	}
 }
 
 /// Read the CGI semaphore snapshot. `None` when the `cgi` feature is
@@ -257,7 +293,7 @@ fn quic_drain_by_id(_id: &str) -> usize {
 
 fn json<R: serde::Serialize>(r: &R) -> Result<serde_json::Value, WireError> {
 	serde_json::to_value(r)
-		.map_err(|e| WireError { kind: WireErrorKind::Internal, message: format!("encode: {e}") })
+		.map_err(|e| WireError::new(WireErrorKind::Internal, format!("encode: {e}")))
 }
 
 /// Render a [`std::time::SystemTime`] as RFC 3339 / ISO 8601 UTC.
@@ -349,10 +385,8 @@ impl MgmtState {
 
 	fn handle_get_config(&self) -> Result<serde_json::Value, WireError> {
 		let graph = self.reload.graph.load();
-		let serialized = serde_json::to_value(graph.symbolic().as_ref()).map_err(|e| WireError {
-			kind: WireErrorKind::Internal,
-			message: format!("symbolic: {e}"),
-		})?;
+		let serialized = serde_json::to_value(graph.symbolic().as_ref())
+			.map_err(|e| WireError::new(WireErrorKind::Internal, format!("symbolic: {e}")))?;
 		json(&GetConfigResult { graph: serialized })
 	}
 
@@ -373,7 +407,7 @@ impl MgmtState {
 			Ok(ReloadOutcome::Unchanged { hash }) => {
 				json(&ReloadResult::Unchanged { hash: hex32(&hash) })
 			}
-			Err(e) => Err(WireError { kind: WireErrorKind::Internal, message: format!("reload: {e}") }),
+			Err(e) => Err(WireError::new(WireErrorKind::Internal, format!("reload: {e}"))),
 		}
 	}
 
@@ -383,8 +417,7 @@ impl MgmtState {
 	) -> Result<serde_json::Value, WireError> {
 		let args: CompileDryRunArgs = parse_args(args)?;
 		let dir = PathBuf::from(args.config_dir);
-		let loaded = vane_core::config::load(&dir)
-			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("load: {e}") })?;
+		let loaded = vane_core::config::load(&dir).map_err(|e| wire_error_from_core(&e))?;
 		let registry_snap = self.reload.plugin_registry.as_ref().map(|s| s.load_full());
 		let providers = match registry_snap.as_ref() {
 			#[cfg(feature = "wasm")]
@@ -397,11 +430,9 @@ impl MgmtState {
 		// surface in one turn, so use the collecting form and let its
 		// `Display` impl format the multi-line message.
 		let symbolic = compile_collecting(loaded.files, &providers, &providers)
-			.map_err(|d| WireError { kind: WireErrorKind::BadArgs, message: format!("compile: {d}") })?;
-		let value = serde_json::to_value(&symbolic).map_err(|e| WireError {
-			kind: WireErrorKind::Internal,
-			message: format!("symbolic: {e}"),
-		})?;
+			.map_err(|d| wire_error_from_diagnostics(&d))?;
+		let value = serde_json::to_value(&symbolic)
+			.map_err(|e| WireError::new(WireErrorKind::Internal, format!("symbolic: {e}")))?;
 		json(&CompileDryRunResult { graph: value })
 	}
 
@@ -424,33 +455,30 @@ impl MgmtState {
 
 	fn handle_get_metrics(&self, args: serde_json::Value) -> Result<serde_json::Value, WireError> {
 		let parsed: GetMetricsArgs = serde_json::from_value(args)
-			.map_err(|e| WireError { kind: WireErrorKind::BadArgs, message: format!("{e}") })?;
+			.map_err(|e| WireError::new(WireErrorKind::BadArgs, format!("{e}")))?;
 		let format = parsed.format.as_deref().unwrap_or("prometheus");
 		let result = match format {
 			"" | "prometheus" => {
-				let body = vane_engine::metrics::render_prometheus().ok_or_else(|| WireError {
-					kind: WireErrorKind::Internal,
-					message: "metrics recorder not installed".to_string(),
+				let body = vane_engine::metrics::render_prometheus().ok_or_else(|| {
+					WireError::new(WireErrorKind::Internal, "metrics recorder not installed")
 				})?;
 				GetMetricsResult::Prometheus { body }
 			}
 			"json" => {
-				let metrics = vane_engine::metrics::render_json().ok_or_else(|| WireError {
-					kind: WireErrorKind::Internal,
-					message: "metrics recorder not installed".to_string(),
+				let metrics = vane_engine::metrics::render_json().ok_or_else(|| {
+					WireError::new(WireErrorKind::Internal, "metrics recorder not installed")
 				})?;
 				GetMetricsResult::Json { metrics }
 			}
 			other => {
-				return Err(WireError {
-					kind: WireErrorKind::BadArgs,
-					message: format!("format must be 'prometheus' or 'json', got {other:?}"),
-				});
+				return Err(WireError::new(
+					WireErrorKind::BadArgs,
+					format!("format must be 'prometheus' or 'json', got {other:?}"),
+				));
 			}
 		};
-		serde_json::to_value(result).map_err(|e| WireError {
-			kind: WireErrorKind::Internal,
-			message: format!("serialize get_metrics result: {e}"),
+		serde_json::to_value(result).map_err(|e| {
+			WireError::new(WireErrorKind::Internal, format!("serialize get_metrics result: {e}"))
 		})
 	}
 
@@ -499,15 +527,14 @@ impl MgmtState {
 	/// cache lookups are affected (per `spec/crates/engine.md` § _Upstream pools_
 	/// drain semantics).
 	fn handle_pool_drain(args: serde_json::Value) -> Result<serde_json::Value, WireError> {
-		let parsed: vane_mgmt::verb::PoolDrainArgs = serde_json::from_value(args).map_err(|e| {
-			WireError { kind: WireErrorKind::BadArgs, message: format!("pool_drain args: {e}") }
-		})?;
+		let parsed: vane_mgmt::verb::PoolDrainArgs = serde_json::from_value(args)
+			.map_err(|e| WireError::new(WireErrorKind::BadArgs, format!("pool_drain args: {e}")))?;
 		let id = parsed.fingerprint_id.trim();
 		if id.is_empty() {
-			return Err(WireError {
-				kind: WireErrorKind::BadArgs,
-				message: "pool_drain: fingerprint_id must not be empty".to_string(),
-			});
+			return Err(WireError::new(
+				WireErrorKind::BadArgs,
+				"pool_drain: fingerprint_id must not be empty",
+			));
 		}
 		let tcp_drained = vane_engine::fetch::client_cache::drain_by_fingerprint_id(id);
 		let quic_drained = quic_drain_by_id(id);
@@ -525,16 +552,11 @@ impl MgmtState {
 	fn handle_force_renew(&self, args: serde_json::Value) -> Result<serde_json::Value, WireError> {
 		use vane_mgmt::verb::{ForceRenewArgs, ForceRenewResult};
 
-		let parsed: ForceRenewArgs = serde_json::from_value(args).map_err(|e| WireError {
-			kind: WireErrorKind::BadArgs,
-			message: format!("force_renew args: {e}"),
-		})?;
+		let parsed: ForceRenewArgs = serde_json::from_value(args)
+			.map_err(|e| WireError::new(WireErrorKind::BadArgs, format!("force_renew args: {e}")))?;
 		let sni = parsed.sni.trim();
 		if sni.is_empty() {
-			return Err(WireError {
-				kind: WireErrorKind::BadArgs,
-				message: "force_renew: sni must not be empty".to_owned(),
-			});
+			return Err(WireError::new(WireErrorKind::BadArgs, "force_renew: sni must not be empty"));
 		}
 		let registry = match self.reload.acme_registry.as_ref() {
 			Some(r) => Arc::clone(r),

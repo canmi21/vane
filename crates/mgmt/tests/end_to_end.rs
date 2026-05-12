@@ -23,10 +23,7 @@ impl Handler for StubHandler {
 	async fn dispatch(&self, req: Request) -> DispatchOutcome {
 		let result: Result<serde_json::Value, WireError> = match req.verb.as_str() {
 			"ping" => Ok(serde_json::json!({ "pong": true, "version": "test-0.0.0" })),
-			_ => Err(WireError {
-				kind: WireErrorKind::UnknownVerb,
-				message: format!("unknown {}", req.verb),
-			}),
+			_ => Err(WireError::new(WireErrorKind::UnknownVerb, format!("unknown {}", req.verb))),
 		};
 		DispatchOutcome::OneShot(result)
 	}

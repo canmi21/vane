@@ -269,10 +269,7 @@ pub(crate) async fn handle_conn<R, W, H>(
 				let frame = Response {
 					id: 0,
 					outcome: ResponseOutcome::Error {
-						error: WireError {
-							kind: WireErrorKind::BadArgs,
-							message: format!("line too long: {e}"),
-						},
+						error: WireError::new(WireErrorKind::BadArgs, format!("line too long: {e}")),
 					},
 				};
 				let _ = write_frame(&mut write, &frame).await;
@@ -344,7 +341,7 @@ pub(crate) async fn handle_conn<R, W, H>(
 					// the documented sentinel for "no correlation possible".
 					id: 0,
 					outcome: ResponseOutcome::Error {
-						error: WireError { kind: WireErrorKind::BadArgs, message: format!("parse: {e}") },
+						error: WireError::new(WireErrorKind::BadArgs, format!("parse: {e}")),
 					},
 				};
 				if write_frame(&mut write, &frame).await.is_err() {
@@ -392,10 +389,7 @@ mod tests {
 				"stream2" => {
 					return DispatchOutcome::Stream(Box::new(MockStream::with_two_events()));
 				}
-				_ => Err(WireError {
-					kind: WireErrorKind::UnknownVerb,
-					message: format!("unknown {}", req.verb),
-				}),
+				_ => Err(WireError::new(WireErrorKind::UnknownVerb, format!("unknown {}", req.verb))),
 			};
 			DispatchOutcome::OneShot(result)
 		}

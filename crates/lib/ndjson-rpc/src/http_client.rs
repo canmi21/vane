@@ -75,12 +75,9 @@ impl HttpMgmtClient {
 				serde_json::from_value(result).map_err(MgmtClientError::Decode)
 			}
 			ResponseOutcome::Error { error } => Err(MgmtClientError::Server(error)),
-			ResponseOutcome::Event { .. } | ResponseOutcome::End { .. } => {
-				Err(MgmtClientError::Server(WireError {
-					kind: WireErrorKind::Internal,
-					message: "received streaming frame on one-shot call".to_string(),
-				}))
-			}
+			ResponseOutcome::Event { .. } | ResponseOutcome::End { .. } => Err(MgmtClientError::Server(
+				WireError::new(WireErrorKind::Internal, "received streaming frame on one-shot call"),
+			)),
 		}
 	}
 
@@ -149,10 +146,10 @@ impl HttpMgmtClient {
 					ResponseOutcome::End { .. } => return Ok(()),
 					ResponseOutcome::Error { error } => return Err(MgmtClientError::Server(error)),
 					ResponseOutcome::Result { .. } => {
-						return Err(MgmtClientError::Server(WireError {
-							kind: WireErrorKind::Internal,
-							message: "received one-shot Result on streaming call".to_string(),
-						}));
+						return Err(MgmtClientError::Server(WireError::new(
+							WireErrorKind::Internal,
+							"received one-shot Result on streaming call",
+						)));
 					}
 				}
 			}
