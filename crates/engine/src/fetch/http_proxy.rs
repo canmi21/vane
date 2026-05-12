@@ -150,6 +150,15 @@ impl L7Fetch for HttpProxyFetch {
 		// converted the body to `Body::Static`. The TCP and H3 arms
 		// below share this snapshot — their retry semantics are
 		// symmetric per `spec/crates/engine.md` § _Retry_.
+		//
+		// `method_allowed` is the operator-configured whitelist
+		// (defaults to the RFC 9110 idempotent set). The per-attempt
+		// check below additionally consults
+		// `Error::is_retryable_in(method)` so a `ResetMidRequest`
+		// against a whitelisted-but-non-idempotent method (e.g. a
+		// custom config that whitelists POST) still bails after one
+		// attempt — body double-delivery isn't safe even with the
+		// whitelist's opt-in.
 		let method_allowed = self.retry.methods.contains(req.method());
 		let replay: Option<Bytes> = match req.body() {
 			Body::Static(b) => Some(b.clone()),
@@ -157,6 +166,10 @@ impl L7Fetch for HttpProxyFetch {
 			Body::Stream(_) => None,
 		};
 		let max_attempts = if replay.is_some() && method_allowed { self.retry.max_attempts } else { 1 };
+		// Capture for the retry loop's per-error gate. Cloning a
+		// `Method` is cheap (small enum or `Arc<str>`-backed for
+		// custom verbs).
+		let method = req.method().clone();
 
 		// H3 dispatch: route through the QuicPool. Single-attempt path
 		// (streaming body, non-whitelisted method, or `max_attempts: 1`)
@@ -211,7 +224,7 @@ impl L7Fetch for HttpProxyFetch {
 						version = ?self.version,
 						"upstream request failed",
 					);
-					if attempt >= max_attempts || !err.is_retryable() {
+					if attempt >= max_attempts || !err.is_retryable_in(&method) {
 						return Err(err);
 					}
 					let delay = self.retry.backoff.delay_for_attempt(attempt + 1);
@@ -291,7 +304,7 @@ impl HttpProxyFetch {
 						version = ?self.version,
 						"upstream h3 request failed",
 					);
-					if attempt >= max_attempts || !err.is_retryable() {
+					if attempt >= max_attempts || !err.is_retryable_in(&parts.method) {
 						return Err(err);
 					}
 					let delay = self.retry.backoff.delay_for_attempt(attempt + 1);

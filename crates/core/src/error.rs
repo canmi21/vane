@@ -200,6 +200,17 @@ impl Error {
 		}
 	}
 
+	/// Method-agnostic retry eligibility. Returns true for the
+	/// pre-connect failures (request never left the wire), plus the
+	/// hyper-pool race cases (`ResetOnIdlePickup`, `Refused`,
+	/// `Gone`) and DNS / unreachable / connect-timeout — all of
+	/// which are safe to retry regardless of HTTP method idempotency.
+	///
+	/// Mid-request failures (`ResetMidRequest`) need a method check
+	/// before retrying so we don't double-deliver a POST body. Use
+	/// [`Self::is_retryable_in`] for that path; this method exists
+	/// for back-compat with callers that already pre-gate on method
+	/// idempotency.
 	#[must_use]
 	pub const fn is_retryable(&self) -> bool {
 		match &self.kind {
@@ -211,8 +222,49 @@ impl Error {
 					| UpstreamReason::Refused
 					| UpstreamReason::Gone
 			),
-			ErrorKind::Timeout(TimeoutKind::Connect)
+			ErrorKind::Timeout(TimeoutKind::Connect | TimeoutKind::Handshake)
 			| ErrorKind::Resource(ResourceKind::ConnectionPool) => true,
+			_ => false,
+		}
+	}
+
+	/// Method-aware retry eligibility, per `spec/crates/engine.md`
+	/// § _Error classification_:
+	///
+	/// - Pre-connect failures (TCP connect, TLS handshake, DNS,
+	///   connection-pool exhaustion, hyper-pool idle-pickup race)
+	///   return `true` regardless of method — the request never left
+	///   the wire, so retrying a POST is safe.
+	/// - Mid-request failures (`ResetMidRequest`) return `true`
+	///   ONLY for idempotent methods (GET / HEAD / PUT / DELETE /
+	///   OPTIONS, per RFC 9110 § 9.2.2). Retrying a non-idempotent
+	///   POST mid-request risks double-delivery.
+	/// - All other error kinds return `false`.
+	///
+	/// `Method::TRACE` is treated as non-idempotent in this table
+	/// — RFC 9110 lists it as idempotent but middleboxes routinely
+	/// rewrite it, so retrying is rarely the right move at proxy
+	/// scope.
+	#[must_use]
+	pub fn is_retryable_in(&self, method: &http::Method) -> bool {
+		use http::Method;
+		match &self.kind {
+			// Pre-connect failures: request body never reached the
+			// upstream wire, retry is always safe.
+			ErrorKind::Timeout(TimeoutKind::Connect | TimeoutKind::Handshake)
+			| ErrorKind::Resource(ResourceKind::ConnectionPool)
+			| ErrorKind::Upstream(
+				UpstreamReason::TlsHandshake
+				| UpstreamReason::DnsFailure
+				| UpstreamReason::Unreachable
+				| UpstreamReason::Refused
+				| UpstreamReason::ResetOnIdlePickup,
+			) => true,
+			// Mid-request failures: only idempotent methods retry.
+			ErrorKind::Upstream(UpstreamReason::ResetMidRequest | UpstreamReason::Gone) => matches!(
+				*method,
+				Method::GET | Method::HEAD | Method::PUT | Method::DELETE | Method::OPTIONS
+			),
 			_ => false,
 		}
 	}
