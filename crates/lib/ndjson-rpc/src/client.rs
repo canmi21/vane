@@ -195,7 +195,12 @@ mod tests {
 	{
 		let (c2s_r, mut c2s_w) = tokio::io::duplex(8192);
 		let (s2c_w, s2c_r) = tokio::io::duplex(8192);
-		let server = tokio::spawn(handle_conn(c2s_r, s2c_w, Arc::new(StubHandler)));
+		let server = tokio::spawn(handle_conn(
+			c2s_r,
+			s2c_w,
+			Arc::new(StubHandler),
+			tokio_util::sync::CancellationToken::new(),
+		));
 
 		// Client side: write the request line, half-close, read one response line.
 		let req = Request {
@@ -282,7 +287,12 @@ mod tests {
 		// Unix socket. Each emitted callback push is recorded to a Vec.
 		let (c2s_r, mut c2s_w) = tokio::io::duplex(8192);
 		let (s2c_w, s2c_r) = tokio::io::duplex(8192);
-		let server = tokio::spawn(crate::server::handle_conn(c2s_r, s2c_w, Arc::new(StreamingHandler)));
+		let server = tokio::spawn(crate::server::handle_conn(
+			c2s_r,
+			s2c_w,
+			Arc::new(StreamingHandler),
+			tokio_util::sync::CancellationToken::new(),
+		));
 
 		// Emulate `call_stream` against the duplex pair.
 		let req = Request { id: 1, verb: "tail".to_string(), args: serde_json::Value::Null };

@@ -17,6 +17,13 @@ use crate::protocol::{
 	EndMarker, Request, Response, ResponseOutcome, WireError, WireErrorKind, encode_line,
 };
 
+/// Hard cap on the size of one NDJSON request line. Aligns with the
+/// 1 MiB body cap on the HTTP transport so both faces of the mgmt
+/// plane reject the same magnitude of oversized input. A real verb
+/// payload is well under a kilobyte; anything larger is either a
+/// malformed framing or an adversarial slowloris-by-line attack.
+pub const MAX_NDJSON_LINE_BYTES: usize = 1024 * 1024;
+
 /// Server-side dispatcher. Callers implement this against their own
 /// application state and pass an `Arc<H>` to [`spawn_unix_server`] or
 /// [`crate::spawn_http_server`].
@@ -93,9 +100,14 @@ pub async fn spawn_unix_server<H: Handler>(
 						}
 					};
 					let h = Arc::clone(&handler);
+					// Each per-connection driver gets a child token so
+					// shutdown drives every in-flight verb / stream to
+					// exit cleanly instead of leaving them blocked on
+					// the read side of the socket.
+					let conn_cancel = cancel.child_token();
 					tokio::spawn(async move {
 						let (read, write) = stream.into_split();
-						handle_conn(read, write, h).await;
+						handle_conn(read, write, h, conn_cancel).await;
 					});
 				}
 			}
@@ -104,26 +116,109 @@ pub async fn spawn_unix_server<H: Handler>(
 	Ok(handle)
 }
 
+/// Read a single NDJSON line with a hard byte cap. Returns `Ok(None)`
+/// on clean EOF; `Ok(Some(_))` with a populated buffer when a line
+/// terminator is seen; and the dedicated [`std::io::ErrorKind::FileTooLarge`]
+/// when the cap is exceeded before a newline arrives.
+async fn read_line_bounded<R>(
+	reader: &mut BufReader<R>,
+	buf: &mut String,
+	cap: usize,
+) -> std::io::Result<Option<()>>
+where
+	R: AsyncRead + Unpin,
+{
+	buf.clear();
+	let start_len = buf.len();
+	loop {
+		let prev_len = buf.len();
+		let n = reader.read_line(buf).await?;
+		if n == 0 {
+			// Clean EOF; return None if nothing buffered, else propagate
+			// whatever the peer flushed without a trailing newline.
+			return if buf.len() == start_len { Ok(None) } else { Ok(Some(())) };
+		}
+		// Strip the trailing newline so callers don't need to.
+		if buf.ends_with('\n') {
+			buf.pop();
+			if buf.ends_with('\r') {
+				buf.pop();
+			}
+			// Cap-check on the post-strip length so a single huge
+			// read that includes the terminator still fails closed.
+			if buf.len() > cap {
+				return Err(std::io::Error::new(
+					std::io::ErrorKind::InvalidData,
+					format!("ndjson line exceeded {cap}-byte cap"),
+				));
+			}
+			return Ok(Some(()));
+		}
+		// No newline read yet — bail if we'd exceed the per-line cap
+		// before the peer flushes a terminator.
+		if buf.len() > cap {
+			return Err(std::io::Error::new(
+				std::io::ErrorKind::InvalidData,
+				format!("ndjson line exceeded {cap}-byte cap"),
+			));
+		}
+		// Keep going — `read_line` can chunk on internal-buffer
+		// boundaries even when more bytes are inbound.
+		if buf.len() == prev_len + n && n == 0 {
+			return Ok(Some(()));
+		}
+	}
+}
+
 /// Generic request loop, abstract over the read/write halves so unit
 /// tests can drive it with `tokio::io::duplex` instead of a real Unix
 /// socket. Production callers always pass the halves of a
 /// [`tokio::net::UnixStream`].
-pub(crate) async fn handle_conn<R, W, H>(read: R, mut write: W, handler: Arc<H>)
-where
+pub(crate) async fn handle_conn<R, W, H>(
+	read: R,
+	mut write: W,
+	handler: Arc<H>,
+	cancel: CancellationToken,
+) where
 	R: AsyncRead + Unpin,
 	W: AsyncWrite + Unpin,
 	H: Handler,
 {
-	let mut lines = BufReader::new(read).lines();
+	let mut reader = BufReader::new(read);
+	let mut line = String::new();
 	loop {
-		let line = match lines.next_line().await {
-			Ok(Some(l)) => l,
+		// Select against the per-connection cancel token so a server-
+		// wide shutdown drives every blocked read off the socket
+		// instead of leaving the driver parked on `read_line`.
+		let read_outcome = tokio::select! {
+			biased;
+			() = cancel.cancelled() => return,
+			res = read_line_bounded(&mut reader, &mut line, MAX_NDJSON_LINE_BYTES) => res,
+		};
+		match read_outcome {
 			Ok(None) => return,
+			Ok(Some(())) => {}
+			Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+				// Oversized line: write a structured error and close —
+				// don't keep reading on a session whose framing is
+				// already off the rails.
+				let frame = Response {
+					id: 0,
+					outcome: ResponseOutcome::Error {
+						error: WireError {
+							kind: WireErrorKind::BadArgs,
+							message: format!("line too long: {e}"),
+						},
+					},
+				};
+				let _ = write_frame(&mut write, &frame).await;
+				return;
+			}
 			Err(e) => {
 				tracing::debug!(?e, "mgmt read failed");
 				return;
 			}
-		};
+		}
 		if line.is_empty() {
 			continue;
 		}
@@ -146,19 +241,34 @@ where
 					DispatchOutcome::Stream(mut stream) => {
 						// Streaming verbs consume the connection — once we
 						// start streaming we don't read more requests on
-						// this socket. Client disconnects by closing the
-						// socket; server detects that via write failure
-						// or the read-side seeing EOF.
+						// this socket. Cancel-on-shutdown drives every
+						// `next_event` off so a daemon-wide stop trip
+						// flushes an `End` frame and unblocks the client.
 						loop {
-							let Some(event) = stream.next_event().await else {
-								let end =
-									Response { id, outcome: ResponseOutcome::End { end: EndMarker::default() } };
-								let _ = write_frame(&mut write, &end).await;
-								return;
-							};
-							let frame = Response { id, outcome: ResponseOutcome::Event { event } };
-							if write_frame(&mut write, &frame).await.is_err() {
-								return;
+							tokio::select! {
+								biased;
+								() = cancel.cancelled() => {
+									let end = Response {
+										id,
+										outcome: ResponseOutcome::End { end: EndMarker::default() },
+									};
+									let _ = write_frame(&mut write, &end).await;
+									return;
+								}
+								maybe = stream.next_event() => {
+									let Some(event) = maybe else {
+										let end = Response {
+											id,
+											outcome: ResponseOutcome::End { end: EndMarker::default() },
+										};
+										let _ = write_frame(&mut write, &end).await;
+										return;
+									};
+									let frame = Response { id, outcome: ResponseOutcome::Event { event } };
+									if write_frame(&mut write, &frame).await.is_err() {
+										return;
+									}
+								}
 							}
 						}
 					}
@@ -257,7 +367,7 @@ mod tests {
 		let (c2s_r, mut c2s_w) = tokio::io::duplex(8192);
 		let (s2c_w, mut s2c_r) = tokio::io::duplex(8192);
 		let req = requests.to_string();
-		let server_task = tokio::spawn(handle_conn(c2s_r, s2c_w, handler));
+		let server_task = tokio::spawn(handle_conn(c2s_r, s2c_w, handler, CancellationToken::new()));
 		c2s_w.write_all(req.as_bytes()).await.expect("write requests");
 		// Closing the write half makes `next_line` return None on the
 		// server side so the task completes cleanly.
@@ -349,6 +459,31 @@ mod tests {
 		if let ResponseOutcome::Event { event } = &responses[1].outcome {
 			assert_eq!(event["n"], 1);
 		}
+	}
+
+	#[tokio::test]
+	async fn server_rejects_line_exceeding_cap_with_bad_args() {
+		let handler = Arc::new(StubHandler { last_verb: Mutex::new(None) });
+		// Synthesise a line longer than MAX_NDJSON_LINE_BYTES with no
+		// embedded newline. `read_line_bounded` must abort the
+		// connection with a `BadArgs` frame and not let the request
+		// reach the dispatcher.
+		let huge_line = format!(
+			"{{\"id\":1,\"verb\":\"x\",\"args\":\"{}\"}}\n",
+			"A".repeat(MAX_NDJSON_LINE_BYTES + 1)
+		);
+		let bytes = drive(handler.clone(), &huge_line).await;
+		let responses = parse_responses(&bytes);
+		assert_eq!(responses.len(), 1);
+		match &responses[0].outcome {
+			ResponseOutcome::Error { error } => {
+				assert_eq!(error.kind, WireErrorKind::BadArgs);
+				assert!(error.message.contains("line too long"), "{}", error.message);
+			}
+			other => panic!("expected BadArgs error, got {other:?}"),
+		}
+		// Dispatcher never saw the request: handler's last_verb still None.
+		assert!(handler.last_verb.lock().unwrap().is_none());
 	}
 
 	#[tokio::test]
