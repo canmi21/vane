@@ -180,7 +180,16 @@ pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 	// scanning the whole dispatch table per cold-path datagram.
 	let pending_count: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
 
-	let mut buf = vec![0u8; MAX_DATAGRAM];
+	// Long-lived recv buffer backed by `BytesMut` so each datagram
+	// turns into a `Bytes` slice via `split_to(n).freeze()` — no
+	// per-datagram `Bytes::copy_from_slice` memcpy. The buffer is
+	// re-grown to `MAX_DATAGRAM` after each split so the next
+	// `recv_from` sees a full 64 KiB landing zone.
+	//
+	// `recv_from(&mut [u8])` wants an initialised slice; we drive it
+	// through the `read_buf` API instead, which works directly with
+	// `BytesMut` and never requires `unsafe` `set_len`.
+	let mut buf: bytes::BytesMut = bytes::BytesMut::with_capacity(MAX_DATAGRAM);
 	loop {
 		tokio::select! {
 			biased;
@@ -190,15 +199,14 @@ pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 				// propagates into the forwarder's cancel token).
 				return;
 			}
-			recv = socket.recv_from(&mut buf) => {
-				let (n, peer) = match recv {
+			recv = recv_one_datagram(&socket, &mut buf) => {
+				let (datagram, peer) = match recv {
 					Ok(v) => v,
 					Err(e) => {
 						tracing::debug!(addr = ?ctx.base.addr, ?e, "udp recv_from error; continuing");
 						continue;
 					}
 				};
-				let datagram = Bytes::copy_from_slice(&buf[..n]);
 
 				if let Some(entry) = ctx.dispatch_table.get(&DispatchKey::Peer(peer)) {
 					dispatch_existing_entry(&entry, peer, datagram);
@@ -228,6 +236,32 @@ pub(crate) async fn run_udp_listener(base: Arc<AcceptCtx>) {
 /// `spec/crates/engine.md` § _`udp_dispatch`_. No-op when the listener
 /// is non-Http or has no TLS config.
 #[cfg(feature = "h3")]
+/// Receive one datagram into the long-lived `BytesMut`, return the
+/// freshly-split `Bytes` view + peer address. The buffer is grown back
+/// to `MAX_DATAGRAM` capacity after the split so the next call sees a
+/// full landing zone without re-allocating.
+///
+/// This avoids the `Bytes::copy_from_slice(&buf[..n])` memcpy on the
+/// prior `Vec<u8>` path; `BytesMut::split_to(n).freeze()` is a
+/// refcount transfer.
+async fn recv_one_datagram(
+	socket: &tokio::net::UdpSocket,
+	buf: &mut bytes::BytesMut,
+) -> std::io::Result<(Bytes, SocketAddr)> {
+	// Reserve full landing-zone capacity (no-op when the buffer is
+	// already at MAX_DATAGRAM after the previous freeze).
+	if buf.capacity() < MAX_DATAGRAM {
+		buf.reserve(MAX_DATAGRAM - buf.len());
+	}
+	// `recv_buf_from` writes directly into the spare capacity and
+	// advances the cursor to `len + n` — no manual `set_len` and no
+	// `unsafe`. Returns `(n, peer)`; we then split off the bytes we
+	// just received and freeze them into a refcounted `Bytes`.
+	let (n, peer) = socket.recv_buf_from(buf).await?;
+	let datagram = buf.split_to(n).freeze();
+	Ok((datagram, peer))
+}
+
 fn setup_h3_endpoint(ctx: &Arc<UdpAcceptCtx>) {
 	let captured = ctx.base.graph.load_full();
 	let kind = captured
