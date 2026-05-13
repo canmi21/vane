@@ -165,9 +165,10 @@ impl TrajectoryBuilder {
 	}
 
 	/// Detached builder used as a transient placeholder when the
-	/// owning [`FlowCtx`] needs to swap its trajectory out via
-	/// [`std::mem::replace`] (finalize consumes by value, so the
-	/// `FlowCtx` must hold *something* in the slot during the call).
+	/// owning [`FlowCtx`](crate::flow_ctx::FlowCtx) needs to swap its
+	/// trajectory out via [`std::mem::replace`] (finalize consumes by
+	/// value, so the `FlowCtx` must hold *something* in the slot
+	/// during the call).
 	///
 	/// The resulting builder records no entry node and is discarded
 	/// immediately after the swap — callers must not push steps to
