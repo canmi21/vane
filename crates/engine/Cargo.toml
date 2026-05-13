@@ -27,6 +27,8 @@ aws-lc-rs = [
 	"rustls-ticketer/aws-lc-rs",
 	# instant-acme defaults pull both backends; propagate explicitly to keep rustls auto-detect single-provider.
 	"instant-acme?/aws-lc-rs",
+	# `?` so consumers building without `h3` (quinn off) don't get a spurious enable.
+	"quinn?/rustls-aws-lc-rs",
 ]
 ring = [
 	"rustls/ring",
@@ -34,6 +36,7 @@ ring = [
 	"hyper-rustls/ring",
 	"rustls-ticketer/ring",
 	"instant-acme?/ring",
+	"quinn?/rustls-ring",
 ]
 h3 = [
 	"dep:quinn",
@@ -118,7 +121,11 @@ zeroize = { version = "1", features = ["alloc"] }
 h3 = { version = "0.0.8", optional = true }
 h3-body = { workspace = true, optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"], optional = true }
+# Crypto backend (`rustls-aws-lc-rs` / `rustls-ring`) is selected by the
+# crate-level `aws-lc-rs` / `ring` features below — keeping quinn neutral
+# here lets the mutual-exclusion `compile_error!` guard in src/lib.rs
+# actually take effect for consumers that opt into `ring`.
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"], optional = true }
 quinn-proto = { version = "0.11", default-features = false, optional = true }
 
 # ACME stack — gated behind `acme`. fs4: flock for AcmeStore::with_lock.

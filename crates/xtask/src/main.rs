@@ -74,6 +74,19 @@ enum PublishCmd {
 	},
 }
 
+// xtask's mutually-exclusive crypto-backend split mirrors vane-engine.
+// The `compile_error!` pair below mirrors engine/src/lib.rs § crypto
+// so a stray `--features "aws-lc-rs,ring"` (or `--no-default-features`
+// without a replacement) fails at compile time, not at the first
+// `ClientConfig` build.
+#[cfg(all(feature = "aws-lc-rs", feature = "ring"))]
+compile_error!("`aws-lc-rs` and `ring` are mutually exclusive crypto backends — pick exactly one.");
+
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+compile_error!(
+	"one of `aws-lc-rs` or `ring` must be enabled — the default features include `aws-lc-rs`."
+);
+
 fn main() -> Result<()> {
 	// xtask uses rustls (via ureq) for the publish workflow's HTTPS
 	// requests to the crates.io sparse index. rustls 0.23 panics if no
@@ -81,7 +94,10 @@ fn main() -> Result<()> {
 	// ureq is configured with `rustls-no-provider` so we install the
 	// workspace's chosen provider here. Idempotent: a second call is
 	// silently ignored, matching engine::crypto::install_default_provider.
+	#[cfg(feature = "aws-lc-rs")]
 	let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+	#[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+	let _ = rustls::crypto::ring::default_provider().install_default();
 
 	match Cli::parse().command {
 		Command::BuildVaneCli => build_vane_cli::run(),

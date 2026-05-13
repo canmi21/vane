@@ -9,12 +9,20 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["aws-lc-rs"]
+# Crypto backend selection — mirrors vane-engine's exclusive aws-lc-rs / ring split.
+# xtask's `main` reads the selected backend via `cfg(feature = ...)` and
+# installs the matching provider before the first `ClientConfig` is built.
+aws-lc-rs = ["rustls/aws-lc-rs"]
+ring = ["rustls/ring"]
+
 [dependencies]
 anyhow = "1"
 cargo_metadata = "0.23"
 clap = { version = "4.6", features = ["derive"] }
 fancy-regex = "0.18"
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+rustls = { version = "0.23", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml_edit = "0.25"
