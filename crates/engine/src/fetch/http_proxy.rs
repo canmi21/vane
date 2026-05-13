@@ -37,7 +37,7 @@ use bytes::Bytes;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::TokioExecutor;
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use vane_core::{
 	Body, ConnContext, Error, FetchKind, FlowCtx, L7Fetch, L7FetchOutput, Request, UpstreamReason,
 };
@@ -46,6 +46,7 @@ use crate::body_adapter::IncomingAdapter;
 use crate::factories::{FactoryError, FetchFactories};
 use crate::fetch::client_cache::{ClientFingerprint, ProxyClient};
 use crate::fetch::dns::{DnsConfig, HickoryDnsResolver, parse_dns_args};
+use crate::fetch::pool;
 use crate::fetch::retry::RetryPolicy;
 use crate::fetch::upstream::{UpstreamTls, parse_tls_args};
 use crate::flow_graph::FetchInst;
@@ -134,6 +135,16 @@ impl L7Fetch for HttpProxyFetch {
 		_conn: &Arc<ConnContext>,
 		_ctx: &mut FlowCtx,
 	) -> Result<L7FetchOutput, Error> {
+		// `max_concurrent_per_host` gate, per `spec/crates/engine.md`
+		// § _Exhaustion defaults (per upstream)_. Hyper-util's legacy
+		// client has no native semaphore, so the limiter is enforced
+		// here. The permit is held across the URI rewrite, retry
+		// loop, H3 dispatch, and the moment the response is handed
+		// back — releasing earlier would let saturated upstreams
+		// silently exceed the documented cap. Saturated waits beyond
+		// `pool::CONNECT_TIMEOUT` surface as `Unreachable` (503).
+		let _limit_permit = pool::limiter().acquire(&self.authority).await?;
+
 		// Compose the upstream URI from `scheme + authority` resolved
 		// once at factory time and the inbound path/query, refcounted
 		// where possible. For TCP (hyper-util Client) the connector
@@ -551,6 +562,13 @@ fn build_client(
 	// by hyper-rustls one layer up. Mirrors `HttpConnector::new`'s
 	// posture for the GaiResolver path.
 	http.enforce_http(false);
+	// Bound TCP connect at the SLA documented in
+	// `spec/crates/engine.md` § _Exhaustion defaults (per upstream)_.
+	// Without this, hyper-util defaults to no connect deadline and a
+	// slow DNS / route-blackhole upstream blocks fetches well past the
+	// 5 s SLA. TLS handshake happens above this layer and has its own
+	// budget threaded through `tokio-rustls`.
+	http.set_connect_timeout(Some(pool::CONNECT_TIMEOUT));
 
 	let connector_with_protocols =
 		hyper_rustls::HttpsConnectorBuilder::new().with_tls_config((*tls_cfg).clone()).https_or_http();
@@ -570,6 +588,15 @@ fn build_client(
 	};
 
 	let mut builder = Client::builder(TokioExecutor::new());
+	// Pool tunables from `spec/crates/engine.md` § _Exhaustion
+	// defaults (per upstream)_. `pool_timer` is mandatory: without an
+	// explicit timer source, hyper-util's idle-timeout machinery is a
+	// no-op and connections accumulate until the OS or peer closes
+	// them.
+	builder
+		.pool_max_idle_per_host(pool::MAX_IDLE_PER_HOST)
+		.pool_idle_timeout(Some(pool::IDLE_TIMEOUT))
+		.pool_timer(TokioTimer::new());
 	match version {
 		// Auto + Http1: hyper-util's legacy client defaults to H1.
 		// On TLS the connector restricts ALPN to `http/1.1` for
@@ -579,6 +606,11 @@ fn build_client(
 		UpstreamVersion::Http2 => {
 			// Prior-knowledge h2c on cleartext, ALPN-h2 on TLS.
 			builder.http2_only(true);
+			// CVE-2023-44487 ("HTTP/2 Rapid Reset") mitigation: hyper
+			// defaults to tracking up to 1024 pending-reset streams
+			// per connection, which a misbehaving upstream can pin
+			// memory for. Align with the idle-pool cap.
+			builder.http2_max_concurrent_reset_streams(pool::H2_MAX_CONCURRENT_RESET_STREAMS);
 		}
 		#[cfg(feature = "h3")]
 		UpstreamVersion::Http3 => {

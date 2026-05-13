@@ -12,6 +12,7 @@ pub mod dns;
 pub mod http_proxy;
 pub mod http_synthesize;
 pub mod l4_forward;
+pub mod pool;
 #[cfg(feature = "h3")]
 pub mod quic_pool;
 pub mod retry;
