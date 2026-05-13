@@ -182,7 +182,7 @@ fn make_ctx() -> (Arc<ConnContext>, FlowCtx) {
 		cancel: tokio_util::sync::CancellationToken::new(),
 		accept_cancel: tokio_util::sync::CancellationToken::new(),
 		verbosity: VerbosityState::new().current(),
-		trajectory: TrajectoryBuilder::new(conn.id, NodeId::new(0), 0),
+		trajectory: TrajectoryBuilder::new(conn.id, NodeId::for_testing(0), 0),
 	};
 	(conn, ctx)
 }

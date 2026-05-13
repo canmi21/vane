@@ -113,17 +113,17 @@ fn sample_meta() -> FlowGraphMeta {
 /// link time succeeds.
 fn make_proxy_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(listen, NodeId::new(0));
+	entries.insert(listen, NodeId::for_testing(0));
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
 			Node::Fetch {
-				id: FetchId::new(0),
+				id: FetchId::for_testing(0),
 				next_response: None,
-				next_tunnel: Some(NodeId::new(1)),
+				next_tunnel: Some(NodeId::for_testing(1)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],

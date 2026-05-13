@@ -278,13 +278,13 @@ async fn wasm_l7request_continue_advances_cursor() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![wasm_symref("my-plugin:probe", MiddlewareKind::L7Request)],
 		vec![Terminator::Close],
@@ -294,9 +294,14 @@ async fn wasm_l7request_continue_advances_cursor() {
 	let conn = make_conn();
 	let sink = Arc::new(NullSink::new());
 
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_request())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_request())),
+		&conn,
+		&sink,
+	)
+	.await;
 
 	assert!(result.is_ok(), "Continue must reach terminator: {result:?}");
 }
@@ -316,13 +321,13 @@ async fn wasm_l7request_short_synth_response_returned() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![wasm_symref("my-plugin:probe", MiddlewareKind::L7Request)],
 		vec![Terminator::Close],
@@ -331,8 +336,8 @@ async fn wasm_l7request_short_synth_response_returned() {
 	// For Short(Response) the executor needs a short_circuit_response_entry.
 	let sym = {
 		let mut s = (*sym).clone();
-		s.meta.short_circuit_response_entry.insert(NodeId::new(0), NodeId::new(2));
-		s.nodes.push(Node::Terminate(TerminatorId::new(1)));
+		s.meta.short_circuit_response_entry.insert(NodeId::for_testing(0), NodeId::for_testing(2));
+		s.nodes.push(Node::Terminate(TerminatorId::for_testing(1)));
 		s.terminators.push(Terminator::WriteHttpResponse);
 		Arc::new(s)
 	};
@@ -342,9 +347,14 @@ async fn wasm_l7request_short_synth_response_returned() {
 	let conn = make_conn();
 	let sink = Arc::new(NullSink::new());
 
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_request())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_request())),
+		&conn,
+		&sink,
+	)
+	.await;
 
 	let resp = match result.expect("Short synth must not err") {
 		ExecutorOutput::HttpResponse(r) => r,
@@ -362,13 +372,13 @@ async fn wasm_l7request_close_returns_closed() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![wasm_symref("my-plugin:probe", MiddlewareKind::L7Request)],
 		vec![Terminator::Close],
@@ -378,9 +388,14 @@ async fn wasm_l7request_close_returns_closed() {
 	let conn = make_conn();
 	let sink = Arc::new(NullSink::new());
 
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_request())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_request())),
+		&conn,
+		&sink,
+	)
+	.await;
 
 	assert!(
 		matches!(result, Ok(ExecutorOutput::Closed)),
@@ -405,16 +420,20 @@ async fn wasm_plugin_error_no_hint_routes_via_on_error() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
-				on_error: Some(NodeId::new(2)),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
+				on_error: Some(NodeId::for_testing(2)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
-		vec![wasm_symref_on_error("my-plugin:probe", MiddlewareKind::L7Request, NodeId::new(2))],
+		vec![wasm_symref_on_error(
+			"my-plugin:probe",
+			MiddlewareKind::L7Request,
+			NodeId::for_testing(2),
+		)],
 		vec![Terminator::Close],
 	);
 	let reg = make_registry("my-plugin:probe", "probe", MiddlewareKind::L7Request, runtime);
@@ -422,9 +441,14 @@ async fn wasm_plugin_error_no_hint_routes_via_on_error() {
 	let conn = make_conn();
 	let sink = Arc::new(NullSink::new());
 
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_request())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_request())),
+		&conn,
+		&sink,
+	)
+	.await;
 
 	// on_error=Some routes to NodeId(2)=Terminate(Close) → Ok(Closed).
 	assert!(
@@ -449,16 +473,20 @@ async fn wasm_plugin_error_force_close_bypasses_on_error() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
-				on_error: Some(NodeId::new(2)),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
+				on_error: Some(NodeId::for_testing(2)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
-		vec![wasm_symref_on_error("my-plugin:probe", MiddlewareKind::L7Request, NodeId::new(2))],
+		vec![wasm_symref_on_error(
+			"my-plugin:probe",
+			MiddlewareKind::L7Request,
+			NodeId::for_testing(2),
+		)],
 		vec![Terminator::Close],
 	);
 	let reg = make_registry("my-plugin:probe", "probe", MiddlewareKind::L7Request, runtime);
@@ -466,9 +494,14 @@ async fn wasm_plugin_error_force_close_bypasses_on_error() {
 	let conn = make_conn();
 	let sink = Arc::new(NullSink::new());
 
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_request())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_request())),
+		&conn,
+		&sink,
+	)
+	.await;
 
 	// force-close returns Decision::Short(Close(PolicyDenied(...))), which
 	// the executor routes as Ok(Closed) — on_error node never fires.
@@ -488,13 +521,13 @@ async fn wasm_plugin_trap_propagates_as_err() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![wasm_symref("my-plugin:probe", MiddlewareKind::L7Request)],
 		vec![Terminator::Close],
@@ -504,9 +537,14 @@ async fn wasm_plugin_trap_propagates_as_err() {
 	let conn = make_conn();
 	let sink = Arc::new(NullSink::new());
 
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_request())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_request())),
+		&conn,
+		&sink,
+	)
+	.await;
 
 	let err = result.expect_err("Trap must surface as Err");
 	assert!(err.to_string().contains("guest panicked"), "Err must carry trap message: {err}");
@@ -547,20 +585,20 @@ async fn wasm_stateless_registry_entry_shares_runtime_arc() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Middleware {
-				id: MiddlewareId::new(1),
-				next: NodeId::new(2),
+				id: MiddlewareId::for_testing(1),
+				next: NodeId::for_testing(2),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![
 			wasm_symref("plugin-a", MiddlewareKind::L7Request),
@@ -611,13 +649,13 @@ async fn wasm_l4peek_dispatch_forwards_peek_buffer_from_conn_user() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![wasm_symref("my-plugin:probe", MiddlewareKind::L4Peek)],
 		vec![Terminator::Close],
@@ -641,7 +679,8 @@ async fn wasm_l4peek_dispatch_forwards_peek_buffer_from_conn_user() {
 
 	let l4 = L4Conn::Tcp(throwaway_tcp_stream().await);
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L4(Box::new(l4)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L4(Box::new(l4)), &conn, &sink)
+			.await;
 
 	assert!(result.is_ok(), "L4Peek Continue must reach terminator: {result:?}");
 	let recorded = runtime_inner.recorded_l4_peek_inputs.lock();

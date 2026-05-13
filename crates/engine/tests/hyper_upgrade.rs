@@ -108,18 +108,18 @@ fn upgrade_fetch_terminate_graph(
 	fetch_factory: Box<dyn Fn() -> FetchInst + Send + Sync>,
 ) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
-			Node::Upgrade { next: NodeId::new(1) },
+			Node::Upgrade { next: NodeId::for_testing(1) },
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],
@@ -154,25 +154,25 @@ fn upgrade_fetch_terminate_graph(
 // router into the H1 service-fn's 404 + `Connection: close` synthesis.
 fn upgrade_short_close_middleware_graph(addr: SocketAddr) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
-			Node::Upgrade { next: NodeId::new(1) },
+			Node::Upgrade { next: NodeId::for_testing(1) },
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(2),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(2),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(3)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(3)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![SymbolicMiddlewareRef {
@@ -245,9 +245,12 @@ impl L7Fetch for UnreachableFetch {
 // HTTP/1 clients (HTTP/2 / HTTP/3 will pick 421 once those drivers land).
 fn upgrade_close_graph(addr: SocketAddr) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	let sym = Arc::new(SymbolicFlowGraph {
-		nodes: vec![Node::Upgrade { next: NodeId::new(1) }, Node::Terminate(TerminatorId::new(0))],
+		nodes: vec![
+			Node::Upgrade { next: NodeId::for_testing(1) },
+			Node::Terminate(TerminatorId::for_testing(0)),
+		],
 		predicates: vec![],
 		middlewares: vec![],
 		fetches: vec![],

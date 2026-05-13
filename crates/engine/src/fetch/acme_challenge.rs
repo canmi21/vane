@@ -184,7 +184,7 @@ mod tests {
 			cancel: CancellationToken::new(),
 			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
-			trajectory: TrajectoryBuilder::new(conn_id, NodeId::new(0), 0),
+			trajectory: TrajectoryBuilder::new(conn_id, NodeId::for_testing(0), 0),
 		}
 	}
 

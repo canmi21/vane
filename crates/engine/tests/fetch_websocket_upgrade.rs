@@ -78,7 +78,7 @@ fn sample_meta() -> FlowGraphMeta {
 /// affect the test's wire behavior.
 fn ws_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(listen, NodeId::new(0));
+	entries.insert(listen, NodeId::for_testing(0));
 
 	let mut meta = sample_meta();
 	// `lower_port` would normally populate this with the synth target;
@@ -87,19 +87,19 @@ fn ws_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	// fetch returns a 101 Response, not a Short), but populating it
 	// keeps the graph self-consistent for the validator and any
 	// future change that broadens the `Short(Response)` path.
-	meta.short_circuit_response_entry.insert(NodeId::new(1), NodeId::new(2));
+	meta.short_circuit_response_entry.insert(NodeId::for_testing(1), NodeId::for_testing(2));
 
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
-			Node::Upgrade { next: NodeId::new(1) },
+			Node::Upgrade { next: NodeId::for_testing(1) },
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
-				next_tunnel: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
+				next_tunnel: Some(NodeId::for_testing(2)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],
@@ -126,22 +126,22 @@ fn ws_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 /// is `localhost` to match the rcgen cert SAN.
 fn wss_graph(listen: SocketAddr, upstream: &str) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(listen, NodeId::new(0));
+	entries.insert(listen, NodeId::for_testing(0));
 
 	let mut meta = sample_meta();
-	meta.short_circuit_response_entry.insert(NodeId::new(1), NodeId::new(2));
+	meta.short_circuit_response_entry.insert(NodeId::for_testing(1), NodeId::for_testing(2));
 
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
-			Node::Upgrade { next: NodeId::new(1) },
+			Node::Upgrade { next: NodeId::for_testing(1) },
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
-				next_tunnel: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
+				next_tunnel: Some(NodeId::for_testing(2)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],

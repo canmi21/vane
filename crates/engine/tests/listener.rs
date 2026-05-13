@@ -98,7 +98,7 @@ fn sample_meta() -> FlowGraphMeta {
 /// (Check / Upgrade / Terminate are all valid L4 entries).
 fn close_only_graph(entries: HashMap<SocketAddr, NodeId>) -> Arc<FlowGraph> {
 	let sym = Arc::new(SymbolicFlowGraph {
-		nodes: vec![Node::Terminate(TerminatorId::new(0))],
+		nodes: vec![Node::Terminate(TerminatorId::for_testing(0))],
 		predicates: vec![],
 		middlewares: vec![],
 		fetches: vec![],
@@ -121,13 +121,13 @@ fn sleep_bytes_graph(addr: SocketAddr, entry_node: NodeId, sleep_for: Duration) 
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![SymbolicMiddlewareRef {
@@ -181,7 +181,7 @@ async fn listener_accepts_tcp_and_routes_to_executor() {
 	// `FlowLogKind::Trajectory` event into the listener-supplied sink.
 	let addr = pick_port().await;
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	let graph = close_only_graph(entries);
 
 	let verbosity = Arc::new(VerbosityState::new());
@@ -243,7 +243,7 @@ async fn listener_drains_in_flight_within_timeout() {
 	// 200ms and a 2s drain budget, shutdown must complete well under the
 	// budget — the executor finishes long before the timeout expires.
 	let addr = pick_port().await;
-	let graph = sleep_bytes_graph(addr, NodeId::new(0), Duration::from_millis(200));
+	let graph = sleep_bytes_graph(addr, NodeId::for_testing(0), Duration::from_millis(200));
 
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink = Arc::new(RecordingSink::new());
@@ -291,8 +291,8 @@ async fn listener_set_starts_multiple_entries_independently() {
 	// Both entries point at the same `Terminate(Close)` node; the listener
 	// only cares that the entry is L4-compatible.
 	let mut entries = HashMap::new();
-	entries.insert(addr1, NodeId::new(0));
-	entries.insert(addr2, NodeId::new(0));
+	entries.insert(addr1, NodeId::for_testing(0));
+	entries.insert(addr2, NodeId::for_testing(0));
 	let graph = close_only_graph(entries);
 
 	let verbosity = Arc::new(VerbosityState::new());
@@ -360,7 +360,7 @@ async fn reconcile_adds_listener_for_new_address() {
 	assert_ne!(addr_a, addr_b);
 
 	let mut entries = HashMap::new();
-	entries.insert(addr_a, NodeId::new(0));
+	entries.insert(addr_a, NodeId::for_testing(0));
 	let graph_a = close_only_graph(entries);
 
 	let verbosity = Arc::new(VerbosityState::new());
@@ -375,8 +375,8 @@ async fn reconcile_adds_listener_for_new_address() {
 
 	// Swap in a graph that also has addr_b.
 	let mut entries_ab = HashMap::new();
-	entries_ab.insert(addr_a, NodeId::new(0));
-	entries_ab.insert(addr_b, NodeId::new(0));
+	entries_ab.insert(addr_a, NodeId::for_testing(0));
+	entries_ab.insert(addr_b, NodeId::for_testing(0));
 	swap.store(close_only_graph(entries_ab));
 	set.reconcile(&swap, &verbosity, &sink);
 	tokio::time::sleep(Duration::from_millis(100)).await;
@@ -399,8 +399,8 @@ async fn reconcile_removes_listener_for_deleted_address() {
 	assert_ne!(addr_a, addr_b);
 
 	let mut entries_ab = HashMap::new();
-	entries_ab.insert(addr_a, NodeId::new(0));
-	entries_ab.insert(addr_b, NodeId::new(0));
+	entries_ab.insert(addr_a, NodeId::for_testing(0));
+	entries_ab.insert(addr_b, NodeId::for_testing(0));
 	let graph_ab = close_only_graph(entries_ab);
 
 	let verbosity = Arc::new(VerbosityState::new());
@@ -416,7 +416,7 @@ async fn reconcile_removes_listener_for_deleted_address() {
 
 	// Swap in a graph with only addr_a; reconcile should background-drain addr_b.
 	let mut entries_a = HashMap::new();
-	entries_a.insert(addr_a, NodeId::new(0));
+	entries_a.insert(addr_a, NodeId::for_testing(0));
 	swap.store(close_only_graph(entries_a));
 	set.reconcile(&swap, &verbosity, &sink);
 
@@ -441,7 +441,7 @@ async fn reconcile_noop_for_unchanged_address_set() {
 	// connection.
 	let addr_a = pick_port().await;
 	let mut entries = HashMap::new();
-	entries.insert(addr_a, NodeId::new(0));
+	entries.insert(addr_a, NodeId::for_testing(0));
 	let graph_v1 = close_only_graph(entries.clone());
 
 	let verbosity = Arc::new(VerbosityState::new());
@@ -476,7 +476,7 @@ async fn bound_count_flips_to_expected_after_bind_succeeds() {
 	// "gave up" by polling these two together.
 	let addr = pick_port().await;
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
 	let swap = Arc::new(ArcSwap::new(close_only_graph(entries)));
@@ -512,7 +512,7 @@ async fn list_connections_registers_on_accept_and_deregisters_on_task_end() {
 	// 200ms then the close terminator runs; the per-conn handler task
 	// ends immediately after, dropping the `ConnRegistration` guard.
 	let addr = pick_port().await;
-	let graph = sleep_bytes_graph(addr, NodeId::new(0), Duration::from_millis(200));
+	let graph = sleep_bytes_graph(addr, NodeId::for_testing(0), Duration::from_millis(200));
 
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
@@ -569,7 +569,7 @@ async fn bound_count_stays_zero_when_address_is_already_in_use() {
 	let blocker = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind ephemeral blocker");
 	let addr = blocker.local_addr().expect("local_addr");
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	let verbosity = Arc::new(VerbosityState::new());
 	let sink: Arc<dyn FlowLogSink> = Arc::new(RecordingSink::new());
 	let swap = Arc::new(ArcSwap::new(close_only_graph(entries)));
@@ -629,7 +629,7 @@ async fn shutdown_drains_idle_keep_alive_connections_within_drain_timeout() {
 
 	let addr = pick_port().await;
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	// Minimal L7 listener graph that the H1 driver can attach to:
 	// Upgrade -> Fetch(HttpSynthesize / unreachable) -> Terminate(Close).
 	// We only need the Upgrade node so the listener routes accepted
@@ -638,15 +638,15 @@ async fn shutdown_drains_idle_keep_alive_connections_within_drain_timeout() {
 	// path is unreachable in this test.
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
-			Node::Upgrade { next: NodeId::new(1) },
+			Node::Upgrade { next: NodeId::for_testing(1) },
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],

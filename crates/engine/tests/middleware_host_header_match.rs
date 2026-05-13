@@ -148,20 +148,20 @@ fn link_graph(host_args: Value) -> (Arc<FlowGraph>, Arc<AtomicUsize>) {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![l7_req_ref_with_args("host_header_match", host_args)],
 		vec![SymbolicFetchRef {
@@ -190,20 +190,20 @@ fn link_graph_expect_err(host_args: Value) -> String {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![l7_req_ref_with_args("host_header_match", host_args)],
 		vec![SymbolicFetchRef {
@@ -247,7 +247,7 @@ async fn host_match_continues_when_host_in_list() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_host(Some("api.example.com")))),
 		&conn,
 		&sink,
@@ -267,7 +267,7 @@ async fn host_match_case_insensitive_match() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_host(Some("api.example.com")))),
 		&conn,
 		&sink,
@@ -287,7 +287,7 @@ async fn host_match_short_close_when_host_missing() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_host(None))),
 		&conn,
 		&sink,
@@ -316,7 +316,7 @@ async fn host_match_short_close_when_no_host_matches() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_host(Some("other.com")))),
 		&conn,
 		&sink,

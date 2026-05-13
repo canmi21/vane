@@ -48,7 +48,7 @@ fn make_ctx() -> FlowCtx {
 		cancel: CancellationToken::new(),
 		accept_cancel: CancellationToken::new(),
 		verbosity: FlowLogVerbosity::Trajectory,
-		trajectory: TrajectoryBuilder::new(ConnId(1), vane_core::NodeId::new(0), 0),
+		trajectory: TrajectoryBuilder::new(ConnId(1), vane_core::NodeId::for_testing(0), 0),
 	}
 }
 

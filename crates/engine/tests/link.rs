@@ -324,7 +324,7 @@ fn index_middleware_id_returns_inst() {
 	let fetch = FetchFactories::new();
 	let linked = FlowGraph::link(sym, &mw, &fetch).expect("link must succeed");
 	assert!(
-		matches!(&linked[MiddlewareId::new(0)], MiddlewareInst::L7Request(_)),
+		matches!(&linked[MiddlewareId::for_testing(0)], MiddlewareInst::L7Request(_)),
 		"expected index to return the L7Request variant produced by the factory",
 	);
 }
@@ -357,7 +357,7 @@ fn index_fetch_id_returns_inst() {
 	fetch.register(FetchKind::HttpProxy, |_args| Ok(FetchInst::L7(Arc::new(NoopL7Fetch))));
 	let linked = FlowGraph::link(sym, &mw, &fetch).expect("link must succeed");
 	assert!(
-		matches!(&linked[FetchId::new(0)], FetchInst::L7(_)),
+		matches!(&linked[FetchId::for_testing(0)], FetchInst::L7(_)),
 		"expected index to return the L7 fetch variant produced by the factory",
 	);
 }

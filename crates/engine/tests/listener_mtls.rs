@@ -215,19 +215,19 @@ fn graph_single_route(
 	tag: &str,
 ) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	let meta = meta_with_client_auth(addr, pki.server_tls_cfg.clone(), client_auth);
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
-			Node::Upgrade { next: NodeId::new(1) },
+			Node::Upgrade { next: NodeId::for_testing(1) },
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],
@@ -259,34 +259,34 @@ fn graph_branching_on_predicate(
 	tag_miss: &str,
 ) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 	let meta = meta_with_client_auth(addr, pki.server_tls_cfg.clone(), client_auth);
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
 			Node::Check {
-				predicate: PredicateId::new(0),
-				on_match: NodeId::new(1),
-				on_miss: NodeId::new(2),
+				predicate: PredicateId::for_testing(0),
+				on_match: NodeId::for_testing(1),
+				on_miss: NodeId::for_testing(2),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Upgrade { next: NodeId::new(3) }, // match
-			Node::Upgrade { next: NodeId::new(4) }, // miss
+			Node::Upgrade { next: NodeId::for_testing(3) }, // match
+			Node::Upgrade { next: NodeId::for_testing(4) }, // miss
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(5)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(5)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Fetch {
-				id: FetchId::new(1),
-				next_response: Some(NodeId::new(5)),
+				id: FetchId::for_testing(1),
+				next_response: Some(NodeId::for_testing(5)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![predicate],
 		middlewares: vec![],

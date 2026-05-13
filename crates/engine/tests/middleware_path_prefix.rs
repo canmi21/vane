@@ -144,20 +144,20 @@ fn link_graph(prefix_args: Value) -> (Arc<FlowGraph>, Arc<AtomicUsize>) {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![l7_req_ref_with_args("path_prefix", prefix_args)],
 		vec![SymbolicFetchRef {
@@ -186,20 +186,20 @@ fn link_graph_expect_err(prefix_args: Value) -> String {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![l7_req_ref_with_args("path_prefix", prefix_args)],
 		vec![SymbolicFetchRef {
@@ -239,7 +239,7 @@ async fn path_prefix_continues_when_path_starts_with_prefix() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_uri("/api/users"))),
 		&conn,
 		&sink,
@@ -256,7 +256,7 @@ async fn path_prefix_continues_when_any_of_multiple_prefixes_matches() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_uri("/api/x"))),
 		&conn,
 		&sink,
@@ -276,7 +276,7 @@ async fn path_prefix_short_close_when_no_prefix_matches() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_uri("/other"))),
 		&conn,
 		&sink,
@@ -309,7 +309,7 @@ async fn path_prefix_case_sensitive_no_match() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_uri("/api"))),
 		&conn,
 		&sink,
@@ -330,7 +330,7 @@ async fn path_prefix_root_slash_matches_everything() {
 	let sink = Arc::new(NullSink::new());
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(req_with_uri("/anything/at/all"))),
 		&conn,
 		&sink,

@@ -61,21 +61,21 @@ fn proxy_graph(
 	retry_buffer_required: bool,
 ) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(listen, NodeId::new(0));
+	entries.insert(listen, NodeId::for_testing(0));
 	let collect_body_before =
 		if retry_buffer_required { Some(vane_core::BodySide::Request) } else { None };
 	let body_limit = if retry_buffer_required { 8 * 1024 * 1024 } else { 0 };
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
-			Node::Upgrade { next: NodeId::new(1) },
+			Node::Upgrade { next: NodeId::for_testing(1) },
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before,
 				body_limit,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],

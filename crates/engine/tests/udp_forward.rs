@@ -91,7 +91,7 @@ fn make_udp_proxy_graph(
 	cold_path_count: &Arc<AtomicUsize>,
 ) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(listen, NodeId::new(0));
+	entries.insert(listen, NodeId::for_testing(0));
 	let args = serde_json::json!({
 		"upstream": upstream,
 		"transport": "udp",
@@ -100,13 +100,13 @@ fn make_udp_proxy_graph(
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
 			Node::Fetch {
-				id: FetchId::new(0),
+				id: FetchId::for_testing(0),
 				next_response: None,
-				next_tunnel: Some(NodeId::new(1)),
+				next_tunnel: Some(NodeId::for_testing(1)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],

@@ -140,7 +140,7 @@ fn tagged_fetch_factory(args: &Value) -> Result<FetchInst, FactoryError> {
 /// ```
 fn sni_peek_branching_graph(addr: SocketAddr, tls_cfg: rule::TlsConfig) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 
 	let mut listener_tls = BTreeMap::new();
 	listener_tls.insert(
@@ -169,36 +169,36 @@ fn sni_peek_branching_graph(addr: SocketAddr, tls_cfg: rule::TlsConfig) -> Arc<F
 
 	let nodes = vec![
 		Node::Middleware {
-			id: MiddlewareId::new(0),
-			next: NodeId::new(1),
+			id: MiddlewareId::for_testing(0),
+			next: NodeId::for_testing(1),
 			on_error: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
 		Node::Check {
-			predicate: PredicateId::new(0),
-			on_match: NodeId::new(2),
-			on_miss: NodeId::new(3),
+			predicate: PredicateId::for_testing(0),
+			on_match: NodeId::for_testing(2),
+			on_miss: NodeId::for_testing(3),
 			collect_body_before: None,
 			body_limit: 0,
 		},
-		Node::Upgrade { next: NodeId::new(4) },
-		Node::Upgrade { next: NodeId::new(5) },
+		Node::Upgrade { next: NodeId::for_testing(4) },
+		Node::Upgrade { next: NodeId::for_testing(5) },
 		Node::Fetch {
-			id: FetchId::new(0),
-			next_response: Some(NodeId::new(6)),
+			id: FetchId::for_testing(0),
+			next_response: Some(NodeId::for_testing(6)),
 			next_tunnel: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
 		Node::Fetch {
-			id: FetchId::new(1),
-			next_response: Some(NodeId::new(6)),
+			id: FetchId::for_testing(1),
+			next_response: Some(NodeId::for_testing(6)),
 			next_tunnel: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
-		Node::Terminate(TerminatorId::new(0)),
+		Node::Terminate(TerminatorId::for_testing(0)),
 	];
 
 	let middlewares = vec![SymbolicMiddlewareRef {

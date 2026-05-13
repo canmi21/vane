@@ -100,17 +100,17 @@ fn meta() -> FlowGraphMeta {
 /// shared `Mutex` so each connection feeds the test.
 fn build_graph(listen: SocketAddr, captured: &Arc<Mutex<Vec<Captured>>>) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(listen, NodeId::new(0));
+	entries.insert(listen, NodeId::for_testing(0));
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: Vec::new(),
 		middlewares: vec![SymbolicMiddlewareRef {

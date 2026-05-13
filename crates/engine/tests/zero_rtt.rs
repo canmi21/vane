@@ -139,7 +139,7 @@ fn tls_zero_rtt_graph(
 	captured: &Arc<Mutex<Vec<u8>>>,
 ) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 
 	let mut listener_tls = BTreeMap::new();
 	listener_tls.insert(
@@ -167,15 +167,15 @@ fn tls_zero_rtt_graph(
 
 	let sym = Arc::new(SymbolicFlowGraph {
 		nodes: vec![
-			Node::Upgrade { next: NodeId::new(1) },
+			Node::Upgrade { next: NodeId::for_testing(1) },
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		predicates: vec![],
 		middlewares: vec![],

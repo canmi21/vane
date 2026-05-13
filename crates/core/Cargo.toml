@@ -18,6 +18,13 @@ workspace = true
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+# Expose unstable constructors (`*::for_testing(raw)`) for use by
+# integration tests in sibling crates. Enable in `[dev-dependencies]`
+# only — production code in other crates must obtain IDs via
+# `vane_core::compile()` instead of fabricating them.
+test-support = []
+
 [dependencies]
 arc-swap = "1"
 async-trait = "0.1"

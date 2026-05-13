@@ -159,7 +159,7 @@ fn auto_graph(
 	upstream: SocketAddr,
 ) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 
 	let mut listener_tls = BTreeMap::new();
 	if let Some(cfg) = tls_cfg {
@@ -177,36 +177,36 @@ fn auto_graph(
 
 	let nodes = vec![
 		Node::Middleware {
-			id: MiddlewareId::new(0),
-			next: NodeId::new(1),
+			id: MiddlewareId::for_testing(0),
+			next: NodeId::for_testing(1),
 			on_error: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
 		Node::Check {
-			predicate: PredicateId::new(0),
-			on_match: NodeId::new(2),
-			on_miss: NodeId::new(3),
+			predicate: PredicateId::for_testing(0),
+			on_match: NodeId::for_testing(2),
+			on_miss: NodeId::for_testing(3),
 			collect_body_before: None,
 			body_limit: 0,
 		},
 		Node::Fetch {
-			id: FetchId::new(0),
+			id: FetchId::for_testing(0),
 			next_response: None,
-			next_tunnel: Some(NodeId::new(4)),
+			next_tunnel: Some(NodeId::for_testing(4)),
 			collect_body_before: None,
 			body_limit: 0,
 		},
-		Node::Upgrade { next: NodeId::new(5) },
-		Node::Terminate(TerminatorId::new(0)),
+		Node::Upgrade { next: NodeId::for_testing(5) },
+		Node::Terminate(TerminatorId::for_testing(0)),
 		Node::Fetch {
-			id: FetchId::new(1),
-			next_response: Some(NodeId::new(6)),
+			id: FetchId::for_testing(1),
+			next_response: Some(NodeId::for_testing(6)),
 			next_tunnel: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
-		Node::Terminate(TerminatorId::new(1)),
+		Node::Terminate(TerminatorId::for_testing(1)),
 	];
 
 	let middlewares = vec![SymbolicMiddlewareRef {
@@ -262,7 +262,7 @@ fn auto_graph(
 /// works; a cleartext request hits the dispatch-table reject arm.
 fn http_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 
 	let mut listener_tls = BTreeMap::new();
 	listener_tls.insert(
@@ -278,21 +278,21 @@ fn http_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<Flow
 
 	let nodes = vec![
 		Node::Middleware {
-			id: MiddlewareId::new(0),
-			next: NodeId::new(1),
+			id: MiddlewareId::for_testing(0),
+			next: NodeId::for_testing(1),
 			on_error: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
-		Node::Upgrade { next: NodeId::new(2) },
+		Node::Upgrade { next: NodeId::for_testing(2) },
 		Node::Fetch {
-			id: FetchId::new(0),
-			next_response: Some(NodeId::new(3)),
+			id: FetchId::for_testing(0),
+			next_response: Some(NodeId::for_testing(3)),
 			next_tunnel: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
-		Node::Terminate(TerminatorId::new(0)),
+		Node::Terminate(TerminatorId::for_testing(0)),
 	];
 
 	let middlewares = vec![SymbolicMiddlewareRef {
@@ -329,17 +329,17 @@ fn http_graph(addr: SocketAddr, tls_cfg: vane_core::rule::TlsConfig) -> Arc<Flow
 /// Raw graph: single `L4Forward` fetch. Lower derives Raw (no L7).
 fn raw_graph(addr: SocketAddr, upstream: SocketAddr) -> Arc<FlowGraph> {
 	let mut entries = HashMap::new();
-	entries.insert(addr, NodeId::new(0));
+	entries.insert(addr, NodeId::for_testing(0));
 
 	let nodes = vec![
 		Node::Fetch {
-			id: FetchId::new(0),
+			id: FetchId::for_testing(0),
 			next_response: None,
-			next_tunnel: Some(NodeId::new(1)),
+			next_tunnel: Some(NodeId::for_testing(1)),
 			collect_body_before: None,
 			body_limit: 0,
 		},
-		Node::Terminate(TerminatorId::new(0)),
+		Node::Terminate(TerminatorId::for_testing(0)),
 	];
 
 	let upstream_arg = serde_json::json!({ "upstream": upstream.to_string() });

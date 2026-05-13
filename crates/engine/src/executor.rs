@@ -683,7 +683,7 @@ fn emit_trajectory(
 	let conn_id = conn.id;
 	let traj = std::mem::replace(
 		&mut ctx.trajectory,
-		vane_core::TrajectoryBuilder::new(conn_id, NodeId::new(0), now_ms()),
+		vane_core::TrajectoryBuilder::placeholder(conn_id, now_ms()),
 	)
 	.finalize(outcome, now_ms());
 

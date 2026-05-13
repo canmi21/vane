@@ -1174,10 +1174,12 @@ mod tests {
 		#[test]
 		fn needs_peek_false_when_entry_runs_through_upgrade_to_terminator() {
 			// entry → Upgrade → Terminate. No L4Peek anywhere.
-			let nodes =
-				vec![Node::Upgrade { next: NodeId::new(1) }, Node::Terminate(TerminatorId::new(0))];
+			let nodes = vec![
+				Node::Upgrade { next: NodeId::for_testing(1) },
+				Node::Terminate(TerminatorId::for_testing(0)),
+			];
 			let g = flow_from(nodes, Vec::new());
-			assert!(!g.needs_peek(NodeId::new(0)));
+			assert!(!g.needs_peek(NodeId::for_testing(0)));
 		}
 
 		#[test]
@@ -1185,34 +1187,34 @@ mod tests {
 			// entry → L4Peek middleware → Terminate.
 			let nodes = vec![
 				Node::Middleware {
-					id: MiddlewareId::new(0),
-					next: NodeId::new(1),
+					id: MiddlewareId::for_testing(0),
+					next: NodeId::for_testing(1),
 					on_error: None,
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			let mws = vec![mw_ref("sni_peek", MiddlewareKind::L4Peek)];
 			let g = flow_from(nodes, mws);
-			assert!(g.needs_peek(NodeId::new(0)));
+			assert!(g.needs_peek(NodeId::for_testing(0)));
 		}
 
 		#[test]
 		fn needs_peek_false_when_only_non_peek_middleware_is_reachable() {
 			let nodes = vec![
 				Node::Middleware {
-					id: MiddlewareId::new(0),
-					next: NodeId::new(1),
+					id: MiddlewareId::for_testing(0),
+					next: NodeId::for_testing(1),
 					on_error: None,
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			let mws = vec![mw_ref("rate_limit", MiddlewareKind::L7Request)];
 			let g = flow_from(nodes, mws);
-			assert!(!g.needs_peek(NodeId::new(0)));
+			assert!(!g.needs_peek(NodeId::for_testing(0)));
 		}
 
 		#[test]
@@ -1220,16 +1222,16 @@ mod tests {
 			// entry (Check) → on_match: Terminate, on_miss: L4Peek → Terminate.
 			let nodes = vec![
 				Node::Check {
-					predicate: PredicateId::new(0),
-					on_match: NodeId::new(1),
-					on_miss: NodeId::new(2),
+					predicate: PredicateId::for_testing(0),
+					on_match: NodeId::for_testing(1),
+					on_miss: NodeId::for_testing(2),
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 				Node::Middleware {
-					id: MiddlewareId::new(0),
-					next: NodeId::new(1),
+					id: MiddlewareId::for_testing(0),
+					next: NodeId::for_testing(1),
 					on_error: None,
 					collect_body_before: None,
 					body_limit: 0,
@@ -1241,7 +1243,7 @@ mod tests {
 				op: CompiledOperator::Equals(CompiledValue::Str(Arc::from("tcp"))),
 			}];
 			let g = flow_from_with(nodes, mws, predicates);
-			assert!(g.needs_peek(NodeId::new(0)));
+			assert!(g.needs_peek(NodeId::for_testing(0)));
 		}
 
 		#[test]
@@ -1250,15 +1252,15 @@ mod tests {
 			// `link` rejects this in production, but the walker must not
 			// hang if a future graph mutation slips one through.
 			let nodes = vec![Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(0),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(0),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			}];
 			let mws = vec![mw_ref("rate_limit", MiddlewareKind::L7Request)];
 			let g = flow_from(nodes, mws);
-			assert!(!g.needs_peek(NodeId::new(0)));
+			assert!(!g.needs_peek(NodeId::for_testing(0)));
 		}
 	}
 
@@ -1360,21 +1362,21 @@ mod tests {
 		fn yes_when_sni_check_plus_l4forward_reachable_on_raw_listener() {
 			let nodes = vec![
 				Node::Check {
-					predicate: PredicateId::new(0),
-					on_match: NodeId::new(1),
-					on_miss: NodeId::new(3),
+					predicate: PredicateId::for_testing(0),
+					on_match: NodeId::for_testing(1),
+					on_miss: NodeId::for_testing(3),
 					collect_body_before: None,
 					body_limit: 0,
 				},
 				Node::Fetch {
-					id: FetchId::new(0),
+					id: FetchId::for_testing(0),
 					next_response: None,
-					next_tunnel: Some(NodeId::new(2)),
+					next_tunnel: Some(NodeId::for_testing(2)),
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(1)),
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(1)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			let g = build_graph(
 				nodes,
@@ -1383,17 +1385,17 @@ mod tests {
 				raw_meta(),
 			);
 			let addr = ADDR.parse().expect("addr");
-			assert!(g.needs_pending_peek(addr, NodeId::new(0)));
+			assert!(g.needs_pending_peek(addr, NodeId::for_testing(0)));
 		}
 
 		// Listener shape: entry → Terminate(Close). No L4Forward, no SNI check.
 		// Spec table row 1 — no.
 		#[test]
 		fn no_when_l4forward_absent_on_raw_listener() {
-			let nodes = vec![Node::Terminate(TerminatorId::new(0))];
+			let nodes = vec![Node::Terminate(TerminatorId::for_testing(0))];
 			let g = build_graph(nodes, Vec::new(), Vec::new(), raw_meta());
 			let addr = ADDR.parse().expect("addr");
-			assert!(!g.needs_pending_peek(addr, NodeId::new(0)));
+			assert!(!g.needs_pending_peek(addr, NodeId::for_testing(0)));
 		}
 
 		// Listener shape: entry → Fetch(L4Forward) → Terminate. No SNI check.
@@ -1402,17 +1404,17 @@ mod tests {
 		fn no_when_l4forward_present_but_no_sni_check_on_path() {
 			let nodes = vec![
 				Node::Fetch {
-					id: FetchId::new(0),
+					id: FetchId::for_testing(0),
 					next_response: None,
-					next_tunnel: Some(NodeId::new(1)),
+					next_tunnel: Some(NodeId::for_testing(1)),
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(1)),
+				Node::Terminate(TerminatorId::for_testing(1)),
 			];
 			let g = build_graph(nodes, Vec::new(), vec![fetch_ref(FetchKind::L4Forward)], raw_meta());
 			let addr = ADDR.parse().expect("addr");
-			assert!(!g.needs_pending_peek(addr, NodeId::new(0)));
+			assert!(!g.needs_pending_peek(addr, NodeId::for_testing(0)));
 		}
 
 		// Rule-level precision: SNI check is on a branch that does NOT
@@ -1424,21 +1426,21 @@ mod tests {
 			//                       → on_miss : Fetch(L4Forward) → Terminate(ByteTunnel)
 			let nodes = vec![
 				Node::Check {
-					predicate: PredicateId::new(0),
-					on_match: NodeId::new(3),
-					on_miss: NodeId::new(1),
+					predicate: PredicateId::for_testing(0),
+					on_match: NodeId::for_testing(3),
+					on_miss: NodeId::for_testing(1),
 					collect_body_before: None,
 					body_limit: 0,
 				},
 				Node::Fetch {
-					id: FetchId::new(0),
+					id: FetchId::for_testing(0),
 					next_response: None,
-					next_tunnel: Some(NodeId::new(2)),
+					next_tunnel: Some(NodeId::for_testing(2)),
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(1)),
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(1)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			// Both branches inherit `sni_seen=true` from the Check node
 			// (DFS pushes both with the SNI flag set), so this case
@@ -1454,7 +1456,7 @@ mod tests {
 			);
 			let addr = ADDR.parse().expect("addr");
 			assert!(
-				g.needs_pending_peek(addr, NodeId::new(0)),
+				g.needs_pending_peek(addr, NodeId::for_testing(0)),
 				"DFS treats both Check branches as having seen the SNI predicate; \
 				 a strict per-rule split would require running the predicate logic to \
 				 determine which branch matches, which is not knowable at compile time",
@@ -1470,21 +1472,21 @@ mod tests {
 		fn yes_when_sni_branch_alone_leads_to_l4forward() {
 			let nodes = vec![
 				Node::Check {
-					predicate: PredicateId::new(0),
-					on_match: NodeId::new(1),
-					on_miss: NodeId::new(3),
+					predicate: PredicateId::for_testing(0),
+					on_match: NodeId::for_testing(1),
+					on_miss: NodeId::for_testing(3),
 					collect_body_before: None,
 					body_limit: 0,
 				},
 				Node::Fetch {
-					id: FetchId::new(0),
+					id: FetchId::for_testing(0),
 					next_response: None,
-					next_tunnel: Some(NodeId::new(2)),
+					next_tunnel: Some(NodeId::for_testing(2)),
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(1)),
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(1)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			let g = build_graph(
 				nodes,
@@ -1493,7 +1495,7 @@ mod tests {
 				raw_meta(),
 			);
 			let addr = ADDR.parse().expect("addr");
-			assert!(g.needs_pending_peek(addr, NodeId::new(0)));
+			assert!(g.needs_pending_peek(addr, NodeId::for_testing(0)));
 		}
 
 		// SNI check on a path whose terminator is L4Forward, but the
@@ -1504,21 +1506,21 @@ mod tests {
 		fn no_for_auto_listener_in_raw_only_scope() {
 			let nodes = vec![
 				Node::Check {
-					predicate: PredicateId::new(0),
-					on_match: NodeId::new(1),
-					on_miss: NodeId::new(3),
+					predicate: PredicateId::for_testing(0),
+					on_match: NodeId::for_testing(1),
+					on_miss: NodeId::for_testing(3),
 					collect_body_before: None,
 					body_limit: 0,
 				},
 				Node::Fetch {
-					id: FetchId::new(0),
+					id: FetchId::for_testing(0),
 					next_response: None,
-					next_tunnel: Some(NodeId::new(2)),
+					next_tunnel: Some(NodeId::for_testing(2)),
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(1)),
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(1)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			let g = build_graph(
 				nodes,
@@ -1527,7 +1529,7 @@ mod tests {
 				meta_with_kind(ListenerKind::Auto),
 			);
 			let addr = ADDR.parse().expect("addr");
-			assert!(!g.needs_pending_peek(addr, NodeId::new(0)));
+			assert!(!g.needs_pending_peek(addr, NodeId::for_testing(0)));
 		}
 
 		// Pure-Http listener: returns false even with an L4Forward in
@@ -1537,21 +1539,21 @@ mod tests {
 		fn no_for_pure_http_listener() {
 			let nodes = vec![
 				Node::Check {
-					predicate: PredicateId::new(0),
-					on_match: NodeId::new(1),
-					on_miss: NodeId::new(3),
+					predicate: PredicateId::for_testing(0),
+					on_match: NodeId::for_testing(1),
+					on_miss: NodeId::for_testing(3),
 					collect_body_before: None,
 					body_limit: 0,
 				},
 				Node::Fetch {
-					id: FetchId::new(0),
+					id: FetchId::for_testing(0),
 					next_response: None,
-					next_tunnel: Some(NodeId::new(2)),
+					next_tunnel: Some(NodeId::for_testing(2)),
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(1)),
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(1)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			let g = build_graph(
 				nodes,
@@ -1560,7 +1562,7 @@ mod tests {
 				meta_with_kind(ListenerKind::Http),
 			);
 			let addr = ADDR.parse().expect("addr");
-			assert!(!g.needs_pending_peek(addr, NodeId::new(0)));
+			assert!(!g.needs_pending_peek(addr, NodeId::for_testing(0)));
 		}
 
 		// SNI check exists but the only fetch is HttpProxy (L7), not
@@ -1569,21 +1571,21 @@ mod tests {
 		fn no_when_sni_check_terminates_in_non_l4_fetch() {
 			let nodes = vec![
 				Node::Check {
-					predicate: PredicateId::new(0),
-					on_match: NodeId::new(1),
-					on_miss: NodeId::new(3),
+					predicate: PredicateId::for_testing(0),
+					on_match: NodeId::for_testing(1),
+					on_miss: NodeId::for_testing(3),
 					collect_body_before: None,
 					body_limit: 0,
 				},
 				Node::Fetch {
-					id: FetchId::new(0),
-					next_response: Some(NodeId::new(2)),
+					id: FetchId::for_testing(0),
+					next_response: Some(NodeId::for_testing(2)),
 					next_tunnel: None,
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(0)),
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(0)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			let g = build_graph(
 				nodes,
@@ -1592,7 +1594,7 @@ mod tests {
 				raw_meta(),
 			);
 			let addr = ADDR.parse().expect("addr");
-			assert!(!g.needs_pending_peek(addr, NodeId::new(0)));
+			assert!(!g.needs_pending_peek(addr, NodeId::for_testing(0)));
 		}
 
 		// SNI check is the entry; other-predicate Check follows; the
@@ -1602,28 +1604,28 @@ mod tests {
 		fn yes_through_chained_check_nodes() {
 			let nodes = vec![
 				Node::Check {
-					predicate: PredicateId::new(0),
-					on_match: NodeId::new(1),
-					on_miss: NodeId::new(4),
+					predicate: PredicateId::for_testing(0),
+					on_match: NodeId::for_testing(1),
+					on_miss: NodeId::for_testing(4),
 					collect_body_before: None,
 					body_limit: 0,
 				},
 				Node::Check {
-					predicate: PredicateId::new(1),
-					on_match: NodeId::new(2),
-					on_miss: NodeId::new(4),
+					predicate: PredicateId::for_testing(1),
+					on_match: NodeId::for_testing(2),
+					on_miss: NodeId::for_testing(4),
 					collect_body_before: None,
 					body_limit: 0,
 				},
 				Node::Fetch {
-					id: FetchId::new(0),
+					id: FetchId::for_testing(0),
 					next_response: None,
-					next_tunnel: Some(NodeId::new(3)),
+					next_tunnel: Some(NodeId::for_testing(3)),
 					collect_body_before: None,
 					body_limit: 0,
 				},
-				Node::Terminate(TerminatorId::new(1)),
-				Node::Terminate(TerminatorId::new(0)),
+				Node::Terminate(TerminatorId::for_testing(1)),
+				Node::Terminate(TerminatorId::for_testing(0)),
 			];
 			let g = build_graph(
 				nodes,
@@ -1632,7 +1634,7 @@ mod tests {
 				raw_meta(),
 			);
 			let addr = ADDR.parse().expect("addr");
-			assert!(g.needs_pending_peek(addr, NodeId::new(0)));
+			assert!(g.needs_pending_peek(addr, NodeId::for_testing(0)));
 		}
 	}
 }

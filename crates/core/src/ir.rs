@@ -17,8 +17,27 @@ macro_rules! id_newtype {
 		pub struct $name(u32);
 
 		impl $name {
+			// `new` is the internal construction loophole; IDs in
+			// production are produced by the compile/link pass and
+			// flow through the IR. Narrowing to `pub(crate)` keeps
+			// downstream crates from fabricating IDs that point at
+			// non-existent nodes. Tests that need to mint IDs from
+			// raw integers use [`Self::for_testing`] instead.
 			#[must_use]
-			pub const fn new(raw: u32) -> Self {
+			pub(crate) const fn new(raw: u32) -> Self {
+				Self(raw)
+			}
+
+			/// Construct an ID from a raw integer for use in tests.
+			///
+			/// Only available when the `test-support` feature is
+			/// enabled, or within `vane-core`'s own test builds. The
+			/// resulting ID is **not** validated against any
+			/// `SymbolicFlowGraph` — callers are responsible for
+			/// keeping their fixture IDs internally consistent.
+			#[cfg(any(test, feature = "test-support"))]
+			#[must_use]
+			pub const fn for_testing(raw: u32) -> Self {
 				Self(raw)
 			}
 

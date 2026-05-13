@@ -121,7 +121,7 @@ fn make_ctx(conn: &Arc<ConnContext>) -> FlowCtx {
 		cancel: CancellationToken::new(),
 		accept_cancel: CancellationToken::new(),
 		verbosity: FlowLogVerbosity::Trajectory,
-		trajectory: TrajectoryBuilder::new(conn.id, vane_core::NodeId::new(0), 0),
+		trajectory: TrajectoryBuilder::new(conn.id, vane_core::NodeId::for_testing(0), 0),
 	}
 }
 

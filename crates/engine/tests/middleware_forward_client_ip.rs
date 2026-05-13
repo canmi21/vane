@@ -147,20 +147,20 @@ fn link_graph(fwd_args: Value) -> (Arc<FlowGraph>, Arc<Mutex<Option<http::Header
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![l7_req_ref_with_args("forward_client_ip", fwd_args)],
 		vec![SymbolicFetchRef {
@@ -189,20 +189,20 @@ fn link_graph_expect_err(fwd_args: Value) -> String {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(2)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(2)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![l7_req_ref_with_args("forward_client_ip", fwd_args)],
 		vec![SymbolicFetchRef {
@@ -248,9 +248,14 @@ async fn forward_client_ip_default_adds_both_headers() {
 	let (graph, captured) = link_graph(Value::Null);
 	let conn = make_conn("127.0.0.1:54321");
 	let sink = Arc::new(NullSink::new());
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_get())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_get())),
+		&conn,
+		&sink,
+	)
+	.await;
 	assert!(result.is_ok(), "forward_client_ip must continue; got {result:?}");
 	let headers = captured.lock().clone().expect("downstream fetch must have captured headers");
 	assert_eq!(
@@ -275,7 +280,8 @@ async fn forward_client_ip_xff_appends_to_existing() {
 	let sink = Arc::new(NullSink::new());
 	let req = req_with_headers(&[("X-Forwarded-For", "1.2.3.4")]);
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
 	assert!(result.is_ok(), "forward_client_ip must continue; got {result:?}");
 	let headers = captured.lock().clone().expect("captured headers");
 	let xff = headers.get("x-forwarded-for").expect("XFF must be present").to_str().unwrap();
@@ -291,7 +297,8 @@ async fn forward_client_ip_real_ip_overwrites_existing() {
 	let sink = Arc::new(NullSink::new());
 	let req = req_with_headers(&[("X-Real-IP", "8.8.8.8")]);
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
 	assert!(result.is_ok(), "forward_client_ip must continue; got {result:?}");
 	let headers = captured.lock().clone().expect("captured headers");
 	let real_ip = headers.get("x-real-ip").expect("X-Real-IP must be present").to_str().unwrap();
@@ -310,9 +317,14 @@ async fn forward_client_ip_subset_only_xff() {
 	let (graph, captured) = link_graph(json!({ "headers": ["x-forwarded-for"] }));
 	let conn = make_conn("127.0.0.1:54321");
 	let sink = Arc::new(NullSink::new());
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_get())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_get())),
+		&conn,
+		&sink,
+	)
+	.await;
 	assert!(result.is_ok(), "subset config must still continue; got {result:?}");
 	let headers = captured.lock().clone().expect("captured headers");
 	assert!(headers.get("x-forwarded-for").is_some(), "XFF must be present in subset config");
@@ -330,9 +342,14 @@ async fn forward_client_ip_renders_ipv6_correctly() {
 	let (graph, captured) = link_graph(Value::Null);
 	let conn = make_conn("[2001:db8::1]:443");
 	let sink = Arc::new(NullSink::new());
-	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(empty_get())), &conn, &sink)
-			.await;
+	let result = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(empty_get())),
+		&conn,
+		&sink,
+	)
+	.await;
 	assert!(result.is_ok(), "forward_client_ip must continue; got {result:?}");
 	let headers = captured.lock().clone().expect("captured headers");
 	let xff = headers.get("x-forwarded-for").expect("XFF must be present").to_str().unwrap();
@@ -366,7 +383,8 @@ async fn forward_client_ip_always_continues() {
 		.body(Body::Empty)
 		.expect("build req");
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
 	assert!(
 		result.is_ok(),
 		"forward_client_ip must continue regardless of method/path; got {result:?}"

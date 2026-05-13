@@ -237,13 +237,13 @@ async fn execute_middleware_continue_advances_cursor() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_req_ref("count_and_continue")],
@@ -264,7 +264,7 @@ async fn execute_middleware_continue_advances_cursor() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -289,15 +289,15 @@ async fn execute_middleware_short_close_policy_denied_returns_closed() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			// `next` is structurally valid but unreachable: the Short(Close)
 			// path returns before advancing.
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_req_ref("short_close")],
@@ -317,7 +317,7 @@ async fn execute_middleware_short_close_policy_denied_returns_closed() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -347,13 +347,13 @@ async fn execute_middleware_short_close_protocol_error_returns_err() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_req_ref("short_close_protocol_err")],
@@ -373,7 +373,7 @@ async fn execute_middleware_short_close_protocol_error_returns_err() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -399,14 +399,14 @@ async fn execute_middleware_err_routes_via_on_error() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				// on_error points at the terminator at NodeId(1).
-				on_error: Some(NodeId::new(1)),
+				on_error: Some(NodeId::for_testing(1)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_req_ref("fail")],
@@ -427,7 +427,7 @@ async fn execute_middleware_err_routes_via_on_error() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -449,13 +449,13 @@ async fn execute_middleware_err_without_on_error_propagates() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_req_ref("fail")],
@@ -476,7 +476,7 @@ async fn execute_middleware_err_without_on_error_propagates() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -510,28 +510,28 @@ async fn execute_check_routes_by_predicate_remote_ip_equals() {
 	let sym = build_graph(
 		vec![
 			Node::Check {
-				predicate: PredicateId::new(0),
-				on_match: NodeId::new(1),
-				on_miss: NodeId::new(3),
+				predicate: PredicateId::for_testing(0),
+				on_match: NodeId::for_testing(1),
+				on_miss: NodeId::for_testing(3),
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(2),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(2),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 			Node::Middleware {
-				id: MiddlewareId::new(1),
-				next: NodeId::new(4),
+				id: MiddlewareId::for_testing(1),
+				next: NodeId::for_testing(4),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![PredicateInst {
 			path: FieldPath::RemoteIp,
@@ -563,7 +563,7 @@ async fn execute_check_routes_by_predicate_remote_ip_equals() {
 	let sink = Arc::new(NullSink::new());
 	let r = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn_match,
 		&sink,
@@ -578,7 +578,7 @@ async fn execute_check_routes_by_predicate_remote_ip_equals() {
 	let sink = Arc::new(NullSink::new());
 	let r = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn_miss,
 		&sink,
@@ -601,28 +601,28 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 	let sym = build_graph(
 		vec![
 			Node::Check {
-				predicate: PredicateId::new(0),
-				on_match: NodeId::new(1),
-				on_miss: NodeId::new(3),
+				predicate: PredicateId::for_testing(0),
+				on_match: NodeId::for_testing(1),
+				on_miss: NodeId::for_testing(3),
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(2),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(2),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 			Node::Middleware {
-				id: MiddlewareId::new(1),
-				next: NodeId::new(4),
+				id: MiddlewareId::for_testing(1),
+				next: NodeId::for_testing(4),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![PredicateInst {
 			path: FieldPath::HttpMethod,
@@ -656,7 +656,8 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 		http::Request::builder().method("GET").uri("/").body(Body::Empty).expect("build GET");
 	let sink = Arc::new(NullSink::new());
 	let r =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(get_req)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(get_req)), &conn, &sink)
+			.await;
 	assert!(r.is_ok(), "GET must traverse the match branch: {r:?}");
 	assert_eq!(hit_match.load(Ordering::SeqCst), 1, "GET runs the match branch once");
 	assert_eq!(hit_miss.load(Ordering::SeqCst), 0, "GET must not run the miss branch");
@@ -665,8 +666,14 @@ async fn execute_check_routes_by_predicate_http_method_equals() {
 	let post_req: Request =
 		http::Request::builder().method("POST").uri("/").body(Body::Empty).expect("build POST");
 	let sink = Arc::new(NullSink::new());
-	let r =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(post_req)), &conn, &sink).await;
+	let r = run_execute(
+		&graph,
+		NodeId::for_testing(0),
+		ExecutorInput::L7(Box::new(post_req)),
+		&conn,
+		&sink,
+	)
+	.await;
 	assert!(r.is_ok(), "POST must traverse the miss branch: {r:?}");
 	assert_eq!(hit_match.load(Ordering::SeqCst), 1, "match counter unchanged");
 	assert_eq!(hit_miss.load(Ordering::SeqCst), 1, "POST runs the miss branch once");
@@ -686,13 +693,13 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 	let sym = build_graph(
 		vec![
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(1)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(1)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![],
@@ -718,7 +725,7 @@ async fn execute_l7_fetch_response_jumps_to_next_response() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -743,13 +750,13 @@ async fn execute_collect_body_static_is_noop() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: Some(vane_core::BodySide::Request),
 				body_limit: 8 * 1024 * 1024,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_req_ref("count_and_continue")],
@@ -774,7 +781,8 @@ async fn execute_collect_body_static_is_noop() {
 		.body(Body::Static(Bytes::from_static(b"hello")))
 		.expect("build req");
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
 
 	assert!(result.is_ok(), "Static body collect must be a no-op, middleware proceeds: {result:?}");
 	assert_eq!(counter.load(Ordering::SeqCst), 1, "middleware must run once");
@@ -826,20 +834,20 @@ fn two_middleware_close_graph(
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Middleware {
-				id: MiddlewareId::new(1),
-				next: NodeId::new(2),
+				id: MiddlewareId::for_testing(1),
+				next: NodeId::for_testing(2),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_req_ref("first_continue"), l7_req_ref("second_continue")],
@@ -879,7 +887,7 @@ async fn execute_emits_one_trajectory_event_in_default_mode() {
 
 	let result = run_execute_with_verbosity(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -921,7 +929,7 @@ async fn execute_emits_per_step_events_in_debug_mode() {
 
 	let result = run_execute_with_verbosity(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -948,7 +956,7 @@ async fn execute_trajectory_outcome_records_terminator_kind() {
 	// trajectory's `outcome` is `Terminated { terminator: <kind> }`.
 	// `Terminator::Close` maps to `TerminatorOutcomeKind::Close`.
 	let sym = build_graph(
-		vec![Node::Terminate(TerminatorId::new(0))],
+		vec![Node::Terminate(TerminatorId::for_testing(0))],
 		vec![],
 		vec![],
 		vec![],
@@ -962,7 +970,7 @@ async fn execute_trajectory_outcome_records_terminator_kind() {
 
 	let result = run_execute_with_verbosity(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -998,13 +1006,13 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_req_ref("fail")],
@@ -1025,7 +1033,7 @@ async fn execute_trajectory_outcome_records_error_when_propagating() {
 
 	let result = run_execute_with_verbosity(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -1100,13 +1108,13 @@ fn byte_tunnel_graph(tunnel: Tunnel) -> Arc<FlowGraph> {
 	let sym = build_graph(
 		vec![
 			Node::Fetch {
-				id: FetchId::new(0),
+				id: FetchId::for_testing(0),
 				next_response: None,
-				next_tunnel: Some(NodeId::new(1)),
+				next_tunnel: Some(NodeId::for_testing(1)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![],
@@ -1157,13 +1165,13 @@ async fn execute_write_http_response_returns_response_output() {
 	let sym = build_graph(
 		vec![
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(1)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(1)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![],
@@ -1189,7 +1197,7 @@ async fn execute_write_http_response_returns_response_output() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -1219,13 +1227,13 @@ async fn execute_write_http_response_preserves_body_payload() {
 	let sym = build_graph(
 		vec![
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(1)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(1)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![],
@@ -1253,7 +1261,7 @@ async fn execute_write_http_response_preserves_body_payload() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -1302,11 +1310,11 @@ async fn execute_byte_tunnel_drives_copy_bidirectional() {
 			cancel: CancellationToken::new(),
 			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
-			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
+			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::for_testing(0), 0),
 		};
 		execute(
 			&graph_for_exec,
-			NodeId::new(0),
+			NodeId::for_testing(0),
 			ExecutorInput::L4(Box::new(l4)),
 			&conn_for_exec,
 			&mut ctx,
@@ -1364,11 +1372,11 @@ async fn execute_byte_tunnel_sends_graceful_close_reason() {
 			cancel: CancellationToken::new(),
 			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
-			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
+			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::for_testing(0), 0),
 		};
 		execute(
 			&graph_for_exec,
-			NodeId::new(0),
+			NodeId::for_testing(0),
 			ExecutorInput::L4(Box::new(l4)),
 			&conn_for_exec,
 			&mut ctx,
@@ -1452,7 +1460,8 @@ async fn execute_byte_tunnel_propagates_io_error_via_close_reason() {
 	let sink = Arc::new(NullSink::new());
 
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L4(Box::new(l4)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L4(Box::new(l4)), &conn, &sink)
+			.await;
 
 	match result {
 		Ok(ExecutorOutput::Tunneled) => {}
@@ -1474,7 +1483,7 @@ async fn execute_close_terminator_returns_closed_output() {
 	// Per the C8a contract the precise success value is
 	// `ExecutorOutput::Closed`.
 	let sym = build_graph(
-		vec![Node::Terminate(TerminatorId::new(0))],
+		vec![Node::Terminate(TerminatorId::for_testing(0))],
 		vec![],
 		vec![],
 		vec![],
@@ -1488,7 +1497,7 @@ async fn execute_close_terminator_returns_closed_output() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -1539,13 +1548,13 @@ fn byte_tunnel_graph_with_notify(
 	let sym = build_graph(
 		vec![
 			Node::Fetch {
-				id: FetchId::new(0),
+				id: FetchId::for_testing(0),
 				next_response: None,
-				next_tunnel: Some(NodeId::new(1)),
+				next_tunnel: Some(NodeId::for_testing(1)),
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![],
@@ -1616,11 +1625,11 @@ async fn execute_byte_tunnel_terminates_with_cancelled_close_reason_on_ctx_cance
 			cancel: cancel_for_exec,
 			accept_cancel: CancellationToken::new(),
 			verbosity: FlowLogVerbosity::Trajectory,
-			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::new(0), 0),
+			trajectory: vane_core::TrajectoryBuilder::new(conn_for_exec.id, NodeId::for_testing(0), 0),
 		};
 		execute(
 			&graph_for_exec,
-			NodeId::new(0),
+			NodeId::for_testing(0),
 			ExecutorInput::L4(Box::new(l4)),
 			&conn_for_exec,
 			&mut ctx,
@@ -1676,22 +1685,22 @@ async fn execute_middleware_short_response_routes_through_synth_target() {
 	// off `meta.short_circuit_response_entry[entry]`. Result: the
 	// executor returns Ok(HttpResponse(r)) carrying the middleware's
 	// Response — same wire shape as a normal proxy hit.
-	let entry = NodeId::new(0);
-	let synth = NodeId::new(2);
+	let entry = NodeId::for_testing(0);
+	let synth = NodeId::for_testing(2);
 	let nodes = vec![
 		// Entry: the L7 middleware that emits Short(Response).
 		Node::Middleware {
-			id: MiddlewareId::new(0),
-			next: NodeId::new(1),
+			id: MiddlewareId::for_testing(0),
+			next: NodeId::for_testing(1),
 			on_error: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
 		// Unreachable on the Short(Response) path; included to keep the
 		// chain shape that a real `lower_rule` produces.
-		Node::Terminate(TerminatorId::new(0)),
+		Node::Terminate(TerminatorId::for_testing(0)),
 		// Synth Terminate(WriteHttpResponse) — the executor jumps here.
-		Node::Terminate(TerminatorId::new(1)),
+		Node::Terminate(TerminatorId::for_testing(1)),
 	];
 	let mut sym = build_graph(
 		nodes,
@@ -1737,16 +1746,16 @@ async fn execute_short_circuit_response_with_no_synth_target_errors() {
 	// rather than panicking. This is a regression guard — a future
 	// `lower` change that forgets to populate the map should fail
 	// loud at runtime, not silently mis-route.
-	let entry = NodeId::new(0);
+	let entry = NodeId::for_testing(0);
 	let nodes = vec![
 		Node::Middleware {
-			id: MiddlewareId::new(0),
-			next: NodeId::new(1),
+			id: MiddlewareId::for_testing(0),
+			next: NodeId::for_testing(1),
 			on_error: None,
 			collect_body_before: None,
 			body_limit: 0,
 		},
-		Node::Terminate(TerminatorId::new(0)),
+		Node::Terminate(TerminatorId::for_testing(0)),
 	];
 	// Note: NO `short_circuit_response_entry` insertion.
 	let sym = build_graph(
@@ -1880,13 +1889,13 @@ async fn execute_collect_request_stream_body_becomes_static() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: Some(vane_core::BodySide::Request),
 				body_limit: 8 * 1024 * 1024,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![SymbolicMiddlewareRef {
@@ -1918,7 +1927,8 @@ async fn execute_collect_request_stream_body_becomes_static() {
 		.body(stream_body(b"streamed-data"))
 		.expect("build req");
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
 	assert!(result.is_ok(), "stream collection must succeed: {result:?}");
 	assert_eq!(*captured.lock(), Some(true), "middleware must receive Body::Static after collection");
 }
@@ -1927,18 +1937,18 @@ async fn execute_collect_request_stream_body_becomes_static() {
 async fn execute_collect_request_body_over_limit_returns_413() {
 	// When the request body exceeds body_limit, the executor short-circuits
 	// to the synth WriteHttpResponse terminator with a 413 response.
-	let entry = NodeId::new(0);
-	let synth = NodeId::new(2);
+	let entry = NodeId::for_testing(0);
+	let synth = NodeId::for_testing(2);
 	let nodes = vec![
 		Node::Middleware {
-			id: MiddlewareId::new(0),
-			next: NodeId::new(1),
+			id: MiddlewareId::for_testing(0),
+			next: NodeId::for_testing(1),
 			on_error: None,
 			collect_body_before: Some(vane_core::BodySide::Request),
 			body_limit: 4, // tiny limit — "streamed-data" is 13 bytes
 		},
-		Node::Terminate(TerminatorId::new(0)),
-		Node::Terminate(TerminatorId::new(1)),
+		Node::Terminate(TerminatorId::for_testing(0)),
+		Node::Terminate(TerminatorId::for_testing(1)),
 	];
 	let mut sym = build_graph(
 		nodes,
@@ -1990,20 +2000,20 @@ async fn execute_collect_response_stream_body_becomes_static() {
 	let sym = build_graph(
 		vec![
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(1)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(1)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(2),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(2),
 				on_error: None,
 				collect_body_before: Some(vane_core::BodySide::Response),
 				body_limit: 8 * 1024 * 1024,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![SymbolicMiddlewareRef {
@@ -2039,7 +2049,7 @@ async fn execute_collect_response_stream_body_becomes_static() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -2060,20 +2070,20 @@ async fn execute_collect_response_body_over_limit_returns_err() {
 	let sym = build_graph(
 		vec![
 			Node::Fetch {
-				id: FetchId::new(0),
-				next_response: Some(NodeId::new(1)),
+				id: FetchId::for_testing(0),
+				next_response: Some(NodeId::for_testing(1)),
 				next_tunnel: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(2),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(2),
 				on_error: None,
 				collect_body_before: Some(vane_core::BodySide::Response),
 				body_limit: 4, // tiny limit
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![l7_resp_ref("never_runs_resp")],
@@ -2099,7 +2109,7 @@ async fn execute_collect_response_body_over_limit_returns_err() {
 
 	let result = run_execute(
 		&graph,
-		NodeId::new(0),
+		NodeId::for_testing(0),
 		ExecutorInput::L7(Box::new(empty_l7_request())),
 		&conn,
 		&sink,
@@ -2121,28 +2131,28 @@ fn body_routing_graph(pred: PredicateInst) -> Arc<SymbolicFlowGraph> {
 	build_graph(
 		vec![
 			Node::Check {
-				predicate: PredicateId::new(0),
-				on_match: NodeId::new(1),
-				on_miss: NodeId::new(3),
+				predicate: PredicateId::for_testing(0),
+				on_match: NodeId::for_testing(1),
+				on_miss: NodeId::for_testing(3),
 				collect_body_before: Some(vane_core::BodySide::Request),
 				body_limit: 8 * 1024 * 1024,
 			},
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(2),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(2),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 			Node::Middleware {
-				id: MiddlewareId::new(1),
-				next: NodeId::new(4),
+				id: MiddlewareId::for_testing(1),
+				next: NodeId::for_testing(4),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![pred],
 		vec![l7_req_ref("hit_match"), l7_req_ref("hit_miss")],
@@ -2175,7 +2185,9 @@ async fn run_body_routing(sym: Arc<SymbolicFlowGraph>, req: Request) -> (usize, 
 	let conn = make_conn("127.0.0.1:0");
 	let sink = Arc::new(NullSink::new());
 
-	let r = run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+	let r =
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
 	assert!(r.is_ok(), "execute must succeed: {r:?}");
 	(hit_match.load(Ordering::SeqCst), hit_miss.load(Ordering::SeqCst))
 }
@@ -2259,13 +2271,13 @@ async fn execute_no_http_body_predicate_body_not_materialized() {
 	let sym = build_graph(
 		vec![
 			Node::Middleware {
-				id: MiddlewareId::new(0),
-				next: NodeId::new(1),
+				id: MiddlewareId::for_testing(0),
+				next: NodeId::for_testing(1),
 				on_error: None,
 				collect_body_before: None,
 				body_limit: 0,
 			},
-			Node::Terminate(TerminatorId::new(0)),
+			Node::Terminate(TerminatorId::for_testing(0)),
 		],
 		vec![],
 		vec![SymbolicMiddlewareRef {
@@ -2298,7 +2310,8 @@ async fn execute_no_http_body_predicate_body_not_materialized() {
 		.body(stream_body(b"unread payload"))
 		.expect("build req");
 	let result =
-		run_execute(&graph, NodeId::new(0), ExecutorInput::L7(Box::new(req)), &conn, &sink).await;
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
 	assert!(result.is_ok(), "execute must succeed: {result:?}");
 	assert_eq!(
 		*captured.lock(),
