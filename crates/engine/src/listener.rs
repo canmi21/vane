@@ -853,6 +853,7 @@ async fn handle_connection(
 		entry,
 		conn: Arc::clone(&conn),
 		remote,
+		local_addr: local,
 		tls_cfg,
 	};
 
@@ -936,21 +937,44 @@ async fn dispatch_no_peek(stream: TcpStream, dctx: &ConnDispatchCtx, ctx: &mut F
 			run_tls(stream, Arc::clone(tls_cfg), &dctx.graph, dctx.entry, &dctx.conn, ctx, dctx.remote)
 				.await;
 		}
-		// `spec/crates/engine.md` § _Dispatch table_ literally rejects
-		// `Http+None` and warns that `Auto+needs_peek=false` is a
-		// derivation bug. Both branches collapse onto a permissive L4
-		// fallthrough here because the no-peek path can't tell L7
-		// cleartext (legitimate test fixture or misconfigured prod)
-		// apart from genuinely opaque bytes. The executor walks the
-		// graph from `entry`; legal L7 graphs hit `Node::Upgrade` and
-		// drive H1 directly on the cleartext stream. A debug log
-		// surfaces the misconfiguration without dropping traffic.
+		// `spec/crates/engine.md` § _Dispatch table_ L74 documents
+		// `Http+None` with no peek as the legitimate cleartext HTTP
+		// reverse-proxy path: the executor walks the L7 graph,
+		// `Node::Upgrade` lifts the stream to hyper's H1 driver, and
+		// non-HTTP bytes fail closed via hyper's parse error. That
+		// path is correct *only* when the source rule-set actually
+		// declared no TLS for this listener. If the spec ever
+		// disagrees with the built capability — e.g. a future code
+		// path makes `self.listener_tls` empty while
+		// `meta.listener_tls` still has an entry, an ACME edge case,
+		// or a refactor decouples the two — silently routing
+		// cleartext to the L7 graph would downgrade a TLS-only
+		// listener to plaintext.
+		//
+		// Detect that mismatch via the spec-side
+		// `graph.declares_tls(addr)` accessor (reads
+		// `meta.listener_tls`, the *intent*). If intent says TLS and
+		// capability is None, drop the connection with a warn rather
+		// than honour the L4 fallthrough. In steady state the link
+		// pass guarantees intent == capability for this address, so
+		// this branch is purely defensive.
 		(ListenerKind::Http | ListenerKind::Auto, None) => {
+			if dctx.graph.declares_tls(&dctx.local_addr) {
+				tracing::warn!(
+					conn_id = %dctx.conn.id,
+					remote = ?dctx.remote,
+					addr = %dctx.local_addr,
+					kind = ?dctx.kind,
+					"listener declares TLS but no ServerConfig was bound — \
+					 dropping connection rather than silently routing plaintext to the L7 graph",
+				);
+				return;
+			}
 			tracing::debug!(
 				conn_id = %dctx.conn.id,
 				remote = ?dctx.remote,
 				kind = ?dctx.kind,
-				"no-peek dispatch with no TLS config — handing to L4 subgraph",
+				"no-peek dispatch on cleartext listener — handing to L4 subgraph",
 			);
 			let result = execute(
 				&dctx.graph,
@@ -1011,7 +1035,29 @@ async fn dispatch_peeked(
 		// lives in the Auto+TLS-no-cert arm; `ctx.tls.sni` was
 		// pre-filled from the `ClientHello` peek so an `L4Forward`
 		// rule can pick the upstream by SNI without decrypting.
+		//
+		// Defensive intent / capability check mirroring
+		// `dispatch_no_peek`: if the listener's spec declared TLS
+		// (`graph.declares_tls(addr) == true`) but no `ServerConfig`
+		// is bound, the SNI-passthrough fallthrough would silently
+		// route the connection through the L4 graph — a downgrade
+		// from the operator's TLS intent. Reject instead, with a
+		// warn. In steady state the link pass keeps intent and
+		// capability in sync, so this is purely defensive against a
+		// future regression.
 		(ListenerKind::Raw | ListenerKind::Auto, _, _) => {
+			if matches!(dctx.kind, ListenerKind::Auto) && dctx.graph.declares_tls(&dctx.local_addr) {
+				tracing::warn!(
+					conn_id = %dctx.conn.id,
+					remote = ?dctx.remote,
+					addr = %dctx.local_addr,
+					kind = ?dctx.kind,
+					?detected,
+					"listener declares TLS but no ServerConfig was bound — \
+					 dropping connection rather than silently routing to the L4 subgraph",
+				);
+				return;
+			}
 			l4_subgraph(peeked, &dctx.graph, dctx.entry, &dctx.conn, ctx).await;
 		}
 	}

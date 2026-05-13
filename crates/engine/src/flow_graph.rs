@@ -161,6 +161,19 @@ impl FlowGraph {
 		self.listener_tls.get(addr)
 	}
 
+	/// Did the source rule-set declare a TLS block for the listener at
+	/// `addr`? Reads `meta.listener_tls` (the symbolic spec) rather
+	/// than `self.listener_tls` (the built `ServerConfig`s). In steady
+	/// state the two always agree — `FlowGraph::link` fails fast if a
+	/// listener with a declared TLS spec cannot be built — but the
+	/// accessor lets the listener dispatch path enforce the
+	/// intent / capability invariant defensively without trusting a
+	/// future refactor not to decouple them.
+	#[must_use]
+	pub fn declares_tls(&self, addr: &SocketAddr) -> bool {
+		self.meta.listener_tls.contains_key(addr)
+	}
+
 	/// Lower-derived dispatch posture for `addr`. Falls back to
 	/// `ListenerKind::Http` when the address is missing — defensive
 	/// only, the lower pass guarantees every entry address has an
@@ -1261,6 +1274,55 @@ mod tests {
 			let mws = vec![mw_ref("rate_limit", MiddlewareKind::L7Request)];
 			let g = flow_from(nodes, mws);
 			assert!(!g.needs_peek(NodeId::for_testing(0)));
+		}
+
+		#[test]
+		fn declares_tls_reads_spec_side_listener_tls_map() {
+			// Build a FlowGraph by hand where `meta.listener_tls` and
+			// `self.listener_tls` disagree — `link` enforces parity, but
+			// `declares_tls` must answer "what did the spec ask for"
+			// rather than "what did the link pass build". This is the
+			// invariant the listener dispatch leans on to reject
+			// silently-downgraded connections when the two diverge in a
+			// future refactor.
+			use std::net::SocketAddr;
+			use vane_core::rule::{ClientAuthSpec, ListenerTlsSpec};
+			let addr: SocketAddr = "127.0.0.1:443".parse().expect("addr");
+			let mut meta = dummy_meta();
+			meta.listener_tls.insert(
+				addr,
+				ListenerTlsSpec {
+					default: None,
+					sni_certs: BTreeMap::new(),
+					managed_snis: BTreeMap::new(),
+					client_auth: ClientAuthSpec::default(),
+					enable_zero_rtt: false,
+				},
+			);
+			let sym = SymbolicFlowGraph {
+				nodes: vec![Node::Terminate(TerminatorId::for_testing(0))],
+				predicates: Vec::new(),
+				middlewares: Vec::new(),
+				fetches: Vec::new(),
+				terminators: vec![Terminator::Close],
+				entries: HashMap::new(),
+				meta: meta.clone(),
+			};
+			let g = FlowGraph {
+				symbolic: Arc::new(sym),
+				middlewares: Vec::new(),
+				fetches: Vec::new(),
+				meta,
+				// Capability map left empty on purpose — this is the
+				// inconsistent state the defensive check guards against.
+				listener_tls: BTreeMap::new(),
+				listener_populators: BTreeMap::new(),
+				security_cfg: Arc::new(SecurityConfig::default()),
+			};
+			assert!(g.declares_tls(&addr), "spec declared TLS, accessor must see it");
+			assert!(g.listener_tls(&addr).is_none(), "capability map empty in this fixture");
+			let other: SocketAddr = "127.0.0.1:80".parse().expect("addr");
+			assert!(!g.declares_tls(&other), "address not in spec must report false");
 		}
 	}
 

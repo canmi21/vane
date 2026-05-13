@@ -74,5 +74,9 @@ pub(crate) struct ConnDispatchCtx {
 	pub entry: NodeId,
 	pub conn: Arc<ConnContext>,
 	pub remote: SocketAddr,
+	/// Listener bind address — same as `AcceptCtx.addr`, copied here so
+	/// dispatch can query `FlowGraph` accessors keyed by listener
+	/// address (e.g. `declares_tls`) without re-deriving from `conn`.
+	pub local_addr: SocketAddr,
 	pub tls_cfg: Option<Arc<rustls::ServerConfig>>,
 }
