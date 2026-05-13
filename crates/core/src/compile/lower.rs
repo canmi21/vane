@@ -98,6 +98,19 @@ pub fn lower(
 	// future check insertions) could in principle re-converge paths
 	// that each marked their own reader; enforce the invariant
 	// explicitly so any such regression fails compile loud.
+	//
+	// `lower_rule` independently sets `collect_body_before` from three
+	// mechanisms (predicate on `http.body`, retry `buffering=force`
+	// fetch, and `mark_first_body_reader_dfs` over needs-body
+	// middlewares). When two or more fire on the same rule, the same
+	// path ends up with multiple body-collection nodes — the body is
+	// only collected once at runtime, but the validator's structural
+	// "≤ 1 collector per side per path" rule would reject the rule.
+	// Dedupe to "first collector wins" so the executor still gets the
+	// right body-buffering point and the validator stays happy. The
+	// validator runs after the dedupe pass as a defense-in-depth check
+	// against any future code path that re-creates the violation.
+	dedupe_body_collect_per_path(&mut builder.nodes, &builder.entries);
 	validate_unique_body_reader_per_path(&builder.nodes, &builder.entries)?;
 
 	Ok(SymbolicFlowGraph {
@@ -2047,6 +2060,125 @@ fn value_to_bytes(
 			path.display_name(),
 			value_kind(v),
 		))),
+	}
+}
+
+/// Clear `collect_body_before` on any node whose *every* reaching
+/// path from a listener entry already had an earlier collector on
+/// the same side.
+///
+/// Motivation: `lower_rule` sets `collect_body_before` from three
+/// independent sites — a `Check` on `FieldPath::HttpBody`, a `Fetch`
+/// node when its `retry.buffering == "force"` requires a request
+/// snapshot, and the DFS-based `mark_first_body_reader_dfs` over
+/// needs-body middlewares. When two or more of those mechanisms
+/// fire on the same rule, every node they flagged is on the same
+/// linear path and the downstream nodes' flags are runtime no-ops
+/// (the executor's `collect_body` short-circuits on `Body::Static`).
+/// Without this dedupe, `validate_unique_body_reader_per_path`
+/// would reject the rule for a structural violation that has no
+/// runtime consequence.
+///
+/// Per-path safety: a node is cleared only when *every* path that
+/// reaches it from a listener entry has an earlier collector on the
+/// same side. Diamonds where one branch supplies an earlier
+/// collector and another does not leave the convergence node's
+/// flag alone — clearing would underspecify the body-less branch.
+/// In the worst case the dedupe is a no-op and the validator below
+/// fires; in the common (linear-rule) case the dedupe clears the
+/// redundant flags cleanly.
+///
+/// Implementation: forward DAG walk per entry, visiting `(node,
+/// seen_req, seen_resp)` tuples (visited cap `O(nodes * 4)`). For
+/// each `(node, side)` the walk records whether the node was ever
+/// reached with `seen[side] = false`; only nodes never reached
+/// "unseen" on a side are eligible to have that side's flag
+/// cleared.
+fn dedupe_body_collect_per_path(
+	nodes: &mut [Node],
+	entries: &std::collections::HashMap<SocketAddr, NodeId>,
+) {
+	use std::collections::{HashMap, HashSet};
+
+	// `keep[(node_id, side)] = true` once `node` is reached on any path
+	// with that side's `seen` flag still false. Such a node must keep
+	// its flag (clearing would leave that path without a collector).
+	// Absent entry = node was never visited on that side; conservative
+	// default at clear-time is "do nothing".
+	let mut keep: HashMap<(u32, BodySide), bool> = HashMap::new();
+	let mut visited: HashSet<(u32, bool, bool)> = HashSet::new();
+	let mut stack: Vec<(NodeId, bool, bool)> = entries.values().map(|&n| (n, false, false)).collect();
+
+	while let Some((cur, seen_req, seen_resp)) = stack.pop() {
+		if !visited.insert((cur.get(), seen_req, seen_resp)) {
+			continue;
+		}
+		let idx = cur.get() as usize;
+		if seen_req {
+			keep.entry((cur.get(), BodySide::Request)).or_insert(false);
+		} else {
+			keep.insert((cur.get(), BodySide::Request), true);
+		}
+		if seen_resp {
+			keep.entry((cur.get(), BodySide::Response)).or_insert(false);
+		} else {
+			keep.insert((cur.get(), BodySide::Response), true);
+		}
+
+		// Compute the `(seen_req, seen_resp)` state to propagate to
+		// successors: the current node's `collect_body_before` flag
+		// (if any) flips the matching side from false → true.
+		let collect_side = match &nodes[idx] {
+			Node::Check { collect_body_before, .. }
+			| Node::Middleware { collect_body_before, .. }
+			| Node::Fetch { collect_body_before, .. } => *collect_body_before,
+			Node::Upgrade { .. } | Node::Terminate(_) => None,
+		};
+		let next_req = seen_req || matches!(collect_side, Some(BodySide::Request));
+		let next_resp = seen_resp || matches!(collect_side, Some(BodySide::Response));
+
+		match &nodes[idx] {
+			Node::Middleware { next, on_error, .. } => {
+				stack.push((*next, next_req, next_resp));
+				if let Some(e) = on_error {
+					stack.push((*e, next_req, next_resp));
+				}
+			}
+			Node::Check { on_match, on_miss, .. } => {
+				stack.push((*on_match, next_req, next_resp));
+				stack.push((*on_miss, next_req, next_resp));
+			}
+			Node::Fetch { next_response, next_tunnel, .. } => {
+				if let Some(n) = next_response {
+					stack.push((*n, next_req, next_resp));
+				}
+				if let Some(t) = next_tunnel {
+					stack.push((*t, next_req, next_resp));
+				}
+			}
+			Node::Upgrade { next } => stack.push((*next, next_req, next_resp)),
+			Node::Terminate(_) => {}
+		}
+	}
+
+	// Second pass: clear flags on nodes the walk proved redundant.
+	for (idx, node) in nodes.iter_mut().enumerate() {
+		let id = u32::try_from(idx).expect("node id fits u32");
+		let flag = match node {
+			Node::Check { collect_body_before, .. }
+			| Node::Middleware { collect_body_before, .. }
+			| Node::Fetch { collect_body_before, .. } => collect_body_before,
+			Node::Upgrade { .. } | Node::Terminate(_) => continue,
+		};
+		let Some(side) = *flag else { continue };
+		// "Must keep" = at least one path reached the node without a
+		// prior collector on `side`. We clear iff the node was visited
+		// AND every visit had `seen[side] = true`.
+		let must_keep = matches!(keep.get(&(id, side)), Some(true));
+		let visited_on_side = keep.contains_key(&(id, side));
+		if visited_on_side && !must_keep {
+			*flag = None;
+		}
 	}
 }
 
