@@ -166,6 +166,16 @@ impl L7Fetch for HttpProxyFetch {
 			.build()
 			.map_err(|e| Error::protocol("upstream uri rewrite").with_source(e))?;
 
+		// Strip hop-by-hop headers (RFC 7230 §6.1) before any retry
+		// snapshot of the request. `HttpProxyFetch` does not handle
+		// WebSocket upgrades — that path is owned by
+		// `WebSocketUpgradeFetch`. Even so, the strip is WS-aware so
+		// future fetch flavours that share this helper inherit the
+		// correct posture; for the present caller, no `Upgrade:
+		// websocket` will be present and the exception is a no-op.
+		// See `fetch/hop_by_hop.rs`.
+		crate::fetch::hop_by_hop::strip_hop_by_hop_request(req.headers_mut());
+
 		// Snapshot the request body for replay. `Body::Stream` is
 		// one-shot — it collapses retry to a single attempt
 		// regardless of `max_attempts`. `Body::Static` clones via
@@ -240,7 +250,16 @@ impl L7Fetch for HttpProxyFetch {
 			// client unchanged via the response pass-through below.
 			match client.request(req_attempt).await {
 				Ok(resp) => {
-					let (parts, incoming) = resp.into_parts();
+					let (mut parts, incoming) = resp.into_parts();
+					// Strip upstream's hop-by-hop headers before
+					// handing the response to the client. The 101
+					// switching-protocols exception is gated on
+					// status; `HttpProxyFetch` never produces a 101
+					// (upgrades go through `WebSocketUpgradeFetch`),
+					// but we evaluate the predicate honestly so the
+					// future plumbing matches.
+					let is_101 = parts.status == http::StatusCode::SWITCHING_PROTOCOLS;
+					crate::fetch::hop_by_hop::strip_hop_by_hop_response(&mut parts.headers, is_101);
 					let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
 					return Ok(L7FetchOutput::Response(http::Response::from_parts(parts, body)));
 				}
@@ -297,7 +316,12 @@ impl HttpProxyFetch {
 		})?;
 		metrics::histogram!("vane.upstream.connect.duration_ms", "kind" => "http_proxy")
 			.record(start.elapsed().as_secs_f64() * 1000.0);
-		let (parts, incoming) = resp.into_parts();
+		let (mut parts, incoming) = resp.into_parts();
+		// Strip upstream hop-by-hop before relaying. See the retry
+		// loop above for the rationale; this is the single-attempt
+		// twin.
+		let is_101 = parts.status == http::StatusCode::SWITCHING_PROTOCOLS;
+		crate::fetch::hop_by_hop::strip_hop_by_hop_response(&mut parts.headers, is_101);
 		// spec/crates/engine.md `spec/crates/engine.md` § _Concrete fetches_: never collect into `Body::Static`.
 		let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(parts, body)))
@@ -488,6 +512,13 @@ impl HttpProxyFetch {
 		// downstream encoder accepts it.
 		let (mut resp_parts, _empty) = resp_head.into_parts();
 		resp_parts.version = http::Version::HTTP_11;
+		// H3 responses carry their own hop-by-hop set: even though
+		// QUIC subsumes Transfer-Encoding etc. on the wire, an
+		// upstream may still emit `Connection: x-leak` if it is a
+		// non-conforming gateway. Treat the H3 path identically to
+		// the H1/H2 paths.
+		let is_101 = resp_parts.status == http::StatusCode::SWITCHING_PROTOCOLS;
+		crate::fetch::hop_by_hop::strip_hop_by_hop_response(&mut resp_parts.headers, is_101);
 		let body = Body::from_producer(h3_body::H3Body::new(h3_body::ClientStreamSource::new(stream)));
 		Ok(L7FetchOutput::Response(http::Response::from_parts(resp_parts, body)))
 	}

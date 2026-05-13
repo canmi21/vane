@@ -9,6 +9,7 @@ pub mod acme_challenge;
 pub mod cgi;
 pub mod client_cache;
 pub mod dns;
+pub mod hop_by_hop;
 pub mod http_proxy;
 pub mod http_synthesize;
 pub mod l4_forward;

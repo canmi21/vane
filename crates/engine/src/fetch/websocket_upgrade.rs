@@ -98,6 +98,17 @@ impl L7Fetch for WebSocketUpgradeFetch {
 		*req.uri_mut() =
 			new_uri.parse().map_err(|e| Error::protocol("ws upstream uri rewrite").with_source(e))?;
 
+		// Sanitise hop-by-hop headers in the request. The WS path
+		// has the special RFC 6455 §1.3 exception: `Upgrade:
+		// websocket` and a `Connection: upgrade` containing the
+		// `upgrade` token must survive. `strip_hop_by_hop_request`
+		// detects the handshake shape and rewrites `Connection:` to
+		// the single canonical `upgrade` token, defeating any
+		// `Connection: upgrade, x-evil` smuggling. The
+		// `Sec-WebSocket-*` family is not in the hop-by-hop set so
+		// it passes through untouched.
+		crate::fetch::hop_by_hop::strip_hop_by_hop_request(req.headers_mut());
+
 		// One-shot H1 dial via the shared upstream helper — supports
 		// both cleartext WS and WSS depending on `self.tls`. The
 		// pooled `hyper_util::Client` is unsuitable here regardless of
@@ -136,7 +147,10 @@ impl L7Fetch for WebSocketUpgradeFetch {
 			// Upstream declined the upgrade — forward the body verbatim
 			// like a normal H1 response. No upgrade handle to stash;
 			// the executor's WriteHttpResponse path takes it from here.
-			let (parts, incoming) = upstream_resp.into_parts();
+			// Treat as a non-upgrade response: full hop-by-hop strip,
+			// no WS exception (the handshake did not complete).
+			let (mut parts, incoming) = upstream_resp.into_parts();
+			crate::fetch::hop_by_hop::strip_hop_by_hop_response(&mut parts.headers, false);
 			let body = Body::Stream(Box::pin(IncomingAdapter::new(incoming)));
 			return Ok(L7FetchOutput::Response(Response::from_parts(parts, body)));
 		}
@@ -158,11 +172,16 @@ impl L7Fetch for WebSocketUpgradeFetch {
 		let upstream_io: Box<dyn AsyncReadWrite + Send> = Box::new(TokioIo::new(upgraded));
 		conn.user.lock().insert(StashedUpstreamUpgrade::new(upstream_io));
 
-		// Return upstream's 101 line + headers verbatim, but with an
-		// empty body — RFC 6455 forbids body bytes on a 101, and any
-		// post-status bytes on the upstream socket are now post-upgrade
-		// data we must not let hyper interpret.
-		let (parts, _body) = upstream_resp.into_parts();
+		// Return upstream's 101 line + headers, but with an empty
+		// body — RFC 6455 forbids body bytes on a 101, and any
+		// post-status bytes on the upstream socket are now
+		// post-upgrade data we must not let hyper interpret. Hop-by-hop
+		// strip runs with the 101 exception so `Connection: upgrade`
+		// and `Upgrade: websocket` survive (canonicalised to a
+		// single `upgrade` token); any sibling header the upstream
+		// listed under `Connection:` is removed.
+		let (mut parts, _body) = upstream_resp.into_parts();
+		crate::fetch::hop_by_hop::strip_hop_by_hop_response(&mut parts.headers, true);
 		let resp_for_client = Response::from_parts(parts, Body::Empty);
 		Ok(L7FetchOutput::Response(resp_for_client))
 	}

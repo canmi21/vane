@@ -280,6 +280,19 @@ LazyBuffer firing on a side degrades that side to buffered. The other side remai
 
 H1 egress framing: `Body::Stream(_)` → `Transfer-Encoding: chunked` (strips any `Content-Length`). `Body::Static(_)` → `Content-Length`. `Body::Empty` → no body, no framing header. The encoder owns this; middleware never does.
 
+### Hop-by-hop sanitisation
+
+Per RFC 7230 §6.1 / RFC 9110 §7.6.1, hop-by-hop headers describe the single TCP/TLS hop between two HTTP peers and a proxy must not propagate them. `HttpProxyFetch` and `WebSocketUpgradeFetch` apply `fetch::hop_by_hop::strip_hop_by_hop_{request,response}` to both directions. Two strip sources:
+
+- **Static set**: `Keep-Alive`, `Proxy-Authenticate`, `Proxy-Authorization`, `Proxy-Connection`, `TE`, `Trailer`, `Transfer-Encoding`. Always removed.
+- **Dynamic set**: every token in `Connection:` that names a header (i.e. not a connection-option). Mitigates `Connection: x-secret` smuggling.
+
+`Connection:` itself is rewritten to retain only the connection-option tokens (`close` / `keep-alive` / `upgrade`) so hyper's H1 framing layer continues to act on `Connection: close`. `Upgrade:` is stripped unless paired with `Connection: upgrade`.
+
+WebSocket exception (RFC 6455 §1.3 / §11.3): when the request shape matches `Upgrade: websocket` + a `Connection:` containing `upgrade`, `Upgrade:` and the `Sec-WebSocket-*` family survive; `Connection:` is canonicalised to exactly one `upgrade` token to defeat `Connection: upgrade, x-evil` smuggling. The response-side exception fires on `101 Switching Protocols`.
+
+Source: `crates/engine/src/fetch/hop_by_hop.rs`.
+
 ## Middleware
 
 Built-ins live in `middleware/`. Each is a `struct` implementing one of the four traits from [`core.md`](core.md):
