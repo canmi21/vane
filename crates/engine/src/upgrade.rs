@@ -156,11 +156,20 @@ where
 			let vane_req: Request =
 				req.map(|incoming| Body::Stream(Box::pin(IncomingAdapter::new(incoming))));
 
+			// URI path is intentionally absent from this INFO span:
+			// path commonly carries tokens (verify / reset / OAuth
+			// state), user / tenant / order IDs, and other PII that
+			// `tracing-broadcast` would fan into the `tail_log`
+			// mgmt stream where every operator with mgmt access can
+			// read it. The flow log already captures full URI on
+			// per-rule opt-in (`spec/flow-model.md`
+			// § _Flow log verbosity_), so debugging by path goes
+			// through that channel instead. Mirrors the H2 / H3
+			// spans further down.
 			let span = tracing::info_span!(
 				"request",
 				conn = %conn.id,
 				method = %vane_req.method(),
-				path = %vane_req.uri().path(),
 			);
 
 			// Keep a separate clone for the post-101 WS-tunnel spawn
@@ -447,12 +456,13 @@ where
 				let vane_req: Request =
 					req.map(|incoming| Body::Stream(Box::pin(IncomingAdapter::new(incoming))));
 
+				// `path` intentionally absent — see the H1 driver's
+				// span comment above for the PII rationale.
 				let span = tracing::info_span!(
 					"request",
 					conn = %conn.id,
 					version = "h2",
 					method = %vane_req.method(),
-					path = %vane_req.uri().path(),
 				);
 
 				let mut ctx = FlowCtx {
@@ -737,11 +747,12 @@ async fn handle_h3_request(
 		Body::from_producer(h3_body::H3Body::new(h3_body::ServerStreamSource::new(recv_stream)));
 	let vane_req: Request = http::Request::from_parts(parts, body);
 
+	// `path` intentionally absent — see the H1 driver's span comment
+	// above for the PII rationale.
 	let span = tracing::info_span!(
 		"request",
 		conn = %conn.id,
 		method = %vane_req.method(),
-		path = %vane_req.uri().path(),
 	);
 	let mut ctx = FlowCtx {
 		span,
