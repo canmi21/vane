@@ -265,7 +265,11 @@ pub async fn execute(
 									CloseReason::PolicyDenied(s) => s.clone(),
 									CloseReason::Graceful => std::borrow::Cow::Borrowed("graceful"),
 									CloseReason::Cancelled => std::borrow::Cow::Borrowed("cancelled"),
-									CloseReason::ProtocolError(_) => unreachable!(),
+									// `ProtocolError` is filtered out by the outer match arm.
+									// `CloseReason` is `#[non_exhaustive]` — fall through with a
+									// generic label so a new variant doesn't take down the
+									// flow_log emit path with a panic.
+									_ => std::borrow::Cow::Borrowed("unknown"),
 								};
 								ctx.log.emit(FlowLogEvent {
 									t: now_ms(),
@@ -294,7 +298,23 @@ pub async fn execute(
 								let e = Error::middleware(format!("short-close: {reason:?}"));
 								return finish_error(ctx, conn, &mut seq, cur, e);
 							}
+							// `CloseReason` is `#[non_exhaustive]`; future
+							// variants surface as a typed internal error so a
+							// new close shape doesn't silently take the
+							// PolicyDenied path.
+							_ => {
+								let e = Error::internal("unhandled CloseReason variant in short-close");
+								return finish_error(ctx, conn, &mut seq, cur, e);
+							}
 						}
+					}
+					// `Decision` / `ShortCircuit` are `#[non_exhaustive]`.
+					// Future verdicts (suspend / replay / etc.) surface as a
+					// typed internal error so they cannot silently fall
+					// through to a default path.
+					Ok(_) => {
+						let e = Error::internal("unhandled Decision variant from middleware");
+						return finish_error(ctx, conn, &mut seq, cur, e);
 					}
 					Err(e) => {
 						emit_error_event(ctx, cur, &mut seq, conn, &e);

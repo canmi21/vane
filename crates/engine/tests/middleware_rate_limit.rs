@@ -118,6 +118,7 @@ async fn rate_limit_allows_under_burst() {
 		match try_call(&*mw, &conn).await {
 			Decision::Continue => {}
 			Decision::Short(_) => panic!("call #{i} unexpectedly short-circuited"),
+			_ => panic!("call #{i} unexpected decision: <non-exhaustive Decision variant>"),
 		}
 	}
 }

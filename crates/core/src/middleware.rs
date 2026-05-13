@@ -58,17 +58,31 @@ pub trait L7ResponseMiddleware: Send + Sync {
 	}
 }
 
+/// Middleware verdict. `#[non_exhaustive]` so future verdicts (e.g.
+/// a future suspend/replay shape) can land in vane-core without a
+/// downstream-breaking match.
+#[non_exhaustive]
 pub enum Decision {
 	Continue,
 	Short(ShortCircuit),
 }
 
+/// Short-circuit branch for [`Decision::Short`]. `#[non_exhaustive]`
+/// keeps the engine's switch resilient to new short-circuit shapes
+/// (synthetic 1xx interim responses, in-flow rewrites) being added
+/// without forcing every consumer to recompile.
+#[non_exhaustive]
 pub enum ShortCircuit {
 	Response(Response),
 	Close(CloseReason),
 }
 
+/// Reason a connection closed. `#[non_exhaustive]` so new operator-
+/// visible reasons (e.g. quota-hit, rate-limit-trip) can be added
+/// without breaking downstream observers that pattern-match on the
+/// enum.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum CloseReason {
 	Graceful,
 	PolicyDenied(std::borrow::Cow<'static, str>),
