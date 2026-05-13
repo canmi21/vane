@@ -82,7 +82,11 @@ pin_project! {
 	/// safe `project()` so the inner producer is stored by value and
 	/// projected without an `unsafe` block (the prior shape stored it
 	/// behind a `Pin<Box<B>>` purely to dodge `unsafe`).
-	pub struct BodyStreamAdapter<B> {
+	///
+	/// Implementation detail of [`Body::from_producer`]; not part of
+	/// the public API surface. Construct via `Body::from_producer`
+	/// instead.
+	pub(crate) struct BodyStreamAdapter<B> {
 		#[pin]
 		inner: B,
 	}
