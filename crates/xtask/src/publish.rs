@@ -18,6 +18,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -120,26 +122,70 @@ fn compute_plan(only: Option<&str>) -> Result<Vec<PlanRow>> {
 
 	let candidates: Vec<&String> =
 		order.iter().filter(|n| only.is_none_or(|f| f == n.as_str())).collect();
+	let total = candidates.len();
 	eprintln!(
-		"xtask publish: querying sparse index for {} workspace crate{}...",
-		candidates.len(),
-		if candidates.len() == 1 { "" } else { "s" },
+		"xtask publish: querying sparse index for {total} workspace crate{}...",
+		if total == 1 { "" } else { "s" },
 	);
+
+	// Sparse-index queries are the dominant wall time of `xtask publish
+	// plan`. Each lookup is a small TLS GET that spends almost all of
+	// its time blocked on network round-trips, so fanning them out
+	// across scoped threads cuts the precondition step from
+	// O(N × latency) to ~O(latency). The sparse index is a high-
+	// throughput CloudFlare-backed CDN; ~30 concurrent GETs is well
+	// inside its budget and matches what `cargo` itself does on a
+	// `cargo update`.
+	//
+	// Progress lines remain serialised through `stderr_lock` so they
+	// don't tear, but appear in completion order (each line names
+	// the crate so the order is unambiguous). The completion counter
+	// is monotonic; the per-row results land back in the original
+	// topo order via the indexed `results` slot.
+	let results: Vec<Mutex<Option<Result<Action>>>> = (0..total).map(|_| Mutex::new(None)).collect();
+	let counter = AtomicUsize::new(0);
+	let stderr_lock = Mutex::new(());
+	thread::scope(|s| {
+		for (i, name) in candidates.iter().enumerate() {
+			let pkg = publishable[name.as_str()];
+			let version = pkg.version.to_string();
+			let name = (*name).clone();
+			let results = &results;
+			let counter = &counter;
+			let stderr_lock = &stderr_lock;
+			s.spawn(move || {
+				let outcome = version_published(&name, &version)
+					.map(|seen| if seen { Action::Skip } else { Action::Publish });
+				let done = counter.fetch_add(1, Ordering::SeqCst) + 1;
+				let _stderr = stderr_lock.lock();
+				match &outcome {
+					Ok(Action::Skip) => {
+						eprintln!("  [check] [{done}/{total}] {name} {version} → on-registry");
+					}
+					Ok(Action::Publish) => {
+						eprintln!("  [check] [{done}/{total}] {name} {version} → needs-publish");
+					}
+					Err(e) => {
+						eprintln!("  [check] [{done}/{total}] {name} {version} → error: {e:#}");
+					}
+				}
+				*results[i].lock().expect("results slot poisoned") = Some(outcome);
+			});
+		}
+	});
 
 	let mut plan = Vec::new();
 	for (i, name) in candidates.iter().enumerate() {
 		let pkg = publishable[name.as_str()];
-		let version = pkg.version.to_string();
-		let action = if version_published(name, &version)? { Action::Skip } else { Action::Publish };
-		let tag = match action {
-			Action::Skip => "on-registry",
-			Action::Publish => "needs-publish",
-		};
-		eprintln!("  [check] [{}/{}] {name} {version} → {tag}", i + 1, candidates.len());
+		let action = results[i]
+			.lock()
+			.expect("results slot poisoned")
+			.take()
+			.expect("scoped thread always sets its slot before scope exits")?;
 		plan.push(PlanRow {
 			action,
 			name: (*name).clone(),
-			version,
+			version: pkg.version.to_string(),
 			manifest: pkg.manifest_path.clone().into_std_path_buf(),
 			deps: deps[name.as_str()].clone(),
 		});
