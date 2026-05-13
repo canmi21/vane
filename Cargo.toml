@@ -37,7 +37,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.7"
+version = "0.10.8"
 authors = ["Canmi <t@canmi.icu>"]
 edition = "2024"
 homepage = "https://vane.canmi.app"
@@ -95,20 +95,20 @@ tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.2" }
 virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }
 
 # crates/* — vane product crates.
-vane-banner = { path = "crates/banner", version = "0.10.7" }
-vane-core = { path = "crates/core", version = "0.10.7" }
+vane-banner = { path = "crates/banner", version = "0.10.8" }
+vane-core = { path = "crates/core", version = "0.10.8" }
 # `default-features = false` at workspace level so consumers (daemon,
 # testutil) get a neutral starting point and must opt into the crypto
 # backend (`aws-lc-rs` / `ring`) and stack features (`h3`, `cgi`,
 # `acme`, …) explicitly via their own feature tables. Cargo requires
 # the workspace declaration to specify default-features for downstream
 # crates to be allowed to override it.
-vane-engine = { path = "crates/engine", version = "0.10.7", default-features = false }
-vane-mgmt = { path = "crates/mgmt", version = "0.10.7" }
+vane-engine = { path = "crates/engine", version = "0.10.8", default-features = false }
+vane-mgmt = { path = "crates/mgmt", version = "0.10.8" }
 # Path-only (no `version =`) so `cargo publish` strips it from sibling crates'
 # published manifests entirely — testutil is `publish = false`.
 vane-testutil = { path = "crates/testutil" }
-vane-wasm = { path = "crates/wasm", version = "0.10.7" }
+vane-wasm = { path = "crates/wasm", version = "0.10.8" }
 
 [profile.release]
 opt-level = "z"
