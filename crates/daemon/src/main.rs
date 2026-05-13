@@ -142,8 +142,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	// Install the drop counter on the tracing broadcast layer so an
 	// operator running `vane stats` can see how many tracing frames
 	// have been emitted while no `tail_log` subscriber was attached.
+	//
+	// `VANE_TRACE_BROADCAST_CAP` env var override lives on the daemon
+	// side rather than inside `tracing-broadcast` itself — the
+	// library is project-agnostic; bringing `VANE_*` names into its
+	// public surface (constants, doc comments) leaked vane's naming
+	// convention onto every downstream of the crate. The daemon now
+	// owns the env-var contract; the lib accepts a plain `usize`.
+	let trace_broadcast_cap = std::env::var("VANE_TRACE_BROADCAST_CAP")
+		.ok()
+		.and_then(|s| s.parse::<usize>().ok())
+		.filter(|&n| n > 0)
+		.unwrap_or(tracing_broadcast::DEFAULT_BROADCAST_CAP);
 	let tracing_broadcast = BroadcastTracingLayer::with_capacity_and_drop_hook(
-		tracing_broadcast::DEFAULT_BROADCAST_CAP,
+		trace_broadcast_cap,
 		std::sync::Arc::new(|| {
 			metrics::counter!("vane.trace.broadcast_dropped", "reason" => "no_subscribers").increment(1);
 		}),

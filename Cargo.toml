@@ -91,7 +91,7 @@ rustls-pem-roots = { path = "crates/lib/rustls-pem-roots", version = "0.0.1" }
 rustls-sni-resolver = { path = "crates/lib/rustls-sni-resolver", version = "0.0.1" }
 rustls-ticketer = { path = "crates/lib/rustls-ticketer", version = "0.0.2", default-features = false }
 tokio-bind-retry = { path = "crates/lib/tokio-bind-retry", version = "0.0.2" }
-tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.2" }
+tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.3" }
 virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }
 
 # crates/* — vane product crates.

@@ -24,29 +24,14 @@ use tracing::{Event, Subscriber};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 
-/// Default broadcast channel capacity for tracing frames. Tracing
-/// events are lower-volume than flow logs (one per log line vs one
-/// per per-step trajectory), so the channel is sized smaller —
-/// `spec/flow-model.md` § _Flow log verbosity_ owns the per-stream
-/// sizing rationale. Override via `VANE_TRACE_BROADCAST_CAP`.
+/// Default broadcast channel capacity for tracing frames. Sized
+/// smaller than a typical flow-log channel since structured tracing
+/// events are lower-volume than per-step flow traces.
 ///
 /// A subscriber that falls more than `capacity` events behind sees
 /// [`broadcast::error::RecvError::Lagged`] and resumes from the next
-/// available event.
+/// available event. Override via [`BroadcastTracingLayer::with_capacity`].
 pub const DEFAULT_BROADCAST_CAP: usize = 1024;
-
-/// Env var that overrides [`DEFAULT_BROADCAST_CAP`] at construction
-/// time. Values that fail to parse or evaluate to 0 fall back to the
-/// default — same shape as the rest of the daemon's `VANE_*` knobs.
-pub const ENV_BROADCAST_CAP: &str = "VANE_TRACE_BROADCAST_CAP";
-
-fn resolve_broadcast_cap() -> usize {
-	std::env::var(ENV_BROADCAST_CAP)
-		.ok()
-		.and_then(|s| s.parse::<usize>().ok())
-		.filter(|&n| n > 0)
-		.unwrap_or(DEFAULT_BROADCAST_CAP)
-}
 
 /// Wire shape for a single tracing event.
 ///
@@ -88,15 +73,17 @@ pub struct BroadcastTracingLayer {
 }
 
 impl BroadcastTracingLayer {
+	/// Construct with [`DEFAULT_BROADCAST_CAP`]. Callers that want a
+	/// different capacity (e.g. driven by an env var or runtime
+	/// config) go through [`Self::with_capacity`] — env-var resolution
+	/// is intentionally out of scope for this crate so downstream
+	/// projects can pick their own naming convention.
 	#[must_use]
 	pub fn new() -> Self {
-		Self::with_capacity(resolve_broadcast_cap())
+		Self::with_capacity(DEFAULT_BROADCAST_CAP)
 	}
 
-	/// Explicit-capacity constructor for tests and bespoke wiring. The
-	/// `new` / `Default` path resolves capacity from
-	/// `VANE_TRACE_BROADCAST_CAP`, falling back to
-	/// [`DEFAULT_BROADCAST_CAP`].
+	/// Explicit-capacity constructor.
 	#[must_use]
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self::with_capacity_and_drop_hook(capacity, std::sync::Arc::new(|| {}))
