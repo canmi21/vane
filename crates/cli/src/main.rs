@@ -15,7 +15,8 @@ use std::time::Duration;
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{ArgGroup, Parser, Subcommand};
 use owo_colors::{OwoColorize, Stream, Style};
-use vane_core::version::{BuildInfo, print_banner};
+use vane_banner::print_banner;
+use vane_core::version::BuildInfo;
 use vane_mgmt::verb::{
 	CgiPoolEntry, CompileDryRunArgs, CompileDryRunResult, ConnectionInfo, ForceRenewArgs,
 	ForceRenewResult, GetCertsResult, GetConfigResult, GetConnectionsResult, GetMetricsArgs,

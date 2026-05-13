@@ -53,6 +53,7 @@ tokio-util = "0.7"
 tracing = "0.1"
 tracing-broadcast = { workspace = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+vane-banner = { workspace = true }
 vane-core = { workspace = true }
 vane-engine = { path = "../engine", version = "0.10.4", default-features = false }
 vane-mgmt = { workspace = true }

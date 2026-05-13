@@ -30,6 +30,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "macros", "signal", "io-util", "net"] }
 tracing = "0.1"
+vane-banner = { workspace = true }
 vane-core = { workspace = true }
 vane-mgmt = { workspace = true }
 

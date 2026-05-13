@@ -5297,8 +5297,17 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "vane-banner",
  "vane-core",
  "vane-mgmt",
+]
+
+[[package]]
+name = "vane-banner"
+version = "0.10.6"
+dependencies = [
+ "owo-colors",
+ "vane-core",
 ]
 
 [[package]]
@@ -5315,7 +5324,6 @@ dependencies = [
  "http",
  "http-body",
  "ipnet",
- "owo-colors",
  "parking_lot",
  "pin-project-lite",
  "rcgen",
@@ -5515,6 +5523,7 @@ dependencies = [
  "tracing",
  "tracing-broadcast",
  "tracing-subscriber",
+ "vane-banner",
  "vane-core",
  "vane-engine",
  "vane-mgmt",

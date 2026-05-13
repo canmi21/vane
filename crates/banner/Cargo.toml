@@ -1,0 +1,20 @@
+[package]
+name = "vane-banner"
+version.workspace = true
+authors.workspace = true
+categories = ["command-line-interface"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["vane", "banner", "version", "build-info"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared --version banner printer for the vane CLI and daemon binaries."
+
+[lints]
+workspace = true
+
+[dependencies]
+owo-colors = { version = "4.3", features = ["supports-colors"] }
+vane-core = { workspace = true }

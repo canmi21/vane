@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+	"crates/banner",
 	"crates/cli",
 	"crates/core",
 	"crates/daemon",
@@ -94,6 +95,7 @@ tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.1" }
 virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }
 
 # crates/* — vane product crates.
+vane-banner = { path = "crates/banner", version = "0.10.6" }
 vane-core = { path = "crates/core", version = "0.10.6" }
 vane-engine = { path = "crates/engine", version = "0.10.6" }
 vane-mgmt = { path = "crates/mgmt", version = "0.10.6" }
