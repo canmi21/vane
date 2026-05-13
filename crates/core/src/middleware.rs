@@ -38,10 +38,6 @@ pub trait L7RequestMiddleware: Send + Sync {
 		conn: &Arc<ConnContext>,
 		ctx: &mut FlowCtx,
 	) -> Result<Decision, Error>;
-
-	fn needs_body(&self) -> bool {
-		false
-	}
 }
 
 #[async_trait]
@@ -52,10 +48,6 @@ pub trait L7ResponseMiddleware: Send + Sync {
 		conn: &Arc<ConnContext>,
 		ctx: &mut FlowCtx,
 	) -> Result<Decision, Error>;
-
-	fn needs_body(&self) -> bool {
-		false
-	}
 }
 
 /// Middleware verdict. `#[non_exhaustive]` so future verdicts (e.g.
@@ -340,15 +332,10 @@ mod tests {
 		drop(fut);
 	}
 
-	#[test]
-	fn l7_request_needs_body_defaults_to_false() {
-		assert!(!L7RequestMiddleware::needs_body(&PassReq));
-	}
-
-	#[test]
-	fn l7_response_needs_body_defaults_to_false() {
-		assert!(!L7ResponseMiddleware::needs_body(&PassResp));
-	}
+	// `needs_body` no longer lives on the middleware trait — the
+	// `MiddlewareMetadata` side is the single source of truth (used by
+	// the compile pass to inject the right `collect_body_before`
+	// edges). Tests against the trait method are deleted along with it.
 
 	#[test]
 	fn middleware_kind_serde_round_trip_per_variant() {
