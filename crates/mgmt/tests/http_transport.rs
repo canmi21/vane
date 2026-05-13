@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
-use vane_mgmt::client::MgmtClientError;
+use vane_mgmt::MgmtClientError;
 use vane_mgmt::protocol::{Request, WireError, WireErrorKind};
 use vane_mgmt::server::{DispatchOutcome, EventStream, Handler};
 use vane_mgmt::{HttpMgmtClient, HttpServerConfig, spawn_http_server};

@@ -2844,7 +2844,7 @@ dependencies = [
 
 [[package]]
 name = "ndjson-rpc"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "async-trait",
  "bytes",

@@ -20,18 +20,18 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Maximum time between server-sourced bytes on a one-shot call. A
 /// server stall after we've sent the request shouldn't leave the
-/// operator's terminal hanging; this fires `MgmtClientError::Timeout`
+/// operator's terminal hanging; this fires `ClientError::Timeout`
 /// and lets the shell prompt return.
 pub const ONESHOT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Single-shot typed Unix mgmt client. Each `call` opens a fresh
 /// connection. Re-using one client for many calls works too — the
 /// struct holds no persistent state across invocations.
-pub struct UnixMgmtClient {
+pub struct UnixClient {
 	socket_path: PathBuf,
 }
 
-impl UnixMgmtClient {
+impl UnixClient {
 	pub fn new(socket_path: impl AsRef<Path>) -> Self {
 		Self { socket_path: socket_path.as_ref().to_path_buf() }
 	}
@@ -44,26 +44,26 @@ impl UnixMgmtClient {
 	/// its own id-allocation scheme.
 	///
 	/// # Errors
-	/// I/O failure ([`MgmtClientError::Io`]); a structured server-side
-	/// error ([`MgmtClientError::Server`]); or a JSON shape mismatch
+	/// I/O failure ([`ClientError::Io`]); a structured server-side
+	/// error ([`ClientError::Server`]); or a JSON shape mismatch
 	/// when decoding either the response frame or the result payload
-	/// ([`MgmtClientError::Decode`]).
-	pub async fn call<A, R>(&self, verb: &str, args: &A) -> Result<R, MgmtClientError>
+	/// ([`ClientError::Decode`]).
+	pub async fn call<A, R>(&self, verb: &str, args: &A) -> Result<R, ClientError>
 	where
 		A: serde::Serialize,
 		R: for<'de> serde::Deserialize<'de>,
 	{
 		let stream = tokio::time::timeout(CONNECT_TIMEOUT, UnixStream::connect(&self.socket_path))
 			.await
-			.map_err(|_| MgmtClientError::Timeout("connect"))??;
+			.map_err(|_| ClientError::Timeout("connect"))??;
 		let (read, mut write) = stream.into_split();
 
 		let req = Request {
 			id: 1,
 			verb: verb.to_string(),
-			args: serde_json::to_value(args).map_err(MgmtClientError::Encode)?,
+			args: serde_json::to_value(args).map_err(ClientError::Encode)?,
 		};
-		let bytes = encode_line(&req).map_err(MgmtClientError::Encode)?;
+		let bytes = encode_line(&req).map_err(ClientError::Encode)?;
 		write.write_all(&bytes).await?;
 		// Half-close the write half so the server's `next_line` returns
 		// `None` after the response — the server task can then drop the
@@ -73,19 +73,19 @@ impl UnixMgmtClient {
 		let mut lines = BufReader::new(read).lines();
 		let line = tokio::time::timeout(ONESHOT_TIMEOUT, lines.next_line())
 			.await
-			.map_err(|_| MgmtClientError::Timeout("read"))??
-			.ok_or(MgmtClientError::EmptyResponse)?;
-		let response: Response = serde_json::from_str(&line).map_err(MgmtClientError::Decode)?;
+			.map_err(|_| ClientError::Timeout("read"))??
+			.ok_or(ClientError::EmptyResponse)?;
+		let response: Response = serde_json::from_str(&line).map_err(ClientError::Decode)?;
 		match response.outcome {
 			ResponseOutcome::Result { result } => {
-				serde_json::from_value(result).map_err(MgmtClientError::Decode)
+				serde_json::from_value(result).map_err(ClientError::Decode)
 			}
-			ResponseOutcome::Error { error } => Err(MgmtClientError::Server(error)),
+			ResponseOutcome::Error { error } => Err(ClientError::Server(error)),
 			ResponseOutcome::Event { .. } | ResponseOutcome::End { .. } => {
 				// Streaming frame on a one-shot `call`. Either the verb is
 				// a streaming verb (caller should use `call_stream`) or
 				// the server is buggy.
-				Err(MgmtClientError::Server(WireError::new(
+				Err(ClientError::Server(WireError::new(
 					WireErrorKind::Internal,
 					"received streaming frame on one-shot call",
 				)))
@@ -110,22 +110,22 @@ impl UnixMgmtClient {
 		verb: &str,
 		args: &A,
 		mut on_event: F,
-	) -> Result<(), MgmtClientError>
+	) -> Result<(), ClientError>
 	where
 		A: serde::Serialize,
 		F: FnMut(serde_json::Value),
 	{
 		let stream = tokio::time::timeout(CONNECT_TIMEOUT, UnixStream::connect(&self.socket_path))
 			.await
-			.map_err(|_| MgmtClientError::Timeout("connect"))??;
+			.map_err(|_| ClientError::Timeout("connect"))??;
 		let (read, mut write) = stream.into_split();
 
 		let req = Request {
 			id: 1,
 			verb: verb.to_string(),
-			args: serde_json::to_value(args).map_err(MgmtClientError::Encode)?,
+			args: serde_json::to_value(args).map_err(ClientError::Encode)?,
 		};
-		let bytes = encode_line(&req).map_err(MgmtClientError::Encode)?;
+		let bytes = encode_line(&req).map_err(ClientError::Encode)?;
 		write.write_all(&bytes).await?;
 		// NB: do not shutdown(write) — see doc comment.
 
@@ -134,13 +134,13 @@ impl UnixMgmtClient {
 			if line.is_empty() {
 				continue;
 			}
-			let response: Response = serde_json::from_str(&line).map_err(MgmtClientError::Decode)?;
+			let response: Response = serde_json::from_str(&line).map_err(ClientError::Decode)?;
 			match response.outcome {
 				ResponseOutcome::Event { event } => on_event(event),
 				ResponseOutcome::End { .. } => return Ok(()),
-				ResponseOutcome::Error { error } => return Err(MgmtClientError::Server(error)),
+				ResponseOutcome::Error { error } => return Err(ClientError::Server(error)),
 				ResponseOutcome::Result { .. } => {
-					return Err(MgmtClientError::Server(WireError::new(
+					return Err(ClientError::Server(WireError::new(
 						WireErrorKind::Internal,
 						"received one-shot Result on streaming call",
 					)));
@@ -154,7 +154,7 @@ impl UnixMgmtClient {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum MgmtClientError {
+pub enum ClientError {
 	#[error("io: {0}")]
 	Io(#[from] std::io::Error),
 	#[error("encode: {0}")]
@@ -166,7 +166,7 @@ pub enum MgmtClientError {
 	#[error("server: {kind:?} {message}", kind = .0.kind, message = .0.message)]
 	Server(WireError),
 	/// Non-200 HTTP response from the management endpoint. Only ever
-	/// surfaced by [`crate::http_client::HttpMgmtClient`]; the Unix
+	/// surfaced by [`crate::http_client::HttpClient`]; the Unix
 	/// transport has no equivalent shape.
 	#[error("http {status}: {body}")]
 	Http { status: u16, body: String },
@@ -212,7 +212,7 @@ mod tests {
 	/// Connect a duplex pair and run the server's `handle_conn` against
 	/// the stub. Returns a closure-like helper bound to the test stream
 	/// — used by the typed-call decode tests below.
-	async fn drive_call<A, R>(verb: &str, args: A) -> Result<R, MgmtClientError>
+	async fn drive_call<A, R>(verb: &str, args: A) -> Result<R, ClientError>
 	where
 		A: serde::Serialize,
 		R: for<'de> serde::Deserialize<'de>,
@@ -237,20 +237,17 @@ mod tests {
 		drop(c2s_w);
 
 		let mut lines = BufReader::new(s2c_r).lines();
-		let line = lines
-			.next_line()
-			.await
-			.map_err(MgmtClientError::Io)?
-			.ok_or(MgmtClientError::EmptyResponse)?;
-		let response: Response = serde_json::from_str(&line).map_err(MgmtClientError::Decode)?;
+		let line =
+			lines.next_line().await.map_err(ClientError::Io)?.ok_or(ClientError::EmptyResponse)?;
+		let response: Response = serde_json::from_str(&line).map_err(ClientError::Decode)?;
 		// Drain the server task. (`handle_conn` returns once `next_line` returns
 		// None on the read half, which happens on `drop(c2s_w)`.)
 		let _ = server.await;
 		match response.outcome {
 			ResponseOutcome::Result { result } => {
-				serde_json::from_value(result).map_err(MgmtClientError::Decode)
+				serde_json::from_value(result).map_err(ClientError::Decode)
 			}
-			ResponseOutcome::Error { error } => Err(MgmtClientError::Server(error)),
+			ResponseOutcome::Error { error } => Err(ClientError::Server(error)),
 			other => panic!("unexpected outcome: {other:?}"),
 		}
 	}
@@ -266,7 +263,7 @@ mod tests {
 	async fn client_surfaces_server_error_as_mgmt_client_error_server() {
 		let err = drive_call::<_, PingResult>("nope", NoArgs {}).await.expect_err("err");
 		match err {
-			MgmtClientError::Server(w) => {
+			ClientError::Server(w) => {
 				assert_eq!(w.kind, crate::protocol::WireErrorKind::UnknownVerb);
 			}
 			other => panic!("expected Server, got {other:?}"),
@@ -276,7 +273,7 @@ mod tests {
 	#[tokio::test]
 	async fn client_decode_error_when_result_shape_mismatches() {
 		let err = drive_call::<_, PingResult>("bad_shape", NoArgs {}).await.expect_err("err");
-		assert!(matches!(err, MgmtClientError::Decode(_)), "unexpected variant: {err:?}");
+		assert!(matches!(err, ClientError::Decode(_)), "unexpected variant: {err:?}");
 	}
 
 	struct StreamingHandler;
@@ -347,11 +344,11 @@ mod tests {
 	async fn client_io_error_on_missing_socket() {
 		let tmp = tempfile::tempdir().expect("tempdir");
 		let path = tmp.path().join("not-there.sock");
-		let client = UnixMgmtClient::new(&path);
+		let client = UnixClient::new(&path);
 		let err = client
 			.call::<_, PingResult>("ping", &NoArgs {})
 			.await
 			.expect_err("must fail without a server");
-		assert!(matches!(err, MgmtClientError::Io(_)), "unexpected variant: {err:?}");
+		assert!(matches!(err, ClientError::Io(_)), "unexpected variant: {err:?}");
 	}
 }

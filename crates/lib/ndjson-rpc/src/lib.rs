@@ -13,8 +13,8 @@ pub mod http_server;
 pub mod protocol;
 pub mod server;
 
-pub use client::{MgmtClientError, UnixMgmtClient};
-pub use http_client::HttpMgmtClient;
+pub use client::{ClientError, UnixClient};
+pub use http_client::HttpClient;
 pub use http_server::{HttpServerConfig, HttpServerError, spawn_http_server};
 pub use protocol::{
 	EndMarker, Request, Response, ResponseOutcome, WireError, WireErrorKind, encode_line,

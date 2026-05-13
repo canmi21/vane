@@ -1,4 +1,4 @@
-//! HTTP-over-TCP management client. Mirrors [`crate::UnixMgmtClient`]
+//! HTTP-over-TCP management client. Mirrors [`crate::UnixClient`]
 //! but talks to [`crate::http_server`] over `hyper::client::conn::http1`.
 //!
 //! One TCP connection per call: the management API is verb-at-a-time
@@ -18,18 +18,18 @@ use hyper::{Method, StatusCode};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 
-use crate::client::{CONNECT_TIMEOUT, MgmtClientError, ONESHOT_TIMEOUT};
+use crate::client::{CONNECT_TIMEOUT, ClientError, ONESHOT_TIMEOUT};
 use crate::protocol::{Request, Response, ResponseOutcome, WireError, WireErrorKind};
 
 /// Plaintext HTTP/1.1 mgmt client. Cheap to clone — `addr` is `Copy`,
 /// `token` is reference-counted.
 #[derive(Clone, Debug)]
-pub struct HttpMgmtClient {
+pub struct HttpClient {
 	addr: SocketAddr,
 	token: Option<Arc<str>>,
 }
 
-impl HttpMgmtClient {
+impl HttpClient {
 	/// Build a client targeting the given HTTP endpoint. The `token`
 	/// argument matches the server's `bearer_token` setting: pass
 	/// `None` only when the server is configured for anonymous access.
@@ -38,15 +38,15 @@ impl HttpMgmtClient {
 		Self { addr, token }
 	}
 
-	/// One-shot verb call. Mirrors [`crate::UnixMgmtClient::call`].
+	/// One-shot verb call. Mirrors [`crate::UnixClient::call`].
 	///
 	/// # Errors
-	/// I/O failure ([`MgmtClientError::Io`]); a non-200 HTTP response
-	/// ([`MgmtClientError::Http`] — `401` for missing / wrong token,
+	/// I/O failure ([`ClientError::Io`]); a non-200 HTTP response
+	/// ([`ClientError::Http`] — `401` for missing / wrong token,
 	/// `400` / `404` / `405` / `413` for malformed requests); a
-	/// structured server-side error frame ([`MgmtClientError::Server`]);
-	/// or a JSON shape mismatch ([`MgmtClientError::Decode`]).
-	pub async fn call<A, R>(&self, verb: &str, args: &A) -> Result<R, MgmtClientError>
+	/// structured server-side error frame ([`ClientError::Server`]);
+	/// or a JSON shape mismatch ([`ClientError::Decode`]).
+	pub async fn call<A, R>(&self, verb: &str, args: &A) -> Result<R, ClientError>
 	where
 		A: serde::Serialize,
 		R: for<'de> serde::Deserialize<'de>,
@@ -54,27 +54,27 @@ impl HttpMgmtClient {
 		let req = Request {
 			id: 1,
 			verb: verb.to_string(),
-			args: serde_json::to_value(args).map_err(MgmtClientError::Encode)?,
+			args: serde_json::to_value(args).map_err(ClientError::Encode)?,
 		};
-		let body_bytes = Bytes::from(serde_json::to_vec(&req).map_err(MgmtClientError::Encode)?);
+		let body_bytes = Bytes::from(serde_json::to_vec(&req).map_err(ClientError::Encode)?);
 		let resp = self.send(body_bytes).await?;
 		let status = resp.status();
 		let resp_body = tokio::time::timeout(ONESHOT_TIMEOUT, resp.into_body().collect())
 			.await
-			.map_err(|_| MgmtClientError::Timeout("read"))?
-			.map_err(|e| MgmtClientError::Io(std::io::Error::other(e.to_string())))?
+			.map_err(|_| ClientError::Timeout("read"))?
+			.map_err(|e| ClientError::Io(std::io::Error::other(e.to_string())))?
 			.to_bytes();
 		if status != StatusCode::OK {
 			let body = String::from_utf8_lossy(&resp_body).into_owned();
-			return Err(MgmtClientError::Http { status: status.as_u16(), body });
+			return Err(ClientError::Http { status: status.as_u16(), body });
 		}
-		let response: Response = serde_json::from_slice(&resp_body).map_err(MgmtClientError::Decode)?;
+		let response: Response = serde_json::from_slice(&resp_body).map_err(ClientError::Decode)?;
 		match response.outcome {
 			ResponseOutcome::Result { result } => {
-				serde_json::from_value(result).map_err(MgmtClientError::Decode)
+				serde_json::from_value(result).map_err(ClientError::Decode)
 			}
-			ResponseOutcome::Error { error } => Err(MgmtClientError::Server(error)),
-			ResponseOutcome::Event { .. } | ResponseOutcome::End { .. } => Err(MgmtClientError::Server(
+			ResponseOutcome::Error { error } => Err(ClientError::Server(error)),
+			ResponseOutcome::Event { .. } | ResponseOutcome::End { .. } => Err(ClientError::Server(
 				WireError::new(WireErrorKind::Internal, "received streaming frame on one-shot call"),
 			)),
 		}
@@ -88,12 +88,7 @@ impl HttpMgmtClient {
 	/// Same shape as [`Self::call`], plus the streaming-specific case
 	/// where the server emits a `Result` frame on what should be a
 	/// streaming verb.
-	pub async fn stream<A, F>(
-		&self,
-		verb: &str,
-		args: &A,
-		mut on_event: F,
-	) -> Result<(), MgmtClientError>
+	pub async fn stream<A, F>(&self, verb: &str, args: &A, mut on_event: F) -> Result<(), ClientError>
 	where
 		A: serde::Serialize,
 		F: FnMut(serde_json::Value),
@@ -101,9 +96,9 @@ impl HttpMgmtClient {
 		let req = Request {
 			id: 1,
 			verb: verb.to_string(),
-			args: serde_json::to_value(args).map_err(MgmtClientError::Encode)?,
+			args: serde_json::to_value(args).map_err(ClientError::Encode)?,
 		};
-		let body_bytes = Bytes::from(serde_json::to_vec(&req).map_err(MgmtClientError::Encode)?);
+		let body_bytes = Bytes::from(serde_json::to_vec(&req).map_err(ClientError::Encode)?);
 		let resp = self.send(body_bytes).await?;
 		let status = resp.status();
 		if status != StatusCode::OK {
@@ -111,10 +106,10 @@ impl HttpMgmtClient {
 				.into_body()
 				.collect()
 				.await
-				.map_err(|e| MgmtClientError::Io(std::io::Error::other(e.to_string())))?
+				.map_err(|e| ClientError::Io(std::io::Error::other(e.to_string())))?
 				.to_bytes();
 			let body = String::from_utf8_lossy(&body).into_owned();
-			return Err(MgmtClientError::Http { status: status.as_u16(), body });
+			return Err(ClientError::Http { status: status.as_u16(), body });
 		}
 		// Drain the chunked body into a line accumulator and dispatch
 		// each complete `\n`-delimited Response frame as it lands.
@@ -124,7 +119,7 @@ impl HttpMgmtClient {
 			let frame = match body.frame().await {
 				Some(Ok(f)) => f,
 				Some(Err(e)) => {
-					return Err(MgmtClientError::Io(std::io::Error::other(e.to_string())));
+					return Err(ClientError::Io(std::io::Error::other(e.to_string())));
 				}
 				None => break,
 			};
@@ -139,13 +134,13 @@ impl HttpMgmtClient {
 				if line.is_empty() {
 					continue;
 				}
-				let response: Response = serde_json::from_slice(line).map_err(MgmtClientError::Decode)?;
+				let response: Response = serde_json::from_slice(line).map_err(ClientError::Decode)?;
 				match response.outcome {
 					ResponseOutcome::Event { event } => on_event(event),
 					ResponseOutcome::End { .. } => return Ok(()),
-					ResponseOutcome::Error { error } => return Err(MgmtClientError::Server(error)),
+					ResponseOutcome::Error { error } => return Err(ClientError::Server(error)),
 					ResponseOutcome::Result { .. } => {
-						return Err(MgmtClientError::Server(WireError::new(
+						return Err(ClientError::Server(WireError::new(
 							WireErrorKind::Internal,
 							"received one-shot Result on streaming call",
 						)));
@@ -154,7 +149,7 @@ impl HttpMgmtClient {
 			}
 		}
 		// Server closed mid-stream without an End frame — treat as
-		// graceful EOF, mirroring `UnixMgmtClient::call_stream`.
+		// graceful EOF, mirroring `UnixClient::call_stream`.
 		Ok(())
 	}
 
@@ -162,14 +157,14 @@ impl HttpMgmtClient {
 	/// POST, and return the response head + an in-flight body. The
 	/// caller drains the body before going out of scope; the spawned
 	/// driver task ends when the connection closes.
-	async fn send(&self, body: Bytes) -> Result<hyper::Response<Incoming>, MgmtClientError> {
+	async fn send(&self, body: Bytes) -> Result<hyper::Response<Incoming>, ClientError> {
 		let stream = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(self.addr))
 			.await
-			.map_err(|_| MgmtClientError::Timeout("connect"))??;
+			.map_err(|_| ClientError::Timeout("connect"))??;
 		let io = TokioIo::new(stream);
 		let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
 			.await
-			.map_err(|e| MgmtClientError::Io(std::io::Error::other(e.to_string())))?;
+			.map_err(|e| ClientError::Io(std::io::Error::other(e.to_string())))?;
 		// Drive the connection to completion in the background. The
 		// task ends when `sender` is dropped (which happens after this
 		// function returns and the caller drops the response body),
@@ -190,11 +185,11 @@ impl HttpMgmtClient {
 		}
 		let http_req = builder
 			.body(Full::new(body))
-			.map_err(|e| MgmtClientError::Io(std::io::Error::other(e.to_string())))?;
+			.map_err(|e| ClientError::Io(std::io::Error::other(e.to_string())))?;
 		sender
 			.send_request(http_req)
 			.await
-			.map_err(|e| MgmtClientError::Io(std::io::Error::other(e.to_string())))
+			.map_err(|e| ClientError::Io(std::io::Error::other(e.to_string())))
 	}
 }
 

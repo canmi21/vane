@@ -59,7 +59,7 @@ runs through `Drop`.
 
 ## Client
 
-[`UnixMgmtClient`] (Unix socket) and [`HttpMgmtClient`] (HTTP/1.1 +
+[`UnixClient`] (Unix socket) and [`HttpClient`] (HTTP/1.1 +
 optional bearer token) both expose `call(verb, args)` for one-shot
 verbs and `call_stream(verb, args, on_event)` / `stream(...)` for
 streaming verbs. Each call opens a fresh connection — the protocol is

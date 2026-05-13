@@ -78,7 +78,7 @@ guess = { path = "crates/lib/guess", version = "0.2.1", default-features = false
 h3-body = { path = "crates/lib/h3-body", version = "0.0.2" }
 hickory-tower-resolver = { path = "crates/lib/hickory-tower-resolver", version = "0.0.1" }
 http-retry-policy = { path = "crates/lib/http-retry-policy", version = "0.0.1" }
-ndjson-rpc = { path = "crates/lib/ndjson-rpc", version = "0.0.2" }
+ndjson-rpc = { path = "crates/lib/ndjson-rpc", version = "0.0.3" }
 notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.2" }
 ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.1" }
 ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.2" }
