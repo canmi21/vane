@@ -29,6 +29,34 @@ use crate::executor::{ExecutorInput, ExecutorOutput, execute};
 use crate::fetch::websocket_upgrade::StashedUpstreamUpgrade;
 use crate::flow_graph::FlowGraph;
 
+/// Stash for the `JoinHandle` of a post-101 WebSocket byte-tunnel.
+/// The H1 service-fn spawns the tunnel asynchronously so hyper can
+/// write the 101 to the client before the upgrade hands off the
+/// socket; the outer [`drive_h1_server`] then takes the handle and
+/// awaits it so the listener's in-flight JoinSet sees the connection
+/// alive for the full tunnel lifetime (otherwise the H1 connection
+/// task ends at the 101 hand-off and the WS tunnel runs detached,
+/// invisible to daemon shutdown / listener reconcile drain logic).
+///
+/// `Arc<parking_lot::Mutex<Option<JoinHandle>>>` so the stash is
+/// `Clone` (cheap refcount) and the take-once semantics survive a
+/// concurrent re-entry (though only one re-entry should ever see
+/// `Some`).
+#[derive(Clone)]
+pub(crate) struct PendingUpgradeTask(
+	pub(crate) Arc<parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+);
+
+impl PendingUpgradeTask {
+	fn new(handle: tokio::task::JoinHandle<()>) -> Self {
+		Self(Arc::new(parking_lot::Mutex::new(Some(handle))))
+	}
+
+	pub(crate) fn take(&self) -> Option<tokio::task::JoinHandle<()>> {
+		self.0.lock().take()
+	}
+}
+
 /// Drive a byte stream as an H1 server. For each decoded request, build a
 /// fresh `FlowCtx` (sharing `log` / `cancel` / `verbosity` from the outer
 /// L4 ctx, with its own `TrajectoryBuilder`) and call the executor with
@@ -86,6 +114,11 @@ where
 	// `svc` keeps its own clones for per-request executor wiring.
 	let conn_cancel = cancel.clone();
 	let conn_accept_cancel = accept_cancel.clone();
+	// The post-`select!` re-join of any stashed WS-tunnel JoinHandle
+	// reads `conn.user`, so we keep a clone outside the service-fn's
+	// move-into-closure capture. The service-fn itself clones from
+	// the inner shadow `conn` per request.
+	let conn_outer = Arc::clone(&conn);
 	let svc = service_fn(move |mut req: hyper::Request<Incoming>| {
 		let graph = Arc::clone(&graph);
 		let conn = Arc::clone(&conn);
@@ -130,6 +163,10 @@ where
 				path = %vane_req.uri().path(),
 			);
 
+			// Keep a separate clone for the post-101 WS-tunnel spawn
+			// below — `FlowCtx::cancel` moves the original into the
+			// executor's per-request state.
+			let tunnel_cancel = cancel.clone();
 			let mut ctx = FlowCtx {
 				span,
 				log,
@@ -170,25 +207,43 @@ where
 					};
 					let (_holder, mut upstream_io) = stashed;
 					let conn_id = conn.id;
-					tokio::spawn(async move {
-						match client_on_upgrade.await {
-							Ok(upgraded) => {
-								let mut client_io = TokioIo::new(upgraded);
-								if let Err(e) = copy_bidirectional(&mut client_io, &mut *upstream_io).await {
-									tracing::debug!(
-										?e,
-										%conn_id,
-										"ws byte tunnel ended with io error",
-									);
+					// `tunnel_cancel` is a clone of the per-request
+					// `force_cancel` token (the executor's
+					// `FlowCtx::cancel` got the original). Inside the
+					// spawned task's `tokio::select!` it lets the
+					// daemon-wide drain budget actually evict an
+					// in-flight WS tunnel — without it,
+					// `copy_bidirectional` would run until one end's
+					// IO closes, ignoring the listener's shutdown
+					// signal entirely.
+					let tunnel_handle = tokio::spawn(async move {
+						let upgraded = match client_on_upgrade.await {
+							Ok(u) => u,
+							Err(e) => {
+								tracing::warn!(?e, %conn_id, "client ws upgrade await failed");
+								return;
+							}
+						};
+						let mut client_io = TokioIo::new(upgraded);
+						tokio::select! {
+							biased;
+							() = tunnel_cancel.cancelled() => {
+								tracing::debug!(%conn_id, "ws byte tunnel cancelled by force_cancel");
+							}
+							r = copy_bidirectional(&mut client_io, &mut *upstream_io) => {
+								if let Err(e) = r {
+									tracing::debug!(?e, %conn_id, "ws byte tunnel ended with io error");
 								}
 							}
-							Err(e) => tracing::warn!(
-								?e,
-								%conn_id,
-								"client ws upgrade await failed",
-							),
 						}
 					});
+					// Stash the JoinHandle so `drive_h1_server` can
+					// await it after `server_conn` returns. This keeps
+					// the H1 connection's listener-side JoinSet task
+					// alive for the full WS-tunnel lifetime, which is
+					// what makes `force_cancel` + drain accounting
+					// observe the tunnel rather than skip past it.
+					conn.user.lock().insert(PendingUpgradeTask::new(tunnel_handle));
 					Ok(r)
 				}
 				Ok(ExecutorOutput::HttpResponse(r)) => Ok::<Response, std::convert::Infallible>(r),
@@ -299,6 +354,26 @@ where
 		}
 	};
 	outcome.map_err(|e| Error::protocol("h1 serve_connection").with_source(e))?;
+
+	// If the per-request service-fn handed off a WebSocket upgrade
+	// (status 101 / `Connection: upgrade`), the byte-tunnel runs in a
+	// `tokio::spawn`'d task whose handle was stashed on
+	// `conn.user`. The hyper `serve_connection().with_upgrades()`
+	// future has already completed (the upgrade-machinery delivered
+	// the Upgraded handle); without this re-join the H1 connection's
+	// listener-side JoinSet task would end here and the WS tunnel
+	// would run detached. Awaiting the handle keeps the listener's
+	// shutdown drain accounting accurate and gives `force_cancel`
+	// (the same token plumbed into the spawn's `select!`) an
+	// observable end-of-life. JoinError from a panicked task is
+	// logged but does not propagate — the H1 connection has already
+	// closed.
+	let pending = conn_outer.user.lock().get::<PendingUpgradeTask>().cloned().and_then(|p| p.take());
+	if let Some(handle) = pending
+		&& let Err(e) = handle.await
+	{
+		tracing::debug!(error = ?e, conn_id = %conn_outer.id, "ws byte tunnel task ended abnormally");
+	}
 
 	Ok(ExecutorOutput::Closed)
 }
