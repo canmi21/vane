@@ -235,12 +235,10 @@ async fn dispatch_one(
 		}
 	};
 
-	let resp_headers: Vec<(String, String)> = parts
-		.headers
-		.iter()
-		.filter_map(|(k, v)| v.to_str().ok().map(|vs| (k.to_string(), vs.to_string())))
-		.collect();
-	Ok(HttpFetchResponse { status: parts.status.as_u16(), headers: resp_headers, body: bytes })
+	// Round-trip through the typed helper so all WIT-side header
+	// translation lives in one place (vane_core::HttpFetchResponse::from_http_response).
+	let resp = http::Response::from_parts(parts, bytes::Bytes::from(bytes));
+	Ok(HttpFetchResponse::from_http_response(&resp))
 }
 
 fn is_redirect(status: u16) -> bool {

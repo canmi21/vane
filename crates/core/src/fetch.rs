@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -197,7 +198,11 @@ impl Default for HttpFetchLimits {
 
 /// Outbound HTTP request data passed to `HttpFetchBackend`.
 ///
-/// Mirrors the WIT `http-fetch-request` record exactly.
+/// Mirrors the WIT `http-fetch-request` record exactly. The
+/// `From<http::Request<Bytes>>` / `TryFrom<HttpFetchRequest>` pair
+/// below is the single conversion seam between this wire-shape struct
+/// and `http::Request` — engine call sites use those helpers rather
+/// than hand-rolling header / body / URI translation.
 #[derive(Debug)]
 pub struct HttpFetchRequest {
 	pub method: String,
@@ -209,12 +214,74 @@ pub struct HttpFetchRequest {
 	pub verify_tls: Option<bool>,
 }
 
+impl HttpFetchRequest {
+	/// Build a `HttpFetchRequest` from a borrowed `http::Request<Bytes>`.
+	/// `body` is cloned from the inner `Bytes` (refcount bump, no copy
+	/// unless the `Bytes` is being unbundled). Header values that fail
+	/// `to_str` are skipped — the WIT wire shape mandates UTF-8 strings,
+	/// and the engine surface decides upstream whether non-UTF-8 names
+	/// should hard-reject.
+	#[must_use]
+	pub fn from_http_request(req: &http::Request<Bytes>) -> Self {
+		let headers = req
+			.headers()
+			.iter()
+			.filter_map(|(name, value)| {
+				value.to_str().ok().map(|v| (name.as_str().to_owned(), v.to_owned()))
+			})
+			.collect();
+		Self {
+			method: req.method().as_str().to_owned(),
+			url: req.uri().to_string(),
+			headers,
+			body: req.body().to_vec(),
+			timeout_ms: None,
+			follow_redirects: None,
+			verify_tls: None,
+		}
+	}
+}
+
+impl TryFrom<&HttpFetchRequest> for http::Request<Bytes> {
+	type Error = http::Error;
+
+	/// Build a typed `http::Request<Bytes>` from a `HttpFetchRequest`.
+	/// Headers, method, and URI go through `http`'s own parsers — any
+	/// of those parsers' errors surface as `http::Error`. The body
+	/// `Vec<u8>` is wrapped into `Bytes` without copying.
+	fn try_from(value: &HttpFetchRequest) -> Result<Self, Self::Error> {
+		let mut builder =
+			http::Request::builder().method(value.method.as_str()).uri(value.url.as_str());
+		for (name, val) in &value.headers {
+			builder = builder.header(name.as_str(), val.as_str());
+		}
+		builder.body(Bytes::from(value.body.clone()))
+	}
+}
+
 /// Response returned by `HttpFetchBackend`.
 #[derive(Debug)]
 pub struct HttpFetchResponse {
 	pub status: u16,
 	pub headers: Vec<(String, String)>,
 	pub body: Vec<u8>,
+}
+
+impl HttpFetchResponse {
+	/// Build a `HttpFetchResponse` from a borrowed
+	/// `http::Response<Bytes>`. Mirrors [`HttpFetchRequest::from_http_request`]
+	/// — non-UTF-8 header values are skipped.
+	#[must_use]
+	pub fn from_http_response(resp: &http::Response<Bytes>) -> Self {
+		let headers = resp
+			.headers()
+			.iter()
+			.filter_map(|(name, value)| {
+				value.to_str().ok().map(|v| (name.as_str().to_owned(), v.to_owned()))
+			})
+			.collect();
+		Self { status: resp.status().as_u16(), headers, body: resp.body().to_vec() }
+	}
 }
 
 /// Typed transport error from `HttpFetchBackend`.
