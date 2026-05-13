@@ -146,13 +146,51 @@ pub enum L7ResponseDecision {
 
 /// Structured error from a plugin invocation.
 ///
-/// `Plugin` wraps an in-band WIT error. `Trap` indicates a guest trap or
-/// epoch timeout. `Exhausted` means all pooled instances are checked out.
-#[derive(Debug)]
+/// `Plugin` wraps an in-band WIT error returned by the guest.
+/// `Trap` indicates a guest trap or epoch timeout — its inner string
+/// carries the wasmtime trap message; the variant is `#[source]`-
+/// shaped via a thin wrapper below so `vane_core::Error::with_source`
+/// can attach the cause to the surrounding `Error::middleware`.
+/// `Exhausted` means all pooled instances are checked out.
+///
+/// `#[non_exhaustive]` so future plugin-runtime error classes (cpu
+/// budget, memory cap, deadline) can be added without breaking
+/// downstream match sites.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum PluginError {
+	#[error("plugin {code}: {message}")]
 	Plugin { code: String, message: String, on_error_hint: Option<String> },
-	Trap(String),
+	#[error("plugin trap: {0}")]
+	Trap(#[source] PluginTrap),
+	#[error("plugin pool exhausted: no instance available")]
 	Exhausted,
+}
+
+/// Wasmtime trap details from a guest crash or epoch timeout. Wraps
+/// a `String` because `wasmtime::Trap` is not `Clone`; the engine
+/// stringifies the trap once at the call boundary so downstream
+/// observers see a stable, owned value.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct PluginTrap(pub String);
+
+impl PluginTrap {
+	#[must_use]
+	pub fn new(message: impl Into<String>) -> Self {
+		Self(message.into())
+	}
+}
+
+impl PluginError {
+	/// Convenience constructor for the `Trap` variant. Matches the
+	/// prior `PluginError::Trap(String)` ergonomics so callers in
+	/// the engine / wasm crates don't have to know about the new
+	/// `PluginTrap` wrapper.
+	#[must_use]
+	pub fn trap(message: impl Into<String>) -> Self {
+		Self::Trap(PluginTrap::new(message))
+	}
 }
 
 /// Runtime contract between the executor and the WASM plugin layer.

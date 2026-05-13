@@ -492,9 +492,8 @@ async fn wasm_plugin_error_force_close_bypasses_on_error() {
 
 #[tokio::test]
 async fn wasm_plugin_trap_propagates_as_err() {
-	let runtime = Arc::new(MockWasmRuntime::with_l7_request(vec![Err(PluginError::Trap(
-		"guest panicked".to_owned(),
-	))]));
+	let runtime =
+		Arc::new(MockWasmRuntime::with_l7_request(vec![Err(PluginError::trap("guest panicked"))]));
 
 	let sym = build_graph(
 		vec![

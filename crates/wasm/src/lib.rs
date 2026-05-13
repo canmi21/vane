@@ -925,7 +925,7 @@ fn lift_plugin_error(pe: invoke_l4peek::vane::plugin::types::PluginError) -> Plu
 fn validate_on_error_hint(hint: Option<&String>) -> Result<(), PluginError> {
 	match hint.map(String::as_str) {
 		None | Some("force-close" | "internal") => Ok(()),
-		Some(v) => Err(PluginError::Trap(format!("invalid on-error-hint value: '{v}'"))),
+		Some(v) => Err(PluginError::trap(format!("invalid on-error-hint value: '{v}'"))),
 	}
 }
 
@@ -933,13 +933,13 @@ fn validate_status(status: u16) -> Result<(), PluginError> {
 	if (100..=599).contains(&status) {
 		Ok(())
 	} else {
-		Err(PluginError::Trap(format!("plugin returned invalid HTTP status {status}")))
+		Err(PluginError::trap(format!("plugin returned invalid HTTP status {status}")))
 	}
 }
 
 fn validate_header_name(name: &str) -> Result<(), PluginError> {
 	if name.bytes().any(|b| matches!(b, b'\r' | b'\n' | 0)) {
-		Err(PluginError::Trap(format!("header name contains CR, LF, or NUL: {name:?}")))
+		Err(PluginError::trap(format!("header name contains CR, LF, or NUL: {name:?}")))
 	} else {
 		Ok(())
 	}
@@ -947,7 +947,7 @@ fn validate_header_name(name: &str) -> Result<(), PluginError> {
 
 fn validate_header_value(value: &str) -> Result<(), PluginError> {
 	if value.bytes().any(|b| matches!(b, b'\r' | b'\n' | 0)) {
-		Err(PluginError::Trap("header value contains CR, LF, or NUL".into()))
+		Err(PluginError::trap("header value contains CR, LF, or NUL"))
 	} else {
 		Ok(())
 	}
@@ -1301,7 +1301,7 @@ impl StatefulPoolHandle {
 		let outcome = match result {
 			Ok(Ok(d)) => Ok(lift_decision(d)),
 			Ok(Err(pe)) => Err(lift_plugin_error(pe)),
-			Err(e) => Err(PluginError::Trap(e.to_string())),
+			Err(e) => Err(PluginError::trap(e.to_string())),
 		};
 
 		// Return path: drop in_flight unconditionally, then re-pool only
@@ -1372,7 +1372,7 @@ impl StatefulPoolHandle {
 							// Build failed — release the reserved slot
 							// so a subsequent checkout can use it.
 							self.in_flight.fetch_sub(1, Ordering::AcqRel);
-							Err(PluginError::Trap(e.to_string()))
+							Err(PluginError::trap(e.to_string()))
 						}
 					};
 				}
@@ -2026,19 +2026,19 @@ impl WasmRuntime for WasmtimeRuntime {
 		let key = module_id.0.as_ref().to_owned();
 
 		let Some(component) = self.components.read().unwrap().get(&key).cloned() else {
-			return Err(PluginError::Trap("module not loaded".into()));
+			return Err(PluginError::trap("module not loaded"));
 		};
 
 		let Some(meta) = self.metadata.read().unwrap().get(&key).cloned() else {
-			return Err(PluginError::Trap("module not loaded".into()));
+			return Err(PluginError::trap("module not loaded"));
 		};
 
 		let Some(export_meta) = meta.exports.iter().find(|e| e.name == export_name) else {
-			return Err(PluginError::Trap(format!("export '{export_name}' not found")));
+			return Err(PluginError::trap(format!("export '{export_name}' not found")));
 		};
 
 		if !export_meta.stateless {
-			return Err(PluginError::Trap("stateful exports require StatefulPoolHandle".into()));
+			return Err(PluginError::trap("stateful exports require StatefulPoolHandle"));
 		}
 
 		let skey = StatelessKey {
@@ -2080,7 +2080,7 @@ impl WasmRuntime for WasmtimeRuntime {
 			Ok(p) => p,
 			Err(e) => {
 				pool.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-				return Err(PluginError::Trap(e.to_string()));
+				return Err(PluginError::trap(e.to_string()));
 			}
 		};
 
@@ -2091,7 +2091,7 @@ impl WasmRuntime for WasmtimeRuntime {
 		match result {
 			Ok(Ok(d)) => Ok(lift_decision(d)),
 			Ok(Err(pe)) => Err(lift_plugin_error(pe)),
-			Err(e) => Err(PluginError::Trap(e.to_string())),
+			Err(e) => Err(PluginError::trap(e.to_string())),
 		}
 	}
 
@@ -2105,19 +2105,19 @@ impl WasmRuntime for WasmtimeRuntime {
 		let key = module_id.0.as_ref().to_owned();
 
 		let Some(component) = self.components.read().unwrap().get(&key).cloned() else {
-			return Err(PluginError::Trap("module not loaded".into()));
+			return Err(PluginError::trap("module not loaded"));
 		};
 
 		let Some(meta) = self.metadata.read().unwrap().get(&key).cloned() else {
-			return Err(PluginError::Trap("module not loaded".into()));
+			return Err(PluginError::trap("module not loaded"));
 		};
 
 		let Some(export_meta) = meta.exports.iter().find(|e| e.name == export_name) else {
-			return Err(PluginError::Trap(format!("export '{export_name}' not found")));
+			return Err(PluginError::trap(format!("export '{export_name}' not found")));
 		};
 
 		if !export_meta.stateless {
-			return Err(PluginError::Trap("stateful exports require StatefulPoolHandle".into()));
+			return Err(PluginError::trap("stateful exports require StatefulPoolHandle"));
 		}
 
 		let skey = StatelessKey {
@@ -2159,7 +2159,7 @@ impl WasmRuntime for WasmtimeRuntime {
 			Ok(p) => p,
 			Err(e) => {
 				pool.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-				return Err(PluginError::Trap(e.to_string()));
+				return Err(PluginError::trap(e.to_string()));
 			}
 		};
 
@@ -2170,7 +2170,7 @@ impl WasmRuntime for WasmtimeRuntime {
 		match result {
 			Ok(Ok(d)) => Ok(lift_l4bytes_decision(d)),
 			Ok(Err(pe)) => Err(lift_plugin_error_l4bytes(pe)?),
-			Err(e) => Err(PluginError::Trap(e.to_string())),
+			Err(e) => Err(PluginError::trap(e.to_string())),
 		}
 	}
 
@@ -2184,19 +2184,19 @@ impl WasmRuntime for WasmtimeRuntime {
 		let key = module_id.0.as_ref().to_owned();
 
 		let Some(component) = self.components.read().unwrap().get(&key).cloned() else {
-			return Err(PluginError::Trap("module not loaded".into()));
+			return Err(PluginError::trap("module not loaded"));
 		};
 
 		let Some(meta) = self.metadata.read().unwrap().get(&key).cloned() else {
-			return Err(PluginError::Trap("module not loaded".into()));
+			return Err(PluginError::trap("module not loaded"));
 		};
 
 		let Some(export_meta) = meta.exports.iter().find(|e| e.name == export_name) else {
-			return Err(PluginError::Trap(format!("export '{export_name}' not found")));
+			return Err(PluginError::trap(format!("export '{export_name}' not found")));
 		};
 
 		if !export_meta.stateless {
-			return Err(PluginError::Trap("stateful exports require StatefulPoolHandle".into()));
+			return Err(PluginError::trap("stateful exports require StatefulPoolHandle"));
 		}
 
 		let skey = StatelessKey {
@@ -2238,7 +2238,7 @@ impl WasmRuntime for WasmtimeRuntime {
 			Ok(p) => p,
 			Err(e) => {
 				pool.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-				return Err(PluginError::Trap(e.to_string()));
+				return Err(PluginError::trap(e.to_string()));
 			}
 		};
 
@@ -2249,7 +2249,7 @@ impl WasmRuntime for WasmtimeRuntime {
 		match result {
 			Ok(Ok(d)) => lift_l7request_decision(d),
 			Ok(Err(pe)) => Err(lift_plugin_error_l7request(pe)?),
-			Err(e) => Err(PluginError::Trap(e.to_string())),
+			Err(e) => Err(PluginError::trap(e.to_string())),
 		}
 	}
 
@@ -2263,19 +2263,19 @@ impl WasmRuntime for WasmtimeRuntime {
 		let key = module_id.0.as_ref().to_owned();
 
 		let Some(component) = self.components.read().unwrap().get(&key).cloned() else {
-			return Err(PluginError::Trap("module not loaded".into()));
+			return Err(PluginError::trap("module not loaded"));
 		};
 
 		let Some(meta) = self.metadata.read().unwrap().get(&key).cloned() else {
-			return Err(PluginError::Trap("module not loaded".into()));
+			return Err(PluginError::trap("module not loaded"));
 		};
 
 		let Some(export_meta) = meta.exports.iter().find(|e| e.name == export_name) else {
-			return Err(PluginError::Trap(format!("export '{export_name}' not found")));
+			return Err(PluginError::trap(format!("export '{export_name}' not found")));
 		};
 
 		if !export_meta.stateless {
-			return Err(PluginError::Trap("stateful exports require StatefulPoolHandle".into()));
+			return Err(PluginError::trap("stateful exports require StatefulPoolHandle"));
 		}
 
 		let skey = StatelessKey {
@@ -2317,7 +2317,7 @@ impl WasmRuntime for WasmtimeRuntime {
 			Ok(p) => p,
 			Err(e) => {
 				pool.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-				return Err(PluginError::Trap(e.to_string()));
+				return Err(PluginError::trap(e.to_string()));
 			}
 		};
 
@@ -2328,7 +2328,7 @@ impl WasmRuntime for WasmtimeRuntime {
 		match result {
 			Ok(Ok(d)) => lift_l7response_decision(d),
 			Ok(Err(pe)) => Err(lift_plugin_error_l7response(pe)?),
-			Err(e) => Err(PluginError::Trap(e.to_string())),
+			Err(e) => Err(PluginError::trap(e.to_string())),
 		}
 	}
 }

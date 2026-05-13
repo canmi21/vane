@@ -792,8 +792,15 @@ fn plugin_error_to_decision(pe: PluginError) -> Result<Decision, Error> {
 			}
 			_ => Err(Error::middleware(format!("plugin error {code}: {message}"))),
 		},
-		PluginError::Trap(msg) => Err(Error::middleware(format!("plugin trap: {msg}"))),
+		PluginError::Trap(trap) => {
+			Err(Error::middleware(format!("plugin trap: {trap}")).with_source(trap))
+		}
 		PluginError::Exhausted => Err(Error::middleware("plugin pool exhausted")),
+		// `PluginError` is `#[non_exhaustive]`. Future runtime-class
+		// errors (cpu budget, memory cap) collapse to a generic
+		// middleware error so a new variant doesn't take down the
+		// executor with an unreachable!() panic.
+		_ => Err(Error::middleware("unhandled plugin error variant")),
 	}
 }
 
