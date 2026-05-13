@@ -1,6 +1,6 @@
 [package]
 name = "rustls-native-roots-cache"
-version = "0.0.1"
+version = "0.0.2"
 categories = ["cryptography", "network-programming"]
 edition.workspace = true
 keywords = ["rustls", "tls", "trust-store", "certificates", "native-certs"]

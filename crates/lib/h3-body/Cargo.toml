@@ -1,6 +1,6 @@
 [package]
 name = "h3-body"
-version = "0.0.1"
+version = "0.0.2"
 categories = ["network-programming", "asynchronous", "web-programming::http-server"]
 edition.workspace = true
 keywords = ["h3", "http3", "quic", "http-body", "stream"]

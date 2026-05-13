@@ -73,25 +73,25 @@ similar_names = "allow"
 acme-provider = { path = "crates/lib/acme-provider", version = "0.0.1", default-features = false }
 cgi-request = { path = "crates/lib/cgi-request", version = "0.0.1" }
 cgi-response = { path = "crates/lib/cgi-response", version = "0.0.1" }
-clienthello = { path = "crates/lib/clienthello", version = "0.2.1" }
+clienthello = { path = "crates/lib/clienthello", version = "0.2.2" }
 guess = { path = "crates/lib/guess", version = "0.2.1", default-features = false }
-h3-body = { path = "crates/lib/h3-body", version = "0.0.1" }
+h3-body = { path = "crates/lib/h3-body", version = "0.0.2" }
 hickory-tower-resolver = { path = "crates/lib/hickory-tower-resolver", version = "0.0.1" }
 http-retry-policy = { path = "crates/lib/http-retry-policy", version = "0.0.1" }
-ndjson-rpc = { path = "crates/lib/ndjson-rpc", version = "0.0.1" }
-notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.1" }
+ndjson-rpc = { path = "crates/lib/ndjson-rpc", version = "0.0.2" }
+notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.2" }
 ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.1" }
-ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.1" }
+ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.2" }
 peeked-stream = { path = "crates/lib/peeked-stream", version = "0.0.1" }
 prom-cardinality-cap = { path = "crates/lib/prom-cardinality-cap", version = "0.0.1" }
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }
-rustls-crl-refresh = { path = "crates/lib/rustls-crl-refresh", version = "0.0.1" }
-rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.1" }
+rustls-crl-refresh = { path = "crates/lib/rustls-crl-refresh", version = "0.0.2" }
+rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.2" }
 rustls-pem-roots = { path = "crates/lib/rustls-pem-roots", version = "0.0.1" }
 rustls-sni-resolver = { path = "crates/lib/rustls-sni-resolver", version = "0.0.1" }
-rustls-ticketer = { path = "crates/lib/rustls-ticketer", version = "0.0.1", default-features = false }
-tokio-bind-retry = { path = "crates/lib/tokio-bind-retry", version = "0.0.1" }
-tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.1" }
+rustls-ticketer = { path = "crates/lib/rustls-ticketer", version = "0.0.2", default-features = false }
+tokio-bind-retry = { path = "crates/lib/tokio-bind-retry", version = "0.0.2" }
+tracing-broadcast = { path = "crates/lib/tracing-broadcast", version = "0.0.2" }
 virtual-socket = { path = "crates/lib/virtual-socket", version = "0.0.1" }
 
 # crates/* — vane product crates.

@@ -1,6 +1,6 @@
 [package]
 name = "ndjson-rpc"
-version = "0.0.1"
+version = "0.0.2"
 categories = ["network-programming", "asynchronous", "web-programming::http-server"]
 edition.workspace = true
 keywords = ["rpc", "ndjson", "jsonl", "ipc", "hyper"]

@@ -1,6 +1,6 @@
 [package]
 name = "tracing-broadcast"
-version = "0.0.1"
+version = "0.0.2"
 categories = ["development-tools::debugging", "asynchronous"]
 edition.workspace = true
 keywords = ["tracing", "broadcast", "subscriber", "tokio", "log"]

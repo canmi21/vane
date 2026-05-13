@@ -1,6 +1,6 @@
 [package]
 name = "tokio-bind-retry"
-version = "0.0.1"
+version = "0.0.2"
 categories = ["network-programming", "asynchronous"]
 edition.workspace = true
 keywords = ["tokio", "bind", "retry", "listener", "backoff"]

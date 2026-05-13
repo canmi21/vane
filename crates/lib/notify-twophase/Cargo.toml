@@ -1,6 +1,6 @@
 [package]
 name = "notify-twophase"
-version = "0.0.1"
+version = "0.0.2"
 categories = ["filesystem", "asynchronous"]
 edition.workspace = true
 keywords = ["notify", "fsevents", "watcher", "fs", "tokio"]

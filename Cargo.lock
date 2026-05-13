@@ -666,7 +666,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "clienthello"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "h3-body"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2844,7 +2844,7 @@ dependencies = [
 
 [[package]]
 name = "ndjson-rpc"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "notify-twophase"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "notify",
  "notify-debouncer-full",
@@ -3089,7 +3089,7 @@ dependencies = [
 
 [[package]]
 name = "ocsp-staple"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "bytes",
  "der",
@@ -3954,7 +3954,7 @@ dependencies = [
 
 [[package]]
 name = "rustls-crl-refresh"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3984,7 +3984,7 @@ dependencies = [
 
 [[package]]
 name = "rustls-native-roots-cache"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "arc-swap",
  "rustls",
@@ -4081,7 +4081,7 @@ dependencies = [
 
 [[package]]
 name = "rustls-ticketer"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "aws-lc-rs",
  "libc",
@@ -4852,7 +4852,7 @@ dependencies = [
 
 [[package]]
 name = "tokio-bind-retry"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "fastrand",
  "tokio",
@@ -5091,7 +5091,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-broadcast"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "serde",
  "serde_json",
