@@ -3964,6 +3964,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "rustls-pki-types",
+ "thiserror 2.0.18",
  "time",
  "tokio",
  "tokio-util",

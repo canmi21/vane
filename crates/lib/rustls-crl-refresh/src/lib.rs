@@ -17,6 +17,6 @@ mod cache;
 mod verifier;
 
 pub use cache::{
-	CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId, dedupe_crl_sources, read_crl_file,
+	CrlCache, CrlError, CrlFetchFailure, CrlFetcher, CrlSourceId, dedupe_crl_sources, read_crl_file,
 };
 pub use verifier::{RefreshableClientCertVerifier, RefreshableServerCertVerifier};

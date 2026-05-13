@@ -22,7 +22,7 @@ use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 pub use rustls_crl_refresh::{
-	CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId, dedupe_crl_sources,
+	CrlCache, CrlError, CrlFetchFailure, CrlFetcher, CrlSourceId, dedupe_crl_sources,
 };
 use vane_core::Body;
 
@@ -75,29 +75,34 @@ impl DefaultCrlFetcher {
 
 #[async_trait]
 impl CrlFetcher for DefaultCrlFetcher {
-	async fn fetch(&self, src: &CrlSourceId) -> Result<Vec<u8>, String> {
+	async fn fetch(&self, src: &CrlSourceId) -> Result<Vec<u8>, CrlError> {
 		match src {
 			CrlSourceId::File(path) => rustls_crl_refresh::read_crl_file(path).await,
-			CrlSourceId::Url(url) => self.fetch_url(url).await,
+			CrlSourceId::Url(url) => self.fetch_url(src, url).await,
 		}
 	}
 }
 
 impl DefaultCrlFetcher {
-	async fn fetch_url(&self, url: &str) -> Result<Vec<u8>, String> {
-		let uri: hyper::Uri = url.parse().map_err(|e| format!("parse url: {e}"))?;
+	async fn fetch_url(&self, src: &CrlSourceId, url: &str) -> Result<Vec<u8>, CrlError> {
+		let uri: hyper::Uri =
+			url.parse().map_err(|e| CrlError::fetch(src, format!("parse url: {e}")))?;
 		let req = hyper::Request::get(uri)
 			.header(hyper::header::ACCEPT, "application/pkix-crl, application/x-pkcs7-crl, */*")
 			.body(Body::Empty)
-			.map_err(|e| format!("build request: {e}"))?;
-		let resp = self.client.request(req).await.map_err(|e| format!("crl http request: {e}"))?;
+			.map_err(|e| CrlError::fetch(src, format!("build request: {e}")))?;
+		let resp = self
+			.client
+			.request(req)
+			.await
+			.map_err(|e| CrlError::fetch(src, format!("http request: {e}")))?;
 		if !resp.status().is_success() {
-			return Err(format!("crl http {} for {url}", resp.status()));
+			return Err(CrlError::fetch(src, format!("http {} for {url}", resp.status())));
 		}
 		let collected = http_body_util::Limited::new(resp.into_body(), URL_BODY_LIMIT)
 			.collect()
 			.await
-			.map_err(|e| format!("crl body read: {e}"))?;
+			.map_err(|e| CrlError::fetch(src, format!("body read: {e}")))?;
 		Ok(collected.to_bytes().to_vec())
 	}
 }

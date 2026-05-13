@@ -19,7 +19,7 @@ pub use client_trust::{
 	ClientTrustStore, ClientTrustStoreError, ClientTrustStoreHandle, build_client_verifier,
 };
 pub use crl_cache::{
-	CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId, DefaultCrlFetcher,
+	CrlCache, CrlError, CrlFetchFailure, CrlFetcher, CrlSourceId, DefaultCrlFetcher,
 	collect_listener_crl_sources, collect_upstream_crl_sources, dedupe_crl_sources,
 };
 pub use ocsp_staple::{OcspError, OcspStaple};

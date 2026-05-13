@@ -16,6 +16,69 @@ use rustls_pki_types::CertificateRevocationListDer;
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
 
+/// Public error type for every fallible operation in this crate.
+///
+/// Pre-0.0.3 the same APIs returned `Result<_, String>`; callers
+/// that wanted to distinguish "source not registered" from "reject
+/// policy with no bytes" from "fetcher I/O failure" had to grep
+/// substrings. `#[non_exhaustive]` so future variants stay
+/// additive — operators that `match` exhaustively must include a
+/// `_ => ...` arm.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum CrlError {
+	/// The pluggable [`CrlFetcher`] returned an error. The variant
+	/// names the source so the cache can attach context when the
+	/// fetcher impl only sees opaque bytes-or-message.
+	#[error("fetch {src}: {message}")]
+	Fetch { src: CrlSourceId, message: String },
+
+	/// A `reject` policy entry is currently `Unavailable` — either
+	/// its first load failed, or every subsequent refresh has failed
+	/// and the cached `nextUpdate` has elapsed. Surfaced by
+	/// [`CrlCache::ensure_loaded`] at link time and
+	/// [`CrlCache::snapshot`] at handshake time.
+	#[error("crl source unavailable (reject policy): {src}")]
+	Unavailable { src: CrlSourceId },
+
+	/// [`CrlCache::snapshot`] referenced a source that has never
+	/// been registered via [`CrlCache::ensure_loaded`] or
+	/// [`CrlCache::ensure_loaded_new`]. This is a wiring bug in the
+	/// caller, not a transient condition.
+	#[error("crl source not registered: {src}")]
+	NotRegistered { src: CrlSourceId },
+
+	/// I/O error reading a `CrlSourceId::File` source. Surfaced
+	/// only by [`read_crl_file`]; the high-level
+	/// `CrlCache::ensure_loaded` path routes file failures through
+	/// `Fetch` via the [`CrlFetcher`] trait.
+	#[error("read crl file {path}: {source}")]
+	Io {
+		path: PathBuf,
+		#[source]
+		source: std::io::Error,
+	},
+}
+
+impl CrlError {
+	/// Convenience constructor matching the shape fetcher
+	/// implementations almost always want: tag the error with the
+	/// source it was fetching and a human message.
+	#[must_use]
+	pub fn fetch(src: &CrlSourceId, message: impl Into<String>) -> Self {
+		Self::Fetch { src: src.clone(), message: message.into() }
+	}
+}
+
+impl std::fmt::Display for CrlSourceId {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::File(p) => write!(f, "file:{}", p.display()),
+			Self::Url(u) => write!(f, "url:{u}"),
+		}
+	}
+}
+
 /// Source identity used as the cache key. The fingerprint hashes the
 /// path / URL string, **not** the fetched bytes — so refresh cycles
 /// never invalidate downstream caches keyed off this identity.
@@ -106,7 +169,7 @@ pub trait CrlFetcher: Send + Sync {
 	/// from disk. URL source: typically HTTP GET. Returns DER bytes on
 	/// success; PEM input is decoded by the cache via `rustls-pemfile`
 	/// before parsing. Caller's `await` is timed out at 30 s.
-	async fn fetch(&self, src: &CrlSourceId) -> Result<Vec<u8>, String>;
+	async fn fetch(&self, src: &CrlSourceId) -> Result<Vec<u8>, CrlError>;
 }
 
 /// Process-wide CRL cache.
@@ -153,7 +216,7 @@ impl CrlCache {
 	pub async fn ensure_loaded(
 		&self,
 		sources: &[(CrlSourceId, CrlFetchFailure)],
-	) -> Result<(), String> {
+	) -> Result<(), CrlError> {
 		use futures::stream::{FuturesUnordered, StreamExt};
 		let mut tasks: FuturesUnordered<_> =
 			sources.iter().map(|(src, policy)| self.fetch_source(src, *policy)).collect();
@@ -177,13 +240,13 @@ impl CrlCache {
 	pub fn snapshot(
 		&self,
 		sources: &[CrlSourceId],
-	) -> Result<Vec<Arc<CertificateRevocationListDer<'static>>>, String> {
+	) -> Result<Vec<Arc<CertificateRevocationListDer<'static>>>, CrlError> {
 		let now = OffsetDateTime::now_utc();
 		let guard = self.inner.read();
 		let mut out = Vec::with_capacity(sources.len());
 		for src in sources {
 			let Some(entry) = guard.get(src) else {
-				return Err(format!("crl source not registered: {src:?}"));
+				return Err(CrlError::NotRegistered { src: src.clone() });
 			};
 			let state = entry_state(entry, now);
 			match (state, entry.fetch_failure) {
@@ -201,7 +264,7 @@ impl CrlCache {
 					}
 				}
 				(HealthState::Unavailable, CrlFetchFailure::Reject) => {
-					return Err(format!("crl source unavailable (reject policy): {src:?}"));
+					return Err(CrlError::Unavailable { src: src.clone() });
 				}
 			}
 		}
@@ -221,7 +284,7 @@ impl CrlCache {
 	pub async fn ensure_loaded_new(
 		&self,
 		sources: &[(CrlSourceId, CrlFetchFailure)],
-	) -> Result<(), String> {
+	) -> Result<(), CrlError> {
 		let to_fetch: Vec<(CrlSourceId, CrlFetchFailure)> = {
 			let guard = self.inner.read();
 			sources
@@ -305,7 +368,7 @@ impl CrlCache {
 		if raw < MIN_REFRESH_INTERVAL { MIN_REFRESH_INTERVAL } else { raw }
 	}
 
-	async fn fetch_source(&self, src: &CrlSourceId, policy: CrlFetchFailure) -> Result<(), String> {
+	async fn fetch_source(&self, src: &CrlSourceId, policy: CrlFetchFailure) -> Result<(), CrlError> {
 		// Insert / refresh policy on the entry up front so concurrent
 		// snapshot() readers see a consistent state machine.
 		{
@@ -323,9 +386,11 @@ impl CrlCache {
 		}
 
 		let outcome = tokio::time::timeout(FETCH_TIMEOUT, self.fetcher.fetch(src)).await;
-		let result: Result<Vec<u8>, String> = match outcome {
+		let result: Result<Vec<u8>, CrlError> = match outcome {
 			Ok(r) => r,
-			Err(_) => Err(format!("crl fetch timeout after {}s", FETCH_TIMEOUT.as_secs())),
+			Err(_) => {
+				Err(CrlError::fetch(src, format!("fetch timeout after {}s", FETCH_TIMEOUT.as_secs())))
+			}
 		};
 
 		// Pre-decode any PEM-armoured CRL into raw DER before parsing
@@ -379,7 +444,7 @@ impl CrlCache {
 				}
 				match policy {
 					CrlFetchFailure::Tolerate => Ok(()),
-					CrlFetchFailure::Reject => Err(format!("crl source {src:?}: {err}")),
+					CrlFetchFailure::Reject => Err(err),
 				}
 			}
 		}
@@ -417,9 +482,10 @@ fn parse_next_update(der: &[u8]) -> Option<OffsetDateTime> {
 /// # Errors
 ///
 /// Wraps the underlying `tokio::fs::read` error.
-pub async fn read_crl_file(path: &Path) -> Result<Vec<u8>, String> {
-	let bytes =
-		tokio::fs::read(path).await.map_err(|e| format!("read crl file {}: {e}", path.display()))?;
+pub async fn read_crl_file(path: &Path) -> Result<Vec<u8>, CrlError> {
+	let bytes = tokio::fs::read(path)
+		.await
+		.map_err(|source| CrlError::Io { path: path.to_path_buf(), source })?;
 	if let Some(der) = decode_pem_crl(&bytes) {
 		return Ok(der);
 	}
@@ -480,7 +546,7 @@ mod tests {
 
 	#[async_trait]
 	impl CrlFetcher for StaticFetcher {
-		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, String> {
+		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, CrlError> {
 			self.count.fetch_add(1, Ordering::SeqCst);
 			Ok(self.bytes.clone())
 		}
@@ -492,9 +558,9 @@ mod tests {
 
 	#[async_trait]
 	impl CrlFetcher for AlwaysFailFetcher {
-		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, String> {
+		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, CrlError> {
 			self.count.fetch_add(1, Ordering::SeqCst);
-			Err("fixture failure".into())
+			Err(CrlError::fetch(_src, "fixture failure"))
 		}
 	}
 
@@ -505,11 +571,11 @@ mod tests {
 
 	#[async_trait]
 	impl CrlFetcher for FlippingFetcher {
-		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, String> {
+		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, CrlError> {
 			if self.succeed.load(Ordering::SeqCst) {
 				Ok(self.ok_bytes.clone())
 			} else {
-				Err("flip failure".into())
+				Err(CrlError::fetch(_src, "flip failure"))
 			}
 		}
 	}
@@ -584,7 +650,14 @@ mod tests {
 			.ensure_loaded(&[(src, CrlFetchFailure::Reject)])
 			.await
 			.expect_err("reject must fail-closed");
-		assert!(err.contains("fixture failure"), "{err}");
+		// Structured: the fetcher returned a `Fetch` variant; the
+		// message field carries the human description verbatim.
+		match err {
+			CrlError::Fetch { message, .. } => {
+				assert!(message.contains("fixture failure"), "{message}");
+			}
+			other => panic!("expected Fetch variant, got {other:?}"),
+		}
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
@@ -600,8 +673,15 @@ mod tests {
 			.await
 			.expect("tolerate at link");
 		assert!(cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Reject)]).await.is_err());
-		let snap_err = cache.snapshot(&[src]).expect_err("reject snapshot must fail-closed");
-		assert!(snap_err.contains("unavailable"), "{snap_err}");
+		let snap_err =
+			cache.snapshot(std::slice::from_ref(&src)).expect_err("reject snapshot must fail-closed");
+		// `Unavailable` is the structured signal — the variant alone
+		// is the assertion, with the `src` field naming which source
+		// hit the wall.
+		match snap_err {
+			CrlError::Unavailable { src: failed } => assert_eq!(failed, src),
+			other => panic!("expected Unavailable variant, got {other:?}"),
+		}
 	}
 
 	#[tokio::test(flavor = "multi_thread")]

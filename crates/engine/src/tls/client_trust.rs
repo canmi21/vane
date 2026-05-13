@@ -178,8 +178,8 @@ struct NeverFetcher;
 
 #[async_trait::async_trait]
 impl crate::tls::CrlFetcher for NeverFetcher {
-	async fn fetch(&self, _src: &crate::tls::CrlSourceId) -> Result<Vec<u8>, String> {
-		Err("crl cache not configured".into())
+	async fn fetch(&self, src: &crate::tls::CrlSourceId) -> Result<Vec<u8>, crate::tls::CrlError> {
+		Err(crate::tls::CrlError::fetch(src, "crl cache not configured"))
 	}
 }
 

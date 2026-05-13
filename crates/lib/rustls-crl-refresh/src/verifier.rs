@@ -298,7 +298,7 @@ mod tests {
 	use rustls::RootCertStore;
 
 	use super::*;
-	use crate::cache::{CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId};
+	use crate::cache::{CrlCache, CrlError, CrlFetchFailure, CrlFetcher, CrlSourceId};
 
 	struct StaticFetcher {
 		bytes: Vec<u8>,
@@ -307,7 +307,7 @@ mod tests {
 
 	#[async_trait]
 	impl CrlFetcher for StaticFetcher {
-		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, String> {
+		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, CrlError> {
 			self.count.fetch_add(1, Ordering::SeqCst);
 			Ok(self.bytes.clone())
 		}
@@ -317,8 +317,8 @@ mod tests {
 
 	#[async_trait]
 	impl CrlFetcher for FailingFetcher {
-		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, String> {
-			Err("test failure".into())
+		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, CrlError> {
+			Err(CrlError::fetch(_src, "test failure"))
 		}
 	}
 
@@ -421,7 +421,7 @@ mod tests {
 
 	#[async_trait]
 	impl CrlFetcher for SwapFetcher {
-		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, String> {
+		async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, CrlError> {
 			let n = self.calls.fetch_add(1, Ordering::SeqCst);
 			Ok(if n == 0 { self.first.clone() } else { self.second.clone() })
 		}

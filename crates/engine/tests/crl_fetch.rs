@@ -27,7 +27,9 @@ use rcgen::{
 	KeyUsagePurpose, RevocationReason, RevokedCertParams, SerialNumber,
 };
 use tokio::net::TcpListener;
-use vane_engine::tls::{CrlCache, CrlFetchFailure, CrlFetcher, CrlSourceId, DefaultCrlFetcher};
+use vane_engine::tls::{
+	CrlCache, CrlError, CrlFetchFailure, CrlFetcher, CrlSourceId, DefaultCrlFetcher,
+};
 
 fn make_issuer() -> Issuer<'static, KeyPair> {
 	let mut params = CertificateParams::new(vec!["fixture ca".into()]).expect("ca params");
@@ -127,7 +129,12 @@ async fn cache_reject_unreachable_url_fails_link() {
 		.ensure_loaded(&[(CrlSourceId::Url(url), CrlFetchFailure::Reject)])
 		.await
 		.expect_err("reject must propagate");
-	assert!(err.contains("crl"), "{err}");
+	// Structured: the fetcher's HTTP connect failure surfaces as
+	// `CrlError::Fetch` carrying the source identity.
+	match err {
+		CrlError::Fetch { src: CrlSourceId::Url(_), .. } => {}
+		other => panic!("expected Fetch variant for Url source, got {other:?}"),
+	}
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -194,11 +201,11 @@ struct FlippingFetcher {
 
 #[async_trait]
 impl CrlFetcher for FlippingFetcher {
-	async fn fetch(&self, _src: &CrlSourceId) -> Result<Vec<u8>, String> {
+	async fn fetch(&self, src: &CrlSourceId) -> Result<Vec<u8>, CrlError> {
 		if self.succeed.load(Ordering::SeqCst) {
 			Ok(self.bytes.clone())
 		} else {
-			Err("flip down".into())
+			Err(CrlError::fetch(src, "flip down"))
 		}
 	}
 }
