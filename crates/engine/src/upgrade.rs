@@ -501,18 +501,16 @@ pub(crate) async fn drive_h3_server(
 	let cancel = force_cancel.clone();
 	let remote = quic_conn.remote_address();
 	let conn_id = crate::listener::next_conn_id();
-	let conn = Arc::new(vane_core::ConnContext {
-		id: conn_id,
+	let conn = Arc::new(vane_core::ConnContext::new(
+		conn_id,
 		remote,
-		local: listener_addr,
-		transport: vane_core::Transport::Udp,
-		entered_at: std::time::Instant::now(),
-		tls: parking_lot::Mutex::new(Some(vane_core::TlsInfo {
-			alpn: Some(std::sync::Arc::from(&b"h3"[..])),
-			..vane_core::TlsInfo::default()
-		})),
-		http_version: std::sync::OnceLock::new(),
-		user: parking_lot::Mutex::new(http::Extensions::new()),
+		listener_addr,
+		vane_core::Transport::Udp,
+		std::time::Instant::now(),
+	));
+	*conn.tls.lock() = Some(vane_core::TlsInfo {
+		alpn: Some(std::sync::Arc::from(&b"h3"[..])),
+		..vane_core::TlsInfo::default()
 	});
 	let _ = conn.http_version.set(HttpVersion::Http3);
 

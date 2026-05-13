@@ -19,7 +19,7 @@
 use std::io::Write as _;
 use std::net::SocketAddr;
 use std::os::unix::fs::PermissionsExt as _;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -111,16 +111,7 @@ fn build_fetch(args: &Value) -> Arc<dyn L7Fetch> {
 fn make_conn() -> Arc<ConnContext> {
 	let remote: SocketAddr = "127.0.0.1:54321".parse().unwrap();
 	let local: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-	Arc::new(ConnContext {
-		id: ConnId(1),
-		remote,
-		local,
-		transport: Transport::Tcp,
-		entered_at: std::time::Instant::now(),
-		tls: parking_lot::Mutex::new(None),
-		http_version: OnceLock::new(),
-		user: parking_lot::Mutex::new(http::Extensions::new()),
-	})
+	Arc::new(ConnContext::new(ConnId(1), remote, local, Transport::Tcp, std::time::Instant::now()))
 }
 
 fn make_ctx(conn: &Arc<ConnContext>) -> FlowCtx {

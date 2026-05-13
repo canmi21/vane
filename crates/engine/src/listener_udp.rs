@@ -647,16 +647,10 @@ async fn handle_cold_path(
 
 	let conn_id = crate::listener::next_conn_id();
 	let initial_tls = sni.map(|s| TlsInfo { sni: Some(Arc::from(s)), ..TlsInfo::default() });
-	let conn = Arc::new(ConnContext {
-		id: conn_id,
-		remote: peer,
-		local,
-		transport: Transport::Udp,
-		entered_at: Instant::now(),
-		tls: parking_lot::Mutex::new(initial_tls),
-		http_version: std::sync::OnceLock::new(),
-		user: parking_lot::Mutex::new(http::Extensions::new()),
-	});
+	let conn = Arc::new(ConnContext::new(conn_id, peer, local, Transport::Udp, Instant::now()));
+	if let Some(info) = initial_tls {
+		*conn.tls.lock() = Some(info);
+	}
 	// Stash the dispatch table so L4Forward (or any future UDP fetch)
 	// can register a session under its own DispatchKey. Stored as
 	// `Arc<DispatchTable>` so the fetch can cheaply clone it for

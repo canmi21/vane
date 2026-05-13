@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Instant, SystemTime};
 
@@ -56,16 +55,7 @@ impl FlowLogSink for NullSink {
 fn make_conn() -> Arc<ConnContext> {
 	let remote: SocketAddr = "127.0.0.1:0".parse().expect("parse");
 	let local: SocketAddr = "127.0.0.1:0".parse().expect("parse");
-	Arc::new(ConnContext {
-		id: ConnId(1),
-		remote,
-		local,
-		transport: Transport::Tcp,
-		entered_at: Instant::now(),
-		tls: Mutex::new(None),
-		http_version: OnceLock::new(),
-		user: Mutex::new(http::Extensions::new()),
-	})
+	Arc::new(ConnContext::new(ConnId(1), remote, local, Transport::Tcp, Instant::now()))
 }
 
 fn sample_meta() -> FlowGraphMeta {

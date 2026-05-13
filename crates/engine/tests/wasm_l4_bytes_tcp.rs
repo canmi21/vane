@@ -8,7 +8,6 @@
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -99,16 +98,7 @@ impl WasmRuntime for RecordingRuntime {
 fn make_conn() -> Arc<ConnContext> {
 	let remote: SocketAddr = "127.0.0.1:55555".parse().expect("remote parse");
 	let local: SocketAddr = "127.0.0.1:443".parse().expect("local parse");
-	Arc::new(ConnContext {
-		id: ConnId(1),
-		remote,
-		local,
-		transport: Transport::Tcp,
-		entered_at: Instant::now(),
-		tls: Mutex::new(None),
-		http_version: OnceLock::new(),
-		user: Mutex::new(http::Extensions::new()),
-	})
+	Arc::new(ConnContext::new(ConnId(1), remote, local, Transport::Tcp, Instant::now()))
 }
 
 fn install_peek(conn: &ConnContext, buffer: Bytes) {

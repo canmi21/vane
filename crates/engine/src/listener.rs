@@ -826,16 +826,7 @@ async fn handle_connection(
 	let accepted_at = Instant::now();
 	ctx.connections.insert(conn_id, ConnEntry { conn_id, listener_addr: local, remote, accepted_at });
 	let _conn_registration = ConnRegistration { registry: Arc::clone(&ctx.connections), conn_id };
-	let conn = Arc::new(ConnContext {
-		id: conn_id,
-		remote,
-		local,
-		transport: Transport::Tcp,
-		entered_at: accepted_at,
-		tls: parking_lot::Mutex::new(None),
-		http_version: std::sync::OnceLock::new(),
-		user: parking_lot::Mutex::new(http::Extensions::new()),
-	});
+	let conn = Arc::new(ConnContext::new(conn_id, remote, local, Transport::Tcp, accepted_at));
 
 	let span = tracing::info_span!("conn", id = %conn.id);
 	let mut flow_ctx = FlowCtx {

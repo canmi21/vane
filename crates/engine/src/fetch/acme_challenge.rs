@@ -118,7 +118,7 @@ mod tests {
 	use std::time::Instant;
 
 	use http::HeaderValue;
-	use parking_lot::Mutex;
+
 	use tokio_util::sync::CancellationToken;
 	use vane_core::flow_log::{FlowLogEvent, FlowLogSink, FlowLogVerbosity, TrajectoryBuilder};
 	use vane_core::ir::NodeId;
@@ -174,16 +174,7 @@ mod tests {
 
 	fn conn_ctx() -> Arc<ConnContext> {
 		let addr: SocketAddr = "127.0.0.1:0".parse().expect("parse addr");
-		Arc::new(ConnContext {
-			id: ConnId(0),
-			remote: addr,
-			local: addr,
-			transport: Transport::Tcp,
-			entered_at: Instant::now(),
-			tls: Mutex::new(None),
-			http_version: std::sync::OnceLock::new(),
-			user: Mutex::new(http::Extensions::new()),
-		})
+		Arc::new(ConnContext::new(ConnId(0), addr, addr, Transport::Tcp, Instant::now()))
 	}
 
 	fn flow_ctx(conn_id: ConnId) -> FlowCtx {

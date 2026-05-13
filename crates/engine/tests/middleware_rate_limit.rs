@@ -18,10 +18,8 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::time::Instant;
 
-use parking_lot::Mutex;
 use tokio_util::sync::CancellationToken;
 use vane_core::{
 	ConnContext, ConnId, Decision, FlowCtx, FlowLogEvent, FlowLogSink, FlowLogVerbosity,
@@ -40,16 +38,7 @@ impl FlowLogSink for DropSink {
 fn make_conn(remote: &str) -> Arc<ConnContext> {
 	let remote: SocketAddr = remote.parse().expect("remote");
 	let local: SocketAddr = "127.0.0.1:0".parse().expect("local");
-	Arc::new(ConnContext {
-		id: ConnId(1),
-		remote,
-		local,
-		transport: Transport::Tcp,
-		entered_at: Instant::now(),
-		tls: Mutex::new(None),
-		http_version: OnceLock::new(),
-		user: Mutex::new(http::Extensions::new()),
-	})
+	Arc::new(ConnContext::new(ConnId(1), remote, local, Transport::Tcp, Instant::now()))
 }
 
 fn make_ctx() -> FlowCtx {

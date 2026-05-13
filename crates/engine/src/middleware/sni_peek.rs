@@ -89,7 +89,6 @@ mod tests {
 	use std::sync::Arc;
 	use std::time::Instant;
 
-	use parking_lot::Mutex;
 	use serde_json::json;
 	use tokio_util::sync::CancellationToken;
 	use vane_core::{
@@ -106,16 +105,7 @@ mod tests {
 
 	fn make_conn() -> Arc<ConnContext> {
 		let addr: SocketAddr = "127.0.0.1:0".parse().expect("parse addr");
-		Arc::new(ConnContext {
-			id: ConnId(0),
-			remote: addr,
-			local: addr,
-			transport: Transport::Tcp,
-			entered_at: Instant::now(),
-			tls: Mutex::new(None),
-			http_version: std::sync::OnceLock::new(),
-			user: Mutex::new(http::Extensions::new()),
-		})
+		Arc::new(ConnContext::new(ConnId(0), addr, addr, Transport::Tcp, Instant::now()))
 	}
 
 	fn make_ctx() -> FlowCtx {

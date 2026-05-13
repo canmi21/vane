@@ -14,7 +14,6 @@ use std::sync::Arc;
 use http_body_util::BodyExt;
 use hyper::body::Bytes;
 use hyper_util::rt::TokioIo;
-use parking_lot::Mutex;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -145,22 +144,16 @@ impl FlowLogSink for NullSink {
 }
 
 fn make_ctx_and_conn() -> (Arc<ConnContext>, FlowCtx) {
-	let conn = Arc::new(ConnContext {
-		id: vane_core::ConnId(1),
-		remote: "127.0.0.1:0".parse().unwrap(),
-		local: "127.0.0.1:0".parse().unwrap(),
-		transport: Transport::Tcp,
-		entered_at: std::time::Instant::now(),
-		tls: Mutex::new(Some(TlsInfo {
-			sni: None,
-			alpn: None,
-			version: None,
-			peer_cert: None,
-			zero_rtt_used: false,
-		})),
-		http_version: std::sync::OnceLock::from(HttpVersion::Http1_1),
-		user: Mutex::new(http::Extensions::new()),
-	});
+	let conn = Arc::new(ConnContext::new(
+		vane_core::ConnId(1),
+		"127.0.0.1:0".parse().unwrap(),
+		"127.0.0.1:0".parse().unwrap(),
+		Transport::Tcp,
+		std::time::Instant::now(),
+	));
+	*conn.tls.lock() =
+		Some(TlsInfo { sni: None, alpn: None, version: None, peer_cert: None, zero_rtt_used: false });
+	let _ = conn.http_version.set(HttpVersion::Http1_1);
 	let span = tracing::info_span!("test");
 	let ctx = FlowCtx {
 		span,

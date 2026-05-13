@@ -165,6 +165,15 @@ fn hex_lower(bytes: &[u8]) -> String {
 	s
 }
 
+/// Per-connection state shared between the listener and the executor.
+///
+/// `#[non_exhaustive]` so downstream crates cannot construct a
+/// `ConnContext` via a struct literal — the listener layer owns
+/// construction. Existing field-access patterns (`conn.id`,
+/// `conn.tls.lock()`, ...) remain available to workspace crates so
+/// the engine's hot path stays unchanged; new code should prefer the
+/// accessor methods below for the locked fields.
+#[non_exhaustive]
 pub struct ConnContext {
 	pub id: ConnId,
 	pub remote: SocketAddr,
@@ -176,6 +185,52 @@ pub struct ConnContext {
 	pub http_version: OnceLock<HttpVersion>,
 
 	pub user: Mutex<http::Extensions>,
+}
+
+impl ConnContext {
+	/// Construct a fresh per-connection context. The TLS / user-
+	/// extension mutexes and the http-version once-lock all start
+	/// empty; the listener fills them as the handshake progresses.
+	///
+	/// `#[non_exhaustive]` on the struct blocks external struct
+	/// literals, so this constructor is the only public entry point
+	/// for building a `ConnContext` from outside `vane-core`.
+	#[must_use]
+	pub fn new(
+		id: ConnId,
+		remote: SocketAddr,
+		local: SocketAddr,
+		transport: Transport,
+		entered_at: Instant,
+	) -> Self {
+		Self {
+			id,
+			remote,
+			local,
+			transport,
+			entered_at,
+			tls: Mutex::new(None),
+			http_version: OnceLock::new(),
+			user: Mutex::new(http::Extensions::new()),
+		}
+	}
+
+	/// Lock-and-read access to the TLS state. The returned guard is a
+	/// `parking_lot::MutexGuard` — drop it as soon as the read is
+	/// done to release the lock for other tasks.
+	pub fn tls(&self) -> parking_lot::MutexGuard<'_, Option<TlsInfo>> {
+		self.tls.lock()
+	}
+
+	/// Closure-scoped mutable access to the per-connection
+	/// extension map. Prefer this over directly grabbing
+	/// `conn.user.lock()` — the closure bound makes the lock window
+	/// visible at the call site, which matters because the executor
+	/// holds the same mutex across several dispatch arms.
+	pub fn with_user<R>(&self, f: impl FnOnce(&mut http::Extensions) -> R) -> R {
+		let mut guard = self.user.lock();
+		f(&mut guard)
+	}
 }
 
 #[cfg(test)]

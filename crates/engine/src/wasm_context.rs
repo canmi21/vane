@@ -179,10 +179,9 @@ fn warn_pack_unimplemented_once(module_id: &str, path: &str) {
 #[cfg(test)]
 mod tests {
 	use std::net::SocketAddr;
-	use std::sync::{Arc, OnceLock as StdOnceLock};
+	use std::sync::Arc;
 	use std::time::Instant as StdInstant;
 
-	use parking_lot::Mutex as PLMutex;
 	use vane_core::{ConnContext, ConnId, PeerCertificate, TlsInfo, TlsVersion, Transport};
 
 	use super::*;
@@ -193,16 +192,17 @@ mod tests {
 		transport: Transport,
 		tls: Option<TlsInfo>,
 	) -> Arc<ConnContext> {
-		Arc::new(ConnContext {
-			id: ConnId(0x0bad_f00d_dead_beef),
-			remote: remote.parse::<SocketAddr>().expect("remote parse"),
-			local: local.parse::<SocketAddr>().expect("local parse"),
+		let conn = Arc::new(ConnContext::new(
+			ConnId(0x0bad_f00d_dead_beef),
+			remote.parse::<SocketAddr>().expect("remote parse"),
+			local.parse::<SocketAddr>().expect("local parse"),
 			transport,
-			entered_at: StdInstant::now(),
-			tls: PLMutex::new(tls),
-			http_version: StdOnceLock::new(),
-			user: PLMutex::new(http::Extensions::new()),
-		})
+			StdInstant::now(),
+		));
+		if let Some(info) = tls {
+			*conn.tls.lock() = Some(info);
+		}
+		conn
 	}
 
 	fn pack_single(path: &str, conn: &ConnContext) -> Option<ContextValue> {

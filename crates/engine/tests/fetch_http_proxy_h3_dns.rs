@@ -9,7 +9,6 @@
 
 use std::sync::Arc;
 
-use parking_lot::Mutex;
 use vane_core::{
 	Body, ConnContext, ConnId, FlowCtx, FlowLogEvent, FlowLogSink, HttpVersion, NodeId, TlsInfo,
 	TrajectoryBuilder, Transport, UpstreamReason,
@@ -23,22 +22,16 @@ impl FlowLogSink for DropSink {
 }
 
 fn make_ctx() -> (Arc<ConnContext>, FlowCtx) {
-	let conn = Arc::new(ConnContext {
-		id: ConnId(1),
-		remote: "127.0.0.1:0".parse().unwrap(),
-		local: "127.0.0.1:0".parse().unwrap(),
-		transport: Transport::Tcp,
-		entered_at: std::time::Instant::now(),
-		tls: Mutex::new(Some(TlsInfo {
-			sni: None,
-			alpn: None,
-			version: None,
-			peer_cert: None,
-			zero_rtt_used: false,
-		})),
-		http_version: std::sync::OnceLock::from(HttpVersion::Http1_1),
-		user: Mutex::new(http::Extensions::new()),
-	});
+	let conn = Arc::new(ConnContext::new(
+		ConnId(1),
+		"127.0.0.1:0".parse().unwrap(),
+		"127.0.0.1:0".parse().unwrap(),
+		Transport::Tcp,
+		std::time::Instant::now(),
+	));
+	*conn.tls.lock() =
+		Some(TlsInfo { sni: None, alpn: None, version: None, peer_cert: None, zero_rtt_used: false });
+	let _ = conn.http_version.set(HttpVersion::Http1_1);
 	let span = tracing::info_span!("test");
 	let ctx = FlowCtx {
 		span,
