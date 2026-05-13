@@ -23,6 +23,19 @@
 //! production (default trust roots) and
 //! [`ManagedCertRegistry::issue_http01_with_root`] for test harnesses
 //! that need a custom CA root (Pebble).
+//!
+//! ## Concurrency invariant
+//!
+//! `self.certs` is a `DashMap`; its `.get` / `.get_mut` return shard-
+//! locked `Ref` / `RefMut` guards. **Never hold a DashMap `Ref` or
+//! `RefMut` across an `.await`.** A pending guard on a shard blocks
+//! the next `.get_mut` for any key that hashes to the same shard,
+//! and the registry frequently re-enters the same key inside the
+//! same async function (see [`Self::persist_ocsp_state`]) — a held
+//! guard would deadlock the re-entry against itself. Wherever an
+//! operation looks up a value and then awaits, extract the owned
+//! data (`s.stored.clone()`, etc.) into a local before the await
+//! point so the guard's drop scope ends inside the read statement.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -533,9 +546,21 @@ impl ManagedCertRegistry {
 		// Read-modify-write the cached cert state. We hold the
 		// per-cert advisory lock for the disk write so the renewal
 		// scheduler's tick can't race the post-issuance write.
+		//
+		// **Concurrency invariant: never hold a DashMap `Ref` across
+		// an `.await`.** Extract the `Arc<StoredCert>` to a local
+		// before the `match` so the `Ref` returned by
+		// `self.certs.get(&key)` drops at the end of this statement,
+		// well before the per-cert store lock + disk write below.
+		// Holding a `Ref` across the awaits would deadlock the
+		// second `self.certs.get_mut(&key)` further down — the read
+		// guard prevents the write guard from acquiring the same
+		// shard.
 		let key = sni.to_ascii_lowercase();
-		let updated_arc = match self.certs.get(&key).map(|s| s.stored.clone()) {
-			Some(Some(stored_arc)) => {
+		let stored_arc_opt: Option<Arc<StoredCert>> =
+			self.certs.get(&key).and_then(|s| s.stored.clone());
+		let updated_arc = match stored_arc_opt {
+			Some(stored_arc) => {
 				let mut updated = (*stored_arc).clone();
 				updated.ocsp_response = ocsp_response;
 				updated.ocsp_next_update = ocsp_next_update;
@@ -545,7 +570,7 @@ impl ManagedCertRegistry {
 				self.store.save_cert(sni, &arc).await?;
 				arc
 			}
-			_ => return Ok(()),
+			None => return Ok(()),
 		};
 		// Update in-memory cache. Carefully scoped — we don't want
 		// to call `record_success` (would clobber attempt timestamps)
@@ -564,7 +589,12 @@ impl ManagedCertRegistry {
 	/// can retry; the cert state itself isn't perturbed.
 	pub async fn refresh_ocsp_for_sni(&self, sni: &str) {
 		let key = sni.to_ascii_lowercase();
-		let Some(Some(stored)) = self.certs.get(&key).map(|s| s.stored.clone()) else {
+		// See the module-level "Concurrency invariant": extract the
+		// owned `Arc<StoredCert>` to a local so the DashMap `Ref`
+		// drops before any `.await` below.
+		let stored_arc_opt: Option<Arc<StoredCert>> =
+			self.certs.get(&key).and_then(|s| s.stored.clone());
+		let Some(stored) = stored_arc_opt else {
 			tracing::trace!(target: "vane::acme::ocsp", sni, "no cert cached; OCSP refresh skipped");
 			return;
 		};
