@@ -3954,10 +3954,11 @@ dependencies = [
 
 [[package]]
 name = "rustls-crl-refresh"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "futures",
  "parking_lot",
  "rcgen",
  "rustls",

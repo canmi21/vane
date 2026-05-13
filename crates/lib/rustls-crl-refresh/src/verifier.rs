@@ -388,7 +388,7 @@ mod tests {
 		let (cas, _issuer) = ca_only_root_store();
 		let cache = CrlCache::new(Arc::new(FailingFetcher));
 		let src = CrlSourceId::Url("https://crl.example/down".into());
-		let _ = cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Reject)]);
+		let _ = cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Reject)]).await;
 		let v = RefreshableClientCertVerifier::new(cache, vec![src], cas, false);
 		let err = v.build_inner().expect_err("reject unavailable must fail");
 		match err {
@@ -405,7 +405,7 @@ mod tests {
 		let fetcher = Arc::new(StaticFetcher { bytes, count: AtomicUsize::new(0) });
 		let cache = CrlCache::new(fetcher);
 		let src = CrlSourceId::Url("https://crl.example/with-revoke".into());
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("load");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("load");
 		let v = RefreshableServerCertVerifier::new(cache, vec![src], cas);
 		assert!(v.build_inner().is_ok());
 	}
@@ -437,7 +437,7 @@ mod tests {
 			Arc::new(SwapFetcher { calls: AtomicUsize::new(0), first: bytes_v1, second: bytes_v2 });
 		let cache = CrlCache::new(fetcher);
 		let src = CrlSourceId::Url("https://crl.example/cached".into());
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("load v1");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("load v1");
 		let v = RefreshableClientCertVerifier::new(cache.clone(), vec![src.clone()], cas, false);
 		let a = v.build_inner().expect("build a");
 		let b = v.build_inner().expect("build b");
@@ -445,7 +445,7 @@ mod tests {
 
 		// Refresh: cache now serves the v2 bytes, so a new build is
 		// required.
-		cache.ensure_loaded(&[(src, CrlFetchFailure::Tolerate)]).expect("refresh to v2");
+		cache.ensure_loaded(&[(src, CrlFetchFailure::Tolerate)]).await.expect("refresh to v2");
 		let c = v.build_inner().expect("build c");
 		assert!(!Arc::ptr_eq(&b, &c), "post-refresh forces a rebuild");
 	}

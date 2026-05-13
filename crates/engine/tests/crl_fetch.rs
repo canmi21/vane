@@ -108,6 +108,7 @@ async fn cache_url_source_loads_via_default_fetcher() {
 	let url = format!("http://{addr}/crl");
 	cache
 		.ensure_loaded(&[(CrlSourceId::Url(url.clone()), CrlFetchFailure::Tolerate)])
+		.await
 		.expect("ensure_loaded blocks and succeeds");
 	let snap = cache.snapshot(std::slice::from_ref(&CrlSourceId::Url(url))).expect("snap ok");
 	assert_eq!(snap.len(), 1, "snapshot returns one CRL");
@@ -124,6 +125,7 @@ async fn cache_reject_unreachable_url_fails_link() {
 	let url = format!("http://{addr}/crl");
 	let err = cache
 		.ensure_loaded(&[(CrlSourceId::Url(url), CrlFetchFailure::Reject)])
+		.await
 		.expect_err("reject must propagate");
 	assert!(err.contains("crl"), "{err}");
 }
@@ -138,6 +140,7 @@ async fn cache_tolerate_unreachable_url_keeps_link_alive() {
 	let url = format!("http://{addr}/crl");
 	cache
 		.ensure_loaded(&[(CrlSourceId::Url(url.clone()), CrlFetchFailure::Tolerate)])
+		.await
 		.expect("tolerate keeps link alive");
 	let snap = cache.snapshot(std::slice::from_ref(&CrlSourceId::Url(url))).expect("snap ok");
 	assert!(snap.is_empty(), "tolerate + never-loaded => silently dropped");
@@ -154,14 +157,20 @@ async fn cache_url_rotates_bytes_in_place_across_refresh() {
 	let fetcher = DefaultCrlFetcher::new_arc().expect("default fetcher");
 	let cache = CrlCache::new(fetcher);
 	let src = CrlSourceId::Url(format!("http://{addr}/crl"));
-	cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("first ensure_loaded");
+	cache
+		.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+		.await
+		.expect("first ensure_loaded");
 	let first = cache.snapshot(std::slice::from_ref(&src)).expect("first snapshot");
 	assert_eq!(first.len(), 1);
 	let first_arc = Arc::clone(&first[0]);
 
 	// Rotate the served bytes and trigger a re-fetch via ensure_loaded.
 	*payload.lock() = crl_v2.clone();
-	cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("second ensure_loaded");
+	cache
+		.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+		.await
+		.expect("second ensure_loaded");
 	let second = cache.snapshot(std::slice::from_ref(&src)).expect("second snapshot");
 	assert_eq!(second.len(), 1);
 	assert_eq!(
@@ -201,19 +210,22 @@ async fn tolerate_source_recovers_after_transient_outage() {
 	let fetcher = Arc::new(FlippingFetcher { bytes: crl.clone(), succeed: AtomicBool::new(true) });
 	let cache = CrlCache::new(Arc::clone(&fetcher) as Arc<dyn CrlFetcher>);
 	let src = CrlSourceId::Url("https://crl.example/flip".into());
-	cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("initial load");
+	cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("initial load");
 
 	// Simulate outage. ensure_loaded must still return Ok because the
 	// policy is tolerate; the cached bytes remain available.
 	fetcher.succeed.store(false, Ordering::SeqCst);
-	cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("tolerate during outage");
+	cache
+		.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+		.await
+		.expect("tolerate during outage");
 	let during = cache.snapshot(std::slice::from_ref(&src)).expect("snap during");
 	assert_eq!(during.len(), 1, "stale bytes still served");
 
 	// Recovery — the cache rotates back to Healthy on the next
 	// successful fetch.
 	fetcher.succeed.store(true, Ordering::SeqCst);
-	cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("recovery");
+	cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("recovery");
 	let after = cache.snapshot(std::slice::from_ref(&src)).expect("snap after");
 	assert_eq!(after.len(), 1);
 }

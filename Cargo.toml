@@ -85,7 +85,7 @@ ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.2" }
 peeked-stream = { path = "crates/lib/peeked-stream", version = "0.0.1" }
 prom-cardinality-cap = { path = "crates/lib/prom-cardinality-cap", version = "0.0.1" }
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }
-rustls-crl-refresh = { path = "crates/lib/rustls-crl-refresh", version = "0.0.2" }
+rustls-crl-refresh = { path = "crates/lib/rustls-crl-refresh", version = "0.0.3" }
 rustls-native-roots-cache = { path = "crates/lib/rustls-native-roots-cache", version = "0.0.2" }
 rustls-pem-roots = { path = "crates/lib/rustls-pem-roots", version = "0.0.1" }
 rustls-sni-resolver = { path = "crates/lib/rustls-sni-resolver", version = "0.0.1" }

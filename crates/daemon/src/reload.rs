@@ -168,7 +168,14 @@ pub(crate) async fn reload_once(ctx: &ReloadCtx) -> Result<ReloadOutcome, Error>
 		let sources =
 			vane_engine::tls::dedupe_crl_sources(listener_sources.into_iter().chain(upstream_sources));
 		if !sources.is_empty() {
-			cache.ensure_loaded_new(&sources).map_err(|e| Error::compile(format!("crl reload: {e}")))?;
+			// Async + concurrent since rustls-crl-refresh 0.0.3 — the
+			// reload pipeline used to stall here behind serial 30s
+			// CRL fetches while holding `run_lock`, blocking every
+			// other reload (`spec/crates/engine-tls.md` § _CRL_).
+			cache
+				.ensure_loaded_new(&sources)
+				.await
+				.map_err(|e| Error::compile(format!("crl reload: {e}")))?;
 		}
 	}
 

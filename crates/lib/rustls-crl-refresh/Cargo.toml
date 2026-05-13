@@ -1,6 +1,6 @@
 [package]
 name = "rustls-crl-refresh"
-version = "0.0.2"
+version = "0.0.3"
 categories = ["cryptography", "network-programming"]
 edition.workspace = true
 keywords = ["rustls", "tls", "crl", "revocation", "verifier"]
@@ -16,6 +16,8 @@ workspace = true
 [dependencies]
 arc-swap = "1"
 async-trait = "0.1"
+# FuturesUnordered for concurrent CRL fetches at link time.
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 parking_lot = "0.12"
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 rustls-pemfile = "2"

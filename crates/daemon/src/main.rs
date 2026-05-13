@@ -173,7 +173,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		"compiled symbolic flow graph",
 	);
 
-	let crl_cache = init_crl_cache(&symbolic)?;
+	let crl_cache = init_crl_cache(&symbolic).await?;
 	let (security_cfg, security) = boot::init_security(&loaded.env, crl_cache.clone())?;
 
 	let mw_factories = Arc::new(build_middleware_factories());
@@ -358,7 +358,7 @@ fn build_middleware_factories() -> MiddlewareFactories {
 /// `ensure_loaded`) — `reject` policy sources whose first fetch fails
 /// surface as a daemon-startup error, matching
 /// `spec/crates/engine-tls.md` § _CRL_.
-fn init_crl_cache(
+async fn init_crl_cache(
 	sym: &vane_core::SymbolicFlowGraph,
 ) -> Result<Option<Arc<vane_engine::tls::CrlCache>>, Box<dyn std::error::Error + Send + Sync>> {
 	let listener_sources = vane_engine::tls::collect_listener_crl_sources(&sym.meta.listener_tls);
@@ -372,7 +372,12 @@ fn init_crl_cache(
 	tracing::info!(count = sources.len(), "loading CRL sources");
 	let fetcher = vane_engine::tls::DefaultCrlFetcher::new_arc()?;
 	let cache = vane_engine::tls::CrlCache::new(fetcher);
-	cache.ensure_loaded(&sources)?;
+	// `ensure_loaded` fans the CRL fetches out concurrently and is
+	// async since `rustls-crl-refresh` 0.0.3 (the prior
+	// `block_in_place + block_on` shape would have stalled the
+	// reload pipeline behind 30s × N serial fetches; see
+	// `rustls-crl-refresh`'s changelog).
+	cache.ensure_loaded(&sources).await?;
 	Ok(Some(cache))
 }
 

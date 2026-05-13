@@ -128,36 +128,39 @@ impl CrlCache {
 		Arc::new(Self { inner: RwLock::new(HashMap::new()), fetcher })
 	}
 
-	/// Synchronous link-time loader. Each source is fetched with a
-	/// 30-second timeout. On success, parses `nextUpdate` and stores
-	/// the bytes. On failure, behavior depends on `policy`:
+	/// Link-time loader. Each source is fetched with a 30-second
+	/// timeout. Sources are fetched **concurrently** via
+	/// [`futures::stream::FuturesUnordered`] so N slow upstreams do
+	/// not multiply the worst-case wait — the caller's wall time
+	/// stays bounded by the slowest individual fetch.
+	///
+	/// On success, parses `nextUpdate` and stores the bytes. On
+	/// failure, behavior depends on `policy`:
 	///
 	/// * [`CrlFetchFailure::Tolerate`] — record the failure and
 	///   continue. Subsequent [`Self::snapshot`] calls for this source
 	///   silently drop it until a refresh succeeds.
 	/// * [`CrlFetchFailure::Reject`] — propagate the error so the
-	///   caller can fail link.
-	///
-	/// # Panics
-	///
-	/// Must be called from within a multi-thread tokio runtime — uses
-	/// `block_in_place` + `Handle::current().block_on`. Single-thread
-	/// runtimes panic.
+	///   caller can fail link. The first reject-policy failure
+	///   short-circuits the remaining in-flight fetches (their
+	///   results are still recorded before the error is returned).
 	///
 	/// # Errors
 	///
 	/// String description of the first reject-policy source that
 	/// failed to load. Tolerate-policy failures are kept silent at
 	/// link time (logged as transitions, but `Ok` returned).
-	pub fn ensure_loaded(&self, sources: &[(CrlSourceId, CrlFetchFailure)]) -> Result<(), String> {
-		tokio::task::block_in_place(|| {
-			tokio::runtime::Handle::current().block_on(async {
-				for (src, policy) in sources {
-					self.fetch_source(src, *policy).await?;
-				}
-				Ok(())
-			})
-		})
+	pub async fn ensure_loaded(
+		&self,
+		sources: &[(CrlSourceId, CrlFetchFailure)],
+	) -> Result<(), String> {
+		use futures::stream::{FuturesUnordered, StreamExt};
+		let mut tasks: FuturesUnordered<_> =
+			sources.iter().map(|(src, policy)| self.fetch_source(src, *policy)).collect();
+		while let Some(result) = tasks.next().await {
+			result?;
+		}
+		Ok(())
 	}
 
 	/// Read-only handshake-time accessor. Returns the latest CRL bytes
@@ -212,14 +215,10 @@ impl CrlCache {
 	///
 	/// File sources are always re-fetched (their bytes are local).
 	///
-	/// # Panics
-	///
-	/// Same multi-thread runtime requirement as [`Self::ensure_loaded`].
-	///
 	/// # Errors
 	///
 	/// As [`Self::ensure_loaded`].
-	pub fn ensure_loaded_new(
+	pub async fn ensure_loaded_new(
 		&self,
 		sources: &[(CrlSourceId, CrlFetchFailure)],
 	) -> Result<(), String> {
@@ -237,7 +236,7 @@ impl CrlCache {
 		if to_fetch.is_empty() {
 			return Ok(());
 		}
-		self.ensure_loaded(&to_fetch)
+		self.ensure_loaded(&to_fetch).await
 	}
 
 	/// Spawn the background refresh loop. One tokio task per URL
@@ -555,7 +554,7 @@ mod tests {
 		let fetcher = Arc::new(StaticFetcher { bytes, count: AtomicUsize::new(0) });
 		let cache = CrlCache::new(fetcher.clone());
 		let src = CrlSourceId::Url("https://crl.example/fixture".into());
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("load");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("load");
 		let s1 = cache.snapshot(std::slice::from_ref(&src)).expect("snap");
 		let s2 = cache.snapshot(std::slice::from_ref(&src)).expect("snap");
 		assert_eq!(s1.len(), 1);
@@ -570,6 +569,7 @@ mod tests {
 		let src = CrlSourceId::Url("https://crl.example/down".into());
 		cache
 			.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+			.await
 			.expect("tolerate must not propagate");
 		let snap = cache.snapshot(&[src]).expect("snapshot ok");
 		assert!(snap.is_empty(), "tolerate + never-loaded => silently dropped");
@@ -580,8 +580,10 @@ mod tests {
 		let fetcher = Arc::new(AlwaysFailFetcher { count: AtomicUsize::new(0) });
 		let cache = CrlCache::new(fetcher);
 		let src = CrlSourceId::Url("https://crl.example/down".into());
-		let err =
-			cache.ensure_loaded(&[(src, CrlFetchFailure::Reject)]).expect_err("reject must fail-closed");
+		let err = cache
+			.ensure_loaded(&[(src, CrlFetchFailure::Reject)])
+			.await
+			.expect_err("reject must fail-closed");
 		assert!(err.contains("fixture failure"), "{err}");
 	}
 
@@ -593,8 +595,11 @@ mod tests {
 		// Tolerate at link time so ensure_loaded returns Ok, then ask
 		// for a reject snapshot — same entry, harder policy. The
 		// snapshot path independently checks reject + unavailable.
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("tolerate at link");
-		assert!(cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Reject)]).is_err());
+		cache
+			.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+			.await
+			.expect("tolerate at link");
+		assert!(cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Reject)]).await.is_err());
 		let snap_err = cache.snapshot(&[src]).expect_err("reject snapshot must fail-closed");
 		assert!(snap_err.contains("unavailable"), "{snap_err}");
 	}
@@ -613,13 +618,14 @@ mod tests {
 			Arc::new(FlippingFetcher { ok_bytes: bytes.clone(), succeed: AtomicBool::new(true) });
 		let cache = CrlCache::new(fetcher.clone());
 		let src = CrlSourceId::Url("https://crl.example/flipping".into());
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("initial load");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("initial load");
 		let first = cache.snapshot(std::slice::from_ref(&src)).expect("snap");
 		assert_eq!(first.len(), 1);
 
 		fetcher.succeed.store(false, Ordering::SeqCst);
 		cache
 			.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+			.await
 			.expect("tolerate keeps last-known bytes");
 
 		let after = cache.snapshot(&[src]).expect("snap");
@@ -694,9 +700,9 @@ mod tests {
 		let fetcher = Arc::new(AlwaysFailFetcher { count: AtomicUsize::new(0) });
 		let cache = CrlCache::new(fetcher);
 		let src = CrlSourceId::Url("https://crl.example/inc".into());
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("tolerate ok");
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("tolerate ok");
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("tolerate ok");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("tolerate ok");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("tolerate ok");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("tolerate ok");
 		let guard = cache.inner.read();
 		assert_eq!(guard.get(&src).expect("entry").consecutive_failures, 3);
 	}
@@ -708,16 +714,20 @@ mod tests {
 			Arc::new(FlippingFetcher { ok_bytes: bytes.clone(), succeed: AtomicBool::new(false) });
 		let cache = CrlCache::new(fetcher.clone());
 		let src = CrlSourceId::Url("https://crl.example/recover".into());
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("first fail tolerated");
 		cache
 			.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+			.await
+			.expect("first fail tolerated");
+		cache
+			.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)])
+			.await
 			.expect("second fail tolerated");
 		{
 			let guard = cache.inner.read();
 			assert_eq!(guard.get(&src).expect("entry").consecutive_failures, 2);
 		}
 		fetcher.succeed.store(true, Ordering::SeqCst);
-		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).expect("success");
+		cache.ensure_loaded(&[(src.clone(), CrlFetchFailure::Tolerate)]).await.expect("success");
 		let guard = cache.inner.read();
 		assert_eq!(guard.get(&src).expect("entry").consecutive_failures, 0);
 	}
