@@ -1981,7 +1981,23 @@ fn coerce_enum_value(
 		// `http.method` is open per spec — any HTTP token is admissible
 		// at compile; runtime byte-compares to `Request.method().as_str()`.
 		FieldPath::HttpMethod => None,
-		_ => unreachable!("non-enum path reached coerce_enum_value: {path:?}"),
+		// Forward-compat: if a future `FieldPath` variant gets
+		// classified as `FieldValueType::Enum` in `predicate.rs` but
+		// nobody adds an arm here, surface a structured compile error
+		// rather than panicking on the user's input path. Reachable
+		// only from a vane-internal mismatch between
+		// `FieldPath::value_type()` and this `match`; not from
+		// well-formed operator config under the current schema.
+		_ => {
+			return Err(Error::compile(format!(
+				"{}internal: field `{}` is classified as FieldValueType::Enum \
+				 but coerce_enum_value has no admissible-value list for it. \
+				 This is a vane bug — please file an issue with the rule \
+				 that triggered it.",
+				source_prefix(source),
+				path.display_name(),
+			)));
+		}
 	};
 	if let Some(values) = allowed
 		&& !values.contains(&s)
