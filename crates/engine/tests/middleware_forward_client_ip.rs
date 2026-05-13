@@ -271,10 +271,12 @@ async fn forward_client_ip_default_adds_both_headers() {
 }
 
 #[tokio::test]
-async fn forward_client_ip_xff_appends_to_existing() {
-	// Per doc-comment: "If the request already carries one, the client IP
-	// is appended after a `, ` separator so the chain is preserved
-	// (`upstream-proxy.ip, our-client.ip`)."
+async fn forward_client_ip_xff_overwrites_when_peer_untrusted() {
+	// Default `trusted_proxies = []` means no peer is trusted, so the
+	// inbound `X-Forwarded-For` is presumed forged and replaced with
+	// vane's L4 observation. This is the safe-by-default posture; the
+	// `_appends_when_peer_trusted` test below covers the trusted
+	// branch.
 	let (graph, captured) = link_graph(Value::Null);
 	let conn = make_conn("127.0.0.1:54321");
 	let sink = Arc::new(NullSink::new());
@@ -285,7 +287,73 @@ async fn forward_client_ip_xff_appends_to_existing() {
 	assert!(result.is_ok(), "forward_client_ip must continue; got {result:?}");
 	let headers = captured.lock().clone().expect("captured headers");
 	let xff = headers.get("x-forwarded-for").expect("XFF must be present").to_str().unwrap();
-	assert_eq!(xff, "1.2.3.4, 127.0.0.1", "XFF must be appended preserving the chain; got {xff:?}");
+	assert_eq!(
+		xff, "127.0.0.1",
+		"untrusted peer: inbound XFF dropped, vane's observation written; got {xff:?}"
+	);
+}
+
+#[tokio::test]
+async fn forward_client_ip_xff_appends_when_peer_trusted() {
+	// With the L4 peer inside the operator-configured
+	// `trusted_proxies` list, the inbound `X-Forwarded-For` chain is
+	// kept and vane's observation is appended.
+	let args = json!({
+		"headers": ["x-forwarded-for"],
+		"trusted_proxies": ["127.0.0.0/8"],
+	});
+	let (graph, captured) = link_graph(args);
+	let conn = make_conn("127.0.0.1:54321");
+	let sink = Arc::new(NullSink::new());
+	let req = req_with_headers(&[("X-Forwarded-For", "1.2.3.4")]);
+	let result =
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
+	assert!(result.is_ok(), "forward_client_ip must continue; got {result:?}");
+	let headers = captured.lock().clone().expect("captured headers");
+	let xff = headers.get("x-forwarded-for").expect("XFF must be present").to_str().unwrap();
+	assert_eq!(xff, "1.2.3.4, 127.0.0.1", "trusted peer: chain preserved and appended; got {xff:?}");
+}
+
+#[tokio::test]
+async fn forward_client_ip_forwarded_writes_rfc7239_pair() {
+	// `Forwarded:` opt-in via `headers`. With no inbound `Forwarded:`
+	// and peer untrusted, the middleware writes a fresh
+	// `for=<peer>;by=<local>;proto=<...>` token.
+	let args = json!({ "headers": ["forwarded"] });
+	let (graph, captured) = link_graph(args);
+	let conn = make_conn("127.0.0.1:54321");
+	let sink = Arc::new(NullSink::new());
+	let req = req_with_headers(&[]);
+	let result =
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
+	assert!(result.is_ok(), "forward_client_ip must continue; got {result:?}");
+	let headers = captured.lock().clone().expect("captured headers");
+	let fwd = headers.get("forwarded").expect("Forwarded must be present").to_str().unwrap();
+	assert!(fwd.starts_with("for=127.0.0.1;"), "for= names the peer: {fwd}");
+	assert!(fwd.contains(";proto=http"), "proto reflects cleartext L4: {fwd}");
+}
+
+#[tokio::test]
+async fn forward_client_ip_drops_untrusted_inbound_forwarded() {
+	// `strip_inbound_forwarded` (default true) plus untrusted peer
+	// means inbound `Forwarded:` is removed before the middleware
+	// writes its own. Without removal, a saved Forwarded would be
+	// concatenated with the new token, leaking the attacker's claim.
+	let args = json!({ "headers": ["forwarded"] });
+	let (graph, captured) = link_graph(args);
+	let conn = make_conn("127.0.0.1:54321");
+	let sink = Arc::new(NullSink::new());
+	let req = req_with_headers(&[("Forwarded", "for=evil.example;proto=https")]);
+	let result =
+		run_execute(&graph, NodeId::for_testing(0), ExecutorInput::L7(Box::new(req)), &conn, &sink)
+			.await;
+	assert!(result.is_ok(), "forward_client_ip must continue; got {result:?}");
+	let headers = captured.lock().clone().expect("captured headers");
+	let fwd = headers.get("forwarded").expect("Forwarded must be present").to_str().unwrap();
+	assert!(!fwd.contains("evil"), "untrusted inbound Forwarded must be dropped: {fwd}");
+	assert!(fwd.starts_with("for=127.0.0.1;"), "fresh Forwarded only: {fwd}");
 }
 
 #[tokio::test]

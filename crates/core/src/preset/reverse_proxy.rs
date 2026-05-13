@@ -183,9 +183,28 @@ pub(super) fn expand(inv: PresetInvocation) -> Result<Vec<RawRule>, Error> {
 		});
 	}
 	if args.forward_client_ip {
+		// The `reverse_proxy` preset is the canonical
+		// "LAN-load-balancer-or-CDN in front of vane" deployment, so
+		// trust the conventional private-network ranges by default.
+		// Operators on internet-facing edges should disable
+		// `forward_client_ip` on the preset and reconstruct the
+		// middleware manually with a tighter `trusted_proxies` list.
+		// See `crates/engine/src/middleware/forward_client_ip.rs`
+		// for the full schema.
 		chain.push(MiddlewareRef {
 			name: "forward_client_ip".to_string(),
-			args: Value::Null,
+			args: serde_json::json!({
+				"headers": ["x-forwarded-for", "x-real-ip", "forwarded"],
+				"trusted_proxies": [
+					"10.0.0.0/8",
+					"172.16.0.0/12",
+					"192.168.0.0/16",
+					"127.0.0.0/8",
+					"fd00::/8",
+					"::1/128",
+				],
+				"strip_inbound_forwarded": true,
+			}),
 			on_error: None,
 		});
 	}

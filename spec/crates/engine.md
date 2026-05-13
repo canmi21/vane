@@ -300,7 +300,7 @@ Built-ins live in `middleware/`. Each is a `struct` implementing one of the four
 - `host_header_match.rs` — reads `http.header.host`.
 - `path_prefix.rs` — reads `http.uri.path`.
 - `method_match.rs` — reads `http.method`.
-- `forward_client_ip.rs` — sets `X-Forwarded-For` (append) and `X-Real-IP` (overwrite) from `ConnContext.remote`. Default header set `["x-forwarded-for", "x-real-ip"]`. Disabled at the raw-rule layer; `reverse_proxy` preset enables.
+- `forward_client_ip.rs` — sets `X-Forwarded-For`, `X-Real-IP`, and / or RFC 7239 `Forwarded:` from `ConnContext.remote`. Inbound `X-Forwarded-For` / `Forwarded:` chains are honoured only when the L4 peer is a member of the operator-configured `trusted_proxies` CIDR list; otherwise the chain is replaced with vane's bare observation. Default `trusted_proxies = []` (no peer trusted) is the safest baseline for an internet-facing edge. The `reverse_proxy` preset substitutes RFC 1918 + ULA + loopback ranges, matching the typical LAN-reverse-proxy deployment. `Forwarded:` writes the RFC 7239 `for=<peer>;by=<local>;proto=<https|http>` token with IPv6 in the `"[…]"` quoted form (§4). `strip_inbound_forwarded` (default true) removes inbound `X-Forwarded-Proto` / `X-Forwarded-Host` so the upstream never sees a half-honoured chain. Disabled at the raw-rule layer; `reverse_proxy` preset enables.
 - `sni_peek.rs` — reads ClientHello via `rustls::server::Acceptor`, populates `ctx.tls.sni`.
 - `rate_limit.rs` — token bucket per [`core.md` § _Rate limit_](core.md#rate-limit-l2).
 
