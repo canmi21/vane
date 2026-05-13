@@ -298,7 +298,7 @@ async fn http_proxy_h2_cleartext_uses_prior_knowledge_h2c() {
 fn http_proxy_factory_rejects_version_h3_without_feature() {
 	vane_engine::crypto::install_default_provider();
 	vane_testutil::allow_insecure_upstream_for_tests();
-	let Err(FactoryError(msg)) = http_proxy_factory(
+	let Err(FactoryError::Invalid(msg)) = http_proxy_factory(
 		&serde_json::json!({
 			"upstream": "127.0.0.1:9443",
 			"version": "h3",

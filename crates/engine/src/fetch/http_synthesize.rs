@@ -80,20 +80,21 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 	let status_raw = args
 		.get("status")
 		.and_then(serde_json::Value::as_u64)
-		.ok_or_else(|| FactoryError("missing args.status (integer 100-599)".to_string()))?;
+		.ok_or_else(|| FactoryError::Invalid("missing args.status (integer 100-599)".to_string()))?;
 	let status = u16::try_from(status_raw)
-		.map_err(|_| FactoryError(format!("status {status_raw} out of u16 range")))?;
+		.map_err(|_| FactoryError::Invalid(format!("status {status_raw} out of u16 range")))?;
 	if !(100..=599).contains(&status) {
-		return Err(FactoryError(format!("status {status} out of HTTP range 100-599")));
+		return Err(FactoryError::Invalid(format!("status {status} out of HTTP range 100-599")));
 	}
 
 	let mut headers = Vec::new();
 	if let Some(obj) = args.get("headers").and_then(serde_json::Value::as_object) {
 		for (k, v) in obj {
 			let name = HeaderName::try_from(k.as_str())
-				.map_err(|e| FactoryError(format!("invalid header name {k:?}: {e}")))?;
-			let value =
-				v.as_str().ok_or_else(|| FactoryError(format!("header {k:?} value must be string")))?;
+				.map_err(|e| FactoryError::Invalid(format!("invalid header name {k:?}: {e}")))?;
+			let value = v
+				.as_str()
+				.ok_or_else(|| FactoryError::Invalid(format!("header {k:?} value must be string")))?;
 			headers.push((name, value.to_string()));
 		}
 	}
@@ -102,7 +103,7 @@ pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
 		Bytes::from(
 			BASE64_STANDARD
 				.decode(b64.as_bytes())
-				.map_err(|e| FactoryError(format!("args.body base64 decode: {e}")))?,
+				.map_err(|e| FactoryError::Invalid(format!("args.body base64 decode: {e}")))?,
 		)
 	} else {
 		Bytes::new()

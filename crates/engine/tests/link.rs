@@ -206,7 +206,9 @@ fn link_fails_on_unknown_fetch_kind() {
 fn link_fails_on_factory_args_rejection() {
 	let sym = graph_with_middleware(l7_req_ref("m"));
 	let mut mw = MiddlewareFactories::new();
-	mw.register("m", MiddlewareKind::L7Request, |_args| Err(FactoryError("bad args".into())));
+	mw.register("m", MiddlewareKind::L7Request, |_args| {
+		Err(FactoryError::Invalid("bad args".into()))
+	});
 	let fetch = FetchFactories::new();
 	let Err(err) = FlowGraph::link(sym, &mw, &fetch) else {
 		panic!("factory rejection must fail link")

@@ -118,11 +118,11 @@ fn tagged_fetch_factory(args: &Value) -> Result<FetchInst, FactoryError> {
 	let tag = args
 		.get("tag")
 		.and_then(Value::as_str)
-		.ok_or_else(|| FactoryError("missing tag".to_string()))?;
+		.ok_or_else(|| FactoryError::Invalid("missing tag".to_string()))?;
 	let f: Arc<dyn L7Fetch> = match tag {
 		"match" => Arc::new(TaggedFetch { status: 200, body: b"match" }),
 		"miss" => Arc::new(TaggedFetch { status: 404, body: b"miss" }),
-		other => return Err(FactoryError(format!("unknown tag {other}"))),
+		other => return Err(FactoryError::Invalid(format!("unknown tag {other}"))),
 	};
 	Ok(FetchInst::L7(f))
 }

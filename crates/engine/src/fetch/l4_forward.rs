@@ -337,23 +337,26 @@ async fn udp_forwarder_loop(
 /// `transport` is not `"tcp"` / `"udp"`, or when `idle_timeout` is
 /// not a parseable duration string.
 pub fn factory(args: &serde_json::Value) -> Result<FetchInst, FactoryError> {
-	let upstream = args
-		.get("upstream")
-		.and_then(serde_json::Value::as_str)
-		.ok_or_else(|| FactoryError("missing args.upstream (string \"host:port\")".to_string()))?;
+	let upstream = args.get("upstream").and_then(serde_json::Value::as_str).ok_or_else(|| {
+		FactoryError::Invalid("missing args.upstream (string \"host:port\")".to_string())
+	})?;
 	if upstream.is_empty() {
-		return Err(FactoryError("args.upstream must not be empty".to_string()));
+		return Err(FactoryError::Invalid("args.upstream must not be empty".to_string()));
 	}
 	let transport_str = args.get("transport").and_then(serde_json::Value::as_str).unwrap_or("tcp");
 	let transport = match transport_str {
 		"tcp" => Transport::Tcp,
 		"udp" => Transport::Udp,
 		other => {
-			return Err(FactoryError(format!("args.transport must be 'tcp' or 'udp', got {other:?}")));
+			return Err(FactoryError::Invalid(format!(
+				"args.transport must be 'tcp' or 'udp', got {other:?}"
+			)));
 		}
 	};
 	let idle_timeout = match args.get("idle_timeout").and_then(serde_json::Value::as_str) {
-		Some(s) => parse_duration(s).map_err(|e| FactoryError(format!("args.idle_timeout: {e}")))?,
+		Some(s) => {
+			parse_duration(s).map_err(|e| FactoryError::Invalid(format!("args.idle_timeout: {e}")))?
+		}
 		None => DEFAULT_UDP_IDLE_TIMEOUT,
 	};
 	Ok(FetchInst::L4(Arc::new(L4ForwardFetch {
@@ -403,7 +406,7 @@ mod tests {
 	#[test]
 	fn factory_rejects_unknown_transport() {
 		let err = factory(&json!({ "upstream": "x:1", "transport": "sctp" })).err().expect("rejected");
-		assert!(err.0.contains("'tcp' or 'udp'"), "{}", err.0);
+		assert!(err.message().contains("'tcp' or 'udp'"), "{}", err.message());
 	}
 
 	#[test]
@@ -415,14 +418,14 @@ mod tests {
 		}))
 		.err()
 		.expect("rejected");
-		assert!(err.0.contains("idle_timeout"), "{}", err.0);
+		assert!(err.message().contains("idle_timeout"), "{}", err.message());
 	}
 
 	#[test]
 	fn factory_rejects_missing_upstream() {
 		match factory(&json!({})) {
 			Ok(_) => panic!("must reject missing upstream"),
-			Err(e) => assert!(e.0.contains("upstream"), "{}", e.0),
+			Err(e) => assert!(e.message().contains("upstream"), "{}", e.message()),
 		}
 	}
 
@@ -430,7 +433,7 @@ mod tests {
 	fn factory_rejects_empty_upstream() {
 		match factory(&json!({ "upstream": "" })) {
 			Ok(_) => panic!("must reject empty upstream"),
-			Err(e) => assert!(e.0.contains("must not be empty"), "{}", e.0),
+			Err(e) => assert!(e.message().contains("must not be empty"), "{}", e.message()),
 		}
 	}
 }

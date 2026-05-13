@@ -57,13 +57,13 @@ fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError> {
 		serde_json::Value::Object(map) if map.is_empty() => {}
 		serde_json::Value::Object(map) => {
 			let unexpected: Vec<&str> = map.keys().map(String::as_str).collect();
-			return Err(FactoryError(format!(
+			return Err(FactoryError::Invalid(format!(
 				"sni_peek: unexpected field(s): {}",
 				unexpected.join(", "),
 			)));
 		}
 		other => {
-			return Err(FactoryError(format!(
+			return Err(FactoryError::Invalid(format!(
 				"sni_peek: args must be null or an empty object, got {}",
 				type_name(other),
 			)));
@@ -156,7 +156,7 @@ mod tests {
 		// `MiddlewareInst` does not implement `Debug`, so let-else is the
 		// destructure strategy (mirrors the convention in
 		// `crates/engine/tests/fetch_http_synthesize.rs`).
-		let Err(FactoryError(msg)) = factory(&json!({ "foo": 1 })) else {
+		let Err(FactoryError::Invalid(msg)) = factory(&json!({ "foo": 1 })) else {
 			panic!("unknown field must be rejected");
 		};
 		assert!(msg.contains("foo"), "{msg}");
@@ -164,7 +164,7 @@ mod tests {
 
 	#[test]
 	fn factory_rejects_non_object_args() {
-		let Err(FactoryError(msg)) = factory(&json!([])) else {
+		let Err(FactoryError::Invalid(msg)) = factory(&json!([])) else {
 			panic!("array args must be rejected");
 		};
 		assert!(msg.contains("sni_peek"), "{msg}");

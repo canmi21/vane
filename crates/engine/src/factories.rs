@@ -11,9 +11,60 @@ pub type MiddlewareFactoryFn =
 pub type FetchFactoryFn =
 	dyn Fn(&serde_json::Value) -> Result<FetchInst, FactoryError> + Send + Sync;
 
+/// Structured factory rejection.
+///
+/// The prior shape was a single-field tuple struct that stringified
+/// every error class into one bucket; downstream observers
+/// (link-pass error log, `compile_dry_run` mgmt verb) lost the source
+/// chain. The enum now carries:
+///
+/// * [`FactoryError::Invalid`] — generic semantic rejection with an
+///   operator-facing message (e.g. "version 'h3' requires args.tls").
+/// * [`FactoryError::InvalidArgs`] — `serde_json` shape mismatch
+///   pinned to a factory name; the underlying `serde_json::Error`
+///   travels as `#[source]` so the link pass's tracing can render
+///   the parse location.
+/// * [`FactoryError::Unknown`] — factory name not registered.
+/// * [`FactoryError::Inner`] — `vane_core::Error` from a fallible
+///   sub-operation (CRL source parse, TLS cfg build, ...). Surfaces
+///   the full source chain by `#[error(transparent)]`.
+///
+/// `#[non_exhaustive]` so future classes can land without breaking
+/// downstream match sites.
 #[derive(thiserror::Error, Debug)]
-#[error("factory rejected args: {0}")]
-pub struct FactoryError(pub String);
+#[non_exhaustive]
+pub enum FactoryError {
+	#[error("{0}")]
+	Invalid(String),
+	#[error("invalid args for {name}: {source}")]
+	InvalidArgs {
+		name: String,
+		#[source]
+		source: serde_json::Error,
+	},
+	#[error("unknown factory: {0}")]
+	Unknown(String),
+	#[error(transparent)]
+	Inner(#[from] vane_core::Error),
+}
+
+impl FactoryError {
+	/// Operator-facing message extractor — primarily for tests that
+	/// pattern-match `Err(FactoryError::Invalid(msg))`. Returns the
+	/// message for `Invalid` / `Unknown`, the `Display` of the
+	/// inner error for `Inner`, and a synthesised string for
+	/// `InvalidArgs`.
+	#[must_use]
+	pub fn message(&self) -> std::borrow::Cow<'_, str> {
+		match self {
+			Self::Invalid(s) | Self::Unknown(s) => std::borrow::Cow::Borrowed(s.as_str()),
+			Self::InvalidArgs { name, source } => {
+				std::borrow::Cow::Owned(format!("invalid args for {name}: {source}"))
+			}
+			Self::Inner(e) => std::borrow::Cow::Owned(e.to_string()),
+		}
+	}
+}
 
 pub enum MiddlewareFactoryEntry {
 	Available {

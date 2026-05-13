@@ -104,7 +104,7 @@ fn factory_err(args: &serde_json::Value) -> String {
 	};
 	match construct(args) {
 		Ok(_) => panic!("factory must reject these args"),
-		Err(e) => e.0,
+		Err(e) => e.message().into_owned(),
 	}
 }
 

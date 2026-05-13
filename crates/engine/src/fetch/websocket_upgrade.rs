@@ -193,15 +193,14 @@ pub fn factory(
 	args: &serde_json::Value,
 	crl_cache: Option<&Arc<crate::tls::CrlCache>>,
 ) -> Result<FetchInst, FactoryError> {
-	let upstream = args
-		.get("upstream")
-		.and_then(serde_json::Value::as_str)
-		.ok_or_else(|| FactoryError("missing args.upstream (string \"host:port\")".to_string()))?;
+	let upstream = args.get("upstream").and_then(serde_json::Value::as_str).ok_or_else(|| {
+		FactoryError::Invalid("missing args.upstream (string \"host:port\")".to_string())
+	})?;
 	if upstream.is_empty() {
-		return Err(FactoryError("args.upstream must not be empty".to_string()));
+		return Err(FactoryError::Invalid("args.upstream must not be empty".to_string()));
 	}
 	let tls = parse_tls_args(upstream, args.get("tls"), crl_cache)
-		.map_err(|e| FactoryError(format!("args.tls: {e}")))?;
+		.map_err(|e| FactoryError::Invalid(format!("args.tls: {e}")))?;
 	Ok(FetchInst::L7(Arc::new(WebSocketUpgradeFetch { upstream: Arc::from(upstream), tls })))
 }
 
@@ -219,7 +218,7 @@ mod tests {
 	fn factory_rejects_missing_upstream() {
 		match factory(&serde_json::json!({}), None) {
 			Ok(_) => panic!("must reject missing upstream"),
-			Err(e) => assert!(e.0.contains("upstream"), "{}", e.0),
+			Err(e) => assert!(e.message().contains("upstream"), "{}", e.message()),
 		}
 	}
 
@@ -227,7 +226,7 @@ mod tests {
 	fn factory_rejects_empty_upstream() {
 		match factory(&serde_json::json!({ "upstream": "" }), None) {
 			Ok(_) => panic!("must reject empty upstream"),
-			Err(e) => assert!(e.0.contains("must not be empty"), "{}", e.0),
+			Err(e) => assert!(e.message().contains("must not be empty"), "{}", e.message()),
 		}
 	}
 }

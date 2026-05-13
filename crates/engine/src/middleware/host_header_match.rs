@@ -68,17 +68,17 @@ impl L7RequestMiddleware for HostHeaderMatch {
 /// Returns [`FactoryError`] when `hosts` is missing, not an array, empty,
 /// or contains non-string elements.
 pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError> {
-	let arr = args
-		.get("hosts")
-		.and_then(serde_json::Value::as_array)
-		.ok_or_else(|| FactoryError("missing args.hosts (non-empty string array)".to_string()))?;
+	let arr = args.get("hosts").and_then(serde_json::Value::as_array).ok_or_else(|| {
+		FactoryError::Invalid("missing args.hosts (non-empty string array)".to_string())
+	})?;
 	if arr.is_empty() {
-		return Err(FactoryError("args.hosts must contain at least one host".to_string()));
+		return Err(FactoryError::Invalid("args.hosts must contain at least one host".to_string()));
 	}
 	let mut hosts = Vec::with_capacity(arr.len());
 	for item in arr {
-		let s =
-			item.as_str().ok_or_else(|| FactoryError("args.hosts items must be strings".to_string()))?;
+		let s = item
+			.as_str()
+			.ok_or_else(|| FactoryError::Invalid("args.hosts items must be strings".to_string()))?;
 		hosts.push(Arc::from(s.to_ascii_lowercase()));
 	}
 	Ok(MiddlewareInst::L7Request(Arc::new(HostHeaderMatch { hosts })))

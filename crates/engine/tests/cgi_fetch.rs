@@ -380,7 +380,7 @@ async fn env_with_reserved_request_method_is_factory_error() {
 	match vane_engine::fetch::cgi::factory(&args) {
 		Ok(_) => panic!("must reject reserved env key"),
 		Err(e) => {
-			assert!(e.0.contains("REQUEST_METHOD"), "must name the offending key: {e:?}");
+			assert!(e.message().contains("REQUEST_METHOD"), "must name the offending key: {e:?}");
 		}
 	}
 }
@@ -395,7 +395,7 @@ async fn missing_binary_is_factory_error() {
 	match vane_engine::fetch::cgi::factory(&args) {
 		Ok(_) => panic!("must reject missing binary"),
 		Err(e) => {
-			assert!(e.0.contains("not accessible"), "must explain: {e:?}");
+			assert!(e.message().contains("not accessible"), "must explain: {e:?}");
 		}
 	}
 }
@@ -411,7 +411,7 @@ async fn chroot_reserved_factory_error_matches_spec_wording() {
 		Ok(_) => panic!("must reject chroot Some(_)"),
 		Err(e) => {
 			assert!(
-				e.0.contains("chroot is reserved but not yet implemented"),
+				e.message().contains("chroot is reserved but not yet implemented"),
 				"must use spec wording verbatim: {e:?}",
 			);
 		}

@@ -330,7 +330,7 @@ fn l4_forward_factory_rejects_missing_upstream_arg() {
 	// non-string `upstream` yields a `FactoryError` whose message
 	// references `upstream`.
 	let result = l4_forward::factory(&serde_json::json!({}));
-	let Err(FactoryError(msg)) = result else {
+	let Err(FactoryError::Invalid(msg)) = result else {
 		panic!("missing upstream must error; got Ok(_)");
 	};
 	assert!(
@@ -348,7 +348,7 @@ fn l4_forward_factory_rejects_empty_upstream_arg() {
 	// uninformative parse error at runtime. The factory rejects up
 	// front so misconfiguration surfaces at link time.
 	let result = l4_forward::factory(&serde_json::json!({ "upstream": "" }));
-	let Err(FactoryError(msg)) = result else {
+	let Err(FactoryError::Invalid(msg)) = result else {
 		panic!("empty upstream must error; got Ok(_)");
 	};
 	assert!(

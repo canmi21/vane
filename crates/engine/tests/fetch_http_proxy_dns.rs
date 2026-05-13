@@ -264,7 +264,7 @@ async fn dns_nameserver_order_is_significant() {
 async fn dns_factory_rejects_bare_ipv6() {
 	vane_engine::crypto::install_default_provider();
 	clear_cache_for_test();
-	let Err(FactoryError(msg)) = http_proxy_factory(
+	let Err(FactoryError::Invalid(msg)) = http_proxy_factory(
 		&json!({
 			"upstream": "127.0.0.1:9999",
 			"version": "h1",

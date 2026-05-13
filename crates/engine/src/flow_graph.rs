@@ -439,7 +439,7 @@ impl FlowGraph {
 				FetchFactoryEntry::Available(construct) => {
 					construct(&symref.args).map_err(|e: FactoryError| LinkError::FetchFactoryRejected {
 						kind: symref.kind,
-						cause: e.0,
+						cause: e.message().into_owned(),
 					})?
 				}
 			};
@@ -530,7 +530,10 @@ fn resolve_middlewares(
 				}
 				MiddlewareFactoryEntry::Available { kind, construct } => {
 					let built = construct(&symref.args).map_err(|e: FactoryError| {
-						LinkError::MiddlewareFactoryRejected { name: Arc::clone(&symref.name), cause: e.0 }
+						LinkError::MiddlewareFactoryRejected {
+							name: Arc::clone(&symref.name),
+							cause: e.message().into_owned(),
+						}
 					})?;
 					let produced = built.kind();
 					if symref.kind != *kind || symref.kind != produced {

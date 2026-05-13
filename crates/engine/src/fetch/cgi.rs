@@ -113,8 +113,8 @@ const DEFAULT_TOTAL_TIMEOUT: Duration = Duration::from_mins(1);
 /// `uid`, or when `args.env` contains a reserved key.
 #[cfg(unix)]
 pub fn factory(args: &Value) -> Result<FetchInst, FactoryError> {
-	let parsed = parse_args(args).map_err(FactoryError)?;
-	validate_binary(&parsed.binary, &parsed.security).map_err(FactoryError)?;
+	let parsed = parse_args(args).map_err(FactoryError::Invalid)?;
+	validate_binary(&parsed.binary, &parsed.security).map_err(FactoryError::Invalid)?;
 	if parsed.security.uid == 0 {
 		tracing::warn!(
 			binary = %parsed.binary.display(),
@@ -128,7 +128,7 @@ pub fn factory(args: &Value) -> Result<FetchInst, FactoryError> {
 /// load-bearing primitive and has no Windows / WASI analogue.
 #[cfg(not(unix))]
 pub fn factory(_args: &Value) -> Result<FetchInst, FactoryError> {
-	Err(FactoryError("CGI fetch driver is unix-only".to_string()))
+	Err(FactoryError::Invalid("CGI fetch driver is unix-only".to_string()))
 }
 
 fn parse_args(args: &Value) -> Result<CgiArgs, String> {
@@ -973,7 +973,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args.as_object_mut().unwrap().remove("binary");
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("binary"), "error must name the missing field: {err:?}");
+		assert!(err.message().contains("binary"), "error must name the missing field: {err:?}");
 	}
 
 	#[test]
@@ -982,7 +982,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args.as_object_mut().unwrap().remove("script_name");
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("script_name"), "must name field: {err:?}");
+		assert!(err.message().contains("script_name"), "must name field: {err:?}");
 	}
 
 	#[test]
@@ -991,7 +991,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args.as_object_mut().unwrap().remove("working_dir");
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("working_dir"), "must name field: {err:?}");
+		assert!(err.message().contains("working_dir"), "must name field: {err:?}");
 	}
 
 	#[test]
@@ -1000,7 +1000,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args.as_object_mut().unwrap().remove("env");
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("env"), "must name field: {err:?}");
+		assert!(err.message().contains("env"), "must name field: {err:?}");
 	}
 
 	#[test]
@@ -1009,7 +1009,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args.as_object_mut().unwrap().remove("block_headers");
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("block_headers"), "must name field: {err:?}");
+		assert!(err.message().contains("block_headers"), "must name field: {err:?}");
 	}
 
 	#[test]
@@ -1019,7 +1019,7 @@ mod tests {
 		args["security"]["chroot"] = json!("/var/empty");
 		let err = expect_factory_err(&args);
 		assert!(
-			err.0.contains("chroot is reserved but not yet implemented"),
+			err.message().contains("chroot is reserved but not yet implemented"),
 			"must use spec wording verbatim: {err:?}",
 		);
 	}
@@ -1033,7 +1033,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args["security"]["limits"].as_object_mut().unwrap().remove("memory_mb");
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("memory_mb"), "must name field: {err:?}");
+		assert!(err.message().contains("memory_mb"), "must name field: {err:?}");
 	}
 
 	#[test]
@@ -1059,8 +1059,12 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args["env"] = json!({ "REQUEST_METHOD": "FAKE" });
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("REQUEST_METHOD"), "must name the offending key: {err:?}");
-		assert!(err.0.contains("reserved"), "must explain why: {err:?}");
+		assert!(
+			err.message().contains("REQUEST_METHOD"),
+			"must name the offending key: {}",
+			err.message()
+		);
+		assert!(err.message().contains("reserved"), "must explain why: {err:?}");
 	}
 
 	#[test]
@@ -1069,7 +1073,11 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args["env"] = json!({ "HTTP_USER_AGENT": "x" });
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("HTTP_USER_AGENT"), "must name the offending key: {err:?}");
+		assert!(
+			err.message().contains("HTTP_USER_AGENT"),
+			"must name the offending key: {}",
+			err.message()
+		);
 	}
 
 	#[test]
@@ -1078,7 +1086,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args["env"] = json!({ "HTTPS": "on" });
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("HTTPS"), "must name the offending key: {err:?}");
+		assert!(err.message().contains("HTTPS"), "must name the offending key: {}", err.message());
 	}
 
 	#[test]
@@ -1087,7 +1095,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args["binary"] = json!("/no/such/path/here-cgi-fixture");
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("not accessible"), "must explain: {err:?}");
+		assert!(err.message().contains("not accessible"), "must explain: {err:?}");
 	}
 
 	#[test]
@@ -1097,7 +1105,7 @@ mod tests {
 		let mut args = minimal_valid_args(bin.path());
 		args["binary"] = json!(dir.to_str().unwrap());
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("not a regular file"), "must explain: {err:?}");
+		assert!(err.message().contains("not a regular file"), "must explain: {err:?}");
 	}
 
 	#[test]
@@ -1110,7 +1118,7 @@ mod tests {
 		// current uid (the file's owner). Owner bits are 644 — no x.
 		args["security"]["uid"] = json!(current_uid());
 		let err = expect_factory_err(&args);
-		assert!(err.0.contains("not executable"), "must explain: {err:?}");
+		assert!(err.message().contains("not executable"), "must explain: {err:?}");
 	}
 
 	#[test]

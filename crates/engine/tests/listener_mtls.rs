@@ -166,12 +166,12 @@ fn tagged_fetch_factory(args: &Value) -> Result<FetchInst, FactoryError> {
 	let tag = args
 		.get("tag")
 		.and_then(Value::as_str)
-		.ok_or_else(|| FactoryError("missing tag".to_string()))?;
+		.ok_or_else(|| FactoryError::Invalid("missing tag".to_string()))?;
 	let static_tag: &'static str = match tag {
 		"with-cert" => "with-cert",
 		"without-cert" => "without-cert",
 		"valid" => "valid",
-		other => return Err(FactoryError(format!("unknown tag {other}"))),
+		other => return Err(FactoryError::Invalid(format!("unknown tag {other}"))),
 	};
 	Ok(FetchInst::L7(Arc::new(TaggedFetch { tag: static_tag })))
 }

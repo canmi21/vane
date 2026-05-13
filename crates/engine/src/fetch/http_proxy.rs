@@ -601,12 +601,12 @@ fn dispatch_upstream_kind(args: &serde_json::Value) -> Option<Result<FetchInst, 
 		#[cfg(feature = "cgi")]
 		Some("cgi") => Some(crate::fetch::cgi::factory(args)),
 		#[cfg(not(feature = "cgi"))]
-		Some("cgi") => Some(Err(FactoryError(
+		Some("cgi") => Some(Err(FactoryError::Invalid(
 			"upstream_kind 'cgi' requires the 'cgi' cargo feature, which is not active in this build"
 				.to_string(),
 		))),
 		Some("tcp") | None => None,
-		Some(other) => Some(Err(FactoryError(format!(
+		Some(other) => Some(Err(FactoryError::Invalid(format!(
 			"args.upstream_kind must be 'tcp' or 'cgi' (or absent for backwards-compat with hand-written socket rules) — got {other:?}",
 		)))),
 	}
@@ -644,17 +644,17 @@ pub fn factory(
 	if let Some(out) = dispatch_upstream_kind(args) {
 		return out;
 	}
-	let upstream = args
-		.get("upstream")
-		.and_then(serde_json::Value::as_str)
-		.ok_or_else(|| FactoryError("missing args.upstream (string \"host:port\")".to_string()))?;
+	let upstream = args.get("upstream").and_then(serde_json::Value::as_str).ok_or_else(|| {
+		FactoryError::Invalid("missing args.upstream (string \"host:port\")".to_string())
+	})?;
 	if upstream.is_empty() {
-		return Err(FactoryError("args.upstream must not be empty".to_string()));
+		return Err(FactoryError::Invalid("args.upstream must not be empty".to_string()));
 	}
 	let version = parse_version_arg(args)?;
 	let tls = parse_tls_args(upstream, args.get("tls"), crl_cache)
-		.map_err(|e| FactoryError(format!("args.tls: {e}")))?;
-	let dns = parse_dns_args(args.get("dns")).map_err(|e| FactoryError(format!("args.dns: {e}")))?;
+		.map_err(|e| FactoryError::Invalid(format!("args.tls: {e}")))?;
+	let dns =
+		parse_dns_args(args.get("dns")).map_err(|e| FactoryError::Invalid(format!("args.dns: {e}")))?;
 
 	if matches!(version, UpstreamVersion::Auto) && tls.is_none() {
 		// Cleartext has no ALPN to negotiate on, so `auto` collapses
@@ -668,7 +668,7 @@ pub fn factory(
 	}
 
 	let retry = crate::fetch::retry::parse(args.get("retry"))
-		.map_err(|e| FactoryError(format!("args.retry: {e}")))?;
+		.map_err(|e| FactoryError::Invalid(format!("args.retry: {e}")))?;
 
 	#[cfg(feature = "h3")]
 	if matches!(version, UpstreamVersion::Http3) {
@@ -701,9 +701,9 @@ pub fn factory(
 	});
 
 	let scheme = if tls.is_some() { http::uri::Scheme::HTTPS } else { http::uri::Scheme::HTTP };
-	let authority: http::uri::Authority = upstream
-		.parse()
-		.map_err(|e| FactoryError(format!("args.upstream {upstream:?}: invalid authority: {e}")))?;
+	let authority: http::uri::Authority = upstream.parse().map_err(|e| {
+		FactoryError::Invalid(format!("args.upstream {upstream:?}: invalid authority: {e}"))
+	})?;
 
 	Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
 		version,
@@ -733,10 +733,10 @@ fn parse_version_arg(args: &serde_json::Value) -> Result<UpstreamVersion, Factor
 		#[cfg(feature = "h3")]
 		"h3" => Ok(UpstreamVersion::Http3),
 		#[cfg(not(feature = "h3"))]
-		"h3" => Err(FactoryError(
+		"h3" => Err(FactoryError::Invalid(
 			"version 'h3' requires the 'h3' cargo feature, which is not active in this build".to_string(),
 		)),
-		other => Err(FactoryError(format!(
+		other => Err(FactoryError::Invalid(format!(
 			"args.version must be one of 'auto' / 'h1' / 'h2' / 'h3' — got {other:?}"
 		))),
 	}
@@ -757,7 +757,7 @@ fn build_h3_dispatch(
 	retry: RetryPolicy,
 ) -> Result<FetchInst, FactoryError> {
 	let tls = tls.ok_or_else(|| {
-		FactoryError("version 'h3' requires args.tls (h3 mandates QUIC + TLS 1.3)".to_string())
+		FactoryError::Invalid("version 'h3' requires args.tls (h3 mandates QUIC + TLS 1.3)".to_string())
 	})?;
 	let mut h3_rustls: rustls::ClientConfig = (*tls.client_config).clone();
 	h3_rustls.alpn_protocols = vec![b"h3".to_vec()];
@@ -766,13 +766,13 @@ fn build_h3_dispatch(
 	tls_fp.alpn_protocols = vec![b"h3".to_vec()];
 	let connect_timeout = match args.get("connect_timeout").and_then(serde_json::Value::as_str) {
 		Some(s) => crate::fetch::retry::parse_duration(s)
-			.map_err(|e| FactoryError(format!("args.connect_timeout: {e}")))?,
+			.map_err(|e| FactoryError::Invalid(format!("args.connect_timeout: {e}")))?,
 		None => H3_CONNECT_TIMEOUT_DEFAULT,
 	};
 	let resolver = HickoryDnsResolver::build(dns)
-		.map_err(|e| FactoryError(format!("args.dns hickory build: {e}")))?;
+		.map_err(|e| FactoryError::Invalid(format!("args.dns hickory build: {e}")))?;
 	let (host, port) = split_host_port(upstream)
-		.map_err(|e| FactoryError(format!("args.upstream {upstream:?}: {e}")))?;
+		.map_err(|e| FactoryError::Invalid(format!("args.upstream {upstream:?}: {e}")))?;
 	let dispatch = Dispatch::Quic(QuicDispatchState {
 		rustls_cfg: h3_rustls,
 		sni: Arc::from(tls.verify_hostname.as_str()),
@@ -782,9 +782,9 @@ fn build_h3_dispatch(
 		host: Arc::from(host.as_str()),
 		port,
 	});
-	let authority: http::uri::Authority = upstream
-		.parse()
-		.map_err(|e| FactoryError(format!("args.upstream {upstream:?}: invalid authority: {e}")))?;
+	let authority: http::uri::Authority = upstream.parse().map_err(|e| {
+		FactoryError::Invalid(format!("args.upstream {upstream:?}: invalid authority: {e}"))
+	})?;
 	Ok(FetchInst::L7(Arc::new(HttpProxyFetch {
 		version,
 		scheme: http::uri::Scheme::HTTPS,
@@ -807,7 +807,7 @@ mod tests {
 		install_crypto();
 		match factory(&serde_json::json!({}), None) {
 			Ok(_) => panic!("must reject missing upstream"),
-			Err(e) => assert!(e.0.contains("upstream"), "{}", e.0),
+			Err(e) => assert!(e.message().contains("upstream"), "{}", e.message()),
 		}
 	}
 
@@ -816,7 +816,7 @@ mod tests {
 		install_crypto();
 		match factory(&serde_json::json!({ "upstream": "" }), None) {
 			Ok(_) => panic!("must reject empty upstream"),
-			Err(e) => assert!(e.0.contains("must not be empty"), "{}", e.0),
+			Err(e) => assert!(e.message().contains("must not be empty"), "{}", e.message()),
 		}
 	}
 
@@ -827,7 +827,7 @@ mod tests {
 		// has to be set in the daemon env. The unit-test environment
 		// never sets that, so the factory must refuse the config.
 		install_crypto();
-		let Err(FactoryError(msg)) = factory(
+		let Err(FactoryError::Invalid(msg)) = factory(
 			&serde_json::json!({
 				"upstream": "127.0.0.1:9443",
 				"tls": { "insecure_skip_verify": true, "verify_hostname": "localhost" },
@@ -843,7 +843,7 @@ mod tests {
 	#[test]
 	fn factory_rejects_version_h3_without_feature() {
 		install_crypto();
-		let Err(FactoryError(msg)) = factory(
+		let Err(FactoryError::Invalid(msg)) = factory(
 			&serde_json::json!({
 				"upstream": "127.0.0.1:9443",
 				"version": "h3",
@@ -862,7 +862,7 @@ mod tests {
 		// H3 mandates QUIC + TLS 1.3 (RFC 9114) — the factory rejects
 		// `version: "h3"` without `args.tls` even with the cargo
 		// feature enabled.
-		let Err(FactoryError(msg)) = factory(
+		let Err(FactoryError::Invalid(msg)) = factory(
 			&serde_json::json!({
 				"upstream": "127.0.0.1:9443",
 				"version": "h3",
@@ -880,7 +880,7 @@ mod tests {
 		// Same master-switch contract as the H1/H2 path: H3 + TLS with
 		// `insecure_skip_verify` is rejected without the env opt-in.
 		install_crypto();
-		let Err(FactoryError(msg)) = factory(
+		let Err(FactoryError::Invalid(msg)) = factory(
 			&serde_json::json!({
 				"upstream": "127.0.0.1:9443",
 				"version": "h3",
@@ -896,7 +896,7 @@ mod tests {
 	#[test]
 	fn factory_rejects_unknown_version() {
 		install_crypto();
-		let Err(FactoryError(msg)) = factory(
+		let Err(FactoryError::Invalid(msg)) = factory(
 			&serde_json::json!({
 				"upstream": "127.0.0.1:9443",
 				"version": "h7",

@@ -175,26 +175,25 @@ impl L7RequestMiddleware for RateLimitMiddleware {
 /// header name, non-string header value, or malformed `on_limit.body`
 /// base64.
 pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError> {
-	let rate = args
-		.get("rate")
-		.and_then(serde_json::Value::as_u64)
-		.ok_or_else(|| FactoryError("missing args.rate (u32 tokens-per-window)".to_string()))?;
-	let rate = u32::try_from(rate).map_err(|_| FactoryError("args.rate exceeds u32".to_string()))?;
+	let rate = args.get("rate").and_then(serde_json::Value::as_u64).ok_or_else(|| {
+		FactoryError::Invalid("missing args.rate (u32 tokens-per-window)".to_string())
+	})?;
+	let rate =
+		u32::try_from(rate).map_err(|_| FactoryError::Invalid("args.rate exceeds u32".to_string()))?;
 
 	let burst = args
 		.get("burst")
 		.and_then(serde_json::Value::as_u64)
-		.ok_or_else(|| FactoryError("missing args.burst (u32 bucket capacity)".to_string()))?;
-	let burst =
-		u32::try_from(burst).map_err(|_| FactoryError("args.burst exceeds u32".to_string()))?;
+		.ok_or_else(|| FactoryError::Invalid("missing args.burst (u32 bucket capacity)".to_string()))?;
+	let burst = u32::try_from(burst)
+		.map_err(|_| FactoryError::Invalid("args.burst exceeds u32".to_string()))?;
 	if burst == 0 {
-		return Err(FactoryError("args.burst must be ≥ 1".to_string()));
+		return Err(FactoryError::Invalid("args.burst must be ≥ 1".to_string()));
 	}
 
-	let window_str = args
-		.get("window")
-		.and_then(serde_json::Value::as_str)
-		.ok_or_else(|| FactoryError("missing args.window (\"Ns\" with N in 1..=60)".to_string()))?;
+	let window_str = args.get("window").and_then(serde_json::Value::as_str).ok_or_else(|| {
+		FactoryError::Invalid("missing args.window (\"Ns\" with N in 1..=60)".to_string())
+	})?;
 	let window = parse_window(window_str)?;
 
 	let key_str = args.get("key").and_then(serde_json::Value::as_str).unwrap_or("remote_ip");
@@ -202,7 +201,7 @@ pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError>
 		"remote_ip" => KeyDerivation::RemoteIp,
 		"global" => KeyDerivation::Global,
 		other => {
-			return Err(FactoryError(format!(
+			return Err(FactoryError::Invalid(format!(
 				"unsupported args.key {other:?}; supported: remote_ip / global \
 				 (header / cookie / query / composite are post-MVP per \
 				 spec/crates/core.md § _Rate limit (L2)_)"
@@ -226,12 +225,13 @@ pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError>
 }
 
 fn parse_window(s: &str) -> Result<Duration, FactoryError> {
-	let trimmed = s
-		.strip_suffix('s')
-		.ok_or_else(|| FactoryError(format!("args.window {s:?}: must end with 's' (e.g. \"1s\")")))?;
-	let n: u64 = trimmed.parse().map_err(|e| FactoryError(format!("args.window {s:?}: {e}")))?;
+	let trimmed = s.strip_suffix('s').ok_or_else(|| {
+		FactoryError::Invalid(format!("args.window {s:?}: must end with 's' (e.g. \"1s\")"))
+	})?;
+	let n: u64 =
+		trimmed.parse().map_err(|e| FactoryError::Invalid(format!("args.window {s:?}: {e}")))?;
 	if !(MIN_WINDOW_SECS..=MAX_WINDOW_SECS).contains(&n) {
-		return Err(FactoryError(format!(
+		return Err(FactoryError::Invalid(format!(
 			"args.window {s:?}: must be in [1s, 60s] per spec/crates/core.md"
 		)));
 	}
@@ -246,21 +246,23 @@ fn parse_on_limit(v: Option<&serde_json::Value>) -> Result<OnLimit, FactoryError
 	};
 	let status_raw = obj.get("status").and_then(serde_json::Value::as_u64).unwrap_or(429);
 	let status = u16::try_from(status_raw)
-		.map_err(|_| FactoryError(format!("on_limit.status {status_raw} out of u16 range")))?;
+		.map_err(|_| FactoryError::Invalid(format!("on_limit.status {status_raw} out of u16 range")))?;
 	if !(100..=599).contains(&status) {
-		return Err(FactoryError(format!("on_limit.status {status} out of HTTP range 100-599")));
+		return Err(FactoryError::Invalid(format!(
+			"on_limit.status {status} out of HTTP range 100-599"
+		)));
 	}
 
 	let mut headers = Vec::new();
 	if let Some(hdrs) = obj.get("headers").and_then(serde_json::Value::as_object) {
 		for (k, v) in hdrs {
 			let name = HeaderName::try_from(k.as_str())
-				.map_err(|e| FactoryError(format!("on_limit.headers name {k:?}: {e}")))?;
+				.map_err(|e| FactoryError::Invalid(format!("on_limit.headers name {k:?}: {e}")))?;
 			let s = v
 				.as_str()
-				.ok_or_else(|| FactoryError(format!("on_limit.headers[{k:?}] must be string")))?;
+				.ok_or_else(|| FactoryError::Invalid(format!("on_limit.headers[{k:?}] must be string")))?;
 			let value = HeaderValue::try_from(s)
-				.map_err(|e| FactoryError(format!("on_limit.headers[{k:?}] value: {e}")))?;
+				.map_err(|e| FactoryError::Invalid(format!("on_limit.headers[{k:?}] value: {e}")))?;
 			headers.push((name, value));
 		}
 	}
@@ -269,7 +271,7 @@ fn parse_on_limit(v: Option<&serde_json::Value>) -> Result<OnLimit, FactoryError
 		Bytes::from(
 			BASE64_STANDARD
 				.decode(b64.as_bytes())
-				.map_err(|e| FactoryError(format!("on_limit.body base64: {e}")))?,
+				.map_err(|e| FactoryError::Invalid(format!("on_limit.body base64: {e}")))?,
 		)
 	} else {
 		Bytes::new()

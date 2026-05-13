@@ -497,7 +497,7 @@ fn http_proxy_factory_rejects_missing_upstream_arg() {
 	// Using let-else because `FetchInst` does not implement `Debug`; we
 	// cannot rely on `assert!(matches!(_, Err(_)))`-style helpers that
 	// would print the unexpected `Ok(_)` payload.
-	let Err(FactoryError(msg)) = http_proxy_factory(&serde_json::json!({}), None) else {
+	let Err(FactoryError::Invalid(msg)) = http_proxy_factory(&serde_json::json!({}), None) else {
 		panic!("missing upstream must error; got Ok(_)");
 	};
 	assert!(

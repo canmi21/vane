@@ -62,21 +62,20 @@ impl L7RequestMiddleware for MethodMatch {
 /// empty, contains non-string elements, or contains a token that
 /// `http::Method` rejects.
 pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError> {
-	let arr = args
-		.get("methods")
-		.and_then(serde_json::Value::as_array)
-		.ok_or_else(|| FactoryError("missing args.methods (non-empty string array)".to_string()))?;
+	let arr = args.get("methods").and_then(serde_json::Value::as_array).ok_or_else(|| {
+		FactoryError::Invalid("missing args.methods (non-empty string array)".to_string())
+	})?;
 	if arr.is_empty() {
-		return Err(FactoryError("args.methods must contain at least one method".to_string()));
+		return Err(FactoryError::Invalid("args.methods must contain at least one method".to_string()));
 	}
 	let mut methods = Vec::with_capacity(arr.len());
 	for item in arr {
 		let s = item
 			.as_str()
-			.ok_or_else(|| FactoryError("args.methods items must be strings".to_string()))?;
+			.ok_or_else(|| FactoryError::Invalid("args.methods items must be strings".to_string()))?;
 		let upper = s.to_ascii_uppercase();
 		let parsed = http::Method::from_bytes(upper.as_bytes())
-			.map_err(|e| FactoryError(format!("invalid method {s:?}: {e}")))?;
+			.map_err(|e| FactoryError::Invalid(format!("invalid method {s:?}: {e}")))?;
 		methods.push(parsed);
 	}
 	Ok(MiddlewareInst::L7Request(Arc::new(MethodMatch { methods })))

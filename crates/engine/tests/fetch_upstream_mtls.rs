@@ -287,7 +287,8 @@ async fn parse_client_cert_requires_both_paths() {
 		None,
 	);
 	let Err(err) = res else { panic!("missing cert_path must reject") };
-	assert!(err.0.contains("cert_path"), "{}", err.0);
+	let msg = err.message();
+	assert!(msg.contains("cert_path"), "{msg}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

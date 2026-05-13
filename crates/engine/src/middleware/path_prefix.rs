@@ -57,18 +57,19 @@ impl L7RequestMiddleware for PathPrefix {
 /// Returns [`FactoryError`] when `prefixes` is missing, not an array,
 /// empty, or contains non-string elements.
 pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError> {
-	let arr = args
-		.get("prefixes")
-		.and_then(serde_json::Value::as_array)
-		.ok_or_else(|| FactoryError("missing args.prefixes (non-empty string array)".to_string()))?;
+	let arr = args.get("prefixes").and_then(serde_json::Value::as_array).ok_or_else(|| {
+		FactoryError::Invalid("missing args.prefixes (non-empty string array)".to_string())
+	})?;
 	if arr.is_empty() {
-		return Err(FactoryError("args.prefixes must contain at least one prefix".to_string()));
+		return Err(FactoryError::Invalid(
+			"args.prefixes must contain at least one prefix".to_string(),
+		));
 	}
 	let mut prefixes = Vec::with_capacity(arr.len());
 	for item in arr {
 		let s = item
 			.as_str()
-			.ok_or_else(|| FactoryError("args.prefixes items must be strings".to_string()))?;
+			.ok_or_else(|| FactoryError::Invalid("args.prefixes items must be strings".to_string()))?;
 		prefixes.push(Arc::from(s));
 	}
 	Ok(MiddlewareInst::L7Request(Arc::new(PathPrefix { prefixes })))

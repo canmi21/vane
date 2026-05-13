@@ -100,18 +100,18 @@ pub fn factory(args: &serde_json::Value) -> Result<MiddlewareInst, FactoryError>
 		Some(value) => {
 			let arr = value
 				.as_array()
-				.ok_or_else(|| FactoryError("args.headers must be an array".to_string()))?;
+				.ok_or_else(|| FactoryError::Invalid("args.headers must be an array".to_string()))?;
 			let mut out = Vec::with_capacity(arr.len());
 			for item in arr {
 				let s = item
 					.as_str()
-					.ok_or_else(|| FactoryError("args.headers items must be strings".to_string()))?;
+					.ok_or_else(|| FactoryError::Invalid("args.headers items must be strings".to_string()))?;
 				let lower = s.to_ascii_lowercase();
 				let action = match lower.as_str() {
 					"x-forwarded-for" => HeaderAction::XForwardedForAppend,
 					"x-real-ip" => HeaderAction::XRealIpOverwrite,
 					_ => {
-						return Err(FactoryError(format!(
+						return Err(FactoryError::Invalid(format!(
 							"unsupported header {s:?}; supported: x-forwarded-for, x-real-ip"
 						)));
 					}

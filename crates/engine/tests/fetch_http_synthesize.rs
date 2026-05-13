@@ -255,15 +255,18 @@ fn http_synthesize_factory_rejects_invalid_status() {
 	// Per the public docstring on `http_synthesize::factory`: `status`
 	// must be an integer in the HTTP range `100..=599`. Each negative
 	// case below — out-of-range low, out-of-range high, wrong type —
-	// must return `Err(FactoryError(_))`. `FetchInst` does not implement
+	// must return `Err(FactoryError::Invalid(_))`. `FetchInst` does not implement
 	// `Debug`, so let-else is the destructure strategy.
-	let Err(FactoryError(_)) = http_synth_factory(&serde_json::json!({ "status": 99 })) else {
+	let Err(FactoryError::Invalid(_)) = http_synth_factory(&serde_json::json!({ "status": 99 }))
+	else {
 		panic!("status 99 must be rejected as out-of-range");
 	};
-	let Err(FactoryError(_)) = http_synth_factory(&serde_json::json!({ "status": 600 })) else {
+	let Err(FactoryError::Invalid(_)) = http_synth_factory(&serde_json::json!({ "status": 600 }))
+	else {
 		panic!("status 600 must be rejected as out-of-range");
 	};
-	let Err(FactoryError(_)) = http_synth_factory(&serde_json::json!({ "status": "200" })) else {
+	let Err(FactoryError::Invalid(_)) = http_synth_factory(&serde_json::json!({ "status": "200" }))
+	else {
 		panic!("status as string must be rejected — args.status is an integer");
 	};
 }
@@ -280,7 +283,7 @@ fn http_synthesize_factory_rejects_invalid_header_name() {
 		"status": 200,
 		"headers": { "bad name": "x" },
 	});
-	let Err(FactoryError(msg)) = http_synth_factory(&args) else {
+	let Err(FactoryError::Invalid(msg)) = http_synth_factory(&args) else {
 		panic!("invalid header name must be rejected; got Ok(_)");
 	};
 	assert!(
@@ -300,7 +303,7 @@ fn http_synthesize_factory_rejects_non_string_header_value() {
 		"status": 200,
 		"headers": { "x": 42 },
 	});
-	let Err(FactoryError(_)) = http_synth_factory(&args) else {
+	let Err(FactoryError::Invalid(_)) = http_synth_factory(&args) else {
 		panic!("non-string header value must be rejected; got Ok(_)");
 	};
 }
@@ -313,7 +316,7 @@ fn http_synthesize_factory_rejects_invalid_base64_body() {
 	// bytes. `"!!!"` is not valid base64; the factory must surface the
 	// rejection rather than silently treating the bytes as data.
 	let args = serde_json::json!({ "status": 200, "body": "!!!" });
-	let Err(FactoryError(msg)) = http_synth_factory(&args) else {
+	let Err(FactoryError::Invalid(msg)) = http_synth_factory(&args) else {
 		panic!("invalid base64 body must be rejected; got Ok(_)");
 	};
 	assert!(
