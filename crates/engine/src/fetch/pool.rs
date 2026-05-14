@@ -14,7 +14,7 @@
 //!   for `MAX_IDLE_PER_HOST` and land on a single source of truth.
 //! - **Sharing across fetch flavours** — the H1, H2 and H3 fetch
 //!   paths all enforce the same per-authority concurrency limit, so
-//!   the [`AuthorityLimiter`] lives once, not once per fetch type.
+//!   the `AuthorityLimiter` lives once, not once per fetch type.
 //! - **Decoupling from `http_proxy.rs`** — the pool tunables predate
 //!   any concrete fetch implementation; keeping them outside
 //!   `http_proxy.rs` lets new fetch types (CGI proxies, WS proxies)

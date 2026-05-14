@@ -27,7 +27,7 @@
 //! [RFC 6455 §1.3 + §11.3] makes `Upgrade` + `Connection: Upgrade`
 //! the *transport* of the WebSocket handshake; they are
 //! hop-by-hop in the HTTP layer but the WebSocket layer requires
-//! both peers to see them. [`strip_hop_by_hop_request`] preserves
+//! both peers to see them. `strip_hop_by_hop_request` preserves
 //! `Connection`, `Upgrade`, and the `Sec-WebSocket-*` family when
 //! the request is recognisably a WebSocket handshake, and rewrites
 //! `Connection:` so the only remaining token is `upgrade` —
