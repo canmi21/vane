@@ -19,9 +19,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
-use std::sync::Mutex as SyncMutex;
+use in_flight_set::InFlightSet;
 
-use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use vane_core::{ConnContext, ConnId, FlowLogSink, ListenerKind, NodeId};
 
@@ -41,13 +40,12 @@ pub(crate) struct AcceptCtx {
 	pub security: Arc<SecurityState>,
 	pub accept_cancel: CancellationToken,
 	pub force_cancel: CancellationToken,
-	/// `std::sync::Mutex<JoinSet<()>>` rather than `tokio::sync::Mutex`:
-	/// `JoinSet::spawn` is fully sync, so the accept path never has to
-	/// yield to the scheduler to register a freshly-accepted connection.
-	/// Drain paths must NOT hold this lock across `.await` — instead
-	/// `mem::take` the JoinSet out under a brief sync critical section
-	/// and drive `join_next().await` off-lock.
-	pub in_flight: Arc<SyncMutex<JoinSet<()>>>,
+	/// Per-listener supervised task set. See
+	/// [`in_flight_set::InFlightSet`] — the wrapper enforces the
+	/// "take under brief sync critical section, then `join_next`
+	/// off-lock" invariant so drain code paths never hold a sync
+	/// mutex across `.await`.
+	pub in_flight: Arc<InFlightSet>,
 	pub in_flight_count: Arc<AtomicUsize>,
 	pub bind_ready: Arc<AtomicBool>,
 	pub bind_cfg: Arc<BindConfig>,

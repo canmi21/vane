@@ -2285,6 +2285,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "in-flight-set"
+version = "0.0.1"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5371,6 +5378,7 @@ dependencies = [
  "hyper-rustls",
  "hyper-util",
  "idna",
+ "in-flight-set",
  "instant-acme",
  "ipnet",
  "libc",

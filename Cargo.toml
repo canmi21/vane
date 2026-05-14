@@ -14,6 +14,7 @@ members = [
 	"crates/lib/h3-body",
 	"crates/lib/hickory-tower-resolver",
 	"crates/lib/http-retry-policy",
+	"crates/lib/in-flight-set",
 	"crates/lib/ndjson-rpc",
 	"crates/lib/notify-twophase",
 	"crates/lib/ocsp-mock-responder",
@@ -78,6 +79,7 @@ guess = { path = "crates/lib/guess", version = "0.2.1", default-features = false
 h3-body = { path = "crates/lib/h3-body", version = "0.0.2" }
 hickory-tower-resolver = { path = "crates/lib/hickory-tower-resolver", version = "0.0.1" }
 http-retry-policy = { path = "crates/lib/http-retry-policy", version = "0.0.1" }
+in-flight-set = { path = "crates/lib/in-flight-set", version = "0.0.1" }
 ndjson-rpc = { path = "crates/lib/ndjson-rpc", version = "0.0.3" }
 notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.2" }
 ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.1" }

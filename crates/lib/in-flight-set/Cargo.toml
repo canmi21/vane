@@ -1,0 +1,20 @@
+[package]
+name = "in-flight-set"
+version = "0.0.1"
+categories = ["network-programming", "asynchronous"]
+edition.workspace = true
+keywords = ["tokio", "joinset", "supervision", "drain", "shutdown"]
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "A shareable, sync-locked `JoinSet` wrapper for supervising per-connection tasks with cooperative + forced drain."
+
+[lints]
+workspace = true
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

@@ -11,6 +11,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use in_flight_set::InFlightSet;
 use quinn_shared_socket::SharedSocket;
 use tokio_util::sync::CancellationToken;
 use vane_core::FlowLogSink;
@@ -137,7 +138,7 @@ async fn run_h3_accept_loop(
 	verbosity: &Arc<VerbosityState>,
 	accept_cancel: CancellationToken,
 	force_cancel: CancellationToken,
-	in_flight: Arc<std::sync::Mutex<tokio::task::JoinSet<()>>>,
+	in_flight: Arc<InFlightSet>,
 ) {
 	loop {
 		tokio::select! {
@@ -170,11 +171,11 @@ async fn run_h3_accept_loop(
 				let verbosity = Arc::clone(verbosity);
 				let accept_cancel = accept_cancel.clone();
 				let force_cancel = force_cancel.clone();
-				// Spawn into the listener's `in_flight` JoinSet so the
+				// Spawn into the listener's `in_flight` set so the
 				// per-listener drain (shutdown / reconcile) joins on
 				// the H3 driver instead of leaking it as a detached
 				// `tokio::spawn`.
-				in_flight.lock().expect("in_flight mutex poisoned").spawn(async move {
+				in_flight.spawn(async move {
 					match connecting.await {
 						Ok(quic_conn) => {
 							crate::upgrade::drive_h3_server(

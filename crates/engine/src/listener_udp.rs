@@ -17,9 +17,7 @@ use bytes::Bytes;
 use clienthello::{Extractor, PushOutcome};
 use dashmap::DashMap;
 use parking_lot::Mutex;
-use std::sync::Mutex as SyncMutex;
 use tokio::sync::mpsc;
-use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use vane_core::{
 	ConnContext, FlowCtx, L4Conn, NodeId, TlsInfo, TrajectoryBuilder, Transport, UdpAssoc,
@@ -133,7 +131,7 @@ pub type DispatchTable = DashMap<DispatchKey, Arc<DispatchHandle>>;
 pub struct UdpListenerHandle {
 	pub accept_cancel: CancellationToken,
 	pub force_cancel: CancellationToken,
-	pub in_flight: Arc<SyncMutex<JoinSet<()>>>,
+	pub in_flight: Arc<in_flight_set::InFlightSet>,
 	pub in_flight_count: Arc<AtomicUsize>,
 	pub bind_ready: Arc<AtomicBool>,
 	pub join: tokio::task::JoinHandle<()>,
@@ -551,7 +549,7 @@ fn spawn_cold_path(
 	};
 	ctx.base.in_flight_count.fetch_add(1, Ordering::Relaxed);
 	let in_flight_guard = InFlightGuard(Arc::clone(&ctx.base.in_flight_count));
-	ctx.base.in_flight.lock().expect("in_flight mutex poisoned").spawn(handle_cold_path(
+	ctx.base.in_flight.spawn(handle_cold_path(
 		Arc::clone(ctx),
 		peer,
 		first_packets,
