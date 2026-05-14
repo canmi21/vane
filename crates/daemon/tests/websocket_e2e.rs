@@ -44,6 +44,15 @@ fn spawn_vaned(dir: &Path) -> Child {
 		// Disable the HTTP mgmt transport so parallel test daemons
 		// don't fight over port 3333.
 		.env("VANE_MGMT_HTTP_PORT", "")
+		// Shrink the soft-drain window. Since J11 the H1 connection's
+		// listener-side task stays alive for the full WS-tunnel
+		// lifetime — that's the correct production behaviour, but
+		// the test's 5-second `wait_with_timeout` budget doesn't have
+		// room for the default 30 s drain. The test holds an active
+		// WS connection at SIGTERM time; force_cancel firing at the
+		// shorter drain boundary breaks the select inside the tunnel
+		// task and lets the daemon exit promptly.
+		.env("VANE_DRAIN_TIMEOUT_SECS", "1")
 		.stdout(Stdio::null())
 		.stderr(Stdio::null())
 		.spawn()
