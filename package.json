@@ -3,7 +3,7 @@
 	"type": "module",
 	"devDependencies": {
 		"@commitlint/cli": "^20.5.2",
-		"@commitlint/config-conventional": "^20.5.0",
+		"@commitlint/config-conventional": "^21.0.1",
 		"dprint": "^0.54.0",
 		"lefthook": "^2.1.6"
 	}
