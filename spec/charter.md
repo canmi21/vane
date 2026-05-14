@@ -44,3 +44,9 @@ Every downstream decision resolves against these:
 
 - **Cloudflare / Nginx parity.** Vane borrows ideas (rule-based config, WASM isolation). It does not compete on scale or directive-cascade ergonomics.
 - **Protocol research.** No custom wire formats. Ride on `http`, `hyper`, `h3`, `quinn`.
+
+## Release profile
+
+`[profile.release]` in the workspace `Cargo.toml` uses `opt-level = "z"` plus `lto = true`, `codegen-units = 1`, `strip = true`, `panic = "abort"`. This is a deliberate trade — binary size and cold-start footprint over peak throughput. The target user runs **one** vaned per host and is bandwidth- or fan-out-bound long before they are CPU-bound; an extra few percent of inlining headroom is not visible at one-server-per-team scale, and the smaller binary materially helps container image size, system-package payload, and TLB / I-cache pressure on the cold path.
+
+Do not switch to `opt-level = "3"` without first putting numbers on a workload that is demonstrably CPU-bound under vane's hot path (the executor + per-request flow walk). If a real benchmark shows a meaningful win, update this section in the same commit.
