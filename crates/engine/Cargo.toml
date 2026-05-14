@@ -62,7 +62,7 @@ cgi-response = { workspace = true }
 clienthello = { workspace = true }
 dashmap = "6.1.0"
 # Direct OCSP RustCrypto deps: `der` for Decode/Encode on OCSP req/resp; `x509-cert` for Certificate decode (some types not re-exported by x509-ocsp).
-der = "0.7"
+der = "0.8"
 guess = { workspace = true, features = ["classify"] }
 hickory-tower-resolver = { workspace = true }
 http = "1"

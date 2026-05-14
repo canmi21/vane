@@ -20,7 +20,7 @@ fetch = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:tokio", "dep:
 
 [dependencies]
 bytes = "1"
-der = "0.7"
+der = "0.8"
 sha1 = { version = "0.10", features = ["oid"] }
 thiserror = "2"
 x509-cert = "0.2"
