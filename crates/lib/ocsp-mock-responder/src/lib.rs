@@ -3,10 +3,11 @@
 //! [`MockOcspResponder::start`] spins up a hyper HTTP/1.1 server on
 //! an ephemeral port. Incoming `application/ocsp-request` POSTs are
 //! parsed for the cert's serial; the responder then assembles a
-//! [`x509_ocsp::OcspResponse`] (carrying a [`x509_ocsp::BasicOcspResponse`])
-//! whose `SingleResponse` mirrors what a real CA responder would
-//! send for that cert ID. The configured "status" lets per-test
-//! cases pin the response to `Good`, `Revoked`, or `TryLater`.
+//! [`rasn_ocsp::OcspResponse`] (carrying a
+//! [`rasn_ocsp::BasicOcspResponse`]) whose `SingleResponse` mirrors
+//! what a real CA responder would send for that cert ID. The
+//! configured "status" lets per-test cases pin the response to
+//! `Good`, `Revoked`, or `TryLater`.
 //!
 //! ## Signing posture
 //!
@@ -21,11 +22,9 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
-use der::asn1::BitString;
-use der::{Decode, Encode};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
@@ -33,15 +32,28 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use parking_lot::Mutex;
-use spki::AlgorithmIdentifierOwned;
+use rasn::prelude::*;
+use rasn_ocsp::{
+	BasicOcspResponse, CertId, CertStatus, OcspRequest, OcspResponse, OcspResponseStatus,
+	ResponderId, ResponseBytes, ResponseData, RevokedInfo, SingleResponse, Version,
+};
+use rasn_pkix::{AlgorithmIdentifier, Certificate};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tracing::warn;
-use x509_cert::Certificate;
-use x509_ocsp::{
-	BasicOcspResponse, CertId, CertStatus, OcspGeneralizedTime, OcspRequest, OcspResponse,
-	ResponderId, SingleResponse, Version,
-};
+
+/// `id-pkix-ocsp-basic` OID per RFC 6960 §4.2.1 — the
+/// [`ResponseBytes::type`] tag for the `BasicOcspResponse` payload
+/// every CA responder ships.
+const ID_PKIX_OCSP_BASIC_OID: &[u32] = &[1, 3, 6, 1, 5, 5, 7, 48, 1, 1];
+
+/// `sha256WithRSAEncryption` OID per RFC 8017 §A.2 — used as the
+/// placeholder `signatureAlgorithm` on the un-signed mock response.
+/// The bytes the algorithm identifier nominally signs are stubbed
+/// (`[0u8; 32]`); real OCSP-validating consumers reject this, but
+/// every fixture caller in this workspace consumes the staple as
+/// opaque bytes (see the module-level "Signing posture" paragraph).
+const SHA256_WITH_RSA_ENCRYPTION_OID: &[u32] = &[1, 2, 840, 113_549, 1, 1, 11];
 
 #[derive(Debug, thiserror::Error)]
 pub enum MockOcspError {
@@ -104,7 +116,7 @@ impl MockOcspResponder {
 	/// Panics if `127.0.0.1:0` fails to parse — which would
 	/// indicate a broken stdlib (parsing this literal cannot fail).
 	pub async fn start(issuer_cert_der: &[u8]) -> Result<Self, MockOcspError> {
-		let issuer = Certificate::from_der(issuer_cert_der)
+		let issuer: Certificate = rasn::der::decode(issuer_cert_der)
 			.map_err(|e| MockOcspError::IssuerDecode(format!("{e}")))?;
 
 		let listener = TcpListener::bind("127.0.0.1:0")
@@ -226,7 +238,7 @@ async fn handle(
 		}
 	};
 
-	let Ok(req_decoded) = OcspRequest::from_der(&body) else {
+	let Ok(req_decoded) = rasn::der::decode::<OcspRequest>(&body) else {
 		return Response::builder()
 			.status(StatusCode::BAD_REQUEST)
 			.body(Full::new(Bytes::new()))
@@ -242,21 +254,20 @@ async fn handle(
 	let now = SystemTime::now();
 	let cert_id = req_cert.req_cert.clone();
 	let resp_bytes = match status.lock().clone() {
-		OcspMockStatus::Good { next_update_in } => build_signed_response(
-			issuer,
-			cert_id,
-			CertStatus::Good(der::asn1::Null),
-			now,
-			Some(now + next_update_in),
-		),
+		OcspMockStatus::Good { next_update_in } => {
+			build_signed_response(issuer, cert_id, CertStatus::Good, now, Some(now + next_update_in))
+		}
 		OcspMockStatus::Revoked => {
-			let revoked = CertStatus::Revoked(x509_ocsp::RevokedInfo {
-				revocation_time: OcspGeneralizedTime::try_from(now).expect("now"),
+			let revoked = CertStatus::Revoked(RevokedInfo {
+				revocation_time: system_to_generalized_time(now),
 				revocation_reason: None,
 			});
 			build_signed_response(issuer, cert_id, revoked, now, None)
 		}
-		OcspMockStatus::TryLater => OcspResponse::try_later().to_der().expect("encode"),
+		OcspMockStatus::TryLater => {
+			let resp = OcspResponse { status: OcspResponseStatus::TryLater, bytes: None };
+			rasn::der::encode(&resp).expect("encode TryLater")
+		}
 	};
 
 	hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -274,43 +285,62 @@ async fn handle(
 fn build_signed_response(
 	issuer: &Certificate,
 	cert_id: CertId,
-	status: CertStatus,
+	cert_status: CertStatus,
 	this_update: SystemTime,
 	next_update: Option<SystemTime>,
 ) -> Vec<u8> {
-	let mut single = SingleResponse::new(
+	let single = SingleResponse {
 		cert_id,
-		status,
-		OcspGeneralizedTime::try_from(this_update).expect("this_update"),
-	);
-	if let Some(nu) = next_update {
-		single = single.with_next_update(OcspGeneralizedTime::try_from(nu).expect("next_update"));
-	}
+		cert_status,
+		this_update: system_to_generalized_time(this_update),
+		next_update: next_update.map(system_to_generalized_time),
+		single_extensions: None,
+	};
 
-	// `OcspResponseBuilder::sign(...)` requires a real signer.
-	// We instead construct the BasicOcspResponse manually with a
-	// placeholder signature — the builder's structural pieces aren't
-	// reachable as a public API for the no-sign path.
-	let tbs = x509_ocsp::ResponseData {
-		version: Version::V1,
+	let tbs = ResponseData {
+		version: Version::ZERO,
 		responder_id: ResponderId::ByName(issuer.tbs_certificate.subject.clone()),
-		produced_at: OcspGeneralizedTime::try_from(this_update).expect("produced_at"),
+		produced_at: system_to_generalized_time(this_update),
 		responses: vec![single],
 		response_extensions: None,
 	};
-	// Placeholder signature: 32 bytes of zeroes encoded as a
-	// BitString. The algorithm OID matches sha256WithRSAEncryption
-	// (1.2.840.113549.1.1.11) since it's a recognisable real OID;
-	// the bytes are bogus but well-formed DER which is all the
-	// parser checks.
-	let signature = BitString::from_bytes(&[0u8; 32]).expect("BitString");
-	let signature_algorithm = AlgorithmIdentifierOwned {
-		oid: const_oid::db::rfc5912::SHA_256_WITH_RSA_ENCRYPTION,
-		parameters: Some(der::Any::from(der::asn1::Null)),
+
+	// Placeholder signature: 32 bytes of zeroes encoded as a BIT
+	// STRING. The algorithm OID matches `sha256WithRSAEncryption` so
+	// it is a recognisable real OID; the actual bytes don't sign
+	// anything, but every fixture consumer treats the staple as
+	// opaque so this is fine.
+	let signature = BitString::from_slice(&[0u8; 32]);
+	let signature_algorithm = AlgorithmIdentifier {
+		algorithm: ObjectIdentifier::new(SHA256_WITH_RSA_ENCRYPTION_OID).expect("static OID"),
+		parameters: Some(Any::new(rasn::der::encode(&()).expect("encode NULL"))),
 	};
 	let basic =
 		BasicOcspResponse { tbs_response_data: tbs, signature_algorithm, signature, certs: None };
-	OcspResponse::successful(basic).expect("successful").to_der().expect("encode")
+
+	// Wrap as `OcspResponse { status: Successful, bytes: Some(...) }`
+	// per RFC 6960 §4.2.1. The `id-pkix-ocsp-basic` OID tags the
+	// inner `BasicOcspResponse` payload.
+	let basic_der = rasn::der::encode(&basic).expect("encode BasicOcspResponse");
+	let resp = OcspResponse {
+		status: OcspResponseStatus::Successful,
+		bytes: Some(ResponseBytes {
+			r#type: ObjectIdentifier::new(ID_PKIX_OCSP_BASIC_OID).expect("static OID"),
+			response: basic_der.into(),
+		}),
+	};
+	rasn::der::encode(&resp).expect("encode OcspResponse")
+}
+
+/// Convert a `SystemTime` to rasn's `GeneralizedTime`
+/// (`chrono::DateTime<FixedOffset>`). Pre-epoch inputs clamp to the
+/// epoch — no deployed OCSP responder emits pre-1970 timestamps, so
+/// this branch is unreachable in practice.
+fn system_to_generalized_time(t: SystemTime) -> rasn::types::GeneralizedTime {
+	let secs = t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+	let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs.try_into().unwrap_or(0), 0)
+		.unwrap_or_else(|| chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).expect("epoch"));
+	dt.fixed_offset()
 }
 
 /// Drain the request body into a single `Bytes`. Pulled out as a

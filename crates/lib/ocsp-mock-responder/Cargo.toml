@@ -1,6 +1,6 @@
 [package]
 name = "ocsp-mock-responder"
-version = "0.0.1"
+version = "0.0.2"
 categories = ["development-tools::testing", "cryptography"]
 edition.workspace = true
 keywords = ["ocsp", "mock", "test", "fixture", "tls"]
@@ -15,16 +15,18 @@ workspace = true
 
 [dependencies]
 bytes = "1"
-const-oid = { version = "0.9", default-features = false, features = ["db"] }
-der = "0.7"
+# rasn's `GeneralizedTime` is a `chrono::DateTime<FixedOffset>`; we use
+# `chrono::DateTime::<Utc>::from_timestamp(...)` to convert `SystemTime`.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 http-body-util = "0.1"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 parking_lot = "0.12"
-sha1 = { version = "0.10", features = ["oid"] }
-spki = "0.7"
+# ASN.1 codec + X.509 / OCSP types. See the sibling `ocsp-staple` for
+# rationale on the rasn-vs-RustCrypto choice — same logic applies here.
+rasn = "0.28"
+rasn-ocsp = "0.28"
+rasn-pkix = "0.28"
 thiserror = "2"
 tokio = { version = "1", features = ["net", "rt", "macros", "sync"] }
 tracing = "0.1"
-x509-cert = "0.2"
-x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
