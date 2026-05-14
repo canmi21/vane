@@ -21,7 +21,7 @@ fetch = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:tokio", "dep:
 [dependencies]
 bytes = "1"
 der = "0.7"
-sha1 = { version = "0.10", features = ["oid"] }
+sha1 = { version = "0.11", features = ["oid"] }
 thiserror = "2"
 x509-cert = "0.2"
 x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
