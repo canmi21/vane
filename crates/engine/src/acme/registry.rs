@@ -605,6 +605,17 @@ impl ManagedCertRegistry {
 					self.persist_ocsp_state(sni, Some(staple), Some(next_update), Some(aia_url)).await
 				{
 					warn!(target: "vane::acme::ocsp", sni, error = %e, "OCSP staple persist failed");
+				} else {
+					// Lifecycle event so operators see staple churn at
+					// INFO. `next_update` is the deadline the scheduler
+					// re-queues against, so it doubles as a "next OCSP
+					// refresh window" signal.
+					tracing::info!(
+						target: "vane::acme::ocsp",
+						sni,
+						next_update = ?next_update,
+						"OCSP staple refreshed",
+					);
 				}
 			}
 			OcspFetchOutcome::CacheUrlOnly { aia_url } => {
@@ -952,6 +963,18 @@ impl ManagedCertRegistry {
 		// the scheduler retries on the next tick.
 		self.refresh_ocsp_for_sni(sni).await;
 
+		// Operator-visible lifecycle event. See the http-01 sibling
+		// for the rationale; `renewal=force` distinguishes scheduler-
+		// driven re-issuance from first-time issuance.
+		tracing::info!(
+			target: "vane::acme",
+			sni,
+			challenge = "dns-01",
+			renewal = force,
+			not_after = ?arc.not_after,
+			"managed cert issued",
+		);
+
 		// Synchronous cleanup on success so the operator's DNS state
 		// is known-clean by the time the function returns. The guard
 		// is now disarmed and drops as a no-op.
@@ -1057,6 +1080,20 @@ impl ManagedCertRegistry {
 		// failure is non-fatal (cert is usable without a staple),
 		// the scheduler retries on the next tick.
 		self.refresh_ocsp_for_sni(sni).await;
+
+		// Operator-visible lifecycle event. `renewal=true` separates
+		// scheduler-driven re-issuance from boot-time / first-time
+		// issuance so a single grep over INFO logs answers "when did
+		// this cert last refresh?". Failure paths already surface via
+		// `record_failure` + the warn! in the caller.
+		tracing::info!(
+			target: "vane::acme",
+			sni,
+			challenge = "http-01",
+			renewal = force,
+			not_after = ?arc.not_after,
+			"managed cert issued",
+		);
 
 		// Cleanup runs on guard drop — explicit to make the
 		// intent visible at the success-path bottom.
