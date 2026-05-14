@@ -18,7 +18,7 @@
 //! mutex acquisition, or file I/O risks deadlock with whatever the
 //! parent was holding when `fork` fired.
 //!
-//! The closure in this module (in [`spawn`]) is the **only** `unsafe`
+//! The closure in this module (in `spawn`) is the **only** `unsafe`
 //! block in the workspace (the workspace-level lint
 //! `unsafe_code = "deny"` is lifted here with `#[allow(unsafe_code)]`).
 //! The closure is held to the following discipline, audited line by
@@ -40,14 +40,14 @@
 //!
 //! ## Module layout
 //!
-//! - [`parse`] — args parsing, validation, and the public `factory`
+//! - `parse` — args parsing, validation, and the public `factory`
 //!   entry point. The test suite for factory invariants lives here.
-//! - [`pool`] — daemon-wide concurrency cap (semaphore) and the
+//! - `pool` — daemon-wide concurrency cap (semaphore) and the
 //!   `pool_stats` mgmt-verb shape.
-//! - [`spawn`] — `spawn_cgi_child`, the `pre_exec` privilege-drop +
+//! - `spawn` — `spawn_cgi_child`, the `pre_exec` privilege-drop +
 //!   rlimit closure, and the `SIGTERM`/`SIGKILL` termination helper.
 //!   This is where the workspace's only `unsafe` block lives.
-//! - [`runtime`] — `CgiFetch`, `impl L7Fetch`, the per-request
+//! - `runtime` — `CgiFetch`, `impl L7Fetch`, the per-request
 //!   header-read / body-pump / stderr-drain pipeline.
 
 #![allow(unsafe_code)] // CGI fork+exec via std::os::unix::process::CommandExt::pre_exec; audited per module doc.

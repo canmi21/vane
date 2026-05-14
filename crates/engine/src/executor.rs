@@ -70,8 +70,8 @@ impl std::fmt::Debug for ExecutorOutput {
 /// site.
 ///
 /// The outer loop dispatches each `Node` variant; the per-variant work
-/// lives in private helpers ([`apply_body_collect_prelude`],
-/// [`dispatch_middleware_inst`], [`step_upgrade`], [`step_terminate`]).
+/// lives in private helpers (`apply_body_collect_prelude`,
+/// `dispatch_middleware_inst`, `step_upgrade`, `step_terminate`).
 /// The `Node::Middleware` / `Node::Fetch` arms keep their decision-
 /// interpretation inline because those arms mutate `cur` / `resp` /
 /// `req` / `tunnel` in tightly-coupled ways that a helper would only
@@ -377,7 +377,7 @@ pub async fn execute(
 	}
 }
 
-/// Outcome of [`apply_body_collect_prelude`] — does the outer loop
+/// Outcome of `apply_body_collect_prelude` — does the outer loop
 /// proceed to dispatch on `cur`, or did the body-limit synth-413 path
 /// already replace the current node?
 enum BodyCollectOutcome {
@@ -388,8 +388,8 @@ enum BodyCollectOutcome {
 /// Run the body-collection prelude for `node`. When the node declares
 /// `collect_body_before`, drain the relevant body up to its limit; on
 /// `TooLarge`, set up the 413 synth response and return
-/// [`BodyCollectOutcome::ShortToSynth`] for the caller to advance `cur`.
-/// On I/O errors, propagate via [`finish_error`] (Err).
+/// `BodyCollectOutcome::ShortToSynth` for the caller to advance `cur`.
+/// On I/O errors, propagate via `finish_error` (Err).
 #[allow(
 	clippy::too_many_arguments,
 	reason = "shares the executor's mutable walk state by &mut; alternative is a context struct that just renames the fields"
@@ -456,11 +456,11 @@ async fn apply_body_collect_prelude(
 	}
 }
 
-/// Dispatch a single [`MiddlewareInst`] variant. Pulled out of
+/// Dispatch a single `MiddlewareInst` variant. Pulled out of
 /// [`execute`] because the inner match is self-contained — picking
 /// which slot to feed (`l4` / `req` / `resp`) and which `m.run(...)`
 /// future to await is orthogonal to the outer decision-interpretation
-/// loop that translates the returned [`Decision`] into `cur` / `resp` /
+/// loop that translates the returned `Decision` into `cur` / `resp` /
 /// `req` mutations.
 #[allow(
 	clippy::too_many_arguments,
@@ -772,7 +772,7 @@ async fn drive_byte_tunnel(t: Tunnel, cancel: &tokio_util::sync::CancellationTok
 /// Run the trajectory + metrics side effects for a walker error, then
 /// hand the error back to the caller. Returns `Error` rather than
 /// `Result<_, Error>` so helpers whose `Ok` type differs from
-/// [`ExecutorOutput`] (notably [`apply_body_collect_prelude`]) can
+/// [`ExecutorOutput`] (notably `apply_body_collect_prelude`) can
 /// reuse the same finalisation contract — callers wrap in `Err(...)`.
 fn finish_error(
 	ctx: &mut FlowCtx,

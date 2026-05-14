@@ -34,10 +34,10 @@
 //!
 //! Sub-files cut between "runtime dispatch" and "build-time factory":
 //!
-//! - [`dispatch`] — `impl L7Fetch for HttpProxyFetch` and the
+//! - `dispatch` — `impl L7Fetch for HttpProxyFetch` and the
 //!   per-request send / receive helpers (TCP retry loop + H3
 //!   send-body + recv-response pump).
-//! - [`factory`] — args parsing, `build_client`, `build_h3_dispatch`,
+//! - `factory` — args parsing, `build_client`, `build_h3_dispatch`,
 //!   the public `factory` / `register` entry points, and the factory
 //!   test suite. Public re-exports flow back through this module so
 //!   downstream callers continue to import
