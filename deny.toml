@@ -58,8 +58,11 @@ skip-tree = [
 	# bollard / testcontainers: older windows-targets, nix.
 	{ crate = "bollard" },
 	{ crate = "testcontainers" },
-	# x509-cert 0.2 holds RustCrypto formats stack at older majors; revisit on x509-ocsp 0.3.
-	{ crate = "x509-cert" },
+	# rasn-derive-impl: proc-macro (compile-time only) on itertools 0.13
+	# while prometheus-parse stays on itertools 0.12. Both are transitive
+	# and neither tree is one we control; rasn-derive-impl is build-time
+	# so no runtime cost.
+	{ crate = "rasn-derive-impl" },
 ]
 skip = [
 	# owo-colors's feature graph pulls supports-color 2 and 3 simultaneously.
