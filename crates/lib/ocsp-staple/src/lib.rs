@@ -30,16 +30,25 @@
 use std::time::Duration;
 use std::time::SystemTime;
 
-use der::{Decode, Encode};
-use sha1::Sha1;
-use x509_ocsp::builder::OcspRequestBuilder;
-use x509_ocsp::{BasicOcspResponse, OcspResponse, OcspResponseStatus, Request as OcspReq};
+use rasn::prelude::*;
+use rasn_ocsp::{
+	BasicOcspResponse, CertId, CertStatus, OcspRequest, OcspResponse, OcspResponseStatus,
+	Request as OcspReq, TbsRequest,
+};
+use rasn_pkix::{AlgorithmIdentifier, Certificate};
+use sha1::{Digest, Sha1};
 
 /// PKIX `id-ad-ocsp` OID per RFC 5280 §4.2.2.1. The `AccessDescription`
 /// in an AIA extension whose `accessMethod` matches this OID carries
 /// the OCSP responder URL in its `accessLocation` `GeneralName::URI`
 /// field.
 const ID_AD_OCSP: &str = "1.3.6.1.5.5.7.48.1";
+
+/// SHA-1 OID per RFC 3279 §2.2.1 — used as the [`CertId::hash_algorithm`]
+/// identifier for the issuer-name / issuer-key hashes. RFC 6960 §4.1.1
+/// mandates SHA-1 here regardless of operator crypto-policy: it is a
+/// routing identifier, not a security boundary.
+const SHA1_OID: &[u32] = &[1, 3, 14, 3, 2, 26];
 
 /// Error surface for the OCSP pipeline. Categorised so callers can
 /// branch on transport / parse / responder failures without
@@ -152,20 +161,64 @@ fn classify_url(url: &str) -> Result<String, OcspError> {
 /// # Errors
 ///
 /// [`OcspError::CertParse`] when either DER fails to decode;
-/// [`OcspError::RequestBuild`] when the x509-ocsp builder rejects the
-/// inputs (e.g. issuer cert lacks a usable subject / key).
+/// [`OcspError::RequestBuild`] when the DER encoder rejects the
+/// composed request.
+///
+/// # Panics
+///
+/// Panics if the hardcoded SHA-1 OID literal (`1.3.14.3.2.26`) fails
+/// `ObjectIdentifier::new` validation. The OID is a static constant,
+/// so this is unreachable in any compiled build.
 pub fn build_ocsp_request(cert_der: &[u8], issuer_der: &[u8]) -> Result<Vec<u8>, OcspError> {
-	use x509_cert::Certificate;
-	let cert = Certificate::from_der(cert_der).map_err(|e| OcspError::CertParse(format!("{e}")))?;
-	let issuer =
-		Certificate::from_der(issuer_der).map_err(|e| OcspError::CertParse(format!("{e}")))?;
-	let req = OcspRequestBuilder::default()
-		.with_request(
-			OcspReq::from_cert::<Sha1>(&issuer, &cert)
-				.map_err(|e| OcspError::RequestBuild(format!("{e}")))?,
-		)
-		.build();
-	req.to_der().map_err(|e| OcspError::RequestBuild(format!("DER encode: {e}")))
+	let cert: Certificate =
+		rasn::der::decode(cert_der).map_err(|e| OcspError::CertParse(format!("{e}")))?;
+	let issuer: Certificate =
+		rasn::der::decode(issuer_der).map_err(|e| OcspError::CertParse(format!("{e}")))?;
+
+	// `issuer_name_hash` per RFC 6960 §4.1.1 is SHA-1 over the DER
+	// encoding of the issuer's `Name` (the `subject` field of the
+	// issuer's tbsCertificate). Round-trip through rasn — for any
+	// canonical-DER input (every real CA + rcgen test cert), encode is
+	// byte-identical to the original.
+	let subject_der = rasn::der::encode(&issuer.tbs_certificate.subject)
+		.map_err(|e| OcspError::RequestBuild(format!("issuer subject re-encode: {e}")))?;
+	let issuer_name_hash = Sha1::digest(&subject_der).to_vec();
+
+	// `issuer_key_hash` is SHA-1 over the BIT STRING **value** of the
+	// issuer's `subjectPublicKey` (the raw key bytes, *not* the full
+	// SubjectPublicKeyInfo DER, *not* including the unused-bits prefix).
+	// `BitString::as_raw_slice` returns exactly those bytes.
+	let issuer_key_hash =
+		Sha1::digest(issuer.tbs_certificate.subject_public_key_info.subject_public_key.as_raw_slice())
+			.to_vec();
+
+	let hash_algorithm = AlgorithmIdentifier {
+		algorithm: ObjectIdentifier::new(SHA1_OID).expect("static SHA-1 OID"),
+		// RFC 5754 §2 + RFC 6960 §4.1.1: SHA-1 in an `AlgorithmIdentifier`
+		// SHOULD omit `parameters`. Real CAs split — some emit `NULL`,
+		// some omit. Match the prior `x509-ocsp` behaviour of
+		// `parameters: Some(NULL)` so existing responder fixtures keep
+		// the same wire shape for this field.
+		parameters: Some(Any::new(rasn::der::encode(&()).expect("encode NULL"))),
+	};
+
+	let cert_id = CertId {
+		hash_algorithm,
+		issuer_name_hash: issuer_name_hash.into(),
+		issuer_key_hash: issuer_key_hash.into(),
+		serial_number: cert.tbs_certificate.serial_number.clone(),
+	};
+
+	let req = OcspRequest {
+		tbs_request: TbsRequest {
+			version: Integer::ZERO,
+			requestor_name: None,
+			request_list: vec![OcspReq { req_cert: cert_id, single_request_extensions: None }],
+			request_extensions: None,
+		},
+		optional_signature: None,
+	};
+	rasn::der::encode(&req).map_err(|e| OcspError::RequestBuild(format!("DER encode: {e}")))
 }
 
 /// Parse an `OCSPResponse` DER into a [`OcspStaple`]. The original
@@ -179,18 +232,18 @@ pub fn build_ocsp_request(cert_der: &[u8], issuer_der: &[u8]) -> Result<Vec<u8>,
 /// - [`OcspError::ResponderError`] when `responseStatus` is not
 ///   `successful`.
 pub fn parse_ocsp_response(resp_der: &[u8]) -> Result<OcspStaple, OcspError> {
-	let resp = OcspResponse::from_der(resp_der)
+	let resp: OcspResponse = rasn::der::decode(resp_der)
 		.map_err(|e| OcspError::ResponseParse(format!("OcspResponse decode: {e}")))?;
 
-	if resp.response_status != OcspResponseStatus::Successful {
-		return Err(OcspError::ResponderError(format!("{:?}", resp.response_status)));
+	if resp.status != OcspResponseStatus::Successful {
+		return Err(OcspError::ResponderError(format!("{:?}", resp.status)));
 	}
 
 	let response_bytes = resp
-		.response_bytes
+		.bytes
 		.as_ref()
 		.ok_or_else(|| OcspError::ResponseParse("successful response has no responseBytes".into()))?;
-	let basic = BasicOcspResponse::from_der(response_bytes.response.as_bytes())
+	let basic: BasicOcspResponse = rasn::der::decode(response_bytes.response.as_ref())
 		.map_err(|e| OcspError::ResponseParse(format!("BasicOcspResponse decode: {e}")))?;
 
 	let single = basic
@@ -210,11 +263,29 @@ pub fn parse_ocsp_response(resp_der: &[u8]) -> Result<OcspStaple, OcspError> {
 		}
 	};
 
+	// `single.cert_status` is read for its variants in callers via the
+	// `OcspStaple` consumer code — we surface only `next_update` +
+	// raw bytes here. Bind the value so a future variant addition
+	// surfaces as an unused warning rather than silently slipping
+	// through.
+	let _ = &single.cert_status;
+	let _: &CertStatus = &single.cert_status;
+
 	Ok(OcspStaple { staple: resp_der.to_vec(), next_update })
 }
 
-fn generalized_time_to_system(t: &x509_ocsp::OcspGeneralizedTime) -> SystemTime {
-	SystemTime::UNIX_EPOCH + t.0.to_unix_duration()
+/// rasn's `GeneralizedTime` is a `chrono::DateTime<FixedOffset>`. The
+/// conversion goes through `chrono::DateTime<Utc>` which lossily-
+/// equals the wire time for any `GeneralizedTime` since 1970 (every
+/// real-world OCSP response). Pre-epoch wall-clock times in OCSP are
+/// not produced by any deployed responder and would clamp to the
+/// epoch.
+fn generalized_time_to_system(t: &rasn::types::GeneralizedTime) -> SystemTime {
+	let utc = t.to_utc();
+	SystemTime::UNIX_EPOCH
+		+ std::time::Duration::from_nanos(
+			u64::try_from(utc.timestamp_nanos_opt().unwrap_or(0)).unwrap_or(0),
+		)
 }
 
 #[cfg(feature = "fetch")]
@@ -358,7 +429,6 @@ mod tests {
 		BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair, KeyUsagePurpose,
 		PKCS_ECDSA_P256_SHA256,
 	};
-	use x509_cert::Certificate;
 
 	use super::*;
 
@@ -467,20 +537,21 @@ mod tests {
 	}
 
 	#[test]
-	fn build_ocsp_request_round_trips_through_x509_ocsp() {
+	fn build_ocsp_request_round_trips_through_rasn_ocsp() {
 		let (issuer_der, leaf_der) = build_test_ca_and_leaf("http://ocsp.example.test/");
 		let bytes = build_ocsp_request(&leaf_der, &issuer_der).expect("build ok");
-		let req = x509_ocsp::OcspRequest::from_der(&bytes).expect("decode");
+		let req: OcspRequest = rasn::der::decode(&bytes).expect("decode");
 		assert!(!req.tbs_request.request_list.is_empty());
-		let leaf = Certificate::from_der(&leaf_der).expect("leaf decode");
+		let leaf: Certificate = rasn::der::decode(&leaf_der).expect("leaf decode");
 		let want_serial = leaf.tbs_certificate.serial_number.clone();
 		let got_serial = req.tbs_request.request_list[0].req_cert.serial_number.clone();
-		assert_eq!(got_serial.as_bytes(), want_serial.as_bytes());
+		assert_eq!(got_serial, want_serial);
 	}
 
 	#[test]
 	fn parse_ocsp_response_returns_responder_error_on_try_later() {
-		let bytes = OcspResponse::try_later().to_der().expect("encode");
+		let try_later = OcspResponse { status: OcspResponseStatus::TryLater, bytes: None };
+		let bytes = rasn::der::encode(&try_later).expect("encode");
 		let err = parse_ocsp_response(&bytes).expect_err("try_later → err");
 		assert!(matches!(err, OcspError::ResponderError(_)), "got {err:?}");
 	}

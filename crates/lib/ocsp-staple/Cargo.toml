@@ -1,6 +1,6 @@
 [package]
 name = "ocsp-staple"
-version = "0.0.2"
+version = "0.0.3"
 categories = ["cryptography", "network-programming"]
 edition.workspace = true
 keywords = ["ocsp", "tls", "stapling", "certificates", "x509"]
@@ -20,11 +20,21 @@ fetch = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:tokio", "dep:
 
 [dependencies]
 bytes = "1"
-der = "0.7"
-sha1 = { version = "0.10", features = ["oid"] }
+# ASN.1 codec + X.509 / OCSP type definitions. rasn-ocsp is pure data types
+# (no builder / no helpers) — request construction and response parsing run
+# through `rasn::der::{encode,decode}` directly. Replaces the prior
+# RustCrypto stack (`der` + `x509-cert` + `x509-ocsp`) which stalled at
+# `x509-ocsp 0.2.1` (2024-01) with no 0.3 release in sight, blocking
+# `der 0.7 -> 0.8`. rasn is on its own version train and ships releases
+# weekly.
+rasn = "0.28"
+rasn-ocsp = "0.28"
+rasn-pkix = "0.28"
+sha1 = "0.11"
 thiserror = "2"
-x509-cert = "0.2"
-x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
+# AIA extension extraction stays on the chifflier/`der-parser` X.509 stack
+# — this code path runs against arbitrary CA-issued leaf certs, where the
+# chifflier parser's strong AIA-extension type coverage is convenient.
 x509-parser = "0.18"
 
 # Async HTTP fetch — gated behind `fetch`.
