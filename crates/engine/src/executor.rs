@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use vane_core::{
 	Body, BodySide, BytesView, CloseReason, ConnContext, ContextEntry, Decision, Error, FlowCtx,
@@ -11,6 +10,7 @@ use vane_core::{
 };
 
 use crate::flow_graph::{FetchInst, FlowGraph, MiddlewareInst};
+use crate::time::now_unix_ms;
 
 // Both variants are boxed: `L4Conn` embeds a `TcpStream` / `UdpAssoc` and
 // `Request` embeds `http::Request<Body>` whose `Body::Stream` variant holds
@@ -272,7 +272,7 @@ pub async fn execute(
 									_ => std::borrow::Cow::Borrowed("unknown"),
 								};
 								ctx.log.emit(FlowLogEvent {
-									t: now_ms(),
+									t: now_unix_ms(),
 									conn: conn.id,
 									seq: bump(&mut seq),
 									kind: FlowLogKind::Terminate,
@@ -479,7 +479,7 @@ pub async fn execute(
 						// Connection-level Terminate milestone (verbosity-
 						// independent per spec/flow-model.md § _Flow log verbosity_).
 						ctx.log.emit(FlowLogEvent {
-							t: now_ms(),
+							t: now_unix_ms(),
 							conn: conn.id,
 							seq: bump(&mut seq),
 							kind: FlowLogKind::Terminate,
@@ -554,7 +554,7 @@ fn record_step(
 
 	if matches!(ctx.verbosity, FlowLogVerbosity::Debug) {
 		ctx.log.emit(FlowLogEvent {
-			t: now_ms(),
+			t: now_unix_ms(),
 			conn: conn.id,
 			seq: bump(seq),
 			kind,
@@ -683,13 +683,13 @@ fn emit_trajectory(
 	let conn_id = conn.id;
 	let traj = std::mem::replace(
 		&mut ctx.trajectory,
-		vane_core::TrajectoryBuilder::placeholder(conn_id, now_ms()),
+		vane_core::TrajectoryBuilder::placeholder(conn_id, now_unix_ms()),
 	)
-	.finalize(outcome, now_ms());
+	.finalize(outcome, now_unix_ms());
 
 	let data = serde_json::to_value(&traj).ok();
 	ctx.log.emit(FlowLogEvent {
-		t: now_ms(),
+		t: now_unix_ms(),
 		conn: conn_id,
 		seq: bump(seq),
 		kind: FlowLogKind::Trajectory,
@@ -707,7 +707,7 @@ fn emit_error_event(
 	err: &Error,
 ) {
 	ctx.log.emit(FlowLogEvent {
-		t: now_ms(),
+		t: now_unix_ms(),
 		conn: conn.id,
 		seq: bump(seq),
 		kind: FlowLogKind::Error,
@@ -721,13 +721,6 @@ fn bump(seq: &mut u32) -> u32 {
 	let n = *seq;
 	*seq = seq.saturating_add(1);
 	n
-}
-
-fn now_ms() -> u64 {
-	SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-		.unwrap_or_default()
 }
 
 // WASM middleware dispatch

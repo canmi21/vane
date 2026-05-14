@@ -155,10 +155,8 @@ fn instant_to_unix_ms(t: Instant) -> u64 {
 	let now_inst = Instant::now();
 	let now_sys = SystemTime::now();
 	let elapsed = now_inst.saturating_duration_since(t);
-	now_sys
-		.checked_sub(elapsed)
-		.and_then(|s| s.duration_since(UNIX_EPOCH).ok())
-		.map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+	let approx = now_sys.checked_sub(elapsed).unwrap_or(UNIX_EPOCH);
+	crate::time::system_time_to_unix_ms(approx)
 }
 
 fn warn_pack_unimplemented_once(module_id: &str, path: &str) {

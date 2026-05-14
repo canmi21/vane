@@ -12,7 +12,6 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use hyper::body::Incoming;
 use hyper::service::service_fn;
@@ -28,6 +27,7 @@ use crate::body_adapter::IncomingAdapter;
 use crate::executor::{ExecutorInput, ExecutorOutput, execute};
 use crate::fetch::websocket_upgrade::StashedUpstreamUpgrade;
 use crate::flow_graph::FlowGraph;
+use crate::time::now_unix_ms;
 
 /// Stash for the `JoinHandle` of a post-101 WebSocket byte-tunnel.
 /// The H1 service-fn spawns the tunnel asynchronously so hyper can
@@ -182,7 +182,7 @@ where
 				cancel,
 				accept_cancel,
 				verbosity,
-				trajectory: TrajectoryBuilder::new(conn.id, l7_entry, unix_ms_now()),
+				trajectory: TrajectoryBuilder::new(conn.id, l7_entry, now_unix_ms()),
 			};
 
 			let result =
@@ -471,7 +471,7 @@ where
 					cancel,
 					accept_cancel,
 					verbosity,
-					trajectory: TrajectoryBuilder::new(conn.id, l7_entry, unix_ms_now()),
+					trajectory: TrajectoryBuilder::new(conn.id, l7_entry, now_unix_ms()),
 				};
 
 				let result =
@@ -549,13 +549,6 @@ where
 
 		Ok(ExecutorOutput::Closed)
 	})
-}
-
-fn unix_ms_now() -> u64 {
-	SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-		.unwrap_or_default()
 }
 
 /// Drive an H3 connection. Mirrors [`drive_h1_server`] / [`drive_h2_server`]
@@ -760,7 +753,7 @@ async fn handle_h3_request(
 		cancel,
 		accept_cancel,
 		verbosity,
-		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
+		trajectory: TrajectoryBuilder::new(conn.id, entry, now_unix_ms()),
 	};
 
 	let exec_out =

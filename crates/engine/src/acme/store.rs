@@ -248,7 +248,7 @@ impl AccountFileV1 {
 			key_jwk,
 			kid: a.kid.clone(),
 			contacts: a.contacts.clone(),
-			agreed_tos_at_unix_ms: system_time_to_unix_ms(a.agreed_tos_at),
+			agreed_tos_at_unix_ms: crate::time::system_time_to_unix_ms(a.agreed_tos_at),
 		})
 	}
 
@@ -334,14 +334,6 @@ pub enum StoreError {
 	Locked(String),
 }
 
-pub(super) fn system_time_to_unix_ms(t: SystemTime) -> u64 {
-	// Pre-1970 timestamps round to 0 ms — the ACME spec doesn't
-	// produce them and the registry never constructs negative
-	// instants, so flooring is safe.
-	t.duration_since(SystemTime::UNIX_EPOCH)
-		.map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-}
-
 pub(super) fn unix_ms_to_system_time(ms: u64) -> SystemTime {
 	SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(ms)
 }
@@ -353,7 +345,7 @@ mod tests {
 	#[test]
 	fn unix_ms_round_trips() {
 		let now = SystemTime::now();
-		let ms = system_time_to_unix_ms(now);
+		let ms = crate::time::system_time_to_unix_ms(now);
 		let back = unix_ms_to_system_time(ms);
 		// Allow up to 1ms of round-trip loss (we floor sub-ms).
 		let diff = now.duration_since(back).unwrap_or_else(|e| e.duration());

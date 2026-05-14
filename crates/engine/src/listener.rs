@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
@@ -39,6 +39,7 @@ use crate::flow_graph::FlowGraph;
 use crate::listener_ctx::{AcceptCtx, ConnDispatchCtx};
 use crate::listener_udp::run_udp_listener;
 use crate::security::{SecurityConfig, SecurityState};
+use crate::time::now_unix_ms;
 use crate::verbosity::VerbosityState;
 use guess::classify;
 use peeked_stream::PeekedStream;
@@ -97,13 +98,6 @@ static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn next_conn_id() -> ConnId {
 	ConnId(NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed))
-}
-
-fn unix_ms_now() -> u64 {
-	SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-		.unwrap_or_default()
 }
 
 /// Per-(transport, address) listener registry. Today: TCP only.
@@ -835,7 +829,7 @@ async fn handle_connection(
 		cancel: ctx.force_cancel.clone(),
 		accept_cancel: ctx.accept_cancel.clone(),
 		verbosity: ctx.verbosity.current(),
-		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
+		trajectory: TrajectoryBuilder::new(conn.id, entry, now_unix_ms()),
 	};
 
 	// Disable Nagle once, before either the peek phase or the TLS

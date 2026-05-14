@@ -14,6 +14,7 @@ use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
 use vane_core::{Error, config::Env};
 
+use crate::time::now_unix_ms;
 use crate::tls::CrlCache;
 
 // Spec-defined minimums from spec/crates/core.md.
@@ -249,13 +250,8 @@ impl SecurityState {
 		// only emission silently bypassed the flow log. The dedup
 		// window above gates both channels in lockstep.
 		if let Some(sink) = self.log_sink.get() {
-			use std::time::SystemTime;
-			let t_ms = SystemTime::now()
-				.duration_since(SystemTime::UNIX_EPOCH)
-				.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-				.unwrap_or_default();
 			sink.emit(vane_core::FlowLogEvent {
-				t: t_ms,
+				t: now_unix_ms(),
 				conn: vane_core::ConnId(0),
 				seq: 0,
 				kind: vane_core::FlowLogKind::SecurityLimit,

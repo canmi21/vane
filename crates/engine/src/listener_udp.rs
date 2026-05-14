@@ -28,6 +28,7 @@ use vane_core::{
 use crate::executor::{ExecutorInput, execute};
 use crate::flow_graph::FlowGraph;
 use crate::listener_ctx::{AcceptCtx, UdpAcceptCtx};
+use crate::time::now_unix_ms;
 
 /// Maximum UDP datagram size. The recv buffer is sized for the IP
 /// theoretical max (65535 minus IP+UDP headers, but we round up to
@@ -664,7 +665,7 @@ async fn handle_cold_path(
 		cancel: ctx.base.force_cancel.clone(),
 		accept_cancel: ctx.base.accept_cancel.clone(),
 		verbosity: ctx.base.verbosity.current(),
-		trajectory: TrajectoryBuilder::new(conn.id, entry, unix_ms_now()),
+		trajectory: TrajectoryBuilder::new(conn.id, entry, now_unix_ms()),
 	};
 
 	let l4 = L4Conn::Udp(UdpAssoc { socket: Arc::clone(&ctx.socket), peer, first_packets });
@@ -672,12 +673,6 @@ async fn handle_cold_path(
 	if let Err(e) = result {
 		tracing::warn!(error = %e, conn_id = %conn.id, "udp cold path ended with error");
 	}
-}
-
-fn unix_ms_now() -> u64 {
-	std::time::SystemTime::now()
-		.duration_since(std::time::UNIX_EPOCH)
-		.map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 #[cfg(test)]

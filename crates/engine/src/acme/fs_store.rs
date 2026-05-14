@@ -50,8 +50,9 @@ use zeroize::Zeroizing;
 
 use super::store::{
 	AccountFileV1, AcmeAccount, AcmeStore, CertMetaV1, CertMetaV2, CertMetaVersionProbe, LockGuard,
-	LockScope, StoreError, StoredCert, system_time_to_unix_ms, unix_ms_to_system_time,
+	LockScope, StoreError, StoredCert, unix_ms_to_system_time,
 };
+use crate::time::system_time_to_unix_ms;
 
 const ACCOUNTS_DIR: &str = "accounts";
 const CERTS_DIR: &str = "certs";

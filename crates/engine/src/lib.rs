@@ -42,6 +42,7 @@ pub mod middleware;
 pub mod preset;
 pub mod security;
 pub mod terminator;
+pub(crate) mod time;
 pub mod tls;
 pub mod tracing_init;
 pub mod upgrade;
