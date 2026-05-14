@@ -69,12 +69,18 @@ impl std::fmt::Debug for ExecutorOutput {
 /// that `.take().expect("phase invariant")` is sound at each consumption
 /// site.
 ///
+/// The outer loop dispatches each `Node` variant; the per-variant work
+/// lives in private helpers ([`apply_body_collect_prelude`],
+/// [`dispatch_middleware_inst`], [`step_upgrade`], [`step_terminate`]).
+/// The `Node::Middleware` / `Node::Fetch` arms keep their decision-
+/// interpretation inline because those arms mutate `cur` / `resp` /
+/// `req` / `tunnel` in tightly-coupled ways that a helper would only
+/// rename.
+///
 /// # Errors
 /// Surfaces any middleware / fetch `Err(_)` that isn't routed via a
 /// `Node::Middleware.on_error`, plus `Decision::Short(Close)` application-
-/// level refusals. Structural stubs — `Upgrade`, body-collect, short-
-/// circuit response — return `Error::internal(..)` with a TODO marker
-/// naming the chunk that fills them in.
+/// level refusals.
 ///
 /// # Panics
 /// `.expect("phase invariant: ...")` calls are sound under a graph that
@@ -84,7 +90,7 @@ impl std::fmt::Debug for ExecutorOutput {
 /// or hand-forged graph may hit these; don't.
 #[allow(
 	clippy::too_many_lines,
-	reason = "central FlowGraph state machine: the loop dispatches on Node::{Check,Middleware,Fetch,Upgrade,Terminate} and each arm shares the same mutable l4/req/resp/tunnel/cur/seq locals. Splitting by node kind would need every helper to take 7+ &mut refs (or a giant ctx struct that just renames the noise), which moves complexity rather than reducing it"
+	reason = "the four `Node` variants and their decision-interpretation share the same mutable l4/req/resp/tunnel/cur/seq locals; the biggest natural cuts (body-collect prelude, middleware variant dispatch, Upgrade arm, Terminate arm) are already extracted as helpers, and pushing further would only rename the noise"
 )]
 pub async fn execute(
 	graph: &Arc<FlowGraph>,
@@ -121,51 +127,15 @@ pub async fn execute(
 	loop {
 		let node = &sym[cur];
 
-		if let Some(side) = node.collect_body_before() {
-			let limit = node.body_limit();
-			match side {
-				BodySide::Request => {
-					if let Some(r) = req.as_mut() {
-						match collect_body(r.body_mut(), limit).await {
-							Ok(()) => {}
-							Err(CollectError::TooLarge) => {
-								let over_limit_resp = http::Response::builder()
-									.status(413)
-									.header("connection", "close")
-									.body(Body::Empty)
-									.expect("static 413 response");
-								drop(req.take());
-								let target_opt =
-									graph.symbolic().meta.short_circuit_response_entry.get(&entry).copied();
-								let Some(target) = target_opt else {
-									let e = Error::internal("body limit exceeded: no synth target for 413 response");
-									return finish_error(ctx, conn, &mut seq, cur, e);
-								};
-								resp = Some(over_limit_resp);
-								cur = target;
-								continue;
-							}
-							Err(CollectError::Io(e)) => {
-								return finish_error(ctx, conn, &mut seq, cur, e);
-							}
-						}
-					}
-				}
-				BodySide::Response => {
-					if let Some(r) = resp.as_mut() {
-						match collect_body(r.body_mut(), limit).await {
-							Ok(()) => {}
-							Err(CollectError::TooLarge) => {
-								let e = Error::upstream(UpstreamReason::Malformed)
-									.with_ctx("response body exceeded max_body_bytes limit");
-								return finish_error(ctx, conn, &mut seq, cur, e);
-							}
-							Err(CollectError::Io(e)) => {
-								return finish_error(ctx, conn, &mut seq, cur, e);
-							}
-						}
-					}
-				}
+		match apply_body_collect_prelude(
+			node, entry, graph, &mut req, &mut resp, ctx, conn, &mut seq, cur,
+		)
+		.await?
+		{
+			BodyCollectOutcome::Continue => {}
+			BodyCollectOutcome::ShortToSynth(target) => {
+				cur = target;
+				continue;
 			}
 		}
 
@@ -183,34 +153,17 @@ pub async fn execute(
 
 			Node::Middleware { id, next, on_error, .. } => {
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Middleware, None);
-				let outcome = match &graph[*id] {
-					MiddlewareInst::L4Peek(m) => {
-						// `peek_bytes` was captured once at execute entry. The
-						// middleware borrows from that local instead of
-						// re-locking `conn.user` per dispatch.
-						if peek_bytes.is_none() {
-							tracing::warn!(
-								conn_id = %conn.id,
-								"L4Peek dispatched without PeekResult — listener prelude must run first",
-							);
-						}
-						let peek_slice: &[u8] = peek_bytes.as_deref().unwrap_or(&[]);
-						m.run(peek_slice, conn, ctx).await
-					}
-					MiddlewareInst::L4Bytes(m) => {
-						let l4_ref = l4.as_mut().expect("phase invariant: L4Bytes needs L4Conn");
-						m.run(l4_ref, conn, ctx).await
-					}
-					MiddlewareInst::L7Request(m) => {
-						let req_ref = req.as_mut().expect("phase invariant: L7Request needs Request");
-						m.run(req_ref, conn, ctx).await
-					}
-					MiddlewareInst::L7Response(m) => {
-						let resp_ref = resp.as_mut().expect("phase invariant: L7Response needs Response");
-						m.run(resp_ref, conn, ctx).await
-					}
-					MiddlewareInst::Wasm(w) => dispatch_wasm(w, &mut l4, &mut req, &mut resp, conn).await,
-				};
+				let outcome = dispatch_middleware_inst(
+					graph,
+					*id,
+					&mut l4,
+					&mut req,
+					&mut resp,
+					conn,
+					ctx,
+					peek_bytes.as_deref(),
+				)
+				.await;
 
 				match outcome {
 					Ok(Decision::Continue) => cur = *next,
@@ -240,7 +193,7 @@ pub async fn execute(
 								"short-circuit response: entry NodeId({}) has no synth target — lower invariant violated (L7 entry without WriteHttpResponse synth)",
 								entry.get(),
 							));
-							return finish_error(ctx, conn, &mut seq, cur, e);
+							return Err(finish_error(ctx, conn, &mut seq, cur, e));
 						};
 						resp = Some(r);
 						record_step(ctx, conn, &mut seq, cur, FlowLogKind::Middleware, None);
@@ -296,7 +249,7 @@ pub async fn execute(
 							}
 							CloseReason::ProtocolError(_) => {
 								let e = Error::middleware(format!("short-close: {reason:?}"));
-								return finish_error(ctx, conn, &mut seq, cur, e);
+								return Err(finish_error(ctx, conn, &mut seq, cur, e));
 							}
 							// `CloseReason` is `#[non_exhaustive]`; future
 							// variants surface as a typed internal error so a
@@ -304,7 +257,7 @@ pub async fn execute(
 							// PolicyDenied path.
 							_ => {
 								let e = Error::internal("unhandled CloseReason variant in short-close");
-								return finish_error(ctx, conn, &mut seq, cur, e);
+								return Err(finish_error(ctx, conn, &mut seq, cur, e));
 							}
 						}
 					}
@@ -314,13 +267,13 @@ pub async fn execute(
 					// through to a default path.
 					Ok(_) => {
 						let e = Error::internal("unhandled Decision variant from middleware");
-						return finish_error(ctx, conn, &mut seq, cur, e);
+						return Err(finish_error(ctx, conn, &mut seq, cur, e));
 					}
 					Err(e) => {
 						emit_error_event(ctx, cur, &mut seq, conn, &e);
 						match on_error {
 							Some(target) => cur = *target,
-							None => return finish_error(ctx, conn, &mut seq, cur, e),
+							None => return Err(finish_error(ctx, conn, &mut seq, cur, e)),
 						}
 					}
 				}
@@ -384,7 +337,7 @@ pub async fn execute(
 								tunnel = Some(t);
 								cur = next_tunnel.expect("validator guarantees Some for WebSocketUpgrade");
 							}
-							Err(e) => return finish_error(ctx, conn, &mut seq, cur, e),
+							Err(e) => return Err(finish_error(ctx, conn, &mut seq, cur, e)),
 						}
 					}
 					FetchInst::L4(f) => {
@@ -394,7 +347,7 @@ pub async fn execute(
 								tunnel = Some(t);
 								cur = next_tunnel.expect("validator guarantees Some on L4 paths");
 							}
-							Err(e) => return finish_error(ctx, conn, &mut seq, cur, e),
+							Err(e) => return Err(finish_error(ctx, conn, &mut seq, cur, e)),
 						}
 					}
 				}
@@ -402,138 +355,307 @@ pub async fn execute(
 
 			Node::Upgrade { next } => {
 				record_step(ctx, conn, &mut seq, cur, FlowLogKind::Upgrade, None);
-				// Hand the L4 connection to the H1 or H2 server. Each decoded
-				// request constructs a fresh `FlowCtx` and re-enters `execute`
-				// from `*next`. See spec/flow-model.md § _Executor_ (Upgrade arm).
-				//
-				// Plain TCP, TLS-terminated H1, and TLS-terminated H2 all feed
-				// the generic stream drivers; the listener has already consumed
-				// the TLS handshake (when applicable) and populated
-				// `ConnContext.tls` and `conn.http_version` from the negotiated
-				// ALPN. We re-read ALPN here so the dispatch is local to this
-				// arm rather than spread across the L4Conn variants.
-				let l4 = l4.take().expect("phase invariant: Upgrade needs L4Conn");
-				// Box each variant uniformly so both drivers see the same
-				// trait-object IO type.
-				let stream: Box<dyn vane_core::AsyncReadWrite + Send + 'static> = match l4 {
-					L4Conn::Tcp(s) => Box::new(s),
-					L4Conn::Peeked(s) | L4Conn::Tls(s) => s,
-					L4Conn::Udp(_) => {
-						let e = Error::internal(
-							"UDP upgrade not supported in S1 — QUIC integration lands with H3 / S2",
-						);
-						return finish_error(ctx, conn, &mut seq, cur, e);
-					}
-				};
-				let alpn = conn.tls.lock().as_ref().and_then(|t| t.alpn.clone());
-				// Two signals can pick H2: a negotiated `h2` ALPN (TLS path)
-				// or a pre-set `conn.http_version = Http2` (cleartext h2c —
-				// the listener sets this when the peek prelude detects the
-				// HTTP/2 connection preface). spec/crates/engine.md § _Dispatch table_.
-				let prefer_h2 = alpn.as_deref() == Some(b"h2")
-					|| matches!(conn.http_version.get(), Some(vane_core::HttpVersion::Http2));
-				let result = if prefer_h2 {
-					crate::upgrade::drive_h2_server(
-						stream,
-						Arc::clone(graph),
-						*next,
-						Arc::clone(conn),
-						Arc::clone(&ctx.log),
-						ctx.cancel.clone(),
-						ctx.accept_cancel.clone(),
-						ctx.verbosity,
-					)
-					.await
-				} else {
-					crate::upgrade::drive_h1_server(
-						stream,
-						Arc::clone(graph),
-						*next,
-						Arc::clone(conn),
-						Arc::clone(&ctx.log),
-						ctx.cancel.clone(),
-						ctx.accept_cancel.clone(),
-						ctx.verbosity,
-					)
-					.await
-				};
-				return match result {
-					Ok(out) => {
-						emit_trajectory(
-							ctx,
-							conn,
-							&mut seq,
-							TrajectoryOutcome::Terminated { node: cur, terminator: TerminatorOutcomeKind::Close },
-						);
-						Ok(out)
-					}
-					Err(e) => finish_error(ctx, conn, &mut seq, cur, e),
-				};
+				return step_upgrade(graph, *next, cur, &mut l4, conn, ctx, &mut seq).await;
 			}
 
 			Node::Terminate(tid) => {
 				let term = sym[*tid];
-				return match term {
-					vane_core::Terminator::Close => {
-						drop((l4.take(), req.take(), resp.take(), tunnel.take()));
-						// Connection-level Terminate milestone (verbosity-
-						// independent per spec/flow-model.md § _Flow log verbosity_).
-						ctx.log.emit(FlowLogEvent {
-							t: now_unix_ms(),
-							conn: conn.id,
-							seq: bump(&mut seq),
-							kind: FlowLogKind::Terminate,
-							node: Some(cur),
-							error: None,
-							data: Some(serde_json::json!({
-								"terminator": "close",
-								"reason": "no matching rule",
-							})),
-						});
-						emit_trajectory(
-							ctx,
-							conn,
-							&mut seq,
-							TrajectoryOutcome::Terminated { node: cur, terminator: TerminatorOutcomeKind::Close },
-						);
-						Ok(ExecutorOutput::Closed)
-					}
-
-					vane_core::Terminator::WriteHttpResponse => {
-						let r = resp
-							.take()
-							.expect("phase invariant: WriteHttpResponse reached without a Response in scope");
-						emit_trajectory(
-							ctx,
-							conn,
-							&mut seq,
-							TrajectoryOutcome::Terminated {
-								node: cur,
-								terminator: TerminatorOutcomeKind::WriteHttpResponse,
-							},
-						);
-						Ok(ExecutorOutput::HttpResponse(r))
-					}
-
-					vane_core::Terminator::ByteTunnel => {
-						drive_byte_tunnel(
-							tunnel.take().expect("phase invariant: ByteTunnel reached without a Tunnel in scope"),
-							&ctx.cancel,
-						)
-						.await;
-						emit_trajectory(
-							ctx,
-							conn,
-							&mut seq,
-							TrajectoryOutcome::Terminated {
-								node: cur,
-								terminator: TerminatorOutcomeKind::ByteTunnel,
-							},
-						);
-						Ok(ExecutorOutput::Tunneled)
-					}
-				};
+				return step_terminate(
+					term,
+					cur,
+					&mut l4,
+					&mut req,
+					&mut resp,
+					&mut tunnel,
+					ctx,
+					conn,
+					&mut seq,
+				)
+				.await;
 			}
+		}
+	}
+}
+
+/// Outcome of [`apply_body_collect_prelude`] — does the outer loop
+/// proceed to dispatch on `cur`, or did the body-limit synth-413 path
+/// already replace the current node?
+enum BodyCollectOutcome {
+	Continue,
+	ShortToSynth(NodeId),
+}
+
+/// Run the body-collection prelude for `node`. When the node declares
+/// `collect_body_before`, drain the relevant body up to its limit; on
+/// `TooLarge`, set up the 413 synth response and return
+/// [`BodyCollectOutcome::ShortToSynth`] for the caller to advance `cur`.
+/// On I/O errors, propagate via [`finish_error`] (Err).
+#[allow(
+	clippy::too_many_arguments,
+	reason = "shares the executor's mutable walk state by &mut; alternative is a context struct that just renames the fields"
+)]
+async fn apply_body_collect_prelude(
+	node: &Node,
+	entry: NodeId,
+	graph: &Arc<FlowGraph>,
+	req: &mut Option<Request>,
+	resp: &mut Option<Response>,
+	ctx: &mut FlowCtx,
+	conn: &Arc<ConnContext>,
+	seq: &mut u32,
+	cur: NodeId,
+) -> Result<BodyCollectOutcome, Error> {
+	let Some(side) = node.collect_body_before() else {
+		return Ok(BodyCollectOutcome::Continue);
+	};
+	let limit = node.body_limit();
+	match side {
+		BodySide::Request => {
+			let Some(r) = req.as_mut() else {
+				return Ok(BodyCollectOutcome::Continue);
+			};
+			match collect_body(r.body_mut(), limit).await {
+				Ok(()) => Ok(BodyCollectOutcome::Continue),
+				Err(CollectError::TooLarge) => {
+					let over_limit_resp = http::Response::builder()
+						.status(413)
+						.header("connection", "close")
+						.body(Body::Empty)
+						.expect("static 413 response");
+					drop(req.take());
+					let target_opt = graph.symbolic().meta.short_circuit_response_entry.get(&entry).copied();
+					let Some(target) = target_opt else {
+						return Err(finish_error(
+							ctx,
+							conn,
+							seq,
+							cur,
+							Error::internal("body limit exceeded: no synth target for 413 response"),
+						));
+					};
+					*resp = Some(over_limit_resp);
+					Ok(BodyCollectOutcome::ShortToSynth(target))
+				}
+				Err(CollectError::Io(e)) => Err(finish_error(ctx, conn, seq, cur, e)),
+			}
+		}
+		BodySide::Response => {
+			let Some(r) = resp.as_mut() else {
+				return Ok(BodyCollectOutcome::Continue);
+			};
+			match collect_body(r.body_mut(), limit).await {
+				Ok(()) => Ok(BodyCollectOutcome::Continue),
+				Err(CollectError::TooLarge) => {
+					let e = Error::upstream(UpstreamReason::Malformed)
+						.with_ctx("response body exceeded max_body_bytes limit");
+					Err(finish_error(ctx, conn, seq, cur, e))
+				}
+				Err(CollectError::Io(e)) => Err(finish_error(ctx, conn, seq, cur, e)),
+			}
+		}
+	}
+}
+
+/// Dispatch a single [`MiddlewareInst`] variant. Pulled out of
+/// [`execute`] because the inner match is self-contained — picking
+/// which slot to feed (`l4` / `req` / `resp`) and which `m.run(...)`
+/// future to await is orthogonal to the outer decision-interpretation
+/// loop that translates the returned [`Decision`] into `cur` / `resp` /
+/// `req` mutations.
+#[allow(
+	clippy::too_many_arguments,
+	reason = "shares the executor's mutable walk state by &mut; see `apply_body_collect_prelude`"
+)]
+async fn dispatch_middleware_inst(
+	graph: &Arc<FlowGraph>,
+	id: vane_core::MiddlewareId,
+	l4: &mut Option<L4Conn>,
+	req: &mut Option<Request>,
+	resp: &mut Option<Response>,
+	conn: &Arc<ConnContext>,
+	ctx: &mut FlowCtx,
+	peek_bytes: Option<&[u8]>,
+) -> Result<Decision, Error> {
+	match &graph[id] {
+		MiddlewareInst::L4Peek(m) => {
+			// `peek_bytes` was captured once at execute entry. The
+			// middleware borrows from that local instead of re-locking
+			// `conn.user` per dispatch.
+			if peek_bytes.is_none() {
+				tracing::warn!(
+					conn_id = %conn.id,
+					"L4Peek dispatched without PeekResult — listener prelude must run first",
+				);
+			}
+			let peek_slice: &[u8] = peek_bytes.unwrap_or(&[]);
+			m.run(peek_slice, conn, ctx).await
+		}
+		MiddlewareInst::L4Bytes(m) => {
+			let l4_ref = l4.as_mut().expect("phase invariant: L4Bytes needs L4Conn");
+			m.run(l4_ref, conn, ctx).await
+		}
+		MiddlewareInst::L7Request(m) => {
+			let req_ref = req.as_mut().expect("phase invariant: L7Request needs Request");
+			m.run(req_ref, conn, ctx).await
+		}
+		MiddlewareInst::L7Response(m) => {
+			let resp_ref = resp.as_mut().expect("phase invariant: L7Response needs Response");
+			m.run(resp_ref, conn, ctx).await
+		}
+		MiddlewareInst::Wasm(w) => dispatch_wasm(w, l4, req, resp, conn).await,
+	}
+}
+
+/// `Node::Upgrade` handler — hand the L4 connection to the H1 or H2
+/// server. Each decoded request constructs a fresh `FlowCtx` and
+/// re-enters [`execute`] from `next`. See spec/flow-model.md §
+/// _Executor_ (Upgrade arm).
+///
+/// Plain TCP, TLS-terminated H1, and TLS-terminated H2 all feed the
+/// generic stream drivers; the listener has already consumed the TLS
+/// handshake (when applicable) and populated `ConnContext.tls` and
+/// `conn.http_version` from the negotiated ALPN.
+async fn step_upgrade(
+	graph: &Arc<FlowGraph>,
+	next: NodeId,
+	cur: NodeId,
+	l4: &mut Option<L4Conn>,
+	conn: &Arc<ConnContext>,
+	ctx: &mut FlowCtx,
+	seq: &mut u32,
+) -> Result<ExecutorOutput, Error> {
+	let l4 = l4.take().expect("phase invariant: Upgrade needs L4Conn");
+	// Box each variant uniformly so both drivers see the same
+	// trait-object IO type.
+	let stream: Box<dyn vane_core::AsyncReadWrite + Send + 'static> = match l4 {
+		L4Conn::Tcp(s) => Box::new(s),
+		L4Conn::Peeked(s) | L4Conn::Tls(s) => s,
+		L4Conn::Udp(_) => {
+			let e =
+				Error::internal("UDP upgrade not supported in S1 — QUIC integration lands with H3 / S2");
+			return Err(finish_error(ctx, conn, seq, cur, e));
+		}
+	};
+	let alpn = conn.tls.lock().as_ref().and_then(|t| t.alpn.clone());
+	// Two signals can pick H2: a negotiated `h2` ALPN (TLS path) or a
+	// pre-set `conn.http_version = Http2` (cleartext h2c — the
+	// listener sets this when the peek prelude detects the HTTP/2
+	// connection preface). spec/crates/engine.md § _Dispatch table_.
+	let prefer_h2 = alpn.as_deref() == Some(b"h2")
+		|| matches!(conn.http_version.get(), Some(vane_core::HttpVersion::Http2));
+	let result = if prefer_h2 {
+		crate::upgrade::drive_h2_server(
+			stream,
+			Arc::clone(graph),
+			next,
+			Arc::clone(conn),
+			Arc::clone(&ctx.log),
+			ctx.cancel.clone(),
+			ctx.accept_cancel.clone(),
+			ctx.verbosity,
+		)
+		.await
+	} else {
+		crate::upgrade::drive_h1_server(
+			stream,
+			Arc::clone(graph),
+			next,
+			Arc::clone(conn),
+			Arc::clone(&ctx.log),
+			ctx.cancel.clone(),
+			ctx.accept_cancel.clone(),
+			ctx.verbosity,
+		)
+		.await
+	};
+	match result {
+		Ok(out) => {
+			emit_trajectory(
+				ctx,
+				conn,
+				seq,
+				TrajectoryOutcome::Terminated { node: cur, terminator: TerminatorOutcomeKind::Close },
+			);
+			Ok(out)
+		}
+		Err(e) => Err(finish_error(ctx, conn, seq, cur, e)),
+	}
+}
+
+/// `Node::Terminate` handler — drive the three concrete terminators
+/// per `spec/flow-model.md` § _Executor_ + § _`Terminator::Close` —
+/// wire-level manifestation_. All three branches return; the walker
+/// loop never re-enters after Terminate.
+#[allow(
+	clippy::too_many_arguments,
+	reason = "shares the executor's mutable walk state by &mut; see `apply_body_collect_prelude`"
+)]
+async fn step_terminate(
+	term: vane_core::Terminator,
+	cur: NodeId,
+	l4: &mut Option<L4Conn>,
+	req: &mut Option<Request>,
+	resp: &mut Option<Response>,
+	tunnel: &mut Option<Tunnel>,
+	ctx: &mut FlowCtx,
+	conn: &Arc<ConnContext>,
+	seq: &mut u32,
+) -> Result<ExecutorOutput, Error> {
+	match term {
+		vane_core::Terminator::Close => {
+			drop((l4.take(), req.take(), resp.take(), tunnel.take()));
+			// Connection-level Terminate milestone (verbosity-
+			// independent per spec/flow-model.md § _Flow log verbosity_).
+			ctx.log.emit(FlowLogEvent {
+				t: now_unix_ms(),
+				conn: conn.id,
+				seq: bump(seq),
+				kind: FlowLogKind::Terminate,
+				node: Some(cur),
+				error: None,
+				data: Some(serde_json::json!({
+					"terminator": "close",
+					"reason": "no matching rule",
+				})),
+			});
+			emit_trajectory(
+				ctx,
+				conn,
+				seq,
+				TrajectoryOutcome::Terminated { node: cur, terminator: TerminatorOutcomeKind::Close },
+			);
+			Ok(ExecutorOutput::Closed)
+		}
+
+		vane_core::Terminator::WriteHttpResponse => {
+			let r = resp
+				.take()
+				.expect("phase invariant: WriteHttpResponse reached without a Response in scope");
+			emit_trajectory(
+				ctx,
+				conn,
+				seq,
+				TrajectoryOutcome::Terminated {
+					node: cur,
+					terminator: TerminatorOutcomeKind::WriteHttpResponse,
+				},
+			);
+			Ok(ExecutorOutput::HttpResponse(r))
+		}
+
+		vane_core::Terminator::ByteTunnel => {
+			drive_byte_tunnel(
+				tunnel.take().expect("phase invariant: ByteTunnel reached without a Tunnel in scope"),
+				&ctx.cancel,
+			)
+			.await;
+			emit_trajectory(
+				ctx,
+				conn,
+				seq,
+				TrajectoryOutcome::Terminated { node: cur, terminator: TerminatorOutcomeKind::ByteTunnel },
+			);
+			Ok(ExecutorOutput::Tunneled)
 		}
 	}
 }
@@ -647,14 +769,18 @@ async fn drive_byte_tunnel(t: Tunnel, cancel: &tokio_util::sync::CancellationTok
 	}
 }
 
-// Trajectory + error finalisation
+/// Run the trajectory + metrics side effects for a walker error, then
+/// hand the error back to the caller. Returns `Error` rather than
+/// `Result<_, Error>` so helpers whose `Ok` type differs from
+/// [`ExecutorOutput`] (notably [`apply_body_collect_prelude`]) can
+/// reuse the same finalisation contract — callers wrap in `Err(...)`.
 fn finish_error(
 	ctx: &mut FlowCtx,
 	conn: &Arc<ConnContext>,
 	seq: &mut u32,
 	cur: NodeId,
 	err: Error,
-) -> Result<ExecutorOutput, Error> {
+) -> Error {
 	metrics::counter!(
 		"vane.errors.total",
 		"kind" => err.kind_label(),
@@ -668,7 +794,7 @@ fn finish_error(
 	// blow up the sink-side memory budget.
 	let message = vane_core::flow_log::TrajectoryErrorMessage::from(&err);
 	emit_trajectory(ctx, conn, seq, TrajectoryOutcome::Error { node: cur, message });
-	Err(err)
+	err
 }
 
 fn emit_trajectory(
