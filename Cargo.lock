@@ -3072,7 +3072,7 @@ name = "ocsp-mock-responder"
 version = "0.0.1"
 dependencies = [
  "bytes",
- "const-oid 0.9.6",
+ "const-oid 0.10.2",
  "der",
  "http-body-util",
  "hyper",

@@ -15,7 +15,7 @@ workspace = true
 
 [dependencies]
 bytes = "1"
-const-oid = { version = "0.9", default-features = false, features = ["db"] }
+const-oid = { version = "0.10", default-features = false, features = ["db"] }
 der = "0.7"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["server", "http1"] }
