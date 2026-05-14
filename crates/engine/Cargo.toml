@@ -61,8 +61,6 @@ cgi-request = { workspace = true }
 cgi-response = { workspace = true }
 clienthello = { workspace = true }
 dashmap = "6.1.0"
-# Direct OCSP RustCrypto deps: `der` for Decode/Encode on OCSP req/resp; `x509-cert` for Certificate decode (some types not re-exported by x509-ocsp).
-der = "0.7"
 guess = { workspace = true, features = ["classify"] }
 hickory-tower-resolver = { workspace = true }
 http = "1"
@@ -100,8 +98,6 @@ rustls-sni-resolver = { workspace = true }
 rustls-ticketer = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# RFC 6960 §4.1.1 mandates SHA-1 for OCSP CertId (routing, not security); `oid` provides the AssociatedOid x509-ocsp needs.
-sha1 = { version = "0.10", features = ["oid"] }
 sha2 = "0.11.0"
 thiserror = "2"
 # CRL `nextUpdate` parsing (via x509-parser::ASN1Time) and the workspace refresh scheduler.
@@ -116,9 +112,6 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 url = "2"
 vane-core = { workspace = true }
 virtual-socket = { workspace = true, optional = true }
-x509-cert = "0.2"
-# `builder` enables the OcspRequest builder; `std` lets tests use SystemTime → OcspGeneralizedTime.
-x509-ocsp = { version = "0.2", default-features = false, features = ["builder", "std"] }
 x509-parser = "0.18"
 zeroize = { version = "1", features = ["alloc"] }
 
@@ -157,6 +150,10 @@ tokio-splice2 = "0.3"
 
 [dev-dependencies]
 async-trait = "0.1"
+# Test-only fixture: `static_populator` synthesises a `TryLater`
+# OCSP DER blob to exercise the "unparseable staple" branch.
+rasn = "0.28"
+rasn-ocsp = "0.28"
 rcgen = "0.14"
 serial_test = "3"
 tempfile = "3"

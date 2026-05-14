@@ -82,8 +82,8 @@ http-retry-policy = { path = "crates/lib/http-retry-policy", version = "0.0.1" }
 in-flight-set = { path = "crates/lib/in-flight-set", version = "0.0.1" }
 ndjson-rpc = { path = "crates/lib/ndjson-rpc", version = "0.0.3" }
 notify-twophase = { path = "crates/lib/notify-twophase", version = "0.0.2" }
-ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.1" }
-ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.2" }
+ocsp-mock-responder = { path = "crates/lib/ocsp-mock-responder", version = "0.0.2" }
+ocsp-staple = { path = "crates/lib/ocsp-staple", version = "0.0.3" }
 peeked-stream = { path = "crates/lib/peeked-stream", version = "0.0.1" }
 prom-cardinality-cap = { path = "crates/lib/prom-cardinality-cap", version = "0.0.1" }
 quinn-shared-socket = { path = "crates/lib/quinn-shared-socket", version = "0.0.1" }

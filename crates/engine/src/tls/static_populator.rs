@@ -555,10 +555,11 @@ mod tests {
 		// here as a deterministic fixture — `parse_ocsp_response`
 		// rejects non-successful statuses, so the populator's WARN
 		// branch fires (no staple) but the cert still loads.
-		// `OcspResponse::try_later()` is the simplest forge-free
-		// fixture available without spinning up a signer.
-		let try_later = x509_ocsp::OcspResponse::try_later();
-		let bytes = der::Encode::to_der(&try_later).expect("encode");
+		// A bare `TryLater` `OcspResponse` is the simplest forge-
+		// free fixture available without spinning up a signer.
+		let try_later =
+			rasn_ocsp::OcspResponse { status: rasn_ocsp::OcspResponseStatus::TryLater, bytes: None };
+		let bytes = rasn::der::encode(&try_later).expect("encode");
 		let ocsp_file = NamedTempFile::new().expect("ocsp tmp");
 		std::fs::write(ocsp_file.path(), &bytes).expect("write");
 
