@@ -60,7 +60,7 @@ bytes = "1"
 cgi-request = { workspace = true }
 cgi-response = { workspace = true }
 clienthello = { workspace = true }
-dashmap = "6.1.0"
+dashmap = "6.2.1"
 guess = { workspace = true, features = ["classify"] }
 hickory-tower-resolver = { workspace = true }
 http = "1"
