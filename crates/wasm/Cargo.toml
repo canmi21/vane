@@ -30,7 +30,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }
 tracing = "0.1"
 url = "2"
 vane-core = { workspace = true }
-wasmtime = { version = "44.0.1", features = ["component-model", "async", "cranelift"] }
+wasmtime = { version = "45.0.0", features = ["component-model", "async", "cranelift"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
