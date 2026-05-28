@@ -57,7 +57,7 @@ ocsp = ["dep:ocsp-mock-responder"]
 wasm-fixtures = ["dep:wat", "dep:wit-component", "dep:wit-parser"]
 
 [build-dependencies]
-wat = { version = "1.249.0", optional = true }
+wat = { version = "1.250.0", optional = true }
 wit-component = { version = "0.248.0", optional = true }
 wit-parser = { version = "0.248.0", optional = true }
 
