@@ -60,7 +60,7 @@ bytes = "1"
 cgi-request = { workspace = true }
 cgi-response = { workspace = true }
 clienthello = { workspace = true }
-dashmap = "6.1.0"
+dashmap = "6.2.1"
 guess = { workspace = true, features = ["classify"] }
 hickory-tower-resolver = { workspace = true }
 http = "1"
@@ -76,7 +76,7 @@ in-flight-set = { workspace = true }
 # trusted_proxies CIDR list and decide whether to honour inbound
 # `X-Forwarded-For` / `Forwarded:` chains.
 ipnet = "2.12.0"
-memchr = "2.8.0"
+memchr = "2.8.1"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 notify = "8.2.0"
