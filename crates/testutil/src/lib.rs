@@ -9,6 +9,11 @@
 //! window cannot occur.
 
 #![allow(unsafe_code)]
+// Dev-only test-helper crate: panicking on failure is the contract (the
+// helpers assert), and `#[must_use]` on obvious getters / builders is
+// noise here. Quiet the two pedantic lints that otherwise only fire on
+// this crate's public helper surface.
+#![allow(clippy::missing_panics_doc, clippy::must_use_candidate)]
 
 #[cfg(feature = "acme")]
 pub mod acme;

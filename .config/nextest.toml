@@ -5,17 +5,18 @@ experimental = ["setup-scripts"]
 # Past 10s is off-curve; past 20s is wedged.
 slow-timeout = { period = "10s", terminate-after = 2 }
 
-# Pre-build vane CLI for daemon mgmt tests; export the path via $NEXTEST_ENV
-# so test processes don't each run their own `cargo build`. Escargot's
-# per-process build serialised on cargo's build lock under `--workspace`
-# parallelism and pushed CLI-driven tests past slow-timeout on slower CI.
-[scripts.setup.build-vane-cli]
-command = "cargo xtask build-vane-cli"
+# Pre-build the vane + vaned binaries for CLI-driven E2E tests; export
+# their paths via $NEXTEST_ENV (VANE_BIN / VANED_BIN) so test processes
+# don't each run their own `cargo build`. Escargot's per-process build
+# serialised on cargo's build lock under `--workspace` parallelism and
+# pushed CLI-driven tests past slow-timeout on slower CI.
+[scripts.setup.build-test-bins]
+command = "cargo xtask build-test-bins"
 slow-timeout = { period = "60s", terminate-after = 4 }
 
 [[profile.default.scripts]]
-filter = "binary(mgmt)"
-setup = ["build-vane-cli"]
+filter = "binary(mgmt) | binary(cli_e2e)"
+setup = ["build-test-bins"]
 
 # reload + wasm_e2e spawn real vaned processes; under workspace parallelism
 # their wait_until polls inflate from CPU contention. Per-binary serial groups
@@ -25,6 +26,7 @@ setup = ["build-vane-cli"]
 reload-serial = { max-threads = 1 }
 wasm-e2e-serial = { max-threads = 1 }
 acme-e2e-serial = { max-threads = 1 }
+cli-e2e-serial = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = "binary(reload)"
@@ -33,6 +35,10 @@ test-group = "reload-serial"
 [[profile.default.overrides]]
 filter = "binary(wasm_e2e)"
 test-group = "wasm-e2e-serial"
+
+[[profile.default.overrides]]
+filter = "binary(cli_e2e)"
+test-group = "cli-e2e-serial"
 
 # Pebble-backed ACME e2e: cold Docker image pull (~10s) + full RFC 8555 round
 # trip; bumped per-test budget and serialised against Docker daemon contention.

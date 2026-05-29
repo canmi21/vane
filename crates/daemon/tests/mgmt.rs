@@ -28,11 +28,11 @@ use vane_mgmt::verb::{
 ///
 /// Two paths, in order of preference:
 ///
-/// 1. Under `cargo nextest run`, the `build-vane-cli` setup script
-///    in `.config/nextest.toml` pre-builds the CLI and exports its
-///    absolute path through `VANE_BIN`. Reading the env var costs
-///    one syscall and keeps the cargo build lock out of the test's
-///    critical path entirely.
+/// 1. Under `cargo nextest run`, the `build-test-bins` setup script
+///    in `.config/nextest.toml` pre-builds the CLI (and vaned) and
+///    exports their absolute paths through `VANE_BIN` / `VANED_BIN`.
+///    Reading the env var costs one syscall and keeps the cargo
+///    build lock out of the test's critical path entirely.
 /// 2. Under `cargo test` (or any caller that bypasses nextest's
 ///    setup scripts), fall back to escargot, which re-invokes
 ///    `cargo build -p vane --bin vane` once per test process. This

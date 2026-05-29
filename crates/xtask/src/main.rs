@@ -11,7 +11,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-mod build_vane_cli;
+mod build_test_bins;
 mod check_spec_anchors;
 mod publish;
 mod sync_deps;
@@ -26,8 +26,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-	/// Build the vane CLI binary and write VANE_BIN to NEXTEST_ENV.
-	BuildVaneCli,
+	/// Build the test binaries (vane, vaned) and write VANE_BIN / VANED_BIN to NEXTEST_ENV.
+	BuildTestBins,
 	/// Verify spec-anchor references in source comments resolve to real headings.
 	CheckSpecAnchors,
 	/// Reconcile workspace.dependencies versions with each crate's own version.
@@ -100,7 +100,7 @@ fn main() -> Result<()> {
 	let _ = rustls::crypto::ring::default_provider().install_default();
 
 	match Cli::parse().command {
-		Command::BuildVaneCli => build_vane_cli::run(),
+		Command::BuildTestBins => build_test_bins::run(),
 		Command::CheckSpecAnchors => check_spec_anchors::run(),
 		Command::SyncDeps(SyncDepsCmd::Check) => sync_deps::run(sync_deps::Mode::Check),
 		Command::SyncDeps(SyncDepsCmd::Write) => sync_deps::run(sync_deps::Mode::Write),

@@ -65,6 +65,12 @@ wit-parser = { version = "0.250.0", optional = true }
 tokio = { version = "1", features = ["net", "io-util", "rt", "time", "macros"] }
 vane-core = { workspace = true }
 
+# Process-spawning E2E fixture (VanedFixture): tempdir config trees +
+# binary resolution. escargot is the `cargo test` fallback; nextest's
+# build-test-bins setup script exports VANE_BIN / VANED_BIN to skip it.
+escargot = "0.5"
+tempfile = "3"
+
 # Shared by the H3 fixture and the mock OCSP responder; ocsp adds server-auto via dep:hyper-util.
 hyper = { version = "1", features = ["server", "http1", "client"] }
 
