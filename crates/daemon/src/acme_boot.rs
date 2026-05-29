@@ -3,8 +3,8 @@
 //! Three responsibilities:
 //!
 //! 1. Open `FsAcmeStore` + `ManagedCertRegistry` if the compiled
-//!    config declares any `tls.managed` cert. The store path comes
-//!    from the `VANE_ACME_DIR` env var (default
+//!    config declares any `tls.managed` cert. The store path is
+//!    `VANE_ACME_DIR` when set, else `<VANE_STATE_DIR>/acme` (default
 //!    `/var/lib/vaned/acme/` per `spec/crates/engine-acme.md` § _Storage layout_).
 //! 2. After `FlowGraph::link` succeeds, kick off background
 //!    issuance tasks for every declared SNI that doesn't already
@@ -44,9 +44,6 @@ use vane_core::rule::{ChallengeKind, ManagedSpec};
 use vane_engine::acme::{FsAcmeStore, ManagedCertRegistry, RegistryError, RenewalJob};
 use vane_engine::flow_graph::FlowGraph;
 
-/// Default storage root per `spec/crates/engine-acme.md` § _Storage layout_. Overridden by `VANE_ACME_DIR`.
-const DEFAULT_ACME_DIR: &str = "/var/lib/vaned/acme";
-
 /// `Some(registry)` when the compiled config declares at least one
 /// `tls.managed` cert, `None` otherwise. Construction failure on a
 /// config that does want managed certs surfaces as an error so the
@@ -74,7 +71,7 @@ pub(crate) async fn open_registry_if_needed(
 }
 
 fn acme_dir_from_env() -> PathBuf {
-	std::env::var("VANE_ACME_DIR").map_or_else(|_| PathBuf::from(DEFAULT_ACME_DIR), PathBuf::from)
+	crate::boot::acme_dir()
 }
 
 fn any_managed_cert(symbolic: &SymbolicFlowGraph) -> bool {

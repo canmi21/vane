@@ -84,15 +84,30 @@ fn install_session_ticketer() {
 	vane_engine::tls::install_default_ticketer().expect("install rustls session ticketer");
 }
 
-/// Resolve the disk path for the persistent TLS ticket key. Lives
-/// alongside the ACME store under `VANE_ACME_DIR` (default
-/// `/var/lib/vaned/acme`) so cert / key / ticket-key all share one
+/// Base directory for all daemon-owned state (ACME accounts/certs,
+/// persistent ticket key, pre-compiled cwasm cache). Redirect all of it
+/// with a single knob via `VANE_STATE_DIR`; defaults to `/var/lib/vaned`.
+#[cfg(any(feature = "aws-lc-rs", feature = "acme"))]
+pub(crate) fn state_dir() -> std::path::PathBuf {
+	std::env::var_os("VANE_STATE_DIR")
+		.map_or_else(|| std::path::PathBuf::from("/var/lib/vaned"), std::path::PathBuf::from)
+}
+
+/// ACME storage root: the specific `VANE_ACME_DIR` override when set,
+/// else `<state_dir>/acme`. Cert / key / ticket-key share this one
 /// privilege boundary.
+#[cfg(any(feature = "aws-lc-rs", feature = "acme"))]
+pub(crate) fn acme_dir() -> std::path::PathBuf {
+	std::env::var_os("VANE_ACME_DIR")
+		.map_or_else(|| state_dir().join("acme"), std::path::PathBuf::from)
+}
+
+/// Resolve the disk path for the persistent TLS ticket key. Lives
+/// alongside the ACME store (see [`acme_dir`]) so cert / key / ticket-key
+/// all share one privilege boundary.
 #[cfg(feature = "aws-lc-rs")]
 fn acme_ticketer_path() -> std::path::PathBuf {
-	let dir = std::env::var("VANE_ACME_DIR")
-		.map_or_else(|_| std::path::PathBuf::from("/var/lib/vaned/acme"), std::path::PathBuf::from);
-	dir.join("ticketer.bin")
+	acme_dir().join("ticketer.bin")
 }
 
 /// Phase: surface the operator-tunable CGI concurrency cap. Read here

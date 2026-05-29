@@ -1161,8 +1161,17 @@ fn lift_plugin_error_l7response(
 /// major component are rejected at load time.
 const ABI_MAJOR: u64 = 0;
 
-/// Path to the compiled component cache.
-const CWASM_CACHE_DIR: &str = "/var/lib/vaned/wasm";
+/// Resolve the compiled-component (cwasm) cache directory. Defaults to
+/// `/var/lib/vaned/wasm`; set `VANE_STATE_DIR` to redirect all
+/// daemon-owned state with one knob (the cache then lives at
+/// `<VANE_STATE_DIR>/wasm`). Read here rather than threaded from the
+/// daemon to match the crate's other env-driven knobs.
+fn cwasm_cache_dir() -> std::path::PathBuf {
+	std::env::var_os("VANE_STATE_DIR").map_or_else(
+		|| std::path::PathBuf::from("/var/lib/vaned/wasm"),
+		|s| std::path::PathBuf::from(s).join("wasm"),
+	)
+}
 
 /// Key for the stateless pool map: uniquely identifies a (module, export, args) triple.
 #[derive(Clone, Hash, Eq, PartialEq)]
@@ -2383,7 +2392,7 @@ fn cwasm_filename(engine: &Engine, bytes: &[u8]) -> String {
 /// the two `load_component` call sites and `load_or_compile` agree on
 /// the filename shape.
 fn cwasm_cache_path(engine: &Engine, bytes: &[u8]) -> std::path::PathBuf {
-	std::path::PathBuf::from(CWASM_CACHE_DIR).join(cwasm_filename(engine, bytes))
+	cwasm_cache_dir().join(cwasm_filename(engine, bytes))
 }
 
 /// Create the cwasm cache directory if missing. On unix the directory
@@ -2399,7 +2408,7 @@ fn ensure_cwasm_cache_dir() -> std::io::Result<()> {
 		use std::os::unix::fs::DirBuilderExt;
 		b.mode(0o700);
 	}
-	b.create(CWASM_CACHE_DIR)
+	b.create(cwasm_cache_dir())
 }
 
 fn load_or_compile(
@@ -2437,7 +2446,7 @@ fn load_or_compile(
 		.map_err(|e| Error::middleware(format!("compile {}: {e}", src.display())))?;
 
 	if let Err(e) = ensure_cwasm_cache_dir() {
-		warn!("wasm cache dir create failed ({CWASM_CACHE_DIR}): {e}");
+		warn!("wasm cache dir create failed ({}): {e}", cwasm_cache_dir().display());
 		return Ok(component);
 	}
 

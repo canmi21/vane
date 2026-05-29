@@ -18,13 +18,15 @@ CLI and TUI link the same management client (`vane-mgmt`); both speak the protoc
   wasm/*.wasm               # plugin binaries referenced by rules
   .env                      # deploy-time constants (dotenvy)
 
-/var/lib/vaned/             # daemon-owned state
+/var/lib/vaned/             # daemon-owned state (base; override via VANE_STATE_DIR)
   wasm/*.cwasm              # pre-compiled wasmtime modules (content-hash keyed)
   acme/                     # ACME accounts and issued certs (see crates/engine-acme.md)
 
 /var/run/vaned.sock         # Unix mgmt socket (or $XDG_RUNTIME_DIR/vaned.sock)
 /var/log/vaned.log          # structured log (when not using journald)
 ```
+
+`VANE_STATE_DIR` relocates the entire `/var/lib/vaned/` base in one move — both `wasm/` (cwasm cache) and `acme/` (accounts, certs, persistent ticket key) follow it. `VANE_ACME_DIR` still overrides the ACME store specifically. Test and dev runs point `VANE_STATE_DIR` at a tempdir so a non-root process never touches `/var/lib`.
 
 Compiled FlowGraph artifacts are not persisted. The pipeline runs on every boot and reload. Operators inspect compiled state via `vane compile <DIR>` (dry-run via `compile_dry_run` mgmt verb against a running daemon) or `get_config` (live).
 
