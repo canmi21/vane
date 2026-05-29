@@ -4,8 +4,10 @@
 //!
 //! See [`spec/crates/cli.md` § _Subcommand layout_](../../../spec/crates/cli.md#subcommand-layout).
 
+mod authoring;
 #[cfg(feature = "tui")]
 mod tui;
+mod wizard;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -149,6 +151,23 @@ impl MgmtTransport {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+	/// Scaffold (or reset) a config directory: `rules/` + `wasm/`.
+	Init {
+		/// Config directory to create. Default: ./vane-dev.
+		#[arg(default_value = "vane-dev")]
+		dir: PathBuf,
+		/// Clear existing `rules/` first (clean-slate dev loop).
+		#[arg(long)]
+		force: bool,
+	},
+	/// Author a rule file non-interactively (scriptable; `vane new` is
+	/// the interactive wizard over the same logic).
+	Add {
+		#[command(subcommand)]
+		what: AddCmd,
+	},
+	/// Interactive config wizard (clack-style). Requires a TTY.
+	New,
 	/// Liveness check.
 	Ping,
 	/// Uptime, graph hash, listener summary.
@@ -233,6 +252,61 @@ enum PoolCmd {
 	},
 }
 
+#[derive(Subcommand, Debug)]
+enum AddCmd {
+	/// L4 TCP/UDP byte forward (no HTTP layer).
+	PortForward {
+		/// Config directory to write into. Default: ./vane-dev.
+		#[arg(short = 'C', long = "dir", default_value = "vane-dev")]
+		dir: PathBuf,
+		/// Rule name → `rules/<name>.json`.
+		#[arg(long, default_value = "port-forward")]
+		name: String,
+		/// Listen address, e.g. `127.0.0.1:2222` or `:2222`.
+		#[arg(long)]
+		listen: String,
+		/// Upstream to forward bytes to, e.g. `127.0.0.1:22`.
+		#[arg(long = "to")]
+		upstream: String,
+		/// Transport: `tcp` or `udp`.
+		#[arg(long, default_value = "tcp")]
+		transport: String,
+	},
+	/// HTTP reverse proxy to an upstream.
+	ReverseProxy {
+		/// Config directory to write into. Default: ./vane-dev.
+		#[arg(short = 'C', long = "dir", default_value = "vane-dev")]
+		dir: PathBuf,
+		/// Rule name → `rules/<name>.json`.
+		#[arg(long, default_value = "proxy")]
+		name: String,
+		/// Listen address, e.g. `127.0.0.1:8080`.
+		#[arg(long)]
+		listen: String,
+		/// Upstream to proxy to, e.g. `127.0.0.1:9000`.
+		#[arg(long = "to")]
+		upstream: String,
+	},
+	/// Fixed HTTP response, no upstream.
+	StaticSite {
+		/// Config directory to write into. Default: ./vane-dev.
+		#[arg(short = 'C', long = "dir", default_value = "vane-dev")]
+		dir: PathBuf,
+		/// Rule name → `rules/<name>.json`.
+		#[arg(long, default_value = "site")]
+		name: String,
+		/// Listen address, e.g. `127.0.0.1:8080`.
+		#[arg(long)]
+		listen: String,
+		/// HTTP status code to return.
+		#[arg(long, default_value_t = 200)]
+		status: u16,
+		/// Response body.
+		#[arg(long, default_value = "hello from vane")]
+		body: String,
+	},
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::process::ExitCode {
 	// Pre-clap intercept for the bare `vane --help` / `vane -h` form.
@@ -269,6 +343,14 @@ async fn main() -> std::process::ExitCode {
 		);
 		return std::process::ExitCode::FAILURE;
 	};
+	// Offline config-authoring commands need no running daemon — handle
+	// them before resolving a mgmt transport.
+	match &cmd {
+		Cmd::Init { dir, force } => return offline_result(run_init(dir, *force)),
+		Cmd::Add { what } => return offline_result(run_add(what)),
+		Cmd::New => return offline_result(wizard::run()),
+		_ => {}
+	}
 	let client = match build_transport(&cli) {
 		Ok(c) => c,
 		Err(e) => {
@@ -281,6 +363,9 @@ async fn main() -> std::process::ExitCode {
 	};
 
 	let result = match cmd {
+		Cmd::Init { .. } | Cmd::Add { .. } | Cmd::New => {
+			unreachable!("offline authoring commands handled before transport")
+		}
 		Cmd::Ping => run_ping(&client, cli.json).await,
 		Cmd::Stats => run_stats(&client, cli.json).await,
 		Cmd::Shutdown => run_shutdown(&client, cli.json).await,
@@ -357,6 +442,49 @@ fn build_transport(cli: &Cli) -> Result<MgmtTransport, String> {
 		})
 		.unwrap_or_else(|| PathBuf::from(DEFAULT_SOCKET));
 	Ok(MgmtTransport::Unix(UnixMgmtClient::new(&socket)))
+}
+
+/// Map an offline command's result to a process exit code, printing any
+/// error in the same red `vane:` style the daemon-facing commands use.
+fn offline_result(r: anyhow::Result<()>) -> std::process::ExitCode {
+	match r {
+		Ok(()) => std::process::ExitCode::SUCCESS,
+		Err(e) => {
+			eprintln!(
+				"{} {e}",
+				"vane:".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold())),
+			);
+			std::process::ExitCode::FAILURE
+		}
+	}
+}
+
+/// `vane init` — scaffold or reset a config directory.
+fn run_init(dir: &Path, force: bool) -> anyhow::Result<()> {
+	authoring::scaffold(dir, force)?;
+	let verb = if force { "reset" } else { "scaffolded" };
+	println!("{verb} {} (rules/, wasm/)", dir.display());
+	println!("next: vane add port-forward --dir {} --listen <addr> --to <addr>", dir.display());
+	Ok(())
+}
+
+/// `vane add <preset>` — author a rule file non-interactively.
+fn run_add(what: &AddCmd) -> anyhow::Result<()> {
+	let (dir, spec) = match what {
+		AddCmd::PortForward { dir, name, listen, upstream, transport } => {
+			(dir, authoring::port_forward_spec(name, listen, upstream, transport))
+		}
+		AddCmd::ReverseProxy { dir, name, listen, upstream } => {
+			(dir, authoring::reverse_proxy_spec(name, listen, upstream))
+		}
+		AddCmd::StaticSite { dir, name, listen, status, body } => {
+			(dir, authoring::static_site_spec(name, listen, *status, body))
+		}
+	};
+	let path = authoring::author_rule(dir, &spec)?;
+	println!("wrote {}", path.display());
+	println!("start: vaned -c {}", dir.display());
+	Ok(())
 }
 
 async fn run_ping(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {

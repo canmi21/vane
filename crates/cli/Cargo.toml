@@ -34,10 +34,18 @@ vane-banner = { workspace = true }
 vane-core = { workspace = true }
 vane-mgmt = { workspace = true }
 
+# Interactive config wizard (`vane new`) — clack-style guided prompts.
+# Always on (config authoring is core CLI UX, independent of the `tui`
+# observability feature).
+cliclack = "0.5.4"
+
 # TUI stack — gated behind `tui`. crossterm pinned explicitly (vs. via ratatui's feature)
 # so version drift surfaces in the lockfile and direct imports of crossterm types work.
 crossterm = { version = "0.29", optional = true }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
 
 [[bin]]
 name = "vane"
