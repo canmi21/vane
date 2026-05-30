@@ -58,7 +58,7 @@ wasm-fixtures = ["dep:wat", "dep:wit-component", "dep:wit-parser"]
 
 [build-dependencies]
 wat = { version = "1.251.0", optional = true }
-wit-component = { version = "0.250.0", optional = true }
+wit-component = { version = "0.251.0", optional = true }
 wit-parser = { version = "0.250.0", optional = true }
 
 [dependencies]
