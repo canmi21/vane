@@ -53,12 +53,12 @@ pub(crate) fn run() -> anyhow::Result<()> {
 		"reverse_proxy" => {
 			let upstream: String =
 				cliclack::input("Upstream").default_input("127.0.0.1:9000").interact()?;
-			authoring::reverse_proxy_spec(&name, &listen, &upstream)
+			authoring::reverse_proxy_spec(&name, &listen, &upstream).with_tls(prompt_tls()?)
 		}
 		"static_site" => {
 			let status: u16 = cliclack::input("Status code").default_input("200").interact()?;
 			let body: String = cliclack::input("Body").default_input("hello from vane").interact()?;
-			authoring::static_site_spec(&name, &listen, status, &body)
+			authoring::static_site_spec(&name, &listen, status, &body).with_tls(prompt_tls()?)
 		}
 		other => anyhow::bail!("unhandled feature {other:?}"),
 	};
@@ -68,6 +68,25 @@ pub(crate) fn run() -> anyhow::Result<()> {
 
 	cliclack::outro(format!("wrote {}\n   start: vaned -c {}", path.display(), dir.display()))?;
 	Ok(())
+}
+
+/// Optional TLS-termination step for HTTP-terminating features: ask
+/// whether to serve HTTPS, and if so collect the cert/key PEM paths and
+/// an optional SNI host.
+fn prompt_tls() -> anyhow::Result<Option<authoring::TlsArgs>> {
+	let enable: bool =
+		cliclack::confirm("Serve over HTTPS (TLS termination)?").initial_value(false).interact()?;
+	if !enable {
+		return Ok(None);
+	}
+	let cert_file: String =
+		cliclack::input("TLS cert chain PEM path").placeholder("/path/to/fullchain.pem").interact()?;
+	let key_file: String =
+		cliclack::input("TLS private key PEM path").placeholder("/path/to/key.pem").interact()?;
+	let sni_in: String =
+		cliclack::input("SNI host (blank = listener default cert)").default_input("").interact()?;
+	let sni = if sni_in.trim().is_empty() { None } else { Some(sni_in) };
+	Ok(Some(authoring::TlsArgs { cert_file, key_file, sni }))
 }
 
 fn default_name(feature: &str) -> &'static str {

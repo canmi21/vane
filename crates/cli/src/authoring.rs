@@ -14,16 +14,36 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 use vane_core::preset::{PresetInvocation, expand_invocation};
-use vane_core::rule::SourceInfo;
+use vane_core::rule::{SourceInfo, TlsConfig};
+
+/// Listener-side TLS termination parameters (static cert/key on disk).
+#[derive(Debug, Clone)]
+pub(crate) struct TlsArgs {
+	pub(crate) cert_file: String,
+	pub(crate) key_file: String,
+	pub(crate) sni: Option<String>,
+}
 
 /// A validated authoring request: which preset, the rule name, the
-/// listen addresses, and the preset-specific args blob.
+/// listen addresses, the preset-specific args blob, and optional
+/// listener-side TLS termination.
 #[derive(Debug, Clone)]
 pub(crate) struct RuleSpec {
 	pub(crate) name: String,
 	pub(crate) preset: String,
 	pub(crate) listen: Vec<String>,
 	pub(crate) args: Value,
+	pub(crate) tls: Option<TlsArgs>,
+}
+
+impl RuleSpec {
+	/// Attach listener-side TLS termination to this rule (no-op when
+	/// `tls` is `None`). Only meaningful for HTTP-terminating presets;
+	/// the daemon's lower pass rejects TLS on an L4 listener.
+	pub(crate) fn with_tls(mut self, tls: Option<TlsArgs>) -> Self {
+		self.tls = tls;
+		self
+	}
 }
 
 /// Create (or reset) a config directory skeleton: `<dir>/rules/` and
@@ -54,6 +74,7 @@ pub(crate) fn port_forward_spec(
 		preset: "port_forward".to_owned(),
 		listen: vec![listen.to_owned()],
 		args: json!({ "upstream": upstream, "transport": transport }),
+		tls: None,
 	}
 }
 
@@ -64,6 +85,7 @@ pub(crate) fn reverse_proxy_spec(name: &str, listen: &str, upstream: &str) -> Ru
 		preset: "reverse_proxy".to_owned(),
 		listen: vec![listen.to_owned()],
 		args: json!({ "upstream": upstream }),
+		tls: None,
 	}
 }
 
@@ -74,6 +96,7 @@ pub(crate) fn static_site_spec(name: &str, listen: &str, status: u16, body: &str
 		preset: "static_site".to_owned(),
 		listen: vec![listen.to_owned()],
 		args: json!({ "status": status, "body": body }),
+		tls: None,
 	}
 }
 
@@ -93,7 +116,7 @@ pub(crate) fn author_rule(config_dir: &Path, spec: &RuleSpec) -> anyhow::Result<
 		preset: spec.preset.clone(),
 		listen: spec.listen.clone(),
 		args: spec.args.clone(),
-		tls: None,
+		tls: spec.tls.as_ref().map(to_tls_config),
 		source: SourceInfo::default(),
 	};
 	expand_invocation(inv).map_err(|e| anyhow::anyhow!("invalid rule: {e}"))?;
@@ -103,19 +126,51 @@ pub(crate) fn author_rule(config_dir: &Path, spec: &RuleSpec) -> anyhow::Result<
 		.map_err(|e| anyhow::anyhow!("creating {}: {e}", rules_dir.display()))?;
 	let path = rules_dir.join(format!("{}.json", spec.name));
 
-	// Serialize the clean operator-facing shape — no internal `source` /
-	// `tls` noise — matching what a hand-authored rule file looks like.
-	let entry = json!({
+	// Serialize the clean operator-facing shape — no internal `source`
+	// noise — matching what a hand-authored rule file looks like.
+	let mut entry = json!({
 		"preset": spec.preset,
 		"name": spec.name,
 		"listen": spec.listen,
 		"args": spec.args,
 	});
+	if let Some(t) = &spec.tls {
+		entry["tls"] = tls_json(t);
+	}
 	let doc = json!({ "rules": [entry] });
 	let body = serde_json::to_string_pretty(&doc)?;
 	fs::write(&path, format!("{body}\n"))
 		.map_err(|e| anyhow::anyhow!("writing {}: {e}", path.display()))?;
 	Ok(path)
+}
+
+/// Build a static-cert [`TlsConfig`] for offline validation. `enable_zero_rtt`
+/// is `false` (no early data); mTLS / OCSP are off — the simple HTTPS case.
+fn to_tls_config(t: &TlsArgs) -> TlsConfig {
+	TlsConfig {
+		sni: t.sni.clone(),
+		cert_file: Some(PathBuf::from(&t.cert_file)),
+		key_file: Some(PathBuf::from(&t.key_file)),
+		managed: None,
+		enable_zero_rtt: false,
+		client_auth: None,
+		ocsp_path: None,
+		ocsp_fetch: false,
+	}
+}
+
+/// The operator-facing `tls` JSON block. `enable_zero_rtt` has no serde
+/// default, so it must be emitted explicitly on every TLS-terminating rule.
+fn tls_json(t: &TlsArgs) -> Value {
+	let mut v = json!({
+		"cert_file": t.cert_file,
+		"key_file": t.key_file,
+		"enable_zero_rtt": false,
+	});
+	if let Some(sni) = &t.sni {
+		v["sni"] = json!(sni);
+	}
+	v
 }
 
 #[cfg(test)]

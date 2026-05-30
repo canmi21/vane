@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use vane_testutil::echo::EchoServer;
 use vane_testutil::port::free_port;
-use vane_testutil::vaned_fixture::{VanedFixture, http_get};
+use vane_testutil::vaned_fixture::{VanedFixture, gen_self_signed, http_get, https_get};
 
 const READY: Duration = Duration::from_secs(10);
 
@@ -63,4 +63,72 @@ fn reverse_proxy_forwards_http() {
 	let resp = http_get(addr, "/");
 	assert!(resp.contains("200"), "expected 200, got:\n{resp}");
 	assert!(resp.contains("echo-via-reverse-proxy-xyz"), "upstream body missing:\n{resp}");
+}
+
+/// TLS termination: author an HTTPS `static_site` with a self-signed cert;
+/// vaned terminates TLS and an HTTPS client gets the synthesised body.
+#[test]
+fn https_static_site_terminates_tls() {
+	let listen = format!("127.0.0.1:{}", free_port());
+	let addr: SocketAddr = listen.parse().expect("listen addr");
+
+	let f = VanedFixture::new();
+	let (cert, key) = gen_self_signed(f.config_dir(), "localhost");
+	f.run_vane(&[
+		"add",
+		"static-site",
+		"--dir",
+		f.config_dir().to_str().expect("dir utf8"),
+		"--name",
+		"https-site",
+		"--listen",
+		&listen,
+		"--body",
+		"https-static-xyz",
+		"--cert",
+		cert.to_str().expect("cert utf8"),
+		"--key",
+		key.to_str().expect("key utf8"),
+	]);
+	let vaned = f.start();
+	vaned.wait_listener(addr, READY);
+
+	let (status, body) = https_get(addr.port());
+	assert_eq!(status, 200, "expected 200 over TLS, got {status}; body={body}");
+	assert!(body.contains("https-static-xyz"), "synthesised body missing over TLS: {body}");
+}
+
+/// TLS termination + reverse proxy: HTTPS client -> vane (terminates TLS)
+/// -> cleartext echo upstream -> body returned over TLS.
+#[test]
+fn https_reverse_proxy_terminates_and_forwards() {
+	let upstream = EchoServer::start("echo-via-https-proxy-xyz");
+	let to = upstream.addr().to_string();
+	let listen = format!("127.0.0.1:{}", free_port());
+	let addr: SocketAddr = listen.parse().expect("listen addr");
+
+	let f = VanedFixture::new();
+	let (cert, key) = gen_self_signed(f.config_dir(), "localhost");
+	f.run_vane(&[
+		"add",
+		"reverse-proxy",
+		"--dir",
+		f.config_dir().to_str().expect("dir utf8"),
+		"--name",
+		"https-proxy",
+		"--listen",
+		&listen,
+		"--to",
+		&to,
+		"--cert",
+		cert.to_str().expect("cert utf8"),
+		"--key",
+		key.to_str().expect("key utf8"),
+	]);
+	let vaned = f.start();
+	vaned.wait_listener(addr, READY);
+
+	let (status, body) = https_get(addr.port());
+	assert_eq!(status, 200, "expected 200 over TLS, got {status}; body={body}");
+	assert!(body.contains("echo-via-https-proxy-xyz"), "upstream body missing over TLS: {body}");
 }

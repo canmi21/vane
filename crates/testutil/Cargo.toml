@@ -69,6 +69,8 @@ vane-core = { workspace = true }
 # binary resolution. escargot is the `cargo test` fallback; nextest's
 # build-test-bins setup script exports VANE_BIN / VANED_BIN to skip it.
 escargot = "0.5"
+# Self-signed cert generation for TLS-termination e2e scenarios.
+rcgen = "0.14"
 tempfile = "3"
 
 # Shared by the H3 fixture and the mock OCSP responder; ocsp adds server-auto via dep:hyper-util.

@@ -286,6 +286,15 @@ enum AddCmd {
 		/// Upstream to proxy to, e.g. `127.0.0.1:9000`.
 		#[arg(long = "to")]
 		upstream: String,
+		/// TLS cert chain PEM path — enables HTTPS termination (needs --key).
+		#[arg(long)]
+		cert: Option<PathBuf>,
+		/// TLS private key PEM path (needs --cert).
+		#[arg(long)]
+		key: Option<PathBuf>,
+		/// SNI host this cert serves (default: the listener's default cert).
+		#[arg(long)]
+		sni: Option<String>,
 	},
 	/// Fixed HTTP response, no upstream.
 	StaticSite {
@@ -304,6 +313,15 @@ enum AddCmd {
 		/// Response body.
 		#[arg(long, default_value = "hello from vane")]
 		body: String,
+		/// TLS cert chain PEM path — enables HTTPS termination (needs --key).
+		#[arg(long)]
+		cert: Option<PathBuf>,
+		/// TLS private key PEM path (needs --cert).
+		#[arg(long)]
+		key: Option<PathBuf>,
+		/// SNI host this cert serves (default: the listener's default cert).
+		#[arg(long)]
+		sni: Option<String>,
 	},
 }
 
@@ -474,17 +492,46 @@ fn run_add(what: &AddCmd) -> anyhow::Result<()> {
 		AddCmd::PortForward { dir, name, listen, upstream, transport } => {
 			(dir, authoring::port_forward_spec(name, listen, upstream, transport))
 		}
-		AddCmd::ReverseProxy { dir, name, listen, upstream } => {
-			(dir, authoring::reverse_proxy_spec(name, listen, upstream))
-		}
-		AddCmd::StaticSite { dir, name, listen, status, body } => {
-			(dir, authoring::static_site_spec(name, listen, *status, body))
-		}
+		AddCmd::ReverseProxy { dir, name, listen, upstream, cert, key, sni } => (
+			dir,
+			authoring::reverse_proxy_spec(name, listen, upstream).with_tls(tls_args(
+				cert.as_ref(),
+				key.as_ref(),
+				sni.as_ref(),
+			)?),
+		),
+		AddCmd::StaticSite { dir, name, listen, status, body, cert, key, sni } => (
+			dir,
+			authoring::static_site_spec(name, listen, *status, body).with_tls(tls_args(
+				cert.as_ref(),
+				key.as_ref(),
+				sni.as_ref(),
+			)?),
+		),
 	};
 	let path = authoring::author_rule(dir, &spec)?;
 	println!("wrote {}", path.display());
 	println!("start: vaned -c {}", dir.display());
 	Ok(())
+}
+
+/// Build optional [`authoring::TlsArgs`] from `--cert`/`--key`/`--sni`.
+/// `--cert` and `--key` must be supplied together; `--sni` alone (no cert)
+/// is ignored since there is no cert to bind it to.
+fn tls_args(
+	cert: Option<&PathBuf>,
+	key: Option<&PathBuf>,
+	sni: Option<&String>,
+) -> anyhow::Result<Option<authoring::TlsArgs>> {
+	match (cert, key) {
+		(Some(c), Some(k)) => Ok(Some(authoring::TlsArgs {
+			cert_file: c.to_string_lossy().into_owned(),
+			key_file: k.to_string_lossy().into_owned(),
+			sni: sni.cloned(),
+		})),
+		(None, None) => Ok(None),
+		_ => anyhow::bail!("--cert and --key must be given together"),
+	}
 }
 
 async fn run_ping(client: &MgmtTransport, json: bool) -> anyhow::Result<()> {

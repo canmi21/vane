@@ -5589,6 +5589,7 @@ dependencies = [
  "ocsp-mock-responder",
  "parking_lot",
  "quinn",
+ "rcgen",
  "reqwest",
  "rustls",
  "rustls-pemfile",

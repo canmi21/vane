@@ -232,3 +232,35 @@ pub fn http_get(addr: SocketAddr, path: &str) -> String {
 	let _ = stream.read_to_end(&mut buf);
 	String::from_utf8_lossy(&buf).into_owned()
 }
+
+/// Generate a self-signed cert + key for `host`, write them as PEM into
+/// `dir` (`cert.pem` / `key.pem`), and return their paths — for authoring
+/// a static TLS-terminating rule in a scenario.
+pub fn gen_self_signed(dir: &Path, host: &str) -> (PathBuf, PathBuf) {
+	let issued =
+		rcgen::generate_simple_self_signed(vec![host.to_owned()]).expect("generate self-signed cert");
+	let cert_path = dir.join("cert.pem");
+	let key_path = dir.join("key.pem");
+	std::fs::write(&cert_path, issued.cert.pem()).expect("write cert.pem");
+	std::fs::write(&key_path, issued.signing_key.serialize_pem()).expect("write key.pem");
+	(cert_path, key_path)
+}
+
+/// Blocking HTTPS GET via `curl -sk` (accepts the self-signed test cert).
+/// Returns `(status, body)`. Requires `curl` on PATH — present on dev/CI;
+/// keeps the harness's subprocess shape rather than embedding a TLS client.
+pub fn https_get(port: u16) -> (u16, String) {
+	let url = format!("https://127.0.0.1:{port}/");
+	// Negotiate HTTP/2 over TLS (vane offers h2 via ALPN) — the realistic
+	// browser path, exercising the H2-in -> upstream bridge, not just TLS
+	// framing.
+	let out = std::process::Command::new("curl")
+		.args(["-sk", "--http2", "-o", "-", "-w", "\n__VANE_STATUS__%{http_code}", &url])
+		.output()
+		.expect("run curl (required for HTTPS scenarios)");
+	let s = String::from_utf8_lossy(&out.stdout).into_owned();
+	match s.rsplit_once("__VANE_STATUS__") {
+		Some((body, code)) => (code.trim().parse().unwrap_or(0), body.to_owned()),
+		None => (0, s),
+	}
+}
