@@ -18,7 +18,7 @@ workspace = true
 # `sha2 0.11` matches the workspace pin so cargo dedups the SHA-256 impl.
 aes = "0.9"
 # Pinned to this rc — looser pin would let cargo pick a future rc whose API may shift. Bump in lockstep.
-aes-gcm = "=0.11.0-rc.3"
+aes-gcm = "=0.11.0-rc.4"
 # QUIC header protection (RFC 9001 §5.4).
 ctr = "0.10"
 hkdf = "0.13"
