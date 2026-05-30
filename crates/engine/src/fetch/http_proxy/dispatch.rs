@@ -14,7 +14,7 @@ use vane_core::{
 	Body, ConnContext, Error, FlowCtx, L7Fetch, L7FetchOutput, Request, UpstreamReason,
 };
 
-use super::{Dispatch, HttpProxyFetch};
+use super::{Dispatch, HttpProxyFetch, UpstreamVersion};
 use crate::body_adapter::IncomingAdapter;
 use crate::fetch::client_cache::ProxyClient;
 use crate::fetch::pool;
@@ -115,6 +115,15 @@ impl L7Fetch for HttpProxyFetch {
 			return self.dispatch_h3_with_retry(parts, replay, max_attempts, quic).await;
 		}
 
+		// Normalise the outbound request version to the upstream's
+		// posture before any TCP-family send. The inbound version is
+		// whatever the *downstream* listener negotiated (HTTP/2 for an H2
+		// client); leaking it to an H1 upstream makes hyper-util's legacy
+		// client reject the request ("Connection is HTTP/1, but request
+		// requires HTTP/2"). The upstream protocol is independent of the
+		// client's — mirror the H3 path, which pins HTTP/3.
+		*req.version_mut() = self.tcp_request_version();
+
 		// Streaming or non-retryable-method TCP path: single attempt,
 		// original body, no clones.
 		if max_attempts <= 1 {
@@ -189,6 +198,19 @@ impl HttpProxyFetch {
 			Dispatch::Quic(_) => unreachable!(
 				"H3 dispatch routes through send_one_attempt_h3 above; tcp helper is unreachable",
 			),
+		}
+	}
+
+	/// HTTP version to stamp on the outbound TCP-family request, derived
+	/// from the upstream's configured posture rather than the inbound
+	/// (downstream) version. `Http2` upstreams require `HTTP_2`; `Auto`
+	/// and `Http1` use `HTTP_11` — the default "no H2 requirement" posture,
+	/// so hyper-util still negotiates H2 over ALPN for an `Auto` TLS
+	/// upstream while never forcing the H2-over-H1 failure.
+	fn tcp_request_version(&self) -> http::Version {
+		match self.version {
+			UpstreamVersion::Http2 => http::Version::HTTP_2,
+			_ => http::Version::HTTP_11,
 		}
 	}
 
