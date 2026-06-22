@@ -57,9 +57,9 @@ ocsp = ["dep:ocsp-mock-responder"]
 wasm-fixtures = ["dep:wat", "dep:wit-component", "dep:wit-parser"]
 
 [build-dependencies]
-wat = { version = "1.251.0", optional = true }
-wit-component = { version = "0.251.0", optional = true }
-wit-parser = { version = "0.251.0", optional = true }
+wat = { version = "1.252.0", optional = true }
+wit-component = { version = "0.252.0", optional = true }
+wit-parser = { version = "0.252.0", optional = true }
 
 [dependencies]
 tokio = { version = "1", features = ["net", "io-util", "rt", "time", "macros"] }
